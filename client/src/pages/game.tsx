@@ -54,15 +54,36 @@ function AnswerButton({
 }
 
 function GameCard({ imageUrl, isBlurred }: { imageUrl: string; isBlurred: boolean }) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
   return (
     <div className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-card">
-      <div
-        className="absolute inset-0 bg-cover bg-center transition-all duration-500"
+      {!imageLoaded && !imageError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+      {imageError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-muted">
+          <div className="text-center text-muted-foreground">
+            <div className="text-4xl mb-2">?</div>
+            <span className="text-sm">Mystery Player</span>
+          </div>
+        </div>
+      )}
+      <img
+        src={imageUrl}
+        alt="Baseball card"
+        className="absolute inset-0 w-full h-full object-cover transition-all duration-500"
         style={{
-          backgroundImage: `url(${imageUrl})`,
-          filter: isBlurred ? "blur(8px)" : "none",
-          transform: isBlurred ? "scale(1.1)" : "scale(1)",
+          filter: isBlurred ? "blur(12px)" : "none",
+          transform: isBlurred ? "scale(1.15)" : "scale(1)",
+          opacity: imageLoaded && !imageError ? 1 : 0,
         }}
+        onLoad={() => setImageLoaded(true)}
+        onError={() => setImageError(true)}
+        referrerPolicy="no-referrer"
       />
       {isBlurred && (
         <div className="absolute inset-0 flex items-center justify-center">
