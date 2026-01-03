@@ -1,15 +1,15 @@
-interface SportsCardsProProduct {
+interface PriceChartingProduct {
   id: string;
   "product-name": string;
   "console-name": string;
-  "cib-price"?: number;
   "loose-price"?: number;
+  "cib-price"?: number;
   "new-price"?: number;
 }
 
-interface SportsCardsProSearchResponse {
+interface PriceChartingSearchResponse {
   status: string;
-  products?: SportsCardsProProduct[];
+  products?: PriceChartingProduct[];
   error?: string;
 }
 
@@ -19,9 +19,11 @@ interface CardData {
   team?: string;
   popularity: number;
   imageUrl: string;
+  priceUngraded?: number;
+  pricePSA10?: number;
 }
 
-const BASE_URL = "https://www.sportscardspro.com/api/";
+const BASE_URL = "https://www.pricecharting.com/api/";
 
 function buildCOMCImageUrl(cardNumber: string, playerName: string): string {
   const formattedName = playerName
@@ -40,13 +42,14 @@ function extractPlayerName(productName: string): string {
   return productName.replace(/#\d+\s*-?\s*/, "").trim();
 }
 
-function calculatePopularity(productName: string, price?: number): number {
+function calculatePopularity(productName: string, loosePrice?: number, newPrice?: number): number {
   const starPlayers = [
     "barry bonds", "mark mcgwire", "bo jackson", "roger clemens",
     "kirby puckett", "cal ripken", "don mattingly", "dwight gooden",
     "jose canseco", "darryl strawberry", "wade boggs", "ryne sandberg",
     "tony gwynn", "nolan ryan", "ozzie smith", "andre dawson",
-    "mike schmidt", "gary carter", "rickey henderson"
+    "mike schmidt", "gary carter", "rickey henderson", "greg maddux",
+    "barry larkin", "rafael palmeiro", "robin yount", "eric davis"
   ];
   
   const lowerName = productName.toLowerCase();
@@ -57,7 +60,10 @@ function calculatePopularity(productName: string, price?: number): number {
     }
   }
   
-  if (price && price > 10000) {
+  if (newPrice && newPrice > 50000) {
+    return 80 + Math.floor(Math.random() * 18);
+  }
+  if (loosePrice && loosePrice > 5000) {
     return 60 + Math.floor(Math.random() * 25);
   }
   
@@ -65,10 +71,10 @@ function calculatePopularity(productName: string, price?: number): number {
 }
 
 export async function fetch1987ToppsCards(): Promise<CardData[]> {
-  const token = process.env.SPORTSCARDSPRO_API_TOKEN;
+  const token = process.env.PRICECHARTING_API_TOKEN;
   
   if (!token) {
-    console.log("SportsCardsPro API token not configured, using fallback data");
+    console.log("PriceCharting API token not configured, using fallback data");
     return getFallbackCards();
   }
   
@@ -84,14 +90,14 @@ export async function fetch1987ToppsCards(): Promise<CardData[]> {
     );
     
     if (!response.ok) {
-      console.error("SportsCardsPro API error:", response.status);
+      console.error("PriceCharting API error:", response.status);
       return getFallbackCards();
     }
     
-    const data: SportsCardsProSearchResponse = await response.json();
+    const data: PriceChartingSearchResponse = await response.json();
     
     if (data.status !== "success" || !data.products) {
-      console.error("SportsCardsPro API returned error:", data.error);
+      console.error("PriceCharting API returned error:", data.error);
       return getFallbackCards();
     }
     
@@ -112,16 +118,22 @@ export async function fetch1987ToppsCards(): Promise<CardData[]> {
       cards.push({
         cardNumber,
         playerName,
-        popularity: calculatePopularity(product["product-name"], product["loose-price"]),
+        popularity: calculatePopularity(
+          product["product-name"], 
+          product["loose-price"],
+          product["new-price"]
+        ),
         imageUrl: buildCOMCImageUrl(cardNumber, playerName),
+        priceUngraded: product["loose-price"],
+        pricePSA10: product["new-price"],
       });
     }
     
-    console.log(`Fetched ${cards.length} cards from SportsCardsPro API`);
+    console.log(`Fetched ${cards.length} cards from PriceCharting API`);
     return cards.length > 0 ? cards : getFallbackCards();
     
   } catch (error) {
-    console.error("Error fetching from SportsCardsPro:", error);
+    console.error("Error fetching from PriceCharting:", error);
     return getFallbackCards();
   }
 }

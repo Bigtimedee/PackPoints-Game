@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { fetch1987ToppsCards } from "./services/sportsCardsPro";
+import { fetch1987ToppsCards } from "./services/priceCharting";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
   { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
@@ -61,7 +61,7 @@ export class MemStorage implements IStorage {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
-    console.log("Initializing card data from SportsCardsPro/COMC...");
+    console.log("Initializing card data from PriceCharting/COMC...");
     
     try {
       const cardData = await fetch1987ToppsCards();
