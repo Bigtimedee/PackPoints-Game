@@ -25,12 +25,15 @@ interface CardData {
 
 const BASE_URL = "https://www.pricecharting.com/api/";
 
-function buildCOMCImageUrl(cardNumber: string, playerName: string): string {
-  const formattedName = playerName
-    .replace(/\s+/g, "_")
-    .replace(/[^a-zA-Z0-9_-]/g, "");
+function buildCardImageUrl(cardNumber: string, playerName: string): string {
+  // Use placeholder images with card styling
+  // The actual 1987 Topps cards have a distinctive wood-grain border
+  const encodedName = encodeURIComponent(playerName);
   
-  return `https://www.comc.com/Cards/Baseball/1987/Topps_-_Base/${cardNumber}/${formattedName}`;
+  // Use picsum for placeholder baseball card images
+  // Seed based on card number for consistent images per card
+  const seed = parseInt(cardNumber, 10) || 1;
+  return `https://picsum.photos/seed/${seed}/300/420`;
 }
 
 function extractCardNumber(productName: string): string | null {
@@ -123,7 +126,7 @@ export async function fetch1987ToppsCards(): Promise<CardData[]> {
           product["loose-price"],
           product["new-price"]
         ),
-        imageUrl: buildCOMCImageUrl(cardNumber, playerName),
+        imageUrl: buildCardImageUrl(cardNumber, playerName),
         priceUngraded: product["loose-price"],
         pricePSA10: product["new-price"],
       });
@@ -174,10 +177,6 @@ function getFallbackCards(): CardData[] {
   
   return cards1987Topps.map(card => ({
     ...card,
-    imageUrl: buildCOMCImageUrl(card.cardNumber, card.playerName),
+    imageUrl: buildCardImageUrl(card.cardNumber, card.playerName),
   }));
-}
-
-export function buildCOMCCardPageUrl(cardNumber: string, playerName: string): string {
-  return buildCOMCImageUrl(cardNumber, playerName);
 }
