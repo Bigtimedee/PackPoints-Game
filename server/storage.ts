@@ -1,31 +1,6 @@
 import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption } from "@shared/schema";
 import { randomUUID } from "crypto";
-
-const MOCK_CARDS: BaseballCard[] = [
-  { id: "1", playerName: "Mark McGwire", team: "Oakland Athletics", position: "1B", year: 1987, setName: "Topps", cardNumber: "366", imageUrl: "https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=400&h=560&fit=crop", popularity: 95 },
-  { id: "2", playerName: "Barry Bonds", team: "Pittsburgh Pirates", position: "OF", year: 1987, setName: "Topps", cardNumber: "320", imageUrl: "https://images.unsplash.com/photo-1471295253337-3ceaaedca402?w=400&h=560&fit=crop", popularity: 98 },
-  { id: "3", playerName: "Bo Jackson", team: "Kansas City Royals", position: "OF", year: 1987, setName: "Topps", cardNumber: "170", imageUrl: "https://images.unsplash.com/photo-1587385789097-0197a7fbd179?w=400&h=560&fit=crop", popularity: 90 },
-  { id: "4", playerName: "Rafael Palmeiro", team: "Chicago Cubs", position: "1B", year: 1987, setName: "Topps", cardNumber: "634", imageUrl: "https://images.unsplash.com/photo-1508344928928-7165b67de128?w=400&h=560&fit=crop", popularity: 70 },
-  { id: "5", playerName: "Jose Canseco", team: "Oakland Athletics", position: "OF", year: 1987, setName: "Topps", cardNumber: "620", imageUrl: "https://images.unsplash.com/photo-1461896836934- voices?w=400&h=560&fit=crop", popularity: 85 },
-  { id: "6", playerName: "Will Clark", team: "San Francisco Giants", position: "1B", year: 1987, setName: "Topps", cardNumber: "420", imageUrl: "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=560&fit=crop", popularity: 75 },
-  { id: "7", playerName: "Kevin Seitzer", team: "Kansas City Royals", position: "3B", year: 1987, setName: "Topps", cardNumber: "284", imageUrl: "https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=400&h=560&fit=crop", popularity: 40 },
-  { id: "8", playerName: "Ruben Sierra", team: "Texas Rangers", position: "OF", year: 1987, setName: "Topps", cardNumber: "261", imageUrl: "https://images.unsplash.com/photo-1562077772-3bd90f51d6c2?w=400&h=560&fit=crop", popularity: 55 },
-  { id: "9", playerName: "Matt Nokes", team: "Detroit Tigers", position: "C", year: 1987, setName: "Topps", cardNumber: "89", imageUrl: "https://images.unsplash.com/photo-1557409518-691ebcd96038?w=400&h=560&fit=crop", popularity: 35 },
-  { id: "10", playerName: "Devon White", team: "California Angels", position: "OF", year: 1987, setName: "Topps", cardNumber: "139", imageUrl: "https://images.unsplash.com/photo-1473091534298-04dcbce3278c?w=400&h=560&fit=crop", popularity: 45 },
-  { id: "11", playerName: "Wally Joyner", team: "California Angels", position: "1B", year: 1987, setName: "Topps", cardNumber: "80", imageUrl: "https://images.unsplash.com/photo-1567013127542-490d757e51c5?w=400&h=560&fit=crop", popularity: 60 },
-  { id: "12", playerName: "Greg Maddux", team: "Chicago Cubs", position: "P", year: 1987, setName: "Topps", cardNumber: "36", imageUrl: "https://images.unsplash.com/photo-1590496793929-36417d3117de?w=400&h=560&fit=crop", popularity: 92 },
-  { id: "13", playerName: "John Kruk", team: "San Diego Padres", position: "1B", year: 1987, setName: "Topps", cardNumber: "123", imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=560&fit=crop", popularity: 50 },
-  { id: "14", playerName: "Terry Steinbach", team: "Oakland Athletics", position: "C", year: 1987, setName: "Topps", cardNumber: "431", imageUrl: "https://images.unsplash.com/photo-1597589827217-afdb4e0fdc0b?w=400&h=560&fit=crop", popularity: 42 },
-  { id: "15", playerName: "Mike Greenwell", team: "Boston Red Sox", position: "OF", year: 1987, setName: "Topps", cardNumber: "259", imageUrl: "https://images.unsplash.com/photo-1577223625816-7546f13df25d?w=400&h=560&fit=crop", popularity: 58 },
-];
-
-const PLAYER_NAMES = [
-  "Mark McGwire", "Barry Bonds", "Bo Jackson", "Rafael Palmeiro", "Jose Canseco",
-  "Will Clark", "Kevin Seitzer", "Ruben Sierra", "Matt Nokes", "Devon White",
-  "Wally Joyner", "Greg Maddux", "John Kruk", "Terry Steinbach", "Mike Greenwell",
-  "Don Mattingly", "Kirby Puckett", "Wade Boggs", "Roger Clemens", "Dwight Gooden",
-  "Darryl Strawberry", "Eric Davis", "Andre Dawson", "Ryne Sandberg", "Cal Ripken Jr."
-];
+import { fetch1987ToppsCards } from "./services/sportsCardsPro";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
   { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
@@ -52,11 +27,16 @@ export interface IStorage {
   getLeaderboard(limit?: number): Promise<LeaderboardEntry[]>;
   
   getRedemptionOptions(): Promise<RedemptionOption[]>;
+  
+  initialize(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private gameSessions: Map<string, GameSession>;
+  private cards: BaseballCard[] = [];
+  private playerNames: string[] = [];
+  private initialized: boolean = false;
 
   constructor() {
     this.users = new Map();
@@ -76,6 +56,71 @@ export class MemStorage implements IStorage {
     ];
     
     mockUsers.forEach(user => this.users.set(user.id, user));
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    
+    console.log("Initializing card data from SportsCardsPro/COMC...");
+    
+    try {
+      const cardData = await fetch1987ToppsCards();
+      
+      this.cards = cardData.map((card, index) => ({
+        id: String(index + 1),
+        playerName: card.playerName,
+        team: card.team || "Unknown",
+        position: "Unknown",
+        year: 1987,
+        setName: "Topps",
+        cardNumber: card.cardNumber,
+        imageUrl: card.imageUrl,
+        popularity: card.popularity,
+      }));
+      
+      this.playerNames = this.cards.map(card => card.playerName);
+      
+      console.log(`Loaded ${this.cards.length} cards for 1987 Topps set`);
+      this.initialized = true;
+    } catch (error) {
+      console.error("Failed to initialize card data:", error);
+      this.loadFallbackCards();
+    }
+  }
+
+  private loadFallbackCards(): void {
+    const fallbackCards = [
+      { cardNumber: "320", playerName: "Barry Bonds", popularity: 95 },
+      { cardNumber: "366", playerName: "Mark McGwire", popularity: 92 },
+      { cardNumber: "170", playerName: "Bo Jackson", popularity: 88 },
+      { cardNumber: "340", playerName: "Roger Clemens", popularity: 85 },
+      { cardNumber: "450", playerName: "Kirby Puckett", popularity: 82 },
+      { cardNumber: "784", playerName: "Cal Ripken Jr", popularity: 90 },
+      { cardNumber: "500", playerName: "Don Mattingly", popularity: 78 },
+      { cardNumber: "130", playerName: "Dwight Gooden", popularity: 75 },
+      { cardNumber: "620", playerName: "Jose Canseco", popularity: 80 },
+      { cardNumber: "460", playerName: "Darryl Strawberry", popularity: 72 },
+      { cardNumber: "150", playerName: "Wade Boggs", popularity: 77 },
+      { cardNumber: "680", playerName: "Ryne Sandberg", popularity: 76 },
+      { cardNumber: "530", playerName: "Tony Gwynn", popularity: 79 },
+      { cardNumber: "757", playerName: "Nolan Ryan", popularity: 91 },
+      { cardNumber: "749", playerName: "Ozzie Smith", popularity: 74 },
+    ];
+    
+    this.cards = fallbackCards.map((card, index) => ({
+      id: String(index + 1),
+      playerName: card.playerName,
+      team: "Unknown",
+      position: "Unknown",
+      year: 1987,
+      setName: "Topps",
+      cardNumber: card.cardNumber,
+      imageUrl: `https://www.comc.com/Cards/Baseball/1987/Topps_-_Base/${card.cardNumber}/${card.playerName.replace(/\s+/g, "_")}`,
+      popularity: card.popularity,
+    }));
+    
+    this.playerNames = this.cards.map(card => card.playerName);
+    this.initialized = true;
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -112,16 +157,22 @@ export class MemStorage implements IStorage {
   }
 
   async getCards(): Promise<BaseballCard[]> {
-    return MOCK_CARDS;
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    return this.cards;
   }
 
   async getRandomCards(count: number): Promise<BaseballCard[]> {
-    const shuffled = [...MOCK_CARDS].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count);
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    const shuffled = [...this.cards].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(count, shuffled.length));
   }
 
   private generateQuestion(card: BaseballCard): GameQuestion {
-    const wrongOptions = PLAYER_NAMES
+    const wrongOptions = this.playerNames
       .filter(name => name !== card.playerName)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
@@ -129,7 +180,6 @@ export class MemStorage implements IStorage {
     const options = [card.playerName, ...wrongOptions].sort(() => Math.random() - 0.5);
     
     const basePoints = 100;
-    const popularityPenalty = Math.floor(card.popularity * 0.8);
     const pointValue = Math.max(50, basePoints + (100 - card.popularity) * 4);
     
     return {
