@@ -1,0 +1,78 @@
+# PackPoints
+
+## Overview
+
+PackPoints is a card-collecting gaming platform where users guess baseball players from card images to earn points. The platform features multiple game modes (solo, 1v1, tournament), a leaderboard system, and a marketplace where earned points can be redeemed for credits on platforms like Goldin Auctions and eBay.
+
+## User Preferences
+
+Preferred communication style: Simple, everyday language.
+
+## System Architecture
+
+### Frontend Architecture
+- **Framework**: React 18 with TypeScript
+- **Routing**: Wouter (lightweight alternative to React Router)
+- **State Management**: TanStack React Query for server state
+- **Styling**: Tailwind CSS with CSS custom properties for theming
+- **Component Library**: shadcn/ui (Radix UI primitives with custom styling)
+- **Build Tool**: Vite with hot module replacement
+
+The frontend follows a page-based structure with shared components. Key pages include Home (game mode selection), Game (active gameplay), Leaderboard, Marketplace (point redemption), and Profile.
+
+### Backend Architecture
+- **Runtime**: Node.js with Express
+- **Language**: TypeScript (ESM modules)
+- **API Style**: RESTful JSON endpoints under `/api/*`
+- **Build**: esbuild for production bundling with selective dependency bundling for cold start optimization
+
+The server uses a unified entry point (`server/index.ts`) that registers routes and serves the static frontend in production or proxies Vite in development.
+
+### Data Storage
+- **ORM**: Drizzle ORM with PostgreSQL dialect
+- **Schema Location**: `shared/schema.ts` (shared between frontend and backend)
+- **Validation**: Zod schemas generated from Drizzle schemas via `drizzle-zod`
+- **Current State**: In-memory storage implementation exists in `server/storage.ts` with mock data; database tables defined but require PostgreSQL connection
+
+Key entities: Users (authentication, points, stats), GameSessions (active games), BaseballCards (card data), LeaderboardEntries, RedemptionOptions.
+
+### Game Flow
+1. User starts a game session via POST `/api/game/start`
+2. Server returns session with randomized questions (card + multiple choice options)
+3. User submits answers via POST `/api/game/answer`
+4. Points calculated based on correctness and response time
+5. Session ends after all questions answered
+
+### Design System
+- Dark/light theme support via CSS variables and class-based switching
+- Typography: Inter (primary), DM Mono (stats/numbers)
+- Card-based UI with gaming-inspired visual language
+- Mobile-first responsive design with dedicated mobile navigation
+
+## External Dependencies
+
+### Database
+- **PostgreSQL**: Required for production (connection via `DATABASE_URL` environment variable)
+- **Drizzle Kit**: Database migrations via `db:push` command
+
+### Frontend Libraries
+- **Radix UI**: Accessible component primitives (dialogs, dropdowns, tooltips, etc.)
+- **Embla Carousel**: Card carousel functionality
+- **Recharts**: Data visualization for stats/charts
+- **Lucide React**: Icon library
+- **React Icons**: Additional icons (eBay logo)
+
+### Backend Libraries
+- **connect-pg-simple**: PostgreSQL session storage (prepared but sessions not yet implemented)
+- **express-session**: Session management infrastructure
+- **zod**: Runtime validation for API requests
+
+### Build & Development
+- **Vite**: Development server with HMR
+- **Replit Plugins**: Dev banner, cartographer, runtime error overlay for Replit environment
+- **esbuild**: Production server bundling
+
+### Planned Integrations (Referenced in Code)
+- Goldin Auctions: Point redemption partner
+- eBay: Point redemption partner
+- These are currently mock implementations awaiting real API integration
