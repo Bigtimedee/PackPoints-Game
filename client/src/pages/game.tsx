@@ -53,7 +53,7 @@ function AnswerButton({
   );
 }
 
-function GameCard({ imageUrl, isBlurred }: { imageUrl: string; isBlurred: boolean }) {
+function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: boolean }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
@@ -68,30 +68,34 @@ function GameCard({ imageUrl, isBlurred }: { imageUrl: string; isBlurred: boolea
         <div className="absolute inset-0 flex items-center justify-center bg-muted">
           <div className="text-center text-muted-foreground">
             <div className="text-4xl mb-2">?</div>
-            <span className="text-sm">Mystery Player</span>
+            <span className="text-sm">Card image unavailable</span>
           </div>
         </div>
       )}
       <img
         src={imageUrl}
         alt="Baseball card"
-        className="absolute inset-0 w-full h-full object-cover transition-all duration-500"
+        className="absolute inset-0 w-full h-full object-cover"
         style={{
-          filter: isBlurred ? "blur(12px)" : "none",
-          transform: isBlurred ? "scale(1.15)" : "scale(1)",
           opacity: imageLoaded && !imageError ? 1 : 0,
         }}
         onLoad={() => setImageLoaded(true)}
         onError={() => setImageError(true)}
         referrerPolicy="no-referrer"
       />
-      {isBlurred && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="bg-background/80 backdrop-blur-sm px-6 py-3 rounded-md">
-            <span className="text-lg font-semibold text-foreground">Who is this player?</span>
-          </div>
+      {/* Name plate mask - covers bottom 20% where 1987 Topps cards show the player name */}
+      <div 
+        className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
+        style={{
+          height: "22%",
+          opacity: isRevealed ? 0 : 1,
+          pointerEvents: isRevealed ? "none" : "auto",
+        }}
+      >
+        <div className="w-full h-full bg-gradient-to-t from-background via-background to-background/90 flex items-center justify-center">
+          <span className="text-sm font-medium text-muted-foreground">?</span>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -322,7 +326,7 @@ export default function Game() {
           <div className="relative">
             <GameCard 
               imageUrl={currentQuestion.card.imageUrl} 
-              isBlurred={!isRevealed} 
+              isRevealed={isRevealed} 
             />
             <PointsAnimation points={earnedPoints} show={showPointsAnimation} />
           </div>

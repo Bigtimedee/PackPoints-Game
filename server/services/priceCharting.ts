@@ -26,14 +26,11 @@ interface CardData {
 const BASE_URL = "https://www.pricecharting.com/api/";
 
 function buildCardImageUrl(cardNumber: string, playerName: string): string {
-  // Use placeholder images with card styling
-  // The actual 1987 Topps cards have a distinctive wood-grain border
-  const encodedName = encodeURIComponent(playerName);
-  
-  // Use picsum for placeholder baseball card images
-  // Seed based on card number for consistent images per card
-  const seed = parseInt(cardNumber, 10) || 1;
-  return `https://picsum.photos/seed/${seed}/300/420`;
+  // TCDB (Trading Card Database) image URL pattern for 1987 Topps
+  // Set ID 117 = 1987 Topps, cardId = 35250 + card number
+  const cardNum = parseInt(cardNumber, 10) || 1;
+  const tcdbCardId = 35250 + cardNum;
+  return `https://www.tcdb.com/Images/Cards/Baseball/117/117-${tcdbCardId}RepFr.jpg`;
 }
 
 function extractCardNumber(productName: string): string | null {
