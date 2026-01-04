@@ -23,6 +23,9 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Serve static files from public folder (card images)
+app.use(express.static("public"));
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

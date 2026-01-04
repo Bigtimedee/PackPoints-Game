@@ -26,11 +26,10 @@ interface CardData {
 const BASE_URL = "https://www.pricecharting.com/api/";
 
 function buildCardImageUrl(cardNumber: string, playerName: string): string {
-  // TCDB (Trading Card Database) image URL pattern for 1987 Topps
-  // Set ID 117 = 1987 Topps, cardId = 35250 + card number
-  const cardNum = parseInt(cardNumber, 10) || 1;
-  const tcdbCardId = 35250 + cardNum;
-  return `https://www.tcdb.com/Images/Cards/Baseball/117/117-${tcdbCardId}RepFr.jpg`;
+  // Use DiceBear to generate unique avatar-style images for each card
+  // The "shapes" style creates abstract geometric patterns unique to each player
+  const seed = encodeURIComponent(playerName.toLowerCase().replace(/\s+/g, '-'));
+  return `https://api.dicebear.com/7.x/shapes/svg?seed=${seed}&backgroundColor=f3e5ab&size=300`;
 }
 
 function extractCardNumber(productName: string): string | null {

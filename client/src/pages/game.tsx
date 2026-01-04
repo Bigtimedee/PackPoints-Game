@@ -68,7 +68,7 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         <div className="absolute inset-0 flex items-center justify-center bg-muted">
           <div className="text-center text-muted-foreground">
             <div className="text-4xl mb-2">?</div>
-            <span className="text-sm">Card image unavailable</span>
+            <span className="text-sm">1987 Topps Card</span>
           </div>
         </div>
       )}
@@ -83,19 +83,17 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         onError={() => setImageError(true)}
         referrerPolicy="no-referrer"
       />
-      {/* Name plate mask - covers bottom 20% where 1987 Topps cards show the player name */}
-      <div 
-        className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
-        style={{
-          height: "22%",
-          opacity: isRevealed ? 0 : 1,
-          pointerEvents: isRevealed ? "none" : "auto",
-        }}
-      >
-        <div className="w-full h-full bg-gradient-to-t from-background via-background to-background/90 flex items-center justify-center">
-          <span className="text-sm font-medium text-muted-foreground">?</span>
+      {/* Name plate mask - covers bottom portion where 1987 Topps cards show the player name */}
+      {!isRevealed && (
+        <div 
+          className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
+          style={{ height: "18%" }}
+        >
+          <div className="w-full h-full bg-gradient-to-t from-primary via-primary to-primary/80 flex items-center justify-center">
+            <span className="text-sm font-bold text-primary-foreground tracking-wide">NAME HIDDEN</span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -266,7 +264,7 @@ export default function Game() {
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-bold" data-testid="text-game-over-title">Game Complete!</h2>
-              <p className="text-muted-foreground">Here's how you did</p>
+              <p className="text-muted-foreground">Here's how well you know your 1987 Topps cards</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-md bg-muted">
@@ -279,7 +277,7 @@ export default function Game() {
               </div>
             </div>
             <div className="text-sm text-muted-foreground">
-              {session.correctAnswers} of {session.totalQuestions} correct answers
+              {session.correctAnswers} of {session.totalQuestions} players identified correctly
             </div>
             <div className="flex flex-col gap-3">
               <Button onClick={handlePlayAgain} className="gap-2" data-testid="button-play-again">
@@ -334,7 +332,7 @@ export default function Game() {
           {currentQuestion && (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-sm text-muted-foreground">Select the correct player:</p>
+                <p className="text-sm text-muted-foreground">Who is on this 1987 Topps card?</p>
                 <Badge variant="outline" className="font-mono" data-testid="badge-point-value">
                   Worth {currentQuestion.pointValue} pts
                 </Badge>
