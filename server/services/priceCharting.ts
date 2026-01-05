@@ -1,16 +1,14 @@
-interface PriceChartingProduct {
-  id: string;
-  "product-name": string;
-  "console-name": string;
-  "loose-price"?: number;
-  "cib-price"?: number;
-  "new-price"?: number;
-}
-
-interface PriceChartingSearchResponse {
-  status: string;
-  products?: PriceChartingProduct[];
-  error?: string;
+interface ZylaCardResponse {
+  description?: string;
+  player?: string;
+  set?: string;
+  number?: string;
+  variant?: string;
+  card_id?: string;
+  image?: string;
+  category?: string;
+  category_group?: string;
+  set_type?: string;
 }
 
 interface CardData {
@@ -23,80 +21,71 @@ interface CardData {
   pricePSA10?: number;
 }
 
-const BASE_URL = "https://www.pricecharting.com/api/";
+const ZYLA_BASE_URL = "https://zylalabs.com/api/2511/sports+card+and+trading+card+api/2494/card+search";
 
-// Cache for HuggingFace sports card image URLs
-let cachedCardImageUrls: string[] = [];
-let lastFetchTime = 0;
-const CACHE_DURATION = 3600000; // 1 hour in ms
+let cachedZylaCards: Map<string, string> = new Map();
+let lastZylaFetch = 0;
+const ZYLA_CACHE_DURATION = 3600000;
 
-async function fetchHuggingFaceCardImages(): Promise<string[]> {
-  const now = Date.now();
+async function fetchZylaCardImage(playerName: string, cardNumber: string): Promise<string | null> {
+  const apiKey = process.env.ZYLA_API_KEY;
   
-  // Return cached URLs if still valid
-  if (cachedCardImageUrls.length > 0 && (now - lastFetchTime) < CACHE_DURATION) {
-    return cachedCardImageUrls;
+  if (!apiKey) {
+    return null;
+  }
+  
+  const cacheKey = `${playerName}-${cardNumber}`;
+  if (cachedZylaCards.has(cacheKey)) {
+    return cachedZylaCards.get(cacheKey) || null;
   }
   
   try {
-    // Fetch sports card images from Hugging Face dataset
+    const searchQuery = encodeURIComponent(`1987 Topps ${playerName}`);
     const response = await fetch(
-      "https://datasets-server.huggingface.co/rows?dataset=GotThatData%2Fsports-cards&config=default&split=train&offset=0&length=100"
+      `${ZYLA_BASE_URL}?search=${searchQuery}`,
+      {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Accept": "application/json",
+        },
+      }
     );
     
     if (!response.ok) {
-      console.error("Failed to fetch HuggingFace images:", response.status);
-      return [];
+      console.error(`Zyla API error for ${playerName}:`, response.status);
+      return null;
     }
     
-    const data = await response.json();
-    const urls: string[] = [];
+    const data: ZylaCardResponse[] = await response.json();
     
-    if (data.rows && Array.isArray(data.rows)) {
-      for (const row of data.rows) {
-        if (row.row?.image?.src) {
-          urls.push(row.row.image.src);
+    if (Array.isArray(data) && data.length > 0) {
+      for (const card of data) {
+        if (card.image && card.set?.includes("1987") && card.set?.includes("Topps")) {
+          const imageUrl = card.image.startsWith("//") 
+            ? `https:${card.image}` 
+            : card.image;
+          cachedZylaCards.set(cacheKey, imageUrl);
+          return imageUrl;
         }
+      }
+      if (data[0].image) {
+        const imageUrl = data[0].image.startsWith("//") 
+          ? `https:${data[0].image}` 
+          : data[0].image;
+        cachedZylaCards.set(cacheKey, imageUrl);
+        return imageUrl;
       }
     }
     
-    if (urls.length > 0) {
-      cachedCardImageUrls = urls;
-      lastFetchTime = now;
-      console.log(`Cached ${urls.length} sports card images from HuggingFace`);
-    }
-    
-    return urls;
+    return null;
   } catch (error) {
-    console.error("Error fetching HuggingFace images:", error);
-    return cachedCardImageUrls; // Return stale cache if available
+    console.error(`Error fetching Zyla image for ${playerName}:`, error);
+    return null;
   }
 }
 
-function buildCardImageUrl(cardNumber: string, playerName: string): string {
-  // Use the card number to deterministically select an image from cached HuggingFace images
-  // This will be overwritten with the actual URL when cards are built
-  const cardNum = parseInt(cardNumber) || 0;
-  const index = cardNum % Math.max(cachedCardImageUrls.length, 1);
-  
-  if (cachedCardImageUrls.length > 0) {
-    return cachedCardImageUrls[index];
-  }
-  
-  // Fallback to placeholder if no images cached yet
-  return `https://placehold.co/300x420/d4a574/ffffff?text=Card+%23${cardNumber}`;
-}
-
-function extractCardNumber(productName: string): string | null {
-  const match = productName.match(/#(\d+)/);
-  return match ? match[1] : null;
-}
-
-function extractPlayerName(productName: string): string {
-  return productName.replace(/#\d+\s*-?\s*/, "").trim();
-}
-
-function calculatePopularity(productName: string, loosePrice?: number, newPrice?: number): number {
+function calculatePopularity(playerName: string): number {
   const starPlayers = [
     "barry bonds", "mark mcgwire", "bo jackson", "roger clemens",
     "kirby puckett", "cal ripken", "don mattingly", "dwight gooden",
@@ -106,7 +95,7 @@ function calculatePopularity(productName: string, loosePrice?: number, newPrice?
     "barry larkin", "rafael palmeiro", "robin yount", "eric davis"
   ];
   
-  const lowerName = productName.toLowerCase();
+  const lowerName = playerName.toLowerCase();
   
   for (const star of starPlayers) {
     if (lowerName.includes(star)) {
@@ -114,88 +103,10 @@ function calculatePopularity(productName: string, loosePrice?: number, newPrice?
     }
   }
   
-  if (newPrice && newPrice > 50000) {
-    return 80 + Math.floor(Math.random() * 18);
-  }
-  if (loosePrice && loosePrice > 5000) {
-    return 60 + Math.floor(Math.random() * 25);
-  }
-  
   return 25 + Math.floor(Math.random() * 40);
 }
 
 export async function fetch1987ToppsCards(): Promise<CardData[]> {
-  // Pre-fetch HuggingFace card images to ensure they're cached
-  await fetchHuggingFaceCardImages();
-  
-  const token = process.env.PRICECHARTING_API_TOKEN;
-  
-  if (!token) {
-    console.log("PriceCharting API token not configured, using fallback data");
-    return getFallbackCards();
-  }
-  
-  try {
-    const response = await fetch(
-      `${BASE_URL}products?t=${token}&q=1987+topps+baseball`,
-      {
-        method: "GET",
-        headers: {
-          "Accept": "application/json",
-        },
-      }
-    );
-    
-    if (!response.ok) {
-      console.error("PriceCharting API error:", response.status);
-      return getFallbackCards();
-    }
-    
-    const data: PriceChartingSearchResponse = await response.json();
-    
-    if (data.status !== "success" || !data.products) {
-      console.error("PriceCharting API returned error:", data.error);
-      return getFallbackCards();
-    }
-    
-    const cards: CardData[] = [];
-    
-    for (const product of data.products) {
-      if (!product["console-name"]?.includes("1987") || 
-          !product["console-name"]?.toLowerCase().includes("topps")) {
-        continue;
-      }
-      
-      const cardNumber = extractCardNumber(product["product-name"]);
-      if (!cardNumber) continue;
-      
-      const playerName = extractPlayerName(product["product-name"]);
-      if (!playerName) continue;
-      
-      cards.push({
-        cardNumber,
-        playerName,
-        popularity: calculatePopularity(
-          product["product-name"], 
-          product["loose-price"],
-          product["new-price"]
-        ),
-        imageUrl: buildCardImageUrl(cardNumber, playerName),
-        priceUngraded: product["loose-price"],
-        pricePSA10: product["new-price"],
-      });
-    }
-    
-    console.log(`Fetched ${cards.length} cards from PriceCharting API`);
-    return cards.length > 0 ? cards : getFallbackCards();
-    
-  } catch (error) {
-    console.error("Error fetching from PriceCharting:", error);
-    return getFallbackCards();
-  }
-}
-
-function getFallbackCards(): CardData[] {
   const cards1987Topps = [
     { cardNumber: "320", playerName: "Barry Bonds", popularity: 95 },
     { cardNumber: "366", playerName: "Mark McGwire", popularity: 92 },
@@ -229,8 +140,37 @@ function getFallbackCards(): CardData[] {
     { cardNumber: "773", playerName: "Robin Yount", popularity: 73 },
   ];
   
-  return cards1987Topps.map(card => ({
-    ...card,
-    imageUrl: buildCardImageUrl(card.cardNumber, card.playerName),
-  }));
+  const apiKey = process.env.ZYLA_API_KEY;
+  
+  if (!apiKey) {
+    console.log("Zyla API key not configured, using placeholder images");
+    return cards1987Topps.map(card => ({
+      ...card,
+      imageUrl: `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
+    }));
+  }
+  
+  console.log("Fetching 1987 Topps card images from Zyla API...");
+  
+  const cardsWithImages: CardData[] = [];
+  
+  for (const card of cards1987Topps.slice(0, 10)) {
+    const imageUrl = await fetchZylaCardImage(card.playerName, card.cardNumber);
+    
+    cardsWithImages.push({
+      ...card,
+      imageUrl: imageUrl || `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
+    });
+  }
+  
+  for (const card of cards1987Topps.slice(10)) {
+    cardsWithImages.push({
+      ...card,
+      imageUrl: `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
+    });
+  }
+  
+  console.log(`Loaded ${cardsWithImages.length} cards, ${cardsWithImages.filter(c => !c.imageUrl.includes('placehold')).length} with real images`);
+  
+  return cardsWithImages;
 }

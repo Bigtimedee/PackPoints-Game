@@ -87,10 +87,10 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
       {!isRevealed && (
         <div 
           className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
-          style={{ height: "18%" }}
+          style={{ height: "25%" }}
         >
-          <div className="w-full h-full bg-gradient-to-t from-primary via-primary to-primary/80 flex items-center justify-center">
-            <span className="text-sm font-bold text-primary-foreground tracking-wide">NAME HIDDEN</span>
+          <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600/90 flex items-center justify-center border-t-4 border-amber-900">
+            <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
           </div>
         </div>
       )}
