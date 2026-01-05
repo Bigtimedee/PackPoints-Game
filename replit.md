@@ -52,6 +52,11 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - Only cards with `imageVerified=true` are used in gameplay
 - Cards display with top/bottom masks to hide player names until answer is revealed
 
+### Future Card Expansion
+- POST `/api/admin/fetch-cards` - Fetches additional cards from Zyla API (rate-limited, max 10 at a time)
+- GET `/api/cards/stats` - Returns total card count, verified count, and unverified count
+- Additional players defined in `ADDITIONAL_1987_TOPPS_PLAYERS` array for future expansion
+
 ### Social Sharing
 - Share buttons appear on game completion screen
 - Supports Twitter/X, Facebook, and clipboard copy

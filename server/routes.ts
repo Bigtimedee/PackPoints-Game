@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertGameSessionSchema, submitAnswerSchema } from "@shared/schema";
+import { fetchAdditionalCards } from "./services/priceCharting";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -170,6 +171,59 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting cards:", error);
       res.status(500).json({ error: "Failed to get cards" });
+    }
+  });
+
+  app.post("/api/admin/fetch-cards", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.body.limit) || 5, 10);
+      
+      const existingCards = await storage.getCards();
+      const existingNames = new Set(existingCards.map(c => c.playerName));
+      
+      const newCards = await fetchAdditionalCards(limit);
+      
+      const uniqueNewCards = newCards.filter(c => !existingNames.has(c.playerName));
+      
+      let added = 0;
+      for (const card of uniqueNewCards) {
+        await storage.addCard({
+          playerName: card.playerName,
+          team: card.team || "Unknown",
+          position: "Unknown",
+          year: 1987,
+          setName: "Topps",
+          cardNumber: card.cardNumber,
+          imageUrl: card.imageUrl,
+          popularity: card.popularity,
+          imageVerified: true,
+        });
+        added++;
+      }
+      
+      res.json({ 
+        message: `Added ${added} new cards to database`,
+        added,
+        total: existingCards.length + added
+      });
+    } catch (error) {
+      console.error("Error fetching additional cards:", error);
+      res.status(500).json({ error: "Failed to fetch cards" });
+    }
+  });
+
+  app.get("/api/cards/stats", async (_req, res) => {
+    try {
+      const cards = await storage.getCards();
+      const verified = cards.filter(c => c.imageVerified).length;
+      res.json({
+        total: cards.length,
+        verified,
+        unverified: cards.length - verified
+      });
+    } catch (error) {
+      console.error("Error getting card stats:", error);
+      res.status(500).json({ error: "Failed to get card stats" });
     }
   });
 

@@ -22,6 +22,7 @@ export interface IStorage {
   getCards(): Promise<BaseballCard[]>;
   getRandomCards(count: number): Promise<BaseballCard[]>;
   getVerifiedCards(): Promise<BaseballCard[]>;
+  addCard(card: InsertBaseballCard): Promise<BaseballCard>;
   
   createGameSession(userId: string, mode: string, totalQuestions: number): Promise<GameSession>;
   getGameSession(id: string): Promise<GameSession | undefined>;
@@ -159,6 +160,14 @@ export class DatabaseStorage implements IStorage {
     const verifiedCards = await this.getVerifiedCards();
     const shuffled = [...verifiedCards].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, Math.min(count, shuffled.length));
+  }
+
+  async addCard(card: InsertBaseballCard): Promise<BaseballCard> {
+    const [newCard] = await db.insert(baseballCards).values(card).returning();
+    if (newCard && !this.playerNames.includes(newCard.playerName)) {
+      this.playerNames.push(newCard.playerName);
+    }
+    return newCard;
   }
 
   private generateQuestion(card: BaseballCard): GameQuestion {
