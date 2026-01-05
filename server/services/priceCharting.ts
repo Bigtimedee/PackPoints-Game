@@ -1,3 +1,28 @@
+interface CardData {
+  cardNumber: string;
+  playerName: string;
+  team?: string;
+  popularity: number;
+  imageUrl: string;
+  priceUngraded?: number;
+  pricePSA10?: number;
+}
+
+const KNOWN_1987_TOPPS_IMAGES: Record<string, string> = {
+  "Barry Bonds": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1714517605533x170588580984074580/resized_20240430_225325.jpeg",
+  "Mark McGwire": "https://s3.amazonaws.com/appforest_uf/f1605713458475x258158576803796380/1987-Mark-McGwire-Topps-366.jpg",
+  "Bo Jackson": "https://s3.amazonaws.com/appforest_uf/f1624996844812x333042354901292200/1987-Bo-Jackson-Topps-170.jpg",
+  "Roger Clemens": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1682894394939x310405002857845320/s-l500%20%2881%29.jpg?q=75",
+  "Kirby Puckett": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1725339986881x466426243871636030/resized_20240903_050626.jpeg",
+  "Cal Ripken Jr": "https://s3.amazonaws.com/appforest_uf/f1635617781278x125903191489265870/Cal-Ripken-1987-Topps-784.jpg",
+  "Don Mattingly": "https://s3.amazonaws.com/appforest_uf/f1635044481954x343967285250973900/Don-Mattingly-1988-Topps-500.jpg",
+  "Dwight Gooden": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1698068218701x647996274860716000/resized_20231023_133658.jpeg",
+  "Jose Canseco": "https://s3.amazonaws.com/appforest_uf/d112/f1661918158802x393434757784570700/1987-Jose-Canseco-Topps.jpg",
+  "Darryl Strawberry": "https://s3.amazonaws.com/appforest_uf/f1635617599853x915699631198391200/Darryl-Strawberry-1987-Topps-460.jpg",
+};
+
+const ZYLA_BASE_URL = "https://zylalabs.com/api/2511/sports+card+and+trading+card+api/2494/card+search";
+
 interface ZylaCardResponse {
   description?: string;
   player?: string;
@@ -11,23 +36,17 @@ interface ZylaCardResponse {
   set_type?: string;
 }
 
-interface CardData {
-  cardNumber: string;
-  playerName: string;
-  team?: string;
-  popularity: number;
-  imageUrl: string;
-  priceUngraded?: number;
-  pricePSA10?: number;
+let cachedZylaCards: Map<string, string> = new Map();
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const ZYLA_BASE_URL = "https://zylalabs.com/api/2511/sports+card+and+trading+card+api/2494/card+search";
-
-let cachedZylaCards: Map<string, string> = new Map();
-let lastZylaFetch = 0;
-const ZYLA_CACHE_DURATION = 3600000;
-
 async function fetchZylaCardImage(playerName: string, cardNumber: string): Promise<string | null> {
+  if (KNOWN_1987_TOPPS_IMAGES[playerName]) {
+    return KNOWN_1987_TOPPS_IMAGES[playerName];
+  }
+  
   const apiKey = process.env.ZYLA_API_KEY;
   
   if (!apiKey) {
@@ -40,6 +59,8 @@ async function fetchZylaCardImage(playerName: string, cardNumber: string): Promi
   }
   
   try {
+    await sleep(500);
+    
     const searchQuery = encodeURIComponent(`1987 Topps ${playerName}`);
     const response = await fetch(
       `${ZYLA_BASE_URL}?search=${searchQuery}`,
@@ -53,7 +74,11 @@ async function fetchZylaCardImage(playerName: string, cardNumber: string): Promi
     );
     
     if (!response.ok) {
-      console.error(`Zyla API error for ${playerName}:`, response.status);
+      if (response.status === 429) {
+        console.log(`Zyla API rate limited for ${playerName}, using placeholder`);
+      } else {
+        console.error(`Zyla API error for ${playerName}:`, response.status);
+      }
       return null;
     }
     
@@ -83,27 +108,6 @@ async function fetchZylaCardImage(playerName: string, cardNumber: string): Promi
     console.error(`Error fetching Zyla image for ${playerName}:`, error);
     return null;
   }
-}
-
-function calculatePopularity(playerName: string): number {
-  const starPlayers = [
-    "barry bonds", "mark mcgwire", "bo jackson", "roger clemens",
-    "kirby puckett", "cal ripken", "don mattingly", "dwight gooden",
-    "jose canseco", "darryl strawberry", "wade boggs", "ryne sandberg",
-    "tony gwynn", "nolan ryan", "ozzie smith", "andre dawson",
-    "mike schmidt", "gary carter", "rickey henderson", "greg maddux",
-    "barry larkin", "rafael palmeiro", "robin yount", "eric davis"
-  ];
-  
-  const lowerName = playerName.toLowerCase();
-  
-  for (const star of starPlayers) {
-    if (lowerName.includes(star)) {
-      return 70 + Math.floor(Math.random() * 28);
-    }
-  }
-  
-  return 25 + Math.floor(Math.random() * 40);
 }
 
 export async function fetch1987ToppsCards(): Promise<CardData[]> {
@@ -140,37 +144,29 @@ export async function fetch1987ToppsCards(): Promise<CardData[]> {
     { cardNumber: "773", playerName: "Robin Yount", popularity: 73 },
   ];
   
-  const apiKey = process.env.ZYLA_API_KEY;
-  
-  if (!apiKey) {
-    console.log("Zyla API key not configured, using placeholder images");
-    return cards1987Topps.map(card => ({
-      ...card,
-      imageUrl: `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
-    }));
-  }
-  
-  console.log("Fetching 1987 Topps card images from Zyla API...");
+  console.log("Loading 1987 Topps cards with cached and API images...");
   
   const cardsWithImages: CardData[] = [];
+  let realImageCount = 0;
   
-  for (const card of cards1987Topps.slice(0, 10)) {
+  for (const card of cards1987Topps) {
     const imageUrl = await fetchZylaCardImage(card.playerName, card.cardNumber);
     
-    cardsWithImages.push({
-      ...card,
-      imageUrl: imageUrl || `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
-    });
+    if (imageUrl) {
+      realImageCount++;
+      cardsWithImages.push({
+        ...card,
+        imageUrl,
+      });
+    } else {
+      cardsWithImages.push({
+        ...card,
+        imageUrl: `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
+      });
+    }
   }
   
-  for (const card of cards1987Topps.slice(10)) {
-    cardsWithImages.push({
-      ...card,
-      imageUrl: `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
-    });
-  }
-  
-  console.log(`Loaded ${cardsWithImages.length} cards, ${cardsWithImages.filter(c => !c.imageUrl.includes('placehold')).length} with real images`);
+  console.log(`Loaded ${cardsWithImages.length} cards, ${realImageCount} with real images`);
   
   return cardsWithImages;
 }
