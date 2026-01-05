@@ -64,8 +64,8 @@ export default function Home() {
               <span className="text-primary">Earn Your Points.</span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-hero-description">
-              The ultimate trivia game for baseball card collectors. Identify blurred players, 
-              earn PackPoints, and redeem them for real cards on Goldin and eBay.
+              The ultimate trivia game for baseball card collectors. Guess the player on classic 1987 Topps cards, 
+              earn PackPoints, and redeem them for credits on Goldin and eBay.
             </p>
             <div className="flex flex-wrap justify-center gap-4 pt-4">
               <Link href="/game/solo">
@@ -134,8 +134,8 @@ export default function Home() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline" size="sm">{mode.pointRange}</Badge>
-                      <Badge variant="outline" size="sm">{mode.difficulty}</Badge>
+                      <Badge variant="outline">{mode.pointRange}</Badge>
+                      <Badge variant="outline">{mode.difficulty}</Badge>
                     </div>
                     {mode.disabled ? (
                       <Button disabled className="w-full" data-testid={`button-${mode.id}-disabled`}>
@@ -167,7 +167,7 @@ export default function Home() {
                   <span>Guess the Player</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  A blurred baseball card appears. Choose the correct player from 2-4 options.
+                  A 1987 Topps card appears with the name hidden. Choose the correct player from 4 options.
                 </p>
               </div>
               <div className="space-y-2">
