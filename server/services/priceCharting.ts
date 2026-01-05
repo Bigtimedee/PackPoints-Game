@@ -25,11 +25,66 @@ interface CardData {
 
 const BASE_URL = "https://www.pricecharting.com/api/";
 
+// Cache for HuggingFace sports card image URLs
+let cachedCardImageUrls: string[] = [];
+let lastFetchTime = 0;
+const CACHE_DURATION = 3600000; // 1 hour in ms
+
+async function fetchHuggingFaceCardImages(): Promise<string[]> {
+  const now = Date.now();
+  
+  // Return cached URLs if still valid
+  if (cachedCardImageUrls.length > 0 && (now - lastFetchTime) < CACHE_DURATION) {
+    return cachedCardImageUrls;
+  }
+  
+  try {
+    // Fetch sports card images from Hugging Face dataset
+    const response = await fetch(
+      "https://datasets-server.huggingface.co/rows?dataset=GotThatData%2Fsports-cards&config=default&split=train&offset=0&length=100"
+    );
+    
+    if (!response.ok) {
+      console.error("Failed to fetch HuggingFace images:", response.status);
+      return [];
+    }
+    
+    const data = await response.json();
+    const urls: string[] = [];
+    
+    if (data.rows && Array.isArray(data.rows)) {
+      for (const row of data.rows) {
+        if (row.row?.image?.src) {
+          urls.push(row.row.image.src);
+        }
+      }
+    }
+    
+    if (urls.length > 0) {
+      cachedCardImageUrls = urls;
+      lastFetchTime = now;
+      console.log(`Cached ${urls.length} sports card images from HuggingFace`);
+    }
+    
+    return urls;
+  } catch (error) {
+    console.error("Error fetching HuggingFace images:", error);
+    return cachedCardImageUrls; // Return stale cache if available
+  }
+}
+
 function buildCardImageUrl(cardNumber: string, playerName: string): string {
-  // Use DiceBear to generate unique avatar-style images for each card
-  // The "shapes" style creates abstract geometric patterns unique to each player
-  const seed = encodeURIComponent(playerName.toLowerCase().replace(/\s+/g, '-'));
-  return `https://api.dicebear.com/7.x/shapes/svg?seed=${seed}&backgroundColor=f3e5ab&size=300`;
+  // Use the card number to deterministically select an image from cached HuggingFace images
+  // This will be overwritten with the actual URL when cards are built
+  const cardNum = parseInt(cardNumber) || 0;
+  const index = cardNum % Math.max(cachedCardImageUrls.length, 1);
+  
+  if (cachedCardImageUrls.length > 0) {
+    return cachedCardImageUrls[index];
+  }
+  
+  // Fallback to placeholder if no images cached yet
+  return `https://placehold.co/300x420/d4a574/ffffff?text=Card+%23${cardNumber}`;
 }
 
 function extractCardNumber(productName: string): string | null {
@@ -70,6 +125,9 @@ function calculatePopularity(productName: string, loosePrice?: number, newPrice?
 }
 
 export async function fetch1987ToppsCards(): Promise<CardData[]> {
+  // Pre-fetch HuggingFace card images to ensure they're cached
+  await fetchHuggingFaceCardImages();
+  
   const token = process.env.PRICECHARTING_API_TOKEN;
   
   if (!token) {
