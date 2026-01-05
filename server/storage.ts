@@ -167,7 +167,8 @@ export class MemStorage implements IStorage {
     if (!this.initialized) {
       await this.initialize();
     }
-    const shuffled = [...this.cards].sort(() => Math.random() - 0.5);
+    const cardsWithRealImages = this.cards.filter(card => !card.imageUrl.includes('placehold'));
+    const shuffled = [...cardsWithRealImages].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, Math.min(count, shuffled.length));
   }
 
