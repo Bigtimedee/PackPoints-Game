@@ -7,7 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2 } from "lucide-react";
+import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle } from "lucide-react";
+import { SiX, SiFacebook } from "react-icons/si";
 import type { GameSession, GameQuestion } from "@shared/schema";
 
 function AnswerButton({
@@ -266,6 +267,53 @@ export default function Game() {
       ? Math.round((session.correctAnswers / session.totalQuestions) * 100) 
       : 0;
 
+    const shareText = `I scored ${session.score} points on PackPoints! I identified ${session.correctAnswers}/${session.totalQuestions} classic 1987 Topps baseball cards with ${accuracy}% accuracy. Can you beat my score?`;
+    const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
+    
+    const handleShare = async (platform: "twitter" | "facebook" | "native" | "copy") => {
+      const encodedText = encodeURIComponent(shareText);
+      const encodedUrl = encodeURIComponent(shareUrl);
+      
+      switch (platform) {
+        case "twitter":
+          window.open(`https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`, "_blank", "noopener,noreferrer");
+          break;
+        case "facebook":
+          window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedText}`, "_blank", "noopener,noreferrer");
+          break;
+        case "native":
+          if (navigator.share) {
+            try {
+              await navigator.share({
+                title: "PackPoints Score",
+                text: shareText,
+                url: shareUrl,
+              });
+            } catch (err) {
+              // User cancelled or share failed
+            }
+          }
+          break;
+        case "copy":
+          try {
+            await navigator.clipboard.writeText(`${shareText}\n\n${shareUrl}`);
+            toast({
+              title: "Copied!",
+              description: "Score copied to clipboard",
+            });
+          } catch (err) {
+            toast({
+              title: "Error",
+              description: "Failed to copy to clipboard",
+              variant: "destructive",
+            });
+          }
+          break;
+      }
+    };
+
+    const canNativeShare = typeof navigator !== "undefined" && !!navigator.share;
+
     return (
       <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8 px-4">
         <Card className="max-w-md w-full">
@@ -290,7 +338,48 @@ export default function Game() {
             <div className="text-sm text-muted-foreground">
               {session.correctAnswers} of {session.totalQuestions} players identified correctly
             </div>
-            <div className="flex flex-col gap-3">
+            
+            <div className="space-y-3 pt-2">
+              <p className="text-sm font-medium text-muted-foreground">Share your score</p>
+              <div className="flex items-center justify-center gap-3">
+                <Button 
+                  size="icon" 
+                  variant="outline" 
+                  onClick={() => handleShare("twitter")}
+                  data-testid="button-share-twitter"
+                >
+                  <SiX className="h-4 w-4" />
+                </Button>
+                <Button 
+                  size="icon" 
+                  variant="outline" 
+                  onClick={() => handleShare("facebook")}
+                  data-testid="button-share-facebook"
+                >
+                  <SiFacebook className="h-4 w-4" />
+                </Button>
+                <Button 
+                  size="icon" 
+                  variant="outline" 
+                  onClick={() => handleShare("copy")}
+                  data-testid="button-share-copy"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+                {canNativeShare && (
+                  <Button 
+                    size="icon" 
+                    variant="outline" 
+                    onClick={() => handleShare("native")}
+                    data-testid="button-share-native"
+                  >
+                    <Share2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex flex-col gap-3 pt-2">
               <Button onClick={handlePlayAgain} className="gap-2" data-testid="button-play-again">
                 <RefreshCw className="h-4 w-4" />
                 Play Again
