@@ -83,13 +83,24 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         onError={() => setImageError(true)}
         referrerPolicy="no-referrer"
       />
-      {/* Name plate mask - covers bottom portion where 1987 Topps cards show the player name */}
+      {/* Top mask - covers PSA slab label where player name appears */}
+      {!isRevealed && (
+        <div 
+          className="absolute top-0 left-0 right-0 transition-opacity duration-500"
+          style={{ height: "18%" }}
+        >
+          <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600/90 flex items-center justify-center border-b-2 border-slate-900">
+            <span className="text-xs font-bold text-slate-200 tracking-widest">1987 TOPPS</span>
+          </div>
+        </div>
+      )}
+      {/* Bottom mask - covers bottom nameplate area */}
       {!isRevealed && (
         <div 
           className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
-          style={{ height: "25%" }}
+          style={{ height: "20%" }}
         >
-          <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600/90 flex items-center justify-center border-t-4 border-amber-900">
+          <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600/90 flex items-center justify-center border-t-2 border-amber-900">
             <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
           </div>
         </div>
