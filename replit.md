@@ -45,9 +45,11 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 6. User can share their score on social media (Twitter/X, Facebook) or copy link
 
 ### Card Image System
-- Uses Zyla Sports Card API for fetching 1987 Topps card images
-- 10 popular players have cached image URLs for reliability
-- Only cards with real images are used in gameplay (no placeholders)
+- **Database**: PostgreSQL stores all card data with `imageVerified` flag
+- **Curated Cards**: 50 popular 1987 Topps players with verified image URLs
+- **Image Sources**: Curated URLs from reliable CDNs and eBay image servers
+- **Zyla API**: Available for fetching additional cards (rate-limited)
+- Only cards with `imageVerified=true` are used in gameplay
 - Cards display with top/bottom masks to hide player names until answer is revealed
 
 ### Social Sharing

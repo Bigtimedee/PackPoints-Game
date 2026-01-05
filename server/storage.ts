@@ -1,6 +1,8 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, type InsertBaseballCard } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
+import { db } from "./db";
+import { eq, sql, desc, and, gte } from "drizzle-orm";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
   { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
@@ -19,6 +21,7 @@ export interface IStorage {
   
   getCards(): Promise<BaseballCard[]>;
   getRandomCards(count: number): Promise<BaseballCard[]>;
+  getVerifiedCards(): Promise<BaseballCard[]>;
   
   createGameSession(userId: string, mode: string, totalQuestions: number): Promise<GameSession>;
   getGameSession(id: string): Promise<GameSession | undefined>;
@@ -31,144 +34,130 @@ export interface IStorage {
   initialize(): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+export class DatabaseStorage implements IStorage {
   private gameSessions: Map<string, GameSession>;
-  private cards: BaseballCard[] = [];
-  private playerNames: string[] = [];
   private initialized: boolean = false;
+  private playerNames: string[] = [];
 
   constructor() {
-    this.users = new Map();
     this.gameSessions = new Map();
-    
-    const mockUsers: User[] = [
-      { id: "1", username: "CardKing87", password: "hash", points: 15420, gamesPlayed: 156, correctAnswers: 1248, totalAnswers: 1560 },
-      { id: "2", username: "VintageCollector", password: "hash", points: 12850, gamesPlayed: 132, correctAnswers: 1056, totalAnswers: 1320 },
-      { id: "3", username: "ToppsHunter", password: "hash", points: 11200, gamesPlayed: 98, correctAnswers: 833, totalAnswers: 980 },
-      { id: "4", username: "DiamondExpert", password: "hash", points: 9875, gamesPlayed: 87, correctAnswers: 696, totalAnswers: 870 },
-      { id: "5", username: "BaseballBuff", password: "hash", points: 8640, gamesPlayed: 72, correctAnswers: 576, totalAnswers: 720 },
-      { id: "6", username: "PackRipper", password: "hash", points: 7320, gamesPlayed: 61, correctAnswers: 488, totalAnswers: 610 },
-      { id: "7", username: "CardShark", password: "hash", points: 6100, gamesPlayed: 55, correctAnswers: 440, totalAnswers: 550 },
-      { id: "8", username: "RookieHunter", password: "hash", points: 5450, gamesPlayed: 48, correctAnswers: 384, totalAnswers: 480 },
-      { id: "9", username: "HallOfFamer", password: "hash", points: 4800, gamesPlayed: 42, correctAnswers: 336, totalAnswers: 420 },
-      { id: "10", username: "SlabCollector", password: "hash", points: 4200, gamesPlayed: 38, correctAnswers: 304, totalAnswers: 380 },
-    ];
-    
-    mockUsers.forEach(user => this.users.set(user.id, user));
   }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
+    this.initialized = true;
+    
     console.log("Initializing card data from PriceCharting/COMC...");
     
     try {
-      const cardData = await fetch1987ToppsCards();
+      const existingCards = await db.select().from(baseballCards).limit(1);
       
-      this.cards = cardData.map((card, index) => ({
-        id: String(index + 1),
-        playerName: card.playerName,
-        team: card.team || "Unknown",
-        position: "Unknown",
-        year: 1987,
-        setName: "Topps",
-        cardNumber: card.cardNumber,
-        imageUrl: card.imageUrl,
-        popularity: card.popularity,
-      }));
+      if (existingCards.length === 0) {
+        console.log("No cards in database, seeding from curated list...");
+        const cardData = await fetch1987ToppsCards();
+        
+        for (const card of cardData) {
+          const insertData: InsertBaseballCard = {
+            playerName: card.playerName,
+            team: card.team || "Unknown",
+            position: "Unknown",
+            year: 1987,
+            setName: "Topps",
+            cardNumber: card.cardNumber,
+            imageUrl: card.imageUrl,
+            popularity: card.popularity,
+            imageVerified: !card.imageUrl.includes('placehold'),
+          };
+          
+          await db.insert(baseballCards).values(insertData).onConflictDoNothing();
+        }
+        
+        console.log(`Seeded ${cardData.length} cards to database`);
+      } else {
+        console.log("Cards already exist in database, skipping seed");
+      }
       
-      this.playerNames = this.cards.map(card => card.playerName);
+      const allCards = await db.select().from(baseballCards);
+      this.playerNames = allCards.map(card => card.playerName);
+      const verifiedCount = allCards.filter(c => c.imageVerified).length;
       
-      console.log(`Loaded ${this.cards.length} cards for 1987 Topps set`);
-      this.initialized = true;
+      console.log(`Loaded ${allCards.length} cards for 1987 Topps set (${verifiedCount} with verified images)`);
+      
+      await this.seedMockUsers();
     } catch (error) {
       console.error("Failed to initialize card data:", error);
-      this.loadFallbackCards();
+      this.initialized = false;
+      throw error;
     }
   }
 
-  private loadFallbackCards(): void {
-    const fallbackCards = [
-      { cardNumber: "320", playerName: "Barry Bonds", popularity: 95 },
-      { cardNumber: "366", playerName: "Mark McGwire", popularity: 92 },
-      { cardNumber: "170", playerName: "Bo Jackson", popularity: 88 },
-      { cardNumber: "340", playerName: "Roger Clemens", popularity: 85 },
-      { cardNumber: "450", playerName: "Kirby Puckett", popularity: 82 },
-      { cardNumber: "784", playerName: "Cal Ripken Jr", popularity: 90 },
-      { cardNumber: "500", playerName: "Don Mattingly", popularity: 78 },
-      { cardNumber: "130", playerName: "Dwight Gooden", popularity: 75 },
-      { cardNumber: "620", playerName: "Jose Canseco", popularity: 80 },
-      { cardNumber: "460", playerName: "Darryl Strawberry", popularity: 72 },
-      { cardNumber: "150", playerName: "Wade Boggs", popularity: 77 },
-      { cardNumber: "680", playerName: "Ryne Sandberg", popularity: 76 },
-      { cardNumber: "530", playerName: "Tony Gwynn", popularity: 79 },
-      { cardNumber: "757", playerName: "Nolan Ryan", popularity: 91 },
-      { cardNumber: "749", playerName: "Ozzie Smith", popularity: 74 },
-    ];
+  private async seedMockUsers(): Promise<void> {
+    const existingUsers = await db.select().from(users).limit(1);
     
-    this.cards = fallbackCards.map((card, index) => ({
-      id: String(index + 1),
-      playerName: card.playerName,
-      team: "Unknown",
-      position: "Unknown",
-      year: 1987,
-      setName: "Topps",
-      cardNumber: card.cardNumber,
-      imageUrl: `https://www.comc.com/Cards/Baseball/1987/Topps_-_Base/${card.cardNumber}/${card.playerName.replace(/\s+/g, "_")}`,
-      popularity: card.popularity,
-    }));
-    
-    this.playerNames = this.cards.map(card => card.playerName);
-    this.initialized = true;
+    if (existingUsers.length === 0) {
+      console.log("Seeding mock users for leaderboard...");
+      const mockUsers = [
+        { username: "CardKing87", password: "hash", points: 15420, gamesPlayed: 156, correctAnswers: 1248, totalAnswers: 1560 },
+        { username: "VintageCollector", password: "hash", points: 12850, gamesPlayed: 132, correctAnswers: 1056, totalAnswers: 1320 },
+        { username: "ToppsHunter", password: "hash", points: 11200, gamesPlayed: 98, correctAnswers: 833, totalAnswers: 980 },
+        { username: "DiamondExpert", password: "hash", points: 9875, gamesPlayed: 87, correctAnswers: 696, totalAnswers: 870 },
+        { username: "BaseballBuff", password: "hash", points: 8640, gamesPlayed: 72, correctAnswers: 576, totalAnswers: 720 },
+        { username: "PackRipper", password: "hash", points: 7320, gamesPlayed: 61, correctAnswers: 488, totalAnswers: 610 },
+        { username: "CardShark", password: "hash", points: 6100, gamesPlayed: 55, correctAnswers: 440, totalAnswers: 550 },
+        { username: "RookieHunter", password: "hash", points: 5450, gamesPlayed: 48, correctAnswers: 384, totalAnswers: 480 },
+        { username: "HallOfFamer", password: "hash", points: 4800, gamesPlayed: 42, correctAnswers: 336, totalAnswers: 420 },
+        { username: "SlabCollector", password: "hash", points: 4200, gamesPlayed: 38, correctAnswers: 304, totalAnswers: 380 },
+      ];
+      
+      for (const user of mockUsers) {
+        await db.insert(users).values(user).onConflictDoNothing();
+      }
+      console.log("Seeded mock users");
+    }
   }
 
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { 
-      ...insertUser, 
-      id,
-      points: 0,
-      gamesPlayed: 0,
-      correctAnswers: 0,
-      totalAnswers: 0,
-    };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
   async updateUserPoints(id: string, points: number): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (user) {
-      user.points += points;
-      this.users.set(id, user);
-    }
-    return user;
+    const [user] = await db
+      .update(users)
+      .set({ points: sql`${users.points} + ${points}` })
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
   }
 
   async getCards(): Promise<BaseballCard[]> {
     if (!this.initialized) {
       await this.initialize();
     }
-    return this.cards;
+    return await db.select().from(baseballCards);
+  }
+
+  async getVerifiedCards(): Promise<BaseballCard[]> {
+    return await db.select().from(baseballCards).where(eq(baseballCards.imageVerified, true));
   }
 
   async getRandomCards(count: number): Promise<BaseballCard[]> {
     if (!this.initialized) {
       await this.initialize();
     }
-    const cardsWithRealImages = this.cards.filter(card => !card.imageUrl.includes('placehold'));
-    const shuffled = [...cardsWithRealImages].sort(() => Math.random() - 0.5);
+    const verifiedCards = await this.getVerifiedCards();
+    const shuffled = [...verifiedCards].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, Math.min(count, shuffled.length));
   }
 
@@ -222,11 +211,13 @@ export class MemStorage implements IStorage {
   }
 
   async getLeaderboard(limit: number = 10): Promise<LeaderboardEntry[]> {
-    const users = Array.from(this.users.values())
-      .sort((a, b) => b.points - a.points)
-      .slice(0, limit);
+    const topUsers = await db
+      .select()
+      .from(users)
+      .orderBy(desc(users.points))
+      .limit(limit);
     
-    return users.map((user, index) => ({
+    return topUsers.map((user, index) => ({
       rank: index + 1,
       username: user.username,
       points: user.points,
@@ -240,4 +231,4 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

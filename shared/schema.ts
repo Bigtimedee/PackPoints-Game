@@ -21,17 +21,25 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
-export interface BaseballCard {
-  id: string;
-  playerName: string;
-  team: string;
-  position: string;
-  year: number;
-  setName: string;
-  cardNumber: string;
-  imageUrl: string;
-  popularity: number;
-}
+export const baseballCards = pgTable("baseball_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull().default("Unknown"),
+  position: text("position").notNull().default("Unknown"),
+  year: integer("year").notNull().default(1987),
+  setName: text("set_name").notNull().default("Topps"),
+  cardNumber: text("card_number").notNull(),
+  imageUrl: text("image_url").notNull(),
+  popularity: integer("popularity").notNull().default(50),
+  imageVerified: boolean("image_verified").notNull().default(false),
+});
+
+export const insertBaseballCardSchema = createInsertSchema(baseballCards).omit({
+  id: true,
+});
+
+export type InsertBaseballCard = z.infer<typeof insertBaseballCardSchema>;
+export type BaseballCard = typeof baseballCards.$inferSelect;
 
 export interface GameQuestion {
   card: BaseballCard;
