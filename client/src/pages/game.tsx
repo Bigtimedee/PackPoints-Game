@@ -58,27 +58,6 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  useEffect(() => {
-    setImageLoaded(false);
-    setImageError(false);
-    
-    const timeout = setTimeout(() => {
-      if (!imageLoaded) {
-        setImageError(true);
-      }
-    }, 8000);
-    
-    return () => clearTimeout(timeout);
-  }, [imageUrl]);
-
-  const handleImageError = () => {
-    setImageError(true);
-  };
-
-  const handleImageLoad = () => {
-    setImageLoaded(true);
-  };
-
   return (
     <div className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-card">
       {!imageLoaded && !imageError && (
@@ -95,17 +74,15 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         </div>
       )}
       <img
-        key={imageUrl}
         src={imageUrl}
         alt="Baseball card"
-        className="absolute inset-0 w-full h-full object-cover object-center"
+        className="absolute inset-0 w-full h-full object-cover"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
         }}
-        onLoad={handleImageLoad}
-        onError={handleImageError}
+        onLoad={() => setImageLoaded(true)}
+        onError={() => setImageError(true)}
         referrerPolicy="no-referrer"
-        loading="eager"
       />
       {/* Top mask - covers PSA slab label where player name appears */}
       {!isRevealed && (
