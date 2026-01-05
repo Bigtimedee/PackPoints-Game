@@ -46,16 +46,23 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 
 ### Card Image System
 - **Database**: PostgreSQL stores all card data with `imageVerified` flag
-- **Curated Cards**: 50 popular 1987 Topps players with verified image URLs
-- **Image Sources**: Curated URLs from reliable CDNs and eBay image servers
+- **Verified Cards**: 10 cards with working CDN images (S3/appforest, bubble.io)
+- **Image Sources**: Curated URLs from reliable CDNs only (eBay URLs deprecated due to expiration issues)
 - **Zyla API**: Available for fetching additional cards (rate-limited)
 - Only cards with `imageVerified=true` are used in gameplay
 - Cards display with top/bottom masks to hide player names until answer is revealed
+- **Fallback UI**: Styled 1987 Topps-themed placeholder shown when images fail to load
 
-### Future Card Expansion
+### Card Management Endpoints
+- POST `/api/admin/sync-images` - Updates database cards with verified CDN URLs, marks others as unverified
 - POST `/api/admin/fetch-cards` - Fetches additional cards from Zyla API (rate-limited, max 10 at a time)
 - GET `/api/cards/stats` - Returns total card count, verified count, and unverified count
 - Additional players defined in `ADDITIONAL_1987_TOPPS_PLAYERS` array for future expansion
+
+### Image Reliability
+- **Problem Solved**: eBay image URLs were returning 404 placeholders (HTTP 200 with broken content)
+- **Solution**: Use only stable CDN sources (S3/appforest, bubble.io), mark unreliable URLs as unverified
+- **Prevention**: New images must come from reliable CDN sources or be self-hosted
 
 ### Social Sharing
 - Share buttons appear on game completion screen

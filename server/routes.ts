@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertGameSessionSchema, submitAnswerSchema } from "@shared/schema";
-import { fetchAdditionalCards } from "./services/priceCharting";
+import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -224,6 +224,34 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting card stats:", error);
       res.status(500).json({ error: "Failed to get card stats" });
+    }
+  });
+
+  app.post("/api/admin/sync-images", async (_req, res) => {
+    try {
+      const cards = await storage.getCards();
+      let updated = 0;
+      let unverified = 0;
+      
+      for (const card of cards) {
+        const verifiedUrl = VERIFIED_1987_TOPPS_IMAGES[card.playerName];
+        if (verifiedUrl) {
+          await storage.updateCardImage(card.playerName, verifiedUrl, true);
+          updated++;
+        } else {
+          await storage.updateCardImage(card.playerName, card.imageUrl, false);
+          unverified++;
+        }
+      }
+      
+      res.json({ 
+        message: `Synced images: ${updated} verified, ${unverified} unverified`,
+        updated,
+        unverified
+      });
+    } catch (error) {
+      console.error("Error syncing images:", error);
+      res.status(500).json({ error: "Failed to sync images" });
     }
   });
 

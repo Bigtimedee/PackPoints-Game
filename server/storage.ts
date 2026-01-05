@@ -23,6 +23,7 @@ export interface IStorage {
   getRandomCards(count: number): Promise<BaseballCard[]>;
   getVerifiedCards(): Promise<BaseballCard[]>;
   addCard(card: InsertBaseballCard): Promise<BaseballCard>;
+  updateCardImage(playerName: string, imageUrl: string, verified: boolean): Promise<void>;
   
   createGameSession(userId: string, mode: string, totalQuestions: number): Promise<GameSession>;
   getGameSession(id: string): Promise<GameSession | undefined>;
@@ -168,6 +169,13 @@ export class DatabaseStorage implements IStorage {
       this.playerNames.push(newCard.playerName);
     }
     return newCard;
+  }
+
+  async updateCardImage(playerName: string, imageUrl: string, verified: boolean): Promise<void> {
+    await db
+      .update(baseballCards)
+      .set({ imageUrl, imageVerified: verified })
+      .where(eq(baseballCards.playerName, playerName));
   }
 
   private generateQuestion(card: BaseballCard): GameQuestion {

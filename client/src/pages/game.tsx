@@ -58,6 +58,15 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (img.naturalWidth < 50 || img.naturalHeight < 50) {
+      setImageError(true);
+    } else {
+      setImageLoaded(true);
+    }
+  };
+
   return (
     <div className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-card">
       {!imageLoaded && !imageError && (
@@ -66,10 +75,22 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         </div>
       )}
       {imageError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted">
-          <div className="text-center text-muted-foreground">
-            <div className="text-4xl mb-2">?</div>
-            <span className="text-sm">1987 Topps Card</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: "linear-gradient(135deg, #d4a574 0%, #c4956a 50%, #b48560 100%)" }}>
+          <div className="w-full h-full flex flex-col">
+            <div className="h-[18%] bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600/90 flex items-center justify-center border-b-2 border-slate-900">
+              <span className="text-xs font-bold text-slate-200 tracking-widest">1987 TOPPS</span>
+            </div>
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center px-4">
+                <div className="w-24 h-32 mx-auto mb-3 rounded bg-slate-600/30 flex items-center justify-center">
+                  <span className="text-4xl text-slate-700">?</span>
+                </div>
+                <p className="text-sm font-medium text-slate-700">Mystery Player</p>
+              </div>
+            </div>
+            <div className="h-[20%] bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600/90 flex items-center justify-center border-t-2 border-amber-900">
+              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
+            </div>
           </div>
         </div>
       )}
@@ -80,12 +101,12 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
         }}
-        onLoad={() => setImageLoaded(true)}
+        onLoad={handleImageLoad}
         onError={() => setImageError(true)}
         referrerPolicy="no-referrer"
       />
       {/* Top mask - covers PSA slab label where player name appears */}
-      {!isRevealed && (
+      {!isRevealed && imageLoaded && !imageError && (
         <div 
           className="absolute top-0 left-0 right-0 transition-opacity duration-500"
           style={{ height: "18%" }}
@@ -96,7 +117,7 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         </div>
       )}
       {/* Bottom mask - covers bottom nameplate area */}
-      {!isRevealed && (
+      {!isRevealed && imageLoaded && !imageError && (
         <div 
           className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
           style={{ height: "20%" }}

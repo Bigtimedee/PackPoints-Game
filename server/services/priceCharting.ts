@@ -8,7 +8,7 @@ interface CardData {
   pricePSA10?: number;
 }
 
-const KNOWN_1987_TOPPS_IMAGES: Record<string, string> = {
+export const VERIFIED_1987_TOPPS_IMAGES: Record<string, string> = {
   "Barry Bonds": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1714517605533x170588580984074580/resized_20240430_225325.jpeg",
   "Mark McGwire": "https://s3.amazonaws.com/appforest_uf/f1605713458475x258158576803796380/1987-Mark-McGwire-Topps-366.jpg",
   "Bo Jackson": "https://s3.amazonaws.com/appforest_uf/f1624996844812x333042354901292200/1987-Bo-Jackson-Topps-170.jpg",
@@ -19,46 +19,6 @@ const KNOWN_1987_TOPPS_IMAGES: Record<string, string> = {
   "Dwight Gooden": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1698068218701x647996274860716000/resized_20231023_133658.jpeg",
   "Jose Canseco": "https://s3.amazonaws.com/appforest_uf/d112/f1661918158802x393434757784570700/1987-Jose-Canseco-Topps.jpg",
   "Darryl Strawberry": "https://s3.amazonaws.com/appforest_uf/f1635617599853x915699631198391200/Darryl-Strawberry-1987-Topps-460.jpg",
-  "Wade Boggs": "https://i.ebayimg.com/images/g/nNkAAOSwqHJlGK0~/s-l400.jpg",
-  "Ryne Sandberg": "https://i.ebayimg.com/images/g/xCEAAOSwYEZkh1yT/s-l400.jpg",
-  "Tony Gwynn": "https://i.ebayimg.com/images/g/0iMAAOSwYNNlGLBK/s-l400.jpg",
-  "Nolan Ryan": "https://i.ebayimg.com/images/g/fFoAAOSwSfFlGK9g/s-l400.jpg",
-  "Ozzie Smith": "https://i.ebayimg.com/images/g/ywoAAOSwKh1lGLEz/s-l400.jpg",
-  "Mike Schmidt": "https://i.ebayimg.com/images/g/TxMAAOSwuT9lGK8O/s-l400.jpg",
-  "Rickey Henderson": "https://i.ebayimg.com/images/g/pKQAAOSwYCRlGLGJ/s-l400.jpg",
-  "George Brett": "https://i.ebayimg.com/images/g/cL0AAOSwIk1lGK1j/s-l400.jpg",
-  "Eddie Murray": "https://i.ebayimg.com/images/g/T-oAAOSwWVhlGLCq/s-l400.jpg",
-  "Dave Winfield": "https://i.ebayimg.com/images/g/9IgAAOSwvt9lGLH7/s-l400.jpg",
-  "Gary Carter": "https://i.ebayimg.com/images/g/nMUAAOSwUallGK0B/s-l400.jpg",
-  "Andre Dawson": "https://i.ebayimg.com/images/g/r5UAAOSwRmVlGLAh/s-l400.jpg",
-  "Eric Davis": "https://i.ebayimg.com/images/g/H3kAAOSwl1FlGLBu/s-l400.jpg",
-  "Robin Yount": "https://i.ebayimg.com/images/g/JlcAAOSwD~llGLHR/s-l400.jpg",
-  "Carlton Fisk": "https://i.ebayimg.com/images/g/I-UAAOSwkBBlGLGy/s-l400.jpg",
-  "Reggie Jackson": "https://i.ebayimg.com/images/g/dckAAOSwM~tlGK2B/s-l400.jpg",
-  "Pete Rose": "https://i.ebayimg.com/images/g/hLQAAOSwbFBlGK0m/s-l400.jpg",
-  "Paul Molitor": "https://i.ebayimg.com/images/g/C~UAAOSwqnJlGLFN/s-l400.jpg",
-  "Alan Trammell": "https://i.ebayimg.com/images/g/5HIAAOSwC-BlGLIR/s-l400.jpg",
-  "Steve Carlton": "https://i.ebayimg.com/images/g/aVMAAOSwBRJlGK13/s-l400.jpg",
-  "Tom Seaver": "https://i.ebayimg.com/images/g/nKAAAOSwGrRlGLII/s-l400.jpg",
-  "Will Clark": "https://i.ebayimg.com/images/g/jvMAAOSw6ullGLAH/s-l400.jpg",
-  "Barry Larkin": "https://i.ebayimg.com/images/g/XqsAAOSwO3FlGLBB/s-l400.jpg",
-  "Rafael Palmeiro": "https://i.ebayimg.com/images/g/0hYAAOSwJbNlGLBX/s-l400.jpg",
-  "Keith Hernandez": "https://i.ebayimg.com/images/g/lkkAAOSwS5llGLDq/s-l400.jpg",
-  "Dale Murphy": "https://i.ebayimg.com/images/g/kpEAAOSwwC5lGLCO/s-l400.jpg",
-  "Fernando Valenzuela": "https://i.ebayimg.com/images/g/bS8AAOSwI4RlGLDC/s-l400.jpg",
-  "Dennis Eckersley": "https://i.ebayimg.com/images/g/gZ8AAOSwjJ5lGLB6/s-l400.jpg",
-  "Jack Morris": "https://i.ebayimg.com/images/g/5zYAAOSwOHJlGLEH/s-l400.jpg",
-  "Lou Whitaker": "https://i.ebayimg.com/images/g/bYAAAOSwy3RlGLEd/s-l400.jpg",
-  "Tim Raines": "https://i.ebayimg.com/images/g/SH4AAOSwYDJlGLG5/s-l400.jpg",
-  "Orel Hershiser": "https://i.ebayimg.com/images/g/C04AAOSw8CplGLDE/s-l400.jpg",
-  "Harold Baines": "https://i.ebayimg.com/images/g/BbQAAOSwNhJlGK~~/s-l400.jpg",
-  "Jim Rice": "https://i.ebayimg.com/images/g/mBYAAOSwO6plGLEm/s-l400.jpg",
-  "Dave Parker": "https://i.ebayimg.com/images/g/x4EAAOSwPcxlGLFa/s-l400.jpg",
-  "Bret Saberhagen": "https://i.ebayimg.com/images/g/BjQAAOSwx69lGLCc/s-l400.jpg",
-  "Jesse Barfield": "https://i.ebayimg.com/images/g/YloAAOSwvMBlGK~8/s-l400.jpg",
-  "Juan Samuel": "https://i.ebayimg.com/images/g/lBgAAOSwUH1lGLFC/s-l400.jpg",
-  "Kevin Bass": "https://i.ebayimg.com/images/g/kAsAAOSwB1BlGLAT/s-l400.jpg",
-  "Bobby Bonilla": "https://i.ebayimg.com/images/g/7gQAAOSwDrdlGK~j/s-l400.jpg",
 };
 
 const ZYLA_BASE_URL = "https://zylalabs.com/api/2511/sports+card+and+trading+card+api/2494/card+search";
@@ -83,8 +43,8 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function fetchZylaCardImage(playerName: string, cardNumber: string): Promise<string | null> {
-  if (KNOWN_1987_TOPPS_IMAGES[playerName]) {
-    return KNOWN_1987_TOPPS_IMAGES[playerName];
+  if (VERIFIED_1987_TOPPS_IMAGES[playerName]) {
+    return VERIFIED_1987_TOPPS_IMAGES[playerName];
   }
   
   const apiKey = process.env.ZYLA_API_KEY;
@@ -270,7 +230,7 @@ export async function fetchAdditionalCards(limit: number = 5): Promise<CardData[
   for (const card of ADDITIONAL_1987_TOPPS_PLAYERS) {
     if (fetched >= limit) break;
     
-    if (KNOWN_1987_TOPPS_IMAGES[card.playerName]) {
+    if (VERIFIED_1987_TOPPS_IMAGES[card.playerName]) {
       continue;
     }
     
