@@ -42,6 +42,19 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 3. User submits answers via POST `/api/game/answer`
 4. Points calculated based on correctness and response time
 5. Session ends after all questions answered
+6. User can share their score on social media (Twitter/X, Facebook) or copy link
+
+### Card Image System
+- Uses Zyla Sports Card API for fetching 1987 Topps card images
+- 10 popular players have cached image URLs for reliability
+- Only cards with real images are used in gameplay (no placeholders)
+- Cards display with top/bottom masks to hide player names until answer is revealed
+
+### Social Sharing
+- Share buttons appear on game completion screen
+- Supports Twitter/X, Facebook, and clipboard copy
+- Mobile devices also get native share option via Web Share API
+- Share message includes score, accuracy, and challenge text
 
 ### Design System
 - Dark/light theme support via CSS variables and class-based switching
