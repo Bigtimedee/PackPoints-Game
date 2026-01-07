@@ -48,16 +48,23 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Database**: PostgreSQL stores all card data with `imageVerified` flag
 - **Verified Cards**: 10 cards with working CDN images (S3/appforest, bubble.io)
 - **Image Sources**: Curated URLs from reliable CDNs only (eBay URLs deprecated due to expiration issues)
-- **Zyla API**: Available for fetching additional cards (rate-limited)
+- **Card Hedge API**: Primary source for fetching card images (requires CARDHEDGE_API_KEY)
+- **Zyla API**: Fallback for fetching additional cards (rate-limited)
 - Only cards with `imageVerified=true` are used in gameplay
 - Cards display with top/bottom masks to hide player names until answer is revealed
 - **Fallback UI**: Styled 1987 Topps-themed placeholder shown when images fail to load
 
 ### Card Management Endpoints
-- POST `/api/admin/sync-images` - Updates database cards with verified CDN URLs, marks others as unverified
-- POST `/api/admin/fetch-cards` - Fetches additional cards from Zyla API (rate-limited, max 10 at a time)
+- POST `/api/admin/sync-images` - Syncs images from Card Hedge API and verified CDN URLs (requires admin auth)
+- POST `/api/admin/fetch-cards` - Fetches additional cards from Zyla API (requires admin auth)
 - GET `/api/cards/stats` - Returns total card count, verified count, and unverified count
-- Additional players defined in `ADDITIONAL_1987_TOPPS_PLAYERS` array for future expansion
+- **Admin Authentication**: All admin endpoints require `X-Admin-Key` header with ADMIN_API_KEY value
+
+### Card Hedge Integration
+- **Service Module**: `server/services/cardHedge.ts` handles all Card Hedge API calls
+- **Fallback Logic**: When CARDHEDGE_API_KEY is not set, uses verified images from VERIFIED_1987_TOPPS_IMAGES
+- **Image Validation**: Only marks images as verified if from stable CDN sources (S3/appforest, bubble.io)
+- **Rate Limiting**: 200ms delay between requests to respect API limits
 
 ### Image Reliability
 - **Problem Solved**: eBay image URLs were returning 404 placeholders (HTTP 200 with broken content)
