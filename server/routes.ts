@@ -3,6 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertGameSessionSchema, submitAnswerSchema } from "@shared/schema";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
+import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
+import { requireAdminAuth } from "./middleware/adminAuth";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -174,7 +176,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/fetch-cards", async (req, res) => {
+  app.post("/api/admin/fetch-cards", requireAdminAuth, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.body.limit) || 5, 10);
       
@@ -227,27 +229,41 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/sync-images", async (_req, res) => {
+  app.post("/api/admin/sync-images", requireAdminAuth, async (_req, res) => {
     try {
       const cards = await storage.getCards();
-      let updated = 0;
+      const players = cards.map(c => ({ playerName: c.playerName, cardNumber: c.cardNumber }));
+      
+      const imageResults = await fetch1987ToppsFromCardHedge(players);
+      
+      let verified = 0;
+      let fromCardHedge = 0;
       let unverified = 0;
       
       for (const card of cards) {
-        const verifiedUrl = VERIFIED_1987_TOPPS_IMAGES[card.playerName];
-        if (verifiedUrl) {
-          await storage.updateCardImage(card.playerName, verifiedUrl, true);
-          updated++;
+        const result = imageResults.get(card.playerName);
+        
+        if (result && result.imageUrl && result.verified) {
+          await storage.updateCardImage(card.playerName, result.imageUrl, true);
+          verified++;
+          if (result.source === "cardhedge") {
+            fromCardHedge++;
+          }
+        } else if (result && result.imageUrl) {
+          await storage.updateCardImage(card.playerName, result.imageUrl, false);
+          unverified++;
         } else {
-          await storage.updateCardImage(card.playerName, card.imageUrl, false);
+          await storage.updateCardImage(card.playerName, "", false);
           unverified++;
         }
       }
       
       res.json({ 
-        message: `Synced images: ${updated} verified, ${unverified} unverified`,
-        updated,
-        unverified
+        message: `Synced images: ${verified} verified (${fromCardHedge} from Card Hedge), ${unverified} unverified`,
+        verified,
+        fromCardHedge,
+        unverified,
+        cardHedgeConfigured: isCardHedgeConfigured()
       });
     } catch (error) {
       console.error("Error syncing images:", error);
