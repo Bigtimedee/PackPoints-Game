@@ -17,6 +17,7 @@ export const sessions = pgTable(
 // User table - combines Replit Auth fields with game stats
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  username: varchar("username").unique(),
   email: varchar("email").unique(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
@@ -29,6 +30,22 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Local credentials for username/password auth (separate from Replit OAuth)
+export const localCredentials = pgTable("local_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  passwordHash: varchar("password_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLocalCredentialSchema = createInsertSchema(localCredentials).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLocalCredential = z.infer<typeof insertLocalCredentialSchema>;
+export type LocalCredential = typeof localCredentials.$inferSelect;
 
 export const insertUserSchema = createInsertSchema(users).omit({
   createdAt: true,
@@ -69,7 +86,8 @@ export interface GameQuestion {
 export interface GameSession {
   id: string;
   mode: "solo" | "1v1" | "tournament";
-  userId: string;
+  userId: string | null;
+  guestSessionId?: string;
   questions: GameQuestion[];
   currentQuestionIndex: number;
   score: number;
@@ -104,6 +122,20 @@ export const startGameSchema = z.object({
 });
 
 export type StartGameRequest = z.infer<typeof startGameSchema>;
+
+export const registerSchema = z.object({
+  username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
+  password: z.string().min(6).max(100),
+});
+
+export type RegisterRequest = z.infer<typeof registerSchema>;
+
+export const loginSchema = z.object({
+  username: z.string(),
+  password: z.string(),
+});
+
+export type LoginRequest = z.infer<typeof loginSchema>;
 
 export const submitAnswerSchema = z.object({
   sessionId: z.string(),

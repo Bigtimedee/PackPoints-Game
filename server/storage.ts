@@ -1,8 +1,9 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, type InsertBaseballCard } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
 import { eq, sql, desc, and, gte } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
   { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
@@ -16,9 +17,13 @@ const REDEMPTION_OPTIONS: RedemptionOption[] = [
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPoints(id: string, points: number): Promise<User | undefined>;
   updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined>;
+  
+  createLocalUser(username: string, password: string): Promise<User>;
+  validateLocalCredentials(username: string, password: string): Promise<User | null>;
   
   getCards(): Promise<BaseballCard[]>;
   getRandomCards(count: number): Promise<BaseballCard[]>;
@@ -26,7 +31,7 @@ export interface IStorage {
   addCard(card: InsertBaseballCard): Promise<BaseballCard>;
   updateCardImage(playerName: string, imageUrl: string, verified: boolean): Promise<void>;
   
-  createGameSession(userId: string, mode: string, totalQuestions: number): Promise<GameSession>;
+  createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string): Promise<GameSession>;
   getGameSession(id: string): Promise<GameSession | undefined>;
   updateGameSession(session: GameSession): Promise<GameSession>;
   
@@ -130,9 +135,41 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async createLocalUser(username: string, password: string): Promise<User> {
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    const [user] = await db.insert(users).values({
+      username,
+      firstName: username,
+    }).returning();
+    
+    await db.insert(localCredentials).values({
+      userId: user.id,
+      passwordHash,
+    });
+    
+    return user;
+  }
+
+  async validateLocalCredentials(username: string, password: string): Promise<User | null> {
+    const user = await this.getUserByUsername(username);
+    if (!user) return null;
+    
+    const [credential] = await db.select().from(localCredentials).where(eq(localCredentials.userId, user.id));
+    if (!credential) return null;
+    
+    const valid = await bcrypt.compare(password, credential.passwordHash);
+    return valid ? user : null;
   }
 
   async updateUserPoints(id: string, points: number): Promise<User | undefined> {
@@ -212,7 +249,7 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async createGameSession(userId: string, mode: string, totalQuestions: number): Promise<GameSession> {
+  async createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string): Promise<GameSession> {
     const cards = await this.getRandomCards(totalQuestions);
     const questions = cards.map(card => this.generateQuestion(card));
     
@@ -220,6 +257,7 @@ export class DatabaseStorage implements IStorage {
       id: randomUUID(),
       mode: mode as "solo" | "1v1" | "tournament",
       userId,
+      guestSessionId,
       questions,
       currentQuestionIndex: 0,
       score: 0,

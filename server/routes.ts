@@ -1,12 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, users, type User } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, type User } from "@shared/schema";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { db } from "./db";
+import { eq, sql } from "drizzle-orm";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -28,20 +29,30 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  app.post("/api/game/start", isAuthenticated, async (req: any, res) => {
+  app.post("/api/game/start", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
-      if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-      
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
       }
       
       const { mode, totalQuestions } = parsed.data;
-      const session = await storage.createGameSession(userId, mode, totalQuestions);
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      
+      if (mode !== "solo" && !userId) {
+        return res.status(401).json({ error: "Authentication required for this game mode" });
+      }
+      
+      let guestSessionId: string | undefined;
+      if (!userId) {
+        if (!req.session.guestId) {
+          req.session.guestId = require('crypto').randomUUID();
+        }
+        guestSessionId = req.session.guestId;
+      }
+      
+      const session = await storage.createGameSession(userId, mode, totalQuestions, guestSessionId);
       
       res.json(session);
     } catch (error) {
@@ -119,7 +130,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/next", async (req, res) => {
+  app.post("/api/game/next", async (req: any, res) => {
     try {
       const { sessionId } = req.body;
       
@@ -137,12 +148,21 @@ export async function registerRoutes(
         session.status = "completed";
         session.completedAt = new Date().toISOString();
         
-        // Award points to user when game completes
-        await storage.updateUserStats(session.userId, {
-          pointsEarned: session.score,
-          correctAnswers: session.correctAnswers,
-          totalAnswers: session.totalQuestions,
-        });
+        if (session.userId) {
+          await storage.updateUserStats(session.userId, {
+            pointsEarned: session.score,
+            correctAnswers: session.correctAnswers,
+            totalAnswers: session.totalQuestions,
+          });
+        } else if (session.guestSessionId) {
+          if (!req.session.pendingPoints) {
+            req.session.pendingPoints = { score: 0, correctAnswers: 0, totalAnswers: 0, gamesPlayed: 0 };
+          }
+          req.session.pendingPoints.score += session.score;
+          req.session.pendingPoints.correctAnswers += session.correctAnswers;
+          req.session.pendingPoints.totalAnswers += session.totalQuestions;
+          req.session.pendingPoints.gamesPlayed += 1;
+        }
       } else {
         session.currentQuestionIndex += 1;
       }
@@ -220,6 +240,110 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting cards:", error);
       res.status(500).json({ error: "Failed to get cards" });
+    }
+  });
+
+  app.post("/api/auth/register", async (req: any, res) => {
+    try {
+      const parsed = registerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+      
+      const { username, password } = parsed.data;
+      
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(409).json({ error: "Username already taken" });
+      }
+      
+      const user = await storage.createLocalUser(username, password);
+      
+      if (req.session.pendingPoints) {
+        const pending = req.session.pendingPoints;
+        await storage.updateUserStats(user.id, {
+          pointsEarned: pending.score,
+          correctAnswers: pending.correctAnswers,
+          totalAnswers: pending.totalAnswers,
+        });
+        
+        for (let i = 1; i < pending.gamesPlayed; i++) {
+          await db.update(users).set({
+            gamesPlayed: sql`${users.gamesPlayed} + 1`
+          }).where(eq(users.id, user.id));
+        }
+        
+        delete req.session.pendingPoints;
+        delete req.session.guestId;
+      }
+      
+      req.session.localUserId = user.id;
+      
+      const updatedUser = await storage.getUser(user.id);
+      
+      res.json({ 
+        success: true, 
+        user: {
+          id: updatedUser!.id,
+          username: updatedUser!.username,
+          points: updatedUser!.points,
+          gamesPlayed: updatedUser!.gamesPlayed,
+        }
+      });
+    } catch (error) {
+      console.error("Error registering user:", error);
+      res.status(500).json({ error: "Failed to register" });
+    }
+  });
+
+  app.post("/api/auth/local-login", async (req: any, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+      
+      const { username, password } = parsed.data;
+      
+      const user = await storage.validateLocalCredentials(username, password);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      
+      req.session.localUserId = user.id;
+      
+      res.json({ 
+        success: true, 
+        user: {
+          id: user.id,
+          username: user.username,
+          points: user.points,
+          gamesPlayed: user.gamesPlayed,
+        }
+      });
+    } catch (error) {
+      console.error("Error logging in:", error);
+      res.status(500).json({ error: "Failed to login" });
+    }
+  });
+
+  app.get("/api/guest/pending-points", async (req: any, res) => {
+    try {
+      const pendingPoints = req.session?.pendingPoints || null;
+      res.json({ pendingPoints });
+    } catch (error) {
+      console.error("Error getting pending points:", error);
+      res.status(500).json({ error: "Failed to get pending points" });
+    }
+  });
+
+  app.post("/api/auth/local-logout", async (req: any, res) => {
+    try {
+      delete req.session.localUserId;
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error logging out:", error);
+      res.status(500).json({ error: "Failed to logout" });
     }
   });
 
