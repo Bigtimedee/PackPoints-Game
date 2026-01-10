@@ -75,11 +75,27 @@ function MarketplaceSkeleton() {
   );
 }
 
+interface RedemptionTier {
+  id: string;
+  name: string;
+  packptsRequired: number;
+  usdCapCents: number;
+  effectiveRatePct: number;
+  description: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 export default function Marketplace() {
   const { data: redemptions, isLoading } = useQuery<RedemptionOption[]>({
     queryKey: ["/api/marketplace"],
   });
 
+  const { data: tiersData } = useQuery<{ tiers: RedemptionTier[] }>({
+    queryKey: ["/api/redemption/tiers"],
+  });
+
+  const tiers = (tiersData?.tiers || []).filter(t => t.isActive);
   const userPoints = 2500;
 
   return (
@@ -137,22 +153,23 @@ export default function Marketplace() {
                 <CardDescription className="text-xs">PackPTS = discounts, not cash</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
-                  <span className="font-mono">1,000 PTS</span>
-                  <span className="font-mono text-accent">Up to $5 off</span>
-                </div>
-                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
-                  <span className="font-mono">5,000 PTS</span>
-                  <span className="font-mono text-accent">Up to $30 off</span>
-                </div>
-                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
-                  <span className="font-mono">25,000 PTS</span>
-                  <span className="font-mono text-accent">Up to $175 off</span>
-                </div>
-                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
-                  <span className="font-mono">100,000 PTS</span>
-                  <span className="font-mono text-accent">Up to $900 off</span>
-                </div>
+                {tiers.length > 0 ? (
+                  tiers.map((tier) => {
+                    const actualPayout = Math.floor(tier.usdCapCents * (tier.effectiveRatePct / 100));
+                    return (
+                      <div key={tier.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted" data-testid={`tier-${tier.id}`}>
+                        <span className="font-mono">{tier.packptsRequired.toLocaleString()} PTS</span>
+                        <span className="font-mono text-accent">Up to ${(actualPayout / 100).toFixed(2)} off</span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <>
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                    <Skeleton className="h-9 w-full" />
+                  </>
+                )}
               </CardContent>
             </Card>
           </aside>
