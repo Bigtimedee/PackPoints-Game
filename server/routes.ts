@@ -2,7 +2,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, type User } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, type User } from "@shared/schema";
+import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import { isAuthenticated } from "./replit_integrations/auth";
@@ -47,6 +48,186 @@ export async function registerRoutes(
         timestamp: new Date().toISOString(),
         database: "disconnected"
       });
+    }
+  });
+
+  // ============================================
+  // WALLET ENDPOINTS (PackPTS)
+  // ============================================
+
+  // GET /wallet - Get current user's wallet (auth required)
+  app.get("/wallet", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const walletData = await walletService.getWalletWithHistory(userId, 10);
+      if (!walletData) {
+        return res.status(404).json({ error: "Wallet not found" });
+      }
+
+      res.json({
+        wallet: {
+          id: walletData.wallet.id,
+          balance: walletData.wallet.balance,
+          lifetimeEarned: walletData.wallet.lifetimeEarned,
+          lifetimeSpent: walletData.wallet.lifetimeSpent,
+          status: walletData.wallet.status,
+          createdAt: walletData.wallet.createdAt,
+          updatedAt: walletData.wallet.updatedAt,
+        },
+        recentTransactions: walletData.recentEntries.map(e => ({
+          id: e.id,
+          type: e.entryType,
+          amount: e.amount,
+          balanceAfter: e.balanceAfter,
+          reason: e.reason,
+          createdAt: e.createdAt,
+        })),
+      });
+    } catch (error) {
+      console.error("Error getting wallet:", error);
+      res.status(500).json({ error: "Failed to get wallet" });
+    }
+  });
+
+  // POST /wallet/spend - Spend PackPTS (auth required, idempotent)
+  app.post("/wallet/spend", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const parsed = spendWalletSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { amount, reason, idempotencyKey, metadata } = parsed.data;
+
+      const result = await walletService.spend(userId, amount, reason, idempotencyKey, metadata);
+
+      if (!result.success) {
+        if (result.error === "Insufficient balance") {
+          return res.status(402).json({ error: result.error });
+        }
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        idempotent: result.idempotent || false,
+        wallet: {
+          balance: result.wallet!.balance,
+          lifetimeSpent: result.wallet!.lifetimeSpent,
+        },
+        transaction: result.ledgerEntry ? {
+          id: result.ledgerEntry.id,
+          amount: result.ledgerEntry.amount,
+          balanceAfter: result.ledgerEntry.balanceAfter,
+          createdAt: result.ledgerEntry.createdAt,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error spending from wallet:", error);
+      res.status(500).json({ error: "Failed to process spend" });
+    }
+  });
+
+  // ============================================
+  // INTERNAL WALLET ENDPOINTS (not callable by client)
+  // These require internal API key validation
+  // ============================================
+
+  const requireInternalAuth = (req: Request, res: Response, next: NextFunction) => {
+    const internalKey = req.headers["x-internal-key"];
+    const expectedKey = process.env.INTERNAL_API_KEY;
+    
+    if (!expectedKey) {
+      console.error("INTERNAL_API_KEY not configured");
+      return res.status(500).json({ error: "Internal configuration error" });
+    }
+    
+    if (internalKey !== expectedKey) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    
+    next();
+  };
+
+  // POST /internal/wallet/earn - Credit PackPTS to user (internal only)
+  app.post("/internal/wallet/earn", requireInternalAuth, async (req: any, res) => {
+    try {
+      const parsed = earnWalletSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { userId, amount, reason, idempotencyKey, metadata } = parsed.data;
+
+      const result = await walletService.earn(userId, amount, reason, idempotencyKey, metadata);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        idempotent: result.idempotent || false,
+        wallet: {
+          balance: result.wallet!.balance,
+          lifetimeEarned: result.wallet!.lifetimeEarned,
+        },
+        transaction: result.ledgerEntry ? {
+          id: result.ledgerEntry.id,
+          amount: result.ledgerEntry.amount,
+          balanceAfter: result.ledgerEntry.balanceAfter,
+          createdAt: result.ledgerEntry.createdAt,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error earning to wallet:", error);
+      res.status(500).json({ error: "Failed to process earn" });
+    }
+  });
+
+  // POST /internal/wallet/adjust - Adjust PackPTS balance (internal only)
+  app.post("/internal/wallet/adjust", requireInternalAuth, async (req: any, res) => {
+    try {
+      const parsed = adjustWalletSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { userId, amount, reason, idempotencyKey, metadata } = parsed.data;
+
+      const result = await walletService.adjust(userId, amount, reason, idempotencyKey, metadata);
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        idempotent: result.idempotent || false,
+        wallet: {
+          balance: result.wallet!.balance,
+          lifetimeEarned: result.wallet!.lifetimeEarned,
+          lifetimeSpent: result.wallet!.lifetimeSpent,
+        },
+        transaction: result.ledgerEntry ? {
+          id: result.ledgerEntry.id,
+          amount: result.ledgerEntry.amount,
+          balanceAfter: result.ledgerEntry.balanceAfter,
+          createdAt: result.ledgerEntry.createdAt,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error adjusting wallet:", error);
+      res.status(500).json({ error: "Failed to process adjustment" });
     }
   });
 
