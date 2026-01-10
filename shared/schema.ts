@@ -602,3 +602,74 @@ export interface AnalyticsEvent {
   sessionId?: string | null;
   metadata?: Record<string, unknown>;
 }
+
+// Redemption status types
+export const redemptionStatuses = ["pending", "approved", "rejected", "completed", "reversed"] as const;
+export type RedemptionStatus = typeof redemptionStatuses[number];
+
+// Redemption types
+export const redemptionTypes = ["store_credit"] as const;
+export type RedemptionType = typeof redemptionTypes[number];
+
+// Redemption tiers - non-linear conversion rates (better rates for higher amounts)
+export const redemptionTiers = pgTable("redemption_tiers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  minPackpts: integer("min_packpts").notNull(),
+  maxPackpts: integer("max_packpts"), // null means unlimited
+  usdPerThousandPts: integer("usd_per_thousand_pts").notNull(), // USD cents per 1000 PackPTS
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_redemption_tiers_active").on(table.isActive),
+]);
+
+export const insertRedemptionTierSchema = createInsertSchema(redemptionTiers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertRedemptionTier = z.infer<typeof insertRedemptionTierSchema>;
+export type RedemptionTier = typeof redemptionTiers.$inferSelect;
+
+// Reward redemptions - tracks user redemptions of PackPTS for store credit
+export const rewardRedemptions = pgTable("reward_redemptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  packptsSpent: integer("packpts_spent").notNull(),
+  usdValue: integer("usd_value").notNull(), // in cents
+  type: varchar("type", { length: 50 }).notNull().default("store_credit"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  creditToken: varchar("credit_token", { length: 64 }).unique(), // token for store checkout
+  ledgerIdempotencyKey: varchar("ledger_idempotency_key", { length: 64 }), // links to ledger entry
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reversalReason: text("reversal_reason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_redemptions_user").on(table.userId),
+  index("idx_redemptions_status").on(table.status),
+  index("idx_redemptions_credit_token").on(table.creditToken),
+  index("idx_redemptions_created").on(table.createdAt),
+]);
+
+export const insertRewardRedemptionSchema = createInsertSchema(rewardRedemptions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  reviewedAt: true,
+});
+
+export type InsertRewardRedemption = z.infer<typeof insertRewardRedemptionSchema>;
+export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
+
+// Request schema for redemption
+export const redeemPackptsSchema = z.object({
+  packptsAmount: z.number().int().positive("Amount must be positive").min(1000, "Minimum redemption is 1000 PackPTS"),
+});
+
+export type RedeemPackptsRequest = z.infer<typeof redeemPackptsSchema>;
+
+// Admin review threshold (in USD cents) - redemptions above this need admin approval
+export const REDEMPTION_REVIEW_THRESHOLD_CENTS = 2500; // $25.00
