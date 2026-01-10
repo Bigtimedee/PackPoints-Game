@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { wallets, ledgerEntries, type Wallet, type LedgerEntry, type LedgerEntryType } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export interface WalletOperationResult {
   success: boolean;
@@ -17,21 +17,37 @@ export interface WalletWithHistory {
 
 class WalletService {
   async getOrCreateWallet(userId: string): Promise<Wallet> {
-    const existing = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
-    
-    if (existing.length > 0) {
-      return existing[0];
-    }
+    return await db.transaction(async (tx) => {
+      const existing = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+        .limit(1);
+      
+      if (existing.length > 0) {
+        return existing[0];
+      }
 
-    const [newWallet] = await db.insert(wallets).values({
-      userId,
-      balance: 0,
-      lifetimeEarned: 0,
-      lifetimeSpent: 0,
-      status: "active",
-    }).returning();
+      const [newWallet] = await tx.insert(wallets).values({
+        userId,
+        balance: 0,
+        lifetimeEarned: 0,
+        lifetimeSpent: 0,
+        status: "active",
+      }).onConflictDoNothing().returning();
 
-    return newWallet;
+      if (newWallet) {
+        return newWallet;
+      }
+
+      const [finalWallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .limit(1);
+      return finalWallet;
+    });
   }
 
   async getWallet(userId: string): Promise<Wallet | null> {
@@ -52,16 +68,6 @@ class WalletService {
     return { wallet, recentEntries: entries };
   }
 
-  private async checkIdempotency(idempotencyKey: string): Promise<LedgerEntry | null> {
-    const existing = await db
-      .select()
-      .from(ledgerEntries)
-      .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
-      .limit(1);
-    
-    return existing.length > 0 ? existing[0] : null;
-  }
-
   async earn(
     userId: string,
     amount: number,
@@ -73,19 +79,41 @@ class WalletService {
       return { success: false, error: "Amount must be positive" };
     }
 
-    const existingEntry = await this.checkIdempotency(idempotencyKey);
-    if (existingEntry) {
-      const wallet = await this.getWallet(userId);
-      return { 
-        success: true, 
-        wallet: wallet!, 
-        ledgerEntry: existingEntry, 
-        idempotent: true 
-      };
-    }
-
     return await db.transaction(async (tx) => {
-      const wallet = await this.getOrCreateWallet(userId);
+      const existingEntry = await tx
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .for("update")
+        .limit(1);
+      
+      if (existingEntry.length > 0) {
+        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+        return { 
+          success: true, 
+          wallet: wallet!, 
+          ledgerEntry: existingEntry[0], 
+          idempotent: true 
+        };
+      }
+
+      let [wallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+        .limit(1);
+      
+      if (!wallet) {
+        const [newWallet] = await tx.insert(wallets).values({
+          userId,
+          balance: 0,
+          lifetimeEarned: 0,
+          lifetimeSpent: 0,
+          status: "active",
+        }).returning();
+        wallet = newWallet;
+      }
       
       if (wallet.status !== "active") {
         return { success: false, error: `Wallet is ${wallet.status}` };
@@ -94,16 +122,7 @@ class WalletService {
       const newBalance = wallet.balance + amount;
       const newLifetimeEarned = wallet.lifetimeEarned + amount;
 
-      await tx
-        .update(wallets)
-        .set({
-          balance: newBalance,
-          lifetimeEarned: newLifetimeEarned,
-          updatedAt: new Date(),
-        })
-        .where(eq(wallets.id, wallet.id));
-
-      const [ledgerEntry] = await tx
+      const insertedEntries = await tx
         .insert(ledgerEntries)
         .values({
           walletId: wallet.id,
@@ -114,10 +133,25 @@ class WalletService {
           metadata: metadata || null,
           idempotencyKey,
         })
+        .onConflictDoNothing({ target: ledgerEntries.idempotencyKey })
         .returning();
 
+      if (insertedEntries.length === 0) {
+        const [existingLedger] = await tx.select().from(ledgerEntries).where(eq(ledgerEntries.idempotencyKey, idempotencyKey)).limit(1);
+        return { success: true, wallet: wallet, ledgerEntry: existingLedger, idempotent: true };
+      }
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeEarned: newLifetimeEarned,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };
-      return { success: true, wallet: updatedWallet, ledgerEntry };
+      return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
     });
   }
 
@@ -132,18 +166,24 @@ class WalletService {
       return { success: false, error: "Amount must be positive" };
     }
 
-    const existingEntry = await this.checkIdempotency(idempotencyKey);
-    if (existingEntry) {
-      const wallet = await this.getWallet(userId);
-      return { 
-        success: true, 
-        wallet: wallet!, 
-        ledgerEntry: existingEntry, 
-        idempotent: true 
-      };
-    }
-
     return await db.transaction(async (tx) => {
+      const existingEntry = await tx
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .for("update")
+        .limit(1);
+      
+      if (existingEntry.length > 0) {
+        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+        return { 
+          success: true, 
+          wallet: wallet!, 
+          ledgerEntry: existingEntry[0], 
+          idempotent: true 
+        };
+      }
+
       const [wallet] = await tx
         .select()
         .from(wallets)
@@ -166,16 +206,7 @@ class WalletService {
       const newBalance = wallet.balance - amount;
       const newLifetimeSpent = wallet.lifetimeSpent + amount;
 
-      await tx
-        .update(wallets)
-        .set({
-          balance: newBalance,
-          lifetimeSpent: newLifetimeSpent,
-          updatedAt: new Date(),
-        })
-        .where(eq(wallets.id, wallet.id));
-
-      const [ledgerEntry] = await tx
+      const insertedEntries = await tx
         .insert(ledgerEntries)
         .values({
           walletId: wallet.id,
@@ -186,10 +217,25 @@ class WalletService {
           metadata: metadata || null,
           idempotencyKey,
         })
+        .onConflictDoNothing({ target: ledgerEntries.idempotencyKey })
         .returning();
 
+      if (insertedEntries.length === 0) {
+        const [existingLedger] = await tx.select().from(ledgerEntries).where(eq(ledgerEntries.idempotencyKey, idempotencyKey)).limit(1);
+        return { success: true, wallet: wallet, ledgerEntry: existingLedger, idempotent: true };
+      }
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeSpent: newLifetimeSpent,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeSpent: newLifetimeSpent };
-      return { success: true, wallet: updatedWallet, ledgerEntry };
+      return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
     });
   }
 
@@ -200,19 +246,41 @@ class WalletService {
     idempotencyKey: string,
     metadata?: Record<string, unknown>
   ): Promise<WalletOperationResult> {
-    const existingEntry = await this.checkIdempotency(idempotencyKey);
-    if (existingEntry) {
-      const wallet = await this.getWallet(userId);
-      return { 
-        success: true, 
-        wallet: wallet!, 
-        ledgerEntry: existingEntry, 
-        idempotent: true 
-      };
-    }
-
     return await db.transaction(async (tx) => {
-      const wallet = await this.getOrCreateWallet(userId);
+      const existingEntry = await tx
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .for("update")
+        .limit(1);
+      
+      if (existingEntry.length > 0) {
+        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+        return { 
+          success: true, 
+          wallet: wallet!, 
+          ledgerEntry: existingEntry[0], 
+          idempotent: true 
+        };
+      }
+
+      let [wallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+        .limit(1);
+      
+      if (!wallet) {
+        const [newWallet] = await tx.insert(wallets).values({
+          userId,
+          balance: 0,
+          lifetimeEarned: 0,
+          lifetimeSpent: 0,
+          status: "active",
+        }).returning();
+        wallet = newWallet;
+      }
       
       const newBalance = wallet.balance + amount;
       
@@ -222,6 +290,25 @@ class WalletService {
 
       const lifetimeEarnedDelta = amount > 0 ? amount : 0;
       const lifetimeSpentDelta = amount < 0 ? Math.abs(amount) : 0;
+
+      const insertedEntries = await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: wallet.id,
+          entryType: "ADJUST" as LedgerEntryType,
+          amount: amount,
+          balanceAfter: newBalance,
+          reason,
+          metadata: metadata || null,
+          idempotencyKey,
+        })
+        .onConflictDoNothing({ target: ledgerEntries.idempotencyKey })
+        .returning();
+
+      if (insertedEntries.length === 0) {
+        const [existingLedger] = await tx.select().from(ledgerEntries).where(eq(ledgerEntries.idempotencyKey, idempotencyKey)).limit(1);
+        return { success: true, wallet: wallet, ledgerEntry: existingLedger, idempotent: true };
+      }
 
       await tx
         .update(wallets)
@@ -233,26 +320,13 @@ class WalletService {
         })
         .where(eq(wallets.id, wallet.id));
 
-      const [ledgerEntry] = await tx
-        .insert(ledgerEntries)
-        .values({
-          walletId: wallet.id,
-          entryType: "ADJUST" as LedgerEntryType,
-          amount: amount,
-          balanceAfter: newBalance,
-          reason,
-          metadata: metadata || null,
-          idempotencyKey,
-        })
-        .returning();
-
       const updatedWallet = { 
         ...wallet, 
         balance: newBalance,
         lifetimeEarned: wallet.lifetimeEarned + lifetimeEarnedDelta,
         lifetimeSpent: wallet.lifetimeSpent + lifetimeSpentDelta,
       };
-      return { success: true, wallet: updatedWallet, ledgerEntry };
+      return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
     });
   }
 
