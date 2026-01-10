@@ -1685,6 +1685,19 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing required fields: name, packptsRequired, usdCapCents, description" });
       }
 
+      if (packptsRequired < 100) {
+        return res.status(400).json({ error: "packptsRequired must be at least 100" });
+      }
+
+      if (usdCapCents < 100) {
+        return res.status(400).json({ error: "usdCapCents must be at least 100 (minimum $1)" });
+      }
+
+      const ratePct = effectiveRatePct ?? 100;
+      if (ratePct < 0 || ratePct > 100) {
+        return res.status(400).json({ error: "effectiveRatePct must be between 0 and 100" });
+      }
+
       const tier = await redemptionService.createTier({
         name,
         packptsRequired,
@@ -1719,6 +1732,18 @@ export async function registerRoutes(
       const oldTier = await redemptionService.getTierById(id);
       if (!oldTier) {
         return res.status(404).json({ error: "Tier not found" });
+      }
+
+      if (updates.packptsRequired !== undefined && updates.packptsRequired < 100) {
+        return res.status(400).json({ error: "packptsRequired must be at least 100" });
+      }
+
+      if (updates.usdCapCents !== undefined && updates.usdCapCents < 100) {
+        return res.status(400).json({ error: "usdCapCents must be at least 100 (minimum $1)" });
+      }
+
+      if (updates.effectiveRatePct !== undefined && (updates.effectiveRatePct < 0 || updates.effectiveRatePct > 100)) {
+        return res.status(400).json({ error: "effectiveRatePct must be between 0 and 100" });
       }
 
       const tier = await redemptionService.updateTier(id, updates);
