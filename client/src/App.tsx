@@ -20,6 +20,7 @@ import AdminUsers from "@/pages/admin/users";
 import AdminUserDetail from "@/pages/admin/user-detail";
 import AdminMetrics from "@/pages/admin/metrics";
 import AdminAuditLog from "@/pages/admin/audit-log";
+import AdminRedemptions from "@/pages/admin/redemptions";
 import NotFound from "@/pages/not-found";
 import { AdminLayout } from "@/components/admin-layout";
 
@@ -68,6 +69,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminAuditLog />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/redemptions">
+        {() => (
+          <AdminLayout>
+            <AdminRedemptions />
           </AdminLayout>
         )}
       </Route>
