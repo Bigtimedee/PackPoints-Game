@@ -77,7 +77,7 @@ export default function Home() {
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-hero-description">
               The ultimate trivia game for baseball card collectors. Guess the player on classic 1987 Topps cards, 
-              earn PackPoints, and redeem them for credits on Goldin and eBay.
+              earn PackPTS, and use them as a discount toward cards on Goldin and eBay.
             </p>
             <div className="flex flex-wrap justify-center gap-4 pt-4">
               <Link href="/game/solo">
@@ -194,10 +194,10 @@ export default function Home() {
               <div className="space-y-2">
                 <div className="flex items-center justify-center md:justify-start gap-2 text-primary font-semibold">
                   <span className="text-2xl font-bold">3</span>
-                  <span>Redeem Rewards</span>
+                  <span>Use Your Discount</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Cash out PackPoints for real cards on Goldin or eBay, or keep climbing the ranks.
+                  Use your PackPTS as a discount toward cards on Goldin or eBay, or keep climbing the ranks.
                 </p>
               </div>
             </div>

@@ -44,7 +44,7 @@ function RedemptionCard({ option }: { option: RedemptionOption }) {
           </Badge>
         </div>
         <Button variant="outline" className="w-full gap-2" data-testid={`button-redeem-${option.id}`}>
-          Redeem
+          Get Discount
           <ExternalLink className="h-4 w-4" />
         </Button>
       </CardContent>
@@ -88,7 +88,7 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Redeem your PackPoints for real trading cards</p>
+            <p className="text-muted-foreground">Use your PackPTS as a discount toward real trading cards</p>
           </div>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
@@ -126,26 +126,32 @@ export default function Marketplace() {
                   <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                     3
                   </div>
-                  <p className="text-muted-foreground">Redeem points for USD credits to purchase real cards</p>
+                  <p className="text-muted-foreground">Use your PackPTS as a discount toward the card of your choice</p>
                 </div>
               </CardContent>
             </Card>
 
             <Card className="mt-4">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Conversion Rate</CardTitle>
+                <CardTitle className="text-lg">Discount Tiers</CardTitle>
+                <CardDescription className="text-xs">PackPTS = discounts, not cash</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between gap-2 p-3 rounded-md bg-muted">
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-5 w-5 text-secondary-foreground" />
-                    <span className="font-mono font-semibold">1,000</span>
-                  </div>
-                  <span className="text-muted-foreground">=</span>
-                  <div className="flex items-center gap-1">
-                    <DollarSign className="h-4 w-4 text-accent" />
-                    <span className="font-mono font-semibold text-accent">1.00</span>
-                  </div>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
+                  <span className="font-mono">1,000 PTS</span>
+                  <span className="font-mono text-accent">Up to $5 off</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
+                  <span className="font-mono">5,000 PTS</span>
+                  <span className="font-mono text-accent">Up to $30 off</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
+                  <span className="font-mono">25,000 PTS</span>
+                  <span className="font-mono text-accent">Up to $175 off</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted">
+                  <span className="font-mono">100,000 PTS</span>
+                  <span className="font-mono text-accent">Up to $900 off</span>
                 </div>
               </CardContent>
             </Card>

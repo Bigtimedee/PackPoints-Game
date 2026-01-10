@@ -21,6 +21,7 @@ import AdminUserDetail from "@/pages/admin/user-detail";
 import AdminMetrics from "@/pages/admin/metrics";
 import AdminAuditLog from "@/pages/admin/audit-log";
 import AdminRedemptions from "@/pages/admin/redemptions";
+import AdminTiers from "@/pages/admin/tiers";
 import NotFound from "@/pages/not-found";
 import { AdminLayout } from "@/components/admin-layout";
 
@@ -76,6 +77,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminRedemptions />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/tiers">
+        {() => (
+          <AdminLayout>
+            <AdminTiers />
           </AdminLayout>
         )}
       </Route>

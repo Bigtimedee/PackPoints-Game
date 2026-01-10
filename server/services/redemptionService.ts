@@ -127,7 +127,7 @@ class RedemptionService {
       const spendResult = await walletService.spend(
         userId,
         packptsAmount,
-        `Redemption for $${(tierCalc.usdValueCents / 100).toFixed(2)} store credit`,
+        `Discount redeemed: $${(tierCalc.usdValueCents / 100).toFixed(2)} toward a card`,
         idempotencyKey,
         {
           type: "redemption",
