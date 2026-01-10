@@ -128,7 +128,7 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 py-8 overflow-y-auto bg-gradient-to-br from-background via-background to-muted">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-2">
           <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">

@@ -101,9 +101,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark" storageKey="packpoints-theme">
         <TooltipProvider>
-          <div className="min-h-screen bg-background text-foreground">
+          <div className="min-h-screen flex flex-col bg-background text-foreground">
             <Header />
-            <main>
+            <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
               <Router />
             </main>
             <MobileNav />
