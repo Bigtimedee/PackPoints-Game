@@ -157,6 +157,7 @@ export default function Game() {
   const [earnedPoints, setEarnedPoints] = useState(0);
   const [showPointsAnimation, setShowPointsAnimation] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
+  const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
     queryKey: ["/api/game/session", sessionId],
@@ -235,13 +236,14 @@ export default function Game() {
   }, []);
 
   // Show signup modal after game completion for unauthenticated users with points
+  // Only show once per session - track with hasSeenSignupPrompt
   const isGameOver = session?.status === "completed";
   useEffect(() => {
-    if (isGameOver && !isAuthenticated && session && session.score > 0 && !showSignupModal) {
+    if (isGameOver && !isAuthenticated && !hasSeenSignupPrompt && session && session.score > 0 && !showSignupModal) {
       const timer = setTimeout(() => setShowSignupModal(true), 500);
       return () => clearTimeout(timer);
     }
-  }, [isGameOver, isAuthenticated, session?.score, showSignupModal]);
+  }, [isGameOver, isAuthenticated, hasSeenSignupPrompt, session?.score, showSignupModal]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isRevealed) return;
@@ -411,7 +413,7 @@ export default function Game() {
               </div>
             </div>
             
-            {!isAuthenticated && session.score > 0 && (
+            {!isAuthenticated && !hasSeenSignupPrompt && session.score > 0 && (
               <div className="pt-2">
                 <Button 
                   onClick={() => setShowSignupModal(true)} 
@@ -442,9 +444,15 @@ export default function Game() {
 
         <SignupModal 
           open={showSignupModal} 
-          onOpenChange={setShowSignupModal}
+          onOpenChange={(open) => {
+            setShowSignupModal(open);
+            if (!open) {
+              setHasSeenSignupPrompt(true);
+            }
+          }}
           pendingPoints={session.score}
           onSuccess={() => {
+            setHasSeenSignupPrompt(true);
             toast({
               title: "Account Created!",
               description: `Your ${session.score} points have been saved. Starting a new game!`,
