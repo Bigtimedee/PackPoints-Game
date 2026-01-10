@@ -6,10 +6,12 @@ import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
+import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
+import express from "express";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -887,6 +889,114 @@ export async function registerRoutes(
       console.error("Error getting user entitlements:", error);
       res.status(500).json({ error: "Failed to get entitlements" });
     }
+  });
+
+  // ============================================
+  // STRIPE WEBHOOK & BILLING ENDPOINTS
+  // ============================================
+
+  // Stripe webhook endpoint - receives raw body for signature verification
+  app.post("/webhooks/purchases", 
+    express.raw({ type: "application/json" }),
+    async (req: Request, res: Response) => {
+      const signature = req.headers["stripe-signature"];
+      
+      if (!signature || typeof signature !== "string") {
+        console.error("Missing stripe-signature header");
+        return res.status(400).json({ error: "Missing stripe-signature header" });
+      }
+
+      if (!isStripeConfigured()) {
+        console.error("Stripe is not configured");
+        return res.status(503).json({ error: "Payment processing not configured" });
+      }
+
+      try {
+        const event = await stripePurchaseService.verifyAndParseWebhook(
+          req.body,
+          signature
+        );
+
+        const result = await stripePurchaseService.processWebhookEvent(event);
+        
+        console.log(`Webhook processed: ${result.eventId} - ${result.status}${result.message ? ` - ${result.message}` : ""}`);
+        
+        res.json({
+          received: true,
+          eventId: result.eventId,
+          status: result.status,
+        });
+      } catch (error) {
+        console.error("Webhook error:", error);
+        
+        if (error instanceof Error && error.message.includes("signature")) {
+          return res.status(400).json({ error: "Invalid signature" });
+        }
+        
+        return res.status(500).json({ error: "Webhook processing failed" });
+      }
+    }
+  );
+
+  // Billing sync endpoint - reconciles user's purchases with Stripe
+  app.post("/billing/sync", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      if (!isStripeConfigured()) {
+        return res.status(503).json({ error: "Payment processing not configured" });
+      }
+
+      const { stripeCustomerId } = req.body || {};
+      
+      const result = await stripePurchaseService.syncUserPurchases(userId, stripeCustomerId);
+      
+      res.json({
+        success: result.errors.length === 0,
+        userId: result.userId,
+        processedEvents: result.processedEvents,
+        grantedPackPts: result.grantedPackPts,
+        grantedEntitlements: result.grantedEntitlements,
+        errors: result.errors,
+      });
+    } catch (error) {
+      console.error("Billing sync error:", error);
+      res.status(500).json({ error: "Failed to sync purchases" });
+    }
+  });
+
+  // Admin: Reprocess a failed purchase event
+  app.post("/api/admin/purchases/:eventId/reprocess", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { eventId } = req.params;
+      
+      if (!eventId) {
+        return res.status(400).json({ error: "Event ID is required" });
+      }
+
+      const result = await stripePurchaseService.reprocessEvent(eventId);
+      
+      res.json({
+        success: result.success,
+        eventId: result.eventId,
+        status: result.status,
+        message: result.message,
+        error: result.error,
+      });
+    } catch (error) {
+      console.error("Reprocess error:", error);
+      res.status(500).json({ error: "Failed to reprocess event" });
+    }
+  });
+
+  // Stripe configuration status (for frontend)
+  app.get("/api/billing/status", async (_req, res) => {
+    res.json({
+      stripeConfigured: isStripeConfigured(),
+    });
   });
 
   return httpServer;

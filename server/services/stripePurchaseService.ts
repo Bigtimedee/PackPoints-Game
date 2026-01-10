@@ -1,0 +1,687 @@
+import Stripe from "stripe";
+import { db } from "../db";
+import { purchaseEvents, stripeCustomers, type PurchaseEventStatus } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { walletService } from "./walletService";
+import { storage } from "../storage";
+import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku } from "./productMap";
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+
+let stripe: Stripe | null = null;
+
+function getStripe(): Stripe {
+  if (!stripe) {
+    if (!STRIPE_SECRET_KEY) {
+      throw new Error("STRIPE_SECRET_KEY is not configured");
+    }
+    stripe = new Stripe(STRIPE_SECRET_KEY);
+  }
+  return stripe;
+}
+
+export function isStripeConfigured(): boolean {
+  return !!STRIPE_SECRET_KEY;
+}
+
+export interface WebhookProcessResult {
+  success: boolean;
+  eventId: string;
+  status: PurchaseEventStatus;
+  message?: string;
+  error?: string;
+}
+
+export interface SyncResult {
+  userId: string;
+  processedEvents: number;
+  grantedPackPts: number;
+  grantedEntitlements: string[];
+  errors: string[];
+}
+
+class StripePurchaseService {
+  async verifyAndParseWebhook(
+    payload: string | Buffer,
+    signature: string
+  ): Promise<Stripe.Event> {
+    if (!STRIPE_WEBHOOK_SECRET) {
+      throw new Error("STRIPE_WEBHOOK_SECRET is not configured");
+    }
+    
+    const stripeClient = getStripe();
+    return stripeClient.webhooks.constructEvent(
+      payload,
+      signature,
+      STRIPE_WEBHOOK_SECRET
+    );
+  }
+
+  async processWebhookEvent(event: Stripe.Event): Promise<WebhookProcessResult> {
+    const eventId = event.id;
+    const eventType = event.type;
+
+    const existingEvent = await db
+      .select()
+      .from(purchaseEvents)
+      .where(eq(purchaseEvents.eventId, eventId))
+      .limit(1);
+
+    if (existingEvent.length > 0) {
+      return {
+        success: true,
+        eventId,
+        status: existingEvent[0].status as PurchaseEventStatus,
+        message: "Event already processed (idempotent)",
+      };
+    }
+
+    let userId: string | null = null;
+    try {
+      userId = this.extractUserId(event);
+    } catch (e) {
+      // userId remains null
+    }
+
+    await db.insert(purchaseEvents).values({
+      eventId,
+      eventType,
+      userId,
+      payload: event as unknown as Record<string, unknown>,
+      status: "received",
+    });
+
+    try {
+      const result = await this.handleEvent(event);
+      
+      await db
+        .update(purchaseEvents)
+        .set({
+          status: result.status,
+          errorMessage: result.error || null,
+          processedAt: new Date(),
+          updatedAt: new Date(),
+          userId: result.userId || userId,
+        })
+        .where(eq(purchaseEvents.eventId, eventId));
+
+      return {
+        success: result.status === "processed",
+        eventId,
+        status: result.status,
+        message: result.message,
+        error: result.error,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      
+      await db
+        .update(purchaseEvents)
+        .set({
+          status: "failed",
+          errorMessage,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseEvents.eventId, eventId));
+
+      return {
+        success: false,
+        eventId,
+        status: "failed",
+        error: errorMessage,
+      };
+    }
+  }
+
+  private extractUserId(event: Stripe.Event): string | null {
+    const obj = event.data.object as any;
+    
+    if (obj.metadata?.userId) {
+      return obj.metadata.userId;
+    }
+    
+    if (obj.client_reference_id) {
+      return obj.client_reference_id;
+    }
+
+    return null;
+  }
+
+  private async handleEvent(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    switch (event.type) {
+      case "checkout.session.completed":
+        return this.handleCheckoutCompleted(event);
+      
+      case "invoice.paid":
+        return this.handleInvoicePaid(event);
+      
+      case "customer.subscription.updated":
+        return this.handleSubscriptionUpdated(event);
+      
+      case "customer.subscription.deleted":
+        return this.handleSubscriptionDeleted(event);
+      
+      case "charge.refunded":
+        return this.handleChargeRefunded(event);
+      
+      default:
+        return {
+          status: "ignored",
+          message: `Event type ${event.type} not handled`,
+        };
+    }
+  }
+
+  private async handleCheckoutCompleted(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    const session = event.data.object as Stripe.Checkout.Session;
+    
+    const userId = session.metadata?.userId || session.client_reference_id;
+    if (!userId) {
+      return {
+        status: "failed",
+        error: "No userId found in session metadata or client_reference_id",
+      };
+    }
+
+    if (session.customer) {
+      await this.ensureStripeCustomerMapping(
+        userId,
+        typeof session.customer === "string" ? session.customer : session.customer.id
+      );
+    }
+
+    if (session.mode === "subscription") {
+      return {
+        status: "processed",
+        message: "Subscription checkout completed - will be processed via invoice.paid",
+        userId,
+      };
+    }
+
+    const lineItems = await this.getSessionLineItems(session.id);
+    if (!lineItems || lineItems.length === 0) {
+      return {
+        status: "failed",
+        error: "No line items found in checkout session",
+        userId,
+      };
+    }
+
+    let totalPackPts = 0;
+    const entitlementsGranted: string[] = [];
+
+    for (const item of lineItems) {
+      const priceId = item.price?.id;
+      if (!priceId) continue;
+
+      const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+      if (!internalSku) {
+        console.warn(`Unknown price ID: ${priceId}`);
+        continue;
+      }
+
+      const productDef = PRODUCT_DEFINITIONS[internalSku as InternalSku];
+      if (!productDef) {
+        console.warn(`Unknown internal SKU: ${internalSku}`);
+        continue;
+      }
+
+      const quantity = item.quantity || 1;
+      const idempotencyKey = `stripe_event_${event.id}_${priceId}`;
+
+      if (productDef.type === "CONSUMABLE" && "packptsGrant" in productDef) {
+        const amount = productDef.packptsGrant * quantity;
+        const result = await walletService.earn(
+          userId,
+          amount,
+          `Purchase: ${productDef.name}`,
+          idempotencyKey,
+          { stripeEventId: event.id, priceId, quantity }
+        );
+
+        if (result.success) {
+          totalPackPts += amount;
+        }
+      } else if (productDef.type === "ENTITLEMENT" && "entitlementKey" in productDef) {
+        await storage.grantEntitlement({
+          userId,
+          entitlementKey: productDef.entitlementKey,
+          source: "purchase",
+          sourceReference: event.id,
+          expiresAt: null,
+        });
+        entitlementsGranted.push(productDef.entitlementKey);
+      }
+    }
+
+    return {
+      status: "processed",
+      message: `Granted ${totalPackPts} PackPTS, ${entitlementsGranted.length} entitlements`,
+      userId,
+    };
+  }
+
+  private async handleInvoicePaid(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    const invoice = event.data.object as Stripe.Invoice;
+    
+    const userId = (invoice as any).subscription_details?.metadata?.userId 
+      || invoice.metadata?.userId
+      || await this.getUserIdFromStripeCustomer(
+          typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id
+        );
+
+    if (!userId) {
+      return {
+        status: "failed",
+        error: "No userId found for invoice",
+      };
+    }
+
+    const subscriptionId = typeof (invoice as any).subscription === "string" 
+      ? (invoice as any).subscription 
+      : (invoice as any).subscription?.id;
+
+    if (!subscriptionId) {
+      return {
+        status: "ignored",
+        message: "Invoice is not for a subscription",
+        userId,
+      };
+    }
+
+    const stripeClient = getStripe();
+    const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
+    
+    const priceId = subscription.items.data[0]?.price?.id;
+    if (!priceId) {
+      return {
+        status: "failed",
+        error: "No price found in subscription",
+        userId,
+      };
+    }
+
+    const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+    const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+    if (!productDef || productDef.type !== "SUBSCRIPTION" || !("entitlementKey" in productDef)) {
+      return {
+        status: "failed",
+        error: `Unknown or invalid subscription product: ${priceId}`,
+        userId,
+      };
+    }
+
+    const currentPeriodEnd = new Date((subscription as any).current_period_end * 1000);
+    const gracePeriod = 3 * 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
+
+    await storage.grantEntitlement({
+      userId,
+      entitlementKey: productDef.entitlementKey,
+      source: "purchase",
+      sourceReference: event.id,
+      expiresAt,
+    });
+
+    return {
+      status: "processed",
+      message: `Subscription entitlement '${productDef.entitlementKey}' granted until ${expiresAt.toISOString()}`,
+      userId,
+    };
+  }
+
+  private async handleSubscriptionUpdated(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    const subscription = event.data.object as Stripe.Subscription;
+    
+    const userId = subscription.metadata?.userId 
+      || await this.getUserIdFromStripeCustomer(
+          typeof subscription.customer === "string" ? subscription.customer : (subscription.customer as any)?.id
+        );
+
+    if (!userId) {
+      return {
+        status: "failed",
+        error: "No userId found for subscription",
+      };
+    }
+
+    if (subscription.status === "active" || subscription.status === "trialing") {
+      const priceId = subscription.items.data[0]?.price?.id;
+      const internalSku = priceId ? (getInternalSku(priceId) || this.extractSkuFromPriceId(priceId)) : null;
+      const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+      if (productDef && productDef.type === "SUBSCRIPTION" && "entitlementKey" in productDef) {
+        const currentPeriodEnd = new Date((subscription as any).current_period_end * 1000);
+        const gracePeriod = 3 * 24 * 60 * 60 * 1000;
+        const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
+
+        await storage.grantEntitlement({
+          userId,
+          entitlementKey: productDef.entitlementKey,
+          source: "purchase",
+          sourceReference: event.id,
+          expiresAt,
+        });
+
+        return {
+          status: "processed",
+          message: `Subscription entitlement updated, expires ${expiresAt.toISOString()}`,
+          userId,
+        };
+      }
+    }
+
+    return {
+      status: "ignored",
+      message: `Subscription status: ${subscription.status}`,
+      userId,
+    };
+  }
+
+  private async handleSubscriptionDeleted(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    const subscription = event.data.object as Stripe.Subscription;
+    
+    const userId = subscription.metadata?.userId 
+      || await this.getUserIdFromStripeCustomer(
+          typeof subscription.customer === "string" ? subscription.customer : (subscription.customer as any)?.id
+        );
+
+    if (!userId) {
+      return {
+        status: "ignored",
+        message: "No userId found for canceled subscription",
+      };
+    }
+
+    return {
+      status: "processed",
+      message: "Subscription canceled - entitlement will expire naturally",
+      userId,
+    };
+  }
+
+  private async handleChargeRefunded(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    const charge = event.data.object as Stripe.Charge;
+    
+    const userId = charge.metadata?.userId;
+    if (!userId) {
+      return {
+        status: "ignored",
+        message: "No userId in refunded charge metadata",
+      };
+    }
+
+    console.warn(`Refund processed for user ${userId}, charge ${charge.id}. Manual review recommended.`);
+
+    return {
+      status: "processed",
+      message: `Refund logged for charge ${charge.id}. Manual review recommended for potential PackPTS reversal.`,
+      userId,
+    };
+  }
+
+  async syncUserPurchases(userId: string, stripeCustomerId?: string): Promise<SyncResult> {
+    const result: SyncResult = {
+      userId,
+      processedEvents: 0,
+      grantedPackPts: 0,
+      grantedEntitlements: [],
+      errors: [],
+    };
+
+    if (!isStripeConfigured()) {
+      result.errors.push("Stripe is not configured");
+      return result;
+    }
+
+    const stripeClient = getStripe();
+
+    let customerId = stripeCustomerId;
+    if (!customerId) {
+      const customerMapping = await db
+        .select()
+        .from(stripeCustomers)
+        .where(eq(stripeCustomers.userId, userId))
+        .limit(1);
+      
+      customerId = customerMapping[0]?.stripeCustomerId;
+    }
+
+    if (!customerId) {
+      result.errors.push("No Stripe customer found for user");
+      return result;
+    }
+
+    try {
+      const paymentIntents = await stripeClient.paymentIntents.list({
+        customer: customerId,
+        limit: 100,
+      });
+
+      for (const pi of paymentIntents.data) {
+        if (pi.status !== "succeeded") continue;
+
+        const syntheticEventId = `sync_pi_${pi.id}`;
+        
+        const existing = await db
+          .select()
+          .from(purchaseEvents)
+          .where(eq(purchaseEvents.eventId, syntheticEventId))
+          .limit(1);
+
+        if (existing.length > 0) continue;
+
+        const piUserId = pi.metadata?.userId;
+        if (piUserId && piUserId !== userId) continue;
+
+        await db.insert(purchaseEvents).values({
+          eventId: syntheticEventId,
+          eventType: "sync.payment_intent.succeeded",
+          userId,
+          payload: pi as unknown as Record<string, unknown>,
+          status: "processed",
+          processedAt: new Date(),
+        });
+
+        result.processedEvents++;
+      }
+
+      const subscriptions = await stripeClient.subscriptions.list({
+        customer: customerId,
+        status: "all",
+        limit: 100,
+      });
+
+      for (const sub of subscriptions.data) {
+        if (sub.status !== "active" && sub.status !== "trialing") continue;
+
+        const priceId = sub.items.data[0]?.price?.id;
+        if (!priceId) continue;
+
+        const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+        const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+        if (!productDef || productDef.type !== "SUBSCRIPTION" || !("entitlementKey" in productDef)) {
+          continue;
+        }
+
+        const hasEntitlement = await storage.hasEntitlement(userId, productDef.entitlementKey);
+        
+        if (!hasEntitlement) {
+          const currentPeriodEnd = new Date((sub as any).current_period_end * 1000);
+          const gracePeriod = 3 * 24 * 60 * 60 * 1000;
+          const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
+
+          await storage.grantEntitlement({
+            userId,
+            entitlementKey: productDef.entitlementKey,
+            source: "sync",
+            sourceReference: `sync_sub_${sub.id}`,
+            expiresAt,
+          });
+
+          result.grantedEntitlements.push(productDef.entitlementKey);
+        }
+      }
+
+    } catch (error) {
+      result.errors.push(error instanceof Error ? error.message : "Unknown error during sync");
+    }
+
+    return result;
+  }
+
+  private async getSessionLineItems(sessionId: string): Promise<Stripe.LineItem[] | null> {
+    try {
+      const stripeClient = getStripe();
+      const lineItems = await stripeClient.checkout.sessions.listLineItems(sessionId);
+      return lineItems.data;
+    } catch (error) {
+      console.error("Error fetching session line items:", error);
+      return null;
+    }
+  }
+
+  private async ensureStripeCustomerMapping(userId: string, stripeCustomerId: string): Promise<void> {
+    await db
+      .insert(stripeCustomers)
+      .values({
+        userId,
+        stripeCustomerId,
+      })
+      .onConflictDoNothing();
+  }
+
+  private async getUserIdFromStripeCustomer(stripeCustomerId: string | undefined): Promise<string | null> {
+    if (!stripeCustomerId) return null;
+
+    const mapping = await db
+      .select()
+      .from(stripeCustomers)
+      .where(eq(stripeCustomers.stripeCustomerId, stripeCustomerId))
+      .limit(1);
+
+    return mapping[0]?.userId || null;
+  }
+
+  private extractSkuFromPriceId(priceId: string): string | null {
+    const patterns: Record<string, string> = {
+      "packpts_500": "PACKPTS_500",
+      "packpts_1500": "PACKPTS_1500",
+      "packpts_6000": "PACKPTS_6000",
+      "pro_monthly": "PRO_MONTHLY",
+      "legend_mode": "LEGEND_MODE_PASS",
+    };
+
+    const lowerPriceId = priceId.toLowerCase();
+    for (const [pattern, sku] of Object.entries(patterns)) {
+      if (lowerPriceId.includes(pattern)) {
+        return sku;
+      }
+    }
+
+    return null;
+  }
+
+  async getPurchaseEvent(eventId: string) {
+    const events = await db
+      .select()
+      .from(purchaseEvents)
+      .where(eq(purchaseEvents.eventId, eventId))
+      .limit(1);
+    return events[0] || null;
+  }
+
+  async reprocessEvent(eventId: string): Promise<WebhookProcessResult> {
+    const storedEvent = await this.getPurchaseEvent(eventId);
+    if (!storedEvent) {
+      return {
+        success: false,
+        eventId,
+        status: "failed",
+        error: "Event not found",
+      };
+    }
+
+    const event = storedEvent.payload as unknown as Stripe.Event;
+    
+    await db
+      .update(purchaseEvents)
+      .set({ status: "received", errorMessage: null, updatedAt: new Date() })
+      .where(eq(purchaseEvents.eventId, eventId));
+
+    try {
+      const result = await this.handleEvent(event);
+      
+      await db
+        .update(purchaseEvents)
+        .set({
+          status: result.status,
+          errorMessage: result.error || null,
+          processedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseEvents.eventId, eventId));
+
+      return {
+        success: result.status === "processed",
+        eventId,
+        status: result.status,
+        message: result.message,
+        error: result.error,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      
+      await db
+        .update(purchaseEvents)
+        .set({
+          status: "failed",
+          errorMessage,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseEvents.eventId, eventId));
+
+      return {
+        success: false,
+        eventId,
+        status: "failed",
+        error: errorMessage,
+      };
+    }
+  }
+}
+
+export const stripePurchaseService = new StripePurchaseService();
