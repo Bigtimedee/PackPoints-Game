@@ -862,5 +862,32 @@ export async function registerRoutes(
     }
   });
 
+  // Product catalog endpoints
+  app.get("/api/products", async (_req, res) => {
+    try {
+      const products = await storage.getProducts(true);
+      res.json(products);
+    } catch (error) {
+      console.error("Error getting products:", error);
+      res.status(500).json({ error: "Failed to get products" });
+    }
+  });
+
+  // User entitlements endpoint (requires auth)
+  app.get("/api/me/entitlements", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const entitlements = await storage.getUserEntitlements(userId);
+      res.json(entitlements);
+    } catch (error) {
+      console.error("Error getting user entitlements:", error);
+      res.status(500).json({ error: "Failed to get entitlements" });
+    }
+  });
+
   return httpServer;
 }
