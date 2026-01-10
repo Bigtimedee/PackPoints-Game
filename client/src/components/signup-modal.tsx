@@ -36,8 +36,11 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
       }
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: async () => {
+      // Wait for auth query to complete refetch before calling onSuccess
+      // This ensures isAuthenticated is updated before starting a new game
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
       queryClient.invalidateQueries({ queryKey: ["/api/guest/pending-points"] });
       onOpenChange(false);
       form.reset();
