@@ -348,6 +348,198 @@ class WalletService {
       .limit(limit)
       .offset(offset);
   }
+
+  async purchaseCredit(
+    userId: string,
+    amount: number,
+    reason: string,
+    idempotencyKey: string,
+    metadata?: Record<string, unknown>
+  ): Promise<WalletOperationResult> {
+    if (amount <= 0) {
+      return { success: false, error: "Amount must be positive" };
+    }
+
+    return await db.transaction(async (tx) => {
+      const existingEntry = await tx
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .for("update")
+        .limit(1);
+      
+      if (existingEntry.length > 0) {
+        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+        return { 
+          success: true, 
+          wallet: wallet!, 
+          ledgerEntry: existingEntry[0], 
+          idempotent: true 
+        };
+      }
+
+      let [wallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+        .limit(1);
+      
+      if (!wallet) {
+        const [newWallet] = await tx.insert(wallets).values({
+          userId,
+          balance: 0,
+          lifetimeEarned: 0,
+          lifetimeSpent: 0,
+          status: "active",
+        }).returning();
+        wallet = newWallet;
+      }
+      
+      if (wallet.status !== "active") {
+        return { success: false, error: `Wallet is ${wallet.status}` };
+      }
+
+      const newBalance = wallet.balance + amount;
+      const newLifetimeEarned = wallet.lifetimeEarned + amount;
+
+      const insertedEntries = await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: wallet.id,
+          entryType: "PURCHASE_CREDIT" as LedgerEntryType,
+          amount: amount,
+          balanceAfter: newBalance,
+          reason,
+          metadata: metadata || null,
+          idempotencyKey,
+        })
+        .onConflictDoNothing({ target: ledgerEntries.idempotencyKey })
+        .returning();
+
+      if (insertedEntries.length === 0) {
+        const [existingLedger] = await tx.select().from(ledgerEntries).where(eq(ledgerEntries.idempotencyKey, idempotencyKey)).limit(1);
+        return { success: true, wallet: wallet, ledgerEntry: existingLedger, idempotent: true };
+      }
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeEarned: newLifetimeEarned,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
+      const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };
+      return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
+    });
+  }
+
+  async reversal(
+    userId: string,
+    amount: number,
+    reason: string,
+    idempotencyKey: string,
+    originalIdempotencyKey: string,
+    metadata?: Record<string, unknown>
+  ): Promise<WalletOperationResult> {
+    if (amount <= 0) {
+      return { success: false, error: "Amount must be positive" };
+    }
+
+    return await db.transaction(async (tx) => {
+      const existingReversal = await tx
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .for("update")
+        .limit(1);
+      
+      if (existingReversal.length > 0) {
+        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+        return { 
+          success: true, 
+          wallet: wallet!, 
+          ledgerEntry: existingReversal[0], 
+          idempotent: true 
+        };
+      }
+
+      const originalEntry = await tx
+        .select()
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, originalIdempotencyKey))
+        .limit(1);
+      
+      if (originalEntry.length === 0) {
+        return { 
+          success: false, 
+          error: "Original transaction not found - nothing to reverse" 
+        };
+      }
+
+      const [wallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+        .limit(1);
+      
+      if (!wallet) {
+        return { success: false, error: "Wallet not found" };
+      }
+
+      const newBalance = wallet.balance - amount;
+      
+      if (newBalance < 0) {
+        return { success: false, error: "Reversal would result in negative balance" };
+      }
+
+      const insertedEntries = await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: wallet.id,
+          entryType: "REVERSAL" as LedgerEntryType,
+          amount: -amount,
+          balanceAfter: newBalance,
+          reason,
+          metadata: { 
+            ...metadata, 
+            originalIdempotencyKey,
+            originalEntryId: originalEntry[0].id 
+          },
+          idempotencyKey,
+        })
+        .onConflictDoNothing({ target: ledgerEntries.idempotencyKey })
+        .returning();
+
+      if (insertedEntries.length === 0) {
+        const [existingLedger] = await tx.select().from(ledgerEntries).where(eq(ledgerEntries.idempotencyKey, idempotencyKey)).limit(1);
+        return { success: true, wallet: wallet, ledgerEntry: existingLedger, idempotent: true };
+      }
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
+      const updatedWallet = { ...wallet, balance: newBalance };
+      return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
+    });
+  }
+
+  async findLedgerEntryByIdempotencyKey(idempotencyKey: string): Promise<LedgerEntry | null> {
+    const result = await db
+      .select()
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+      .limit(1);
+    return result.length > 0 ? result[0] : null;
+  }
 }
 
 export const walletService = new WalletService();

@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { db } from "../db";
 import { purchaseEvents, stripeCustomers, type PurchaseEventStatus } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
 import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku } from "./productMap";
@@ -251,15 +251,15 @@ class StripePurchaseService {
           console.warn(`Invalid amount ${amount} for product: ${productDef.name}`);
           continue;
         }
-        const result = await walletService.earn(
+        const result = await walletService.purchaseCredit(
           userId,
           amount,
           `Purchase: ${productDef.name}`,
           idempotencyKey,
-          { stripeEventId: event.id, priceId, quantity }
+          { stripeEventId: event.id, priceId, quantity, sku: internalSku }
         );
 
-        if (result.success) {
+        if (result.success && !result.idempotent) {
           totalPackPts += amount;
         }
       } else if (productDef.type === "ENTITLEMENT" && "entitlementKey" in productDef) {
@@ -444,19 +444,101 @@ class StripePurchaseService {
   }> {
     const charge = event.data.object as Stripe.Charge;
     
-    const userId = charge.metadata?.userId;
+    const userId = charge.metadata?.userId 
+      || await this.getUserIdFromStripeCustomer(
+          typeof charge.customer === "string" ? charge.customer : (charge.customer as any)?.id
+        );
+
     if (!userId) {
       return {
         status: "ignored",
-        message: "No userId in refunded charge metadata",
+        message: "No userId found for refunded charge",
       };
     }
 
-    console.warn(`Refund processed for user ${userId}, charge ${charge.id}. Manual review recommended.`);
+    const paymentIntentId = typeof charge.payment_intent === "string" 
+      ? charge.payment_intent 
+      : (charge.payment_intent as any)?.id;
+
+    let reversedAmount = 0;
+    const reversalErrors: string[] = [];
+
+    if (paymentIntentId) {
+      const stripeClient = getStripe();
+      
+      try {
+        const sessions = await stripeClient.checkout.sessions.list({
+          payment_intent: paymentIntentId,
+          limit: 1,
+        });
+
+        if (sessions.data.length > 0) {
+          const session = sessions.data[0];
+          const lineItems = await this.getSessionLineItems(session.id);
+
+          if (lineItems) {
+            for (const item of lineItems) {
+              const priceId = item.price?.id;
+              if (!priceId) continue;
+
+              const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+              const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+              if (!productDef) continue;
+
+              if (productDef.type === "CONSUMABLE" && "packptsGrant" in productDef) {
+                const quantity = item.quantity || 1;
+                const amount = productDef.packptsGrant * quantity;
+                
+                const reversalIdempotencyKey = `stripe_refund_${event.id}_${priceId}`;
+                
+                const originalEntry = await this.findOriginalPurchaseEntry(
+                  userId, 
+                  priceId, 
+                  session.id
+                );
+                
+                if (originalEntry) {
+                  const originalIdempotencyKey = originalEntry.idempotencyKey!;
+                  const reversalResult = await walletService.reversal(
+                    userId,
+                    amount,
+                    `Refund: ${productDef.name}`,
+                    reversalIdempotencyKey,
+                    originalIdempotencyKey,
+                    { stripeRefundEventId: event.id, chargeId: charge.id, priceId }
+                  );
+
+                  if (reversalResult.success && !reversalResult.idempotent) {
+                    reversedAmount += amount;
+                  } else if (!reversalResult.success) {
+                    reversalErrors.push(reversalResult.error || "Unknown reversal error");
+                  }
+                } else {
+                  console.warn(`No original purchase found for refund: userId=${userId}, priceId=${priceId}, sessionId=${session.id}`);
+                }
+              } else if ((productDef.type === "ENTITLEMENT" || productDef.type === "SUBSCRIPTION") 
+                  && "entitlementKey" in productDef) {
+                await storage.revokeEntitlement(userId, productDef.entitlementKey, `Refund: ${event.id}`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error processing refund:", error);
+        reversalErrors.push(error instanceof Error ? error.message : "Unknown error");
+      }
+    }
+
+    const message = reversedAmount > 0
+      ? `Reversed ${reversedAmount} PackPTS for charge ${charge.id}`
+      : `Refund logged for charge ${charge.id}. ${reversalErrors.length > 0 ? `Errors: ${reversalErrors.join(", ")}` : "No consumables to reverse."}`;
+
+    console.warn(`Refund processed for user ${userId}: ${message}`);
 
     return {
       status: "processed",
-      message: `Refund logged for charge ${charge.id}. Manual review recommended for potential PackPTS reversal.`,
+      message,
       userId,
     };
   }
@@ -619,6 +701,67 @@ class StripePurchaseService {
       if (lowerPriceId.includes(pattern)) {
         return sku;
       }
+    }
+
+    return null;
+  }
+
+  private async findOriginalPurchaseEntry(
+    userId: string, 
+    priceId: string, 
+    sessionId: string
+  ): Promise<{ idempotencyKey: string; amount: number } | null> {
+    const checkoutEvents = await db
+      .select()
+      .from(purchaseEvents)
+      .where(
+        eq(purchaseEvents.eventType, "checkout.session.completed")
+      )
+      .orderBy(sql`${purchaseEvents.createdAt} DESC`)
+      .limit(100);
+
+    for (const evt of checkoutEvents) {
+      const payload = evt.payload as any;
+      const eventSessionId = payload?.data?.object?.id;
+      
+      if (eventSessionId === sessionId) {
+        const originalIdempotencyKey = `stripe_event_${evt.eventId}_${priceId}`;
+        const ledgerEntry = await walletService.findLedgerEntryByIdempotencyKey(originalIdempotencyKey);
+        
+        if (ledgerEntry) {
+          return {
+            idempotencyKey: originalIdempotencyKey,
+            amount: ledgerEntry.amount,
+          };
+        }
+      }
+    }
+
+    const patternKey = `stripe_event_%_${priceId}`;
+    const { ledgerEntries: ledgerEntriesTable, wallets: walletsTable } = await import("@shared/schema");
+    
+    const matchingEntries = await db
+      .select({
+        idempotencyKey: ledgerEntriesTable.idempotencyKey,
+        amount: ledgerEntriesTable.amount,
+        walletUserId: walletsTable.userId,
+      })
+      .from(ledgerEntriesTable)
+      .innerJoin(walletsTable, eq(ledgerEntriesTable.walletId, walletsTable.id))
+      .where(
+        sql`${ledgerEntriesTable.idempotencyKey} LIKE ${'stripe_event_%'} 
+            AND ${ledgerEntriesTable.idempotencyKey} LIKE ${'%' + priceId}
+            AND ${walletsTable.userId} = ${userId}
+            AND ${ledgerEntriesTable.entryType} = 'PURCHASE_CREDIT'`
+      )
+      .orderBy(sql`${ledgerEntriesTable.createdAt} DESC`)
+      .limit(1);
+
+    if (matchingEntries.length > 0 && matchingEntries[0].idempotencyKey) {
+      return {
+        idempotencyKey: matchingEntries[0].idempotencyKey,
+        amount: matchingEntries[0].amount,
+      };
     }
 
     return null;

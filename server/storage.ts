@@ -48,6 +48,7 @@ export interface IStorage {
   getUserEntitlements(userId: string): Promise<UserEntitlement[]>;
   hasEntitlement(userId: string, entitlementKey: string): Promise<boolean>;
   grantEntitlement(entitlement: InsertUserEntitlement): Promise<UserEntitlement>;
+  revokeEntitlement(userId: string, entitlementKey: string, reason?: string): Promise<void>;
   
   initialize(): Promise<void>;
 }
@@ -359,6 +360,24 @@ export class DatabaseStorage implements IStorage {
   async grantEntitlement(entitlement: InsertUserEntitlement): Promise<UserEntitlement> {
     const [created] = await db.insert(userEntitlements).values(entitlement).returning();
     return created;
+  }
+
+  async revokeEntitlement(userId: string, entitlementKey: string, reason?: string): Promise<void> {
+    await db
+      .update(userEntitlements)
+      .set({ 
+        expiresAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(userEntitlements.userId, userId),
+          eq(userEntitlements.entitlementKey, entitlementKey),
+          sql`(${userEntitlements.expiresAt} IS NULL OR ${userEntitlements.expiresAt} > NOW())`
+        )
+      );
+    
+    console.log(`Revoked entitlement ${entitlementKey} for user ${userId}${reason ? `: ${reason}` : ""}`);
   }
 }
 
