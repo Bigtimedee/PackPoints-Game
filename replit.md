@@ -49,3 +49,21 @@ A comprehensive wallet system tracks user points (PackPTS) using a ledger-first 
 - **Card Hedge API**: Primary source for baseball card images.
 - **Zyla API**: Fallback for fetching additional card images.
 - **Goldin Auctions & eBay**: Planned integration for point redemption.
+
+### Admin Tools
+The admin system provides comprehensive management capabilities:
+- **User Management**: View users, search, and access detailed user profiles
+- **Wallet Management**: Adjust PackPTS balances with audit logging via `adminService.adjustWalletBalance()`
+- **Entitlement Management**: Grant/revoke user entitlements (Pro, Legend tiers)
+- **Feature Flags**: Toggle platform features via `feature_flags` table
+- **Audit Logging**: All admin actions recorded to `admin_audit_log` table
+- **Metrics Dashboard**: DAU, conversion rates, and PackPTS liability tracking
+
+Admin UI pages: `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin/metrics`, `/admin/audit-log`, `/admin/cards`
+
+### Analytics System
+Event tracking via `analyticsService` with pluggable dispatcher pattern:
+- **Events tracked**: `match_started`, `match_completed`, `pts_earned`, `pts_spent`, `store_viewed`, `purchase_started`, `purchase_completed`, `redeem_started`, `redeem_completed`
+- **Database storage**: Events logged to `event_log` table
+- **Extensible**: Dispatcher interface supports adding Segment/Amplitude integrations without code changes
+- **Integration points**: Match lifecycle, wallet operations, store views, purchase flows
