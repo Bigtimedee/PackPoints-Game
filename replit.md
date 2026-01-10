@@ -201,11 +201,22 @@ If your Stripe price IDs don't follow the pattern naming convention, set these:
 4. Copy the webhook signing secret from CLI output to `STRIPE_WEBHOOK_SECRET`
 5. Trigger test events: `stripe trigger checkout.session.completed`
 
+#### Purchase Fulfillment:
+- **CONSUMABLE products**: Grant PackPTS via `PURCHASE_CREDIT` ledger entry with idempotency_key = `stripe_event_{eventId}_{priceId}`
+- **ENTITLEMENT products**: Upsert `user_entitlements` with `expiresAt=null` for lifetime access
+- **SUBSCRIPTION products**: Upsert `user_entitlements` with `expiresAt` set to period_end + 3-day grace period
+
+#### Refund/Cancellation Handling:
+- **Consumables**: Creates `REVERSAL` ledger entry if original purchase is found, deducting previously credited PackPTS
+- **Entitlements/Subscriptions**: Immediately revokes entitlement by setting `expiresAt` to now
+- **Idempotency**: Duplicate refund webhooks are safely ignored
+- **Fallback search**: If checkout event not matched, searches ledger by user+priceId pattern
+
 #### Security:
 - All PackPTS credits granted server-side only after webhook verification
 - Idempotency keys prevent duplicate processing (`stripe_event_{eventId}_{priceId}`)
 - Subscription entitlements include 3-day grace period after expiry
-- Refunds logged for manual review - automatic reversal not implemented
+- Reversals only occur if original purchase ledger entry exists (prevents balance going negative)
 
 ### Product Catalog System
 - **Database Table**: `products` - SKU, name, type, packpts_grant, entitlement_key, duration_days, price_usd
