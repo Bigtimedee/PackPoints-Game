@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -38,6 +38,16 @@ export interface IStorage {
   getLeaderboard(limit?: number): Promise<LeaderboardEntry[]>;
   
   getRedemptionOptions(): Promise<RedemptionOption[]>;
+  
+  // Product catalog methods
+  getProducts(activeOnly?: boolean): Promise<Product[]>;
+  getProductBySku(sku: string): Promise<Product | undefined>;
+  createProduct(product: InsertProduct): Promise<Product>;
+  
+  // User entitlements methods
+  getUserEntitlements(userId: string): Promise<UserEntitlement[]>;
+  hasEntitlement(userId: string, entitlementKey: string): Promise<boolean>;
+  grantEntitlement(entitlement: InsertUserEntitlement): Promise<UserEntitlement>;
   
   initialize(): Promise<void>;
 }
@@ -298,6 +308,57 @@ export class DatabaseStorage implements IStorage {
 
   async getRedemptionOptions(): Promise<RedemptionOption[]> {
     return REDEMPTION_OPTIONS;
+  }
+
+  async getProducts(activeOnly: boolean = true): Promise<Product[]> {
+    if (activeOnly) {
+      return await db.select().from(products).where(eq(products.isActive, true));
+    }
+    return await db.select().from(products);
+  }
+
+  async getProductBySku(sku: string): Promise<Product | undefined> {
+    const result = await db.select().from(products).where(eq(products.sku, sku)).limit(1);
+    return result[0];
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const [created] = await db.insert(products).values(product).returning();
+    return created;
+  }
+
+  async getUserEntitlements(userId: string): Promise<UserEntitlement[]> {
+    const now = new Date();
+    return await db
+      .select()
+      .from(userEntitlements)
+      .where(
+        and(
+          eq(userEntitlements.userId, userId),
+          sql`(${userEntitlements.expiresAt} IS NULL OR ${userEntitlements.expiresAt} > ${now})`
+        )
+      );
+  }
+
+  async hasEntitlement(userId: string, entitlementKey: string): Promise<boolean> {
+    const now = new Date();
+    const result = await db
+      .select()
+      .from(userEntitlements)
+      .where(
+        and(
+          eq(userEntitlements.userId, userId),
+          eq(userEntitlements.entitlementKey, entitlementKey),
+          sql`(${userEntitlements.expiresAt} IS NULL OR ${userEntitlements.expiresAt} > ${now})`
+        )
+      )
+      .limit(1);
+    return result.length > 0;
+  }
+
+  async grantEntitlement(entitlement: InsertUserEntitlement): Promise<UserEntitlement> {
+    const [created] = await db.insert(userEntitlements).values(entitlement).returning();
+    return created;
   }
 }
 
