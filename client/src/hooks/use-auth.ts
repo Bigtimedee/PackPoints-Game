@@ -18,6 +18,10 @@ async function fetchUser(): Promise<User | null> {
 }
 
 async function logout(): Promise<void> {
+  await fetch("/api/auth/local-logout", {
+    method: "POST",
+    credentials: "include",
+  });
   window.location.href = "/api/logout";
 }
 

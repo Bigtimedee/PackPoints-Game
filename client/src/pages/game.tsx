@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { SignupModal } from "@/components/signup-modal";
 import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle } from "lucide-react";
 import { SiX, SiFacebook } from "react-icons/si";
 import type { GameSession, GameQuestion } from "@shared/schema";
@@ -147,12 +149,14 @@ function PointsAnimation({ points, show }: { points: number; show: boolean }) {
 export default function Game() {
   const { mode } = useParams<{ mode: string }>();
   const { toast } = useToast();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [earnedPoints, setEarnedPoints] = useState(0);
   const [showPointsAnimation, setShowPointsAnimation] = useState(false);
+  const [showSignupModal, setShowSignupModal] = useState(false);
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
     queryKey: ["/api/game/session", sessionId],
@@ -163,7 +167,6 @@ export default function Game() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/game/start", {
         mode: mode || "solo",
-        userId: "guest",
         totalQuestions: 10,
       });
       return res.json();
@@ -283,6 +286,13 @@ export default function Game() {
   const isGameOver = session.status === "completed";
   const progress = ((session.currentQuestionIndex + (isRevealed ? 1 : 0)) / session.totalQuestions) * 100;
 
+  useEffect(() => {
+    if (isGameOver && !isAuthenticated && session.score > 0 && !showSignupModal) {
+      const timer = setTimeout(() => setShowSignupModal(true), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isGameOver, isAuthenticated, session?.score]);
+
   if (isGameOver) {
     const accuracy = session.totalQuestions > 0 
       ? Math.round((session.correctAnswers / session.totalQuestions) * 100) 
@@ -400,6 +410,20 @@ export default function Game() {
               </div>
             </div>
             
+            {!isAuthenticated && session.score > 0 && (
+              <div className="pt-2">
+                <Button 
+                  onClick={() => setShowSignupModal(true)} 
+                  variant="secondary" 
+                  className="w-full gap-2"
+                  data-testid="button-save-points"
+                >
+                  <Zap className="h-4 w-4" />
+                  Save Your {session.score} Points - Create Account
+                </Button>
+              </div>
+            )}
+
             <div className="flex flex-col gap-3 pt-2">
               <Button onClick={handlePlayAgain} className="gap-2" data-testid="button-play-again">
                 <RefreshCw className="h-4 w-4" />
@@ -414,6 +438,18 @@ export default function Game() {
             </div>
           </CardContent>
         </Card>
+
+        <SignupModal 
+          open={showSignupModal} 
+          onOpenChange={setShowSignupModal}
+          pendingPoints={session.score}
+          onSuccess={() => {
+            toast({
+              title: "Account Created!",
+              description: `Your ${session.score} points have been saved to your account.`,
+            });
+          }}
+        />
       </div>
     );
   }

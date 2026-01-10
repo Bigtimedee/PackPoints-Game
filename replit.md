@@ -98,13 +98,27 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Security**: Same membership secret model as 1v1 Friend mode
 - **Frontend**: Queue page (/queue) with search timer, cancel button, auto-redirect on match
 
-### Authentication System (Replit Auth)
-- **Provider**: Replit OpenID Connect (supports Google, GitHub, Apple, email/password)
+### Authentication System (Dual Auth)
+- **Replit Auth**: OpenID Connect (supports Google, GitHub, Apple, email/password)
+- **Local Auth**: Username/password registration for guest-to-user conversion
 - **Session Storage**: PostgreSQL via connect-pg-simple
-- **Auth Routes**: /api/login, /api/logout, /api/auth/user
-- **User Schema**: id, email, firstName, lastName, profileImageUrl, points, gamesPlayed, correctAnswers, totalAnswers, isAdmin
-- **Protected Routes**: Game endpoints require authentication; profile/stats uses authenticated user
+- **Auth Routes**: 
+  - /api/login, /api/logout - Replit OAuth flow
+  - /api/auth/register - Local user registration (username/password)
+  - /api/auth/local-login, /api/auth/local-logout - Local session management
+  - /api/auth/user - Returns authenticated user (checks both Replit Auth and local auth)
+- **User Schema**: id, username, email, firstName, lastName, profileImageUrl, points, gamesPlayed, correctAnswers, totalAnswers, isAdmin
+- **Local Credentials**: Stored in `local_credentials` table with bcrypt-hashed passwords
+- **Token Refresh**: Automatic token refresh for Replit Auth users in /api/auth/user endpoint
+- **Protected Routes**: Non-solo game modes require authentication; profile/stats uses authenticated user
 - **Client Hook**: useAuth() provides user, isLoading, isAuthenticated, logout
+
+### Guest Play Flow (1vComputer)
+- **Guest Sessions**: Solo mode allows unauthenticated play using session-based guestSessionId
+- **Pending Points**: Guest game scores stored in `req.session.pendingPoints` until account creation
+- **Account Creation Modal**: Shows after game completion for guests with earned points
+- **Point Transfer**: When guest creates account, pending points are transferred to new user
+- **Signup Form**: Uses react-hook-form with Zod validation (registerSchema)
 
 ### Admin Portal
 - **Access**: Navigate to `/admin`, requires authenticated user with isAdmin=true
