@@ -77,6 +77,7 @@ export function Header() {
   };
 
   return (
+    <>
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
         <Link href="/" className="flex items-center gap-2">
@@ -160,8 +161,9 @@ export function Header() {
           )}
         </div>
       </div>
+    </header>
 
-      <AlertDialog open={showLoginWarning} onOpenChange={setShowLoginWarning}>
+    <AlertDialog open={showLoginWarning} onOpenChange={setShowLoginWarning}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-2">
@@ -184,7 +186,7 @@ export function Header() {
             <AlertDialogCancel>Got it</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
-    </header>
+    </AlertDialog>
+    </>
   );
 }
