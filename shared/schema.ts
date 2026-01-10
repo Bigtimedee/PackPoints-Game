@@ -377,3 +377,57 @@ export const insertUserEntitlementSchema = createInsertSchema(userEntitlements).
 
 export type InsertUserEntitlement = z.infer<typeof insertUserEntitlementSchema>;
 export type UserEntitlement = typeof userEntitlements.$inferSelect;
+
+// Purchase event status enum
+export const purchaseEventStatuses = ["received", "processed", "failed", "ignored"] as const;
+export type PurchaseEventStatus = typeof purchaseEventStatuses[number];
+
+// Purchase events - raw webhook payload log for auditing and retry
+export const purchaseEvents = pgTable("purchase_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventId: varchar("event_id", { length: 200 }).notNull().unique(), // Stripe event ID
+  eventType: varchar("event_type", { length: 100 }).notNull(), // checkout.session.completed, invoice.paid, etc.
+  userId: varchar("user_id"), // resolved from metadata, null if unknown
+  payload: jsonb("payload").notNull(), // raw Stripe event payload
+  status: varchar("status", { length: 20 }).notNull().default("received"), // received, processed, failed, ignored
+  errorMessage: text("error_message"),
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_purchase_events_event_id").on(table.eventId),
+  index("idx_purchase_events_user").on(table.userId),
+  index("idx_purchase_events_status").on(table.status),
+  index("idx_purchase_events_created").on(table.createdAt),
+]);
+
+export const insertPurchaseEventSchema = createInsertSchema(purchaseEvents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  processedAt: true,
+});
+
+export type InsertPurchaseEvent = z.infer<typeof insertPurchaseEventSchema>;
+export type PurchaseEvent = typeof purchaseEvents.$inferSelect;
+
+// Stripe customer mapping for sync operations
+export const stripeCustomers = pgTable("stripe_customers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 100 }).notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_stripe_customers_user").on(table.userId),
+  index("idx_stripe_customers_stripe").on(table.stripeCustomerId),
+]);
+
+export const insertStripeCustomerSchema = createInsertSchema(stripeCustomers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStripeCustomer = z.infer<typeof insertStripeCustomerSchema>;
+export type StripeCustomer = typeof stripeCustomers.$inferSelect;
