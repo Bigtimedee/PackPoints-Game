@@ -31,9 +31,11 @@ import {
   Coins,
   DollarSign,
   Percent,
-  ArrowUpDown
+  ArrowUpDown,
+  Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
 interface RedemptionTier {
   id: string;
@@ -222,6 +224,7 @@ export default function AdminTiers() {
                     <TableHead className="text-right">Rate %</TableHead>
                     <TableHead className="text-right">Actual Payout</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Last Updated</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -254,6 +257,16 @@ export default function AdminTiers() {
                             <Badge variant="default">Active</Badge>
                           ) : (
                             <Badge variant="secondary">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {tier.updatedAt ? (
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {format(new Date(tier.updatedAt), "MMM d, HH:mm")}
+                            </div>
+                          ) : (
+                            <span>-</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
