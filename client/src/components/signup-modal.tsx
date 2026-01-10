@@ -29,16 +29,25 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterRequest) => {
-      const res = await apiRequest("POST", "/api/auth/register", data);
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Registration failed");
+      try {
+        const res = await apiRequest("POST", "/api/auth/register", data);
+        return res.json();
+      } catch (error: any) {
+        // Handle network errors (e.g., Safari's "Load failed")
+        if (error.message === "Load failed" || error.message === "Failed to fetch") {
+          throw new Error("Network error. Please check your connection and try again.");
+        }
+        // Handle server errors with status codes
+        if (error.message.startsWith("409:")) {
+          throw new Error("Username already taken");
+        }
+        if (error.message.startsWith("400:")) {
+          throw new Error("Invalid username or password format");
+        }
+        throw error;
       }
-      return res.json();
     },
     onSuccess: async () => {
-      // Wait for auth query to complete refetch before calling onSuccess
-      // This ensures isAuthenticated is updated before starting a new game
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
       queryClient.invalidateQueries({ queryKey: ["/api/guest/pending-points"] });
