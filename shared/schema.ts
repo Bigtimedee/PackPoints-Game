@@ -611,21 +611,28 @@ export type RedemptionStatus = typeof redemptionStatuses[number];
 export const redemptionTypes = ["store_credit"] as const;
 export type RedemptionType = typeof redemptionTypes[number];
 
-// Redemption tiers - non-linear conversion rates (better rates for higher amounts)
+// Redemption tiers - cap-based conversion with admin margin control
+// PackPTS is a discount instrument, not a cash balance
 export const redemptionTiers = pgTable("redemption_tiers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  minPackpts: integer("min_packpts").notNull(),
-  maxPackpts: integer("max_packpts"), // null means unlimited
-  usdPerThousandPts: integer("usd_per_thousand_pts").notNull(), // USD cents per 1000 PackPTS
+  name: varchar("name", { length: 100 }).notNull(), // e.g., "Starter", "Bronze", "Silver", "Gold"
+  packptsRequired: integer("packpts_required").notNull(), // exact PackPTS amount for this tier
+  usdCapCents: integer("usd_cap_cents").notNull(), // maximum USD value in cents (e.g., 500 = $5)
+  effectiveRatePct: integer("effective_rate_pct").notNull().default(100), // % of cap actually paid (admin margin control)
+  description: varchar("description", { length: 255 }).notNull(), // e.g., "Up to $5 toward a card"
+  sortOrder: integer("sort_order").notNull().default(0), // display ordering
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_redemption_tiers_active").on(table.isActive),
+  index("idx_redemption_tiers_sort").on(table.sortOrder),
 ]);
 
 export const insertRedemptionTierSchema = createInsertSchema(redemptionTiers).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 
 export type InsertRedemptionTier = z.infer<typeof insertRedemptionTierSchema>;

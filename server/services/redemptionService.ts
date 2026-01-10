@@ -52,7 +52,7 @@ class RedemptionService {
       .select()
       .from(redemptionTiers)
       .where(eq(redemptionTiers.isActive, true))
-      .orderBy(redemptionTiers.minPackpts);
+      .orderBy(redemptionTiers.sortOrder);
   }
 
   async calculateTierValue(packptsAmount: number): Promise<TierCalculation | null> {
@@ -62,19 +62,21 @@ class RedemptionService {
       return null;
     }
 
-    for (const tier of tiers) {
-      const minMatch = packptsAmount >= tier.minPackpts;
-      const maxMatch = tier.maxPackpts === null || packptsAmount <= tier.maxPackpts;
+    // Find the exact tier matching the PackPTS amount
+    const tier = tiers.find(t => t.packptsRequired === packptsAmount);
+    
+    if (tier) {
+      // Cap-based calculation with admin margin control
+      // effectiveRatePct allows admins to pay less than the full cap (margin control)
+      const effectiveUsdCents = Math.floor(tier.usdCapCents * (tier.effectiveRatePct / 100));
+      const impliedRatePerThousand = Math.floor((effectiveUsdCents / packptsAmount) * 1000);
       
-      if (minMatch && maxMatch) {
-        const usdValueCents = Math.floor((packptsAmount / 1000) * tier.usdPerThousandPts);
-        return {
-          packptsAmount,
-          usdValueCents,
-          tier,
-          ratePerThousand: tier.usdPerThousandPts,
-        };
-      }
+      return {
+        packptsAmount,
+        usdValueCents: effectiveUsdCents,
+        tier,
+        ratePerThousand: impliedRatePerThousand,
+      };
     }
 
     return null;
@@ -440,6 +442,94 @@ class RedemptionService {
       success: true,
       usdValueCents: validation.usdValueCents,
     };
+  }
+
+  // Admin tier management methods
+  async getAllTiers(): Promise<RedemptionTier[]> {
+    return await db
+      .select()
+      .from(redemptionTiers)
+      .orderBy(redemptionTiers.sortOrder);
+  }
+
+  async getTierById(tierId: string): Promise<RedemptionTier | null> {
+    const result = await db
+      .select()
+      .from(redemptionTiers)
+      .where(eq(redemptionTiers.id, tierId))
+      .limit(1);
+    return result.length > 0 ? result[0] : null;
+  }
+
+  async createTier(data: {
+    name: string;
+    packptsRequired: number;
+    usdCapCents: number;
+    effectiveRatePct?: number;
+    description: string;
+    sortOrder?: number;
+    isActive?: boolean;
+  }): Promise<RedemptionTier> {
+    const [tier] = await db
+      .insert(redemptionTiers)
+      .values({
+        name: data.name,
+        packptsRequired: data.packptsRequired,
+        usdCapCents: data.usdCapCents,
+        effectiveRatePct: data.effectiveRatePct ?? 100,
+        description: data.description,
+        sortOrder: data.sortOrder ?? 0,
+        isActive: data.isActive ?? true,
+      })
+      .returning();
+    return tier;
+  }
+
+  async updateTier(tierId: string, data: {
+    name?: string;
+    packptsRequired?: number;
+    usdCapCents?: number;
+    effectiveRatePct?: number;
+    description?: string;
+    sortOrder?: number;
+    isActive?: boolean;
+  }): Promise<RedemptionTier | null> {
+    const [updated] = await db
+      .update(redemptionTiers)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(redemptionTiers.id, tierId))
+      .returning();
+    return updated || null;
+  }
+
+  async deleteTier(tierId: string): Promise<boolean> {
+    const result = await db
+      .delete(redemptionTiers)
+      .where(eq(redemptionTiers.id, tierId))
+      .returning();
+    return result.length > 0;
+  }
+
+  async seedDefaultTiers(): Promise<void> {
+    const existingTiers = await this.getAllTiers();
+    if (existingTiers.length > 0) {
+      return; // Already seeded
+    }
+
+    // Seed the default tiers from the screenshot
+    const defaultTiers = [
+      { name: "Starter", packptsRequired: 1000, usdCapCents: 500, description: "Up to $5 toward a card", sortOrder: 1 },
+      { name: "Bronze", packptsRequired: 5000, usdCapCents: 3000, description: "Up to $30", sortOrder: 2 },
+      { name: "Silver", packptsRequired: 25000, usdCapCents: 17500, description: "Up to $175", sortOrder: 3 },
+      { name: "Gold", packptsRequired: 100000, usdCapCents: 90000, description: "Up to $900", sortOrder: 4 },
+    ];
+
+    for (const tier of defaultTiers) {
+      await this.createTier(tier);
+    }
   }
 }
 

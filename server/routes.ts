@@ -1662,5 +1662,126 @@ export async function registerRoutes(
     }
   });
 
+  // Admin Tier Management Routes
+
+  // GET /api/admin/redemption-tiers - Get all tiers (including inactive)
+  app.get("/api/admin/redemption-tiers", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const tiers = await redemptionService.getAllTiers();
+      res.json({ tiers });
+    } catch (error) {
+      console.error("Error fetching tiers:", error);
+      res.status(500).json({ error: "Failed to fetch tiers" });
+    }
+  });
+
+  // POST /api/admin/redemption-tiers - Create a new tier
+  app.post("/api/admin/redemption-tiers", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { name, packptsRequired, usdCapCents, effectiveRatePct, description, sortOrder, isActive } = req.body;
+
+      if (!name || !packptsRequired || !usdCapCents || !description) {
+        return res.status(400).json({ error: "Missing required fields: name, packptsRequired, usdCapCents, description" });
+      }
+
+      const tier = await redemptionService.createTier({
+        name,
+        packptsRequired,
+        usdCapCents,
+        effectiveRatePct,
+        description,
+        sortOrder,
+        isActive,
+      });
+
+      await adminService.logAction(adminUserId, "create_redemption_tier", null, {
+        tierId: tier.id,
+        name: tier.name,
+        packptsRequired: tier.packptsRequired,
+        usdCapCents: tier.usdCapCents,
+      });
+
+      res.json({ tier });
+    } catch (error) {
+      console.error("Error creating tier:", error);
+      res.status(500).json({ error: "Failed to create tier" });
+    }
+  });
+
+  // PATCH /api/admin/redemption-tiers/:id - Update a tier
+  app.patch("/api/admin/redemption-tiers/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+      const updates = req.body;
+
+      const oldTier = await redemptionService.getTierById(id);
+      if (!oldTier) {
+        return res.status(404).json({ error: "Tier not found" });
+      }
+
+      const tier = await redemptionService.updateTier(id, updates);
+
+      await adminService.logAction(adminUserId, "update_redemption_tier", null, {
+        tierId: id,
+        oldValues: {
+          name: oldTier.name,
+          packptsRequired: oldTier.packptsRequired,
+          usdCapCents: oldTier.usdCapCents,
+          effectiveRatePct: oldTier.effectiveRatePct,
+        },
+        newValues: updates,
+      });
+
+      res.json({ tier });
+    } catch (error) {
+      console.error("Error updating tier:", error);
+      res.status(500).json({ error: "Failed to update tier" });
+    }
+  });
+
+  // DELETE /api/admin/redemption-tiers/:id - Delete a tier
+  app.delete("/api/admin/redemption-tiers/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+
+      const tier = await redemptionService.getTierById(id);
+      if (!tier) {
+        return res.status(404).json({ error: "Tier not found" });
+      }
+
+      await redemptionService.deleteTier(id);
+
+      await adminService.logAction(adminUserId, "delete_redemption_tier", null, {
+        tierId: id,
+        tierName: tier.name,
+        packptsRequired: tier.packptsRequired,
+      });
+
+      res.json({ success: true, message: "Tier deleted" });
+    } catch (error) {
+      console.error("Error deleting tier:", error);
+      res.status(500).json({ error: "Failed to delete tier" });
+    }
+  });
+
+  // POST /api/admin/redemption-tiers/seed - Seed default tiers
+  app.post("/api/admin/redemption-tiers/seed", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await redemptionService.seedDefaultTiers();
+
+      await adminService.logAction(adminUserId, "seed_redemption_tiers", null, {});
+
+      const tiers = await redemptionService.getAllTiers();
+      res.json({ success: true, tiers, message: "Default tiers seeded" });
+    } catch (error) {
+      console.error("Error seeding tiers:", error);
+      res.status(500).json({ error: "Failed to seed tiers" });
+    }
+  });
+
   return httpServer;
 }
