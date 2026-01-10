@@ -1436,7 +1436,7 @@ export async function registerRoutes(
         });
       }
 
-      const result = await redemptionService.redeem(userId, parseResult.data.packptsAmount);
+      const result = await redemptionService.redeem(userId, parseResult.data.packptsAmount, parseResult.data.idempotencyKey);
       
       if (!result.success) {
         return res.status(400).json({ error: result.error });

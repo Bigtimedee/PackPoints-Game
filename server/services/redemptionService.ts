@@ -39,10 +39,12 @@ class RedemptionService {
     return crypto.randomBytes(32).toString("hex");
   }
 
-  private generateIdempotencyKey(userId: string, amount: number): string {
-    const timestamp = Date.now();
-    const random = crypto.randomBytes(8).toString("hex");
-    return `redeem_${userId}_${amount}_${timestamp}_${random}`;
+  private generateIdempotencyKey(userId: string, amount: number, clientIdempotencyKey?: string): string {
+    if (clientIdempotencyKey) {
+      return `redeem_${userId}_${clientIdempotencyKey}`;
+    }
+    const timestamp = Math.floor(Date.now() / 60000);
+    return `redeem_${userId}_${amount}_${timestamp}`;
   }
 
   async getRedemptionTiers(): Promise<RedemptionTier[]> {
@@ -78,7 +80,7 @@ class RedemptionService {
     return null;
   }
 
-  async redeem(userId: string, packptsAmount: number): Promise<RedemptionResult> {
+  async redeem(userId: string, packptsAmount: number, clientIdempotencyKey?: string): Promise<RedemptionResult> {
     if (packptsAmount < 1000) {
       return { success: false, error: "Minimum redemption is 1000 PackPTS" };
     }
@@ -99,7 +101,25 @@ class RedemptionService {
 
     const requiresReview = tierCalc.usdValueCents >= REDEMPTION_REVIEW_THRESHOLD_CENTS;
     const creditToken = this.generateCreditToken();
-    const idempotencyKey = this.generateIdempotencyKey(userId, packptsAmount);
+    const idempotencyKey = this.generateIdempotencyKey(userId, packptsAmount, clientIdempotencyKey);
+
+    const existingByKey = await walletService.findLedgerEntryByIdempotencyKey(idempotencyKey);
+    if (existingByKey) {
+      const existingRedemption = await db
+        .select()
+        .from(rewardRedemptions)
+        .where(eq(rewardRedemptions.ledgerIdempotencyKey, idempotencyKey))
+        .limit(1);
+      
+      if (existingRedemption.length > 0) {
+        return {
+          success: true,
+          redemption: existingRedemption[0],
+          creditToken: existingRedemption[0].creditToken || undefined,
+          requiresReview: existingRedemption[0].status === "pending",
+        };
+      }
+    }
 
     return await db.transaction(async (tx) => {
       const spendResult = await walletService.spend(

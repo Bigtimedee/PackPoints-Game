@@ -667,6 +667,7 @@ export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
 // Request schema for redemption
 export const redeemPackptsSchema = z.object({
   packptsAmount: z.number().int().positive("Amount must be positive").min(1000, "Minimum redemption is 1000 PackPTS"),
+  idempotencyKey: z.string().min(8).max(64).optional(),
 });
 
 export type RedeemPackptsRequest = z.infer<typeof redeemPackptsSchema>;

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -121,6 +120,7 @@ export default function AdminRedemptions() {
     onSuccess: () => {
       toast({ title: "Redemption approved", description: "Credit token has been issued" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/redemptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/redemptions/pending"] });
       setSelectedRedemption(null);
       setActionType(null);
     },
@@ -136,6 +136,7 @@ export default function AdminRedemptions() {
     onSuccess: () => {
       toast({ title: "Redemption rejected", description: "PackPTS have been refunded" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/redemptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/redemptions/pending"] });
       setSelectedRedemption(null);
       setActionType(null);
       setReason("");
@@ -152,6 +153,7 @@ export default function AdminRedemptions() {
     onSuccess: () => {
       toast({ title: "Redemption reversed", description: "PackPTS have been returned to user" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/redemptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/redemptions/pending"] });
       setSelectedRedemption(null);
       setActionType(null);
       setReason("");
@@ -185,8 +187,7 @@ export default function AdminRedemptions() {
   const pendingCount = pendingData?.total || 0;
 
   return (
-    <AdminLayout>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold" data-testid="text-admin-redemptions-title">Redemption Management</h1>
           <p className="text-muted-foreground">Review, approve, and manage PackPTS redemptions</p>
@@ -437,7 +438,6 @@ export default function AdminRedemptions() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </div>
-    </AdminLayout>
+    </div>
   );
 }
