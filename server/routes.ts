@@ -13,6 +13,8 @@ import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
 import { adminService } from "./services/adminService";
 import { analyticsService } from "./services/analyticsService";
+import { redemptionService } from "./services/redemptionService";
+import { redeemPackptsSchema } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -1373,6 +1375,290 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting metrics:", error);
       res.status(500).json({ error: "Failed to get metrics" });
+    }
+  });
+
+  // ============================================
+  // REDEMPTION ENDPOINTS
+  // ============================================
+
+  // GET /api/redemption/tiers - Get available redemption tiers
+  app.get("/api/redemption/tiers", async (_req, res) => {
+    try {
+      const tiers = await redemptionService.getRedemptionTiers();
+      res.json({ tiers });
+    } catch (error) {
+      console.error("Error fetching redemption tiers:", error);
+      res.status(500).json({ error: "Failed to fetch redemption tiers" });
+    }
+  });
+
+  // POST /api/redemption/calculate - Preview redemption value without executing
+  app.post("/api/redemption/calculate", async (req, res) => {
+    try {
+      const { packptsAmount } = req.body;
+      
+      if (typeof packptsAmount !== "number" || packptsAmount < 1000) {
+        return res.status(400).json({ error: "Minimum 1000 PackPTS required" });
+      }
+
+      const calculation = await redemptionService.calculateTierValue(packptsAmount);
+      if (!calculation) {
+        return res.status(400).json({ error: "No valid tier for this amount" });
+      }
+
+      res.json({
+        packptsAmount: calculation.packptsAmount,
+        usdValueCents: calculation.usdValueCents,
+        usdValue: (calculation.usdValueCents / 100).toFixed(2),
+        ratePerThousand: calculation.ratePerThousand,
+        tierMinPackpts: calculation.tier.minPackpts,
+        tierMaxPackpts: calculation.tier.maxPackpts,
+      });
+    } catch (error) {
+      console.error("Error calculating redemption:", error);
+      res.status(500).json({ error: "Failed to calculate redemption" });
+    }
+  });
+
+  // POST /api/redeem - Redeem PackPTS for store credit
+  app.post("/api/redeem", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const parseResult = redeemPackptsSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          error: parseResult.error.errors[0]?.message || "Invalid request" 
+        });
+      }
+
+      const result = await redemptionService.redeem(userId, parseResult.data.packptsAmount);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        redemption: {
+          id: result.redemption?.id,
+          packptsSpent: result.redemption?.packptsSpent,
+          usdValue: result.redemption?.usdValue,
+          status: result.redemption?.status,
+          createdAt: result.redemption?.createdAt,
+        },
+        creditToken: result.creditToken,
+        requiresReview: result.requiresReview,
+        message: result.requiresReview 
+          ? "Your redemption is pending admin review due to the high value."
+          : "Redemption successful! Use your credit token at checkout.",
+      });
+    } catch (error) {
+      console.error("Error processing redemption:", error);
+      res.status(500).json({ error: "Failed to process redemption" });
+    }
+  });
+
+  // GET /api/redemption/history - Get user's redemption history
+  app.get("/api/redemption/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const redemptions = await redemptionService.getUserRedemptions(userId);
+      res.json({ redemptions });
+    } catch (error) {
+      console.error("Error fetching redemption history:", error);
+      res.status(500).json({ error: "Failed to fetch redemption history" });
+    }
+  });
+
+  // POST /api/redemption/validate-token - Validate a credit token for checkout
+  app.post("/api/redemption/validate-token", async (req, res) => {
+    try {
+      const { creditToken } = req.body;
+      
+      if (!creditToken || typeof creditToken !== "string") {
+        return res.status(400).json({ error: "Credit token required" });
+      }
+
+      const validation = await redemptionService.validateCreditToken(creditToken);
+      
+      if (!validation.valid) {
+        return res.status(400).json({ valid: false, error: "Invalid or expired credit token" });
+      }
+
+      res.json({
+        valid: true,
+        usdValueCents: validation.usdValueCents,
+        usdValue: ((validation.usdValueCents || 0) / 100).toFixed(2),
+      });
+    } catch (error) {
+      console.error("Error validating credit token:", error);
+      res.status(500).json({ error: "Failed to validate credit token" });
+    }
+  });
+
+  // POST /api/redemption/consume-token - Consume credit token at checkout
+  app.post("/api/redemption/consume-token", async (req, res) => {
+    try {
+      const { creditToken } = req.body;
+      
+      if (!creditToken || typeof creditToken !== "string") {
+        return res.status(400).json({ error: "Credit token required" });
+      }
+
+      const result = await redemptionService.consumeCreditToken(creditToken);
+      
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+
+      res.json({
+        success: true,
+        usdValueCents: result.usdValueCents,
+        usdValue: ((result.usdValueCents || 0) / 100).toFixed(2),
+      });
+    } catch (error) {
+      console.error("Error consuming credit token:", error);
+      res.status(500).json({ error: "Failed to consume credit token" });
+    }
+  });
+
+  // ============================================
+  // ADMIN REDEMPTION ENDPOINTS
+  // ============================================
+
+  // GET /api/admin/redemptions - Get all redemptions (with optional status filter)
+  app.get("/api/admin/redemptions", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = parseInt(req.query.pageSize as string) || 20;
+      const status = req.query.status as string | undefined;
+
+      const result = await redemptionService.getAllRedemptions(page, pageSize, status as any);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching redemptions:", error);
+      res.status(500).json({ error: "Failed to fetch redemptions" });
+    }
+  });
+
+  // GET /api/admin/redemptions/pending - Get pending redemptions requiring review
+  app.get("/api/admin/redemptions/pending", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = parseInt(req.query.pageSize as string) || 20;
+
+      const result = await redemptionService.getPendingRedemptions(page, pageSize);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching pending redemptions:", error);
+      res.status(500).json({ error: "Failed to fetch pending redemptions" });
+    }
+  });
+
+  // POST /api/admin/redemptions/:id/approve - Approve a pending redemption
+  app.post("/api/admin/redemptions/:id/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+
+      const result = await redemptionService.approveRedemption(id, adminUserId);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      await adminService.logAction(adminUserId, "approve_redemption", result.redemption?.userId, {
+        redemptionId: id,
+        packptsSpent: result.redemption?.packptsSpent,
+        usdValue: result.redemption?.usdValue,
+      });
+
+      res.json({
+        success: true,
+        redemption: result.redemption,
+        creditToken: result.creditToken,
+      });
+    } catch (error) {
+      console.error("Error approving redemption:", error);
+      res.status(500).json({ error: "Failed to approve redemption" });
+    }
+  });
+
+  // POST /api/admin/redemptions/:id/reject - Reject a pending redemption
+  app.post("/api/admin/redemptions/:id/reject", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ error: "Rejection reason required" });
+      }
+
+      const result = await redemptionService.rejectRedemption(id, adminUserId, reason);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      await adminService.logAction(adminUserId, "reject_redemption", result.redemption?.userId, {
+        redemptionId: id,
+        packptsSpent: result.redemption?.packptsSpent,
+        usdValue: result.redemption?.usdValue,
+        reason,
+      });
+
+      res.json({
+        success: true,
+        redemption: result.redemption,
+      });
+    } catch (error) {
+      console.error("Error rejecting redemption:", error);
+      res.status(500).json({ error: "Failed to reject redemption" });
+    }
+  });
+
+  // POST /api/admin/redemptions/:id/reverse - Reverse a completed redemption (fraud)
+  app.post("/api/admin/redemptions/:id/reverse", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ error: "Reversal reason required" });
+      }
+
+      const result = await redemptionService.reverseRedemption(id, adminUserId, reason);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      await adminService.logAction(adminUserId, "reverse_redemption_fraud", result.redemption?.userId, {
+        redemptionId: id,
+        packptsSpent: result.redemption?.packptsSpent,
+        usdValue: result.redemption?.usdValue,
+        reason,
+      });
+
+      res.json({
+        success: true,
+        redemption: result.redemption,
+        message: "Redemption reversed and PackPTS refunded to user",
+      });
+    } catch (error) {
+      console.error("Error reversing redemption:", error);
+      res.status(500).json({ error: "Failed to reverse redemption" });
     }
   });
 
