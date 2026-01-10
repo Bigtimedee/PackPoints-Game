@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
-import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2 } from "lucide-react";
+import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -11,10 +12,36 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function Header() {
   const [location] = useLocation();
   const { user, isLoading, isAuthenticated } = useAuth();
+  const [showLoginWarning, setShowLoginWarning] = useState(false);
+
+  const isInEmbeddedWebview = () => {
+    try {
+      return window.self !== window.top;
+    } catch (e) {
+      return true;
+    }
+  };
+
+  const handleLoginClick = (e: React.MouseEvent) => {
+    if (isInEmbeddedWebview()) {
+      e.preventDefault();
+      setShowLoginWarning(true);
+    }
+  };
 
   const navItems = [
     { href: "/", label: "Play", icon: Play },
@@ -125,7 +152,7 @@ export function Header() {
             </DropdownMenu>
           ) : (
             <Button asChild data-testid="button-login">
-              <a href="/api/login">
+              <a href="/api/login" onClick={handleLoginClick}>
                 <LogIn className="h-4 w-4 mr-2" />
                 Log in
               </a>
@@ -133,6 +160,31 @@ export function Header() {
           )}
         </div>
       </div>
+
+      <AlertDialog open={showLoginWarning} onOpenChange={setShowLoginWarning}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mx-auto w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-2">
+              <ExternalLink className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <AlertDialogTitle className="text-center">Open in New Tab to Login</AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              Login doesn't work in the embedded preview. Click "New tab" in the header above to open this app in a full browser tab.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="bg-muted/50 rounded-lg p-4 text-sm space-y-2">
+            <p className="font-medium">How to Log In:</p>
+            <ol className="text-muted-foreground space-y-1 list-decimal pl-4">
+              <li>Look for the "New tab" button in the preview header</li>
+              <li>Click it to open the app in a new browser tab</li>
+              <li>Then click "Log in" from there</li>
+            </ol>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Got it</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </header>
   );
 }
