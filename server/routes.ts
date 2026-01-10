@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertGameSessionSchema, submitAnswerSchema } from "@shared/schema";
+import { insertGameSessionSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema } from "@shared/schema";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import { requireAdminAuth } from "./middleware/adminAuth";
+import { matchService } from "./services/matchService";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -173,6 +174,95 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting cards:", error);
       res.status(500).json({ error: "Failed to get cards" });
+    }
+  });
+
+  app.post("/api/lobby/create", async (req, res) => {
+    try {
+      const parsed = createLobbySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const { hostId, hostUsername, totalQuestions } = parsed.data;
+      const lobby = await matchService.createLobby(hostId, hostUsername, totalQuestions);
+      
+      const { guestSecret: _, ...lobbyForHost } = lobby;
+      res.json({ ...lobbyForHost, membershipSecret: lobby.hostSecret });
+    } catch (error) {
+      console.error("Error creating lobby:", error);
+      res.status(500).json({ error: "Failed to create lobby" });
+    }
+  });
+
+  app.post("/api/lobby/join", async (req, res) => {
+    try {
+      const parsed = joinLobbySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const { joinCode, guestId, guestUsername } = parsed.data;
+      const lobby = await matchService.joinLobby(joinCode, guestId, guestUsername);
+      
+      if (!lobby) {
+        return res.status(404).json({ error: "Lobby not found or not available" });
+      }
+      
+      const { hostSecret: _, guestSecret: __, ...safeLobby } = lobby;
+      res.json({ ...safeLobby, membershipSecret: lobby.guestSecret });
+    } catch (error) {
+      console.error("Error joining lobby:", error);
+      res.status(500).json({ error: "Failed to join lobby" });
+    }
+  });
+
+  app.get("/api/lobby/:id", async (req, res) => {
+    try {
+      const lobby = await matchService.getLobby(req.params.id);
+      
+      if (!lobby) {
+        return res.status(404).json({ error: "Lobby not found" });
+      }
+      
+      const { hostSecret: _, guestSecret: __, ...safeLobby } = lobby;
+      res.json(safeLobby);
+    } catch (error) {
+      console.error("Error getting lobby:", error);
+      res.status(500).json({ error: "Failed to get lobby" });
+    }
+  });
+
+  app.get("/api/lobby/code/:code", async (req, res) => {
+    try {
+      const lobby = await matchService.getLobbyByCode(req.params.code);
+      
+      if (!lobby) {
+        return res.status(404).json({ error: "Lobby not found" });
+      }
+      
+      const { hostSecret: _, guestSecret: __, ...safeLobby } = lobby;
+      res.json(safeLobby);
+    } catch (error) {
+      console.error("Error getting lobby:", error);
+      res.status(500).json({ error: "Failed to get lobby" });
+    }
+  });
+
+  app.post("/api/lobby/:id/leave", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId required" });
+      }
+      
+      const result = await matchService.leaveLobby(req.params.id, userId);
+      
+      res.json({ success: true, lobby: result });
+    } catch (error) {
+      console.error("Error leaving lobby:", error);
+      res.status(500).json({ error: "Failed to leave lobby" });
     }
   });
 

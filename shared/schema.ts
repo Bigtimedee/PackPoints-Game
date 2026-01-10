@@ -95,3 +95,101 @@ export const submitAnswerSchema = z.object({
 });
 
 export type SubmitAnswer = z.infer<typeof submitAnswerSchema>;
+
+export const lobbies = pgTable("lobbies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  joinCode: varchar("join_code", { length: 6 }).notNull().unique(),
+  hostId: varchar("host_id").notNull(),
+  hostUsername: text("host_username").notNull(),
+  hostSecret: varchar("host_secret", { length: 32 }).notNull(),
+  guestId: varchar("guest_id"),
+  guestUsername: text("guest_username"),
+  guestSecret: varchar("guest_secret", { length: 32 }),
+  status: text("status").notNull().default("waiting"),
+  mode: text("mode").notNull().default("1v1_friend"),
+  totalQuestions: integer("total_questions").notNull().default(10),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLobbySchema = createInsertSchema(lobbies).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLobby = z.infer<typeof insertLobbySchema>;
+export type Lobby = typeof lobbies.$inferSelect;
+
+export const matches = pgTable("matches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  lobbyId: varchar("lobby_id").notNull(),
+  status: text("status").notNull().default("active"),
+  currentQuestionIndex: integer("current_question_index").notNull().default(0),
+  totalQuestions: integer("total_questions").notNull(),
+  questionsData: text("questions_data").notNull(),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertMatchSchema = createInsertSchema(matches).omit({
+  id: true,
+  startedAt: true,
+  completedAt: true,
+});
+
+export type InsertMatch = z.infer<typeof insertMatchSchema>;
+export type Match = typeof matches.$inferSelect;
+
+export const matchParticipants = pgTable("match_participants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  matchId: varchar("match_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  username: text("username").notNull(),
+  score: integer("score").notNull().default(0),
+  correctAnswers: integer("correct_answers").notNull().default(0),
+  currentQuestionIndex: integer("current_question_index").notNull().default(0),
+  isConnected: boolean("is_connected").notNull().default(true),
+});
+
+export const insertMatchParticipantSchema = createInsertSchema(matchParticipants).omit({
+  id: true,
+});
+
+export type InsertMatchParticipant = z.infer<typeof insertMatchParticipantSchema>;
+export type MatchParticipant = typeof matchParticipants.$inferSelect;
+
+export interface MatchState {
+  matchId: string;
+  lobbyId: string;
+  status: "waiting" | "active" | "completed";
+  currentQuestionIndex: number;
+  totalQuestions: number;
+  questions: GameQuestion[];
+  participants: {
+    userId: string;
+    username: string;
+    score: number;
+    correctAnswers: number;
+    currentQuestionIndex: number;
+    hasAnsweredCurrent: boolean;
+  }[];
+  winner?: string;
+}
+
+export const createLobbySchema = z.object({
+  hostId: z.string(),
+  hostUsername: z.string(),
+  totalQuestions: z.number().min(5).max(20).default(10),
+});
+
+export const joinLobbySchema = z.object({
+  joinCode: z.string().length(6),
+  guestId: z.string(),
+  guestUsername: z.string(),
+});
+
+export const matchAnswerSchema = z.object({
+  matchId: z.string(),
+  userId: z.string(),
+  questionIndex: z.number(),
+  selectedAnswer: z.string(),
+});

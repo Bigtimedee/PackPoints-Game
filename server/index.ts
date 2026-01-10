@@ -3,6 +3,8 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { storage } from "./storage";
+import { setupWebSocket } from "./websocket";
+import { matchService } from "./services/matchService";
 
 const app = express();
 const httpServer = createServer(app);
@@ -65,6 +67,8 @@ app.use((req, res, next) => {
 
 (async () => {
   await storage.initialize();
+  await matchService.initialize();
+  setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

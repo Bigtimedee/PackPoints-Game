@@ -71,6 +71,21 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Solution**: Use only stable CDN sources (S3/appforest, bubble.io), mark unreliable URLs as unverified
 - **Prevention**: New images must come from reliable CDN sources or be self-hosted
 
+### 1v1 Friend Mode
+- **WebSocket Server**: Real-time multiplayer via `/ws` endpoint (server/websocket.ts)
+- **Lobby System**: 6-character join codes, host/guest roles
+- **Match Service**: server/services/matchService.ts handles game logic
+- **Database Tables**: lobbies (with hostSecret/guestSecret), matches, matchParticipants
+- **Security**:
+  - Membership secrets: hostSecret/guestSecret issued at lobby create/join, validated on WebSocket connection
+  - Identity locking: userId cannot be changed mid-session
+  - Host-only start_match verification (WebSocket layer + service layer)
+  - Participant validation on answer submission
+  - Automatic lobby cleanup on host disconnect
+  - Match forfeit on player disconnect (remaining player wins)
+- **Scoring**: Uses same popularity-based formula as solo mode: `max(50, 100 + (100 - popularity) * 4)`
+- **Frontend**: Lobby creation/joining (/lobby), match gameplay (/match/:matchId)
+
 ### Social Sharing
 - Share buttons appear on game completion screen
 - Supports Twitter/X, Facebook, and clipboard copy

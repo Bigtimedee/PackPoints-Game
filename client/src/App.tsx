@@ -8,6 +8,8 @@ import { Header } from "@/components/header";
 import { MobileNav } from "@/components/mobile-nav";
 import Home from "@/pages/home";
 import Game from "@/pages/game";
+import Lobby from "@/pages/lobby";
+import Match from "@/pages/match";
 import Leaderboard from "@/pages/leaderboard";
 import Marketplace from "@/pages/marketplace";
 import Profile from "@/pages/profile";
@@ -18,6 +20,9 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/game/:mode" component={Game} />
+      <Route path="/lobby" component={Lobby} />
+      <Route path="/lobby/:action" component={Lobby} />
+      <Route path="/match/:matchId" component={Match} />
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/marketplace" component={Marketplace} />
       <Route path="/profile" component={Profile} />
