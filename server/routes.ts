@@ -9,6 +9,9 @@ import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/c
 import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
+import { tokenService } from "./services/tokenService";
+import { quotaService } from "./services/quotaService";
+import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import express from "express";
@@ -243,22 +246,101 @@ export async function registerRoutes(
       const { mode, totalQuestions } = parsed.data;
       
       const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const isGuest = !userId;
       
-      if (mode !== "solo" && !userId) {
+      if (mode !== "solo" && isGuest) {
         return res.status(401).json({ error: "Authentication required for this game mode" });
       }
       
+      let tier: "FREE" | "PRO" | "LEGEND" = "FREE";
+      let multiplier = 1.0;
+      
+      const modeMapping: Record<string, string> = {
+        "solo": "solo",
+        "1v1": "1v1_friend",
+        "tournament": "tournament"
+      };
+      const normalizedMode = modeMapping[mode] || mode;
+      
+      if (userId) {
+        tier = await quotaService.getUserTier(userId);
+        multiplier = TIER_CONFIG[tier].multiplier;
+        
+        const config = TIER_CONFIG[tier];
+        const allowedModes = config.allowedModes;
+        
+        if (!allowedModes.includes(normalizedMode)) {
+          return res.status(403).json({ 
+            error: "Upgrade required",
+            currentTier: tier,
+            requiredTier: "PRO",
+            message: `Mode '${mode}' requires a Pro subscription`,
+          });
+        }
+        
+        const quotaCheck = await quotaService.checkQuota(userId, normalizedMode);
+        if (!quotaCheck.allowed) {
+          return res.status(429).json({ 
+            error: "Quota exceeded",
+            tier: quotaCheck.tier,
+            dailyUsed: quotaCheck.dailyUsed,
+            dailyLimit: quotaCheck.dailyLimit,
+            reason: quotaCheck.reason,
+            message: "Daily match limit reached. Upgrade to Pro for unlimited matches.",
+          });
+        }
+        
+        const tokensInLastHour = await tokenService.countTokensInLastHour(userId);
+        const hourlyLimit = TIER_CONFIG[tier].hourlyMatchLimit;
+        if (tokensInLastHour >= hourlyLimit) {
+          return res.status(429).json({ 
+            error: "Rate limited",
+            hourlyUsed: tokensInLastHour,
+            hourlyLimit,
+            message: `Maximum ${hourlyLimit} matches per hour. Please wait before starting another match.`,
+          });
+        }
+      }
+      
       let guestSessionId: string | undefined;
-      if (!userId) {
+      if (isGuest) {
         if (!req.session.guestId) {
           req.session.guestId = randomUUID();
         }
         guestSessionId = req.session.guestId;
       }
       
-      const session = await storage.createGameSession(userId, mode, totalQuestions, guestSessionId);
+      const session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId);
       
-      res.json(session);
+      const maxPoints = session.questions.reduce((sum, q) => sum + q.pointValue, 0);
+      
+      let matchToken = null;
+      let tokenSignature = null;
+      
+      if (userId) {
+        const tokenResult = await tokenService.issueMatchToken(
+          userId,
+          normalizedMode,
+          session.id,
+          maxPoints,
+          multiplier
+        );
+        
+        if (tokenResult.success) {
+          matchToken = tokenResult.token;
+          tokenSignature = tokenResult.signature;
+          
+          await quotaService.incrementMatchStarted(userId, normalizedMode);
+        }
+      }
+      
+      res.json({
+        ...session,
+        matchToken,
+        tokenSignature,
+        tier,
+        multiplier,
+      });
     } catch (error) {
       console.error("Error starting game:", error);
       res.status(500).json({ error: "Failed to start game" });
@@ -336,7 +418,7 @@ export async function registerRoutes(
 
   app.post("/api/game/next", async (req: any, res) => {
     try {
-      const { sessionId } = req.body;
+      const { sessionId, matchToken, tokenSignature } = req.body;
       
       if (!sessionId) {
         return res.status(400).json({ error: "Session ID required" });
@@ -352,21 +434,64 @@ export async function registerRoutes(
         session.status = "completed";
         session.completedAt = new Date().toISOString();
         
+        let multiplier = 1.0;
+        let tokenValidated = false;
+        
+        if (session.userId && matchToken && tokenSignature) {
+          const tokenResult = await tokenService.validateToken(matchToken, tokenSignature, session.userId);
+          
+          if (tokenResult.success && tokenResult.matchToken) {
+            const token = tokenResult.matchToken;
+            
+            if (token.sessionId !== session.id) {
+              return res.status(400).json({ error: "Token does not match this session" });
+            }
+            
+            if (session.score > token.maxPoints) {
+              console.warn(`Score exceeds max allowed: ${session.score} > ${token.maxPoints} for user ${session.userId}`);
+              session.score = Math.min(session.score, token.maxPoints);
+            }
+            
+            multiplier = token.multiplier;
+            tokenValidated = true;
+            
+            await tokenService.completeToken(matchToken);
+            await quotaService.incrementMatchCompleted(session.userId, token.mode);
+          }
+        }
+        
+        const finalScore = Math.floor(session.score * multiplier);
+        
         if (session.userId) {
           await storage.updateUserStats(session.userId, {
-            pointsEarned: session.score,
+            pointsEarned: finalScore,
             correctAnswers: session.correctAnswers,
             totalAnswers: session.totalQuestions,
           });
+          
+          if (tokenValidated) {
+            try {
+              await walletService.earnPoints(
+                session.userId,
+                finalScore,
+                `Game completed: ${session.correctAnswers}/${session.totalQuestions} correct`,
+                `game_${session.id}`
+              );
+            } catch (walletError) {
+              console.error("Failed to credit wallet:", walletError);
+            }
+          }
         } else if (session.guestSessionId) {
           if (!req.session.pendingPoints) {
             req.session.pendingPoints = { score: 0, correctAnswers: 0, totalAnswers: 0, gamesPlayed: 0 };
           }
-          req.session.pendingPoints.score += session.score;
+          req.session.pendingPoints.score += finalScore;
           req.session.pendingPoints.correctAnswers += session.correctAnswers;
           req.session.pendingPoints.totalAnswers += session.totalQuestions;
           req.session.pendingPoints.gamesPlayed += 1;
         }
+        
+        session.score = finalScore;
       } else {
         session.currentQuestionIndex += 1;
       }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, index, jsonb, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -431,3 +431,106 @@ export const insertStripeCustomerSchema = createInsertSchema(stripeCustomers).om
 
 export type InsertStripeCustomer = z.infer<typeof insertStripeCustomerSchema>;
 export type StripeCustomer = typeof stripeCustomers.$inferSelect;
+
+// Feature flags for system-wide toggles
+export const featureFlags = pgTable("feature_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key", { length: 100 }).notNull().unique(),
+  enabled: boolean("enabled").notNull().default(true),
+  value: jsonb("value"), // optional configuration value
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_feature_flags_key").on(table.key),
+]);
+
+export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertFeatureFlag = z.infer<typeof insertFeatureFlagSchema>;
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+
+// Daily quotas for tracking usage limits per user per day
+export const dailyQuotas = pgTable("daily_quotas", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  quotaDate: varchar("quota_date", { length: 10 }).notNull(), // YYYY-MM-DD format
+  mode: varchar("mode", { length: 50 }).notNull(), // solo, 1v1_friend, 1v1_random, tournament
+  matchesStarted: integer("matches_started").notNull().default(0),
+  matchesCompleted: integer("matches_completed").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_daily_quotas_user_date").on(table.userId, table.quotaDate),
+  index("idx_daily_quotas_user_date_mode").on(table.userId, table.quotaDate, table.mode),
+]);
+
+export const insertDailyQuotaSchema = createInsertSchema(dailyQuotas).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDailyQuota = z.infer<typeof insertDailyQuotaSchema>;
+export type DailyQuota = typeof dailyQuotas.$inferSelect;
+
+// Match token statuses
+export const matchTokenStatuses = ["active", "consumed", "expired", "revoked"] as const;
+export type MatchTokenStatus = typeof matchTokenStatuses[number];
+
+// Match tokens for anti-cheat and server-side validation
+export const matchTokens = pgTable("match_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  token: varchar("token", { length: 64 }).notNull().unique(), // random token
+  userId: varchar("user_id").notNull().references(() => users.id),
+  mode: varchar("mode", { length: 50 }).notNull(),
+  sessionId: varchar("session_id"), // links to game session
+  signature: varchar("signature", { length: 128 }).notNull(), // HMAC signature
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  maxPoints: integer("max_points").notNull().default(0), // max possible points for validation
+  pointsAwarded: integer("points_awarded"), // actual points awarded on completion
+  multiplier: real("multiplier").notNull().default(1.0), // tier-based multiplier
+  issuedAt: timestamp("issued_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+}, (table) => [
+  index("idx_match_tokens_token").on(table.token),
+  index("idx_match_tokens_user").on(table.userId),
+  index("idx_match_tokens_user_issued").on(table.userId, table.issuedAt),
+  index("idx_match_tokens_status").on(table.status),
+]);
+
+export const insertMatchTokenSchema = createInsertSchema(matchTokens).omit({
+  id: true,
+  issuedAt: true,
+  consumedAt: true,
+});
+
+export type InsertMatchToken = z.infer<typeof insertMatchTokenSchema>;
+export type MatchToken = typeof matchTokens.$inferSelect;
+
+// Tier configuration constants
+export const TIER_CONFIG = {
+  FREE: {
+    dailyMatchLimit: 5,
+    hourlyMatchLimit: 3,
+    multiplier: 1.0,
+    allowedModes: ["solo"] as string[],
+  },
+  PRO: {
+    dailyMatchLimit: null, // unlimited
+    hourlyMatchLimit: 20,
+    multiplier: 1.5,
+    allowedModes: ["solo", "1v1_friend", "1v1_random", "tournament"] as string[],
+  },
+  LEGEND: {
+    dailyMatchLimit: null, // unlimited
+    hourlyMatchLimit: 30,
+    multiplier: 2.0,
+    allowedModes: ["solo", "1v1_friend", "1v1_random", "tournament", "legend"] as string[],
+  },
+} as const;
