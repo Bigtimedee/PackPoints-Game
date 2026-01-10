@@ -76,7 +76,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
     },
   });
 
-  const onSubmit = (data: RegisterRequest) => {
+  const onSubmit = (data: SignupModalFormData) => {
     registerMutation.mutate(data);
   };
 
