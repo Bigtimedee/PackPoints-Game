@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, type User } from "@shared/schema";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
@@ -47,7 +48,7 @@ export async function registerRoutes(
       let guestSessionId: string | undefined;
       if (!userId) {
         if (!req.session.guestId) {
-          req.session.guestId = require('crypto').randomUUID();
+          req.session.guestId = randomUUID();
         }
         guestSessionId = req.session.guestId;
       }
