@@ -1,48 +1,51 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Shield, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function AdminLogin() {
   const [, navigate] = useLocation();
-  const [apiKey, setApiKey] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+  const { user, isLoading, isAuthenticated } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    try {
-      const response = await fetch("/api/admin/dashboard", {
-        headers: { "X-Admin-Key": apiKey },
-      });
-
-      if (response.ok) {
-        localStorage.setItem("packpoints_admin_key", apiKey);
-        toast({ title: "Success", description: "Welcome to the admin portal" });
-        navigate("/admin/dashboard");
-      } else {
-        toast({ 
-          title: "Access Denied", 
-          description: "Invalid admin API key",
-          variant: "destructive" 
-        });
-      }
-    } catch (error) {
-      toast({ 
-        title: "Error", 
-        description: "Failed to verify API key",
-        variant: "destructive" 
-      });
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && user?.isAdmin) {
+      navigate("/admin/dashboard");
     }
-  };
+  }, [isLoading, isAuthenticated, user, navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isAuthenticated && !user?.isAdmin) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 p-3 rounded-full bg-destructive/10 w-fit">
+              <Shield className="h-8 w-8 text-destructive" />
+            </div>
+            <CardTitle className="text-2xl">Access Denied</CardTitle>
+            <CardDescription>You don't have admin privileges</CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <p className="text-sm text-muted-foreground mb-4">
+              Your account ({user?.email}) is not authorized to access the admin portal.
+            </p>
+            <Button asChild variant="outline">
+              <a href="/">Return to Home</a>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -52,37 +55,12 @@ export default function AdminLogin() {
             <Shield className="h-8 w-8 text-primary" />
           </div>
           <CardTitle className="text-2xl">Admin Portal</CardTitle>
-          <CardDescription>Enter your admin API key to access the portal</CardDescription>
+          <CardDescription>Sign in with your admin account to continue</CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="apiKey">Admin API Key</Label>
-              <Input
-                id="apiKey"
-                type="password"
-                placeholder="Enter your admin API key"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                data-testid="input-admin-key"
-              />
-            </div>
-            <Button 
-              type="submit" 
-              className="w-full" 
-              disabled={!apiKey || isLoading}
-              data-testid="button-admin-login"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Verifying...
-                </>
-              ) : (
-                "Access Admin Portal"
-              )}
-            </Button>
-          </form>
+        <CardContent className="text-center">
+          <Button asChild className="w-full" data-testid="button-admin-login">
+            <a href="/api/login">Sign in with Replit</a>
+          </Button>
         </CardContent>
       </Card>
     </div>

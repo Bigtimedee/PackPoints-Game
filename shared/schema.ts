@@ -1,25 +1,43 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Session storage table for Replit Auth
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)]
+);
+
+// User table - combines Replit Auth fields with game stats
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
   points: integer("points").notNull().default(0),
   gamesPlayed: integer("games_played").notNull().default(0),
   correctAnswers: integer("correct_answers").notNull().default(0),
   totalAnswers: integer("total_answers").notNull().default(0),
+  isAdmin: boolean("is_admin").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const insertUserSchema = createInsertSchema(users).omit({
+  createdAt: true,
+  updatedAt: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type UpsertUser = typeof users.$inferInsert;
 
 export const baseballCards = pgTable("baseball_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -80,13 +98,12 @@ export interface RedemptionOption {
   imageUrl: string;
 }
 
-export const insertGameSessionSchema = z.object({
+export const startGameSchema = z.object({
   mode: z.enum(["solo", "1v1", "tournament"]),
-  userId: z.string(),
   totalQuestions: z.number().min(5).max(20),
 });
 
-export type InsertGameSession = z.infer<typeof insertGameSessionSchema>;
+export type StartGameRequest = z.infer<typeof startGameSchema>;
 
 export const submitAnswerSchema = z.object({
   sessionId: z.string(),

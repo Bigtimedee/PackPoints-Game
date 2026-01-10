@@ -1,8 +1,11 @@
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Users, Gamepad2, Star, Target, CreditCard, CheckCircle, Loader2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { useAuth } from "@/hooks/use-auth";
+import { Badge } from "@/components/ui/badge";
 
 interface DashboardData {
   overview: {
@@ -18,37 +21,23 @@ interface DashboardData {
 }
 
 export default function AdminDashboard() {
-  const adminKey = localStorage.getItem("packpoints_admin_key") || "";
+  const [, navigate] = useLocation();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || !user?.isAdmin)) {
+      navigate("/admin");
+    }
+  }, [authLoading, isAuthenticated, user, navigate]);
   
   const { data, isLoading, error } = useQuery<DashboardData>({
     queryKey: ["/api/admin/dashboard"],
-    queryFn: async () => {
-      const response = await fetch("/api/admin/dashboard", {
-        headers: { "X-Admin-Key": adminKey },
-      });
-      if (!response.ok) {
-        throw new Error("Failed to fetch dashboard data");
-      }
-      return response.json();
-    },
-    enabled: !!adminKey,
+    enabled: isAuthenticated && user?.isAdmin,
   });
 
-  if (!adminKey) {
+  if (authLoading || isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6 text-center">
-            <p className="text-muted-foreground">Please enter your admin key to access the dashboard.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
@@ -59,7 +48,7 @@ export default function AdminDashboard() {
       <div className="flex items-center justify-center h-full">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center text-destructive">
-            <p>Failed to load dashboard data. Please check your admin key.</p>
+            <p>Failed to load dashboard data.</p>
           </CardContent>
         </Card>
       </div>

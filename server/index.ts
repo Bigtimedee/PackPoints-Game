@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { storage } from "./storage";
 import { setupWebSocket } from "./websocket";
 import { matchService } from "./services/matchService";
+import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 
 const app = express();
 const httpServer = createServer(app);
@@ -68,6 +69,11 @@ app.use((req, res, next) => {
 (async () => {
   await storage.initialize();
   await matchService.initialize();
+  
+  // Setup Replit Auth (BEFORE registering other routes)
+  await setupAuth(app);
+  registerAuthRoutes(app);
+  
   setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);
 

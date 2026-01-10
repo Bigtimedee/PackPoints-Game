@@ -15,9 +15,10 @@ const REDEMPTION_OPTIONS: RedemptionOption[] = [
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPoints(id: string, points: number): Promise<User | undefined>;
+  updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined>;
   
   getCards(): Promise<BaseballCard[]>;
   getRandomCards(count: number): Promise<BaseballCard[]>;
@@ -100,16 +101,16 @@ export class DatabaseStorage implements IStorage {
     if (existingUsers.length === 0) {
       console.log("Seeding mock users for leaderboard...");
       const mockUsers = [
-        { username: "CardKing87", password: "hash", points: 15420, gamesPlayed: 156, correctAnswers: 1248, totalAnswers: 1560 },
-        { username: "VintageCollector", password: "hash", points: 12850, gamesPlayed: 132, correctAnswers: 1056, totalAnswers: 1320 },
-        { username: "ToppsHunter", password: "hash", points: 11200, gamesPlayed: 98, correctAnswers: 833, totalAnswers: 980 },
-        { username: "DiamondExpert", password: "hash", points: 9875, gamesPlayed: 87, correctAnswers: 696, totalAnswers: 870 },
-        { username: "BaseballBuff", password: "hash", points: 8640, gamesPlayed: 72, correctAnswers: 576, totalAnswers: 720 },
-        { username: "PackRipper", password: "hash", points: 7320, gamesPlayed: 61, correctAnswers: 488, totalAnswers: 610 },
-        { username: "CardShark", password: "hash", points: 6100, gamesPlayed: 55, correctAnswers: 440, totalAnswers: 550 },
-        { username: "RookieHunter", password: "hash", points: 5450, gamesPlayed: 48, correctAnswers: 384, totalAnswers: 480 },
-        { username: "HallOfFamer", password: "hash", points: 4800, gamesPlayed: 42, correctAnswers: 336, totalAnswers: 420 },
-        { username: "SlabCollector", password: "hash", points: 4200, gamesPlayed: 38, correctAnswers: 304, totalAnswers: 380 },
+        { firstName: "CardKing87", points: 15420, gamesPlayed: 156, correctAnswers: 1248, totalAnswers: 1560 },
+        { firstName: "VintageCollector", points: 12850, gamesPlayed: 132, correctAnswers: 1056, totalAnswers: 1320 },
+        { firstName: "ToppsHunter", points: 11200, gamesPlayed: 98, correctAnswers: 833, totalAnswers: 980 },
+        { firstName: "DiamondExpert", points: 9875, gamesPlayed: 87, correctAnswers: 696, totalAnswers: 870 },
+        { firstName: "BaseballBuff", points: 8640, gamesPlayed: 72, correctAnswers: 576, totalAnswers: 720 },
+        { firstName: "PackRipper", points: 7320, gamesPlayed: 61, correctAnswers: 488, totalAnswers: 610 },
+        { firstName: "CardShark", points: 6100, gamesPlayed: 55, correctAnswers: 440, totalAnswers: 550 },
+        { firstName: "RookieHunter", points: 5450, gamesPlayed: 48, correctAnswers: 384, totalAnswers: 480 },
+        { firstName: "HallOfFamer", points: 4800, gamesPlayed: 42, correctAnswers: 336, totalAnswers: 420 },
+        { firstName: "SlabCollector", points: 4200, gamesPlayed: 38, correctAnswers: 304, totalAnswers: 380 },
       ];
       
       for (const user of mockUsers) {
@@ -124,8 +125,8 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
     return user || undefined;
   }
 
@@ -138,6 +139,20 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db
       .update(users)
       .set({ points: sql`${users.points} + ${points}` })
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
+  }
+
+  async updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({
+        points: sql`${users.points} + ${stats.pointsEarned}`,
+        gamesPlayed: sql`${users.gamesPlayed} + 1`,
+        correctAnswers: sql`${users.correctAnswers} + ${stats.correctAnswers}`,
+        totalAnswers: sql`${users.totalAnswers} + ${stats.totalAnswers}`,
+      })
       .where(eq(users.id, id))
       .returning();
     return user || undefined;
@@ -236,7 +251,7 @@ export class DatabaseStorage implements IStorage {
     
     return topUsers.map((user, index) => ({
       rank: index + 1,
-      username: user.username,
+      username: user.firstName || user.email?.split('@')[0] || `Player${index + 1}`,
       points: user.points,
       gamesPlayed: user.gamesPlayed,
       accuracy: user.totalAnswers > 0 ? Math.round((user.correctAnswers / user.totalAnswers) * 100) : 0,

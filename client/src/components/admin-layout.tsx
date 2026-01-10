@@ -1,6 +1,8 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, Users, LogOut, Home, Shield } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -8,11 +10,17 @@ const navItems = [
 ];
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
-  const [location, navigate] = useLocation();
+  const [location] = useLocation();
+  const { user } = useAuth();
 
-  const handleLogout = () => {
-    localStorage.removeItem("packpoints_admin_key");
-    navigate("/admin");
+  const getInitials = () => {
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
+    }
+    if (user?.firstName) {
+      return user.firstName.slice(0, 2).toUpperCase();
+    }
+    return "AD";
   };
 
   return (
@@ -46,7 +54,16 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
               })}
             </nav>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {user && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Avatar className="h-7 w-7">
+                  <AvatarImage src={user.profileImageUrl || undefined} />
+                  <AvatarFallback className="text-xs">{getInitials()}</AvatarFallback>
+                </Avatar>
+                <span className="hidden sm:inline">{user.firstName || user.email?.split('@')[0]}</span>
+              </div>
+            )}
             <Link href="/">
               <Button variant="ghost" size="sm" className="gap-2" data-testid="button-back-to-app">
                 <Home className="h-4 w-4" />
@@ -56,12 +73,14 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={handleLogout}
+              asChild
               className="gap-2"
               data-testid="button-admin-logout"
             >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Logout</span>
+              <a href="/api/logout">
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Logout</span>
+              </a>
             </Button>
           </div>
         </div>

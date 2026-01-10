@@ -98,15 +98,23 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Security**: Same membership secret model as 1v1 Friend mode
 - **Frontend**: Queue page (/queue) with search timer, cancel button, auto-redirect on match
 
+### Authentication System (Replit Auth)
+- **Provider**: Replit OpenID Connect (supports Google, GitHub, Apple, email/password)
+- **Session Storage**: PostgreSQL via connect-pg-simple
+- **Auth Routes**: /api/login, /api/logout, /api/auth/user
+- **User Schema**: id, email, firstName, lastName, profileImageUrl, points, gamesPlayed, correctAnswers, totalAnswers, isAdmin
+- **Protected Routes**: Game endpoints require authentication; profile/stats uses authenticated user
+- **Client Hook**: useAuth() provides user, isLoading, isAuthenticated, logout
+
 ### Admin Portal
-- **Access**: Navigate to `/admin` and enter ADMIN_API_KEY
+- **Access**: Navigate to `/admin`, requires authenticated user with isAdmin=true
 - **Dashboard** (/admin/dashboard): Overview stats (users, games, points, cards), top players chart, most active chart
 - **User Management** (/admin/users): Search users, paginated list, view user details modal
-- **Authentication**: X-Admin-Key header validated by requireAdminAuth middleware
+- **Authentication**: Role-based using isAuthenticated + requireAdmin middleware
 - **API Endpoints**:
-  - GET /api/admin/dashboard - Aggregate platform statistics
-  - GET /api/admin/users?search=&page=&limit= - Paginated user list
-  - GET /api/admin/users/:id - Single user details
+  - GET /api/admin/dashboard - Aggregate platform statistics (requires admin)
+  - GET /api/admin/users?search=&page=&limit= - Paginated user list (requires admin)
+  - GET /api/admin/users/:id - Single user details (requires admin)
 
 ### Social Sharing
 - Share buttons appear on game completion screen

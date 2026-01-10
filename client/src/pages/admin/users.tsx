@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, ChevronLeft, ChevronRight, User, Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 interface UserData {
   id: string;
@@ -33,29 +35,36 @@ interface UserDetails extends UserData {
 }
 
 export default function AdminUsers() {
+  const [, navigate] = useLocation();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   
-  const adminKey = localStorage.getItem("packpoints_admin_key") || "";
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || !user?.isAdmin)) {
+      navigate("/admin");
+    }
+  }, [authLoading, isAuthenticated, user, navigate]);
   
   const { data, isLoading, error } = useQuery<UsersResponse>({
-    queryKey: ["/api/admin/users", search, page],
+    queryKey: ["/api/admin/users", searchQuery, page],
     queryFn: async () => {
       const params = new URLSearchParams({
-        search,
+        search: searchQuery,
         page: page.toString(),
         limit: "15",
       });
       const response = await fetch(`/api/admin/users?${params}`, {
-        headers: { "X-Admin-Key": adminKey },
+        credentials: "include",
       });
       if (!response.ok) {
         throw new Error("Failed to fetch users");
       }
       return response.json();
     },
-    enabled: !!adminKey,
+    enabled: isAuthenticated && user?.isAdmin,
   });
 
   const { data: userDetails, isLoading: detailsLoading } = useQuery<UserDetails>({
@@ -63,29 +72,26 @@ export default function AdminUsers() {
     queryFn: async () => {
       if (!selectedUser) return null;
       const response = await fetch(`/api/admin/users/${selectedUser}`, {
-        headers: { "X-Admin-Key": adminKey },
+        credentials: "include",
       });
       if (!response.ok) {
         throw new Error("Failed to fetch user details");
       }
       return response.json();
     },
-    enabled: !!selectedUser && !!adminKey,
+    enabled: !!selectedUser && isAuthenticated && user?.isAdmin,
   });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setSearchQuery(search);
     setPage(1);
   };
 
-  if (!adminKey) {
+  if (authLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6 text-center">
-            <p className="text-muted-foreground">Please enter your admin key to access user management.</p>
-          </CardContent>
-        </Card>
+      <div className="flex items-center justify-center h-full min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -125,7 +131,7 @@ export default function AdminUsers() {
             </div>
           ) : error ? (
             <div className="text-center py-8 text-destructive">
-              Failed to load users. Please check your admin key.
+              Failed to load users.
             </div>
           ) : data ? (
             <>
@@ -141,22 +147,22 @@ export default function AdminUsers() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.users.map((user) => (
-                      <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
-                        <TableCell className="font-medium">{user.username}</TableCell>
-                        <TableCell className="text-right font-mono">{user.points.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">{user.gamesPlayed}</TableCell>
+                    {data.users.map((u) => (
+                      <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
+                        <TableCell className="font-medium">{u.username}</TableCell>
+                        <TableCell className="text-right font-mono">{u.points.toLocaleString()}</TableCell>
+                        <TableCell className="text-right">{u.gamesPlayed}</TableCell>
                         <TableCell className="text-right">
-                          <Badge variant={user.accuracy >= 80 ? "default" : user.accuracy >= 60 ? "secondary" : "outline"}>
-                            {user.accuracy}%
+                          <Badge variant={u.accuracy >= 80 ? "default" : u.accuracy >= 60 ? "secondary" : "outline"}>
+                            {u.accuracy}%
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button 
                             variant="ghost" 
                             size="sm"
-                            onClick={() => setSelectedUser(user.id)}
-                            data-testid={`button-view-user-${user.id}`}
+                            onClick={() => setSelectedUser(u.id)}
+                            data-testid={`button-view-user-${u.id}`}
                           >
                             <User className="h-4 w-4 mr-1" />
                             View

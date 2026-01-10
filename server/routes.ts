@@ -1,26 +1,46 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertGameSessionSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, users, type User } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, users, type User } from "@shared/schema";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
-import { requireAdminAuth } from "./middleware/adminAuth";
+import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { db } from "./db";
+
+// Middleware to require admin role
+const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  const user = req.user as any;
+  if (!user?.claims?.sub) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  
+  const dbUser = await storage.getUser(user.claims.sub);
+  if (!dbUser?.isAdmin) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  next();
+};
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
-  app.post("/api/game/start", async (req, res) => {
+  app.post("/api/game/start", isAuthenticated, async (req: any, res) => {
     try {
-      const parsed = insertGameSessionSchema.safeParse(req.body);
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
       }
       
-      const { mode, userId, totalQuestions } = parsed.data;
+      const { mode, totalQuestions } = parsed.data;
       const session = await storage.createGameSession(userId, mode, totalQuestions);
       
       res.json(session);
@@ -116,6 +136,13 @@ export async function registerRoutes(
       if (session.currentQuestionIndex >= session.totalQuestions - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
+        
+        // Award points to user when game completes
+        await storage.updateUserStats(session.userId, {
+          pointsEarned: session.score,
+          correctAnswers: session.correctAnswers,
+          totalAnswers: session.totalQuestions,
+        });
       } else {
         session.currentQuestionIndex += 1;
       }
@@ -149,19 +176,37 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/profile/stats", async (_req, res) => {
+  app.get("/api/profile/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const stats = {
-        points: 2500,
-        gamesPlayed: 42,
-        correctAnswers: 156,
-        totalAnswers: 210,
-        rank: 15,
-        level: 5,
-        pointsToNextLevel: 500,
-        levelProgress: 60,
-      };
-      res.json(stats);
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Calculate rank from leaderboard
+      const leaderboard = await storage.getLeaderboard(100);
+      const rank = leaderboard.findIndex(e => e.points <= user.points) + 1 || leaderboard.length + 1;
+      
+      // Calculate level (every 1000 points = 1 level)
+      const level = Math.floor(user.points / 1000) + 1;
+      const pointsToNextLevel = 1000 - (user.points % 1000);
+      const levelProgress = Math.round(((user.points % 1000) / 1000) * 100);
+      
+      res.json({
+        points: user.points,
+        gamesPlayed: user.gamesPlayed,
+        correctAnswers: user.correctAnswers,
+        totalAnswers: user.totalAnswers,
+        rank,
+        level,
+        pointsToNextLevel,
+        levelProgress,
+      });
     } catch (error) {
       console.error("Error getting profile stats:", error);
       res.status(500).json({ error: "Failed to get profile stats" });
@@ -267,7 +312,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/fetch-cards", requireAdminAuth, async (req, res) => {
+  app.post("/api/admin/fetch-cards", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const limit = Math.min(parseInt(req.body.limit) || 5, 10);
       
@@ -320,7 +365,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/dashboard", requireAdminAuth, async (_req, res) => {
+  app.get("/api/admin/dashboard", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
       const allUsers: User[] = await db.select().from(users);
       const allCards = await storage.getCards();
@@ -337,7 +382,7 @@ export async function registerRoutes(
         .sort((a: User, b: User) => b.points - a.points)
         .slice(0, 5)
         .map((u: User) => ({
-          username: u.username,
+          username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
           points: u.points,
           gamesPlayed: u.gamesPlayed,
         }));
@@ -346,7 +391,7 @@ export async function registerRoutes(
         .sort((a: User, b: User) => b.gamesPlayed - a.gamesPlayed)
         .slice(0, 5)
         .map((u: User) => ({
-          username: u.username,
+          username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
           gamesPlayed: u.gamesPlayed,
           points: u.points,
         }));
@@ -369,7 +414,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/users", requireAdminAuth, async (req, res) => {
+  app.get("/api/admin/users", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const search = (req.query.search as string) || "";
       const page = parseInt(req.query.page as string) || 1;
@@ -379,8 +424,11 @@ export async function registerRoutes(
       let allUsers: User[] = await db.select().from(users);
       
       if (search) {
+        const searchLower = search.toLowerCase();
         allUsers = allUsers.filter((u: User) => 
-          u.username.toLowerCase().includes(search.toLowerCase())
+          (u.firstName || '').toLowerCase().includes(searchLower) ||
+          (u.lastName || '').toLowerCase().includes(searchLower) ||
+          (u.email || '').toLowerCase().includes(searchLower)
         );
       }
       
@@ -390,7 +438,7 @@ export async function registerRoutes(
       
       const usersWithStats = paginatedUsers.map((u: User) => ({
         id: u.id,
-        username: u.username,
+        username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
         points: u.points,
         gamesPlayed: u.gamesPlayed,
         correctAnswers: u.correctAnswers,
@@ -413,7 +461,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/users/:id", requireAdminAuth, async (req, res) => {
+  app.get("/api/admin/users/:id", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
       const user = await storage.getUser(id);
@@ -432,7 +480,7 @@ export async function registerRoutes(
       
       res.json({
         id: user.id,
-        username: user.username,
+        username: user.firstName || user.email?.split('@')[0] || 'Anonymous',
         points: user.points,
         gamesPlayed: user.gamesPlayed,
         correctAnswers: user.correctAnswers,
@@ -446,7 +494,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/sync-images", requireAdminAuth, async (_req, res) => {
+  app.post("/api/admin/sync-images", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
       const cards = await storage.getCards();
       const players = cards.map(c => ({ playerName: c.playerName, cardNumber: c.cardNumber }));
