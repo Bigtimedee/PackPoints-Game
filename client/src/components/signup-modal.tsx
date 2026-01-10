@@ -3,11 +3,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Trophy, Zap, User } from "lucide-react";
+import { Loader2, Trophy, Zap, User, Mail, Lock } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { registerSchema, type RegisterRequest } from "@shared/schema";
+import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+
+const signupModalSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters").max(100),
+  confirmPassword: z.string(),
+}).refine(data => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+
+type SignupModalFormData = z.infer<typeof signupModalSchema>;
 
 interface SignupModalProps {
   open: boolean;
@@ -19,30 +31,34 @@ interface SignupModalProps {
 export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: SignupModalProps) {
   const queryClient = useQueryClient();
   
-  const form = useForm<RegisterRequest>({
-    resolver: zodResolver(registerSchema),
+  const form = useForm<SignupModalFormData>({
+    resolver: zodResolver(signupModalSchema),
     defaultValues: {
       username: "",
+      email: "",
       password: "",
+      confirmPassword: "",
     },
   });
 
   const registerMutation = useMutation({
-    mutationFn: async (data: RegisterRequest) => {
+    mutationFn: async (data: SignupModalFormData) => {
       try {
-        const res = await apiRequest("POST", "/api/auth/register", data);
+        const res = await apiRequest("POST", "/api/auth/register", {
+          username: data.username,
+          email: data.email,
+          password: data.password,
+        });
         return res.json();
       } catch (error: any) {
-        // Handle network errors (e.g., Safari's "Load failed")
         if (error.message === "Load failed" || error.message === "Failed to fetch") {
           throw new Error("Network error. Please check your connection and try again.");
         }
-        // Handle server errors with status codes
         if (error.message.startsWith("409:")) {
-          throw new Error("Username already taken");
+          throw new Error("Username or email already taken");
         }
         if (error.message.startsWith("400:")) {
-          throw new Error("Invalid username or password format");
+          throw new Error("Invalid username, email, or password format");
         }
         throw error;
       }
@@ -92,12 +108,40 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
                 <FormItem>
                   <FormLabel>Username</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder="Choose a username"
-                      {...field}
-                      disabled={registerMutation.isPending}
-                      data-testid="input-signup-username"
-                    />
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Choose a username"
+                        className="pl-10"
+                        {...field}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-signup-username"
+                      />
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="email"
+                        placeholder="Enter your email"
+                        className="pl-10"
+                        {...field}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-signup-email"
+                      />
+                    </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -111,13 +155,41 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input
-                      type="password"
-                      placeholder="Choose a password"
-                      {...field}
-                      disabled={registerMutation.isPending}
-                      data-testid="input-signup-password"
-                    />
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="password"
+                        placeholder="Create a password"
+                        className="pl-10"
+                        {...field}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-signup-password"
+                      />
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="confirmPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="password"
+                        placeholder="Confirm your password"
+                        className="pl-10"
+                        {...field}
+                        disabled={registerMutation.isPending}
+                        data-testid="input-signup-confirm-password"
+                      />
+                    </div>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
