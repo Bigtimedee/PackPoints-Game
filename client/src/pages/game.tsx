@@ -447,8 +447,9 @@ export default function Game() {
           onSuccess={() => {
             toast({
               title: "Account Created!",
-              description: `Your ${session.score} points have been saved to your account.`,
+              description: `Your ${session.score} points have been saved. Starting a new game!`,
             });
+            handlePlayAgain();
           }}
         />
       </div>
