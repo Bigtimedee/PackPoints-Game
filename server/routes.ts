@@ -11,6 +11,8 @@ import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
+import { adminService } from "./services/adminService";
+import { analyticsService } from "./services/analyticsService";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -1122,6 +1124,215 @@ export async function registerRoutes(
     res.json({
       stripeConfigured: isStripeConfigured(),
     });
+  });
+
+  // ============================================
+  // ADMIN MANAGEMENT ENDPOINTS
+  // ============================================
+
+  // Admin: Get user's wallet and ledger
+  app.get("/api/admin/users/:userId/wallet", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const walletData = await adminService.getUserWallet(userId);
+      
+      if (!walletData) {
+        return res.status(404).json({ error: "Wallet not found" });
+      }
+      
+      res.json(walletData);
+    } catch (error) {
+      console.error("Error getting user wallet:", error);
+      res.status(500).json({ error: "Failed to get user wallet" });
+    }
+  });
+
+  // Admin: Get purchase events
+  app.get("/api/admin/purchases", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const status = req.query.status as string | undefined;
+      const userId = req.query.userId as string | undefined;
+      
+      const result = await adminService.getPurchaseEvents(page, limit, status, userId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error getting purchase events:", error);
+      res.status(500).json({ error: "Failed to get purchase events" });
+    }
+  });
+
+  // Admin: Get user's entitlements
+  app.get("/api/admin/users/:userId/entitlements", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const entitlements = await adminService.getUserEntitlements(userId);
+      res.json({ entitlements });
+    } catch (error) {
+      console.error("Error getting user entitlements:", error);
+      res.status(500).json({ error: "Failed to get entitlements" });
+    }
+  });
+
+  // Admin: Grant entitlement
+  app.post("/api/admin/users/:userId/entitlements", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      const { entitlementKey, expiresAt } = req.body;
+      
+      if (!entitlementKey) {
+        return res.status(400).json({ error: "Entitlement key required" });
+      }
+      
+      const result = await adminService.grantEntitlement(
+        { adminUserId, targetUserId: userId },
+        entitlementKey,
+        expiresAt ? new Date(expiresAt) : null
+      );
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, message: `Granted ${entitlementKey} to user` });
+    } catch (error) {
+      console.error("Error granting entitlement:", error);
+      res.status(500).json({ error: "Failed to grant entitlement" });
+    }
+  });
+
+  // Admin: Revoke entitlement
+  app.delete("/api/admin/users/:userId/entitlements/:entitlementKey", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId, entitlementKey } = req.params;
+      const { reason } = req.body || {};
+      
+      const result = await adminService.revokeEntitlement(
+        { adminUserId, targetUserId: userId },
+        entitlementKey,
+        reason || "Admin revocation"
+      );
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, message: `Revoked ${entitlementKey} from user` });
+    } catch (error) {
+      console.error("Error revoking entitlement:", error);
+      res.status(500).json({ error: "Failed to revoke entitlement" });
+    }
+  });
+
+  // Admin: Adjust PackPTS balance
+  app.post("/api/admin/users/:userId/wallet/adjust", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      const { amount, reason } = req.body;
+      
+      if (typeof amount !== "number") {
+        return res.status(400).json({ error: "Amount must be a number" });
+      }
+      
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ error: "Reason required" });
+      }
+      
+      const result = await adminService.adjustPackPTS(
+        { adminUserId, targetUserId: userId },
+        amount,
+        reason
+      );
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, newBalance: result.newBalance });
+    } catch (error) {
+      console.error("Error adjusting PackPTS:", error);
+      res.status(500).json({ error: "Failed to adjust PackPTS" });
+    }
+  });
+
+  // Admin: Get feature flags
+  app.get("/api/admin/feature-flags", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const flags = await adminService.getFeatureFlags();
+      res.json({ flags });
+    } catch (error) {
+      console.error("Error getting feature flags:", error);
+      res.status(500).json({ error: "Failed to get feature flags" });
+    }
+  });
+
+  // Admin: Toggle feature flag
+  app.patch("/api/admin/feature-flags/:key", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { key } = req.params;
+      const { enabled, value } = req.body;
+      
+      if (typeof enabled === "boolean") {
+        const result = await adminService.toggleFeatureFlag(
+          { adminUserId },
+          key,
+          enabled
+        );
+        
+        if (!result.success) {
+          return res.status(400).json({ error: result.error });
+        }
+      }
+      
+      if (value !== undefined) {
+        const result = await adminService.updateFeatureFlagValue(
+          { adminUserId },
+          key,
+          value
+        );
+        
+        if (!result.success) {
+          return res.status(400).json({ error: result.error });
+        }
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating feature flag:", error);
+      res.status(500).json({ error: "Failed to update feature flag" });
+    }
+  });
+
+  // Admin: Get audit log
+  app.get("/api/admin/audit-log", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const adminUserId = req.query.adminUserId as string | undefined;
+      
+      const result = await adminService.getAuditLog(page, limit, adminUserId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error getting audit log:", error);
+      res.status(500).json({ error: "Failed to get audit log" });
+    }
+  });
+
+  // Admin: Get metrics
+  app.get("/api/admin/metrics", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const date = req.query.date as string | undefined;
+      const metrics = await adminService.getMetrics(date);
+      res.json(metrics);
+    } catch (error) {
+      console.error("Error getting metrics:", error);
+      res.status(500).json({ error: "Failed to get metrics" });
+    }
   });
 
   return httpServer;
