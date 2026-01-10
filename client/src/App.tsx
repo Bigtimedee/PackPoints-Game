@@ -14,7 +14,11 @@ import Queue from "@/pages/queue";
 import Leaderboard from "@/pages/leaderboard";
 import Marketplace from "@/pages/marketplace";
 import Profile from "@/pages/profile";
+import AdminLogin from "@/pages/admin/login";
+import AdminDashboard from "@/pages/admin/dashboard";
+import AdminUsers from "@/pages/admin/users";
 import NotFound from "@/pages/not-found";
+import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
   return (
@@ -28,6 +32,21 @@ function Router() {
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/marketplace" component={Marketplace} />
       <Route path="/profile" component={Profile} />
+      <Route path="/admin" component={AdminLogin} />
+      <Route path="/admin/dashboard">
+        {() => (
+          <AdminLayout>
+            <AdminDashboard />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/users">
+        {() => (
+          <AdminLayout>
+            <AdminUsers />
+          </AdminLayout>
+        )}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertGameSessionSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema } from "@shared/schema";
+import { insertGameSessionSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, users, type User } from "@shared/schema";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import { requireAdminAuth } from "./middleware/adminAuth";
 import { matchService } from "./services/matchService";
+import { db } from "./db";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -316,6 +317,132 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting card stats:", error);
       res.status(500).json({ error: "Failed to get card stats" });
+    }
+  });
+
+  app.get("/api/admin/dashboard", requireAdminAuth, async (_req, res) => {
+    try {
+      const allUsers: User[] = await db.select().from(users);
+      const allCards = await storage.getCards();
+      const verifiedCards = allCards.filter(c => c.imageVerified).length;
+      
+      const totalUsers = allUsers.length;
+      const totalPoints = allUsers.reduce((sum: number, u: User) => sum + u.points, 0);
+      const totalGames = allUsers.reduce((sum: number, u: User) => sum + u.gamesPlayed, 0);
+      const totalCorrect = allUsers.reduce((sum: number, u: User) => sum + u.correctAnswers, 0);
+      const totalAnswers = allUsers.reduce((sum: number, u: User) => sum + u.totalAnswers, 0);
+      const avgAccuracy = totalAnswers > 0 ? Math.round((totalCorrect / totalAnswers) * 100) : 0;
+      
+      const topPlayers = [...allUsers]
+        .sort((a: User, b: User) => b.points - a.points)
+        .slice(0, 5)
+        .map((u: User) => ({
+          username: u.username,
+          points: u.points,
+          gamesPlayed: u.gamesPlayed,
+        }));
+      
+      const mostActive = [...allUsers]
+        .sort((a: User, b: User) => b.gamesPlayed - a.gamesPlayed)
+        .slice(0, 5)
+        .map((u: User) => ({
+          username: u.username,
+          gamesPlayed: u.gamesPlayed,
+          points: u.points,
+        }));
+      
+      res.json({
+        overview: {
+          totalUsers,
+          totalPoints,
+          totalGames,
+          avgAccuracy,
+          totalCards: allCards.length,
+          verifiedCards,
+        },
+        topPlayers,
+        mostActive,
+      });
+    } catch (error) {
+      console.error("Error getting dashboard stats:", error);
+      res.status(500).json({ error: "Failed to get dashboard stats" });
+    }
+  });
+
+  app.get("/api/admin/users", requireAdminAuth, async (req, res) => {
+    try {
+      const search = (req.query.search as string) || "";
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = (page - 1) * limit;
+      
+      let allUsers: User[] = await db.select().from(users);
+      
+      if (search) {
+        allUsers = allUsers.filter((u: User) => 
+          u.username.toLowerCase().includes(search.toLowerCase())
+        );
+      }
+      
+      const total = allUsers.length;
+      const sortedUsers = [...allUsers].sort((a: User, b: User) => b.points - a.points);
+      const paginatedUsers = sortedUsers.slice(offset, offset + limit);
+      
+      const usersWithStats = paginatedUsers.map((u: User) => ({
+        id: u.id,
+        username: u.username,
+        points: u.points,
+        gamesPlayed: u.gamesPlayed,
+        correctAnswers: u.correctAnswers,
+        totalAnswers: u.totalAnswers,
+        accuracy: u.totalAnswers > 0 ? Math.round((u.correctAnswers / u.totalAnswers) * 100) : 0,
+      }));
+      
+      res.json({
+        users: usersWithStats,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      });
+    } catch (error) {
+      console.error("Error getting users:", error);
+      res.status(500).json({ error: "Failed to get users" });
+    }
+  });
+
+  app.get("/api/admin/users/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = await storage.getUser(id);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const accuracy = user.totalAnswers > 0 
+        ? Math.round((user.correctAnswers / user.totalAnswers) * 100) 
+        : 0;
+      
+      const avgPointsPerGame = user.gamesPlayed > 0 
+        ? Math.round(user.points / user.gamesPlayed) 
+        : 0;
+      
+      res.json({
+        id: user.id,
+        username: user.username,
+        points: user.points,
+        gamesPlayed: user.gamesPlayed,
+        correctAnswers: user.correctAnswers,
+        totalAnswers: user.totalAnswers,
+        accuracy,
+        avgPointsPerGame,
+      });
+    } catch (error) {
+      console.error("Error getting user:", error);
+      res.status(500).json({ error: "Failed to get user" });
     }
   });
 

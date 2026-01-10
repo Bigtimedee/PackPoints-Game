@@ -98,6 +98,16 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Security**: Same membership secret model as 1v1 Friend mode
 - **Frontend**: Queue page (/queue) with search timer, cancel button, auto-redirect on match
 
+### Admin Portal
+- **Access**: Navigate to `/admin` and enter ADMIN_API_KEY
+- **Dashboard** (/admin/dashboard): Overview stats (users, games, points, cards), top players chart, most active chart
+- **User Management** (/admin/users): Search users, paginated list, view user details modal
+- **Authentication**: X-Admin-Key header validated by requireAdminAuth middleware
+- **API Endpoints**:
+  - GET /api/admin/dashboard - Aggregate platform statistics
+  - GET /api/admin/users?search=&page=&limit= - Paginated user list
+  - GET /api/admin/users/:id - Single user details
+
 ### Social Sharing
 - Share buttons appear on game completion screen
 - Supports Twitter/X, Facebook, and clipboard copy
