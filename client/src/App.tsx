@@ -17,6 +17,9 @@ import Profile from "@/pages/profile";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminUsers from "@/pages/admin/users";
+import AdminUserDetail from "@/pages/admin/user-detail";
+import AdminMetrics from "@/pages/admin/metrics";
+import AdminAuditLog from "@/pages/admin/audit-log";
 import NotFound from "@/pages/not-found";
 import { AdminLayout } from "@/components/admin-layout";
 
@@ -47,6 +50,27 @@ function Router() {
           </AdminLayout>
         )}
       </Route>
+      <Route path="/admin/users/:userId">
+        {() => (
+          <AdminLayout>
+            <AdminUserDetail />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/metrics">
+        {() => (
+          <AdminLayout>
+            <AdminMetrics />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/audit-log">
+        {() => (
+          <AdminLayout>
+            <AdminAuditLog />
+          </AdminLayout>
+        )}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -58,7 +82,7 @@ function App() {
       <ThemeProvider defaultTheme="dark" storageKey="packpoints-theme">
         <TooltipProvider>
           <div className="min-h-screen bg-background text-foreground">
-            <Header points={2500} />
+            <Header />
             <main>
               <Router />
             </main>

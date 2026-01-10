@@ -260,6 +260,19 @@ export default function AdminUsers() {
               <div className="text-sm text-muted-foreground">
                 <p>Correct Answers: {userDetails.correctAnswers} / {userDetails.totalAnswers}</p>
               </div>
+              
+              <div className="pt-4 border-t">
+                <Button 
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedUser(null);
+                    navigate(`/admin/users/${userDetails.id}`);
+                  }}
+                  data-testid="button-manage-user"
+                >
+                  Manage Wallet & Entitlements
+                </Button>
+              </div>
             </div>
           ) : null}
         </DialogContent>
