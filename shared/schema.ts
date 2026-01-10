@@ -322,3 +322,58 @@ export const adjustWalletSchema = z.object({
 });
 
 export type AdjustWalletRequest = z.infer<typeof adjustWalletSchema>;
+
+// Product types for monetization
+export const productTypes = ["CONSUMABLE", "ENTITLEMENT", "SUBSCRIPTION"] as const;
+export type ProductType = typeof productTypes[number];
+
+// Products catalog - available items for purchase
+export const products = pgTable("products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sku: varchar("sku", { length: 100 }).notNull().unique(),
+  name: varchar("name", { length: 200 }).notNull(),
+  type: varchar("type", { length: 20 }).notNull(), // CONSUMABLE, ENTITLEMENT, SUBSCRIPTION
+  packptsGrant: integer("packpts_grant"), // only for CONSUMABLE
+  entitlementKey: varchar("entitlement_key", { length: 100 }), // only for ENTITLEMENT/SUBSCRIPTION
+  durationDays: integer("duration_days"), // only for SUBSCRIPTION
+  priceUsd: integer("price_usd"), // price in cents
+  isActive: boolean("is_active").notNull().default(true),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_products_sku").on(table.sku),
+  index("idx_products_active").on(table.isActive),
+]);
+
+export const insertProductSchema = createInsertSchema(products).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProduct = z.infer<typeof insertProductSchema>;
+export type Product = typeof products.$inferSelect;
+
+// User entitlements - unlocked features/subscriptions
+export const userEntitlements = pgTable("user_entitlements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  entitlementKey: varchar("entitlement_key", { length: 100 }).notNull(),
+  expiresAt: timestamp("expires_at"), // null for permanent entitlements
+  source: varchar("source", { length: 50 }).notNull(), // purchase, promo, admin_grant
+  sourceReference: varchar("source_reference", { length: 200 }), // order ID, promo code, etc
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_entitlements_user").on(table.userId),
+  index("idx_entitlements_key").on(table.entitlementKey),
+  index("idx_entitlements_expires").on(table.expiresAt),
+]);
+
+export const insertUserEntitlementSchema = createInsertSchema(userEntitlements).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertUserEntitlement = z.infer<typeof insertUserEntitlementSchema>;
+export type UserEntitlement = typeof userEntitlements.$inferSelect;
