@@ -165,6 +165,69 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Replit Plugins**: Dev banner, cartographer, runtime error overlay for Replit environment
 - **esbuild**: Production server bundling
 
+### Stripe Payment Integration
+- **Service Module**: `server/services/stripePurchaseService.ts` handles all Stripe webhook processing
+- **Webhook Endpoint**: POST `/webhooks/purchases` - Receives Stripe webhook events with signature verification
+- **Reconciliation Endpoint**: POST `/billing/sync` - Re-checks user's entitlements server-side (idempotent)
+- **Admin Reprocess**: POST `/api/admin/purchases/:eventId/reprocess` - Retry failed webhook events
+
+#### Stripe Webhook Events Handled:
+- `checkout.session.completed` - One-time purchases (consumables, entitlements)
+- `invoice.paid` - Subscription renewals
+- `customer.subscription.updated` - Subscription status changes
+- `customer.subscription.deleted` - Subscription cancellations
+- `charge.refunded` - Refunds (logged for manual review)
+
+#### Database Tables:
+- `purchase_events` - Raw webhook payload log with status (received/processed/failed/ignored)
+- `stripe_customers` - Maps userId to Stripe customer ID for sync operations
+
+#### Environment Variables Required:
+- `STRIPE_SECRET_KEY` - Stripe API secret key (required for payment processing)
+- `STRIPE_WEBHOOK_SECRET` - Webhook endpoint secret for signature verification
+
+#### Optional Price ID Mapping (Environment Variables):
+If your Stripe price IDs don't follow the pattern naming convention, set these:
+- `STRIPE_PRICE_PACKPTS_500` - Stripe price ID for 500 PackPTS
+- `STRIPE_PRICE_PACKPTS_1500` - Stripe price ID for 1,500 PackPTS
+- `STRIPE_PRICE_PACKPTS_6000` - Stripe price ID for 6,000 PackPTS
+- `STRIPE_PRICE_PRO_MONTHLY` - Stripe price ID for Pro Monthly subscription
+- `STRIPE_PRICE_LEGEND_MODE` - Stripe price ID for Legend Mode Pass
+
+#### Local Testing Strategy:
+1. Install Stripe CLI: `brew install stripe/stripe-cli/stripe`
+2. Login to Stripe: `stripe login`
+3. Forward webhooks locally: `stripe listen --forward-to localhost:5000/webhooks/purchases`
+4. Copy the webhook signing secret from CLI output to `STRIPE_WEBHOOK_SECRET`
+5. Trigger test events: `stripe trigger checkout.session.completed`
+
+#### Security:
+- All PackPTS credits granted server-side only after webhook verification
+- Idempotency keys prevent duplicate processing (`stripe_event_{eventId}_{priceId}`)
+- Subscription entitlements include 3-day grace period after expiry
+- Refunds logged for manual review - automatic reversal not implemented
+
+### Product Catalog System
+- **Database Table**: `products` - SKU, name, type, packpts_grant, entitlement_key, duration_days, price_usd
+- **Entitlements Table**: `user_entitlements` - userId, entitlement_key, expires_at, source
+- **Product Types**:
+  - CONSUMABLE: Grants PackPTS when purchased
+  - ENTITLEMENT: One-time permanent unlock
+  - SUBSCRIPTION: Time-based access with auto-renewal
+- **API Endpoints**:
+  - GET `/api/products` - Public catalog listing
+  - GET `/api/me/entitlements` - User's active entitlements (auth required)
+
+### PackPTS Wallet System
+- **Ledger-First Architecture**: All credits recorded in append-only ledger before wallet update
+- **Tables**: `wallets` (balance, lifetime stats), `ledger_entries` (transaction log)
+- **Idempotency**: All operations use unique idempotency keys to prevent duplicate transactions
+- **Entry Types**: EARN, SPEND, ADJUST, PURCHASE_CREDIT, REVERSAL
+- **API Endpoints**:
+  - GET `/api/wallet` - User's wallet balance and history
+  - POST `/api/wallet/spend` - Deduct points (auth required)
+  - POST `/api/internal/wallet/earn` - Credit points (internal key required)
+
 ### Planned Integrations (Referenced in Code)
 - Goldin Auctions: Point redemption partner
 - eBay: Point redemption partner

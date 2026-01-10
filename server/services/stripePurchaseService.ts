@@ -238,10 +238,19 @@ class StripePurchaseService {
       }
 
       const quantity = item.quantity || 1;
+      if (quantity <= 0) {
+        console.warn(`Invalid quantity ${quantity} for price ID: ${priceId}`);
+        continue;
+      }
+      
       const idempotencyKey = `stripe_event_${event.id}_${priceId}`;
 
       if (productDef.type === "CONSUMABLE" && "packptsGrant" in productDef) {
         const amount = productDef.packptsGrant * quantity;
+        if (amount <= 0) {
+          console.warn(`Invalid amount ${amount} for product: ${productDef.name}`);
+          continue;
+        }
         const result = await walletService.earn(
           userId,
           amount,
