@@ -876,7 +876,7 @@ export async function registerRoutes(
   // User entitlements endpoint (requires auth)
   app.get("/api/me/entitlements", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
