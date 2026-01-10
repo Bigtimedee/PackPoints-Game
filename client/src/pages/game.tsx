@@ -234,6 +234,15 @@ export default function Game() {
     }
   }, []);
 
+  // Show signup modal after game completion for unauthenticated users with points
+  const isGameOver = session?.status === "completed";
+  useEffect(() => {
+    if (isGameOver && !isAuthenticated && session && session.score > 0 && !showSignupModal) {
+      const timer = setTimeout(() => setShowSignupModal(true), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isGameOver, isAuthenticated, session?.score, showSignupModal]);
+
   const handleSelectAnswer = (answer: string) => {
     if (isRevealed) return;
     setSelectedAnswer(answer);
@@ -283,15 +292,7 @@ export default function Game() {
   }
 
   const currentQuestion = session.questions[session.currentQuestionIndex];
-  const isGameOver = session.status === "completed";
   const progress = ((session.currentQuestionIndex + (isRevealed ? 1 : 0)) / session.totalQuestions) * 100;
-
-  useEffect(() => {
-    if (isGameOver && !isAuthenticated && session.score > 0 && !showSignupModal) {
-      const timer = setTimeout(() => setShowSignupModal(true), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isGameOver, isAuthenticated, session?.score]);
 
   if (isGameOver) {
     const accuracy = session.totalQuestions > 0 
