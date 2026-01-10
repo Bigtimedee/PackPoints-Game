@@ -534,3 +534,71 @@ export const TIER_CONFIG = {
     allowedModes: ["solo", "1v1_friend", "1v1_random", "tournament", "legend"] as string[],
   },
 } as const;
+
+// Admin audit log for tracking all admin actions
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adminUserId: varchar("admin_user_id").notNull().references(() => users.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  targetUserId: varchar("target_user_id").references(() => users.id),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_admin_audit_admin").on(table.adminUserId),
+  index("idx_admin_audit_target").on(table.targetUserId),
+  index("idx_admin_audit_action").on(table.action),
+  index("idx_admin_audit_created").on(table.createdAt),
+]);
+
+export const insertAdminAuditLogSchema = createInsertSchema(adminAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAdminAuditLog = z.infer<typeof insertAdminAuditLogSchema>;
+export type AdminAuditLog = typeof adminAuditLog.$inferSelect;
+
+// Analytics event log for tracking user/system events
+export const ANALYTICS_EVENT_TYPES = [
+  "store_viewed",
+  "purchase_started",
+  "purchase_completed",
+  "match_started",
+  "match_completed",
+  "pts_earned",
+  "pts_spent",
+  "redeem_started",
+  "redeem_completed",
+] as const;
+
+export type AnalyticsEventType = typeof ANALYTICS_EVENT_TYPES[number];
+
+export const eventLog = pgTable("event_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: varchar("event_type", { length: 50 }).notNull(),
+  userId: varchar("user_id").references(() => users.id),
+  sessionId: varchar("session_id", { length: 100 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_event_log_type").on(table.eventType),
+  index("idx_event_log_user").on(table.userId),
+  index("idx_event_log_created").on(table.createdAt),
+  index("idx_event_log_type_created").on(table.eventType, table.createdAt),
+]);
+
+export const insertEventLogSchema = createInsertSchema(eventLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEventLog = z.infer<typeof insertEventLogSchema>;
+export type EventLog = typeof eventLog.$inferSelect;
+
+// Analytics event interface for dispatcher
+export interface AnalyticsEvent {
+  eventType: AnalyticsEventType;
+  userId?: string | null;
+  sessionId?: string | null;
+  metadata?: Record<string, unknown>;
+}
