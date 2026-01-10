@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
 import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku } from "./productMap";
+import { analyticsService } from "./analyticsService";
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -273,6 +274,17 @@ class StripePurchaseService {
         entitlementsGranted.push(productDef.entitlementKey);
       }
     }
+    
+    if (totalPackPts > 0 || entitlementsGranted.length > 0) {
+      await analyticsService.purchaseCompleted(userId, session.id, {
+        stripeEventId: event.id,
+        mode: session.mode,
+        packptsGranted: totalPackPts,
+        entitlementsGranted,
+        amountTotal: session.amount_total,
+        currency: session.currency,
+      });
+    }
 
     return {
       status: "processed",
@@ -347,6 +359,15 @@ class StripePurchaseService {
       source: "purchase",
       sourceReference: event.id,
       expiresAt,
+    });
+    
+    await analyticsService.purchaseCompleted(userId, subscriptionId, {
+      stripeEventId: event.id,
+      type: "subscription_renewal",
+      entitlementKey: productDef.entitlementKey,
+      expiresAt: expiresAt.toISOString(),
+      amountTotal: invoice.amount_paid,
+      currency: invoice.currency,
     });
 
     return {

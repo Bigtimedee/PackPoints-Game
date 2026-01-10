@@ -123,6 +123,14 @@ export async function registerRoutes(
         }
         return res.status(400).json({ error: result.error });
       }
+      
+      if (!result.idempotent) {
+        await analyticsService.ptsSpent(userId, amount, {
+          reason,
+          idempotencyKey,
+          ...metadata,
+        });
+      }
 
       res.json({
         success: true,
@@ -333,6 +341,13 @@ export async function registerRoutes(
           tokenSignature = tokenResult.signature;
           
           await quotaService.incrementMatchStarted(userId, normalizedMode);
+          
+          await analyticsService.matchStarted(userId, session.id, {
+            mode: normalizedMode,
+            tier,
+            multiplier,
+            totalQuestions: session.totalQuestions,
+          });
         }
       }
       
@@ -473,16 +488,36 @@ export async function registerRoutes(
           
           if (tokenValidated) {
             try {
-              await walletService.earnPoints(
+              const earnResult = await walletService.earn(
                 session.userId,
                 finalScore,
                 `Game completed: ${session.correctAnswers}/${session.totalQuestions} correct`,
-                `game_${session.id}`
+                `game_${session.id}`,
+                { sessionId: session.id, mode: session.gameMode, multiplier }
               );
+              
+              if (earnResult.success && !earnResult.idempotent) {
+                await analyticsService.ptsEarned(session.userId, finalScore, {
+                  sessionId: session.id,
+                  mode: session.gameMode,
+                  multiplier,
+                  correctAnswers: session.correctAnswers,
+                  totalQuestions: session.totalQuestions,
+                });
+              }
             } catch (walletError) {
               console.error("Failed to credit wallet:", walletError);
             }
           }
+          
+          await analyticsService.matchCompleted(session.userId, session.id, {
+            mode: session.gameMode,
+            score: finalScore,
+            correctAnswers: session.correctAnswers,
+            totalQuestions: session.totalQuestions,
+            multiplier,
+            tokenValidated,
+          });
         } else if (session.guestSessionId) {
           if (!req.session.pendingPoints) {
             req.session.pendingPoints = { score: 0, correctAnswers: 0, totalAnswers: 0, gamesPlayed: 0 };
@@ -992,9 +1027,15 @@ export async function registerRoutes(
   });
 
   // Product catalog endpoints
-  app.get("/api/products", async (_req, res) => {
+  app.get("/api/products", async (req: any, res) => {
     try {
       const products = await storage.getProducts(true);
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (userId) {
+        await analyticsService.storeViewed(userId, { productCount: products.length });
+      }
+      
       res.json(products);
     } catch (error) {
       console.error("Error getting products:", error);
