@@ -618,14 +618,19 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
       
-      const { username, password } = parsed.data;
+      const { username, email, password } = parsed.data;
       
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
         return res.status(409).json({ error: "Username already taken" });
       }
       
-      const user = await storage.createLocalUser(username, password);
+      const existingEmail = await storage.getUserByEmail(email);
+      if (existingEmail) {
+        return res.status(409).json({ error: "Email already registered" });
+      }
+      
+      const user = await storage.createLocalUser(username, email, password);
       
       if (req.session.pendingPoints) {
         const pending = req.session.pendingPoints;
@@ -671,9 +676,9 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
       
-      const { username, password } = parsed.data;
+      const { usernameOrEmail, password } = parsed.data;
       
-      const user = await storage.validateLocalCredentials(username, password);
+      const user = await storage.validateLocalCredentials(usernameOrEmail, password);
       if (!user) {
         return res.status(401).json({ error: "Invalid username or password" });
       }

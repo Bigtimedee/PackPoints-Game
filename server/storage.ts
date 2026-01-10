@@ -22,8 +22,8 @@ export interface IStorage {
   updateUserPoints(id: string, points: number): Promise<User | undefined>;
   updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined>;
   
-  createLocalUser(username: string, password: string): Promise<User>;
-  validateLocalCredentials(username: string, password: string): Promise<User | null>;
+  createLocalUser(username: string, email: string, password: string): Promise<User>;
+  validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
   
   getCards(): Promise<BaseballCard[]>;
   getRandomCards(count: number): Promise<BaseballCard[]>;
@@ -156,11 +156,12 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createLocalUser(username: string, password: string): Promise<User> {
+  async createLocalUser(username: string, email: string, password: string): Promise<User> {
     const passwordHash = await bcrypt.hash(password, 10);
     
     const [user] = await db.insert(users).values({
       username,
+      email,
       firstName: username,
     }).returning();
     
@@ -172,8 +173,12 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async validateLocalCredentials(username: string, password: string): Promise<User | null> {
-    const user = await this.getUserByUsername(username);
+  async validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null> {
+    // Try to find by username first, then by email
+    let user = await this.getUserByUsername(usernameOrEmail);
+    if (!user) {
+      user = await this.getUserByEmail(usernameOrEmail);
+    }
     if (!user) return null;
     
     const [credential] = await db.select().from(localCredentials).where(eq(localCredentials.userId, user.id));

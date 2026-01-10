@@ -125,14 +125,15 @@ export type StartGameRequest = z.infer<typeof startGameSchema>;
 
 export const registerSchema = z.object({
   username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
+  email: z.string().email("Please enter a valid email address"),
   password: z.string().min(6).max(100),
 });
 
 export type RegisterRequest = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({
-  username: z.string(),
-  password: z.string(),
+  usernameOrEmail: z.string().min(1, "Username or email is required"),
+  password: z.string().min(1, "Password is required"),
 });
 
 export type LoginRequest = z.infer<typeof loginSchema>;

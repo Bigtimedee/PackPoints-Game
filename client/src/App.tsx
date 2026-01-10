@@ -24,6 +24,7 @@ import AdminRedemptions from "@/pages/admin/redemptions";
 import AdminTiers from "@/pages/admin/tiers";
 import NotFound from "@/pages/not-found";
 import AuthError from "@/pages/auth-error";
+import Auth from "@/pages/auth";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -88,6 +89,7 @@ function Router() {
           </AdminLayout>
         )}
       </Route>
+      <Route path="/auth" component={Auth} />
       <Route path="/auth-error" component={AuthError} />
       <Route component={NotFound} />
     </Switch>

@@ -153,10 +153,10 @@ export function Header() {
             </DropdownMenu>
           ) : (
             <Button asChild data-testid="button-login">
-              <a href="/api/login" onClick={handleLoginClick}>
+              <Link href="/auth">
                 <LogIn className="h-4 w-4 mr-2" />
                 Log in
-              </a>
+              </Link>
             </Button>
           )}
         </div>
