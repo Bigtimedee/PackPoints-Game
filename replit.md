@@ -59,7 +59,17 @@ The admin system provides comprehensive management capabilities:
 - **Audit Logging**: All admin actions recorded to `admin_audit_log` table
 - **Metrics Dashboard**: DAU, conversion rates, and PackPTS liability tracking
 
-Admin UI pages: `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin/metrics`, `/admin/audit-log`, `/admin/cards`
+Admin UI pages: `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin/metrics`, `/admin/audit-log`, `/admin/cards`, `/admin/redemptions`
+
+### Redemption System
+A closed-loop redemption system converts PackPTS into store credit (never cash):
+- **Non-linear tier pricing**: Better rates at higher amounts (50¢/1k for 1k-5k PTS, up to $1/1k for 50k+ PTS)
+- **Review threshold**: Redemptions ≥$25 require admin approval before credit token issuance
+- **Idempotency**: Uses stable key generation (client-provided or minute-bucket timestamp) with ledger pre-checks to prevent double-spending
+- **Admin actions**: Approve (issues token), Reject (refunds PackPTS), Reverse (fraud reversal with refund)
+- **Credit tokens**: Secure tokens for store checkout, validated and consumed via dedicated endpoints
+- **Service**: `redemptionService.ts` handles all redemption logic with proper ledger integration
+- **Endpoints**: POST /api/redeem, /api/redeem/tiers, /api/redeem/preview, /api/redeem/history, admin approve/reject/reverse endpoints
 
 ### Analytics System
 Event tracking via `analyticsService` with pluggable dispatcher pattern:
