@@ -242,3 +242,83 @@ export const matchAnswerSchema = z.object({
   questionIndex: z.number(),
   selectedAnswer: z.string(),
 });
+
+// PackPTS Wallet - stores user's balance and lifetime stats
+export const wallets = pgTable("wallets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  balance: integer("balance").notNull().default(0),
+  lifetimeEarned: integer("lifetime_earned").notNull().default(0),
+  lifetimeSpent: integer("lifetime_spent").notNull().default(0),
+  status: varchar("status", { length: 20 }).notNull().default("active"), // active, frozen, suspended
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertWalletSchema = createInsertSchema(wallets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertWallet = z.infer<typeof insertWalletSchema>;
+export type Wallet = typeof wallets.$inferSelect;
+
+// Ledger entry types enum
+export const ledgerEntryTypes = ["EARN", "SPEND", "ADJUST", "PURCHASE_CREDIT", "REVERSAL"] as const;
+export type LedgerEntryType = typeof ledgerEntryTypes[number];
+
+// PackPTS Ledger - append-only transaction log
+export const ledgerEntries = pgTable("ledger_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  walletId: varchar("wallet_id").notNull().references(() => wallets.id),
+  entryType: varchar("entry_type", { length: 20 }).notNull(), // EARN, SPEND, ADJUST, PURCHASE_CREDIT, REVERSAL
+  amount: integer("amount").notNull(), // positive for credits, negative for debits
+  balanceAfter: integer("balance_after").notNull(),
+  reason: text("reason").notNull(),
+  metadata: jsonb("metadata"), // flexible JSON for additional context
+  idempotencyKey: varchar("idempotency_key", { length: 64 }).unique(), // prevents duplicate transactions
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_ledger_wallet").on(table.walletId),
+  index("idx_ledger_created").on(table.createdAt),
+  index("idx_ledger_idempotency").on(table.idempotencyKey),
+]);
+
+export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLedgerEntry = z.infer<typeof insertLedgerEntrySchema>;
+export type LedgerEntry = typeof ledgerEntries.$inferSelect;
+
+// API request/response schemas for wallet operations
+export const spendWalletSchema = z.object({
+  amount: z.number().int().positive("Amount must be positive"),
+  reason: z.string().min(1).max(500),
+  idempotencyKey: z.string().min(1).max(64),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type SpendWalletRequest = z.infer<typeof spendWalletSchema>;
+
+export const earnWalletSchema = z.object({
+  userId: z.string().min(1),
+  amount: z.number().int().positive("Amount must be positive"),
+  reason: z.string().min(1).max(500),
+  idempotencyKey: z.string().min(1).max(64),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type EarnWalletRequest = z.infer<typeof earnWalletSchema>;
+
+export const adjustWalletSchema = z.object({
+  userId: z.string().min(1),
+  amount: z.number().int(), // can be positive or negative
+  reason: z.string().min(1).max(500),
+  idempotencyKey: z.string().min(1).max(64),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type AdjustWalletRequest = z.infer<typeof adjustWalletSchema>;

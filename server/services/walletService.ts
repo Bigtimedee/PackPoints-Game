@@ -1,0 +1,279 @@
+import { db } from "../db";
+import { wallets, ledgerEntries, type Wallet, type LedgerEntry, type LedgerEntryType } from "@shared/schema";
+import { eq, and, sql } from "drizzle-orm";
+
+export interface WalletOperationResult {
+  success: boolean;
+  wallet?: Wallet;
+  ledgerEntry?: LedgerEntry;
+  error?: string;
+  idempotent?: boolean;
+}
+
+export interface WalletWithHistory {
+  wallet: Wallet;
+  recentEntries: LedgerEntry[];
+}
+
+class WalletService {
+  async getOrCreateWallet(userId: string): Promise<Wallet> {
+    const existing = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    const [newWallet] = await db.insert(wallets).values({
+      userId,
+      balance: 0,
+      lifetimeEarned: 0,
+      lifetimeSpent: 0,
+      status: "active",
+    }).returning();
+
+    return newWallet;
+  }
+
+  async getWallet(userId: string): Promise<Wallet | null> {
+    const result = await db.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
+    return result.length > 0 ? result[0] : null;
+  }
+
+  async getWalletWithHistory(userId: string, limit: number = 10): Promise<WalletWithHistory | null> {
+    const wallet = await this.getOrCreateWallet(userId);
+    
+    const entries = await db
+      .select()
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.walletId, wallet.id))
+      .orderBy(sql`${ledgerEntries.createdAt} DESC`)
+      .limit(limit);
+
+    return { wallet, recentEntries: entries };
+  }
+
+  private async checkIdempotency(idempotencyKey: string): Promise<LedgerEntry | null> {
+    const existing = await db
+      .select()
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+      .limit(1);
+    
+    return existing.length > 0 ? existing[0] : null;
+  }
+
+  async earn(
+    userId: string,
+    amount: number,
+    reason: string,
+    idempotencyKey: string,
+    metadata?: Record<string, unknown>
+  ): Promise<WalletOperationResult> {
+    if (amount <= 0) {
+      return { success: false, error: "Amount must be positive" };
+    }
+
+    const existingEntry = await this.checkIdempotency(idempotencyKey);
+    if (existingEntry) {
+      const wallet = await this.getWallet(userId);
+      return { 
+        success: true, 
+        wallet: wallet!, 
+        ledgerEntry: existingEntry, 
+        idempotent: true 
+      };
+    }
+
+    return await db.transaction(async (tx) => {
+      const wallet = await this.getOrCreateWallet(userId);
+      
+      if (wallet.status !== "active") {
+        return { success: false, error: `Wallet is ${wallet.status}` };
+      }
+
+      const newBalance = wallet.balance + amount;
+      const newLifetimeEarned = wallet.lifetimeEarned + amount;
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeEarned: newLifetimeEarned,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
+      const [ledgerEntry] = await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: wallet.id,
+          entryType: "EARN" as LedgerEntryType,
+          amount: amount,
+          balanceAfter: newBalance,
+          reason,
+          metadata: metadata || null,
+          idempotencyKey,
+        })
+        .returning();
+
+      const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };
+      return { success: true, wallet: updatedWallet, ledgerEntry };
+    });
+  }
+
+  async spend(
+    userId: string,
+    amount: number,
+    reason: string,
+    idempotencyKey: string,
+    metadata?: Record<string, unknown>
+  ): Promise<WalletOperationResult> {
+    if (amount <= 0) {
+      return { success: false, error: "Amount must be positive" };
+    }
+
+    const existingEntry = await this.checkIdempotency(idempotencyKey);
+    if (existingEntry) {
+      const wallet = await this.getWallet(userId);
+      return { 
+        success: true, 
+        wallet: wallet!, 
+        ledgerEntry: existingEntry, 
+        idempotent: true 
+      };
+    }
+
+    return await db.transaction(async (tx) => {
+      const [wallet] = await tx
+        .select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .for("update")
+        .limit(1);
+      
+      if (!wallet) {
+        return { success: false, error: "Wallet not found" };
+      }
+      
+      if (wallet.status !== "active") {
+        return { success: false, error: `Wallet is ${wallet.status}` };
+      }
+
+      if (wallet.balance < amount) {
+        return { success: false, error: "Insufficient balance" };
+      }
+
+      const newBalance = wallet.balance - amount;
+      const newLifetimeSpent = wallet.lifetimeSpent + amount;
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeSpent: newLifetimeSpent,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
+      const [ledgerEntry] = await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: wallet.id,
+          entryType: "SPEND" as LedgerEntryType,
+          amount: -amount,
+          balanceAfter: newBalance,
+          reason,
+          metadata: metadata || null,
+          idempotencyKey,
+        })
+        .returning();
+
+      const updatedWallet = { ...wallet, balance: newBalance, lifetimeSpent: newLifetimeSpent };
+      return { success: true, wallet: updatedWallet, ledgerEntry };
+    });
+  }
+
+  async adjust(
+    userId: string,
+    amount: number,
+    reason: string,
+    idempotencyKey: string,
+    metadata?: Record<string, unknown>
+  ): Promise<WalletOperationResult> {
+    const existingEntry = await this.checkIdempotency(idempotencyKey);
+    if (existingEntry) {
+      const wallet = await this.getWallet(userId);
+      return { 
+        success: true, 
+        wallet: wallet!, 
+        ledgerEntry: existingEntry, 
+        idempotent: true 
+      };
+    }
+
+    return await db.transaction(async (tx) => {
+      const wallet = await this.getOrCreateWallet(userId);
+      
+      const newBalance = wallet.balance + amount;
+      
+      if (newBalance < 0) {
+        return { success: false, error: "Adjustment would result in negative balance" };
+      }
+
+      const lifetimeEarnedDelta = amount > 0 ? amount : 0;
+      const lifetimeSpentDelta = amount < 0 ? Math.abs(amount) : 0;
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeEarned: wallet.lifetimeEarned + lifetimeEarnedDelta,
+          lifetimeSpent: wallet.lifetimeSpent + lifetimeSpentDelta,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+
+      const [ledgerEntry] = await tx
+        .insert(ledgerEntries)
+        .values({
+          walletId: wallet.id,
+          entryType: "ADJUST" as LedgerEntryType,
+          amount: amount,
+          balanceAfter: newBalance,
+          reason,
+          metadata: metadata || null,
+          idempotencyKey,
+        })
+        .returning();
+
+      const updatedWallet = { 
+        ...wallet, 
+        balance: newBalance,
+        lifetimeEarned: wallet.lifetimeEarned + lifetimeEarnedDelta,
+        lifetimeSpent: wallet.lifetimeSpent + lifetimeSpentDelta,
+      };
+      return { success: true, wallet: updatedWallet, ledgerEntry };
+    });
+  }
+
+  async getLedgerHistory(
+    userId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<LedgerEntry[]> {
+    const wallet = await this.getWallet(userId);
+    if (!wallet) {
+      return [];
+    }
+
+    return await db
+      .select()
+      .from(ledgerEntries)
+      .where(eq(ledgerEntries.walletId, wallet.id))
+      .orderBy(sql`${ledgerEntries.createdAt} DESC`)
+      .limit(limit)
+      .offset(offset);
+  }
+}
+
+export const walletService = new WalletService();
