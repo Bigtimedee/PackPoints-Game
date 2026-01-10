@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Clock } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Clock, Shuffle } from "lucide-react";
 
 const gameModes = [
   {
@@ -17,11 +17,23 @@ const gameModes = [
     difficulty: "All Levels",
   },
   {
-    id: "1v1",
-    title: "1v1 Battle",
-    description: "Challenge a friend head-to-head. Both players guess the same cards!",
+    id: "1v1-friend",
+    title: "1v1 Friend",
+    description: "Challenge a friend head-to-head. Share a code and compete!",
     icon: Users,
     href: "/lobby",
+    badge: "Multiplayer",
+    badgeVariant: "default" as const,
+    pointRange: "100-1000 pts",
+    difficulty: "Competitive",
+    disabled: false,
+  },
+  {
+    id: "1v1-random",
+    title: "1v1 Random",
+    description: "Find a random opponent online. Quick matchmaking, instant action!",
+    icon: Shuffle,
+    href: "/queue",
     badge: "New",
     badgeVariant: "default" as const,
     pointRange: "100-1000 pts",
@@ -111,7 +123,7 @@ export default function Home() {
             <p className="text-muted-foreground">Pick a challenge that matches your skill level</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {gameModes.map((mode) => {
               const Icon = mode.icon;
               return (

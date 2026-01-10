@@ -168,6 +168,46 @@ class MatchService {
     return matchState;
   }
 
+  async startMatchForRandom(lobbyId: string): Promise<MatchState | null> {
+    const lobby = await this.getLobby(lobbyId);
+    if (!lobby) return null;
+    if (!lobby.guestId || !lobby.guestUsername) return null;
+    
+    await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
+    
+    const questions = await this.generateQuestions(lobby.totalQuestions);
+    
+    const [match] = await db.insert(matches).values({
+      lobbyId,
+      status: "active",
+      totalQuestions: lobby.totalQuestions,
+      questionsData: JSON.stringify(questions),
+    }).returning();
+    
+    await db.insert(matchParticipants).values([
+      { matchId: match.id, userId: lobby.hostId, username: lobby.hostUsername },
+      { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername },
+    ]);
+    
+    const matchState: MatchState = {
+      matchId: match.id,
+      lobbyId: lobby.id,
+      status: "active",
+      currentQuestionIndex: 0,
+      totalQuestions: lobby.totalQuestions,
+      questions,
+      participants: [
+        { userId: lobby.hostId, username: lobby.hostUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
+        { userId: lobby.guestId, username: lobby.guestUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
+      ],
+    };
+    
+    this.matchStates.set(match.id, matchState);
+    this.playerAnswers.set(match.id, new Map());
+    
+    return matchState;
+  }
+
   private async generateQuestions(count: number): Promise<GameQuestion[]> {
     const verifiedCards = await db
       .select()

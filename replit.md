@@ -86,6 +86,18 @@ Key entities: Users (authentication, points, stats), GameSessions (active games)
 - **Scoring**: Uses same popularity-based formula as solo mode: `max(50, 100 + (100 - popularity) * 4)`
 - **Frontend**: Lobby creation/joining (/lobby), match gameplay (/match/:matchId)
 
+### 1v1 Random Mode
+- **Matchmaking Service**: server/services/matchmakingService.ts handles queue management
+- **Queue System**: In-memory queue, auto-matches players every 1 second when 2+ in queue
+- **WebSocket Handlers**: join_queue, leave_queue, join_match for queue and match connections
+- **Flow**:
+  1. Player joins queue via WebSocket (join_queue)
+  2. When matched, matchmaking service creates lobby, starts match, sends "matched" event
+  3. Player stores membership secret, redirects to /match/:matchId
+  4. Match page authenticates via join_match with stored secret
+- **Security**: Same membership secret model as 1v1 Friend mode
+- **Frontend**: Queue page (/queue) with search timer, cancel button, auto-redirect on match
+
 ### Social Sharing
 - Share buttons appear on game completion screen
 - Supports Twitter/X, Facebook, and clipboard copy

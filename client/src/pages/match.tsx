@@ -12,6 +12,18 @@ function getUserId(): string {
   return localStorage.getItem("packpoints_user_id") || "";
 }
 
+function getUsername(): string {
+  return localStorage.getItem("packpoints_username") || "Player";
+}
+
+function getAndClearMatchSecret(): string | null {
+  const secret = localStorage.getItem("packpoints_match_secret");
+  if (secret) {
+    localStorage.removeItem("packpoints_match_secret");
+  }
+  return secret;
+}
+
 interface Participant {
   userId: string;
   username: string;
@@ -102,9 +114,19 @@ export default function Match() {
 
   useEffect(() => {
     if (isConnected && matchId) {
-      send("ready_next", { matchId });
+      const matchSecret = getAndClearMatchSecret();
+      if (matchSecret) {
+        send("join_match", { 
+          matchId, 
+          userId, 
+          username: getUsername(), 
+          membershipSecret: matchSecret 
+        });
+      } else {
+        send("ready_next", { matchId });
+      }
     }
-  }, [isConnected, matchId, send]);
+  }, [isConnected, matchId, send, userId]);
 
   const submitAnswer = (answer: string) => {
     if (selectedAnswer || !matchState || answerResult) return;

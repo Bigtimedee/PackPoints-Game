@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server as HttpServer } from "http";
 import { matchService } from "./services/matchService";
+import { matchmakingService } from "./services/matchmakingService";
 import { log } from "./index";
 import type { MatchState } from "@shared/schema";
 
@@ -11,6 +12,7 @@ interface ClientConnection {
   matchId?: string;
   membershipSecret?: string;
   isAuthenticated?: boolean;
+  inQueue?: boolean;
 }
 
 const clients = new Map<WebSocket, ClientConnection>();
@@ -36,6 +38,9 @@ export function setupWebSocket(httpServer: HttpServer) {
     ws.on("close", async () => {
       const client = clients.get(ws);
       if (client) {
+        if (client.inQueue) {
+          matchmakingService.handleDisconnect(client.userId);
+        }
         if (client.lobbyId) {
           await handleDisconnectFromLobby(ws, client);
         }
@@ -73,6 +78,15 @@ async function handleMessage(ws: WebSocket, message: any) {
       break;
     case "ready_next":
       await handleReadyNext(ws, payload);
+      break;
+    case "join_match":
+      await handleJoinMatch(ws, payload);
+      break;
+    case "join_queue":
+      await handleJoinQueue(ws, payload);
+      break;
+    case "leave_queue":
+      await handleLeaveQueue(ws, payload);
       break;
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
@@ -281,6 +295,54 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
   }
 }
 
+async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret: string }) {
+  const { matchId, userId, username, membershipSecret } = payload;
+  
+  const existingClient = clients.get(ws);
+  if (existingClient && existingClient.userId && existingClient.userId !== userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
+    return;
+  }
+  
+  const matchState = matchService.getMatchState(matchId);
+  if (!matchState) {
+    ws.send(JSON.stringify({ type: "error", message: "Match not found" }));
+    return;
+  }
+  
+  const lobby = await matchService.getLobby(matchState.lobbyId);
+  if (!lobby) {
+    ws.send(JSON.stringify({ type: "error", message: "Lobby not found" }));
+    return;
+  }
+  
+  if (!matchService.verifyMembershipSecret(lobby, userId, membershipSecret)) {
+    ws.send(JSON.stringify({ type: "error", message: "Invalid membership credentials" }));
+    return;
+  }
+  
+  const isParticipant = matchState.participants.some(p => p.userId === userId);
+  if (!isParticipant) {
+    ws.send(JSON.stringify({ type: "error", message: "You are not a participant in this match" }));
+    return;
+  }
+  
+  clients.set(ws, { userId, username, matchId, membershipSecret, isAuthenticated: true });
+  
+  if (!matchConnections.has(matchId)) {
+    matchConnections.set(matchId, new Set());
+  }
+  matchConnections.get(matchId)?.add(ws);
+  
+  const clientMatchState = sanitizeMatchStateForClient(matchState);
+  ws.send(JSON.stringify({
+    type: "match_started",
+    payload: clientMatchState,
+  }));
+  
+  log(`${username} joined match ${matchId}`, "ws");
+}
+
 function sanitizeMatchStateForClient(matchState: MatchState): any {
   const currentQuestion = matchState.questions[matchState.currentQuestionIndex];
   
@@ -335,6 +397,48 @@ function broadcastToMatch(matchId: string, message: any) {
       client.send(messageStr);
     }
   });
+}
+
+async function handleJoinQueue(ws: WebSocket, payload: { userId: string; username: string }) {
+  const { userId, username } = payload;
+  
+  const existingClient = clients.get(ws);
+  if (existingClient && existingClient.userId && existingClient.userId !== userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
+    return;
+  }
+  
+  clients.set(ws, { userId, username, inQueue: true });
+  
+  const result = await matchmakingService.joinQueue(userId, username, ws);
+  
+  ws.send(JSON.stringify({
+    type: "queue_joined",
+    payload: {
+      position: result.position,
+      queueSize: matchmakingService.getQueueSize(),
+    },
+  }));
+  
+  log(`${username} joined matchmaking queue (position: ${result.position})`, "ws");
+}
+
+async function handleLeaveQueue(ws: WebSocket, payload: { userId: string }) {
+  const { userId } = payload;
+  
+  const client = clients.get(ws);
+  if (client) {
+    client.inQueue = false;
+  }
+  
+  const removed = matchmakingService.leaveQueue(userId);
+  
+  ws.send(JSON.stringify({
+    type: "queue_left",
+    payload: { success: removed },
+  }));
+  
+  log(`User ${userId} left matchmaking queue`, "ws");
 }
 
 async function handleDisconnectFromLobby(ws: WebSocket, client: ClientConnection) {

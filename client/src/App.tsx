@@ -10,6 +10,7 @@ import Home from "@/pages/home";
 import Game from "@/pages/game";
 import Lobby from "@/pages/lobby";
 import Match from "@/pages/match";
+import Queue from "@/pages/queue";
 import Leaderboard from "@/pages/leaderboard";
 import Marketplace from "@/pages/marketplace";
 import Profile from "@/pages/profile";
@@ -22,6 +23,7 @@ function Router() {
       <Route path="/game/:mode" component={Game} />
       <Route path="/lobby" component={Lobby} />
       <Route path="/lobby/:action" component={Lobby} />
+      <Route path="/queue" component={Queue} />
       <Route path="/match/:matchId" component={Match} />
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/marketplace" component={Marketplace} />
