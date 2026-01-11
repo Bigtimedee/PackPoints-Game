@@ -5,10 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { User, Zap, Trophy, Target, Clock, Star, TrendingUp, Settings } from "lucide-react";
-import type { User as UserType } from "@shared/schema";
+import { Zap, Trophy, Target, Clock, Star, TrendingUp, Settings } from "lucide-react";
 
 interface ProfileStats {
+  username: string;
+  email: string;
   points: number;
   gamesPlayed: number;
   correctAnswers: number;
@@ -17,6 +18,7 @@ interface ProfileStats {
   level: number;
   pointsToNextLevel: number;
   levelProgress: number;
+  createdAt: string;
 }
 
 function StatCard({ icon: Icon, label, value, subtext }: { icon: typeof Zap; label: string; value: string; subtext?: string }) {
@@ -66,11 +68,9 @@ function ProfileSkeleton() {
 }
 
 export default function Profile() {
-  const { data: stats, isLoading } = useQuery<ProfileStats>({
+  const { data: stats, isLoading, error } = useQuery<ProfileStats>({
     queryKey: ["/api/profile/stats"],
   });
-
-  const username = "CardCollector";
 
   if (isLoading) {
     return (
@@ -82,19 +82,27 @@ export default function Profile() {
     );
   }
 
-  const defaultStats: ProfileStats = stats || {
-    points: 2500,
-    gamesPlayed: 42,
-    correctAnswers: 156,
-    totalAnswers: 210,
-    rank: 15,
-    level: 5,
-    pointsToNextLevel: 500,
-    levelProgress: 60,
-  };
+  if (error || !stats) {
+    return (
+      <div className="min-h-screen pb-20 md:pb-8">
+        <div className="container mx-auto px-4 py-8 max-w-4xl">
+          <Card>
+            <CardContent className="p-6 text-center">
+              <p className="text-muted-foreground">Please log in to view your profile.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
-  const accuracy = defaultStats.totalAnswers > 0 
-    ? Math.round((defaultStats.correctAnswers / defaultStats.totalAnswers) * 100)
+  const username = stats.username || "Player";
+  const memberSince = stats.createdAt 
+    ? new Date(stats.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : "Recently";
+
+  const accuracy = stats.totalAnswers > 0 
+    ? Math.round((stats.correctAnswers / stats.totalAnswers) * 100)
     : 0;
 
   return (
@@ -112,16 +120,16 @@ export default function Profile() {
                 <div className="flex flex-col md:flex-row md:items-center gap-2">
                   <h1 className="text-2xl font-bold" data-testid="text-profile-username">{username}</h1>
                   <Badge variant="secondary" className="w-fit mx-auto md:mx-0">
-                    Level {defaultStats.level}
+                    Level {stats.level}
                   </Badge>
                 </div>
-                <p className="text-muted-foreground">Collecting since January 2026</p>
+                <p className="text-muted-foreground">Collecting since {memberSince}</p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 text-sm">
-                    <span className="text-muted-foreground">Progress to Level {defaultStats.level + 1}</span>
-                    <span className="font-mono text-muted-foreground">{defaultStats.pointsToNextLevel} pts to go</span>
+                    <span className="text-muted-foreground">Progress to Level {stats.level + 1}</span>
+                    <span className="font-mono text-muted-foreground">{stats.pointsToNextLevel} pts to go</span>
                   </div>
-                  <Progress value={defaultStats.levelProgress} className="h-2" data-testid="progress-level" />
+                  <Progress value={stats.levelProgress} className="h-2" data-testid="progress-level" />
                 </div>
               </div>
               <Button variant="outline" size="icon" data-testid="button-settings">
@@ -136,14 +144,14 @@ export default function Profile() {
             <StatCard 
               icon={Zap} 
               label="Total Points" 
-              value={defaultStats.points.toLocaleString()} 
+              value={stats.points.toLocaleString()} 
             />
           </div>
           <div data-testid="stat-card-games">
             <StatCard 
               icon={Trophy} 
               label="Games Played" 
-              value={defaultStats.gamesPlayed.toString()} 
+              value={stats.gamesPlayed.toString()} 
             />
           </div>
           <div data-testid="stat-card-accuracy">
@@ -151,14 +159,14 @@ export default function Profile() {
               icon={Target} 
               label="Accuracy" 
               value={`${accuracy}%`}
-              subtext={`${defaultStats.correctAnswers}/${defaultStats.totalAnswers} correct`}
+              subtext={`${stats.correctAnswers}/${stats.totalAnswers} correct`}
             />
           </div>
           <div data-testid="stat-card-rank">
             <StatCard 
               icon={TrendingUp} 
               label="Global Rank" 
-              value={`#${defaultStats.rank}`}
+              value={`#${stats.rank}`}
             />
           </div>
         </div>

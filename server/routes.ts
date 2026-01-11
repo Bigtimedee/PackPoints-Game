@@ -586,6 +586,8 @@ export async function registerRoutes(
       const levelProgress = Math.round(((user.points % 1000) / 1000) * 100);
       
       res.json({
+        username: user.username,
+        email: user.email,
         points: user.points,
         gamesPlayed: user.gamesPlayed,
         correctAnswers: user.correctAnswers,
@@ -594,6 +596,7 @@ export async function registerRoutes(
         level,
         pointsToNextLevel,
         levelProgress,
+        createdAt: user.createdAt,
       });
     } catch (error) {
       console.error("Error getting profile stats:", error);
