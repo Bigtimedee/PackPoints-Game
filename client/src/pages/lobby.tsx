@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus } from "lucide-react";
+import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
@@ -45,7 +45,11 @@ export default function Lobby() {
   const [, params] = useRoute("/lobby/:action");
   const action = params?.action;
   
-  const [joinCode, setJoinCode] = useState("");
+  // Check for code in URL query params (from shared invite link)
+  const urlParams = new URLSearchParams(window.location.search);
+  const codeFromUrl = urlParams.get("code")?.toUpperCase() || "";
+  
+  const [joinCode, setJoinCode] = useState(codeFromUrl);
   const [lobby, setLobby] = useState<LobbyState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -153,6 +157,30 @@ export default function Lobby() {
     }
   };
 
+  const shareInvite = async () => {
+    if (!lobby) return;
+    
+    const shareData = {
+      title: "PackPoints 1v1 Battle",
+      text: `Join my PackPoints game! Use code: ${lobby.joinCode}`,
+      url: `${window.location.origin}/lobby/join?code=${lobby.joinCode}`,
+    };
+    
+    if (navigator.share && navigator.canShare?.(shareData)) {
+      try {
+        await navigator.share(shareData);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          copyCode();
+          toast({ title: "Code Copied", description: "Share link copied to clipboard" });
+        }
+      }
+    } else {
+      copyCode();
+      toast({ title: "Code Copied", description: "Share not available - code copied to clipboard" });
+    }
+  };
+
   const startMatch = () => {
     if (lobby && isConnected) {
       send("start_match", { lobbyId: lobby.id, hostId: userId });
@@ -190,7 +218,7 @@ export default function Lobby() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="text-center">
+              <div className="text-center space-y-4">
                 <p className="text-sm text-muted-foreground mb-2">Join Code</p>
                 <div className="flex items-center justify-center gap-2">
                   <span className="text-4xl font-mono font-bold tracking-widest" data-testid="text-join-code">
@@ -200,6 +228,15 @@ export default function Lobby() {
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
+                <Button 
+                  variant="secondary" 
+                  className="gap-2" 
+                  onClick={shareInvite}
+                  data-testid="button-share-invite"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share Invite
+                </Button>
               </div>
               
               <div className="space-y-3">
