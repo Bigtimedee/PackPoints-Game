@@ -566,7 +566,7 @@ export async function registerRoutes(
 
   app.get("/api/profile/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
