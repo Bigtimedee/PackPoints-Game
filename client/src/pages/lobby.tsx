@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2, LogIn } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -34,6 +36,7 @@ export default function Lobby() {
   const [lobby, setLobby] = useState<LobbyState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selectedQuestions, setSelectedQuestions] = useState("10");
   const { toast } = useToast();
   
   // Use authenticated user data instead of localStorage
@@ -89,7 +92,7 @@ export default function Lobby() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ totalQuestions: 10 }),
+        body: JSON.stringify({ totalQuestions: parseInt(selectedQuestions) }),
       });
       
       if (!response.ok) {
@@ -365,7 +368,21 @@ export default function Lobby() {
                   Create a lobby and share the code with your friend
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="card-count">Number of Cards</Label>
+                  <Select value={selectedQuestions} onValueChange={setSelectedQuestions}>
+                    <SelectTrigger id="card-count" data-testid="select-card-count">
+                      <SelectValue placeholder="Select cards" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 Cards</SelectItem>
+                      <SelectItem value="10">10 Cards</SelectItem>
+                      <SelectItem value="15">15 Cards</SelectItem>
+                      <SelectItem value="20">20 Cards</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button 
                   className="w-full gap-2" 
                   size="lg" 
