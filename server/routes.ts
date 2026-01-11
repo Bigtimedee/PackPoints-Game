@@ -723,15 +723,25 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lobby/create", async (req, res) => {
+  app.post("/api/lobby/create", isAuthenticated, async (req: any, res) => {
     try {
-      const parsed = createLobbySchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      // Get authenticated user ID and username from session - server-side derivation, not client-provided
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
       }
       
-      const { hostId, hostUsername, totalQuestions } = parsed.data;
-      const lobby = await matchService.createLobby(hostId, hostUsername, totalQuestions);
+      const user = await storage.getUser(userId);
+      if (!user || !user.username) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      // Validate totalQuestions from request body (limit to reasonable range)
+      const requestedQuestions = parseInt(req.body.totalQuestions) || 10;
+      const totalQuestions = Math.min(Math.max(requestedQuestions, 5), 20);
+      
+      // Use server-derived identity, ignore any client-provided hostId/hostUsername
+      const lobby = await matchService.createLobby(userId, user.username, totalQuestions);
       
       const { guestSecret: _, ...lobbyForHost } = lobby;
       res.json({ ...lobbyForHost, membershipSecret: lobby.hostSecret });
@@ -741,15 +751,26 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lobby/join", async (req, res) => {
+  app.post("/api/lobby/join", isAuthenticated, async (req: any, res) => {
     try {
-      const parsed = joinLobbySchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      // Get authenticated user ID and username from session - server-side derivation, not client-provided
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
       }
       
-      const { joinCode, guestId, guestUsername } = parsed.data;
-      const lobby = await matchService.joinLobby(joinCode, guestId, guestUsername);
+      const user = await storage.getUser(userId);
+      if (!user || !user.username) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const { joinCode } = req.body;
+      if (!joinCode || typeof joinCode !== 'string') {
+        return res.status(400).json({ error: "Valid join code required" });
+      }
+      
+      // Use server-derived identity, ignore any client-provided guestId/guestUsername
+      const lobby = await matchService.joinLobby(joinCode.toUpperCase(), userId, user.username);
       
       if (!lobby) {
         return res.status(404).json({ error: "Lobby not found or not available" });
@@ -795,12 +816,12 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lobby/:id/leave", async (req, res) => {
+  app.post("/api/lobby/:id/leave", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.body;
-      
+      // Get authenticated user ID from session - server-side derivation, not client-provided
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
-        return res.status(400).json({ error: "userId required" });
+        return res.status(401).json({ error: "Authentication required" });
       }
       
       const result = await matchService.leaveLobby(req.params.id, userId);

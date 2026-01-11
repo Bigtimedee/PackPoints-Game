@@ -4,29 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2 } from "lucide-react";
+import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2, LogIn } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
-
-function generateUserId(): string {
-  const stored = localStorage.getItem("packpoints_user_id");
-  if (stored) return stored;
-  
-  const id = crypto.randomUUID();
-  localStorage.setItem("packpoints_user_id", id);
-  return id;
-}
-
-function getUsername(): string {
-  const stored = localStorage.getItem("packpoints_username");
-  if (stored) return stored;
-  
-  const adjectives = ["Swift", "Bold", "Lucky", "Sharp", "Quick", "Wise"];
-  const nouns = ["Collector", "Hunter", "Expert", "Master", "Ace", "Pro"];
-  const name = `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nouns[Math.floor(Math.random() * nouns.length)]}${Math.floor(Math.random() * 99)}`;
-  localStorage.setItem("packpoints_username", name);
-  return name;
-}
+import { useAuth } from "@/hooks/use-auth";
 
 interface LobbyState {
   id: string;
@@ -55,8 +36,10 @@ export default function Lobby() {
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
   
-  const userId = generateUserId();
-  const username = getUsername();
+  // Use authenticated user data instead of localStorage
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const userId = user?.id || "";
+  const username = user?.username || "";
   
   const { isConnected, connect, send, on } = useWebSocket({
     onOpen: () => {
@@ -105,16 +88,20 @@ export default function Lobby() {
       const response = await fetch("/api/lobby/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostId: userId, hostUsername: username, totalQuestions: 10 }),
+        credentials: "include",
+        body: JSON.stringify({ totalQuestions: 10 }),
       });
       
-      if (!response.ok) throw new Error("Failed to create lobby");
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to create lobby");
+      }
       
       const newLobby = await response.json();
       setLobby(newLobby);
       toast({ title: "Lobby Created!", description: `Share code: ${newLobby.joinCode}` });
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to create lobby", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +118,8 @@ export default function Lobby() {
       const response = await fetch("/api/lobby/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ joinCode: joinCode.toUpperCase(), guestId: userId, guestUsername: username }),
+        credentials: "include",
+        body: JSON.stringify({ joinCode: joinCode.toUpperCase() }),
       });
       
       if (!response.ok) {
@@ -197,6 +185,55 @@ export default function Lobby() {
 
   const isHost = lobby?.hostId === userId;
   const canStart = lobby?.guestId && lobby?.guestUsername && isHost;
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen pb-20 md:pb-8 pt-8 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Require authentication for 1v1 Friend mode
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen pb-20 md:pb-8 pt-8">
+        <div className="container mx-auto px-4 max-w-lg">
+          <Button variant="ghost" onClick={() => navigate("/")} className="mb-4 gap-2" data-testid="button-back-home">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          
+          <Card>
+            <CardHeader className="text-center">
+              <div className="mx-auto p-3 rounded-full bg-primary/10 w-fit mb-2">
+                <LogIn className="h-8 w-8 text-primary" />
+              </div>
+              <CardTitle>Login Required</CardTitle>
+              <CardDescription>
+                You need to be logged in to play 1v1 Friend matches
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-center text-muted-foreground text-sm">
+                Create an account or log in to challenge your friends and track your wins!
+              </p>
+              <Button 
+                className="w-full gap-2" 
+                size="lg" 
+                onClick={() => navigate("/auth")}
+                data-testid="button-login-to-play"
+              >
+                <LogIn className="h-5 w-5" />
+                Log In to Play
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (lobby) {
     return (
