@@ -9,7 +9,9 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle } from "lucide-react";
+import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { SiX, SiFacebook } from "react-icons/si";
 import type { GameSession, GameQuestion } from "@shared/schema";
 
@@ -159,6 +161,8 @@ export default function Game() {
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
+  const [selectedCardCount, setSelectedCardCount] = useState("10");
+  const [hasStartedGame, setHasStartedGame] = useState(false);
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
     queryKey: ["/api/game/session", sessionId],
@@ -168,10 +172,10 @@ export default function Game() {
   const [startError, setStartError] = useState<{ isRateLimit: boolean; message: string } | null>(null);
 
   const startGameMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (cardCount: number) => {
       const res = await apiRequest("POST", "/api/game/start", {
         mode: mode || "solo",
-        totalQuestions: 10,
+        totalQuestions: cardCount,
       });
       return res.json();
     },
@@ -181,6 +185,7 @@ export default function Game() {
       setIsRevealed(false);
       setEarnedPoints(0);
       setStartError(null);
+      setHasStartedGame(true);
     },
     onError: (error: any) => {
       const errorMessage = error?.message || "";
@@ -195,6 +200,8 @@ export default function Game() {
       const displayMessage = isRateLimit 
         ? "You've reached your match limit. Please wait before playing again."
         : "Failed to start game. Please try again.";
+      // Reset hasStartedGame so user can return to card count selection
+      setHasStartedGame(false);
       setStartError({ isRateLimit, message: displayMessage });
       toast({
         title: isRateLimit ? "Match Limit Reached" : "Error",
@@ -246,11 +253,7 @@ export default function Game() {
     },
   });
 
-  useEffect(() => {
-    if (!sessionId) {
-      startGameMutation.mutate();
-    }
-  }, []);
+  // No longer auto-start - user selects card count first
 
   // Show signup modal after game completion for unauthenticated users with points
   // Only show once per session - track with hasSeenSignupPrompt
@@ -306,8 +309,16 @@ export default function Game() {
   };
 
   const handlePlayAgain = () => {
+    // Reset to pre-game state to allow card count selection
     setSessionId(null);
-    startGameMutation.mutate();
+    setHasStartedGame(false);
+    setStartError(null);
+    setPointsUpdatedForSession(null);
+  };
+
+  const handleStartGame = () => {
+    setHasStartedGame(true);
+    startGameMutation.mutate(parseInt(selectedCardCount));
   };
 
   if (startGameMutation.isPending || sessionLoading) {
@@ -316,6 +327,61 @@ export default function Game() {
         <div className="text-center space-y-4">
           <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
           <p className="text-muted-foreground">Loading game...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show pre-game selection screen for Solo mode
+  if (!hasStartedGame && !session) {
+    return (
+      <div className="min-h-screen pb-20 md:pb-8 pt-8">
+        <div className="container mx-auto px-4 max-w-lg">
+          <Link href="/">
+            <Button variant="ghost" className="mb-4 gap-2" data-testid="button-back-home">
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </Link>
+          
+          <Card>
+            <CardContent className="p-6 space-y-6">
+              <div className="text-center space-y-2">
+                <div className="mx-auto p-3 rounded-full bg-primary/10 w-fit mb-2">
+                  <Monitor className="h-8 w-8 text-primary" />
+                </div>
+                <h1 className="text-2xl font-bold" data-testid="text-solo-title">1v Computer</h1>
+                <p className="text-muted-foreground">
+                  Test your knowledge of 1987 Topps baseball cards. Earn points for each correct guess!
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="card-count">Number of Cards</Label>
+                <Select value={selectedCardCount} onValueChange={setSelectedCardCount}>
+                  <SelectTrigger id="card-count" data-testid="select-card-count">
+                    <SelectValue placeholder="Select cards" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5 Cards</SelectItem>
+                    <SelectItem value="10">10 Cards</SelectItem>
+                    <SelectItem value="15">15 Cards</SelectItem>
+                    <SelectItem value="20">20 Cards</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <Button 
+                className="w-full gap-2" 
+                size="lg" 
+                onClick={handleStartGame}
+                data-testid="button-start-game"
+              >
+                <Play className="h-5 w-5" />
+                Start Game
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -344,7 +410,7 @@ export default function Game() {
                 <X className="h-12 w-12 text-destructive mx-auto" />
                 <h2 className="text-xl font-bold">Failed to Start Game</h2>
                 <p className="text-muted-foreground">Something went wrong. Please try again.</p>
-                <Button onClick={() => startGameMutation.mutate()} data-testid="button-retry-game">
+                <Button onClick={() => startGameMutation.mutate(parseInt(selectedCardCount))} data-testid="button-retry-game">
                   Try Again
                 </Button>
               </>
