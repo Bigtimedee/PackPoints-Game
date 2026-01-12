@@ -158,11 +158,14 @@ export default function Game() {
   const [showPointsAnimation, setShowPointsAnimation] = useState(false);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
+  const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
   });
+
+  const [startError, setStartError] = useState<{ isRateLimit: boolean; message: string } | null>(null);
 
   const startGameMutation = useMutation({
     mutationFn: async () => {
@@ -177,11 +180,25 @@ export default function Game() {
       setSelectedAnswer(null);
       setIsRevealed(false);
       setEarnedPoints(0);
+      setStartError(null);
     },
-    onError: () => {
+    onError: (error: any) => {
+      const errorMessage = error?.message || "";
+      const lowerMessage = errorMessage.toLowerCase();
+      // apiRequest throws Error with format "status: responseText"
+      // Check for rate limit/quota by looking for 429 status or relevant keywords
+      const isRateLimit = errorMessage.includes("429") || 
+        lowerMessage.includes("rate limit") || 
+        lowerMessage.includes("quota") ||
+        lowerMessage.includes("limit reached") ||
+        lowerMessage.includes("maximum");
+      const displayMessage = isRateLimit 
+        ? "You've reached your match limit. Please wait before playing again."
+        : "Failed to start game. Please try again.";
+      setStartError({ isRateLimit, message: displayMessage });
       toast({
-        title: "Error",
-        description: "Failed to start game. Please try again.",
+        title: isRateLimit ? "Match Limit Reached" : "Error",
+        description: displayMessage,
         variant: "destructive",
       });
     },
@@ -245,6 +262,34 @@ export default function Game() {
     }
   }, [isGameOver, isAuthenticated, hasSeenSignupPrompt, session?.score, showSignupModal]);
 
+  // Update cached user points when game completes to update points display in header
+  // Track session ID and score we've added to prevent double-counting
+  useEffect(() => {
+    if (isGameOver && isAuthenticated && session?.id && session?.score) {
+      // Only update if we haven't already added these exact points for this session
+      const alreadyUpdated = pointsUpdatedForSession?.id === session.id && pointsUpdatedForSession?.score === session.score;
+      if (!alreadyUpdated) {
+        // Calculate the delta to add (difference from what we previously added for this session)
+        const previouslyAdded = pointsUpdatedForSession?.id === session.id ? pointsUpdatedForSession.score : 0;
+        const pointsToAdd = session.score - previouslyAdded;
+        
+        if (pointsToAdd > 0) {
+          setPointsUpdatedForSession({ id: session.id, score: session.score });
+          queryClient.setQueryData(["/api/auth/user"], (oldData: any) => {
+            if (oldData && typeof oldData.points === "number") {
+              return {
+                ...oldData,
+                points: oldData.points + pointsToAdd,
+                gamesPlayed: previouslyAdded === 0 ? (oldData.gamesPlayed || 0) + 1 : oldData.gamesPlayed,
+              };
+            }
+            return oldData;
+          });
+        }
+      }
+    }
+  }, [isGameOver, isAuthenticated, session?.id, session?.score, pointsUpdatedForSession]);
+
   const handleSelectAnswer = (answer: string) => {
     if (isRevealed) return;
     setSelectedAnswer(answer);
@@ -277,16 +322,33 @@ export default function Game() {
   }
 
   if (!session) {
+    const isRateLimited = startError?.isRateLimit === true;
     return (
       <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8">
         <Card className="max-w-md w-full mx-4">
           <CardContent className="p-6 text-center space-y-4">
-            <X className="h-12 w-12 text-destructive mx-auto" />
-            <h2 className="text-xl font-bold">Failed to Start Game</h2>
-            <p className="text-muted-foreground">Something went wrong. Please try again.</p>
-            <Button onClick={() => startGameMutation.mutate()} data-testid="button-retry-game">
-              Try Again
-            </Button>
+            {isRateLimited ? (
+              <>
+                <Clock className="h-12 w-12 text-warning mx-auto" />
+                <h2 className="text-xl font-bold">Match Limit Reached</h2>
+                <p className="text-muted-foreground">You've reached your hourly match limit. Please wait before playing again.</p>
+                <Link href="/">
+                  <Button variant="outline" data-testid="button-go-home">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Go Home
+                  </Button>
+                </Link>
+              </>
+            ) : (
+              <>
+                <X className="h-12 w-12 text-destructive mx-auto" />
+                <h2 className="text-xl font-bold">Failed to Start Game</h2>
+                <p className="text-muted-foreground">Something went wrong. Please try again.</p>
+                <Button onClick={() => startGameMutation.mutate()} data-testid="button-retry-game">
+                  Try Again
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
