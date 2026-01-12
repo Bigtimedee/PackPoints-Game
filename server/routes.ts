@@ -1345,6 +1345,132 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Get user admin status
+  app.get("/api/admin/users/:userId/admin-status", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const status = await adminService.getUserAdminStatus(userId);
+      
+      if (!status) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting admin status:", error);
+      res.status(500).json({ error: "Failed to get admin status" });
+    }
+  });
+
+  // Admin: Grant admin access
+  app.post("/api/admin/users/:userId/grant-admin", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      
+      const result = await adminService.grantAdminAccess({
+        adminUserId,
+        targetUserId: userId,
+      });
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, message: "Admin access granted" });
+    } catch (error) {
+      console.error("Error granting admin:", error);
+      res.status(500).json({ error: "Failed to grant admin access" });
+    }
+  });
+
+  // Admin: Revoke admin access
+  app.post("/api/admin/users/:userId/revoke-admin", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      const { reason } = req.body;
+      
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ error: "Reason required" });
+      }
+      
+      const result = await adminService.revokeAdminAccess(
+        { adminUserId, targetUserId: userId },
+        reason
+      );
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, message: "Admin access revoked" });
+    } catch (error) {
+      console.error("Error revoking admin:", error);
+      res.status(500).json({ error: "Failed to revoke admin access" });
+    }
+  });
+
+  // Admin: Suspend user
+  app.post("/api/admin/users/:userId/suspend", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      const { reason } = req.body;
+      
+      if (!reason || typeof reason !== "string") {
+        return res.status(400).json({ error: "Reason required" });
+      }
+      
+      const result = await adminService.suspendUser(
+        { adminUserId, targetUserId: userId },
+        reason
+      );
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, message: "User suspended" });
+    } catch (error) {
+      console.error("Error suspending user:", error);
+      res.status(500).json({ error: "Failed to suspend user" });
+    }
+  });
+
+  // Admin: Unsuspend user
+  app.post("/api/admin/users/:userId/unsuspend", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      
+      const result = await adminService.unsuspendUser({
+        adminUserId,
+        targetUserId: userId,
+      });
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true, message: "User unsuspended" });
+    } catch (error) {
+      console.error("Error unsuspending user:", error);
+      res.status(500).json({ error: "Failed to unsuspend user" });
+    }
+  });
+
+  // Admin: Get all admins
+  app.get("/api/admin/admins", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const admins = await adminService.getAllAdmins();
+      res.json({ admins });
+    } catch (error) {
+      console.error("Error getting admins:", error);
+      res.status(500).json({ error: "Failed to get admins" });
+    }
+  });
+
   // Admin: Get feature flags
   app.get("/api/admin/feature-flags", isAuthenticated, requireAdmin, async (_req, res) => {
     try {

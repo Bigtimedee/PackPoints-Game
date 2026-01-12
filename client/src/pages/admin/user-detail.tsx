@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Wallet, Shield, Plus, Minus, Loader2 } from "lucide-react";
+import { ArrowLeft, Wallet, Shield, Plus, Minus, Loader2, UserCog, Ban, CheckCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -43,6 +43,12 @@ interface Entitlement {
   createdAt: string;
 }
 
+interface AdminStatus {
+  isAdmin: boolean;
+  isSuspended: boolean;
+  username: string | null;
+}
+
 export default function AdminUserDetail() {
   const [, navigate] = useLocation();
   const params = useParams();
@@ -57,6 +63,12 @@ export default function AdminUserDetail() {
   
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
   const [grantKey, setGrantKey] = useState("");
+  
+  const [revokeAdminDialogOpen, setRevokeAdminDialogOpen] = useState(false);
+  const [revokeAdminReason, setRevokeAdminReason] = useState("");
+  
+  const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
+  const [suspendReason, setSuspendReason] = useState("");
   
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !user?.isAdmin)) {
@@ -86,6 +98,20 @@ export default function AdminUserDetail() {
       });
       if (!response.ok) {
         throw new Error("Failed to fetch entitlements");
+      }
+      return response.json();
+    },
+    enabled: !!userId && isAuthenticated && user?.isAdmin,
+  });
+  
+  const { data: adminStatus, isLoading: adminStatusLoading } = useQuery<AdminStatus>({
+    queryKey: ["/api/admin/users", userId, "admin-status"],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/users/${userId}/admin-status`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch admin status");
       }
       return response.json();
     },
@@ -177,6 +203,130 @@ export default function AdminUserDetail() {
         description: "Entitlement has been revoked",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "entitlements"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const grantAdminMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/admin/users/${userId}/grant-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to grant admin access");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Admin Access Granted",
+        description: "User now has admin privileges",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "admin-status"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const revokeAdminMutation = useMutation({
+    mutationFn: async (reason: string) => {
+      const response = await fetch(`/api/admin/users/${userId}/revoke-admin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ reason }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to revoke admin access");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Admin Access Revoked",
+        description: "User no longer has admin privileges",
+      });
+      setRevokeAdminDialogOpen(false);
+      setRevokeAdminReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "admin-status"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const suspendMutation = useMutation({
+    mutationFn: async (reason: string) => {
+      const response = await fetch(`/api/admin/users/${userId}/suspend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ reason }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to suspend user");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User Suspended",
+        description: "User account has been suspended",
+      });
+      setSuspendDialogOpen(false);
+      setSuspendReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "admin-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "wallet"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const unsuspendMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/admin/users/${userId}/unsuspend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to unsuspend user");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User Unsuspended",
+        description: "User account has been reactivated",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "admin-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users", userId, "wallet"] });
     },
     onError: (error: Error) => {
       toast({
@@ -339,6 +489,99 @@ export default function AdminUserDetail() {
         </Card>
       </div>
 
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <UserCog className="h-5 w-5" />
+            <CardTitle>Admin Management</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {adminStatusLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : adminStatus ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div>
+                  <p className="text-sm text-muted-foreground">Admin Status</p>
+                  <Badge variant={adminStatus.isAdmin ? "default" : "secondary"}>
+                    {adminStatus.isAdmin ? "Admin" : "Regular User"}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Account Status</p>
+                  <Badge variant={adminStatus.isSuspended ? "destructive" : "default"}>
+                    {adminStatus.isSuspended ? "Suspended" : "Active"}
+                  </Badge>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 flex-wrap pt-4 border-t">
+                {adminStatus.isAdmin ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRevokeAdminDialogOpen(true)}
+                    disabled={revokeAdminMutation.isPending}
+                    data-testid="button-revoke-admin"
+                  >
+                    <Shield className="h-4 w-4 mr-1" />
+                    Revoke Admin
+                  </Button>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => grantAdminMutation.mutate()}
+                    disabled={grantAdminMutation.isPending}
+                    data-testid="button-grant-admin"
+                  >
+                    {grantAdminMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <Shield className="h-4 w-4 mr-1" />
+                    )}
+                    Grant Admin
+                  </Button>
+                )}
+                
+                {adminStatus.isSuspended ? (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => unsuspendMutation.mutate()}
+                    disabled={unsuspendMutation.isPending}
+                    data-testid="button-unsuspend"
+                  >
+                    {unsuspendMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                    )}
+                    Unsuspend User
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setSuspendDialogOpen(true)}
+                    disabled={suspendMutation.isPending}
+                    data-testid="button-suspend"
+                  >
+                    <Ban className="h-4 w-4 mr-1" />
+                    Suspend User
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground">Unable to load admin status</p>
+          )}
+        </CardContent>
+      </Card>
+
       <Dialog open={adjustDialogOpen} onOpenChange={setAdjustDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -414,6 +657,76 @@ export default function AdminUserDetail() {
               data-testid="button-confirm-grant"
             >
               {grantMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Grant"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={revokeAdminDialogOpen} onOpenChange={setRevokeAdminDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revoke Admin Access</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              This will remove admin privileges from this user. They will no longer be able to access the Admin Portal.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Reason for revocation</label>
+              <Textarea
+                value={revokeAdminReason}
+                onChange={(e) => setRevokeAdminReason(e.target.value)}
+                placeholder="Enter the reason for revoking admin access"
+                data-testid="input-revoke-admin-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeAdminDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => revokeAdminMutation.mutate(revokeAdminReason)}
+              disabled={!revokeAdminReason || revokeAdminMutation.isPending}
+              data-testid="button-confirm-revoke-admin"
+            >
+              {revokeAdminMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Revoke Admin"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={suspendDialogOpen} onOpenChange={setSuspendDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Suspend User</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Suspending this user will deactivate their wallet and revoke any admin privileges. They will not be able to play games or earn points.
+            </p>
+            <div>
+              <label className="text-sm font-medium">Reason for suspension</label>
+              <Textarea
+                value={suspendReason}
+                onChange={(e) => setSuspendReason(e.target.value)}
+                placeholder="Enter the reason for suspending this user"
+                data-testid="input-suspend-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuspendDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => suspendMutation.mutate(suspendReason)}
+              disabled={!suspendReason || suspendMutation.isPending}
+              data-testid="button-confirm-suspend"
+            >
+              {suspendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Suspend User"}
             </Button>
           </DialogFooter>
         </DialogContent>

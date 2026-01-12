@@ -331,6 +331,227 @@ class AdminService {
     };
   }
 
+  async grantAdminAccess(
+    ctx: AdminActionContext
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!ctx.targetUserId) {
+      return { success: false, error: "Target user ID required" };
+    }
+
+    try {
+      // Check if target user exists
+      const targetUser = await db.select()
+        .from(users)
+        .where(eq(users.id, ctx.targetUserId))
+        .limit(1);
+
+      if (targetUser.length === 0) {
+        return { success: false, error: "User not found" };
+      }
+
+      if (targetUser[0].isAdmin) {
+        return { success: false, error: "User is already an admin" };
+      }
+
+      // Grant admin access
+      await db.update(users)
+        .set({ isAdmin: true, updatedAt: new Date() })
+        .where(eq(users.id, ctx.targetUserId));
+
+      await this.logAction(ctx.adminUserId, "grant_admin", ctx.targetUserId, {
+        action: "Granted admin privileges",
+      });
+
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Failed to grant admin access" 
+      };
+    }
+  }
+
+  async revokeAdminAccess(
+    ctx: AdminActionContext,
+    reason: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!ctx.targetUserId) {
+      return { success: false, error: "Target user ID required" };
+    }
+
+    // Prevent self-revocation
+    if (ctx.adminUserId === ctx.targetUserId) {
+      return { success: false, error: "Cannot revoke your own admin access" };
+    }
+
+    try {
+      // Check if target user exists and is admin
+      const targetUser = await db.select()
+        .from(users)
+        .where(eq(users.id, ctx.targetUserId))
+        .limit(1);
+
+      if (targetUser.length === 0) {
+        return { success: false, error: "User not found" };
+      }
+
+      if (!targetUser[0].isAdmin) {
+        return { success: false, error: "User is not an admin" };
+      }
+
+      // Revoke admin access
+      await db.update(users)
+        .set({ isAdmin: false, updatedAt: new Date() })
+        .where(eq(users.id, ctx.targetUserId));
+
+      await this.logAction(ctx.adminUserId, "revoke_admin", ctx.targetUserId, {
+        action: "Revoked admin privileges",
+        reason,
+      });
+
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Failed to revoke admin access" 
+      };
+    }
+  }
+
+  async suspendUser(
+    ctx: AdminActionContext,
+    reason: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!ctx.targetUserId) {
+      return { success: false, error: "Target user ID required" };
+    }
+
+    // Prevent self-suspension
+    if (ctx.adminUserId === ctx.targetUserId) {
+      return { success: false, error: "Cannot suspend yourself" };
+    }
+
+    try {
+      // Check if target user exists
+      const targetUser = await db.select()
+        .from(users)
+        .where(eq(users.id, ctx.targetUserId))
+        .limit(1);
+
+      if (targetUser.length === 0) {
+        return { success: false, error: "User not found" };
+      }
+
+      // Revoke admin if they have it
+      if (targetUser[0].isAdmin) {
+        await db.update(users)
+          .set({ isAdmin: false, updatedAt: new Date() })
+          .where(eq(users.id, ctx.targetUserId));
+      }
+
+      // Suspend wallet if exists
+      await db.update(wallets)
+        .set({ status: "suspended", updatedAt: new Date() })
+        .where(eq(wallets.userId, ctx.targetUserId));
+
+      await this.logAction(ctx.adminUserId, "suspend_user", ctx.targetUserId, {
+        action: "Suspended user account",
+        reason,
+        hadAdmin: targetUser[0].isAdmin,
+      });
+
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Failed to suspend user" 
+      };
+    }
+  }
+
+  async unsuspendUser(
+    ctx: AdminActionContext
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!ctx.targetUserId) {
+      return { success: false, error: "Target user ID required" };
+    }
+
+    try {
+      // Check if target user exists
+      const targetUser = await db.select()
+        .from(users)
+        .where(eq(users.id, ctx.targetUserId))
+        .limit(1);
+
+      if (targetUser.length === 0) {
+        return { success: false, error: "User not found" };
+      }
+
+      // Reactivate wallet
+      await db.update(wallets)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(eq(wallets.userId, ctx.targetUserId));
+
+      await this.logAction(ctx.adminUserId, "unsuspend_user", ctx.targetUserId, {
+        action: "Unsuspended user account",
+      });
+
+      return { success: true };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : "Failed to unsuspend user" 
+      };
+    }
+  }
+
+  async getUserAdminStatus(userId: string): Promise<{
+    isAdmin: boolean;
+    isSuspended: boolean;
+    username: string | null;
+  } | null> {
+    try {
+      const user = await db.select({
+        id: users.id,
+        username: users.username,
+        isAdmin: users.isAdmin,
+      })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (user.length === 0) {
+        return null;
+      }
+
+      // Check wallet suspension status
+      const wallet = await db.select({ status: wallets.status })
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .limit(1);
+
+      return {
+        isAdmin: user[0].isAdmin,
+        isSuspended: wallet.length > 0 && wallet[0].status === "suspended",
+        username: user[0].username,
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  async getAllAdmins(): Promise<any[]> {
+    return db.select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      createdAt: users.createdAt,
+    })
+      .from(users)
+      .where(eq(users.isAdmin, true))
+      .orderBy(desc(users.createdAt));
+  }
+
   async getMetrics(date?: string): Promise<{
     dau: number;
     matchesPerUser: number;
