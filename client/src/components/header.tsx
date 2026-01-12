@@ -57,6 +57,9 @@ export function Header() {
     if (user?.firstName) {
       return user.firstName.slice(0, 2).toUpperCase();
     }
+    if (user?.username) {
+      return user.username.slice(0, 2).toUpperCase();
+    }
     if (user?.email) {
       return user.email.slice(0, 2).toUpperCase();
     }
@@ -69,6 +72,9 @@ export function Header() {
     }
     if (user?.firstName) {
       return user.firstName;
+    }
+    if (user?.username) {
+      return user.username;
     }
     if (user?.email) {
       return user.email.split('@')[0];
