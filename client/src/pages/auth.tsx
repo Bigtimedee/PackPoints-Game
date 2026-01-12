@@ -65,8 +65,11 @@ export default function AuthPage() {
       });
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: (data) => {
+      // Directly set user data in cache from registration response to avoid session cookie race condition
+      if (data.user) {
+        queryClient.setQueryData(["/api/auth/user"], data.user);
+      }
       toast({
         title: "Account created!",
         description: "Welcome to PackPoints. Start playing to earn PackPTS!",
@@ -88,8 +91,11 @@ export default function AuthPage() {
       const response = await apiRequest("POST", "/api/auth/local-login", data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: (data) => {
+      // Directly set user data in cache from login response to avoid session cookie race condition
+      if (data.user) {
+        queryClient.setQueryData(["/api/auth/user"], data.user);
+      }
       toast({
         title: "Welcome back!",
         description: "You've successfully logged in.",

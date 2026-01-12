@@ -63,9 +63,11 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
         throw error;
       }
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
+    onSuccess: async (data) => {
+      // Directly set user data in cache from registration response to avoid session cookie race condition
+      if (data.user) {
+        queryClient.setQueryData(["/api/auth/user"], data.user);
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/guest/pending-points"] });
       onOpenChange(false);
       form.reset();
