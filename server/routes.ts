@@ -657,14 +657,21 @@ export async function registerRoutes(
       
       const updatedUser = await storage.getUser(user.id);
       
-      res.json({ 
-        success: true, 
-        user: {
-          id: updatedUser!.id,
-          username: updatedUser!.username,
-          points: updatedUser!.points,
-          gamesPlayed: updatedUser!.gamesPlayed,
+      // Explicitly save session to ensure it's persisted before response
+      req.session.save((err: any) => {
+        if (err) {
+          console.error("Error saving session:", err);
+          return res.status(500).json({ error: "Failed to save session" });
         }
+        res.json({ 
+          success: true, 
+          user: {
+            id: updatedUser!.id,
+            username: updatedUser!.username,
+            points: updatedUser!.points,
+            gamesPlayed: updatedUser!.gamesPlayed,
+          }
+        });
       });
     } catch (error) {
       console.error("Error registering user:", error);
@@ -688,14 +695,21 @@ export async function registerRoutes(
       
       req.session.localUserId = user.id;
       
-      res.json({ 
-        success: true, 
-        user: {
-          id: user.id,
-          username: user.username,
-          points: user.points,
-          gamesPlayed: user.gamesPlayed,
+      // Explicitly save session to ensure it's persisted before response
+      req.session.save((err: any) => {
+        if (err) {
+          console.error("Error saving session:", err);
+          return res.status(500).json({ error: "Failed to save session" });
         }
+        res.json({ 
+          success: true, 
+          user: {
+            id: user.id,
+            username: user.username,
+            points: user.points,
+            gamesPlayed: user.gamesPlayed,
+          }
+        });
       });
     } catch (error) {
       console.error("Error logging in:", error);
