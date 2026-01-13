@@ -14,6 +14,7 @@ import { quotaService } from "./services/quotaService";
 import { adminService } from "./services/adminService";
 import { analyticsService } from "./services/analyticsService";
 import { redemptionService } from "./services/redemptionService";
+import { sendPasswordResetEmail } from "./services/emailService";
 import { redeemPackptsSchema } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
@@ -756,12 +757,19 @@ export async function registerRoutes(
       // Create reset token
       const resetToken = await storage.createPasswordResetToken(user.id);
       
-      // Since email integration is not set up, log the reset link for admin use
-      const resetLink = `${process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : ''}/reset-password?token=${resetToken.token}`;
-      console.log(`Password reset link for ${email}: ${resetLink}`);
+      // Determine base URL for reset link
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
+        : (process.env.REPLIT_DEPLOYMENT_URL || 'https://packpts.com');
       
-      // TODO: When email integration is set up, send email here
-      // For now, admins can check server logs for the reset link
+      // Send password reset email
+      const emailSent = await sendPasswordResetEmail(email, resetToken.token, baseUrl);
+      
+      if (!emailSent) {
+        // Fallback: log the reset link if email fails
+        const resetLink = `${baseUrl}/reset-password?token=${resetToken.token}`;
+        console.log(`Email failed - Password reset link for ${email}: ${resetLink}`);
+      }
       
       res.json({ success: true, message: "If an account exists, a reset link has been sent" });
     } catch (error) {
