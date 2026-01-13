@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -207,6 +207,11 @@ export default function AuthPage() {
                     {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Log In
                   </Button>
+                  <div className="text-center">
+                    <Link href="/forgot-password" className="text-sm text-muted-foreground hover:text-primary">
+                      Forgot your password?
+                    </Link>
+                  </div>
                 </form>
               </Form>
             </TabsContent>

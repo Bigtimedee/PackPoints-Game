@@ -50,9 +50,19 @@ A comprehensive wallet system tracks user points (PackPTS) using a ledger-first 
 - **Zyla API**: Fallback for fetching additional card images.
 - **Goldin Auctions & eBay**: Planned integration for point redemption.
 
+### Authentication System
+- **Dual auth support**: Replit OAuth and local username/password
+- **Admin Portal login**: `/admin` page supports both Replit OAuth and username/password
+- **Password Reset**: Token-based system with 1-hour expiry
+  - Tokens stored in `password_reset_tokens` table
+  - Reset links logged to server console (email integration not configured)
+  - Pages: `/forgot-password`, `/reset-password?token=...`
+  - Endpoints: POST `/api/auth/forgot-password`, GET `/api/auth/validate-reset-token`, POST `/api/auth/reset-password`
+
 ### Admin Tools
 The admin system provides comprehensive management capabilities:
 - **User Management**: View users, search, and access detailed user profiles
+- **Admin Management**: Grant/revoke admin privileges, suspend/unsuspend users
 - **Wallet Management**: Adjust PackPTS balances with audit logging via `adminService.adjustWalletBalance()`
 - **Entitlement Management**: Grant/revoke user entitlements (Pro, Legend tiers)
 - **Feature Flags**: Toggle platform features via `feature_flags` table

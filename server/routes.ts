@@ -737,6 +737,90 @@ export async function registerRoutes(
     }
   });
 
+  // Password reset - request reset link
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ error: "Email is required" });
+      }
+      
+      const user = await storage.getUserByEmail(email);
+      
+      // Always return success to prevent email enumeration attacks
+      if (!user) {
+        console.log(`Password reset requested for non-existent email: ${email}`);
+        return res.json({ success: true, message: "If an account exists, a reset link has been sent" });
+      }
+      
+      // Create reset token
+      const resetToken = await storage.createPasswordResetToken(user.id);
+      
+      // Since email integration is not set up, log the reset link for admin use
+      const resetLink = `${process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : ''}/reset-password?token=${resetToken.token}`;
+      console.log(`Password reset link for ${email}: ${resetLink}`);
+      
+      // TODO: When email integration is set up, send email here
+      // For now, admins can check server logs for the reset link
+      
+      res.json({ success: true, message: "If an account exists, a reset link has been sent" });
+    } catch (error) {
+      console.error("Error requesting password reset:", error);
+      res.status(500).json({ error: "Failed to process request" });
+    }
+  });
+
+  // Password reset - validate token
+  app.get("/api/auth/validate-reset-token", async (req, res) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        return res.status(400).json({ valid: false, error: "Token is required" });
+      }
+      
+      const resetToken = await storage.getPasswordResetToken(token);
+      if (!resetToken) {
+        return res.json({ valid: false });
+      }
+      
+      res.json({ valid: true });
+    } catch (error) {
+      console.error("Error validating reset token:", error);
+      res.status(500).json({ valid: false, error: "Failed to validate token" });
+    }
+  });
+
+  // Password reset - reset password with token
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      
+      if (!token || !password) {
+        return res.status(400).json({ error: "Token and password are required" });
+      }
+      
+      if (password.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+      
+      const resetToken = await storage.getPasswordResetToken(token);
+      if (!resetToken) {
+        return res.status(400).json({ error: "Invalid or expired reset link" });
+      }
+      
+      // Update password
+      await storage.updateUserPassword(resetToken.userId, password);
+      
+      // Mark token as used
+      await storage.markPasswordResetTokenUsed(resetToken.id);
+      
+      res.json({ success: true, message: "Password has been reset successfully" });
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
   app.post("/api/lobby/create", isAuthenticated, async (req: any, res) => {
     try {
       // Get authenticated user ID and username from session - server-side derivation, not client-provided

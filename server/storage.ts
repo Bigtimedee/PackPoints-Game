@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -24,6 +24,12 @@ export interface IStorage {
   
   createLocalUser(username: string, email: string, password: string): Promise<User>;
   validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
+  updateUserPassword(userId: string, newPassword: string): Promise<void>;
+  
+  // Password reset tokens
+  createPasswordResetToken(userId: string): Promise<PasswordResetToken>;
+  getPasswordResetToken(token: string): Promise<PasswordResetToken | null>;
+  markPasswordResetTokenUsed(tokenId: string): Promise<void>;
   
   getCards(): Promise<BaseballCard[]>;
   getRandomCards(count: number): Promise<BaseballCard[]>;
@@ -186,6 +192,47 @@ export class DatabaseStorage implements IStorage {
     
     const valid = await bcrypt.compare(password, credential.passwordHash);
     return valid ? user : null;
+  }
+
+  async updateUserPassword(userId: string, newPassword: string): Promise<void> {
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await db.update(localCredentials)
+      .set({ passwordHash })
+      .where(eq(localCredentials.userId, userId));
+  }
+
+  async createPasswordResetToken(userId: string): Promise<PasswordResetToken> {
+    const token = randomUUID();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+    
+    const [resetToken] = await db.insert(passwordResetTokens).values({
+      userId,
+      token,
+      expiresAt,
+    }).returning();
+    
+    return resetToken;
+  }
+
+  async getPasswordResetToken(token: string): Promise<PasswordResetToken | null> {
+    const [resetToken] = await db.select()
+      .from(passwordResetTokens)
+      .where(eq(passwordResetTokens.token, token));
+    
+    if (!resetToken) return null;
+    
+    // Check if token is expired or already used
+    if (resetToken.expiresAt < new Date() || resetToken.usedAt) {
+      return null;
+    }
+    
+    return resetToken;
+  }
+
+  async markPasswordResetTokenUsed(tokenId: string): Promise<void> {
+    await db.update(passwordResetTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(passwordResetTokens.id, tokenId));
   }
 
   async updateUserPoints(id: string, points: number): Promise<User | undefined> {

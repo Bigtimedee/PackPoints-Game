@@ -22,6 +22,8 @@ import AdminMetrics from "@/pages/admin/metrics";
 import AdminAuditLog from "@/pages/admin/audit-log";
 import AdminRedemptions from "@/pages/admin/redemptions";
 import AdminTiers from "@/pages/admin/tiers";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
 import AuthError from "@/pages/auth-error";
 import Auth from "@/pages/auth";
@@ -91,6 +93,8 @@ function Router() {
       </Route>
       <Route path="/auth" component={Auth} />
       <Route path="/auth-error" component={AuthError} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />
     </Switch>
   );
