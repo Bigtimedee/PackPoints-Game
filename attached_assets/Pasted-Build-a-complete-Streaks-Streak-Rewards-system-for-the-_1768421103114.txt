@@ -1,0 +1,66 @@
+Build a complete “Streaks” + “Streak Rewards” system for the PackPts app that incentivizes registered users to play consistently and earn incrementally more PackPTS over time.
+
+IMPORTANT CONSTRAINTS
+- PackPTS awards must be computed and granted on the SERVER only (never on the client).
+- Use an append-only ledger for PackPTS. Do not directly mutate balances.
+- The streak system must be timezone-safe (use user’s timezone if stored, otherwise default to America/Chicago) and must handle daylight savings.
+- All streak grants must be idempotent and safe against double-claims, retries, and concurrent requests.
+- Include anti-abuse protections (rate limits, device/account linking, and max daily streak reward caps).
+- Do not implement any cashout. This is purely in-game PackPTS.
+
+FUNCTIONAL REQUIREMENTS
+1) Streak Definition
+- A “Daily Streak” increments when a user completes at least ONE eligible match on a calendar day.
+- A day is “eligible” only if the match is validated by the server and ends with a valid match token.
+- Streak breaks if the user misses a day, unless a “Streak Freeze” is available and consumed (optional but preferred).
+- Track: currentStreakDays, longestStreakDays, lastActiveLocalDate, streakStatus.
+
+2) Reward Curve (Incremental PackPTS)
+Implement a configurable reward schedule, for example:
+- Day 1: +25 PackPTS
+- Day 2: +30
+- Day 3: +35
+...
+- Cap daily streak reward at +250 PackPTS
+- Weekly milestones: Day 7 bonus +500 PackPTS, Day 14 +1,250, Day 30 +5,000 (all configurable)
+The schedule must be stored server-side (DB-backed remote config) so admins can change rewards without redeploying.
+
+3) Claim & Award Flow
+- When a user completes their first eligible match of the day, the server should:
+  a) update/compute their streak status atomically
+  b) if a new day is credited, create a STREAK_EARN ledger entry awarding the appropriate PackPTS
+  c) ensure idempotency (unique key: userId + localDate + “streak”)
+- Provide endpoints:
+  - GET /streak (returns current/longest, today status, next reward, time until reset)
+  - POST /streak/claim (optional; if you choose auto-claim on match completion, this can be internal-only)
+  - Admin endpoints to view streak stats, modify reward curve, grant/revoke streak freezes, and adjust a streak for support cases.
+
+4) Data Model
+Add DB tables/models (adapt to existing ORM or SQL layer):
+- streak_state: user_id (unique), current_days, longest_days, last_active_local_date, last_claim_local_date, timezone, freezes_available, updated_at
+- streak_reward_config: id, effective_from, json_schedule, daily_cap, milestone_bonuses, enabled
+- streak_claim_log: id, user_id, local_date, awarded_amount, idempotency_key unique, created_at, metadata json
+
+5) Integrate With Match System
+- Hook into the server’s match completion endpoint. On successful match completion:
+  - call the streak evaluation service
+  - if user’s daily streak is credited, award PackPTS via ledger entry
+- Ensure it works for 1vCPU, 1v1, and pool matches.
+
+6) Client UI (Mobile/Web)
+Implement UI screens/components (adapt to existing frontend stack):
+- Streak card showing: “You’re on a X-day streak”, progress to next milestone, today claimed/not claimed, next reward amount.
+- “Streak Calendar” mini view (last 7 days) with checkmarks.
+- “Streak Freeze” display (if enabled).
+- Push/in-app reminder hooks (just stubs): notify user before local-day ends if streak not maintained.
+
+7) Observability + Analytics
+- Log events server-side:
+  - streak_incremented, streak_broken, streak_freeze_used, streak_reward_awarded
+- Add metrics endpoints/admin dashboard widgets:
+  - streak adoption rate, average current streak, distribution, incremental revenue correlation (if available).
+
+DELIVERABLES
+- Implement the backend services, DB migrations, endpoints, and tests.
+- Implement the frontend UI components and wire them to the endpoints.
+- Provide a short README section: how streaks work, how to change reward config, and how to test idempotency and timezone behavior.
