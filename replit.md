@@ -55,7 +55,8 @@ A comprehensive wallet system tracks user points (PackPTS) using a ledger-first 
 - **Admin Portal login**: `/admin` page supports both Replit OAuth and username/password
 - **Password Reset**: Token-based system with 1-hour expiry
   - Tokens stored in `password_reset_tokens` table
-  - Reset links logged to server console (email integration not configured)
+  - **Email delivery via Gmail SMTP** using Nodemailer with `GMAIL_USER` and `GMAIL_APP_PASSWORD` secrets
+  - Email service: `server/services/emailService.ts` (supports HTML and plain text)
   - Pages: `/forgot-password`, `/reset-password?token=...`
   - Endpoints: POST `/api/auth/forgot-password`, GET `/api/auth/validate-reset-token`, POST `/api/auth/reset-password`
 
