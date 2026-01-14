@@ -1,0 +1,114 @@
+Integrate WorkOS authentication into this PackPts codebase, adapting to the existing stack:
+
+- Frontend: React 18 + Vite + TS + Tailwind + shadcn/ui + React Query + Wouter
+- Backend: Express + TS (tsx dev), Passport.js, express-session with Postgres session store
+- DB: Postgres (Replit Neon) + Drizzle ORM + migrations
+- Existing auth: Replit OAuth + local username/password (bcryptjs)
+- Payments: Stripe subscriptions
+- Email: Nodemailer (Gmail SMTP)
+
+GOALS
+1) Add “Sign in with WorkOS” as a third auth method (do not break existing Replit OAuth or local auth).
+2) Use WorkOS hosted login (AuthKit/User Management) and establish a server-side session in express-session.
+3) Upsert/link a local user record to a WorkOS user id, then treat that user as authenticated via Passport session.
+4) Protect existing API routes using the existing Passport/session middleware.
+5) Minimal changes: do NOT rewrite routing, replace React Query, or change session storage.
+
+STEP 0 — Repo Discovery & Plan
+- Inspect the repo and identify:
+  - server entry file, router structure, Passport config file, session store setup
+  - user table schema in Drizzle (where email/username is stored)
+  - auth routes currently used for Replit OAuth and local login
+- Create WORKOS_INTEGRATION.md listing: touched files, new routes, schema changes, and how to run/test.
+
+STEP 1 — Dependencies
+Backend:
+- Add official WorkOS Node SDK
+- Add any needed helpers (e.g., cookie parsing if not present)
+Frontend:
+- No WorkOS SDK required; we will use redirect-based flow (web app).
+
+STEP 2 — Environment Variables
+Add to .env.example and wire through server config:
+- WORKOS_API_KEY=
+- WORKOS_CLIENT_ID=
+- WORKOS_REDIRECT_URI= (e.g., https://<your-domain>/api/auth/workos/callback)
+- WORKOS_COOKIE_PASSWORD= (random long string for optional state/PKCE or cookie signing if needed)
+- APP_BASE_URL= (e.g., https://<your-domain>)
+- API_BASE_URL= (e.g., https://<your-domain>/api)
+
+Also document required redirect URLs that must be configured in the WorkOS dashboard.
+
+STEP 3 — Database Changes (Drizzle)
+- Create and run a Drizzle migration to add WorkOS linkage fields to the existing users table:
+  - workosUserId (text, unique, nullable initially)
+  - workosEmail (text, nullable) OR reuse existing email column
+  - authProvider (enum or text; add 'workos' as a possible value if you have this already)
+  - (optional) emailVerifiedAt timestamp if you track it
+- If you have a separate “accounts” table, add a row keyed by provider=workos instead.
+
+STEP 4 — Backend Routes (Express)
+Create these new routes under your existing /api routing convention:
+
+A) GET /api/auth/workos/start
+- Generates a WorkOS authorization URL for hosted login.
+- Includes a CSRF-protected state parameter stored server-side in the session (req.session.workosState = <random>).
+- Redirects the browser to WorkOS login.
+
+B) GET /api/auth/workos/callback
+- Validates state vs req.session.workosState.
+- Exchanges code for a WorkOS-authenticated user/session using the WorkOS SDK per docs.
+- Upserts local user:
+  - Find by workosUserId if present
+  - Else find by email and LINK (set workosUserId), unless that email belongs to a different auth user you should not auto-link (handle carefully).
+  - If not found, create a new local user with provider=workos.
+- Log the user into Passport by calling req.login(user, ...) so express-session is established.
+- Redirect back to the frontend (APP_BASE_URL) to a route like /auth/success.
+
+C) POST /api/auth/workos/logout
+- Logs out (req.logout) and destroys session; clears cookie.
+
+D) GET /api/me
+- Returns current logged-in user from session (already exists; ensure it works for workos users).
+
+REQUIREMENTS
+- Keep using express-session + Postgres session store (no JWT rewrite).
+- All auth routes must be compatible with same-site cookies; set cookie flags correctly for production:
+  - httpOnly true, secure true (in production), sameSite = 'lax' (or 'none' if cross-site), and proper trust proxy config.
+- Add a small “linking policy”:
+  - If a logged-in user wants to link WorkOS, allow linking explicitly.
+  - Do NOT automatically link emails across providers if it could cause account takeover.
+  - If collision occurs, redirect to an error page with instructions.
+
+STEP 5 — Passport Integration
+- Add a Passport strategy OR a simple “WorkOS callback handler” that ends by invoking req.login with the local user.
+- Ensure serializeUser / deserializeUser continue to work and can load users by id via Drizzle.
+- Add middleware ensureAuth used by protected endpoints, and confirm it works for WorkOS sessions.
+
+STEP 6 — Frontend UI (React + Vite)
+- Add a “Continue with WorkOS” button on the existing login screen (shadcn Button).
+- On click: window.location.href = `${API_BASE_URL}/auth/workos/start`
+- Add routes:
+  - /auth/success (calls /api/me via React Query, then routes to app)
+  - /auth/error (shows friendly error)
+- Update auth state store (if you have one) to treat WorkOS user the same as other logged-in users.
+
+STEP 7 — Tests + Manual Verification
+- Add minimal integration tests (or a test script) for:
+  - state mismatch -> rejected
+  - callback creates user and session
+  - /api/me returns user after login
+  - logout destroys session
+- Provide manual test steps in WORKOS_INTEGRATION.md.
+
+STEP 8 (Optional, scaffold only) — Organizations + SSO Later
+- Add optional tables:
+  - organizations (id, workosOrganizationId unique, name)
+  - organization_members (userId, orgId, role)
+- Do NOT turn on SSO yet; just set up the schema/hooks so it’s easy later.
+
+DELIVERABLES
+- Working “Continue with WorkOS” login flow end-to-end
+- Drizzle migration applied
+- No regressions to Replit OAuth or local login
+- Updated README + WORKOS_INTEGRATION.md with setup steps
