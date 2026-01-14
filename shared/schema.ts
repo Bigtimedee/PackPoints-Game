@@ -285,7 +285,7 @@ export type InsertWallet = z.infer<typeof insertWalletSchema>;
 export type Wallet = typeof wallets.$inferSelect;
 
 // Ledger entry types enum
-export const ledgerEntryTypes = ["EARN", "SPEND", "ADJUST", "PURCHASE_CREDIT", "REVERSAL"] as const;
+export const ledgerEntryTypes = ["EARN", "SPEND", "ADJUST", "PURCHASE_CREDIT", "REVERSAL", "STREAK_EARN"] as const;
 export type LedgerEntryType = typeof ledgerEntryTypes[number];
 
 // PackPTS Ledger - append-only transaction log
@@ -701,3 +701,118 @@ export type RedeemPackptsRequest = z.infer<typeof redeemPackptsSchema>;
 
 // Admin review threshold (in USD cents) - redemptions above this need admin approval
 export const REDEMPTION_REVIEW_THRESHOLD_CENTS = 2500; // $25.00
+
+// ============================================
+// STREAK SYSTEM - Daily play incentives
+// ============================================
+
+// Streak status enum
+export const streakStatuses = ["active", "broken", "frozen"] as const;
+export type StreakStatus = typeof streakStatuses[number];
+
+// User streak state - tracks current streak for each user
+export const streakState = pgTable("streak_state", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  currentDays: integer("current_days").notNull().default(0),
+  longestDays: integer("longest_days").notNull().default(0),
+  lastActiveLocalDate: varchar("last_active_local_date", { length: 10 }), // YYYY-MM-DD in user's timezone
+  lastClaimLocalDate: varchar("last_claim_local_date", { length: 10 }), // last day reward was claimed
+  timezone: varchar("timezone", { length: 64 }).notNull().default("America/Chicago"),
+  freezesAvailable: integer("freezes_available").notNull().default(0),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_streak_state_user").on(table.userId),
+  index("idx_streak_state_last_active").on(table.lastActiveLocalDate),
+]);
+
+export const insertStreakStateSchema = createInsertSchema(streakState).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStreakState = z.infer<typeof insertStreakStateSchema>;
+export type StreakState = typeof streakState.$inferSelect;
+
+// Streak reward configuration - DB-backed remote config for reward schedule
+export const streakRewardConfig = pgTable("streak_reward_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  effectiveUntil: timestamp("effective_until"), // null = no end date
+  jsonSchedule: jsonb("json_schedule").notNull(), // { "1": 25, "2": 30, "3": 35, ... }
+  dailyCap: integer("daily_cap").notNull().default(250), // max daily streak reward
+  milestoneBonuses: jsonb("milestone_bonuses").notNull(), // { "7": 500, "14": 1250, "30": 5000 }
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_streak_reward_config_effective").on(table.effectiveFrom),
+  index("idx_streak_reward_config_enabled").on(table.enabled),
+]);
+
+export const insertStreakRewardConfigSchema = createInsertSchema(streakRewardConfig).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStreakRewardConfig = z.infer<typeof insertStreakRewardConfigSchema>;
+export type StreakRewardConfig = typeof streakRewardConfig.$inferSelect;
+
+// Streak claim log - append-only log of all streak rewards claimed
+export const streakClaimLog = pgTable("streak_claim_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  localDate: varchar("local_date", { length: 10 }).notNull(), // YYYY-MM-DD
+  streakDay: integer("streak_day").notNull(), // what day of streak (1, 2, 3...)
+  dailyReward: integer("daily_reward").notNull(), // base daily reward
+  milestoneBonus: integer("milestone_bonus").notNull().default(0), // bonus for milestone (7, 14, 30 days)
+  totalAwarded: integer("total_awarded").notNull(), // daily + milestone
+  idempotencyKey: varchar("idempotency_key", { length: 64 }).notNull().unique(),
+  matchId: varchar("match_id"), // the match that triggered this claim
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_streak_claim_log_user").on(table.userId),
+  index("idx_streak_claim_log_user_date").on(table.userId, table.localDate),
+  index("idx_streak_claim_log_idempotency").on(table.idempotencyKey),
+  index("idx_streak_claim_log_created").on(table.createdAt),
+]);
+
+export const insertStreakClaimLogSchema = createInsertSchema(streakClaimLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertStreakClaimLog = z.infer<typeof insertStreakClaimLogSchema>;
+export type StreakClaimLog = typeof streakClaimLog.$inferSelect;
+
+// Streak analytics event types
+export const STREAK_ANALYTICS_EVENTS = [
+  "streak_incremented",
+  "streak_broken",
+  "streak_freeze_used",
+  "streak_reward_awarded",
+] as const;
+
+export type StreakAnalyticsEventType = typeof STREAK_ANALYTICS_EVENTS[number];
+
+// Default streak reward schedule
+export const DEFAULT_STREAK_SCHEDULE: Record<string, number> = {
+  "1": 25, "2": 30, "3": 35, "4": 40, "5": 45, "6": 50, "7": 55,
+  "8": 60, "9": 65, "10": 70, "11": 75, "12": 80, "13": 85, "14": 90,
+  "15": 95, "16": 100, "17": 105, "18": 110, "19": 115, "20": 120,
+  "21": 125, "22": 130, "23": 135, "24": 140, "25": 145, "26": 150,
+  "27": 155, "28": 160, "29": 165, "30": 170,
+};
+
+export const DEFAULT_MILESTONE_BONUSES: Record<string, number> = {
+  "7": 500,
+  "14": 1250,
+  "30": 5000,
+};
+
+export const MAX_DAILY_STREAK_REWARD = 250; // cap for day > 30
