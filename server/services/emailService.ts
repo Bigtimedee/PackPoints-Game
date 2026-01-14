@@ -1,12 +1,66 @@
 import nodemailer from 'nodemailer';
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
+let transporter: nodemailer.Transporter | null = null;
+let emailConfigValid = false;
+
+function createTransporter(): nodemailer.Transporter | null {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  
+  if (!user || !pass) {
+    console.warn('[EmailService] GMAIL_USER or GMAIL_APP_PASSWORD not configured');
+    return null;
+  }
+  
+  // Log credential info for debugging (masked)
+  console.log(`[EmailService] Configuring with user: ${user}`);
+  console.log(`[EmailService] App password length: ${pass.length} characters`);
+  
+  if (pass.includes(' ')) {
+    console.warn('[EmailService] WARNING: App password contains spaces - these should be removed');
+  }
+  
+  if (pass.length !== 16) {
+    console.warn(`[EmailService] WARNING: App password should be 16 characters, got ${pass.length}`);
+  }
+  
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user, pass },
+  });
+}
+
+export async function verifyEmailConfig(): Promise<boolean> {
+  transporter = createTransporter();
+  
+  if (!transporter) {
+    console.log('[EmailService] Email not configured - reset links will be logged to console');
+    emailConfigValid = false;
+    return false;
+  }
+  
+  try {
+    await transporter.verify();
+    console.log('[EmailService] Gmail SMTP connection verified successfully');
+    emailConfigValid = true;
+    return true;
+  } catch (error: any) {
+    console.error('[EmailService] Gmail SMTP verification failed:');
+    
+    if (error.code === 'EAUTH') {
+      console.error('[EmailService] Authentication failed. Possible causes:');
+      console.error('  1. App Password is incorrect (should be 16 chars, no spaces)');
+      console.error('  2. Using regular password instead of App Password');
+      console.error('  3. 2-Step Verification not enabled on Google account');
+      console.error('  4. GMAIL_USER does not match the account with the App Password');
+    } else {
+      console.error(`[EmailService] Error: ${error.message}`);
+    }
+    
+    emailConfigValid = false;
+    return false;
+  }
+}
 
 interface SendEmailOptions {
   to: string;
@@ -16,24 +70,36 @@ interface SendEmailOptions {
 }
 
 export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-    console.warn('Email credentials not configured. Email not sent.');
-    console.log(`Would have sent email to ${options.to}: ${options.subject}`);
-    return false;
+  if (!transporter || !emailConfigValid) {
+    // Try to reinitialize if not set up
+    if (!transporter) {
+      transporter = createTransporter();
+    }
+    
+    if (!transporter) {
+      console.warn('[EmailService] Email not configured. Email not sent.');
+      return false;
+    }
   }
 
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `"PackPoints" <${process.env.GMAIL_USER}>`,
       to: options.to,
       subject: options.subject,
       html: options.html,
       text: options.text,
     });
-    console.log(`Email sent successfully to ${options.to}`);
+    console.log(`[EmailService] Email sent successfully to ${options.to} (messageId: ${info.messageId})`);
     return true;
-  } catch (error) {
-    console.error('Failed to send email:', error);
+  } catch (error: any) {
+    console.error('[EmailService] Failed to send email:', error.message);
+    
+    if (error.code === 'EAUTH') {
+      console.error('[EmailService] Authentication failed - check GMAIL_USER and GMAIL_APP_PASSWORD');
+      console.error('[EmailService] Make sure to use an App Password (16 chars, no spaces)');
+    }
+    
     return false;
   }
 }
