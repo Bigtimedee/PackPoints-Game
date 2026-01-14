@@ -7,6 +7,7 @@ import { setupWebSocket } from "./websocket";
 import { matchService } from "./services/matchService";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { verifyEmailConfig } from "./services/emailService";
+import { registerWorkosRoutes } from "./services/workosAuth";
 
 const app = express();
 const httpServer = createServer(app);
@@ -77,6 +78,7 @@ app.use((req, res, next) => {
   // Setup Replit Auth (BEFORE registering other routes)
   await setupAuth(app);
   registerAuthRoutes(app);
+  registerWorkosRoutes(app);
   
   setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);

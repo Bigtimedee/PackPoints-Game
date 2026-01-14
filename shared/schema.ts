@@ -27,6 +27,7 @@ export const users = pgTable("users", {
   correctAnswers: integer("correct_answers").notNull().default(0),
   totalAnswers: integer("total_answers").notNull().default(0),
   isAdmin: boolean("is_admin").notNull().default(false),
+  workosUserId: varchar("workos_user_id").unique(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

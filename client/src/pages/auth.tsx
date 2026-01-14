@@ -125,6 +125,18 @@ export default function AuthPage() {
     window.location.href = "/api/login";
   };
 
+  const handleWorkOSLogin = () => {
+    if (window.self !== window.top) {
+      toast({
+        title: "Open in new tab",
+        description: "WorkOS login requires opening the app in a new browser tab.",
+        variant: "destructive",
+      });
+      return;
+    }
+    window.location.href = "/api/auth/workos/start";
+  };
+
   const onSignup = (data: SignupFormData) => {
     signupMutation.mutate(data);
   };
@@ -329,15 +341,27 @@ export default function AuthPage() {
             </div>
           </div>
 
-          <Button 
-            variant="outline" 
-            className="w-full" 
-            onClick={handleReplitLogin}
-            data-testid="button-replit-login"
-          >
-            <SiReplit className="mr-2 h-4 w-4" />
-            Continue with Replit
-          </Button>
+          <div className="space-y-3">
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={handleReplitLogin}
+              data-testid="button-replit-login"
+            >
+              <SiReplit className="mr-2 h-4 w-4" />
+              Continue with Replit
+            </Button>
+
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={handleWorkOSLogin}
+              data-testid="button-workos-login"
+            >
+              <Lock className="mr-2 h-4 w-4" />
+              Continue with WorkOS
+            </Button>
+          </div>
 
           <p className="text-center text-xs text-muted-foreground">
             By continuing, you agree to our Terms of Service and Privacy Policy.

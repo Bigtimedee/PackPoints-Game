@@ -18,11 +18,14 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByWorkosId(workosUserId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPoints(id: string, points: number): Promise<User | undefined>;
   updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined>;
   
   createLocalUser(username: string, email: string, password: string): Promise<User>;
+  createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string }): Promise<User>;
+  linkWorkosUser(userId: string, workosUserId: string): Promise<void>;
   validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
   updateUserPassword(userId: string, newPassword: string): Promise<void>;
   
@@ -157,6 +160,11 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
+  async getUserByWorkosId(workosUserId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.workosUserId, workosUserId));
+    return user || undefined;
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
@@ -177,6 +185,25 @@ export class DatabaseStorage implements IStorage {
     });
     
     return user;
+  }
+
+  async createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string }): Promise<User> {
+    const [user] = await db.insert(users).values({
+      username: data.username,
+      email: data.email,
+      firstName: data.firstName || data.username,
+      lastName: data.lastName,
+      profileImageUrl: data.profileImageUrl,
+      workosUserId: data.workosUserId,
+    }).returning();
+    
+    return user;
+  }
+
+  async linkWorkosUser(userId: string, workosUserId: string): Promise<void> {
+    await db.update(users)
+      .set({ workosUserId })
+      .where(eq(users.id, userId));
   }
 
   async validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null> {

@@ -28,6 +28,7 @@ import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
 import AuthError from "@/pages/auth-error";
 import Auth from "@/pages/auth";
+import AuthSuccess from "@/pages/auth-success";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -100,6 +101,7 @@ function Router() {
         )}
       </Route>
       <Route path="/auth" component={Auth} />
+      <Route path="/auth/success" component={AuthSuccess} />
       <Route path="/auth-error" component={AuthError} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />

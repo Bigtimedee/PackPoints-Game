@@ -45,9 +45,17 @@ export function registerAuthRoutes(app: Express): void {
         }
       }
       
-      // Then check for local auth user
+      // Then check for local auth user (includes WorkOS auth via localUserId)
       if (req.session?.localUserId) {
         const user = await authStorage.getUser(req.session.localUserId);
+        if (user) {
+          return res.json(user);
+        }
+      }
+
+      // Check for WorkOS auth via workosUserId (fallback)
+      if (req.session?.workosUserId) {
+        const user = await authStorage.getUserByWorkosId(req.session.workosUserId);
         if (user) {
           return res.json(user);
         }
