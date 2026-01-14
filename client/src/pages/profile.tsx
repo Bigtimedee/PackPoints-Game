@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Zap, Trophy, Target, Clock, Star, TrendingUp, Settings } from "lucide-react";
+import { StreakCard, StreakCalendar } from "@/components/streak-card";
 
 interface ProfileStats {
   username: string;
@@ -123,7 +124,10 @@ export default function Profile() {
                     Level {stats.level}
                   </Badge>
                 </div>
-                <p className="text-muted-foreground">Collecting since {memberSince}</p>
+                <div className="flex flex-col md:flex-row items-center md:items-start gap-3">
+                  <p className="text-muted-foreground">Collecting since {memberSince}</p>
+                  <StreakCalendar />
+                </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 text-sm">
                     <span className="text-muted-foreground">Progress to Level {stats.level + 1}</span>
@@ -138,6 +142,10 @@ export default function Profile() {
             </div>
           </CardContent>
         </Card>
+
+        <div className="mb-8">
+          <StreakCard />
+        </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <div data-testid="stat-card-points">

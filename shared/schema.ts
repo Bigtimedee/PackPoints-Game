@@ -589,6 +589,10 @@ export const ANALYTICS_EVENT_TYPES = [
   "pts_spent",
   "redeem_started",
   "redeem_completed",
+  "streak_incremented",
+  "streak_broken",
+  "streak_freeze_used",
+  "streak_reward_awarded",
 ] as const;
 
 export type AnalyticsEventType = typeof ANALYTICS_EVENT_TYPES[number];

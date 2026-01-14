@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Server as HttpServer } from "http";
 import { matchService } from "./services/matchService";
 import { matchmakingService } from "./services/matchmakingService";
+import { streakService } from "./services/streakService";
 import { log } from "./index";
 import type { MatchState } from "@shared/schema";
 
@@ -268,6 +269,17 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
       const clientMatchState = sanitizeMatchStateForClient(advancedState);
       
       if (advancedState.status === "completed") {
+        for (const participant of advancedState.participants) {
+          try {
+            const streakResult = await streakService.processMatchCompletion(participant.userId, matchId);
+            if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
+              log(`[Streak] User ${participant.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`, "ws");
+            }
+          } catch (streakError) {
+            console.error("Failed to process streak for participant:", streakError);
+          }
+        }
+
         broadcastToMatch(matchId, {
           type: "match_completed",
           payload: clientMatchState,

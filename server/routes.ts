@@ -14,8 +14,9 @@ import { quotaService } from "./services/quotaService";
 import { adminService } from "./services/adminService";
 import { analyticsService } from "./services/analyticsService";
 import { redemptionService } from "./services/redemptionService";
+import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
-import { redeemPackptsSchema } from "@shared/schema";
+import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -521,6 +522,15 @@ export async function registerRoutes(
             multiplier,
             tokenValidated,
           });
+
+          try {
+            const streakResult = await streakService.processMatchCompletion(session.userId, session.id);
+            if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
+              console.log(`[Streak] User ${session.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`);
+            }
+          } catch (streakError) {
+            console.error("Failed to process streak:", streakError);
+          }
         } else if (session.guestSessionId) {
           if (!req.session.pendingPoints) {
             req.session.pendingPoints = { score: 0, correctAnswers: 0, totalAnswers: 0, gamesPlayed: 0 };
@@ -1640,6 +1650,107 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // ADMIN STREAK ENDPOINTS
+  // ============================================
+
+  // Admin: Get streak statistics
+  app.get("/api/admin/streaks/stats", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const stats = await streakService.getAdminStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting streak stats:", error);
+      res.status(500).json({ error: "Failed to get streak statistics" });
+    }
+  });
+
+  // Admin: Get top streaks
+  app.get("/api/admin/streaks/top", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const topStreaks = await streakService.getTopStreaks(10);
+      res.json(topStreaks);
+    } catch (error) {
+      console.error("Error getting top streaks:", error);
+      res.status(500).json({ error: "Failed to get top streaks" });
+    }
+  });
+
+  // Admin: Get streak reward configuration
+  app.get("/api/admin/streaks/config", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const configs = await streakService.getRewardConfigs();
+      res.json(configs);
+    } catch (error) {
+      console.error("Error getting streak config:", error);
+      res.status(500).json({ error: "Failed to get streak configuration" });
+    }
+  });
+
+  // Admin: Add streak reward configuration
+  app.post("/api/admin/streaks/config", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { dayNumber, baseReward, milestoneBonus } = req.body;
+      
+      if (typeof dayNumber !== "number" || dayNumber < 1) {
+        return res.status(400).json({ error: "Day number must be a positive integer" });
+      }
+      if (typeof baseReward !== "number" || baseReward < 0) {
+        return res.status(400).json({ error: "Base reward must be a non-negative number" });
+      }
+      if (typeof milestoneBonus !== "number" || milestoneBonus < 0) {
+        return res.status(400).json({ error: "Milestone bonus must be a non-negative number" });
+      }
+
+      const config = await streakService.addRewardConfig(dayNumber, baseReward, milestoneBonus);
+      res.json(config);
+    } catch (error) {
+      console.error("Error adding streak config:", error);
+      res.status(500).json({ error: "Failed to add streak configuration" });
+    }
+  });
+
+  // Admin: Update streak reward configuration
+  app.patch("/api/admin/streaks/config/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { baseReward, milestoneBonus } = req.body;
+      
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid config ID" });
+      }
+
+      const config = await streakService.updateRewardConfig(id, { baseReward, milestoneBonus });
+      if (!config) {
+        return res.status(404).json({ error: "Configuration not found" });
+      }
+      res.json(config);
+    } catch (error) {
+      console.error("Error updating streak config:", error);
+      res.status(500).json({ error: "Failed to update streak configuration" });
+    }
+  });
+
+  // Admin: Delete streak reward configuration
+  app.delete("/api/admin/streaks/config/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid config ID" });
+      }
+
+      const success = await streakService.deleteRewardConfig(id);
+      if (!success) {
+        return res.status(404).json({ error: "Configuration not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting streak config:", error);
+      res.status(500).json({ error: "Failed to delete streak configuration" });
+    }
+  });
+
+  // ============================================
   // REDEMPTION ENDPOINTS
   // ============================================
 
@@ -2066,6 +2177,227 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error seeding tiers:", error);
       res.status(500).json({ error: "Failed to seed tiers" });
+    }
+  });
+
+  // ============================================
+  // STREAK SYSTEM ENDPOINTS
+  // ============================================
+
+  // GET /api/streak - Get current user's streak info
+  app.get("/api/streak", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const streakInfo = await streakService.getStreakInfo(userId);
+      res.json(streakInfo);
+    } catch (error) {
+      console.error("Error fetching streak info:", error);
+      res.status(500).json({ error: "Failed to fetch streak info" });
+    }
+  });
+
+  // GET /api/streak/config - Get active streak reward config (public)
+  app.get("/api/streak/config", async (_req, res) => {
+    try {
+      const config = await streakService.getActiveConfig();
+      if (!config) {
+        res.json({
+          schedule: DEFAULT_STREAK_SCHEDULE,
+          milestones: DEFAULT_MILESTONE_BONUSES,
+          dailyCap: MAX_DAILY_STREAK_REWARD,
+        });
+      } else {
+        res.json({
+          schedule: config.jsonSchedule,
+          milestones: config.milestoneBonuses,
+          dailyCap: config.dailyCap,
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching streak config:", error);
+      res.status(500).json({ error: "Failed to fetch streak config" });
+    }
+  });
+
+  // ============================================
+  // ADMIN STREAK ENDPOINTS
+  // ============================================
+
+  // GET /api/admin/streak/stats - Get streak statistics
+  app.get("/api/admin/streak/stats", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const stats = await streakService.getStreakStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching streak stats:", error);
+      res.status(500).json({ error: "Failed to fetch streak stats" });
+    }
+  });
+
+  // GET /api/admin/streak/configs - Get all streak configs
+  app.get("/api/admin/streak/configs", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const configs = await streakService.getAllConfigs();
+      res.json({ configs });
+    } catch (error) {
+      console.error("Error fetching streak configs:", error);
+      res.status(500).json({ error: "Failed to fetch streak configs" });
+    }
+  });
+
+  // POST /api/admin/streak/configs - Create a new streak config
+  app.post("/api/admin/streak/configs", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { jsonSchedule, milestoneBonuses, dailyCap, effectiveFrom, effectiveUntil } = req.body;
+
+      if (!jsonSchedule || !milestoneBonuses) {
+        return res.status(400).json({ error: "jsonSchedule and milestoneBonuses are required" });
+      }
+
+      const config = await streakService.createConfig(
+        jsonSchedule,
+        milestoneBonuses,
+        dailyCap || MAX_DAILY_STREAK_REWARD,
+        effectiveFrom ? new Date(effectiveFrom) : undefined,
+        effectiveUntil ? new Date(effectiveUntil) : null
+      );
+
+      await adminService.logAction(adminUserId, "create_streak_config", null, {
+        configId: config.id,
+        dailyCap: config.dailyCap,
+      });
+
+      res.json({ config });
+    } catch (error) {
+      console.error("Error creating streak config:", error);
+      res.status(500).json({ error: "Failed to create streak config" });
+    }
+  });
+
+  // PATCH /api/admin/streak/configs/:id - Update a streak config
+  app.patch("/api/admin/streak/configs/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+      const updates = req.body;
+
+      const config = await streakService.updateConfig(id, updates);
+
+      await adminService.logAction(adminUserId, "update_streak_config", null, {
+        configId: id,
+        updates,
+      });
+
+      res.json({ config });
+    } catch (error) {
+      console.error("Error updating streak config:", error);
+      res.status(500).json({ error: "Failed to update streak config" });
+    }
+  });
+
+  // DELETE /api/admin/streak/configs/:id - Delete a streak config
+  app.delete("/api/admin/streak/configs/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { id } = req.params;
+
+      await streakService.deleteConfig(id);
+
+      await adminService.logAction(adminUserId, "delete_streak_config", null, { configId: id });
+
+      res.json({ success: true, message: "Streak config deleted" });
+    } catch (error) {
+      console.error("Error deleting streak config:", error);
+      res.status(500).json({ error: "Failed to delete streak config" });
+    }
+  });
+
+  // POST /api/admin/streak/configs/seed - Seed default streak config
+  app.post("/api/admin/streak/configs/seed", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+
+      const config = await streakService.createConfig(
+        DEFAULT_STREAK_SCHEDULE,
+        DEFAULT_MILESTONE_BONUSES,
+        MAX_DAILY_STREAK_REWARD
+      );
+
+      await adminService.logAction(adminUserId, "seed_streak_config", null, { configId: config.id });
+
+      res.json({ success: true, config, message: "Default streak config created" });
+    } catch (error) {
+      console.error("Error seeding streak config:", error);
+      res.status(500).json({ error: "Failed to seed streak config" });
+    }
+  });
+
+  // GET /api/admin/users/:userId/streak - Get user's streak state
+  app.get("/api/admin/users/:userId/streak", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const streakInfo = await streakService.getStreakInfo(userId);
+      res.json(streakInfo);
+    } catch (error) {
+      console.error("Error fetching user streak:", error);
+      res.status(500).json({ error: "Failed to fetch user streak" });
+    }
+  });
+
+  // POST /api/admin/users/:userId/streak/freeze - Grant streak freezes
+  app.post("/api/admin/users/:userId/streak/freeze", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      const { count } = req.body;
+
+      const freezeCount = parseInt(count) || 1;
+      if (freezeCount < 1 || freezeCount > 10) {
+        return res.status(400).json({ error: "Count must be between 1 and 10" });
+      }
+
+      const state = await streakService.grantStreakFreeze(userId, freezeCount);
+
+      await adminService.logAction(adminUserId, "grant_streak_freeze", userId, {
+        freezeCount,
+        newTotal: state.freezesAvailable,
+      });
+
+      res.json({ success: true, state });
+    } catch (error) {
+      console.error("Error granting streak freeze:", error);
+      res.status(500).json({ error: "Failed to grant streak freeze" });
+    }
+  });
+
+  // POST /api/admin/users/:userId/streak/adjust - Adjust user's streak
+  app.post("/api/admin/users/:userId/streak/adjust", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      const { newCurrentDays, reason } = req.body;
+
+      if (typeof newCurrentDays !== "number" || newCurrentDays < 0) {
+        return res.status(400).json({ error: "newCurrentDays must be a non-negative number" });
+      }
+
+      const state = await streakService.adjustStreak(userId, newCurrentDays, adminUserId);
+
+      await adminService.logAction(adminUserId, "adjust_streak", userId, {
+        newCurrentDays,
+        reason,
+        previousDays: state.currentDays,
+      });
+
+      res.json({ success: true, state });
+    } catch (error) {
+      console.error("Error adjusting streak:", error);
+      res.status(500).json({ error: "Failed to adjust streak" });
     }
   });
 

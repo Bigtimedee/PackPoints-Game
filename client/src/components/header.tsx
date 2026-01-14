@@ -5,6 +5,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { StreakBadge } from "./streak-card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -114,10 +115,13 @@ export function Header() {
 
         <div className="flex items-center gap-3">
           {isAuthenticated && user && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/80 font-mono" data-testid="text-points-balance">
-              <Zap className="h-4 w-4 text-secondary-foreground" />
-              <span className="font-semibold text-secondary-foreground">{(user.points || 0).toLocaleString()}</span>
-            </div>
+            <>
+              <StreakBadge />
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/80 font-mono" data-testid="text-points-balance">
+                <Zap className="h-4 w-4 text-secondary-foreground" />
+                <span className="font-semibold text-secondary-foreground">{(user.points || 0).toLocaleString()}</span>
+              </div>
+            </>
           )}
           
           <ThemeToggle />

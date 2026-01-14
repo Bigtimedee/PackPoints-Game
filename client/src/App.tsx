@@ -22,6 +22,7 @@ import AdminMetrics from "@/pages/admin/metrics";
 import AdminAuditLog from "@/pages/admin/audit-log";
 import AdminRedemptions from "@/pages/admin/redemptions";
 import AdminTiers from "@/pages/admin/tiers";
+import AdminStreaks from "@/pages/admin/streaks";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -88,6 +89,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminTiers />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/streaks">
+        {() => (
+          <AdminLayout>
+            <AdminStreaks />
           </AdminLayout>
         )}
       </Route>
