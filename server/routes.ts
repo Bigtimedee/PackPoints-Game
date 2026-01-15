@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, type User } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, type User } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -1934,6 +1934,274 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating feature flag:", error);
       res.status(500).json({ error: "Failed to update feature flag" });
+    }
+  });
+
+  // Admin: Get all products
+  app.get("/api/admin/products", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const allProducts = await db
+        .select()
+        .from(products)
+        .orderBy(sql`${products.createdAt} DESC`);
+      res.json({ products: allProducts });
+    } catch (error) {
+      console.error("Error getting products:", error);
+      res.status(500).json({ error: "Failed to get products" });
+    }
+  });
+
+  // Admin: Create product
+  app.post("/api/admin/products", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const baseSchema = z.object({
+        sku: z.string().min(1).max(100),
+        name: z.string().min(1).max(200),
+        priceUsd: z.number().int().positive(),
+        stripePriceId: z.string().optional().nullable(),
+        isActive: z.boolean().default(true),
+        metadata: z.record(z.any()).optional().nullable(),
+      });
+
+      const consumableSchema = baseSchema.extend({
+        type: z.literal("CONSUMABLE"),
+        packptsGrant: z.number().int().positive(),
+        entitlementKey: z.null().optional(),
+        durationDays: z.null().optional(),
+      });
+
+      const entitlementSchema = baseSchema.extend({
+        type: z.literal("ENTITLEMENT"),
+        packptsGrant: z.null().optional(),
+        entitlementKey: z.string().min(1).max(100),
+        durationDays: z.null().optional(),
+      });
+
+      const subscriptionSchema = baseSchema.extend({
+        type: z.literal("SUBSCRIPTION"),
+        packptsGrant: z.null().optional(),
+        entitlementKey: z.string().min(1).max(100),
+        durationDays: z.number().int().positive(),
+      });
+
+      const productSchema = z.discriminatedUnion("type", [
+        consumableSchema,
+        entitlementSchema,
+        subscriptionSchema,
+      ]);
+
+      const parsed = productSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const existingSku = await db
+        .select()
+        .from(products)
+        .where(eq(products.sku, parsed.data.sku))
+        .limit(1);
+
+      if (existingSku.length > 0) {
+        return res.status(400).json({ error: "SKU already exists" });
+      }
+
+      const [newProduct] = await db
+        .insert(products)
+        .values({
+          sku: parsed.data.sku,
+          name: parsed.data.name,
+          type: parsed.data.type,
+          packptsGrant: parsed.data.packptsGrant || null,
+          entitlementKey: parsed.data.entitlementKey || null,
+          durationDays: parsed.data.durationDays || null,
+          priceUsd: parsed.data.priceUsd,
+          isActive: parsed.data.isActive,
+          metadata: {
+            ...parsed.data.metadata,
+            stripePriceId: parsed.data.stripePriceId,
+          },
+        })
+        .returning();
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction({
+        adminUserId,
+        actionType: "product_created",
+        targetUserId: null,
+        details: { productId: newProduct.id, sku: newProduct.sku, name: newProduct.name },
+      });
+
+      res.json({ success: true, product: newProduct });
+    } catch (error) {
+      console.error("Error creating product:", error);
+      res.status(500).json({ error: "Failed to create product" });
+    }
+  });
+
+  // Admin: Update product
+  app.patch("/api/admin/products/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      const existingProduct = await db
+        .select()
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+
+      if (existingProduct.length === 0) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      const productType = existingProduct[0].type;
+      
+      const baseUpdateSchema = z.object({
+        name: z.string().min(1).max(200).optional(),
+        priceUsd: z.number().int().positive().optional(),
+        stripePriceId: z.string().optional().nullable(),
+        isActive: z.boolean().optional(),
+        metadata: z.record(z.any()).optional().nullable(),
+      });
+
+      let updateSchema;
+      if (productType === "CONSUMABLE") {
+        updateSchema = baseUpdateSchema.extend({
+          packptsGrant: z.number().int().positive().optional(),
+          entitlementKey: z.null().optional(),
+          durationDays: z.null().optional(),
+        });
+      } else if (productType === "ENTITLEMENT") {
+        updateSchema = baseUpdateSchema.extend({
+          packptsGrant: z.null().optional(),
+          entitlementKey: z.string().min(1).max(100).optional(),
+          durationDays: z.null().optional(),
+        });
+      } else {
+        updateSchema = baseUpdateSchema.extend({
+          packptsGrant: z.null().optional(),
+          entitlementKey: z.string().min(1).max(100).optional(),
+          durationDays: z.number().int().positive().optional(),
+        });
+      }
+
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const existingMetadata = existingProduct[0].metadata as Record<string, any> || {};
+      const updatedMetadata = {
+        ...existingMetadata,
+        ...(parsed.data.metadata || {}),
+        ...(parsed.data.stripePriceId !== undefined ? { stripePriceId: parsed.data.stripePriceId } : {}),
+      };
+
+      const updateData: Record<string, any> = { metadata: updatedMetadata };
+      if (parsed.data.name) updateData.name = parsed.data.name;
+      if (parsed.data.priceUsd !== undefined) updateData.priceUsd = parsed.data.priceUsd;
+      if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
+
+      if (productType === "CONSUMABLE" && parsed.data.packptsGrant !== undefined) {
+        updateData.packptsGrant = parsed.data.packptsGrant;
+      }
+      if (productType !== "CONSUMABLE" && parsed.data.entitlementKey !== undefined) {
+        updateData.entitlementKey = parsed.data.entitlementKey;
+      }
+      if (productType === "SUBSCRIPTION" && parsed.data.durationDays !== undefined) {
+        updateData.durationDays = parsed.data.durationDays;
+      }
+
+      const [updatedProduct] = await db
+        .update(products)
+        .set(updateData)
+        .where(eq(products.id, id))
+        .returning();
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction({
+        adminUserId,
+        actionType: "product_updated",
+        targetUserId: null,
+        details: { productId: id, productType, changes: parsed.data },
+      });
+
+      res.json({ success: true, product: updatedProduct });
+    } catch (error) {
+      console.error("Error updating product:", error);
+      res.status(500).json({ error: "Failed to update product" });
+    }
+  });
+
+  // Admin: Toggle product active status
+  app.patch("/api/admin/products/:id/toggle", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      const existingProduct = await db
+        .select()
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+
+      if (existingProduct.length === 0) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      const newActiveStatus = !existingProduct[0].isActive;
+
+      const [updatedProduct] = await db
+        .update(products)
+        .set({ isActive: newActiveStatus })
+        .where(eq(products.id, id))
+        .returning();
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction({
+        adminUserId,
+        actionType: newActiveStatus ? "product_activated" : "product_deactivated",
+        targetUserId: null,
+        details: { productId: id, sku: existingProduct[0].sku },
+      });
+
+      res.json({ success: true, product: updatedProduct });
+    } catch (error) {
+      console.error("Error toggling product:", error);
+      res.status(500).json({ error: "Failed to toggle product" });
+    }
+  });
+
+  // Admin: Delete product (soft delete by setting isActive to false)
+  app.delete("/api/admin/products/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      const existingProduct = await db
+        .select()
+        .from(products)
+        .where(eq(products.id, id))
+        .limit(1);
+
+      if (existingProduct.length === 0) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      await db
+        .update(products)
+        .set({ isActive: false })
+        .where(eq(products.id, id));
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction({
+        adminUserId,
+        actionType: "product_deleted",
+        targetUserId: null,
+        details: { productId: id, sku: existingProduct[0].sku },
+      });
+
+      res.json({ success: true, message: "Product deactivated" });
+    } catch (error) {
+      console.error("Error deleting product:", error);
+      res.status(500).json({ error: "Failed to delete product" });
     }
   });
 
