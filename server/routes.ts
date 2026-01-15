@@ -717,13 +717,13 @@ export async function registerRoutes(
                 finalScore,
                 `Game completed: ${session.correctAnswers}/${session.totalQuestions} correct`,
                 `game_${session.id}`,
-                { sessionId: session.id, mode: session.gameMode, multiplier }
+                { sessionId: session.id, mode: session.mode, multiplier }
               );
               
               if (earnResult.success && !earnResult.idempotent) {
                 await analyticsService.ptsEarned(session.userId, finalScore, {
                   sessionId: session.id,
-                  mode: session.gameMode,
+                  mode: session.mode,
                   multiplier,
                   correctAnswers: session.correctAnswers,
                   totalQuestions: session.totalQuestions,
@@ -735,7 +735,7 @@ export async function registerRoutes(
           }
           
           await analyticsService.matchCompleted(session.userId, session.id, {
-            mode: session.gameMode,
+            mode: session.mode,
             score: finalScore,
             correctAnswers: session.correctAnswers,
             totalQuestions: session.totalQuestions,
@@ -2024,12 +2024,12 @@ export async function registerRoutes(
         .returning();
 
       const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction({
+      await adminService.logAction(
         adminUserId,
-        actionType: "product_created",
-        targetUserId: null,
-        details: { productId: newProduct.id, sku: newProduct.sku, name: newProduct.name },
-      });
+        "product_created",
+        null,
+        { productId: newProduct.id, sku: newProduct.sku, name: newProduct.name }
+      );
 
       res.json({ success: true, product: newProduct });
     } catch (error) {
@@ -2118,12 +2118,12 @@ export async function registerRoutes(
         .returning();
 
       const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction({
+      await adminService.logAction(
         adminUserId,
-        actionType: "product_updated",
-        targetUserId: null,
-        details: { productId: id, productType, changes: parsed.data },
-      });
+        "product_updated",
+        null,
+        { productId: id, productType, changes: parsed.data }
+      );
 
       res.json({ success: true, product: updatedProduct });
     } catch (error) {
@@ -2156,12 +2156,12 @@ export async function registerRoutes(
         .returning();
 
       const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction({
+      await adminService.logAction(
         adminUserId,
-        actionType: newActiveStatus ? "product_activated" : "product_deactivated",
-        targetUserId: null,
-        details: { productId: id, sku: existingProduct[0].sku },
-      });
+        newActiveStatus ? "product_activated" : "product_deactivated",
+        null,
+        { productId: id, sku: existingProduct[0].sku }
+      );
 
       res.json({ success: true, product: updatedProduct });
     } catch (error) {
@@ -2191,12 +2191,12 @@ export async function registerRoutes(
         .where(eq(products.id, id));
 
       const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction({
+      await adminService.logAction(
         adminUserId,
-        actionType: "product_deleted",
-        targetUserId: null,
-        details: { productId: id, sku: existingProduct[0].sku },
-      });
+        "product_deleted",
+        null,
+        { productId: id, sku: existingProduct[0].sku }
+      );
 
       res.json({ success: true, message: "Product deactivated" });
     } catch (error) {
@@ -2367,8 +2367,8 @@ export async function registerRoutes(
         usdValueCents: calculation.usdValueCents,
         usdValue: (calculation.usdValueCents / 100).toFixed(2),
         ratePerThousand: calculation.ratePerThousand,
-        tierMinPackpts: calculation.tier.minPackpts,
-        tierMaxPackpts: calculation.tier.maxPackpts,
+        tierPackptsRequired: calculation.tier.packptsRequired,
+        tierName: calculation.tier.name,
       });
     } catch (error) {
       console.error("Error calculating redemption:", error);
