@@ -65,7 +65,7 @@ export default function AuthPage() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       // Directly set user data in cache from registration response to avoid session cookie race condition
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
@@ -76,6 +76,8 @@ export default function AuthPage() {
         title: "Account created!",
         description: "Welcome to PackPoints. Start playing to earn PackPTS!",
       });
+      // Small delay to ensure session cookie is fully processed by browser before navigating
+      await new Promise(resolve => setTimeout(resolve, 150));
       setLocation("/");
     },
     onError: (error: any) => {
@@ -93,7 +95,7 @@ export default function AuthPage() {
       const response = await apiRequest("POST", "/api/auth/local-login", data);
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       // Directly set user data in cache from login response to avoid session cookie race condition
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
@@ -104,6 +106,8 @@ export default function AuthPage() {
         title: "Welcome back!",
         description: "You've successfully logged in.",
       });
+      // Small delay to ensure session cookie is fully processed by browser before navigating
+      await new Promise(resolve => setTimeout(resolve, 150));
       setLocation("/");
     },
     onError: (error: any) => {

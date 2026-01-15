@@ -197,7 +197,7 @@ export default function Profile() {
                   <p className="font-medium">First Win</p>
                   <p className="text-sm text-muted-foreground">Won your first game</p>
                 </div>
-                <Badge variant="outline" size="sm">Earned</Badge>
+                <Badge variant="outline" className="text-xs">Earned</Badge>
               </div>
               <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
                 <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center">
@@ -207,7 +207,7 @@ export default function Profile() {
                   <p className="font-medium">Sharp Eye</p>
                   <p className="text-sm text-muted-foreground">90% accuracy in a game</p>
                 </div>
-                <Badge variant="outline" size="sm">Earned</Badge>
+                <Badge variant="outline" className="text-xs">Earned</Badge>
               </div>
               <div className="flex items-center gap-3 p-3 rounded-md bg-muted/30 opacity-60">
                 <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
@@ -217,7 +217,7 @@ export default function Profile() {
                   <p className="font-medium">Point Master</p>
                   <p className="text-sm text-muted-foreground">Earn 10,000 total points</p>
                 </div>
-                <Badge variant="secondary" size="sm">Locked</Badge>
+                <Badge variant="secondary" className="text-xs">Locked</Badge>
               </div>
             </CardContent>
           </Card>

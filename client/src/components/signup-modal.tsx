@@ -73,6 +73,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
       queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
       onOpenChange(false);
       form.reset();
+      // Small delay to ensure session cookie is fully processed by browser before callbacks
+      await new Promise(resolve => setTimeout(resolve, 150));
       if (onSuccess) onSuccess();
     },
     onError: (err: Error) => {
