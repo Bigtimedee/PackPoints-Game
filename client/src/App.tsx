@@ -27,6 +27,7 @@ import AdminRedemptions from "@/pages/admin/redemptions";
 import AdminTiers from "@/pages/admin/tiers";
 import AdminStreaks from "@/pages/admin/streaks";
 import AdminProducts from "@/pages/admin/products";
+import AdminAccess from "@/pages/admin/access";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -34,6 +35,8 @@ import AuthError from "@/pages/auth-error";
 import Auth from "@/pages/auth";
 import AuthSuccess from "@/pages/auth-success";
 import LinkRequired from "@/pages/link-required";
+import Waitlist from "@/pages/waitlist";
+import Invite from "@/pages/invite";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -115,11 +118,20 @@ function Router() {
           </AdminLayout>
         )}
       </Route>
+      <Route path="/admin/access">
+        {() => (
+          <AdminLayout>
+            <AdminAccess />
+          </AdminLayout>
+        )}
+      </Route>
       <Route path="/auth" component={Auth} />
       <Route path="/auth/success" component={AuthSuccess} />
       <Route path="/auth/link-required" component={LinkRequired} />
       <Route path="/auth/error" component={AuthError} />
       <Route path="/auth-error" component={AuthError} />
+      <Route path="/waitlist" component={Waitlist} />
+      <Route path="/invite" component={Invite} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />

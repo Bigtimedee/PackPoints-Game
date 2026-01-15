@@ -20,6 +20,7 @@ import { sendPasswordResetEmail } from "./services/emailService";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
 import { identityService } from "./services/identityService";
+import * as accessService from "./services/accessService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
@@ -37,6 +38,29 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
   const dbUser = await storage.getUser(user.claims.sub);
   if (!dbUser?.isAdmin) {
     return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  next();
+};
+
+// Middleware to require ACTIVE user status (Founders Cap enforcement)
+const requireActiveUser = async (req: any, res: Response, next: NextFunction) => {
+  const userId = req.user?.claims?.sub || req.session?.localUserId;
+  if (!userId) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  
+  const user = await storage.getUser(userId);
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+  
+  if (user.status !== "ACTIVE") {
+    return res.status(403).json({ 
+      message: "Account not activated",
+      code: "WAITLISTED",
+      status: user.status,
+    });
   }
   
   next();
@@ -471,7 +495,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/start", async (req: any, res) => {
+  app.post("/api/game/start", requireActiveUser, async (req: any, res) => {
     try {
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -854,6 +878,7 @@ export async function registerRoutes(
       }
       
       const { username, email, password } = parsed.data;
+      const { deviceFingerprint, inviteCode } = req.body;
       
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
@@ -866,6 +891,19 @@ export async function registerRoutes(
       }
       
       const user = await storage.createLocalUser(username, email, password);
+      
+      // Try to activate the user (Founders Cap check)
+      const activationResult = await accessService.tryActivateUser(user.id, {
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"] as string,
+        deviceFingerprint: deviceFingerprint || undefined,
+        inviteCode: inviteCode || req.session.inviteApprovedCode,
+      });
+      
+      // Clear used invite code from session
+      if (req.session.inviteApprovedCode) {
+        delete req.session.inviteApprovedCode;
+      }
       
       if (req.session.pendingPoints) {
         const pending = req.session.pendingPoints;
@@ -897,11 +935,14 @@ export async function registerRoutes(
         }
         res.json({ 
           success: true, 
+          activated: activationResult.activated,
+          waitlistPosition: activationResult.waitlistPosition,
           user: {
             id: updatedUser!.id,
             username: updatedUser!.username,
             points: updatedUser!.points,
             gamesPlayed: updatedUser!.gamesPlayed,
+            status: updatedUser!.status,
           }
         });
       });
@@ -1366,7 +1407,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lobby/create", isAuthenticated, async (req: any, res) => {
+  app.post("/api/lobby/create", isAuthenticated, requireActiveUser, async (req: any, res) => {
     try {
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
       const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
@@ -1394,7 +1435,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lobby/join", isAuthenticated, async (req: any, res) => {
+  app.post("/api/lobby/join", isAuthenticated, requireActiveUser, async (req: any, res) => {
     try {
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
       const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
@@ -1866,7 +1907,7 @@ export async function registerRoutes(
   });
 
   // Create Stripe checkout session for PackPTS purchase
-  app.post("/api/store/checkout", isAuthenticated, async (req: any, res) => {
+  app.post("/api/store/checkout", isAuthenticated, requireActiveUser, async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -3288,6 +3329,375 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error adjusting streak:", error);
       res.status(500).json({ error: "Failed to adjust streak" });
+    }
+  });
+
+  // ==================== FOUNDERS CAP / ACCESS CONTROL ====================
+  
+  // GET /api/access/summary - Public endpoint for remaining seats display
+  app.get("/api/access/summary", async (_req, res) => {
+    try {
+      const summary = await accessService.getAccessSummary();
+      res.json({
+        enabled: summary.enabled,
+        remainingSeats: summary.remainingSeats,
+        maxSeats: summary.maxActiveUsers,
+        waitlistSize: summary.waitlistSize,
+      });
+    } catch (error) {
+      console.error("Error getting access summary:", error);
+      res.status(500).json({ error: "Failed to get access summary" });
+    }
+  });
+
+  // GET /api/access/cap - Public endpoint for cap status (frontend-facing)
+  app.get("/api/access/cap", async (_req, res) => {
+    try {
+      const summary = await accessService.getAccessSummary();
+      res.json({
+        maxActive: summary.maxActiveUsers,
+        currentActive: summary.activeCount,
+        reservedSeats: summary.reservedSeatsTotal,
+        reservedUsed: summary.reservedSeatsUsed,
+        availableSeats: summary.remainingSeats,
+        enabled: summary.enabled,
+      });
+    } catch (error) {
+      console.error("Error getting cap status:", error);
+      res.status(500).json({ error: "Failed to get cap status" });
+    }
+  });
+
+  // POST /api/access/validate-invite - Validate an invite code
+  app.post("/api/access/validate-invite", async (req, res) => {
+    try {
+      const { code } = req.body;
+      if (!code) {
+        return res.status(400).json({ error: "Code is required" });
+      }
+      
+      const result = await accessService.validateInviteCode(code);
+      
+      if (!result.valid) {
+        await accessService.logAccessAudit("INVITE_INVALID", {
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"] as string,
+          metadata: { code, reason: result.reason },
+        });
+        return res.status(400).json({ valid: false, reason: result.reason });
+      }
+      
+      await accessService.logAccessAudit("INVITE_VALIDATED", {
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"] as string,
+        metadata: { code },
+      });
+      
+      res.json({ 
+        valid: true, 
+        reservedSeat: result.invite?.reservedSeat,
+        usesRemaining: result.invite ? result.invite.maxUses - result.invite.uses : 0,
+      });
+    } catch (error) {
+      console.error("Error validating invite:", error);
+      res.status(500).json({ error: "Failed to validate invite" });
+    }
+  });
+
+  // POST /api/access/consume-invite - Consume an invite code and store in session
+  app.post("/api/access/consume-invite", async (req: any, res) => {
+    try {
+      const { code } = req.body;
+      if (!code) {
+        return res.status(400).json({ error: "Code is required" });
+      }
+      
+      const result = await accessService.validateInviteCode(code);
+      
+      if (!result.valid) {
+        return res.status(400).json({ valid: false, reason: result.reason });
+      }
+      
+      // If user is authenticated, try to activate them directly
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (userId) {
+        const activationResult = await accessService.tryActivateUser(userId, {
+          inviteCode: code.toUpperCase(),
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"] as string,
+        });
+        
+        await accessService.logAccessAudit("INVITE_CONSUMED", {
+          userId,
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"] as string,
+          metadata: { code, activated: activationResult.activated },
+        });
+        
+        return res.json({ 
+          success: true, 
+          activated: activationResult.activated,
+          message: activationResult.activated ? "Account activated!" : "Failed to activate",
+        });
+      }
+      
+      // Store the approved invite code in session for later use
+      req.session.inviteApprovedCode = code.toUpperCase();
+      
+      await accessService.logAccessAudit("INVITE_CONSUMED", {
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"] as string,
+        metadata: { code },
+      });
+      
+      res.json({ 
+        success: true, 
+        sessionStored: true,
+        message: "Invite code accepted - complete signup to activate",
+      });
+    } catch (error) {
+      console.error("Error consuming invite:", error);
+      res.status(500).json({ error: "Failed to consume invite" });
+    }
+  });
+
+  // POST /api/waitlist/join - Join the waitlist
+  app.post("/api/waitlist/join", async (req: any, res) => {
+    try {
+      const { email, name, referredByCode, referralSource, deviceFingerprint, inviteCode } = req.body;
+      
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ error: "Valid email is required" });
+      }
+      
+      // If invite code provided, try to activate immediately
+      if (inviteCode) {
+        const validation = await accessService.validateInviteCode(inviteCode);
+        if (validation.valid) {
+          // Store invite for use in registration
+          req.session.inviteApprovedCode = inviteCode;
+          return res.json({
+            success: true,
+            activated: true,
+            message: "Invite code valid - complete signup to activate",
+          });
+        }
+      }
+      
+      const result = await accessService.joinWaitlist(email, {
+        name,
+        referredByCode: referredByCode || referralSource,
+        deviceFingerprint,
+        ipAddress: req.ip,
+      });
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({
+        success: true,
+        activated: false,
+        position: result.position,
+        referralCode: result.referralCode,
+      });
+    } catch (error) {
+      console.error("Error joining waitlist:", error);
+      res.status(500).json({ error: "Failed to join waitlist" });
+    }
+  });
+
+  // GET /api/waitlist/status - Get waitlist status for authenticated user or by email
+  app.get("/api/waitlist/status", async (req: any, res) => {
+    try {
+      let email = req.query.email as string | undefined;
+      
+      // If no email provided, try to get from authenticated user
+      if (!email) {
+        const userId = req.user?.claims?.sub || req.session?.localUserId;
+        if (userId) {
+          const user = await storage.getUser(userId);
+          if (user?.email) {
+            email = user.email;
+          }
+        }
+      }
+      
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+      
+      const status = await accessService.getWaitlistStatus(email);
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting waitlist status:", error);
+      res.status(500).json({ error: "Failed to get waitlist status" });
+    }
+  });
+
+  // Admin: Get full access summary
+  app.get("/api/admin/access/summary", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const summary = await accessService.getAccessSummary();
+      
+      // Get additional stats
+      const inviteStats = await accessService.getInviteCodes({ includeExpired: false, limit: 1000, offset: 0 });
+      const waitlistStats = await accessService.getWaitlistEntries({ status: "WAITING", limit: 1, offset: 0 });
+      
+      res.json({
+        cap: {
+          maxActive: summary.maxActiveUsers,
+          currentActive: summary.activeCount,
+          reservedSeats: summary.reservedSeatsTotal,
+          reservedUsed: summary.reservedSeatsUsed,
+          availableSeats: summary.remainingSeats,
+          enabled: summary.enabled,
+        },
+        stats: {
+          activeInvites: inviteStats.codes.length,
+          totalInvitesUsed: inviteStats.codes.reduce((acc, inv) => acc + (inv.usedCount || 0), 0),
+          pendingWaitlist: summary.waitlistSize,
+        },
+      });
+    } catch (error) {
+      console.error("Error getting admin access summary:", error);
+      res.status(500).json({ error: "Failed to get access summary" });
+    }
+  });
+
+  // Admin: Update founders cap config
+  app.post("/api/admin/access/cap", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      // Accept both naming conventions from frontend
+      const { 
+        maxActiveUsers, maxActive, 
+        enabled, inviteBypass, 
+        reservedSeatsForInvites, reservedSeats 
+      } = req.body;
+      
+      const updates: Record<string, any> = {};
+      const maxActiveValue = maxActiveUsers ?? maxActive;
+      const reservedValue = reservedSeatsForInvites ?? reservedSeats;
+      
+      if (typeof maxActiveValue === "number") updates.maxActiveUsers = maxActiveValue;
+      if (typeof enabled === "boolean") updates.enabled = enabled;
+      if (typeof inviteBypass === "boolean") updates.inviteBypass = inviteBypass;
+      if (typeof reservedValue === "number") updates.reservedSeatsForInvites = reservedValue;
+      
+      const newConfig = await accessService.updateFoundersCapConfig(updates, adminUserId);
+      
+      await accessService.logAccessAudit("ADMIN_CAP_CHANGE", {
+        userId: adminUserId,
+        metadata: { updates, newConfig },
+      });
+      
+      res.json({ success: true, config: newConfig });
+    } catch (error) {
+      console.error("Error updating cap config:", error);
+      res.status(500).json({ error: "Failed to update cap config" });
+    }
+  });
+
+  // Admin: Create invite codes
+  app.post("/api/admin/invites/create", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { count, maxUses, expiresAt, reservedSeat, note } = req.body;
+      
+      const inviteCount = Math.min(parseInt(count) || 1, 100);
+      
+      const codes = await accessService.createInviteCodes(inviteCount, {
+        maxUses: parseInt(maxUses) || 1,
+        expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+        reservedSeat: reservedSeat !== false,
+        createdByAdminUserId: adminUserId,
+        note,
+      });
+      
+      // Return both array and single invite for convenience
+      res.json({ 
+        success: true, 
+        codes, 
+        invite: codes.length > 0 ? codes[0] : null,
+      });
+    } catch (error) {
+      console.error("Error creating invite codes:", error);
+      res.status(500).json({ error: "Failed to create invite codes" });
+    }
+  });
+
+  // Admin: Get invite codes
+  app.get("/api/admin/invites", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const includeExpired = req.query.includeExpired === "true";
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      
+      const result = await accessService.getInviteCodes({ includeExpired, limit, offset });
+      res.json(result);
+    } catch (error) {
+      console.error("Error getting invite codes:", error);
+      res.status(500).json({ error: "Failed to get invite codes" });
+    }
+  });
+
+  // Admin: Get waitlist entries
+  app.get("/api/admin/waitlist", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      
+      const result = await accessService.getWaitlistEntries({ 
+        status: status as any, 
+        limit, 
+        offset 
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error getting waitlist entries:", error);
+      res.status(500).json({ error: "Failed to get waitlist entries" });
+    }
+  });
+
+  // Admin: Invite waitlist entry (send them an invite code)
+  app.post("/api/admin/waitlist/:waitlistId/invite", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { waitlistId } = req.params;
+      
+      const result = await accessService.inviteWaitlistEntry(waitlistId, adminUserId);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      // Optionally send email here using emailService
+      // For now, just return the invite code
+      res.json({ success: true, inviteCode: result.inviteCode });
+    } catch (error) {
+      console.error("Error inviting waitlist entry:", error);
+      res.status(500).json({ error: "Failed to invite waitlist entry" });
+    }
+  });
+
+  // Admin: Approve a waitlisted user to active
+  app.post("/api/admin/users/:userId/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const { userId } = req.params;
+      
+      const result = await accessService.approveWaitlistedUser(userId, adminUserId);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error approving user:", error);
+      res.status(500).json({ error: "Failed to approve user" });
     }
   });
 

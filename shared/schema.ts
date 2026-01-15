@@ -14,11 +14,16 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)]
 );
 
+// User status enum for Founders Cap
+export const userStatuses = ["PENDING", "ACTIVE", "WAITLISTED", "BANNED"] as const;
+export type UserStatus = typeof userStatuses[number];
+
 // User table - combines Replit Auth fields with game stats
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: varchar("username").unique(),
   email: varchar("email").unique(),
+  emailNormalized: varchar("email_normalized"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
@@ -28,9 +33,17 @@ export const users = pgTable("users", {
   totalAnswers: integer("total_answers").notNull().default(0),
   isAdmin: boolean("is_admin").notNull().default(false),
   workosUserId: varchar("workos_user_id").unique(),
+  status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
+  activatedAt: timestamp("activated_at"),
+  waitlistJoinedAt: timestamp("waitlist_joined_at"),
+  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+  lastSignupIp: varchar("last_signup_ip", { length: 45 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_users_status").on(table.status),
+  index("idx_users_email_normalized").on(table.emailNormalized),
+]);
 
 // Local credentials for username/password auth (separate from Replit OAuth)
 export const localCredentials = pgTable("local_credentials", {
@@ -1107,3 +1120,138 @@ export const LINK_CHALLENGE_EXPIRY_MINUTES = 15;
 
 // Magic link expiration time (15 minutes)
 export const MAGIC_LINK_EXPIRY_MINUTES = 15;
+
+// ==================== FOUNDERS CAP SYSTEM ====================
+
+// Default Founders Cap configuration
+export const FOUNDERS_CAP_DEFAULT = {
+  maxActiveUsers: 500,
+  enabled: true,
+  inviteBypass: true,
+  reservedSeatsForInvites: 100,
+};
+
+// App configuration table for runtime settings
+export const appConfig = pgTable("app_config", {
+  key: varchar("key", { length: 100 }).primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: varchar("updated_by").references(() => users.id),
+});
+
+export type AppConfig = typeof appConfig.$inferSelect;
+
+// Waitlist entry statuses
+export const waitlistStatuses = ["WAITING", "INVITED", "ACCEPTED", "REJECTED"] as const;
+export type WaitlistStatus = typeof waitlistStatuses[number];
+
+// Waitlist entries table
+export const waitlistEntries = pgTable("waitlist_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email", { length: 255 }).notNull(),
+  emailNormalized: varchar("email_normalized", { length: 255 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  status: varchar("status", { length: 20 }).notNull().default("WAITING"),
+  position: integer("position").notNull(),
+  referralCode: varchar("referral_code", { length: 20 }).unique(),
+  referredByCode: varchar("referred_by_code", { length: 20 }),
+  referralsCount: integer("referrals_count").notNull().default(0),
+  inviteCodeSent: varchar("invite_code_sent", { length: 20 }),
+  invitedAt: timestamp("invited_at"),
+  acceptedAt: timestamp("accepted_at"),
+  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+  signupIp: varchar("signup_ip", { length: 45 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_waitlist_email_normalized").on(table.emailNormalized),
+  index("idx_waitlist_status").on(table.status),
+  index("idx_waitlist_position").on(table.position),
+  index("idx_waitlist_referral_code").on(table.referralCode),
+]);
+
+export const insertWaitlistEntrySchema = createInsertSchema(waitlistEntries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  referralsCount: true,
+});
+
+export type InsertWaitlistEntry = z.infer<typeof insertWaitlistEntrySchema>;
+export type WaitlistEntry = typeof waitlistEntries.$inferSelect;
+
+// Invite codes table
+export const inviteCodes = pgTable("invite_codes", {
+  code: varchar("code", { length: 20 }).primaryKey(),
+  maxUses: integer("max_uses").notNull().default(1),
+  uses: integer("uses").notNull().default(0),
+  reservedSeat: boolean("reserved_seat").notNull().default(true),
+  expiresAt: timestamp("expires_at"),
+  createdByAdminUserId: varchar("created_by_admin_user_id").references(() => users.id),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_invite_codes_expires").on(table.expiresAt),
+]);
+
+export const insertInviteCodeSchema = createInsertSchema(inviteCodes).omit({
+  uses: true,
+  createdAt: true,
+});
+
+export type InsertInviteCode = z.infer<typeof insertInviteCodeSchema>;
+export type InviteCode = typeof inviteCodes.$inferSelect;
+
+// Access audit actions
+export const accessAuditActions = [
+  "ACTIVATION_ATTEMPT",
+  "ACTIVATION_SUCCESS",
+  "ACTIVATION_WAITLISTED",
+  "INVITE_VALIDATED",
+  "INVITE_CONSUMED",
+  "INVITE_INVALID",
+  "INVITE_EXPIRED",
+  "WAITLIST_JOIN",
+  "WAITLIST_INVITED",
+  "WAITLIST_ACCEPTED",
+  "ADMIN_CAP_CHANGE",
+  "ADMIN_INVITE_CREATE",
+  "ABUSE_BLOCKED",
+] as const;
+export type AccessAuditAction = typeof accessAuditActions[number];
+
+// Access audit log table
+export const accessAuditLog = pgTable("access_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  action: varchar("action", { length: 30 }).notNull(),
+  userId: varchar("user_id").references(() => users.id),
+  email: varchar("email", { length: 255 }),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_access_audit_action").on(table.action),
+  index("idx_access_audit_user").on(table.userId),
+  index("idx_access_audit_created").on(table.createdAt),
+  index("idx_access_audit_ip").on(table.ipAddress),
+]);
+
+export const insertAccessAuditLogSchema = createInsertSchema(accessAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAccessAuditLog = z.infer<typeof insertAccessAuditLogSchema>;
+export type AccessAuditLog = typeof accessAuditLog.$inferSelect;
+
+// Active user counter table for atomic cap enforcement
+export const activeUserCounter = pgTable("active_user_counter", {
+  id: integer("id").primaryKey().default(1),
+  count: integer("count").notNull().default(0),
+  reservedSeatsUsed: integer("reserved_seats_used").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ActiveUserCounter = typeof activeUserCounter.$inferSelect;

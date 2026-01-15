@@ -172,11 +172,14 @@ export class DatabaseStorage implements IStorage {
 
   async createLocalUser(username: string, email: string, password: string): Promise<User> {
     const passwordHash = await bcrypt.hash(password, 10);
+    const { normalizeEmail } = await import("./services/accessService");
     
     const [user] = await db.insert(users).values({
       username,
       email,
+      emailNormalized: normalizeEmail(email),
       firstName: username,
+      status: "PENDING",
     }).returning();
     
     await db.insert(localCredentials).values({
@@ -188,13 +191,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string }): Promise<User> {
+    const { normalizeEmail } = await import("./services/accessService");
+    
     const [user] = await db.insert(users).values({
       username: data.username,
       email: data.email,
+      emailNormalized: data.email ? normalizeEmail(data.email) : undefined,
       firstName: data.firstName || data.username,
       lastName: data.lastName,
       profileImageUrl: data.profileImageUrl,
       workosUserId: data.workosUserId,
+      status: "PENDING",
     }).returning();
     
     return user;

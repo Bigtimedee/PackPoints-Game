@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useLocation, Link } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useLocation, Link, useSearch } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, User, Mail, Lock, Sparkles } from "lucide-react";
+import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 import { SiReplit } from "react-icons/si";
 
 const signupSchema = z.object({
@@ -35,8 +37,28 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function AuthPage() {
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("login");
+  const [inviteCode, setInviteCode] = useState("");
+
+  const urlParams = new URLSearchParams(searchString);
+  const tabFromUrl = urlParams.get("tab");
+  
+  useEffect(() => {
+    if (tabFromUrl === "signup") {
+      setActiveTab("signup");
+    }
+  }, [tabFromUrl]);
+
+  const { data: capStatus } = useQuery<any>({
+    queryKey: ["/api/access/cap"],
+    retry: false,
+  });
+
+  const spotsRemaining = capStatus ? capStatus.maxActive - capStatus.currentActive : 0;
+  const percentFull = capStatus ? Math.min(100, (capStatus.currentActive / capStatus.maxActive) * 100) : 0;
+  const capReached = spotsRemaining <= 0;
 
   const signupForm = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
@@ -62,23 +84,32 @@ export default function AuthPage() {
         username: data.username,
         email: data.email,
         password: data.password,
+        inviteCode: inviteCode || undefined,
       });
       return response.json();
     },
     onSuccess: async (data) => {
-      // Directly set user data in cache from registration response to avoid session cookie race condition
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
-      // Invalidate profile stats so the profile page fetches fresh data with new session
       queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
-      toast({
-        title: "Account created!",
-        description: "Welcome to PackPoints. Start playing to earn PackPTS!",
-      });
-      // Small delay to ensure session cookie is fully processed by browser before navigating
-      await new Promise(resolve => setTimeout(resolve, 150));
-      setLocation("/");
+      queryClient.invalidateQueries({ queryKey: ["/api/access/cap"] });
+      
+      if (!data.activated && data.waitlistPosition) {
+        toast({
+          title: "You're on the waitlist!",
+          description: `Position #${data.waitlistPosition}. We'll notify you when a spot opens.`,
+        });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        setLocation("/waitlist");
+      } else {
+        toast({
+          title: "Account created!",
+          description: "Welcome to PackPoints. Start playing to earn PackPTS!",
+        });
+        await new Promise(resolve => setTimeout(resolve, 150));
+        setLocation("/");
+      }
     },
     onError: (error: any) => {
       const message = error?.message || "Failed to create account";
@@ -237,6 +268,54 @@ export default function AuthPage() {
             </TabsContent>
 
             <TabsContent value="signup" className="space-y-4 mt-4">
+              {capStatus && (
+                <div className="space-y-2 pb-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      Founders Cap
+                    </span>
+                    <span className="font-medium">
+                      {capStatus.currentActive} / {capStatus.maxActive}
+                    </span>
+                  </div>
+                  <Progress value={percentFull} className="h-1.5" />
+                  <div className="text-center">
+                    {spotsRemaining > 0 ? (
+                      <Badge variant="secondary" className="bg-green-500/10 text-green-600 text-xs">
+                        {spotsRemaining} spots remaining
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 text-xs">
+                        Cap reached - use invite code or join waitlist
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {capReached && (
+                <div className="p-3 bg-muted/50 rounded-lg border">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Gift className="w-4 h-4 text-primary" />
+                    <span className="font-medium text-sm">Have an Invite Code?</span>
+                  </div>
+                  <div className="relative">
+                    <Gift className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      placeholder="Enter invite code"
+                      className="pl-10 uppercase font-mono"
+                      data-testid="input-invite-code"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Without an invite code, you'll be added to the waitlist.
+                  </p>
+                </div>
+              )}
+
               <Form {...signupForm}>
                 <form onSubmit={signupForm.handleSubmit(onSignup)} className="space-y-4">
                   <FormField
@@ -333,7 +412,7 @@ export default function AuthPage() {
                     data-testid="button-signup-submit"
                   >
                     {signupMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Create Account
+                    {capReached && !inviteCode ? "Join Waitlist" : "Create Account"}
                   </Button>
                 </form>
               </Form>
