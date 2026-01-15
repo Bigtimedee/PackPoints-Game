@@ -1314,3 +1314,86 @@ export const foundersPassEvents = pgTable("founders_pass_events", {
 
 export type InsertFoundersPassEvent = typeof foundersPassEvents.$inferInsert;
 export type FoundersPassEvent = typeof foundersPassEvents.$inferSelect;
+
+// ============================================
+// LIVE LISTINGS MARKETPLACE
+// ============================================
+
+export const marketplaceSourceEnum = pgEnum("marketplace_source", [
+  "ebay",
+  "goldin",
+]);
+
+export const marketplaceCache = pgTable("marketplace_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: marketplaceSourceEnum("source").notNull(),
+  cacheKey: text("cache_key").notNull().unique(),
+  payload: jsonb("payload").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_marketplace_cache_source_key").on(table.source, table.cacheKey),
+  index("idx_marketplace_cache_expires").on(table.expiresAt),
+]);
+
+export type InsertMarketplaceCache = typeof marketplaceCache.$inferInsert;
+export type MarketplaceCache = typeof marketplaceCache.$inferSelect;
+
+export const outboundClicks = pgTable("outbound_clicks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: marketplaceSourceEnum("source").notNull(),
+  listingId: text("listing_id").notNull(),
+  destinationUrl: text("destination_url").notNull(),
+  userId: varchar("user_id").references(() => users.id),
+  sessionId: text("session_id"),
+  ip: varchar("ip", { length: 45 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_outbound_clicks_source").on(table.source),
+  index("idx_outbound_clicks_user").on(table.userId),
+  index("idx_outbound_clicks_created").on(table.createdAt),
+]);
+
+export type InsertOutboundClick = typeof outboundClicks.$inferInsert;
+export type OutboundClick = typeof outboundClicks.$inferSelect;
+
+export const externalListingsSnapshot = pgTable("external_listings_snapshot", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: marketplaceSourceEnum("source").notNull(),
+  query: text("query").notNull(),
+  listingCount: integer("listing_count").notNull(),
+  minPriceCents: integer("min_price_cents"),
+  maxPriceCents: integer("max_price_cents"),
+  capturedAt: timestamp("captured_at").defaultNow(),
+}, (table) => [
+  index("idx_external_listings_source").on(table.source),
+  index("idx_external_listings_captured").on(table.capturedAt),
+]);
+
+export type InsertExternalListingsSnapshot = typeof externalListingsSnapshot.$inferInsert;
+export type ExternalListingsSnapshot = typeof externalListingsSnapshot.$inferSelect;
+
+export const goldinCuratedListings = pgTable("goldin_curated_listings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  destinationUrl: text("destination_url").notNull(),
+  endsAt: timestamp("ends_at"),
+  priceDisplay: text("price_display"),
+  tags: text("tags").array(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_goldin_curated_active").on(table.isActive),
+  index("idx_goldin_curated_ends").on(table.endsAt),
+]);
+
+export const insertGoldinCuratedListingSchema = createInsertSchema(goldinCuratedListings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertGoldinCuratedListing = z.infer<typeof insertGoldinCuratedListingSchema>;
+export type GoldinCuratedListing = typeof goldinCuratedListings.$inferSelect;
