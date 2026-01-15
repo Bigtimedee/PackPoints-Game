@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, index, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, jsonb, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1255,3 +1255,62 @@ export const activeUserCounter = pgTable("active_user_counter", {
 });
 
 export type ActiveUserCounter = typeof activeUserCounter.$inferSelect;
+
+// ============================================
+// FOUNDERS PASS (Viral Invite System)
+// ============================================
+
+export const foundersPassStatusEnum = pgEnum("founders_pass_status", [
+  "ACTIVE",
+  "CONSUMED",
+  "DEACTIVATED",
+  "EXPIRED",
+]);
+
+export const foundersPass = pgTable("founders_pass", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tokenHash: varchar("token_hash", { length: 128 }).unique().notNull(),
+  issuedToUserId: varchar("issued_to_user_id").references(() => users.id).notNull(),
+  status: foundersPassStatusEnum("status").notNull().default("ACTIVE"),
+  createdAt: timestamp("created_at").defaultNow(),
+  consumedAt: timestamp("consumed_at"),
+  consumedByUserId: varchar("consumed_by_user_id").references(() => users.id),
+  consumedByIp: varchar("consumed_by_ip", { length: 45 }),
+  consumedByDeviceFingerprint: varchar("consumed_by_device_fingerprint", { length: 128 }),
+  deactivatedAt: timestamp("deactivated_at"),
+}, (table) => [
+  index("idx_founders_pass_issued_to").on(table.issuedToUserId),
+  index("idx_founders_pass_status").on(table.status),
+  index("idx_founders_pass_token_hash").on(table.tokenHash),
+]);
+
+export type InsertFoundersPass = typeof foundersPass.$inferInsert;
+export type FoundersPass = typeof foundersPass.$inferSelect;
+
+export const foundersPassEventTypeEnum = pgEnum("founders_pass_event_type", [
+  "ISSUED",
+  "LINK_VIEWED",
+  "REDEEM_ATTEMPT",
+  "REDEEM_SUCCESS",
+  "REDEEM_FAIL",
+  "DEACTIVATED_GLOBAL",
+  "DEACTIVATED_INDIVIDUAL",
+]);
+
+export const foundersPassEvents = pgTable("founders_pass_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  passId: varchar("pass_id").references(() => foundersPass.id).notNull(),
+  eventType: foundersPassEventTypeEnum("event_type").notNull(),
+  ip: varchar("ip", { length: 45 }),
+  userAgent: text("user_agent"),
+  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_founders_pass_events_pass").on(table.passId),
+  index("idx_founders_pass_events_type").on(table.eventType),
+  index("idx_founders_pass_events_created").on(table.createdAt),
+]);
+
+export type InsertFoundersPassEvent = typeof foundersPassEvents.$inferInsert;
+export type FoundersPassEvent = typeof foundersPassEvents.$inferSelect;
