@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Monitor, Users, Trophy, Zap, Star, Clock, Shuffle } from "lucide-react";
+import { FoundersCounter } from "@/components/founders-counter";
 
 const gameModes = [
   {
@@ -95,6 +96,10 @@ export default function Home() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="container mx-auto px-4 py-4">
+        <FoundersCounter />
       </section>
 
       <section className="container mx-auto px-4 py-8">
