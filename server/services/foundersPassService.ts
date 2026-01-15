@@ -101,12 +101,12 @@ export async function validatePassToken(tokenHash: string): Promise<{
   }
 
   const config = await db.query.appConfig.findFirst({
-    where: eq(appConfig.key, "founders_gate"),
+    where: eq(appConfig.key, "founders_cap"),
   });
 
   const gateConfig = config?.value as { enabled?: boolean; maxActiveUsers?: number } | null;
   if (!gateConfig?.enabled) {
-    return { valid: false, reason: "Founders gate is closed" };
+    return { valid: false, reason: "Founders cap is disabled" };
   }
 
   const counter = await db.query.activeUserCounter.findFirst();
@@ -161,12 +161,12 @@ export async function consumePassAtomic(
     }
 
     const config = await tx.query.appConfig.findFirst({
-      where: eq(appConfig.key, "founders_gate"),
+      where: eq(appConfig.key, "founders_cap"),
     });
     const gateConfig = config?.value as { enabled?: boolean; maxActiveUsers?: number } | null;
     
     if (!gateConfig?.enabled) {
-      return { success: false, error: "Founders gate is closed" };
+      return { success: false, error: "Founders cap is disabled" };
     }
 
     const [counter] = await tx
@@ -282,7 +282,7 @@ export async function getAllPasses(): Promise<Array<{
 
 export async function isFoundersGateClosed(): Promise<boolean> {
   const config = await db.query.appConfig.findFirst({
-    where: eq(appConfig.key, "founders_gate"),
+    where: eq(appConfig.key, "founders_cap"),
   });
   const gateConfig = config?.value as { enabled?: boolean; maxActiveUsers?: number } | null;
   

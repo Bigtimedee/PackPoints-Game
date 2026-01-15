@@ -54,7 +54,7 @@ export default function RedeemPage() {
   });
 
   useEffect(() => {
-    if (passValid && !redeemResult && !user) {
+    if (passValid && !redeemResult && (!user || user?.status !== "ACTIVE")) {
       redeemMutation.mutate();
     }
   }, [passValid, user]);

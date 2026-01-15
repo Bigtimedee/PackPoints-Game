@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 interface CapStatus {
   currentActive: number;
   maxActive: number;
-  gateClosed: boolean;
+  enabled: boolean;
 }
 
 export function FoundersCounter() {
@@ -23,7 +23,7 @@ export function FoundersCounter() {
 
   const spotsRemaining = Math.max(0, capStatus.maxActive - capStatus.currentActive);
   const percentFull = Math.min(100, (capStatus.currentActive / capStatus.maxActive) * 100);
-  const isFull = capStatus.gateClosed || spotsRemaining === 0;
+  const isFull = !capStatus.enabled || spotsRemaining === 0;
 
   if (isFull) {
     return (

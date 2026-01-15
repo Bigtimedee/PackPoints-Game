@@ -26,6 +26,16 @@ The system supports multi-provider authentication (Replit OAuth, WorkOS, local) 
 ### Founders Cap Access Control
 An access control system limits active users to a configurable cap with waitlist and invite code mechanisms. It features reserved seats for invite code holders, atomic activation using database locks, and email normalization for unique users.
 
+### Founders Pass Viral Invite System
+A viral referral system where each active Founder receives a one-time shareable pass link. Key components:
+- **Token Security**: SHA-256 hashing with secret pepper (FOUNDERS_PASS_PEPPER env var)
+- **Pass Flow**: GET /p/:token → stores hash in session → POST /api/founders-pass/redeem → approved → registration consumes pass atomically
+- **Auto-Issuance**: New passes automatically issued to activated Founders while cap is not reached
+- **Global Deactivation**: All remaining passes deactivated when 500th user activates
+- **Database Tables**: `founders_pass` (stores pass metadata), `founders_pass_events` (audit trail)
+- **Frontend Components**: `/redeem` page for invited users, FoundersPassCard on profile, FoundersCounter on landing page
+- **Admin Endpoints**: List passes, deactivate-all, view events
+
 ### Admin Tools
 Comprehensive admin tools provide user, admin, wallet (PackPTS adjustment), and entitlement management. It includes feature flags, audit logging, and a metrics dashboard for DAU, conversion, and PackPTS liability.
 
