@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { db } from "../db";
-import { purchaseEvents, stripeCustomers, type PurchaseEventStatus } from "@shared/schema";
+import { purchaseEvents, stripeCustomers, stripeCheckoutSessions, type PurchaseEventStatus } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
@@ -276,7 +276,8 @@ class StripePurchaseService {
     }
     
     if (totalPackPts > 0 || entitlementsGranted.length > 0) {
-      await analyticsService.purchaseCompleted(userId, session.id, {
+      await analyticsService.purchaseCompleted(userId, {
+        sessionId: session.id,
         stripeEventId: event.id,
         mode: session.mode,
         packptsGranted: totalPackPts,
@@ -285,6 +286,12 @@ class StripePurchaseService {
         currency: session.currency,
       });
     }
+
+    // Update checkout session status to PAID for UI polling
+    await db
+      .update(stripeCheckoutSessions)
+      .set({ status: "PAID", updatedAt: new Date() })
+      .where(eq(stripeCheckoutSessions.stripeSessionId, session.id));
 
     return {
       status: "processed",
@@ -361,7 +368,8 @@ class StripePurchaseService {
       expiresAt,
     });
     
-    await analyticsService.purchaseCompleted(userId, subscriptionId, {
+    await analyticsService.purchaseCompleted(userId, {
+      subscriptionId,
       stripeEventId: event.id,
       type: "subscription_renewal",
       entitlementKey: productDef.entitlementKey,

@@ -88,3 +88,13 @@ Event tracking via `analyticsService` with pluggable dispatcher pattern:
 - **Database storage**: Events logged to `event_log` table
 - **Extensible**: Dispatcher interface supports adding Segment/Amplitude integrations without code changes
 - **Integration points**: Match lifecycle, wallet operations, store views, purchase flows
+
+### Store & PackPTS Purchase System
+Complete Stripe-integrated purchase flow for PackPTS bundles:
+- **PackPTS Bundles**: PACKPTS_1500 (1500 PTS/$2.99), PACKPTS_6000 (6000 PTS/$9.99 - best value), PACKPTS_15000 (15000 PTS/$19.99)
+- **Checkout Flow**: User selects bundle → Stripe Checkout session created → Webhook confirms payment → PackPTS credited via ledger
+- **Database**: `stripe_checkout_sessions` table tracks session status (CREATED → PAID)
+- **Idempotency**: Stripe event ID used as idempotency key for walletService.purchaseCredit() to prevent duplicate credits
+- **Services**: `storeCheckoutService.ts` (session creation/status), `stripePurchaseService.ts` (webhook handling)
+- **Endpoints**: GET `/api/store/products`, POST `/api/store/checkout`, GET `/api/store/checkout/:sessionId`
+- **Frontend Pages**: `/store` (bundle selection), `/store/success` (payment confirmation with polling), `/store/cancel` (cancellation)

@@ -453,6 +453,38 @@ export const insertStripeCustomerSchema = createInsertSchema(stripeCustomers).om
 export type InsertStripeCustomer = z.infer<typeof insertStripeCustomerSchema>;
 export type StripeCustomer = typeof stripeCustomers.$inferSelect;
 
+// Stripe checkout session statuses
+export const checkoutSessionStatuses = ["CREATED", "PAID", "CANCELED", "EXPIRED"] as const;
+export type CheckoutSessionStatus = typeof checkoutSessionStatuses[number];
+
+// Stripe checkout sessions - track checkout state for UI polling
+export const stripeCheckoutSessions = pgTable("stripe_checkout_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  sku: varchar("sku", { length: 100 }).notNull(),
+  stripeSessionId: varchar("stripe_session_id", { length: 200 }).notNull().unique(),
+  status: varchar("status", { length: 20 }).notNull().default("CREATED"),
+  packptsGrant: integer("packpts_grant"),
+  amountCents: integer("amount_cents"),
+  currency: varchar("currency", { length: 10 }).default("usd"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_checkout_sessions_user").on(table.userId),
+  index("idx_checkout_sessions_stripe").on(table.stripeSessionId),
+  index("idx_checkout_sessions_status").on(table.status),
+]);
+
+export const insertStripeCheckoutSessionSchema = createInsertSchema(stripeCheckoutSessions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStripeCheckoutSession = z.infer<typeof insertStripeCheckoutSessionSchema>;
+export type StripeCheckoutSession = typeof stripeCheckoutSessions.$inferSelect;
+
 // Feature flags for system-wide toggles
 export const featureFlags = pgTable("feature_flags", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

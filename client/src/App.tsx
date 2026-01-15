@@ -13,6 +13,9 @@ import Match from "@/pages/match";
 import Queue from "@/pages/queue";
 import Leaderboard from "@/pages/leaderboard";
 import Marketplace from "@/pages/marketplace";
+import Store from "@/pages/store";
+import StoreSuccess from "@/pages/store-success";
+import StoreCancel from "@/pages/store-cancel";
 import Profile from "@/pages/profile";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
@@ -42,6 +45,9 @@ function Router() {
       <Route path="/match/:matchId" component={Match} />
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/marketplace" component={Marketplace} />
+      <Route path="/store" component={Store} />
+      <Route path="/store/success" component={StoreSuccess} />
+      <Route path="/store/cancel" component={StoreCancel} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard">

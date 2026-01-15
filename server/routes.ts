@@ -7,6 +7,7 @@ import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
+import { storeCheckoutService } from "./services/storeCheckoutService";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
@@ -1312,6 +1313,101 @@ export async function registerRoutes(
     res.json({
       stripeConfigured: isStripeConfigured(),
     });
+  });
+
+  // ============================================
+  // STORE CHECKOUT ENDPOINTS
+  // ============================================
+
+  // Get PackPTS bundles for purchase
+  app.get("/api/store/products", async (req: any, res) => {
+    try {
+      const bundles = storeCheckoutService.getPackPtsBundles();
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (userId) {
+        await analyticsService.storeViewed(userId, { productCount: bundles.length, type: "packpts_bundles" });
+      }
+      
+      res.json({
+        products: bundles,
+        stripeConfigured: isStripeConfigured(),
+      });
+    } catch (error) {
+      console.error("Error getting store products:", error);
+      res.status(500).json({ error: "Failed to get store products" });
+    }
+  });
+
+  // Create Stripe checkout session for PackPTS purchase
+  app.post("/api/store/checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { sku } = req.body;
+      if (!sku || typeof sku !== "string") {
+        return res.status(400).json({ error: "SKU is required" });
+      }
+
+      if (!isStripeConfigured()) {
+        return res.status(503).json({ error: "Payment processing not configured" });
+      }
+
+      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+      const successUrl = `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}/store/cancel`;
+
+      const result = await storeCheckoutService.createCheckoutSession(
+        userId,
+        sku,
+        successUrl,
+        cancelUrl
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ url: result.url, sessionId: result.sessionId });
+    } catch (error) {
+      console.error("Error creating checkout session:", error);
+      res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  });
+
+  // Get checkout session status (for success page polling) - requires auth for security
+  app.get("/api/store/checkout/:sessionId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { sessionId } = req.params;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required" });
+      }
+
+      const status = await storeCheckoutService.getCheckoutSessionStatus(sessionId);
+      
+      if (!status) {
+        return res.status(404).json({ error: "Checkout session not found" });
+      }
+
+      // Verify session belongs to the requesting user (security check)
+      if (status.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting checkout session:", error);
+      res.status(500).json({ error: "Failed to get checkout session status" });
+    }
   });
 
   // ============================================

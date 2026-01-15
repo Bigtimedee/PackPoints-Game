@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
-import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle } from "lucide-react";
+import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle, Coins } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StreakBadge } from "./streak-card";
@@ -47,6 +47,7 @@ export function Header() {
   const navItems = [
     { href: "/", label: "Play", icon: Play },
     { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
+    { href: "/store", label: "Store", icon: Coins },
     { href: "/marketplace", label: "Marketplace", icon: ShoppingBag },
     { href: "/profile", label: "Profile", icon: User },
   ];

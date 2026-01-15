@@ -35,6 +35,11 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
       displayName: "6,000 PackPTS",
       type: "CONSUMABLE",
     },
+    "com.packpoints.packpts15000": {
+      internalSku: "PACKPTS_15000",
+      displayName: "15,000 PackPTS",
+      type: "CONSUMABLE",
+    },
     "com.packpoints.pro_monthly": {
       internalSku: "PRO_MONTHLY",
       displayName: "Pro Monthly",
@@ -62,6 +67,11 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
       displayName: "6,000 PackPTS",
       type: "CONSUMABLE",
     },
+    "packpts_15000": {
+      internalSku: "PACKPTS_15000",
+      displayName: "15,000 PackPTS",
+      type: "CONSUMABLE",
+    },
     "pro_monthly": {
       internalSku: "PRO_MONTHLY",
       displayName: "Pro Monthly",
@@ -87,6 +97,11 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     "price_packpts_6000": {
       internalSku: "PACKPTS_6000",
       displayName: "6,000 PackPTS",
+      type: "CONSUMABLE",
+    },
+    "price_packpts_15000": {
+      internalSku: "PACKPTS_15000",
+      displayName: "15,000 PackPTS",
       type: "CONSUMABLE",
     },
     "price_pro_monthly": {
@@ -172,23 +187,26 @@ export function getStoreProductIds(internalSku: string): string[] {
 
 // Internal SKU definitions with PackPTS amounts
 export const PRODUCT_DEFINITIONS = {
-  PACKPTS_500: {
-    name: "500 PackPTS",
-    type: "CONSUMABLE" as const,
-    packptsGrant: 500,
-    priceUsd: 499, // $4.99
-  },
   PACKPTS_1500: {
     name: "1,500 PackPTS",
     type: "CONSUMABLE" as const,
     packptsGrant: 1500,
-    priceUsd: 999, // $9.99
+    priceUsd: 299, // $2.99
+    description: "Starter bundle - great for trying out the game",
   },
   PACKPTS_6000: {
     name: "6,000 PackPTS",
     type: "CONSUMABLE" as const,
     packptsGrant: 6000,
-    priceUsd: 2999, // $29.99
+    priceUsd: 999, // $9.99 - Best value
+    description: "Most popular - best value for regular players",
+  },
+  PACKPTS_15000: {
+    name: "15,000 PackPTS",
+    type: "CONSUMABLE" as const,
+    packptsGrant: 15000,
+    priceUsd: 1999, // $19.99
+    description: "Power pack - for serious collectors",
   },
   PRO_MONTHLY: {
     name: "Pro Monthly",
@@ -196,13 +214,19 @@ export const PRODUCT_DEFINITIONS = {
     entitlementKey: "pro",
     durationDays: 30,
     priceUsd: 999, // $9.99/month
+    description: "Unlock all game modes and 1.5x multiplier",
   },
   LEGEND_MODE_PASS: {
     name: "Legend Mode Pass",
     type: "ENTITLEMENT" as const,
     entitlementKey: "legend_mode",
     priceUsd: 499, // $4.99 one-time
+    description: "Permanent access to Legend Mode",
   },
 } as const;
+
+// PackPTS bundle SKUs for store page filtering
+export const PACKPTS_BUNDLE_SKUS = ["PACKPTS_1500", "PACKPTS_6000", "PACKPTS_15000"] as const;
+export type PackPtsBundleSku = typeof PACKPTS_BUNDLE_SKUS[number];
 
 export type InternalSku = keyof typeof PRODUCT_DEFINITIONS;
