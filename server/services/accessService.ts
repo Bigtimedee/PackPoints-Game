@@ -6,6 +6,8 @@ import {
   inviteCodes, 
   accessAuditLog,
   activeUserCounter,
+  foundersPass,
+  foundersPassEvents,
   FOUNDERS_CAP_DEFAULT,
   type UserStatus,
   type WaitlistStatus,
@@ -15,6 +17,7 @@ import {
 } from "@shared/schema";
 import { eq, sql, and, gt } from "drizzle-orm";
 import crypto from "crypto";
+import * as foundersPassService from "./foundersPassService";
 
 // Types for config values
 interface FoundersCapConfig {
@@ -41,6 +44,8 @@ interface ActivationContext {
   userAgent?: string;
   deviceFingerprint?: string;
   inviteCode?: string;
+  foundersPassTokenHash?: string;
+  foundersPassApproved?: boolean;
 }
 
 // Email normalization (removes dots from gmail, lowercases, etc.)
@@ -221,6 +226,13 @@ export async function tryActivateUser(
     }
   }
   
+  // Check for founders pass approval
+  let hasFoundersPass = false;
+  if (context.foundersPassApproved && context.foundersPassTokenHash) {
+    const passValidation = await foundersPassService.validatePassToken(context.foundersPassTokenHash);
+    hasFoundersPass = passValidation.valid;
+  }
+  
   // Atomic activation using SELECT FOR UPDATE on the counter row
   return await db.transaction(async (tx) => {
     // Lock the counter row to prevent race conditions
@@ -240,6 +252,7 @@ export async function tryActivateUser(
     // Check if we can activate
     let canActivate = false;
     let shouldUseReservedSeat = false;
+    let usedFoundersPass = false;
     
     if (currentActive < config.maxActiveUsers) {
       // Under cap, can activate normally
@@ -252,7 +265,57 @@ export async function tryActivateUser(
       }
     }
     
+    // Founders pass bypass: if user has approved pass, they can activate even if cap is reached
+    // as long as the pass is still valid (consume it atomically)
+    if (!canActivate && hasFoundersPass && context.foundersPassTokenHash) {
+      const [pass] = await tx
+        .select()
+        .from(foundersPass)
+        .where(eq(foundersPass.tokenHash, context.foundersPassTokenHash))
+        .for("update");
+      
+      if (pass && pass.status === "ACTIVE") {
+        canActivate = true;
+        usedFoundersPass = true;
+        
+        // Consume the pass atomically
+        await tx.update(foundersPass).set({
+          status: "CONSUMED",
+          consumedAt: new Date(),
+          consumedByUserId: userId,
+          consumedByIp: context.ipAddress || null,
+          consumedByDeviceFingerprint: context.deviceFingerprint || null,
+        }).where(eq(foundersPass.id, pass.id));
+        
+        await tx.insert(foundersPassEvents).values({
+          passId: pass.id,
+          eventType: "REDEEM_SUCCESS",
+          ip: context.ipAddress || null,
+          deviceFingerprint: context.deviceFingerprint || null,
+          metadata: { consumedByUserId: userId },
+        });
+      }
+    }
+    
     if (!canActivate) {
+      // If had a pass but it failed, log the failure
+      if (hasFoundersPass && context.foundersPassTokenHash) {
+        const [pass] = await tx
+          .select()
+          .from(foundersPass)
+          .where(eq(foundersPass.tokenHash, context.foundersPassTokenHash));
+        
+        if (pass) {
+          await tx.insert(foundersPassEvents).values({
+            passId: pass.id,
+            eventType: "REDEEM_FAIL",
+            ip: context.ipAddress || null,
+            deviceFingerprint: context.deviceFingerprint || null,
+            metadata: { reason: "cap_reached_or_pass_invalid" },
+          });
+        }
+      }
+      
       // Cap reached, add to waitlist
       const maxPosition = await tx
         .select({ maxPos: sql<number>`COALESCE(MAX(position), 0)::int` })
@@ -299,6 +362,30 @@ export async function tryActivateUser(
       })
       .where(eq(activeUserCounter.id, 1));
     
+    // Check if this was the last activation (cap reached) - deactivate all remaining passes
+    const newActiveCount = currentActive + 1;
+    if (newActiveCount >= config.maxActiveUsers) {
+      const activePasses = await tx
+        .select({ id: foundersPass.id })
+        .from(foundersPass)
+        .where(eq(foundersPass.status, "ACTIVE"));
+      
+      if (activePasses.length > 0) {
+        await tx.update(foundersPass).set({
+          status: "DEACTIVATED",
+          deactivatedAt: new Date(),
+        }).where(eq(foundersPass.status, "ACTIVE"));
+        
+        for (const pass of activePasses) {
+          await tx.insert(foundersPassEvents).values({
+            passId: pass.id,
+            eventType: "DEACTIVATED_GLOBAL",
+            metadata: { reason: "cap_reached", activeCount: newActiveCount },
+          });
+        }
+      }
+    }
+    
     // Consume invite code if used
     if (context.inviteCode) {
       await consumeInviteCodeInternal(tx, context.inviteCode);
@@ -311,6 +398,7 @@ export async function tryActivateUser(
       deviceFingerprint: context.deviceFingerprint,
       metadata: { 
         usedReservedSeat: shouldUseReservedSeat,
+        usedFoundersPass: usedFoundersPass,
         inviteCode: context.inviteCode,
       },
     });

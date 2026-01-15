@@ -21,6 +21,7 @@ import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
 import { identityService } from "./services/identityService";
 import * as accessService from "./services/accessService";
+import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
@@ -910,11 +911,30 @@ export async function registerRoutes(
         userAgent: req.headers["user-agent"] as string,
         deviceFingerprint: deviceFingerprint || undefined,
         inviteCode: inviteCode || req.session.inviteApprovedCode,
+        foundersPassTokenHash: req.session.foundersPassTokenHash,
+        foundersPassApproved: req.session.foundersPassApproved,
       });
       
-      // Clear used invite code from session
+      // Clear used invite code and founders pass from session
       if (req.session.inviteApprovedCode) {
         delete req.session.inviteApprovedCode;
+      }
+      if (req.session.foundersPassTokenHash) {
+        delete req.session.foundersPassTokenHash;
+        delete req.session.foundersPassApproved;
+      }
+      
+      // Issue a new pass to the activated founder (if still under cap)
+      let foundersPassShareUrl: string | undefined;
+      if (activationResult.activated) {
+        const gateClosed = await foundersPassService.isFoundersGateClosed();
+        if (!gateClosed) {
+          const newPass = await foundersPassService.issuePassToUser(user.id);
+          if (newPass) {
+            const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+            foundersPassShareUrl = `${baseUrl}/p/${newPass.rawToken}`;
+          }
+        }
       }
       
       if (req.session.pendingPoints) {
@@ -949,6 +969,7 @@ export async function registerRoutes(
           success: true, 
           activated: activationResult.activated,
           waitlistPosition: activationResult.waitlistPosition,
+          foundersPassShareUrl,
           user: {
             id: updatedUser!.id,
             username: updatedUser!.username,
@@ -3547,6 +3568,235 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== FOUNDERS PASS (Viral Invite System) ====================
+
+  // GET /p/:token - Public pass link redirect
+  app.get("/p/:token", async (req: any, res) => {
+    try {
+      const { token } = req.params;
+      const tokenHash = foundersPassService.hashToken(token);
+      
+      const validation = await foundersPassService.validatePassToken(tokenHash);
+      
+      if (!validation.valid) {
+        await foundersPassService.recordLinkViewed(
+          tokenHash,
+          req.ip,
+          req.headers["user-agent"] as string
+        );
+        return res.redirect(`/waitlist?error=${encodeURIComponent(validation.reason || "Pass is invalid")}`);
+      }
+      
+      await foundersPassService.recordLinkViewed(
+        tokenHash,
+        req.ip,
+        req.headers["user-agent"] as string
+      );
+      
+      req.session.foundersPassTokenHash = tokenHash;
+      res.redirect("/redeem");
+    } catch (error) {
+      console.error("Error processing pass link:", error);
+      res.redirect("/waitlist?error=An+error+occurred");
+    }
+  });
+
+  // POST /api/founders-pass/redeem - Approve pass for signup flow
+  app.post("/api/founders-pass/redeem", async (req: any, res) => {
+    try {
+      const tokenHash = req.session?.foundersPassTokenHash;
+      if (!tokenHash) {
+        return res.status(400).json({ ok: false, error: "No pass token in session" });
+      }
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (userId) {
+        const user = await storage.getUser(userId);
+        if (user && user.status === "ACTIVE") {
+          return res.status(400).json({ ok: false, error: "Already an active founder" });
+        }
+      }
+      
+      const validation = await foundersPassService.validatePassToken(tokenHash);
+      if (!validation.valid) {
+        delete req.session.foundersPassTokenHash;
+        return res.status(400).json({ ok: false, error: validation.reason });
+      }
+      
+      req.session.foundersPassApproved = true;
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error redeeming pass:", error);
+      res.status(500).json({ ok: false, error: "Failed to redeem pass" });
+    }
+  });
+
+  // GET /api/founders-pass/status - Get session pass status
+  app.get("/api/founders-pass/status", async (req: any, res) => {
+    try {
+      const tokenHash = req.session?.foundersPassTokenHash;
+      const approved = req.session?.foundersPassApproved === true;
+      
+      if (!tokenHash) {
+        return res.json({ hasPass: false, approved: false });
+      }
+      
+      const validation = await foundersPassService.validatePassToken(tokenHash);
+      res.json({
+        hasPass: true,
+        valid: validation.valid,
+        approved,
+        reason: validation.reason,
+      });
+    } catch (error) {
+      console.error("Error getting pass status:", error);
+      res.status(500).json({ error: "Failed to get pass status" });
+    }
+  });
+
+  // GET /api/founders-pass/mine - Get authenticated user's pass (if they have one)
+  app.get("/api/founders-pass/mine", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user || user.status !== "ACTIVE") {
+        return res.json({ hasPass: false, reason: "Not an active founder" });
+      }
+      
+      const gateClosed = await foundersPassService.isFoundersGateClosed();
+      if (gateClosed) {
+        return res.json({ hasPass: false, reason: "Founders gate is closed" });
+      }
+      
+      const pass = await foundersPassService.getActivePassForUser(userId);
+      if (pass) {
+        return res.json({
+          hasPass: true,
+          passId: pass.id,
+          createdAt: pass.createdAt,
+        });
+      }
+      
+      const newPass = await foundersPassService.issuePassToUser(userId);
+      if (newPass) {
+        const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+        return res.json({
+          hasPass: true,
+          passId: newPass.id,
+          shareUrl: `${baseUrl}/p/${newPass.rawToken}`,
+          createdAt: newPass.createdAt,
+          isNew: true,
+        });
+      }
+      
+      res.json({ hasPass: false, reason: "Could not issue pass" });
+    } catch (error) {
+      console.error("Error getting user pass:", error);
+      res.status(500).json({ error: "Failed to get pass" });
+    }
+  });
+
+  // POST /api/founders-pass/issue - Issue a new pass to authenticated user (force re-issue)
+  app.post("/api/founders-pass/issue", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user || user.status !== "ACTIVE") {
+        return res.status(403).json({ error: "Only active founders can receive passes" });
+      }
+      
+      const gateClosed = await foundersPassService.isFoundersGateClosed();
+      if (gateClosed) {
+        return res.status(400).json({ error: "Founders gate is closed" });
+      }
+      
+      const existingPass = await foundersPassService.getActivePassForUser(userId);
+      if (existingPass) {
+        return res.status(400).json({ error: "You already have an active pass" });
+      }
+      
+      const newPass = await foundersPassService.issuePassToUser(userId);
+      if (!newPass) {
+        return res.status(500).json({ error: "Failed to issue pass" });
+      }
+      
+      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+      res.json({
+        passId: newPass.id,
+        shareUrl: `${baseUrl}/p/${newPass.rawToken}`,
+        createdAt: newPass.createdAt,
+      });
+    } catch (error) {
+      console.error("Error issuing pass:", error);
+      res.status(500).json({ error: "Failed to issue pass" });
+    }
+  });
+
+  // Admin: Get all founders passes
+  app.get("/api/admin/founders/passes", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const status = req.query.status as "ACTIVE" | "CONSUMED" | "DEACTIVATED" | "EXPIRED" | undefined;
+      
+      const passes = status 
+        ? await foundersPassService.getPassesByStatus(status)
+        : await foundersPassService.getAllPasses();
+      
+      res.json({ passes });
+    } catch (error) {
+      console.error("Error getting passes:", error);
+      res.status(500).json({ error: "Failed to get passes" });
+    }
+  });
+
+  // Admin: Deactivate all active passes (kill switch)
+  app.post("/api/admin/founders/deactivate-all", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const count = await foundersPassService.deactivateAllPasses();
+      
+      await accessService.logAccessAudit("ABUSE_BLOCKED", {
+        userId: adminUserId,
+        metadata: { action: "deactivate_all_passes", count },
+      });
+      
+      res.json({ success: true, deactivatedCount: count });
+    } catch (error) {
+      console.error("Error deactivating passes:", error);
+      res.status(500).json({ error: "Failed to deactivate passes" });
+    }
+  });
+
+  // Admin: Deactivate a specific pass
+  app.post("/api/admin/founders/deactivate/:passId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { passId } = req.params;
+      const { reason } = req.body;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      
+      const success = await foundersPassService.deactivatePass(passId, reason);
+      
+      if (success) {
+        await accessService.logAccessAudit("ABUSE_BLOCKED", {
+          userId: adminUserId,
+          metadata: { action: "deactivate_pass", passId, reason },
+        });
+      }
+      
+      res.json({ success });
+    } catch (error) {
+      console.error("Error deactivating pass:", error);
+      res.status(500).json({ error: "Failed to deactivate pass" });
+    }
+  });
+
   // Admin: Get full access summary
   app.get("/api/admin/access/summary", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
@@ -3567,7 +3817,7 @@ export async function registerRoutes(
         },
         stats: {
           activeInvites: inviteStats.codes.length,
-          totalInvitesUsed: inviteStats.codes.reduce((acc, inv) => acc + (inv.usedCount || 0), 0),
+          totalInvitesUsed: inviteStats.codes.reduce((acc, inv) => acc + (inv.uses || 0), 0),
           pendingWaitlist: summary.waitlistSize,
         },
       });
