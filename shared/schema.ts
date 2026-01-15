@@ -286,8 +286,16 @@ export type InsertWallet = z.infer<typeof insertWalletSchema>;
 export type Wallet = typeof wallets.$inferSelect;
 
 // Ledger entry types enum
-export const ledgerEntryTypes = ["EARN", "SPEND", "ADJUST", "PURCHASE_CREDIT", "REVERSAL", "STREAK_EARN"] as const;
+export const ledgerEntryTypes = ["EARN", "SPEND", "ADJUST", "PURCHASE_CREDIT", "REVERSAL", "STREAK_EARN", "EXPIRE"] as const;
 export type LedgerEntryType = typeof ledgerEntryTypes[number];
+
+// Source types for PackPTS buckets (determines expiration policy)
+export const bucketSourceTypes = ["EARNED", "PURCHASED", "BONUS", "ADJUSTMENT"] as const;
+export type BucketSourceType = typeof bucketSourceTypes[number];
+
+// Bucket status enum
+export const bucketStatuses = ["OPEN", "DEPLETED", "EXPIRED"] as const;
+export type BucketStatus = typeof bucketStatuses[number];
 
 // PackPTS Ledger - append-only transaction log
 export const ledgerEntries = pgTable("ledger_entries", {
@@ -834,6 +842,133 @@ export const STREAK_ANALYTICS_EVENTS = [
   "streak_freeze_used",
   "streak_reward_awarded",
 ] as const;
+
+// ============================================
+// PACKPTS EXPIRATION SYSTEM
+// ============================================
+
+// PackPTS Bucket - tracks point balances with expiration dates for FIFO spending
+export const packptsBucket = pgTable("packpts_bucket", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  sourceType: varchar("source_type", { length: 20 }).notNull(), // EARNED, PURCHASED, BONUS, ADJUSTMENT
+  originalAmount: integer("original_amount").notNull(),
+  remainingAmount: integer("remaining_amount").notNull(),
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"), // null = never expires
+  createdFromLedgerEntryId: varchar("created_from_ledger_entry_id").references(() => ledgerEntries.id),
+  status: varchar("status", { length: 20 }).notNull().default("OPEN"), // OPEN, DEPLETED, EXPIRED
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_bucket_user").on(table.userId),
+  index("idx_bucket_user_expires").on(table.userId, table.expiresAt),
+  index("idx_bucket_user_status").on(table.userId, table.status),
+  index("idx_bucket_expires_status").on(table.expiresAt, table.status),
+]);
+
+export const insertPackptsBucketSchema = createInsertSchema(packptsBucket).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPackptsBucket = z.infer<typeof insertPackptsBucketSchema>;
+export type PackptsBucket = typeof packptsBucket.$inferSelect;
+
+// PackPTS Expiration Policy - configurable rules for point expiration
+export const packptsExpirationPolicy = pgTable("packpts_expiration_policy", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  earnedDaysToExpire: integer("earned_days_to_expire").notNull().default(365), // days after earning
+  purchasedDaysToExpire: integer("purchased_days_to_expire"), // null = never expires
+  bonusDefaultDaysToExpire: integer("bonus_default_days_to_expire").notNull().default(90),
+  inactivityEnabled: boolean("inactivity_enabled").notNull().default(false),
+  inactivityDays: integer("inactivity_days").notNull().default(90), // days of inactivity before trigger
+  inactivityMinAgeDays: integer("inactivity_min_age_days").notNull().default(90), // min age of points to expire
+  gracePeriodDays: integer("grace_period_days").notNull().default(7), // warning period before expiration
+  jsonOverrides: jsonb("json_overrides"), // per-promo or special rules
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_expiration_policy_effective").on(table.effectiveFrom),
+  index("idx_expiration_policy_enabled").on(table.enabled),
+]);
+
+export const insertPackptsExpirationPolicySchema = createInsertSchema(packptsExpirationPolicy).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPackptsExpirationPolicy = z.infer<typeof insertPackptsExpirationPolicySchema>;
+export type PackptsExpirationPolicy = typeof packptsExpirationPolicy.$inferSelect;
+
+// PackPTS Spend Allocation - tracks which buckets were reduced during a spend
+export const packptsSpendAllocation = pgTable("packpts_spend_allocation", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  spendLedgerEntryId: varchar("spend_ledger_entry_id").notNull().references(() => ledgerEntries.id),
+  bucketId: varchar("bucket_id").notNull().references(() => packptsBucket.id),
+  amount: integer("amount").notNull(), // amount allocated from this bucket
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_spend_allocation_ledger").on(table.spendLedgerEntryId),
+  index("idx_spend_allocation_bucket").on(table.bucketId),
+]);
+
+export const insertPackptsSpendAllocationSchema = createInsertSchema(packptsSpendAllocation).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPackptsSpendAllocation = z.infer<typeof insertPackptsSpendAllocationSchema>;
+export type PackptsSpendAllocation = typeof packptsSpendAllocation.$inferSelect;
+
+// PackPTS Liability Snapshot - daily accounting snapshot for reporting
+export const packptsLiabilitySnapshot = pgTable("packpts_liability_snapshot", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  asOfDate: varchar("as_of_date", { length: 10 }).notNull(), // YYYY-MM-DD
+  totalOutstanding: integer("total_outstanding").notNull(),
+  outstandingEarned: integer("outstanding_earned").notNull(),
+  outstandingPurchased: integer("outstanding_purchased").notNull(),
+  outstandingBonus: integer("outstanding_bonus").notNull(),
+  expiring30d: integer("expiring_30d").notNull(),
+  expiring60d: integer("expiring_60d").notNull(),
+  expiring90d: integer("expiring_90d").notNull(),
+  aged0_30: integer("aged_0_30").notNull(),
+  aged31_90: integer("aged_31_90").notNull(),
+  aged91_180: integer("aged_91_180").notNull(),
+  aged181_365: integer("aged_181_365").notNull(),
+  aged366Plus: integer("aged_366_plus").notNull(),
+  breakageEstimatePct: real("breakage_estimate_pct").notNull().default(25), // percentage
+  projectedBreakage: integer("projected_breakage").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_liability_snapshot_date").on(table.asOfDate),
+]);
+
+export const insertPackptsLiabilitySnapshotSchema = createInsertSchema(packptsLiabilitySnapshot).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPackptsLiabilitySnapshot = z.infer<typeof insertPackptsLiabilitySnapshotSchema>;
+export type PackptsLiabilitySnapshot = typeof packptsLiabilitySnapshot.$inferSelect;
+
+// Default expiration policy values
+export const DEFAULT_EXPIRATION_POLICY = {
+  earnedDaysToExpire: 365,
+  purchasedDaysToExpire: 730, // 2 years for purchased, or null for never
+  bonusDefaultDaysToExpire: 90,
+  inactivityEnabled: false,
+  inactivityDays: 90,
+  inactivityMinAgeDays: 90,
+  gracePeriodDays: 7,
+  breakageEstimatePct: 25,
+} as const;
 
 export type StreakAnalyticsEventType = typeof STREAK_ANALYTICS_EVENTS[number];
 

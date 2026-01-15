@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Zap, Coins, Crown, Star, ShieldCheck, Sparkles, CreditCard } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { WalletExpirationCard } from "@/components/wallet-expiration-card";
 
 interface PackPtsBundle {
   sku: string;
@@ -169,6 +170,10 @@ export default function Store() {
             Power up your gameplay with PackPTS. Use them to enter premium game modes, 
             compete in tournaments, and redeem for real trading card discounts.
           </p>
+        </div>
+
+        <div className="max-w-md mx-auto mb-8">
+          <WalletExpirationCard />
         </div>
 
         <div className="flex items-center justify-center gap-4 mb-8">

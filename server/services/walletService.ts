@@ -1,6 +1,7 @@
 import { db } from "../db";
-import { wallets, ledgerEntries, type Wallet, type LedgerEntry, type LedgerEntryType } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { wallets, ledgerEntries, packptsBucket, packptsSpendAllocation, type Wallet, type LedgerEntry, type LedgerEntryType, type BucketSourceType } from "@shared/schema";
+import { eq, sql, and, asc, gt, isNull } from "drizzle-orm";
+import { bucketService } from "./bucketService";
 
 export interface WalletOperationResult {
   success: boolean;
@@ -150,6 +151,14 @@ class WalletService {
         })
         .where(eq(wallets.id, wallet.id));
 
+      await bucketService.createBucket(
+        userId,
+        amount,
+        "EARNED",
+        insertedEntries[0].id,
+        metadata
+      );
+
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };
       return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
     });
@@ -233,6 +242,17 @@ class WalletService {
           updatedAt: new Date(),
         })
         .where(eq(wallets.id, wallet.id));
+
+      const allocationResult = await bucketService.allocateSpend(
+        userId,
+        amount,
+        insertedEntries[0].id,
+        tx
+      );
+      
+      if (!allocationResult.success) {
+        console.warn(`Bucket allocation warning for spend: ${allocationResult.error}`);
+      }
 
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeSpent: newLifetimeSpent };
       return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
@@ -319,6 +339,26 @@ class WalletService {
           updatedAt: new Date(),
         })
         .where(eq(wallets.id, wallet.id));
+
+      if (amount > 0) {
+        await bucketService.createBucket(
+          userId,
+          amount,
+          "ADJUSTMENT",
+          insertedEntries[0].id,
+          metadata
+        );
+      } else if (amount < 0) {
+        const allocationResult = await bucketService.allocateSpend(
+          userId,
+          Math.abs(amount),
+          insertedEntries[0].id,
+          tx
+        );
+        if (!allocationResult.success) {
+          console.warn(`Bucket allocation warning for negative adjustment: ${allocationResult.error}`);
+        }
+      }
 
       const updatedWallet = { 
         ...wallet, 
@@ -431,6 +471,14 @@ class WalletService {
         })
         .where(eq(wallets.id, wallet.id));
 
+      await bucketService.createBucket(
+        userId,
+        amount,
+        "PURCHASED",
+        insertedEntries[0].id,
+        metadata
+      );
+
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };
       return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
     });
@@ -526,6 +574,17 @@ class WalletService {
           updatedAt: new Date(),
         })
         .where(eq(wallets.id, wallet.id));
+
+      const allocationResult = await bucketService.allocateSpend(
+        userId,
+        amount,
+        insertedEntries[0].id,
+        tx
+      );
+      
+      if (!allocationResult.success) {
+        console.warn(`Bucket allocation warning for reversal: ${allocationResult.error}`);
+      }
 
       const updatedWallet = { ...wallet, balance: newBalance };
       return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };

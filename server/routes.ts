@@ -17,11 +17,14 @@ import { analyticsService } from "./services/analyticsService";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
+import { bucketService } from "./services/bucketService";
+import { expirationEngine } from "./services/expirationEngine";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import express from "express";
+import { z } from "zod";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -248,6 +251,222 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error adjusting wallet:", error);
       res.status(500).json({ error: "Failed to process adjustment" });
+    }
+  });
+
+  // ============================================
+  // PACKPTS EXPIRATION ENDPOINTS
+  // ============================================
+
+  // GET /api/wallet/expirations - Get user's expiration info (auth required)
+  app.get("/api/wallet/expirations", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const expirationInfo = await bucketService.getUserExpirationInfo(userId);
+      const upcomingExpirations = await bucketService.getUpcomingExpirations(userId, 90);
+      const policy = await expirationEngine.getExpirationPolicy();
+
+      res.json({
+        balance: expirationInfo.totalBalance,
+        expiringNext30Days: expirationInfo.expiringNext30Days,
+        expiringNext60Days: expirationInfo.expiringNext60Days,
+        expiringNext90Days: expirationInfo.expiringNext90Days,
+        nextExpirationDate: expirationInfo.nextExpirationDate,
+        nextExpirationAmount: expirationInfo.nextExpirationAmount,
+        bucketsBySource: expirationInfo.bucketsBySource,
+        weeklyExpirations: upcomingExpirations,
+        policy: policy ? {
+          earnedDaysToExpire: policy.earnedDaysToExpire,
+          purchasedDaysToExpire: policy.purchasedDaysToExpire,
+          bonusDefaultDaysToExpire: policy.bonusDefaultDaysToExpire,
+          gracePeriodDays: policy.gracePeriodDays,
+          inactivityEnabled: policy.inactivityEnabled,
+          inactivityDays: policy.inactivityDays,
+        } : null,
+      });
+    } catch (error) {
+      console.error("Error getting expiration info:", error);
+      res.status(500).json({ error: "Failed to get expiration info" });
+    }
+  });
+
+  // GET /api/wallet/expiring-soon - Get points expiring in grace period (auth required)
+  app.get("/api/wallet/expiring-soon", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const gracePeriodBuckets = await expirationEngine.getGracePeriodBuckets(userId);
+      const totalExpiringSoon = gracePeriodBuckets.reduce((sum, b) => sum + b.remainingAmount, 0);
+      const policy = await expirationEngine.getExpirationPolicy();
+
+      res.json({
+        expiringSoon: totalExpiringSoon,
+        gracePeriodDays: policy?.gracePeriodDays || 7,
+        buckets: gracePeriodBuckets.map(b => ({
+          id: b.id,
+          amount: b.remainingAmount,
+          sourceType: b.sourceType,
+          expiresAt: b.expiresAt,
+          earnedAt: b.earnedAt,
+        })),
+      });
+    } catch (error) {
+      console.error("Error getting expiring-soon buckets:", error);
+      res.status(500).json({ error: "Failed to get expiring-soon buckets" });
+    }
+  });
+
+  // Admin endpoints for expiration management
+  // GET /api/admin/expiration/policy - Get current expiration policy
+  app.get("/api/admin/expiration/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const policy = await expirationEngine.getExpirationPolicy();
+      
+      if (!policy) {
+        return res.status(404).json({ error: "No expiration policy found" });
+      }
+
+      res.json({ policy });
+    } catch (error) {
+      console.error("Error getting expiration policy:", error);
+      res.status(500).json({ error: "Failed to get expiration policy" });
+    }
+  });
+
+  // PUT /api/admin/expiration/policy - Update expiration policy
+  app.put("/api/admin/expiration/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const policyUpdateSchema = z.object({
+        earnedDaysToExpire: z.number().int().min(1).max(3650).optional(),
+        purchasedDaysToExpire: z.number().int().min(1).max(3650).nullable().optional(),
+        bonusDefaultDaysToExpire: z.number().int().min(1).max(3650).optional(),
+        inactivityEnabled: z.boolean().optional(),
+        inactivityDays: z.number().int().min(1).max(365).optional(),
+        inactivityMinAgeDays: z.number().int().min(1).max(365).optional(),
+        gracePeriodDays: z.number().int().min(1).max(30).optional(),
+        enabled: z.boolean().optional(),
+      });
+
+      const parsed = policyUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const updatedPolicy = await expirationEngine.updateExpirationPolicy(parsed.data);
+      
+      if (!updatedPolicy) {
+        return res.status(404).json({ error: "No expiration policy found to update" });
+      }
+
+      res.json({ success: true, policy: updatedPolicy });
+    } catch (error) {
+      console.error("Error updating expiration policy:", error);
+      res.status(500).json({ error: "Failed to update expiration policy" });
+    }
+  });
+
+  // GET /api/admin/expiration/liability - Get liability snapshot
+  app.get("/api/admin/expiration/liability", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const latestSnapshot = await expirationEngine.getLatestLiabilitySnapshot();
+      
+      res.json({
+        snapshot: latestSnapshot,
+        generated: latestSnapshot ? true : false,
+      });
+    } catch (error) {
+      console.error("Error getting liability snapshot:", error);
+      res.status(500).json({ error: "Failed to get liability snapshot" });
+    }
+  });
+
+  // POST /api/admin/expiration/snapshot - Create liability snapshot
+  app.post("/api/admin/expiration/snapshot", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const result = await expirationEngine.createLiabilitySnapshot();
+      
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+
+      res.json({ success: true, snapshot: result.snapshot });
+    } catch (error) {
+      console.error("Error creating liability snapshot:", error);
+      res.status(500).json({ error: "Failed to create liability snapshot" });
+    }
+  });
+
+  // POST /api/admin/expiration/run - Run expiration job manually
+  app.post("/api/admin/expiration/run", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { dryRun = false } = req.body;
+      
+      const result = await expirationEngine.runExpirationJob(dryRun);
+      
+      res.json({
+        success: result.success,
+        dryRun,
+        expiredBuckets: result.expiredBuckets,
+        totalPointsExpired: result.totalPointsExpired,
+        errors: result.errors,
+      });
+    } catch (error) {
+      console.error("Error running expiration job:", error);
+      res.status(500).json({ error: "Failed to run expiration job" });
+    }
+  });
+
+  // POST /api/admin/expiration/run-inactivity - Run inactivity expiration job manually
+  app.post("/api/admin/expiration/run-inactivity", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { dryRun = false } = req.body;
+      
+      const result = await expirationEngine.runInactivityExpiration(dryRun);
+      
+      res.json({
+        success: result.success,
+        dryRun,
+        usersAffected: result.usersAffected,
+        bucketsExpired: result.bucketsExpired,
+        totalPointsExpired: result.totalPointsExpired,
+        errors: result.errors,
+      });
+    } catch (error) {
+      console.error("Error running inactivity expiration job:", error);
+      res.status(500).json({ error: "Failed to run inactivity expiration job" });
+    }
+  });
+
+  // GET /api/admin/users/:userId/buckets - Get user's buckets (admin)
+  app.get("/api/admin/users/:userId/buckets", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const buckets = await bucketService.getUserOpenBuckets(userId);
+      const expirationInfo = await bucketService.getUserExpirationInfo(userId);
+      
+      res.json({
+        userId,
+        buckets: buckets.map(b => ({
+          id: b.id,
+          sourceType: b.sourceType,
+          originalAmount: b.originalAmount,
+          remainingAmount: b.remainingAmount,
+          earnedAt: b.earnedAt,
+          expiresAt: b.expiresAt,
+          status: b.status,
+        })),
+        summary: expirationInfo,
+      });
+    } catch (error) {
+      console.error("Error getting user buckets:", error);
+      res.status(500).json({ error: "Failed to get user buckets" });
     }
   });
 

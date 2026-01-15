@@ -98,3 +98,54 @@ Complete Stripe-integrated purchase flow for PackPTS bundles:
 - **Services**: `storeCheckoutService.ts` (session creation/status), `stripePurchaseService.ts` (webhook handling)
 - **Endpoints**: GET `/api/store/products`, POST `/api/store/checkout`, GET `/api/store/checkout/:sessionId`
 - **Frontend Pages**: `/store` (bundle selection), `/store/success` (payment confirmation with polling), `/store/cancel` (cancellation)
+
+### PackPTS Expiration System
+A bucket-based expiration system manages point lifecycle while preserving the append-only ledger audit trail:
+
+#### Core Concepts
+- **Buckets**: Each point award creates a "bucket" with source type, amount, and optional expiration date
+- **FIFO Spending**: Points are spent from earliest-expiring buckets first to minimize waste
+- **Source Types**: EARNED (gameplay, including STREAK_EARN), PURCHASED (store), BONUS (promos), ADJUSTMENT (admin)
+- **Ledger Integration**: EXPIRE entry type records expirations in the immutable audit trail
+- **Partial Expiration**: If wallet balance < bucket amount, only available balance is expired and bucket stays OPEN for future expiration runs
+
+#### Expiration Policy (configurable via admin)
+- **Earned points**: Expire 365 days after earning (default)
+- **Purchased points**: Expire 730 days after purchase (2 years, or never)
+- **Bonus points**: Expire 90 days after grant
+- **Inactivity rule**: Optional - expires old points after 90 days of no wallet activity
+- **Grace period**: 7-day warning before expiration for user notifications
+
+#### Database Tables
+- `packpts_bucket`: Tracks individual point awards with remaining balances and expiration dates
+- `packpts_expiration_policy`: Configurable expiration rules per source type
+- `packpts_spend_allocation`: Records which buckets were debited during each spend (FIFO audit trail)
+- `packpts_liability_snapshot`: Daily accounting snapshots for breakage/liability reporting
+
+#### Services
+- `bucketService.ts`: Bucket CRUD, FIFO allocation, expiration info queries
+- `expirationEngine.ts`: Daily expiration job, inactivity expiration, liability snapshots
+
+#### API Endpoints
+- **User endpoints**:
+  - GET `/api/wallet/expirations`: Balance breakdown, upcoming expirations, policy info
+  - GET `/api/wallet/expiring-soon`: Points in grace period (urgent warnings)
+- **Admin endpoints**:
+  - GET/PUT `/api/admin/expiration/policy`: View/update expiration policy
+  - GET `/api/admin/expiration/liability`: Latest liability snapshot
+  - POST `/api/admin/expiration/snapshot`: Create new liability snapshot
+  - POST `/api/admin/expiration/run`: Manually run date-based expiration job
+  - POST `/api/admin/expiration/run-inactivity`: Manually run inactivity expiration job
+  - GET `/api/admin/users/:userId/buckets`: View user's individual buckets
+
+#### Running Expiration Jobs
+Jobs can be run manually or scheduled:
+```bash
+# Run date-based and inactivity expiration
+npx tsx server/jobs/runExpiration.ts
+
+# Create daily liability snapshot
+npx tsx server/jobs/runLiabilitySnapshot.ts
+```
+
+For production, schedule these as daily cron jobs (recommended: 2 AM server time).
