@@ -19,6 +19,7 @@ import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
+import { identityService } from "./services/identityService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
@@ -1078,6 +1079,290 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error resetting password:", error);
       res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
+  // ========================================
+  // IDENTITY LINKING ENDPOINTS
+  // ========================================
+
+  // Get pending link challenge info for current session
+  app.get("/api/auth/link/challenge", async (req: any, res) => {
+    try {
+      const challengeId = req.session?.pendingLinkChallengeId;
+      if (!challengeId) {
+        return res.status(404).json({ error: "No pending link challenge" });
+      }
+
+      const challenge = await identityService.getPendingChallenge(challengeId);
+      if (!challenge) {
+        return res.status(404).json({ error: "Challenge not found" });
+      }
+
+      if (identityService.isChallengeExpired(challenge)) {
+        return res.status(410).json({ error: "Challenge expired", code: "CHALLENGE_EXPIRED" });
+      }
+
+      const targetUser = challenge.targetUserId 
+        ? await storage.getUser(challenge.targetUserId)
+        : null;
+
+      res.json({
+        id: challenge.id,
+        provider: challenge.provider,
+        email: challenge.email ? identityService.maskEmail(challenge.email) : null,
+        targetUsername: targetUser?.username || null,
+        expiresAt: challenge.expiresAt,
+        isHighValue: challenge.targetUserId 
+          ? await identityService.isHighValue(challenge.targetUserId)
+          : false,
+      });
+    } catch (error) {
+      console.error("Error getting link challenge:", error);
+      res.status(500).json({ error: "Failed to get challenge" });
+    }
+  });
+
+  // Confirm link after user proves ownership (logged in)
+  app.post("/api/auth/link/confirm", async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const challengeId = req.session?.pendingLinkChallengeId;
+      if (!challengeId) {
+        return res.status(404).json({ error: "No pending link challenge" });
+      }
+
+      const challenge = await identityService.getPendingChallenge(challengeId);
+      if (!challenge) {
+        return res.status(404).json({ error: "Challenge not found" });
+      }
+
+      if (identityService.isChallengeExpired(challenge)) {
+        delete req.session.pendingLinkChallengeId;
+        return res.status(410).json({ error: "Challenge expired", code: "CHALLENGE_EXPIRED" });
+      }
+
+      if (challenge.targetUserId && challenge.targetUserId !== userId) {
+        return res.status(403).json({ 
+          error: "You must log in to the account that owns this email",
+          code: "WRONG_ACCOUNT" 
+        });
+      }
+
+      const existingIdentity = await identityService.findIdentity(
+        challenge.provider as any,
+        challenge.providerUserId
+      );
+      
+      if (existingIdentity && existingIdentity.userId !== userId) {
+        await identityService.logAudit(
+          "LINK_BLOCKED",
+          challenge.provider as any,
+          challenge.providerUserId,
+          "Identity already linked to another user during confirmation",
+          {
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+            actorUserId: userId,
+            targetUserId: existingIdentity.userId,
+          }
+        );
+        return res.status(409).json({ error: "Identity already linked to another account", code: "IDENTITY_IN_USE" });
+      }
+
+      const isHighValue = await identityService.isHighValue(userId);
+      if (isHighValue && !req.session?.magicLinkVerified) {
+        return res.status(403).json({ 
+          error: "High-value account requires email verification",
+          code: "VERIFICATION_REQUIRED",
+          requiresMagicLink: true
+        });
+      }
+
+      if (!existingIdentity) {
+        await identityService.createIdentity(
+          userId,
+          challenge.provider as any,
+          challenge.providerUserId,
+          challenge.email,
+          false
+        );
+      }
+
+      await identityService.completePendingLinkChallenge(challengeId, userId);
+
+      await identityService.logAudit(
+        "LINK_COMPLETED",
+        challenge.provider as any,
+        challenge.providerUserId,
+        "Challenge resolved via login",
+        {
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          actorUserId: userId,
+          targetUserId: userId,
+        }
+      );
+
+      delete req.session.pendingLinkChallengeId;
+      delete req.session.magicLinkVerified;
+
+      res.json({ success: true, message: "Account linked successfully" });
+    } catch (error) {
+      console.error("Error confirming link:", error);
+      res.status(500).json({ error: "Failed to confirm link" });
+    }
+  });
+
+  // Send magic link email for high-value account verification
+  app.post("/api/auth/link/send-magic", async (req: any, res) => {
+    try {
+      const challengeId = req.session?.pendingLinkChallengeId;
+      if (!challengeId) {
+        return res.status(404).json({ error: "No pending link challenge" });
+      }
+
+      const challenge = await identityService.getPendingChallenge(challengeId);
+      if (!challenge) {
+        return res.status(404).json({ error: "Challenge not found" });
+      }
+
+      if (identityService.isChallengeExpired(challenge)) {
+        return res.status(410).json({ error: "Challenge expired", code: "CHALLENGE_EXPIRED" });
+      }
+
+      if (!challenge.email || !challenge.targetUserId) {
+        return res.status(400).json({ error: "Cannot send magic link - no email or target user" });
+      }
+
+      const targetUser = await storage.getUser(challenge.targetUserId);
+      if (!targetUser || targetUser.email !== challenge.email) {
+        return res.status(400).json({ error: "Email does not match target account" });
+      }
+
+      const { token } = await identityService.setMagicLinkToken(challengeId);
+      
+      const baseUrl = `${req.protocol}://${req.hostname}`;
+      const magicLink = `${baseUrl}/api/auth/link/verify?token=${token}`;
+
+      const { sendEmail } = await import("./services/emailService");
+      await sendEmail({
+        to: challenge.email,
+        subject: "Verify your PackPoints account link",
+        html: `
+          <h2>Link Verification Request</h2>
+          <p>Someone is trying to link a new login method to your PackPoints account.</p>
+          <p>If this was you, click the link below to verify:</p>
+          <p><a href="${magicLink}">Verify and Link Account</a></p>
+          <p>This link expires in 15 minutes.</p>
+          <p>If you did not request this, you can safely ignore this email.</p>
+        `,
+        text: `Link Verification Request\n\nClick here to verify: ${magicLink}\n\nThis link expires in 15 minutes.`,
+      });
+
+      await identityService.logAudit(
+        "MAGIC_LINK_SENT",
+        challenge.provider as any,
+        challenge.providerUserId,
+        "Magic link sent for verification",
+        {
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          targetUserId: challenge.targetUserId,
+          metadata: { email: challenge.email },
+        }
+      );
+
+      res.json({ success: true, message: "Verification email sent" });
+    } catch (error) {
+      console.error("Error sending magic link:", error);
+      res.status(500).json({ error: "Failed to send verification email" });
+    }
+  });
+
+  // Verify magic link token
+  app.get("/api/auth/link/verify", async (req: any, res) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        return res.redirect("/auth/error?code=INVALID_TOKEN");
+      }
+
+      const challenge = await identityService.findChallengeByMagicToken(token);
+      if (!challenge) {
+        return res.redirect("/auth/error?code=INVALID_TOKEN");
+      }
+
+      if (identityService.isMagicLinkExpired(challenge)) {
+        return res.redirect("/auth/error?code=TOKEN_EXPIRED");
+      }
+
+      req.session.pendingLinkChallengeId = challenge.id;
+      req.session.magicLinkVerified = true;
+
+      await identityService.logAudit(
+        "MAGIC_LINK_VERIFIED",
+        challenge.provider as any,
+        challenge.providerUserId,
+        "Magic link verified",
+        {
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          targetUserId: challenge.targetUserId || undefined,
+        }
+      );
+
+      req.session.save((err: any) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.redirect("/auth/error?code=SESSION_ERROR");
+        }
+        res.redirect("/auth/link-required?verified=true");
+      });
+    } catch (error) {
+      console.error("Error verifying magic link:", error);
+      res.redirect("/auth/error?code=VERIFICATION_FAILED");
+    }
+  });
+
+  // Cancel pending link challenge
+  app.post("/api/auth/link/cancel", async (req: any, res) => {
+    try {
+      if (req.session?.pendingLinkChallengeId) {
+        await identityService.clearPendingLinkChallenge(req.sessionID);
+        delete req.session.pendingLinkChallengeId;
+        delete req.session.magicLinkVerified;
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error canceling link challenge:", error);
+      res.status(500).json({ error: "Failed to cancel" });
+    }
+  });
+
+  // Get user's linked identities
+  app.get("/api/auth/identities", async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const identities = await identityService.getIdentitiesForUser(userId);
+      res.json(identities.map(i => ({
+        id: i.id,
+        provider: i.provider,
+        email: i.email,
+        emailVerified: i.emailVerified,
+        createdAt: i.createdAt,
+      })));
+    } catch (error) {
+      console.error("Error getting identities:", error);
+      res.status(500).json({ error: "Failed to get identities" });
     }
   });
 

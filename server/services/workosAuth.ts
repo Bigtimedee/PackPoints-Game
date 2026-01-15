@@ -2,6 +2,8 @@ import { WorkOS } from "@workos-inc/node";
 import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
+import { identityService } from "./identityService";
+import type { IdentityProvider } from "@shared/schema";
 
 let workos: WorkOS | null = null;
 
@@ -23,10 +25,19 @@ interface WorkosSession {
   workosState?: string;
   workosUserId?: string;
   localUserId?: string;
+  linkIntent?: boolean;
+  pendingLinkChallengeId?: string;
 }
 
 declare module "express-session" {
   interface SessionData extends WorkosSession {}
+}
+
+function getClientInfo(req: Request) {
+  return {
+    ipAddress: req.ip || req.socket.remoteAddress,
+    userAgent: req.headers["user-agent"],
+  };
 }
 
 export function registerWorkosRoutes(app: Express): void {
@@ -41,6 +52,10 @@ export function registerWorkosRoutes(app: Express): void {
 
       const state = crypto.randomBytes(32).toString("hex");
       (req.session as any).workosState = state;
+
+      if (req.query.linkIntent === "true" && req.session?.localUserId) {
+        (req.session as any).linkIntent = true;
+      }
 
       const redirectUri = process.env.WORKOS_REDIRECT_URI || 
         `${req.protocol}://${req.hostname}/api/auth/workos/callback`;
@@ -63,6 +78,9 @@ export function registerWorkosRoutes(app: Express): void {
     const cleanupState = () => {
       delete (req.session as any).workosState;
     };
+
+    const clientInfo = getClientInfo(req);
+    const provider: IdentityProvider = "workos";
 
     try {
       const workosInstance = getWorkOS();
@@ -95,9 +113,8 @@ export function registerWorkosRoutes(app: Express): void {
       }
 
       cleanupState();
-
-      const redirectUri = process.env.WORKOS_REDIRECT_URI || 
-        `${req.protocol}://${req.hostname}/api/auth/workos/callback`;
+      const isLinkIntent = (req.session as any).linkIntent === true;
+      delete (req.session as any).linkIntent;
 
       const { user: workosUser } = await workosInstance.userManagement.authenticateWithCode({
         clientId,
@@ -105,47 +122,159 @@ export function registerWorkosRoutes(app: Express): void {
         codeVerifier: undefined,
       });
 
-      let localUser = await storage.getUserByWorkosId(workosUser.id);
+      const providerUserId = workosUser.id;
+      const providerEmail = workosUser.email || null;
+      const providerEmailVerified = workosUser.emailVerified || false;
 
-      if (!localUser && workosUser.email) {
-        const existingByEmail = await storage.getUserByEmail(workosUser.email);
-        if (existingByEmail) {
-          if (existingByEmail.workosUserId && existingByEmail.workosUserId !== workosUser.id) {
-            console.error("[WorkOS] Email already linked to different WorkOS account");
-            return res.redirect("/auth-error?reason=email_conflict");
+      if (isLinkIntent && req.session?.localUserId) {
+        const existingIdentity = await identityService.findIdentity(provider, providerUserId);
+        
+        if (existingIdentity && existingIdentity.userId !== req.session.localUserId) {
+          await identityService.logAudit(
+            "LINK_BLOCKED",
+            provider,
+            providerUserId,
+            "Identity already linked to another user",
+            { ...clientInfo, actorUserId: req.session.localUserId, targetUserId: existingIdentity.userId }
+          );
+          return res.redirect("/auth/error?code=IDENTITY_IN_USE");
+        }
+
+        if (!existingIdentity) {
+          await identityService.createIdentity(
+            req.session.localUserId,
+            provider,
+            providerUserId,
+            providerEmail,
+            providerEmailVerified
+          );
+          
+          await identityService.logAudit(
+            "LINK_COMPLETED",
+            provider,
+            providerUserId,
+            "User-initiated link while logged in",
+            { ...clientInfo, actorUserId: req.session.localUserId, targetUserId: req.session.localUserId }
+          );
+        }
+
+        req.session.save((err) => {
+          if (err) {
+            console.error("[WorkOS] Session save error:", err);
+            return res.redirect("/auth-error?reason=session_error");
           }
-          await storage.linkWorkosUser(existingByEmail.id, workosUser.id);
-          localUser = await storage.getUser(existingByEmail.id);
-        }
-      }
-
-      if (!localUser) {
-        const username = workosUser.email?.split("@")[0] || `user_${workosUser.id.slice(0, 8)}`;
-        let uniqueUsername = username;
-        let counter = 1;
-        while (await storage.getUserByUsername(uniqueUsername)) {
-          uniqueUsername = `${username}${counter}`;
-          counter++;
-        }
-
-        const newUser = await storage.createWorkosUser({
-          workosUserId: workosUser.id,
-          email: workosUser.email || undefined,
-          firstName: workosUser.firstName || undefined,
-          lastName: workosUser.lastName || undefined,
-          profileImageUrl: workosUser.profilePictureUrl || undefined,
-          username: uniqueUsername,
+          res.redirect("/settings/accounts?linked=1");
         });
-        localUser = newUser;
+        return;
       }
 
-      if (!localUser) {
-        console.error("[WorkOS] Failed to create or find local user");
+      const existingIdentity = await identityService.findIdentity(provider, providerUserId);
+      
+      if (existingIdentity) {
+        const localUser = await storage.getUser(existingIdentity.userId);
+        if (!localUser) {
+          console.error("[WorkOS] Identity exists but user not found:", existingIdentity.userId);
+          return res.redirect("/auth-error?reason=user_not_found");
+        }
+
+        (req.session as any).workosUserId = workosUser.id;
+        (req.session as any).localUserId = localUser.id;
+
+        await identityService.logAudit(
+          "LINK_COMPLETED",
+          provider,
+          providerUserId,
+          "Logged in via existing identity",
+          { ...clientInfo, targetUserId: localUser.id }
+        );
+
+        req.session.save((err) => {
+          if (err) {
+            console.error("[WorkOS] Session save error:", err);
+            return res.redirect("/auth-error?reason=session_error");
+          }
+          res.redirect("/auth/success");
+        });
+        return;
+      }
+
+      if (providerEmail) {
+        const existingUsers = await identityService.findUsersByEmail(providerEmail);
+        
+        if (existingUsers.length > 0) {
+          const targetUser = existingUsers[0];
+
+          const challenge = await identityService.createPendingLinkChallenge(
+            req.sessionID,
+            provider,
+            providerUserId,
+            providerEmail,
+            targetUser.id
+          );
+
+          (req.session as any).pendingLinkChallengeId = challenge.id;
+          (req.session as any).workosUserId = workosUser.id;
+
+          await identityService.logAudit(
+            "LINK_BLOCKED",
+            provider,
+            providerUserId,
+            "Email collision - requires proof of ownership",
+            { ...clientInfo, targetUserId: targetUser.id, metadata: { email: providerEmail } }
+          );
+
+          req.session.save((err) => {
+            if (err) {
+              console.error("[WorkOS] Session save error:", err);
+              return res.redirect("/auth-error?reason=session_error");
+            }
+            const maskedEmail = identityService.maskEmail(providerEmail);
+            res.redirect(`/auth/link-required?provider=workos&email=${encodeURIComponent(maskedEmail)}`);
+          });
+          return;
+        }
+      }
+
+      const username = workosUser.email?.split("@")[0] || `user_${workosUser.id.slice(0, 8)}`;
+      let uniqueUsername = username;
+      let counter = 1;
+      while (await storage.getUserByUsername(uniqueUsername)) {
+        uniqueUsername = `${username}${counter}`;
+        counter++;
+      }
+
+      const newUser = await storage.createWorkosUser({
+        workosUserId: workosUser.id,
+        email: workosUser.email || undefined,
+        firstName: workosUser.firstName || undefined,
+        lastName: workosUser.lastName || undefined,
+        profileImageUrl: workosUser.profilePictureUrl || undefined,
+        username: uniqueUsername,
+      });
+
+      if (!newUser) {
+        console.error("[WorkOS] Failed to create local user");
         return res.redirect("/auth-error?reason=user_creation_failed");
       }
 
+      await identityService.createIdentity(
+        newUser.id,
+        provider,
+        providerUserId,
+        providerEmail,
+        providerEmailVerified
+      );
+
+      await identityService.logAudit(
+        "LINK_COMPLETED",
+        provider,
+        providerUserId,
+        "New user created",
+        { ...clientInfo, targetUserId: newUser.id }
+      );
+
       (req.session as any).workosUserId = workosUser.id;
-      (req.session as any).localUserId = localUser.id;
+      (req.session as any).localUserId = newUser.id;
 
       req.session.save((err) => {
         if (err) {

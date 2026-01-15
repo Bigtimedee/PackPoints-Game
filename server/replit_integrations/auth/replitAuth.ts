@@ -3,10 +3,12 @@ import { Strategy, type VerifyFunction } from "openid-client/passport";
 
 import passport from "passport";
 import session from "express-session";
-import type { Express, RequestHandler } from "express";
+import type { Express, RequestHandler, Request, Response, NextFunction } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { authStorage } from "./storage";
+import { identityService } from "../../services/identityService";
+import type { IdentityProvider } from "@shared/schema";
 
 const getOidcConfig = memoize(
   async () => {
@@ -51,14 +53,11 @@ function updateUserSession(
   user.expires_at = user.claims?.exp;
 }
 
-async function upsertUser(claims: any) {
-  await authStorage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
-  });
+function getClientInfo(req: Request) {
+  return {
+    ipAddress: req.ip || req.socket.remoteAddress,
+    userAgent: req.headers["user-agent"],
+  };
 }
 
 export async function setupAuth(app: Express) {
@@ -68,21 +67,20 @@ export async function setupAuth(app: Express) {
   app.use(passport.session());
 
   const config = await getOidcConfig();
+  const provider: IdentityProvider = "replit";
 
   const verify: VerifyFunction = async (
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
+    const user: any = {};
     updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
+    user.pendingLinkCheck = true;
     verified(null, user);
   };
 
-  // Keep track of registered strategies
   const registeredStrategies = new Set<string>();
 
-  // Helper function to ensure strategy exists for a domain
   const ensureStrategy = (domain: string) => {
     const strategyName = `replitauth:${domain}`;
     if (!registeredStrategies.has(strategyName)) {
@@ -104,6 +102,9 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
+    if (req.query.linkIntent === "true" && (req.session as any)?.localUserId) {
+      (req.session as any).linkIntent = true;
+    }
     ensureStrategy(req.hostname);
     passport.authenticate(`replitauth:${req.hostname}`, {
       prompt: "login consent",
@@ -111,11 +112,169 @@ export async function setupAuth(app: Express) {
     })(req, res, next);
   });
 
-  app.get("/api/callback", (req, res, next) => {
+  app.get("/api/callback", (req: Request, res: Response, next: NextFunction) => {
     ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      successReturnToOrRedirect: "/",
-      failureRedirect: "/auth-error",
+    
+    passport.authenticate(`replitauth:${req.hostname}`, async (err: any, user: any, info: any) => {
+      if (err || !user) {
+        console.error("[Replit Auth] Authentication failed:", err || info);
+        return res.redirect("/auth-error?reason=auth_failed");
+      }
+
+      const clientInfo = getClientInfo(req);
+      const claims = user.claims;
+      const providerUserId = claims?.sub;
+      const providerEmail = claims?.email || null;
+      
+      if (!providerUserId) {
+        console.error("[Replit Auth] No sub claim in token");
+        return res.redirect("/auth-error?reason=no_sub_claim");
+      }
+
+      const isLinkIntent = (req.session as any).linkIntent === true;
+      delete (req.session as any).linkIntent;
+
+      if (isLinkIntent && (req.session as any)?.localUserId) {
+        const existingIdentity = await identityService.findIdentity(provider, providerUserId);
+        
+        if (existingIdentity && existingIdentity.userId !== (req.session as any).localUserId) {
+          await identityService.logAudit(
+            "LINK_BLOCKED",
+            provider,
+            providerUserId,
+            "Identity already linked to another user",
+            { ...clientInfo, actorUserId: (req.session as any).localUserId, targetUserId: existingIdentity.userId }
+          );
+          return res.redirect("/auth/error?code=IDENTITY_IN_USE");
+        }
+
+        if (!existingIdentity) {
+          await identityService.createIdentity(
+            (req.session as any).localUserId,
+            provider,
+            providerUserId,
+            providerEmail,
+            true
+          );
+          
+          await identityService.logAudit(
+            "LINK_COMPLETED",
+            provider,
+            providerUserId,
+            "User-initiated link while logged in",
+            { ...clientInfo, actorUserId: (req.session as any).localUserId, targetUserId: (req.session as any).localUserId }
+          );
+        }
+
+        req.login(user, (loginErr) => {
+          if (loginErr) {
+            console.error("[Replit Auth] Login error:", loginErr);
+            return res.redirect("/auth-error?reason=login_failed");
+          }
+          res.redirect("/settings/accounts?linked=1");
+        });
+        return;
+      }
+
+      const existingIdentity = await identityService.findIdentity(provider, providerUserId);
+      
+      if (existingIdentity) {
+        const localUser = await authStorage.getUser(existingIdentity.userId);
+        if (!localUser) {
+          console.error("[Replit Auth] Identity exists but user not found:", existingIdentity.userId);
+          return res.redirect("/auth-error?reason=user_not_found");
+        }
+
+        (req.session as any).localUserId = localUser.id;
+
+        await identityService.logAudit(
+          "LINK_COMPLETED",
+          provider,
+          providerUserId,
+          "Logged in via existing identity",
+          { ...clientInfo, targetUserId: localUser.id }
+        );
+
+        req.login(user, (loginErr) => {
+          if (loginErr) {
+            console.error("[Replit Auth] Login error:", loginErr);
+            return res.redirect("/auth-error?reason=login_failed");
+          }
+          res.redirect("/");
+        });
+        return;
+      }
+
+      if (providerEmail) {
+        const existingUsers = await identityService.findUsersByEmail(providerEmail);
+        
+        if (existingUsers.length > 0) {
+          const targetUser = existingUsers[0];
+
+          const challenge = await identityService.createPendingLinkChallenge(
+            req.sessionID,
+            provider,
+            providerUserId,
+            providerEmail,
+            targetUser.id
+          );
+
+          (req.session as any).pendingLinkChallengeId = challenge.id;
+
+          await identityService.logAudit(
+            "LINK_BLOCKED",
+            provider,
+            providerUserId,
+            "Email collision - requires proof of ownership",
+            { ...clientInfo, targetUserId: targetUser.id, metadata: { email: providerEmail } }
+          );
+
+          req.login(user, (loginErr) => {
+            if (loginErr) {
+              console.error("[Replit Auth] Login error:", loginErr);
+              return res.redirect("/auth-error?reason=login_failed");
+            }
+            const maskedEmail = identityService.maskEmail(providerEmail);
+            res.redirect(`/auth/link-required?provider=replit&email=${encodeURIComponent(maskedEmail)}`);
+          });
+          return;
+        }
+      }
+
+      await authStorage.upsertUser({
+        id: providerUserId,
+        email: providerEmail,
+        firstName: claims?.first_name,
+        lastName: claims?.last_name,
+        profileImageUrl: claims?.profile_image_url,
+      });
+
+      await identityService.createIdentity(
+        providerUserId,
+        provider,
+        providerUserId,
+        providerEmail,
+        true
+      );
+
+      await identityService.logAudit(
+        "LINK_COMPLETED",
+        provider,
+        providerUserId,
+        "New user created",
+        { ...clientInfo, targetUserId: providerUserId }
+      );
+
+      (req.session as any).localUserId = providerUserId;
+
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          console.error("[Replit Auth] Login error:", loginErr);
+          return res.redirect("/auth-error?reason=login_failed");
+        }
+        res.redirect("/");
+      });
+
     })(req, res, next);
   });
 

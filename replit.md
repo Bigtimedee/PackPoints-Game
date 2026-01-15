@@ -51,7 +51,7 @@ A comprehensive wallet system tracks user points (PackPTS) using a ledger-first 
 - **Goldin Auctions & eBay**: Planned integration for point redemption.
 
 ### Authentication System
-- **Dual auth support**: Replit OAuth and local username/password
+- **Multi-provider support**: Replit OAuth, WorkOS, and local username/password
 - **Admin Portal login**: `/admin` page supports both Replit OAuth and username/password
 - **Password Reset**: Token-based system with 1-hour expiry
   - Tokens stored in `password_reset_tokens` table
@@ -59,6 +59,49 @@ A comprehensive wallet system tracks user points (PackPTS) using a ledger-first 
   - Email service: `server/services/emailService.ts` (supports HTML and plain text)
   - Pages: `/forgot-password`, `/reset-password?token=...`
   - Endpoints: POST `/api/auth/forgot-password`, GET `/api/auth/validate-reset-token`, POST `/api/auth/reset-password`
+
+### Identity Linking System
+Secure account linking across authentication providers to prevent account takeover:
+
+#### Security Policy
+- **Never auto-link on email alone**: Even if a provider reports a verified email, users must prove ownership
+- **Three-case OAuth callback flow**:
+  - Case A: Existing identity → auto-login (user has linked this provider before)
+  - Case B: Email collision → challenge required (email matches existing user, must verify)
+  - Case C: No match → new user creation
+- **High-value account protection**: Accounts exceeding thresholds require magic-link verification (not just password)
+
+#### High-Value Thresholds (configurable in shared/schema.ts)
+- `HIGH_VALUE_PACKPTS_THRESHOLD`: 10,000 PackPTS
+- Or: User has Stripe customer ID
+- Or: User has redemption history
+
+#### Database Tables
+- `user_identities`: Links users to external identity providers (provider, providerUserId, email, verified)
+- `pending_link_challenges`: Temporary challenges for unresolved link attempts (15-minute expiry)
+- `identity_link_audit`: Full audit trail of all linking events
+
+#### Audit Event Types
+- `LINK_REQUESTED`: User initiated linking via OAuth
+- `LINK_BLOCKED`: Attempted auto-link blocked (email collision)
+- `LINK_COMPLETED`: Successful link after verification
+- `MAGIC_LINK_SENT`: Verification email sent
+- `MAGIC_LINK_VERIFIED`: User clicked valid magic link
+
+#### Services
+- `identityService.ts`: Core linking logic, challenge management, magic-link creation/verification
+
+#### API Endpoints
+- GET `/api/auth/link/challenge`: Get current pending link challenge info
+- POST `/api/auth/link/confirm`: Confirm link after password login (or magic-link for high-value)
+- POST `/api/auth/link/send-magic`: Send magic-link verification email
+- GET `/api/auth/link/verify`: Verify magic-link token (redirects back to link-required page)
+- POST `/api/auth/link/cancel`: Cancel pending link challenge
+- GET `/api/auth/identities`: List user's linked identities
+
+#### Frontend Pages
+- `/auth/link-required`: Resolution page with login and email verification tabs
+- `/auth/error`: Error page with linking-specific error codes (IDENTITY_IN_USE, CHALLENGE_EXPIRED, VERIFICATION_REQUIRED, etc.)
 
 ### Admin Tools
 The admin system provides comprehensive management capabilities:

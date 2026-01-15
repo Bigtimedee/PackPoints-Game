@@ -988,3 +988,122 @@ export const DEFAULT_MILESTONE_BONUSES: Record<string, number> = {
 };
 
 export const MAX_DAILY_STREAK_REWARD = 250; // cap for day > 30
+
+// ============================================
+// IDENTITY LINKING SYSTEM - Multi-provider Auth Security
+// ============================================
+
+// Identity provider types
+export const identityProviders = ["local", "replit", "workos"] as const;
+export type IdentityProvider = typeof identityProviders[number];
+
+// User identities - links provider accounts to PackPoints users
+export const userIdentities = pgTable("user_identities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  provider: varchar("provider", { length: 20 }).notNull(), // local, replit, workos
+  providerUserId: varchar("provider_user_id", { length: 255 }).notNull(), // external ID from provider
+  email: varchar("email", { length: 255 }), // email as reported by provider
+  emailVerified: boolean("email_verified").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_user_identities_user").on(table.userId),
+  index("idx_user_identities_provider_id").on(table.provider, table.providerUserId),
+  index("idx_user_identities_email").on(table.email),
+]);
+
+export const insertUserIdentitySchema = createInsertSchema(userIdentities).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertUserIdentity = z.infer<typeof insertUserIdentitySchema>;
+export type UserIdentity = typeof userIdentities.$inferSelect;
+
+// Pending link challenge status
+export const linkChallengeStatuses = ["PENDING", "COMPLETED", "CANCELED", "EXPIRED"] as const;
+export type LinkChallengeStatus = typeof linkChallengeStatuses[number];
+
+// Pending link challenges - tracks verification flows for email collisions
+export const pendingLinkChallenges = pgTable("pending_link_challenges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id", { length: 255 }).notNull(), // express session id
+  provider: varchar("provider", { length: 20 }).notNull(),
+  providerUserId: varchar("provider_user_id", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  targetUserId: varchar("target_user_id").references(() => users.id), // filled once user proves ownership
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+  magicLinkToken: varchar("magic_link_token", { length: 128 }).unique(), // hashed token for magic link
+  magicLinkExpiresAt: timestamp("magic_link_expires_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_pending_link_session").on(table.sessionId),
+  index("idx_pending_link_provider").on(table.provider, table.providerUserId),
+  index("idx_pending_link_status").on(table.status),
+  index("idx_pending_link_magic_token").on(table.magicLinkToken),
+]);
+
+export const insertPendingLinkChallengeSchema = createInsertSchema(pendingLinkChallenges).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPendingLinkChallenge = z.infer<typeof insertPendingLinkChallengeSchema>;
+export type PendingLinkChallenge = typeof pendingLinkChallenges.$inferSelect;
+
+// Identity link audit actions
+export const linkAuditActions = [
+  "LINK_REQUESTED",
+  "LINK_BLOCKED",
+  "LINK_COMPLETED",
+  "LINK_FAILED",
+  "MERGE_REQUESTED",
+  "MAGIC_LINK_SENT",
+  "MAGIC_LINK_VERIFIED",
+] as const;
+export type LinkAuditAction = typeof linkAuditActions[number];
+
+// Identity link audit - tracks all linking attempts and outcomes
+export const identityLinkAudit = pgTable("identity_link_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actorUserId: varchar("actor_user_id").references(() => users.id), // who initiated (logged in user, may be null)
+  targetUserId: varchar("target_user_id").references(() => users.id), // target account
+  provider: varchar("provider", { length: 20 }).notNull(),
+  providerUserId: varchar("provider_user_id", { length: 255 }).notNull(),
+  action: varchar("action", { length: 30 }).notNull(), // LINK_REQUESTED, LINK_BLOCKED, LINK_COMPLETED, etc.
+  reason: text("reason"), // why the action occurred
+  ipAddress: varchar("ip_address", { length: 45 }), // IPv4 or IPv6
+  userAgent: text("user_agent"),
+  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_link_audit_actor").on(table.actorUserId),
+  index("idx_link_audit_target").on(table.targetUserId),
+  index("idx_link_audit_provider").on(table.provider, table.providerUserId),
+  index("idx_link_audit_action").on(table.action),
+  index("idx_link_audit_created").on(table.createdAt),
+]);
+
+export const insertIdentityLinkAuditSchema = createInsertSchema(identityLinkAudit).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertIdentityLinkAudit = z.infer<typeof insertIdentityLinkAuditSchema>;
+export type IdentityLinkAudit = typeof identityLinkAudit.$inferSelect;
+
+// High-value account threshold configuration
+export const HIGH_VALUE_PACKPTS_THRESHOLD = 10000;
+export const HIGH_VALUE_REQUIRE_MAGIC_LINK = true;
+
+// Link challenge expiration time (15 minutes)
+export const LINK_CHALLENGE_EXPIRY_MINUTES = 15;
+
+// Magic link expiration time (15 minutes)
+export const MAGIC_LINK_EXPIRY_MINUTES = 15;
