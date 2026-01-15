@@ -1,0 +1,151 @@
+Implement a “500 Founders Pass” viral invite system that supports exclusivity marketing and urgency.
+
+STACK (do not change)
+- Frontend: React 18 + Vite + TS + Tailwind + shadcn/ui + React Query + Wouter
+- Backend: Express + TS + Passport + express-session
+- DB: Postgres (Neon) + Drizzle ORM
+- Auth: existing Replit OAuth + local username/password
+
+MARKETING REQUIREMENTS
+1) While Founders spots remain (< 500 ACTIVE users), every ACTIVE Founder should receive a shareable “Founders Pass” link.
+2) The pass link is one-time use (consumed when a new user successfully activates an account).
+3) The pass link should be hyperlinked and easy to share (copy button + share UI).
+4) When the 500th ACTIVE account is created:
+   - all unconsumed passes are automatically deactivated immediately
+   - all pass links stop working (redirect to waitlist page with a message)
+
+SECURITY + CONSISTENCY CONSTRAINTS (NON-NEGOTIABLE)
+- One-time use must be enforced server-side with atomic DB transaction (no race conditions).
+- Pass consumption and user activation must be one atomic unit: either both happen or neither happens.
+- Pass links must be unguessable (random token) and must not expose user IDs.
+- Passes must be automatically invalid once founders cap reached (globally disabled).
+- Strong audit logging of pass creation, view, and consumption.
+- Abuse protections: rate limit pass redemption attempts per IP/device; block repeated failures.
+- Passes may not be used to bypass bans or create multiple accounts for the same person/device.
+
+DATA MODEL (Drizzle migrations)
+A) app_config table (if not present)
+- key text pk, value jsonb
+Seed:
+- founders_gate = { "enabled": true, "maxActiveUsers": 500 }
+
+B) founders_pass table (new)
+- id uuid pk
+- token_hash text UNIQUE (store hashed token, not raw)
+- issued_to_user_id uuid fk users.id
+- status enum('ACTIVE','CONSUMED','DEACTIVATED','EXPIRED')
+- created_at timestamp
+- consumed_at timestamp nullable
+- consumed_by_user_id uuid nullable
+- consumed_by_ip text nullable
+- consumed_by_device_fingerprint text nullable
+- deactivated_at timestamp nullable
+Indexes: (issued_to_user_id), (status)
+
+C) founders_pass_events (new, append-only audit)
+- id uuid pk
+- pass_id uuid fk founders_pass.id
+- event_type enum('ISSUED','LINK_VIEWED','REDEEM_ATTEMPT','REDEEM_SUCCESS','REDEEM_FAIL','DEACTIVATED_GLOBAL','DEACTIVATED_INDIVIDUAL')
+- ip text, user_agent text, device_fingerprint text nullable
+- metadata jsonb
+- created_at timestamp
+
+D) users additions (if missing)
+- status enum('PENDING','ACTIVE','WAITLISTED','BANNED')
+- device_fingerprint text nullable
+
+BACKEND LOGIC
+1) Issue a pass to each ACTIVE Founder (while cap not reached)
+- When a user becomes ACTIVE (activation flow), if current ACTIVE count < maxActiveUsers:
+   - create a founders_pass with status ACTIVE for that user (if not already has an ACTIVE pass)
+   - generate a secure random token (32+ bytes), store only token_hash (e.g., sha256(token+pepper))
+   - return raw token once to client to build share link
+- Store a server secret PEPPER in env: FOUNDERS_PASS_PEPPER=
+
+2) Public pass redemption endpoints
+A) GET /p/:token  (public)
+- Validate token by hashing and looking up token_hash
+- If not found or status not ACTIVE: redirect to /waitlist with message “Pass is invalid or already used.”
+- If founders gate is disabled or ACTIVE count >= maxActiveUsers: redirect /waitlist with “Founders is full; passes are deactivated.”
+- Otherwise:
+  - record LINK_VIEWED event
+  - set req.session.foundersPassTokenHash = token_hash (do NOT store raw token)
+  - redirect to frontend route /redeem (or /signup) with a friendly message
+
+B) POST /api/founders-pass/redeem  (public but session-bound)
+- Requires: req.session.foundersPassTokenHash exists
+- Requires: user is NOT logged in yet OR is in PENDING state; this endpoint is used during signup flow
+- This endpoint should NOT activate a user by itself; it should mark “pass approved” in session:
+   - req.session.foundersPassApproved = true
+   - return { ok:true }
+
+3) Atomic consumption during activation (critical)
+Modify the user activation function (tryActivateUser) so that:
+- In ONE DB transaction with proper locking:
+  a) Read founders_gate config and count ACTIVE users (or lock a counter row)
+  b) If ACTIVE >= maxActiveUsers:
+       - set founders gate as “closed” in config (optional but preferred)
+       - deactivate ALL remaining ACTIVE passes (bulk update status=DEACTIVATED, deactivated_at=now)
+       - return activated=false (WAITLISTED)
+  c) If session indicates foundersPassApproved + token_hash present:
+       - Look up pass by token_hash FOR UPDATE
+       - Verify pass.status == ACTIVE
+       - If not ACTIVE: fail activation -> WAITLISTED and clear session flags
+       - Else:
+           i) Mark pass CONSUMED with consumed_by_user_id=user.id, consumed_at, IP, device fingerprint
+           ii) Set user.status=ACTIVE and activated_at=now
+           iii) Create new pass for this newly activated Founder IF (after activation) ACTIVE count is still < maxActiveUsers
+  d) Else (no pass):
+       - Normal founders activation allowed only if ACTIVE < maxActiveUsers AND founders_gate.enabled=true
+       - If allowed: set ACTIVE
+       - If not: set WAITLISTED
+- Ensure pass consumption and activation are all-or-nothing.
+
+4) Global deactivation trigger
+- When the transaction detects the 500th activation (ACTIVE count becomes == maxActiveUsers):
+   - Immediately bulk update any founders_pass where status=ACTIVE -> DEACTIVATED
+   - Write founders_pass_events for DEACTIVATED_GLOBAL (can be summarized per batch)
+   - After this point, all /p/:token should redirect to waitlist.
+
+5) Rate limiting + abuse controls
+- Rate limit GET /p/:token and POST /api/founders-pass/redeem per IP and per device fingerprint.
+- After N failed attempts, temporarily block IP/device.
+- Do not allow redemption if device fingerprint already associated with an ACTIVE account (prevent farming).
+
+6) Admin tooling
+Admin endpoints (protected):
+- GET /api/admin/founders/passes?status=ACTIVE|CONSUMED|DEACTIVATED
+- POST /api/admin/founders/deactivate-all (manual kill switch)
+- POST /api/admin/founders/override-pass (invalidate a specific pass)
+
+FRONTEND IMPLEMENTATION
+1) “Founders Pass” component in user profile/dashboard
+- If user is ACTIVE and founders gate not closed:
+  - Show “Your Founders Pass (1 use)” with a share link:
+    APP_BASE_URL + '/p/' + rawToken
+  - Copy-to-clipboard button
+  - Display “One-time use. Expires when the 500th Founder joins.”
+- If gate closed:
+  - Show “Founders Passes are now closed.”
+
+2) Redeem page /redeem (public)
+- Shows a message: “You’ve been invited. Create your PackPTS account to claim this pass.”
+- Contains signup/login CTA.
+- On signup completion, the backend activation will consume the pass automatically if session approved.
+
+3) UX messaging
+- Add a public “Founders counter” on landing: “X / 500 claimed”
+- If cap reached: “Founders closed — join waitlist.”
+
+TESTS (must implement)
+- Pass is one-time: second attempt fails
+- Race: two users attempting same pass concurrently; only one succeeds
+- When 500th account activates, all remaining passes become DEACTIVATED and /p/:token redirects
+- Activation and pass consumption are atomic (no orphaned consumed pass without ACTIVE user)
+- Rate limit triggers after repeated invalid tokens
+
+DELIVERABLES
+- Drizzle migrations + seed config
+- Backend routes + activation integration + audit logging
+- Frontend UI for share/redeem
+- README: how Founders Pass works, and how to test locally
