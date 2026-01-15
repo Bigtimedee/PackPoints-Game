@@ -28,6 +28,7 @@ import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
+import * as marketplaceService from "./services/marketplace";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -3960,6 +3961,198 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error approving user:", error);
       res.status(500).json({ error: "Failed to approve user" });
+    }
+  });
+
+  // ==================== LIVE LISTINGS MARKETPLACE ====================
+  
+  // GET /api/marketplace/search - Search live listings from eBay and Goldin
+  app.get("/api/marketplace/search", async (req: any, res) => {
+    try {
+      const q = req.query.q as string;
+      if (!q || q.trim().length === 0) {
+        return res.status(400).json({ error: "Search query required" });
+      }
+      if (q.length > 200) {
+        return res.status(400).json({ error: "Search query too long" });
+      }
+
+      const source = (req.query.source as string) || "all";
+      if (!["all", "ebay", "goldin"].includes(source)) {
+        return res.status(400).json({ error: "Invalid source" });
+      }
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+      const sort = (req.query.sort as string) || "relevance";
+      if (!["relevance", "priceAsc", "priceDesc", "endingSoon"].includes(sort)) {
+        return res.status(400).json({ error: "Invalid sort" });
+      }
+
+      const result = await marketplaceService.searchMarketplace({
+        q: q.trim(),
+        source: source as any,
+        limit,
+        sort: sort as any,
+      });
+
+      const baseUrl = process.env.APP_BASE_URL || `https://${req.get("host")}`;
+      const listingsWithOutboundUrls = result.listings.map((listing) => ({
+        ...listing,
+        outboundUrl: marketplaceService.generateListingWithOutboundUrl(listing, baseUrl),
+      }));
+
+      res.json({
+        ...result,
+        listings: listingsWithOutboundUrls,
+      });
+    } catch (error) {
+      console.error("Error searching marketplace:", error);
+      res.status(500).json({ error: "Failed to search marketplace" });
+    }
+  });
+
+  // GET /out/ebay/:listingId - Tracked outbound redirect for eBay
+  app.get("/out/ebay/:listingId", async (req: any, res) => {
+    try {
+      const { listingId } = req.params;
+      const token = req.query.token as string;
+
+      if (!token) {
+        return res.status(400).json({ error: "Invalid redirect token" });
+      }
+
+      const payload = marketplaceService.validateOutboundToken(token);
+      if (!payload || payload.source !== "ebay" || payload.listingId !== listingId) {
+        return res.status(400).json({ error: "Invalid or expired token" });
+      }
+
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const sessionId = req.sessionID || null;
+      const ip = req.ip || req.headers["x-forwarded-for"] || null;
+      const userAgent = req.headers["user-agent"] || null;
+
+      await marketplaceService.logOutboundClick(
+        "ebay",
+        listingId,
+        payload.destinationUrl,
+        userId,
+        sessionId,
+        ip,
+        userAgent
+      );
+
+      const finalUrl = marketplaceService.applyEpnTracking(payload.destinationUrl, userId);
+      res.redirect(302, finalUrl);
+    } catch (error) {
+      console.error("Error processing eBay outbound redirect:", error);
+      res.status(500).json({ error: "Redirect failed" });
+    }
+  });
+
+  // GET /out/goldin/:listingId - Tracked outbound redirect for Goldin
+  app.get("/out/goldin/:listingId", async (req: any, res) => {
+    try {
+      const { listingId } = req.params;
+      const token = req.query.token as string;
+
+      if (!token) {
+        return res.status(400).json({ error: "Invalid redirect token" });
+      }
+
+      const payload = marketplaceService.validateOutboundToken(token);
+      if (!payload || payload.source !== "goldin" || payload.listingId !== listingId) {
+        return res.status(400).json({ error: "Invalid or expired token" });
+      }
+
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const sessionId = req.sessionID || null;
+      const ip = req.ip || req.headers["x-forwarded-for"] || null;
+      const userAgent = req.headers["user-agent"] || null;
+
+      await marketplaceService.logOutboundClick(
+        "goldin",
+        listingId,
+        payload.destinationUrl,
+        userId,
+        sessionId,
+        ip,
+        userAgent
+      );
+
+      res.redirect(302, payload.destinationUrl);
+    } catch (error) {
+      console.error("Error processing Goldin outbound redirect:", error);
+      res.status(500).json({ error: "Redirect failed" });
+    }
+  });
+
+  // Admin: Create/Update Goldin curated listing
+  app.post("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id, title, description, imageUrl, destinationUrl, endsAt, priceDisplay, tags, isActive } = req.body;
+
+      if (!title || !destinationUrl) {
+        return res.status(400).json({ error: "Title and destination URL required" });
+      }
+
+      if (id) {
+        const updated = await marketplaceService.updateCuratedListing(id, {
+          title,
+          description,
+          imageUrl,
+          destinationUrl,
+          endsAt: endsAt ? new Date(endsAt) : null,
+          priceDisplay,
+          tags,
+          isActive: isActive !== false,
+        });
+        if (!updated) {
+          return res.status(404).json({ error: "Listing not found" });
+        }
+        return res.json(updated);
+      }
+
+      const listing = await marketplaceService.createCuratedListing({
+        title,
+        description,
+        imageUrl,
+        destinationUrl,
+        endsAt: endsAt ? new Date(endsAt) : null,
+        priceDisplay,
+        tags,
+        isActive: isActive !== false,
+      });
+
+      res.status(201).json(listing);
+    } catch (error) {
+      console.error("Error creating/updating Goldin listing:", error);
+      res.status(500).json({ error: "Failed to save listing" });
+    }
+  });
+
+  // Admin: Get all Goldin curated listings
+  app.get("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const listings = await marketplaceService.getAllCuratedListingsAdmin();
+      res.json(listings);
+    } catch (error) {
+      console.error("Error getting Goldin listings:", error);
+      res.status(500).json({ error: "Failed to get listings" });
+    }
+  });
+
+  // Admin: Delete (deactivate) Goldin curated listing
+  app.delete("/api/admin/goldin/listings/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await marketplaceService.deleteCuratedListing(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Listing not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting Goldin listing:", error);
+      res.status(500).json({ error: "Failed to delete listing" });
     }
   });
 
