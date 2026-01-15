@@ -37,6 +37,7 @@ import AuthSuccess from "@/pages/auth-success";
 import LinkRequired from "@/pages/link-required";
 import Waitlist from "@/pages/waitlist";
 import Invite from "@/pages/invite";
+import Redeem from "@/pages/redeem";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -132,6 +133,7 @@ function Router() {
       <Route path="/auth-error" component={AuthError} />
       <Route path="/waitlist" component={Waitlist} />
       <Route path="/invite" component={Invite} />
+      <Route path="/redeem" component={Redeem} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />

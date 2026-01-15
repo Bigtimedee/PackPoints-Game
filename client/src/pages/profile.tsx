@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Zap, Trophy, Target, Clock, Star, TrendingUp, Settings } from "lucide-react";
 import { StreakCard, StreakCalendar } from "@/components/streak-card";
+import { FoundersPassCard } from "@/components/founders-pass-card";
 
 interface ProfileStats {
   username: string;
@@ -145,6 +146,10 @@ export default function Profile() {
 
         <div className="mb-8">
           <StreakCard />
+        </div>
+
+        <div className="mb-8">
+          <FoundersPassCard />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
