@@ -495,7 +495,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/start", requireActiveUser, async (req: any, res) => {
+  app.post("/api/game/start", async (req: any, res) => {
     try {
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -509,6 +509,18 @@ export async function registerRoutes(
       
       if (mode !== "solo" && isGuest) {
         return res.status(401).json({ error: "Authentication required for this game mode" });
+      }
+      
+      // Founders Cap: authenticated users must have ACTIVE status
+      if (userId) {
+        const user = await storage.getUser(userId);
+        if (user && user.status !== "ACTIVE") {
+          return res.status(403).json({ 
+            error: "Account not activated",
+            code: "WAITLISTED",
+            status: user.status,
+          });
+        }
       }
       
       let tier: "FREE" | "PRO" | "LEGEND" = "FREE";
