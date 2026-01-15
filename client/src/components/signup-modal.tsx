@@ -69,6 +69,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/guest/pending-points"] });
+      // Invalidate profile stats so the profile page fetches fresh data with new session
+      queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
       onOpenChange(false);
       form.reset();
       if (onSuccess) onSuccess();

@@ -70,6 +70,8 @@ export default function AuthPage() {
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
+      // Invalidate profile stats so the profile page fetches fresh data with new session
+      queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
       toast({
         title: "Account created!",
         description: "Welcome to PackPoints. Start playing to earn PackPTS!",
@@ -96,6 +98,8 @@ export default function AuthPage() {
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
+      // Invalidate profile stats so the profile page fetches fresh data with new session
+      queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
       toast({
         title: "Welcome back!",
         description: "You've successfully logged in.",
