@@ -4,6 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -12,10 +15,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock } from "lucide-react";
+import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
 import type { RedemptionOption } from "@shared/schema";
 
 interface RedemptionCardProps {
@@ -135,12 +139,173 @@ interface RedemptionResponse {
   error?: string;
 }
 
+interface LiveListing {
+  id: string;
+  source: "ebay" | "goldin";
+  title: string;
+  priceCents: number | null;
+  currency: string;
+  imageUrl: string | null;
+  destinationUrl: string;
+  condition: string | null;
+  endsAt: string | null;
+  outboundUrl?: string;
+}
+
+interface LiveListingsResponse {
+  listings: LiveListing[];
+  sources: { ebay: boolean; goldin: boolean };
+  cached: boolean;
+}
+
+function formatTimeRemaining(endsAt: string | null): string {
+  if (!endsAt) return "";
+  const end = new Date(endsAt);
+  const now = new Date();
+  const diffMs = end.getTime() - now.getTime();
+  if (diffMs < 0) return "Ended";
+  
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+interface LiveListingCardProps {
+  listing: LiveListing;
+}
+
+function LiveListingCard({ listing }: LiveListingCardProps) {
+  const platformIcon = listing.source === "goldin" ? (
+    <span className="font-bold text-xs">G</span>
+  ) : (
+    <SiEbay className="h-4 w-4" />
+  );
+
+  const platformName = listing.source === "goldin" ? "Goldin" : "eBay";
+  const platformColor = listing.source === "goldin" ? "bg-amber-500" : "bg-blue-500";
+  const timeRemaining = formatTimeRemaining(listing.endsAt);
+  const isEndingSoon = listing.endsAt && new Date(listing.endsAt).getTime() - Date.now() < 24 * 60 * 60 * 1000;
+
+  return (
+    <Card 
+      className="overflow-visible hover-elevate"
+      data-testid={`card-listing-${listing.id}`}
+    >
+      <div className="aspect-[4/3] bg-gradient-to-br from-muted to-muted/50 rounded-t-md relative overflow-hidden">
+        {listing.imageUrl ? (
+          <img 
+            src={listing.imageUrl} 
+            alt={listing.title}
+            className="w-full h-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <ShoppingBag className="h-16 w-16 text-muted-foreground/30" />
+          </div>
+        )}
+        <Badge className={`absolute top-3 right-3 ${platformColor} text-white gap-1`}>
+          {platformIcon}
+          {platformName}
+        </Badge>
+        {isEndingSoon && timeRemaining && (
+          <Badge variant="destructive" className="absolute top-3 left-3 gap-1">
+            <Timer className="h-3 w-3" />
+            {timeRemaining}
+          </Badge>
+        )}
+      </div>
+      <CardContent className="p-4 space-y-3">
+        <div>
+          <h3 className="font-semibold line-clamp-2 text-sm" data-testid={`text-listing-title-${listing.id}`}>
+            {listing.title}
+          </h3>
+          {listing.condition && (
+            <p className="text-xs text-muted-foreground mt-1">{listing.condition}</p>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {listing.priceCents !== null ? (
+            <div className="flex items-center gap-1 font-mono">
+              <DollarSign className="h-4 w-4 text-accent" />
+              <span className="font-semibold text-accent" data-testid={`text-price-${listing.id}`}>
+                {(listing.priceCents / 100).toFixed(2)} {listing.currency}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">Price TBD</span>
+          )}
+          {timeRemaining && !isEndingSoon && (
+            <Badge variant="secondary" className="gap-1 text-xs">
+              <Timer className="h-3 w-3" />
+              {timeRemaining}
+            </Badge>
+          )}
+        </div>
+        <Button 
+          variant="outline" 
+          className="w-full gap-2" 
+          size="sm"
+          asChild
+          data-testid={`button-view-listing-${listing.id}`}
+        >
+          <a 
+            href={listing.outboundUrl || "#"} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            aria-label={`View ${listing.title} on ${platformName}`}
+          >
+            View Listing
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LiveListingsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      {[...Array(8)].map((_, i) => (
+        <Card key={i}>
+          <Skeleton className="aspect-[4/3] rounded-t-md" />
+          <CardContent className="p-4 space-y-3">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+            <div className="flex justify-between">
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+            <Skeleton className="h-8 w-full" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export default function Marketplace() {
   const { toast } = useToast();
   const [selectedOption, setSelectedOption] = useState<RedemptionOption | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [lastRedemption, setLastRedemption] = useState<RedemptionResponse | null>(null);
+  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeSearch, setActiveSearch] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "ebay" | "goldin">("all");
+  const [sortBy, setSortBy] = useState<"relevance" | "priceAsc" | "priceDesc" | "endingSoon">("relevance");
 
   const { data: redemptions, isLoading } = useQuery<RedemptionOption[]>({
     queryKey: ["/api/marketplace"],
@@ -152,6 +317,24 @@ export default function Marketplace() {
 
   const { data: walletData } = useQuery<WalletData>({
     queryKey: ["/api/wallet"],
+  });
+
+  const { data: liveListingsData, isLoading: isLoadingListings, error: listingsError } = useQuery<LiveListingsResponse>({
+    queryKey: ["/api/marketplace/search", activeSearch, sourceFilter, sortBy],
+    queryFn: async () => {
+      if (!activeSearch) return { listings: [], sources: { ebay: false, goldin: false }, cached: false };
+      const params = new URLSearchParams({
+        q: activeSearch,
+        source: sourceFilter,
+        sort: sortBy,
+        limit: "24",
+      });
+      const res = await fetch(`/api/marketplace/search?${params}`);
+      if (!res.ok) throw new Error("Failed to search listings");
+      return res.json();
+    },
+    enabled: activeSearch.length > 0,
+    staleTime: 5 * 60 * 1000,
   });
 
   const redeemMutation = useMutation({
@@ -204,6 +387,13 @@ export default function Marketplace() {
     }
   };
 
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      setActiveSearch(searchQuery.trim());
+    }
+  };
+
   const tiers = (tiersData?.tiers || []).filter(t => t.isActive);
   const userBalance = walletData?.balance || 0;
 
@@ -213,7 +403,7 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Use your PackPTS as a discount toward real trading cards</p>
+            <p className="text-muted-foreground">Browse live listings and redeem PackPTS for discounts</p>
           </div>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
@@ -228,95 +418,220 @@ export default function Marketplace() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          <aside className="lg:col-span-1">
+        <Tabs defaultValue="live" className="space-y-6">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="live" data-testid="tab-live-listings">Live Listings</TabsTrigger>
+            <TabsTrigger value="redeem" data-testid="tab-redeem">Redeem PackPTS</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="live" className="space-y-6">
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">How It Works</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
-                    1
+              <CardContent className="p-4">
+                <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search for cards... (e.g., 1987 Topps Mark McGwire)"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10"
+                      data-testid="input-search"
+                    />
                   </div>
-                  <p className="text-muted-foreground">Earn PackPoints by correctly identifying players in games</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
-                    2
+                  <div className="flex gap-2">
+                    <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as any)}>
+                      <SelectTrigger className="w-32" data-testid="select-source">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Sources</SelectItem>
+                        <SelectItem value="ebay">eBay Only</SelectItem>
+                        <SelectItem value="goldin">Goldin Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+                      <SelectTrigger className="w-36" data-testid="select-sort">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="relevance">Relevance</SelectItem>
+                        <SelectItem value="priceAsc">Price: Low to High</SelectItem>
+                        <SelectItem value="priceDesc">Price: High to Low</SelectItem>
+                        <SelectItem value="endingSoon">Ending Soon</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button type="submit" data-testid="button-search">
+                      <Search className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <p className="text-muted-foreground">Browse available redemption options from Goldin and eBay</p>
-                </div>
-                <div className="flex gap-3">
-                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
-                    3
-                  </div>
-                  <p className="text-muted-foreground">Use your PackPTS as a discount toward the card of your choice</p>
-                </div>
+                </form>
               </CardContent>
             </Card>
 
-            <Card className="mt-4">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Discount Tiers</CardTitle>
-                <CardDescription className="text-xs">PackPTS = discounts, not cash</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                {tiers.length > 0 ? (
-                  tiers.map((tier) => {
-                    const actualPayout = Math.floor(tier.usdCapCents * (tier.effectiveRatePct / 100));
-                    return (
-                      <div key={tier.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted" data-testid={`tier-${tier.id}`}>
-                        <span className="font-mono">{tier.packptsRequired.toLocaleString()} PTS</span>
-                        <span className="font-mono text-accent">Up to ${(actualPayout / 100).toFixed(2)} off</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <>
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-9 w-full" />
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </aside>
-
-          <div className="lg:col-span-3">
-            <div className="flex items-center gap-2 mb-6">
-              <Badge variant="outline">All Platforms</Badge>
-              <Badge variant="secondary">Goldin</Badge>
-              <Badge variant="secondary">eBay</Badge>
-            </div>
-
-            {isLoading ? (
-              <MarketplaceSkeleton />
-            ) : redemptions && redemptions.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {redemptions.map((option) => (
-                  <RedemptionCard 
-                    key={option.id} 
-                    option={option} 
-                    userBalance={userBalance}
-                    onRedeem={handleRedeemClick}
-                    isRedeeming={redeemMutation.isPending && selectedOption?.id === option.id}
-                  />
-                ))}
-              </div>
+            {!activeSearch ? (
+              <Card>
+                <CardContent className="p-12 text-center space-y-4">
+                  <Search className="h-12 w-12 mx-auto text-muted-foreground" />
+                  <div>
+                    <h3 className="font-semibold text-lg">Search for Cards</h3>
+                    <p className="text-muted-foreground">
+                      Find live listings from eBay and Goldin Auctions. Use your PackPTS as a discount when you purchase!
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : isLoadingListings ? (
+              <LiveListingsSkeleton />
+            ) : listingsError ? (
+              <Card>
+                <CardContent className="p-12 text-center space-y-4">
+                  <AlertCircle className="h-12 w-12 mx-auto text-destructive" />
+                  <div>
+                    <h3 className="font-semibold text-lg">Search Failed</h3>
+                    <p className="text-muted-foreground">
+                      Unable to search listings right now. Please try again later.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : liveListingsData?.listings && liveListingsData.listings.length > 0 ? (
+              <>
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <p className="text-sm text-muted-foreground">
+                    Found {liveListingsData.listings.length} listings for "{activeSearch}"
+                    {liveListingsData.cached && (
+                      <span className="ml-2 text-xs">(cached)</span>
+                    )}
+                  </p>
+                  <div className="flex gap-2">
+                    {liveListingsData.sources.ebay && (
+                      <Badge variant="secondary" className="gap-1">
+                        <SiEbay className="h-3 w-3" />
+                        eBay
+                      </Badge>
+                    )}
+                    {liveListingsData.sources.goldin && (
+                      <Badge variant="secondary" className="gap-1">
+                        <span className="font-bold text-xs">G</span>
+                        Goldin
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {liveListingsData.listings.map((listing) => (
+                    <LiveListingCard key={listing.id} listing={listing} />
+                  ))}
+                </div>
+                <AffiliateDisclosure variant="full" className="mt-6" />
+              </>
             ) : (
               <Card>
                 <CardContent className="p-12 text-center space-y-4">
                   <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground" />
                   <div>
-                    <h3 className="font-semibold text-lg">No Redemptions Available</h3>
-                    <p className="text-muted-foreground">Check back soon for new redemption options!</p>
+                    <h3 className="font-semibold text-lg">No Listings Found</h3>
+                    <p className="text-muted-foreground">
+                      Try a different search term or check back later.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
             )}
-          </div>
-        </div>
+          </TabsContent>
+
+          <TabsContent value="redeem">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+              <aside className="lg:col-span-1">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg">How It Works</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm">
+                    <div className="flex gap-3">
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                        1
+                      </div>
+                      <p className="text-muted-foreground">Earn PackPoints by correctly identifying players in games</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                        2
+                      </div>
+                      <p className="text-muted-foreground">Browse available redemption options from Goldin and eBay</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                        3
+                      </div>
+                      <p className="text-muted-foreground">Use your PackPTS as a discount toward the card of your choice</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="mt-4">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg">Discount Tiers</CardTitle>
+                    <CardDescription className="text-xs">PackPTS = discounts, not cash</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {tiers.length > 0 ? (
+                      tiers.map((tier) => {
+                        const actualPayout = Math.floor(tier.usdCapCents * (tier.effectiveRatePct / 100));
+                        return (
+                          <div key={tier.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted" data-testid={`tier-${tier.id}`}>
+                            <span className="font-mono">{tier.packptsRequired.toLocaleString()} PTS</span>
+                            <span className="font-mono text-accent">Up to ${(actualPayout / 100).toFixed(2)} off</span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <>
+                        <Skeleton className="h-9 w-full" />
+                        <Skeleton className="h-9 w-full" />
+                        <Skeleton className="h-9 w-full" />
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </aside>
+
+              <div className="lg:col-span-3">
+                <div className="flex items-center gap-2 mb-6">
+                  <Badge variant="outline">All Platforms</Badge>
+                  <Badge variant="secondary">Goldin</Badge>
+                  <Badge variant="secondary">eBay</Badge>
+                </div>
+
+                {isLoading ? (
+                  <MarketplaceSkeleton />
+                ) : redemptions && redemptions.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {redemptions.map((option) => (
+                      <RedemptionCard 
+                        key={option.id} 
+                        option={option} 
+                        userBalance={userBalance}
+                        onRedeem={handleRedeemClick}
+                        isRedeeming={redeemMutation.isPending && selectedOption?.id === option.id}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <Card>
+                    <CardContent className="p-12 text-center space-y-4">
+                      <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground" />
+                      <div>
+                        <h3 className="font-semibold text-lg">No Redemptions Available</h3>
+                        <p className="text-muted-foreground">Check back soon for new redemption options!</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>

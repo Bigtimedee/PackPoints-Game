@@ -76,7 +76,19 @@ Integrated with Stripe, this system handles the purchase of PackPTS bundles. It 
 ### Third-party APIs
 - **Card Hedge API**: Primary source for baseball card images.
 - **Zyla API**: Fallback for card images.
-- **Goldin Auctions & eBay**: Planned integration for point redemption.
+- **eBay Browse API**: Live listing search via OAuth 2.0 client credentials flow.
+- **Goldin Auctions**: Curated listings managed via admin interface.
+
+### Live Listings Marketplace
+A unified marketplace search feature aggregates listings from eBay and Goldin Auctions. Key components:
+- **Database Tables**: `marketplace_cache` (TTL-based caching), `outbound_clicks` (click tracking), `external_listings_snapshot` (historical data), `goldin_curated_listings` (admin-managed feed)
+- **eBay Integration**: OAuth 2.0 client credentials, Browse API search with sandbox/production support via EBAY_ENV
+- **Goldin Feed**: DB-backed curated listings with admin CRUD endpoints
+- **Outbound Tracking**: HMAC-signed redirect tokens with 1-hour expiry, click logging with session/IP attribution
+- **Affiliate Tracking**: eBay Partner Network (EPN) parameter injection via EBAY_EPN_CAMPAIGN_ID and EBAY_EPN_TRACKING_ID
+- **Rate Limiting**: In-memory rate limiter (20 requests/min per IP) for search endpoint
+- **Frontend**: Tabbed marketplace page with search, source/sort filters, listing cards, and affiliate disclosure
+- **Environment Variables**: EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_ENV, EBAY_EPN_CAMPAIGN_ID, EBAY_EPN_TRACKING_ID, OUTBOUND_SECRET
 
 ### Authentication System
 - **WorkOS**: For multi-provider authentication.

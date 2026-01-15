@@ -3,10 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Coins, Crown, Star, ShieldCheck, Sparkles, CreditCard } from "lucide-react";
+import { Zap, Coins, Crown, Star, ShieldCheck, Sparkles, CreditCard, ShoppingBag, ArrowRight } from "lucide-react";
+import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { WalletExpirationCard } from "@/components/wallet-expiration-card";
+import { Link } from "wouter";
 
 interface PackPtsBundle {
   sku: string;
@@ -248,6 +250,36 @@ export default function Store() {
                 </div>
               </div>
             </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-8 max-w-2xl mx-auto">
+          <Card className="overflow-hidden">
+            <div className="p-6 bg-gradient-to-r from-amber-500/10 via-blue-500/10 to-purple-500/10">
+              <div className="flex flex-col md:flex-row items-center gap-6">
+                <div className="shrink-0 flex gap-2">
+                  <div className="p-3 rounded-full bg-amber-500/20">
+                    <span className="font-bold text-lg text-amber-500">G</span>
+                  </div>
+                  <div className="p-3 rounded-full bg-blue-500/20">
+                    <SiEbay className="h-5 w-5 text-blue-500" />
+                  </div>
+                </div>
+                <div className="flex-1 text-center md:text-left">
+                  <h3 className="font-semibold text-lg mb-1">Browse Live Listings</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Search real-time listings from Goldin Auctions and eBay. Use your PackPTS as a discount!
+                  </p>
+                </div>
+                <Link href="/marketplace">
+                  <Button className="gap-2" data-testid="button-browse-marketplace">
+                    <ShoppingBag className="h-4 w-4" />
+                    Marketplace
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
           </Card>
         </div>
       </div>

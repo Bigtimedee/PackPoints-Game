@@ -3965,9 +3965,45 @@ export async function registerRoutes(
   });
 
   // ==================== LIVE LISTINGS MARKETPLACE ====================
+
+  // Simple in-memory rate limiter for marketplace search (20 requests per minute per IP)
+  const marketplaceRateLimiter = new Map<string, { count: number; resetAt: number }>();
+  const MARKETPLACE_RATE_LIMIT = 20;
+  const MARKETPLACE_RATE_WINDOW_MS = 60 * 1000;
+  
+  const checkMarketplaceRateLimit = (req: any): boolean => {
+    const key = req.ip || req.headers["x-forwarded-for"] || "unknown";
+    const now = Date.now();
+    const existing = marketplaceRateLimiter.get(key);
+    
+    if (!existing || now >= existing.resetAt) {
+      marketplaceRateLimiter.set(key, { count: 1, resetAt: now + MARKETPLACE_RATE_WINDOW_MS });
+      return true;
+    }
+    
+    if (existing.count >= MARKETPLACE_RATE_LIMIT) {
+      return false;
+    }
+    
+    existing.count++;
+    return true;
+  };
+
+  // Clean up old rate limit entries every 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of marketplaceRateLimiter.entries()) {
+      if (now >= value.resetAt) {
+        marketplaceRateLimiter.delete(key);
+      }
+    }
+  }, 5 * 60 * 1000);
   
   // GET /api/marketplace/search - Search live listings from eBay and Goldin
   app.get("/api/marketplace/search", async (req: any, res) => {
+    if (!checkMarketplaceRateLimit(req)) {
+      return res.status(429).json({ error: "Too many requests. Please wait a minute before searching again." });
+    }
     try {
       const q = req.query.q as string;
       if (!q || q.trim().length === 0) {

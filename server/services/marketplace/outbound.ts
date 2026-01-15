@@ -3,8 +3,15 @@ import { db } from "../../db";
 import { outboundClicks } from "@shared/schema";
 import type { MarketplaceSource, OutboundTokenPayload } from "./types";
 
-const TOKEN_SECRET = process.env.EPN_CUSTOM_ID_SALT || "packpts-outbound-secret";
 const TOKEN_EXPIRY_SECONDS = 3600;
+
+function getTokenSecret(): string {
+  const secret = process.env.OUTBOUND_SECRET;
+  if (!secret) {
+    throw new Error("[Outbound] OUTBOUND_SECRET environment variable is required for secure token signing");
+  }
+  return secret;
+}
 
 export function generateOutboundToken(payload: Omit<OutboundTokenPayload, "expiresAt">): string {
   const tokenPayload: OutboundTokenPayload = {
@@ -15,7 +22,7 @@ export function generateOutboundToken(payload: Omit<OutboundTokenPayload, "expir
   const data = JSON.stringify(tokenPayload);
   const encoded = Buffer.from(data).toString("base64url");
   const signature = crypto
-    .createHmac("sha256", TOKEN_SECRET)
+    .createHmac("sha256", getTokenSecret())
     .update(encoded)
     .digest("base64url");
 
@@ -23,18 +30,18 @@ export function generateOutboundToken(payload: Omit<OutboundTokenPayload, "expir
 }
 
 export function validateOutboundToken(token: string): OutboundTokenPayload | null {
-  const parts = token.split(".");
-  if (parts.length !== 2) return null;
-
-  const [encoded, signature] = parts;
-  const expectedSignature = crypto
-    .createHmac("sha256", TOKEN_SECRET)
-    .update(encoded)
-    .digest("base64url");
-
-  if (signature !== expectedSignature) return null;
-
   try {
+    const parts = token.split(".");
+    if (parts.length !== 2) return null;
+
+    const [encoded, signature] = parts;
+    const expectedSignature = crypto
+      .createHmac("sha256", getTokenSecret())
+      .update(encoded)
+      .digest("base64url");
+
+    if (signature !== expectedSignature) return null;
+
     const data = Buffer.from(encoded, "base64url").toString("utf-8");
     const payload: OutboundTokenPayload = JSON.parse(data);
 
@@ -71,20 +78,25 @@ export async function logOutboundClick(
 }
 
 export function applyEpnTracking(url: string, userId?: string | null): string {
-  const campaignId = process.env.EPN_CAMPAIGN_ID;
+  const campaignId = process.env.EBAY_EPN_CAMPAIGN_ID;
+  const trackingId = process.env.EBAY_EPN_TRACKING_ID || "10001";
   if (!campaignId) return url;
 
   const urlObj = new URL(url);
   urlObj.searchParams.set("campid", campaignId);
-  urlObj.searchParams.set("toolid", "10001");
+  urlObj.searchParams.set("toolid", trackingId);
 
   if (userId) {
-    const customId = crypto
-      .createHmac("sha256", TOKEN_SECRET)
-      .update(userId)
-      .digest("hex")
-      .substring(0, 16);
-    urlObj.searchParams.set("customid", customId);
+    try {
+      const customId = crypto
+        .createHmac("sha256", getTokenSecret())
+        .update(userId)
+        .digest("hex")
+        .substring(0, 16);
+      urlObj.searchParams.set("customid", customId);
+    } catch {
+      // If OUTBOUND_SECRET not set, skip custom ID
+    }
   }
 
   return urlObj.toString();
