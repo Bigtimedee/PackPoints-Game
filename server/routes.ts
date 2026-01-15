@@ -924,7 +924,29 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Invalid username or password" });
       }
       
+      // Transfer any pending guest points to the logged-in user's account
+      if (req.session.pendingPoints) {
+        const pending = req.session.pendingPoints;
+        await storage.updateUserStats(user.id, {
+          pointsEarned: pending.score,
+          correctAnswers: pending.correctAnswers,
+          totalAnswers: pending.totalAnswers,
+        });
+        
+        for (let i = 1; i < pending.gamesPlayed; i++) {
+          await db.update(users).set({
+            gamesPlayed: sql`${users.gamesPlayed} + 1`
+          }).where(eq(users.id, user.id));
+        }
+        
+        delete req.session.pendingPoints;
+        delete req.session.guestId;
+      }
+      
       req.session.localUserId = user.id;
+      
+      // Get updated user stats after transferring points
+      const updatedUser = await storage.getUser(user.id);
       
       // Explicitly save session to ensure it's persisted before response
       req.session.save((err: any) => {
@@ -935,10 +957,10 @@ export async function registerRoutes(
         res.json({ 
           success: true, 
           user: {
-            id: user.id,
-            username: user.username,
-            points: user.points,
-            gamesPlayed: user.gamesPlayed,
+            id: updatedUser!.id,
+            username: updatedUser!.username,
+            points: updatedUser!.points,
+            gamesPlayed: updatedUser!.gamesPlayed,
           }
         });
       });
