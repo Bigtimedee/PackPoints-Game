@@ -8,6 +8,8 @@ import { matchService } from "./services/matchService";
 import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { verifyEmailConfig } from "./services/emailService";
 import { registerWorkosRoutes } from "./services/workosAuth";
+import { initializeStripeConnection, getStripeSync } from "./stripeClient";
+import { runMigrations } from "stripe-replit-sync";
 
 const app = express();
 const httpServer = createServer(app);
@@ -74,6 +76,45 @@ app.use((req, res, next) => {
   
   // Verify email configuration
   await verifyEmailConfig();
+  
+  // Initialize Stripe connection
+  try {
+    const stripeConfigured = await initializeStripeConnection();
+    if (stripeConfigured && process.env.DATABASE_URL) {
+      console.log('Initializing Stripe schema...');
+      await runMigrations({ 
+        databaseUrl: process.env.DATABASE_URL,
+        schema: 'stripe'
+      });
+      console.log('Stripe schema ready');
+      
+      // Get StripeSync instance and set up managed webhook
+      const stripeSync = await getStripeSync();
+      const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+      if (replitDomain) {
+        console.log('Setting up managed webhook...');
+        const webhookBaseUrl = `https://${replitDomain}`;
+        try {
+          const webhookResult = await stripeSync.findOrCreateManagedWebhook(
+            `${webhookBaseUrl}/webhooks/purchases`
+          );
+          console.log('Webhook configured:', webhookResult?.webhook?.url || 'configured');
+        } catch (webhookError) {
+          console.log('Webhook setup error:', webhookError instanceof Error ? webhookError.message : 'Unknown');
+        }
+      } else {
+        console.log('Skipping webhook setup: REPLIT_DOMAINS not configured');
+      }
+      
+      // Sync all existing Stripe data in background
+      console.log('Syncing Stripe data...');
+      stripeSync.syncBackfill()
+        .then(() => console.log('Stripe data synced'))
+        .catch((err: any) => console.error('Error syncing Stripe data:', err));
+    }
+  } catch (error) {
+    console.log('Stripe initialization skipped:', error instanceof Error ? error.message : 'Unknown error');
+  }
   
   // Setup Replit Auth (BEFORE registering other routes)
   await setupAuth(app);

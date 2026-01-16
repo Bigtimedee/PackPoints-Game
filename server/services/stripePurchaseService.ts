@@ -6,24 +6,14 @@ import { walletService } from "./walletService";
 import { storage } from "../storage";
 import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku, isPackPtsSubscription } from "./productMap";
 import { analyticsService } from "./analyticsService";
-
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-
-let stripe: Stripe | null = null;
-
-function getStripe(): Stripe {
-  if (!stripe) {
-    if (!STRIPE_SECRET_KEY) {
-      throw new Error("STRIPE_SECRET_KEY is not configured");
-    }
-    stripe = new Stripe(STRIPE_SECRET_KEY);
-  }
-  return stripe;
-}
+import { getStripeClient, getStripeSync, isStripeConfiguredSync, isStripeConfiguredAsync } from "../stripeClient";
 
 export function isStripeConfigured(): boolean {
-  return !!STRIPE_SECRET_KEY;
+  return isStripeConfiguredSync();
+}
+
+export async function checkStripeConfigured(): Promise<boolean> {
+  return isStripeConfiguredAsync();
 }
 
 export interface WebhookProcessResult {
@@ -47,16 +37,9 @@ class StripePurchaseService {
     payload: string | Buffer,
     signature: string
   ): Promise<Stripe.Event> {
-    if (!STRIPE_WEBHOOK_SECRET) {
-      throw new Error("STRIPE_WEBHOOK_SECRET is not configured");
-    }
-    
-    const stripeClient = getStripe();
-    return stripeClient.webhooks.constructEvent(
-      payload,
-      signature,
-      STRIPE_WEBHOOK_SECRET
-    );
+    const stripeSync = await getStripeSync();
+    const event = await stripeSync.constructWebhookEvent(payload, signature);
+    return event;
   }
 
   async processWebhookEvent(event: Stripe.Event): Promise<WebhookProcessResult> {
@@ -333,7 +316,7 @@ class StripePurchaseService {
       };
     }
 
-    const stripeClient = getStripe();
+    const stripeClient = await getStripeClient();
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
     
     const priceId = subscription.items.data[0]?.price?.id;
@@ -538,7 +521,7 @@ class StripePurchaseService {
     const reversalErrors: string[] = [];
 
     if (paymentIntentId) {
-      const stripeClient = getStripe();
+      const stripeClient = await getStripeClient();
       
       try {
         const sessions = await stripeClient.checkout.sessions.list({
@@ -626,12 +609,13 @@ class StripePurchaseService {
       errors: [],
     };
 
-    if (!isStripeConfigured()) {
+    const configured = await isStripeConfiguredAsync();
+    if (!configured) {
       result.errors.push("Stripe is not configured");
       return result;
     }
 
-    const stripeClient = getStripe();
+    const stripeClient = await getStripeClient();
 
     let customerId = stripeCustomerId;
     if (!customerId) {
@@ -730,7 +714,7 @@ class StripePurchaseService {
 
   private async getSessionLineItems(sessionId: string): Promise<Stripe.LineItem[] | null> {
     try {
-      const stripeClient = getStripe();
+      const stripeClient = await getStripeClient();
       const lineItems = await stripeClient.checkout.sessions.listLineItems(sessionId);
       return lineItems.data;
     } catch (error) {

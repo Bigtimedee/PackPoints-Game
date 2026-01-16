@@ -4,23 +4,14 @@ import { stripeCheckoutSessions, subscriptionProducts, type CheckoutSessionStatu
 import { eq, and } from "drizzle-orm";
 import { PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, PACKPTS_MONTHLY_SKUS, type InternalSku, getSubscriptionProducts } from "./productMap";
 import { analyticsService } from "./analyticsService";
-
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-
-let stripe: Stripe | null = null;
-
-function getStripe(): Stripe {
-  if (!stripe) {
-    if (!STRIPE_SECRET_KEY) {
-      throw new Error("STRIPE_SECRET_KEY is not configured");
-    }
-    stripe = new Stripe(STRIPE_SECRET_KEY);
-  }
-  return stripe;
-}
+import { getStripeClient, isStripeConfiguredSync, isStripeConfiguredAsync } from "../stripeClient";
 
 export function isStripeConfigured(): boolean {
-  return !!STRIPE_SECRET_KEY;
+  return isStripeConfiguredSync();
+}
+
+export async function checkStripeConfigured(): Promise<boolean> {
+  return isStripeConfiguredAsync();
 }
 
 export interface PackPtsBundleProduct {
@@ -94,7 +85,8 @@ class StoreCheckoutService {
     successUrl: string,
     cancelUrl: string
   ): Promise<CheckoutResult> {
-    if (!isStripeConfigured()) {
+    const configured = await isStripeConfiguredAsync();
+    if (!configured) {
       return { success: false, error: "Stripe is not configured" };
     }
 
@@ -111,7 +103,7 @@ class StoreCheckoutService {
     const description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS`;
 
     try {
-      const stripeClient = getStripe();
+      const stripeClient = await getStripeClient();
       
       const session = await stripeClient.checkout.sessions.create({
         mode: "payment",
@@ -259,7 +251,8 @@ class StoreCheckoutService {
     successUrl: string,
     cancelUrl: string
   ): Promise<CheckoutResult> {
-    if (!isStripeConfigured()) {
+    const configured = await isStripeConfiguredAsync();
+    if (!configured) {
       return { success: false, error: "Stripe is not configured" };
     }
 
@@ -297,7 +290,7 @@ class StoreCheckoutService {
     }
 
     try {
-      const stripeClient = getStripe();
+      const stripeClient = await getStripeClient();
       
       // Build checkout session config
       let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
