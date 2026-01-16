@@ -152,6 +152,7 @@ export interface RedemptionOption {
 export const startGameSchema = z.object({
   mode: z.enum(["solo", "1v1", "tournament"]),
   totalQuestions: z.number().min(5).max(20),
+  setId: z.string().uuid().optional(),
 });
 
 export type StartGameRequest = z.infer<typeof startGameSchema>;

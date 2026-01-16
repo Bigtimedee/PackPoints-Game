@@ -29,6 +29,7 @@ import { eq, sql } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
+import * as contextService from "./services/marketplace/context";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -504,7 +505,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
       }
       
-      const { mode, totalQuestions } = parsed.data;
+      const { mode, totalQuestions, setId } = parsed.data;
       
       const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const isGuest = !userId;
@@ -611,6 +612,12 @@ export async function registerRoutes(
             multiplier,
             totalQuestions: session.totalQuestions,
           });
+          
+          if (setId) {
+            await contextService.logMatchContext(userId, session.id, setId).catch((err) => {
+              console.warn("[Context] Failed to log match context:", err);
+            });
+          }
         }
       }
       
