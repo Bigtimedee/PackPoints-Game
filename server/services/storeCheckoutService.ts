@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { db } from "../db";
 import { stripeCheckoutSessions, type CheckoutSessionStatus as DbCheckoutSessionStatus } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, type InternalSku } from "./productMap";
+import { PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, PACKPTS_MONTHLY_SKUS, type InternalSku, getSubscriptionProducts } from "./productMap";
 import { analyticsService } from "./analyticsService";
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -24,6 +24,17 @@ export function isStripeConfigured(): boolean {
 }
 
 export interface PackPtsBundleProduct {
+  sku: string;
+  name: string;
+  packptsGrant: number;
+  priceUsd: number;
+  description: string;
+  formattedPrice: string;
+  valuePerDollar: number;
+  isBestValue: boolean;
+}
+
+export interface PackPtsSubscriptionProduct {
   sku: string;
   name: string;
   packptsGrant: number;
@@ -189,6 +200,111 @@ class StoreCheckoutService {
       .update(stripeCheckoutSessions)
       .set({ status, updatedAt: new Date() })
       .where(eq(stripeCheckoutSessions.stripeSessionId, stripeSessionId));
+  }
+
+  // Get available monthly PackPTS subscription products
+  getPackPtsSubscriptions(): PackPtsSubscriptionProduct[] {
+    return getSubscriptionProducts();
+  }
+
+  // Create a subscription checkout session for monthly PackPTS packages
+  async createSubscriptionCheckoutSession(
+    userId: string,
+    sku: string,
+    successUrl: string,
+    cancelUrl: string
+  ): Promise<CheckoutResult> {
+    if (!isStripeConfigured()) {
+      return { success: false, error: "Stripe is not configured" };
+    }
+
+    if (!PACKPTS_MONTHLY_SKUS.includes(sku as any)) {
+      return { success: false, error: "Invalid SKU - only monthly PackPTS subscriptions are allowed" };
+    }
+
+    const productDef = PRODUCT_DEFINITIONS[sku as InternalSku];
+    if (!productDef || productDef.type !== "SUBSCRIPTION") {
+      return { success: false, error: "Product not found or not a subscription" };
+    }
+    
+    const packptsGrant = (productDef as { packptsGrant: number }).packptsGrant;
+    const description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS every month`;
+
+    try {
+      const stripeClient = getStripe();
+      
+      // Create a subscription checkout session with recurring billing
+      const session = await stripeClient.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: productDef.name,
+                description,
+              },
+              unit_amount: productDef.priceUsd,
+              recurring: {
+                interval: "month",
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        subscription_data: {
+          metadata: {
+            userId,
+            sku,
+            packptsGrant: packptsGrant.toString(),
+          },
+        },
+        metadata: {
+          userId,
+          sku,
+          packptsGrant: packptsGrant.toString(),
+        },
+        client_reference_id: userId,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      });
+
+      await db.insert(stripeCheckoutSessions).values({
+        userId,
+        sku,
+        stripeSessionId: session.id,
+        status: "CREATED",
+        packptsGrant,
+        amountCents: productDef.priceUsd,
+        currency: "usd",
+        metadata: { 
+          productName: productDef.name,
+          isSubscription: true,
+          billingInterval: "month",
+        },
+      });
+
+      await analyticsService.purchaseStarted(userId, {
+        sku,
+        sessionId: session.id,
+        packptsGrant,
+        amountCents: productDef.priceUsd,
+        isSubscription: true,
+      });
+
+      return {
+        success: true,
+        url: session.url!,
+        sessionId: session.id,
+      };
+    } catch (error) {
+      console.error("[StoreCheckout] Error creating subscription checkout session:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to create subscription checkout session",
+      };
+    }
   }
 }
 

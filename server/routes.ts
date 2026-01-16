@@ -2019,6 +2019,65 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // MONTHLY PACKPTS SUBSCRIPTIONS
+  // ============================================
+
+  // Get available monthly PackPTS subscription products
+  app.get("/api/store/subscriptions", async (req: any, res) => {
+    try {
+      const subscriptions = storeCheckoutService.getPackPtsSubscriptions();
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (userId) {
+        await analyticsService.storeViewed(userId, { productCount: subscriptions.length, type: "packpts_subscriptions" });
+      }
+      
+      res.json({ subscriptions });
+    } catch (error) {
+      console.error("Error getting subscription products:", error);
+      res.status(500).json({ error: "Failed to get subscription products" });
+    }
+  });
+
+  // Create subscription checkout session for monthly PackPTS
+  app.post("/api/store/subscribe", isAuthenticated, requireActiveUser, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { sku } = req.body;
+      if (!sku) {
+        return res.status(400).json({ error: "SKU is required" });
+      }
+
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+        : `http://localhost:5000`;
+      
+      const successUrl = `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl}/store/cancel`;
+
+      const result = await storeCheckoutService.createSubscriptionCheckoutSession(
+        userId,
+        sku,
+        successUrl,
+        cancelUrl
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ url: result.url, sessionId: result.sessionId });
+    } catch (error) {
+      console.error("Error creating subscription checkout session:", error);
+      res.status(500).json({ error: "Failed to create subscription checkout session" });
+    }
+  });
+
+  // ============================================
   // ADMIN MANAGEMENT ENDPOINTS
   // ============================================
 

@@ -16,6 +16,11 @@ const STRIPE_PRICE_PACKPTS_6000 = process.env.STRIPE_PRICE_PACKPTS_6000;
 const STRIPE_PRICE_PRO_MONTHLY = process.env.STRIPE_PRICE_PRO_MONTHLY;
 const STRIPE_PRICE_LEGEND_MODE = process.env.STRIPE_PRICE_LEGEND_MODE;
 
+// Monthly PackPTS subscription price IDs
+const STRIPE_PRICE_PACKPTS_MONTHLY_500 = process.env.STRIPE_PRICE_PACKPTS_MONTHLY_500;
+const STRIPE_PRICE_PACKPTS_MONTHLY_2000 = process.env.STRIPE_PRICE_PACKPTS_MONTHLY_2000;
+const STRIPE_PRICE_PACKPTS_MONTHLY_5000 = process.env.STRIPE_PRICE_PACKPTS_MONTHLY_5000;
+
 // Build dynamic store product map
 function buildStoreProductMap(): Record<string, ProductMapping> {
   const map: Record<string, ProductMapping> = {
@@ -83,6 +88,38 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
       type: "ENTITLEMENT",
     },
 
+    // Monthly PackPTS subscription products
+    "com.packpoints.packpts_monthly_500": {
+      internalSku: "PACKPTS_MONTHLY_500",
+      displayName: "Starter Pack (500 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "com.packpoints.packpts_monthly_2000": {
+      internalSku: "PACKPTS_MONTHLY_2000",
+      displayName: "Collector Pack (2,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "com.packpoints.packpts_monthly_5000": {
+      internalSku: "PACKPTS_MONTHLY_5000",
+      displayName: "Legend Pack (5,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "packpts_monthly_500": {
+      internalSku: "PACKPTS_MONTHLY_500",
+      displayName: "Starter Pack (500 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "packpts_monthly_2000": {
+      internalSku: "PACKPTS_MONTHLY_2000",
+      displayName: "Collector Pack (2,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "packpts_monthly_5000": {
+      internalSku: "PACKPTS_MONTHLY_5000",
+      displayName: "Legend Pack (5,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+
     // Static Stripe/Web payment product IDs (fallback patterns)
     "price_packpts_500": {
       internalSku: "PACKPTS_500",
@@ -113,6 +150,23 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
       internalSku: "LEGEND_MODE_PASS",
       displayName: "Legend Mode Pass",
       type: "ENTITLEMENT",
+    },
+    
+    // Monthly PackPTS subscription fallback patterns
+    "price_packpts_monthly_500": {
+      internalSku: "PACKPTS_MONTHLY_500",
+      displayName: "Starter Pack (500 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "price_packpts_monthly_2000": {
+      internalSku: "PACKPTS_MONTHLY_2000",
+      displayName: "Collector Pack (2,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    },
+    "price_packpts_monthly_5000": {
+      internalSku: "PACKPTS_MONTHLY_5000",
+      displayName: "Legend Pack (5,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
     },
   };
 
@@ -150,6 +204,29 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
       internalSku: "LEGEND_MODE_PASS",
       displayName: "Legend Mode Pass",
       type: "ENTITLEMENT",
+    };
+  }
+
+  // Monthly PackPTS subscription dynamic mappings
+  if (STRIPE_PRICE_PACKPTS_MONTHLY_500) {
+    map[STRIPE_PRICE_PACKPTS_MONTHLY_500] = {
+      internalSku: "PACKPTS_MONTHLY_500",
+      displayName: "Starter Pack (500 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    };
+  }
+  if (STRIPE_PRICE_PACKPTS_MONTHLY_2000) {
+    map[STRIPE_PRICE_PACKPTS_MONTHLY_2000] = {
+      internalSku: "PACKPTS_MONTHLY_2000",
+      displayName: "Collector Pack (2,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
+    };
+  }
+  if (STRIPE_PRICE_PACKPTS_MONTHLY_5000) {
+    map[STRIPE_PRICE_PACKPTS_MONTHLY_5000] = {
+      internalSku: "PACKPTS_MONTHLY_5000",
+      displayName: "Legend Pack (5,000 PackPTS/month)",
+      type: "SUBSCRIPTION",
     };
   }
 
@@ -223,10 +300,63 @@ export const PRODUCT_DEFINITIONS = {
     priceUsd: 499, // $4.99 one-time
     description: "Permanent access to Legend Mode",
   },
+  
+  // Monthly PackPTS subscription packages
+  PACKPTS_MONTHLY_500: {
+    name: "Starter Pack",
+    type: "SUBSCRIPTION" as const,
+    packptsGrant: 500,
+    priceUsd: 499, // $4.99/month
+    billingInterval: "month" as const,
+    description: "500 PackPTS credited every month - perfect for casual players",
+  },
+  PACKPTS_MONTHLY_2000: {
+    name: "Collector Pack",
+    type: "SUBSCRIPTION" as const,
+    packptsGrant: 2000,
+    priceUsd: 1499, // $14.99/month
+    billingInterval: "month" as const,
+    description: "2,000 PackPTS credited every month - best value for regular players",
+  },
+  PACKPTS_MONTHLY_5000: {
+    name: "Legend Pack",
+    type: "SUBSCRIPTION" as const,
+    packptsGrant: 5000,
+    priceUsd: 2999, // $29.99/month
+    billingInterval: "month" as const,
+    description: "5,000 PackPTS credited every month - for serious collectors",
+  },
 } as const;
 
-// PackPTS bundle SKUs for store page filtering
+// PackPTS bundle SKUs for store page filtering (one-time purchases)
 export const PACKPTS_BUNDLE_SKUS = ["PACKPTS_1500", "PACKPTS_6000", "PACKPTS_15000"] as const;
 export type PackPtsBundleSku = typeof PACKPTS_BUNDLE_SKUS[number];
 
+// Monthly PackPTS subscription SKUs
+export const PACKPTS_MONTHLY_SKUS = ["PACKPTS_MONTHLY_500", "PACKPTS_MONTHLY_2000", "PACKPTS_MONTHLY_5000"] as const;
+export type PackPtsMonthlySku = typeof PACKPTS_MONTHLY_SKUS[number];
+
 export type InternalSku = keyof typeof PRODUCT_DEFINITIONS;
+
+// Helper to check if a subscription grants PackPTS (vs entitlements)
+export function isPackPtsSubscription(sku: string): boolean {
+  return PACKPTS_MONTHLY_SKUS.includes(sku as PackPtsMonthlySku);
+}
+
+// Get subscription product info
+export function getSubscriptionProducts() {
+  return PACKPTS_MONTHLY_SKUS.map(sku => {
+    const product = PRODUCT_DEFINITIONS[sku];
+    const priceUsd = product.priceUsd / 100;
+    return {
+      sku,
+      name: product.name,
+      packptsGrant: product.packptsGrant,
+      priceUsd: product.priceUsd,
+      description: product.description,
+      formattedPrice: `$${priceUsd.toFixed(2)}/month`,
+      valuePerDollar: Math.round(product.packptsGrant / priceUsd),
+      isBestValue: sku === "PACKPTS_MONTHLY_2000",
+    };
+  });
+}

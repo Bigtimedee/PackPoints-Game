@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Coins, Crown, Star, ShieldCheck, Sparkles, CreditCard, ShoppingBag, ArrowRight } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Zap, Coins, Crown, Star, ShieldCheck, Sparkles, CreditCard, ShoppingBag, ArrowRight, Calendar, RefreshCw } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -24,6 +25,21 @@ interface PackPtsBundle {
 interface StoreProductsResponse {
   products: PackPtsBundle[];
   stripeConfigured: boolean;
+}
+
+interface PackPtsSubscription {
+  sku: string;
+  name: string;
+  packptsGrant: number;
+  priceUsd: number;
+  formattedPrice: string;
+  description: string;
+  valuePerDollar: number;
+  isBestValue: boolean;
+}
+
+interface SubscriptionsResponse {
+  subscriptions: PackPtsSubscription[];
 }
 
 function BundleCard({ 
@@ -101,6 +117,89 @@ function BundleCard({
   );
 }
 
+function SubscriptionCard({ 
+  subscription, 
+  onSubscribe, 
+  isSubscribing 
+}: { 
+  subscription: PackPtsSubscription; 
+  onSubscribe: (sku: string) => void;
+  isSubscribing: boolean;
+}) {
+  const getIcon = () => {
+    if (subscription.packptsGrant >= 5000) return <Crown className="h-8 w-8" />;
+    if (subscription.packptsGrant >= 2000) return <Star className="h-8 w-8" />;
+    return <Coins className="h-8 w-8" />;
+  };
+
+  const getGradient = () => {
+    if (subscription.packptsGrant >= 5000) return "from-amber-500/20 to-yellow-500/20";
+    if (subscription.packptsGrant >= 2000) return "from-purple-500/20 to-pink-500/20";
+    return "from-blue-500/20 to-cyan-500/20";
+  };
+
+  return (
+    <Card 
+      className={`overflow-visible hover-elevate relative ${subscription.isBestValue ? 'ring-2 ring-accent' : ''}`}
+      data-testid={`card-subscription-${subscription.sku}`}
+    >
+      {subscription.isBestValue && (
+        <Badge 
+          className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-accent-foreground gap-1"
+          data-testid="badge-best-value-subscription"
+        >
+          <Sparkles className="h-3 w-3" />
+          Best Value
+        </Badge>
+      )}
+      <div className={`aspect-[4/3] bg-gradient-to-br ${getGradient()} rounded-t-md flex items-center justify-center relative`}>
+        <div className="text-muted-foreground/80">
+          {getIcon()}
+        </div>
+        <Badge 
+          variant="secondary" 
+          className="absolute top-2 right-2 gap-1"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Monthly
+        </Badge>
+      </div>
+      <CardContent className="p-4 space-y-4">
+        <div className="text-center">
+          <h3 className="font-semibold text-lg" data-testid={`text-subscription-name-${subscription.sku}`}>
+            {subscription.name}
+          </h3>
+          <div className="flex items-center justify-center gap-1 mt-2">
+            <Zap className="h-5 w-5 text-accent" />
+            <span className="text-2xl font-bold font-mono text-accent" data-testid={`text-subscription-pts-${subscription.sku}`}>
+              {subscription.packptsGrant.toLocaleString()}
+            </span>
+            <span className="text-muted-foreground text-sm">PackPTS/mo</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">{subscription.description}</p>
+        </div>
+        
+        <div className="space-y-2">
+          <div className="flex items-center justify-center text-sm text-muted-foreground">
+            <span className="font-mono">{subscription.valuePerDollar.toLocaleString()} pts/$</span>
+          </div>
+        </div>
+
+        <Button 
+          className="w-full gap-2"
+          size="lg"
+          onClick={() => onSubscribe(subscription.sku)}
+          disabled={isSubscribing}
+          data-testid={`button-subscribe-${subscription.sku}`}
+        >
+          <Calendar className="h-4 w-4" />
+          {subscription.formattedPrice}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function StoreSkeleton() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -128,6 +227,10 @@ export default function Store() {
     queryKey: ["/api/store/products"],
   });
 
+  const { data: subscriptionsData, isLoading: subscriptionsLoading } = useQuery<SubscriptionsResponse>({
+    queryKey: ["/api/store/subscriptions"],
+  });
+
   const checkoutMutation = useMutation({
     mutationFn: async (sku: string) => {
       const response = await apiRequest("POST", "/api/store/checkout", { sku });
@@ -147,6 +250,25 @@ export default function Store() {
     },
   });
 
+  const subscribeMutation = useMutation({
+    mutationFn: async (sku: string) => {
+      const response = await apiRequest("POST", "/api/store/subscribe", { sku });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Subscription Error",
+        description: error.message || "Failed to start subscription. Please try again.",
+      });
+    },
+  });
+
   const handlePurchase = (sku: string) => {
     if (!data?.stripeConfigured) {
       toast({
@@ -159,7 +281,20 @@ export default function Store() {
     checkoutMutation.mutate(sku);
   };
 
+  const handleSubscribe = (sku: string) => {
+    if (!data?.stripeConfigured) {
+      toast({
+        variant: "destructive",
+        title: "Payments Not Available",
+        description: "Payment processing is not configured. Please try again later.",
+      });
+      return;
+    }
+    subscribeMutation.mutate(sku);
+  };
+
   const bundles = data?.products || [];
+  const subscriptions = subscriptionsData?.subscriptions || [];
 
   return (
     <div className="min-h-screen pb-20 md:pb-8">
@@ -187,28 +322,72 @@ export default function Store() {
           </Card>
         </div>
 
-        {isLoading ? (
-          <StoreSkeleton />
-        ) : bundles.length === 0 ? (
-          <div className="text-center py-12">
-            <Coins className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
-            <h2 className="text-xl font-semibold mb-2">No Bundles Available</h2>
-            <p className="text-muted-foreground">Check back soon for PackPTS bundles.</p>
-          </div>
-        ) : (
-          <div className="max-w-4xl mx-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {bundles.map((bundle) => (
-                <BundleCard
-                  key={bundle.sku}
-                  bundle={bundle}
-                  onPurchase={handlePurchase}
-                  isPurchasing={checkoutMutation.isPending}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        <Tabs defaultValue="one-time" className="max-w-4xl mx-auto">
+          <TabsList className="grid w-full grid-cols-2 mb-8" data-testid="tabs-purchase-type">
+            <TabsTrigger value="one-time" className="gap-2" data-testid="tab-one-time">
+              <CreditCard className="h-4 w-4" />
+              One-Time Purchase
+            </TabsTrigger>
+            <TabsTrigger value="monthly" className="gap-2" data-testid="tab-monthly">
+              <RefreshCw className="h-4 w-4" />
+              Monthly Subscription
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="one-time">
+            {isLoading ? (
+              <StoreSkeleton />
+            ) : bundles.length === 0 ? (
+              <div className="text-center py-12">
+                <Coins className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
+                <h2 className="text-xl font-semibold mb-2">No Bundles Available</h2>
+                <p className="text-muted-foreground">Check back soon for PackPTS bundles.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {bundles.map((bundle) => (
+                  <BundleCard
+                    key={bundle.sku}
+                    bundle={bundle}
+                    onPurchase={handlePurchase}
+                    isPurchasing={checkoutMutation.isPending}
+                  />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="monthly">
+            {subscriptionsLoading ? (
+              <StoreSkeleton />
+            ) : subscriptions.length === 0 ? (
+              <div className="text-center py-12">
+                <Calendar className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
+                <h2 className="text-xl font-semibold mb-2">No Subscriptions Available</h2>
+                <p className="text-muted-foreground">Check back soon for monthly PackPTS packages.</p>
+              </div>
+            ) : (
+              <>
+                <div className="text-center mb-6">
+                  <Badge variant="secondary" className="gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    Save more with monthly packages - credits delivered automatically
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {subscriptions.map((subscription) => (
+                    <SubscriptionCard
+                      key={subscription.sku}
+                      subscription={subscription}
+                      onSubscribe={handleSubscribe}
+                      isSubscribing={subscribeMutation.isPending}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
 
         <div className="mt-16 max-w-2xl mx-auto">
           <Card>

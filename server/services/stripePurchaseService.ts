@@ -4,7 +4,7 @@ import { purchaseEvents, stripeCustomers, stripeCheckoutSessions, type PurchaseE
 import { eq, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
-import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku } from "./productMap";
+import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku, isPackPtsSubscription } from "./productMap";
 import { analyticsService } from "./analyticsService";
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -348,7 +348,7 @@ class StripePurchaseService {
     const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
     const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
 
-    if (!productDef || productDef.type !== "SUBSCRIPTION" || !("entitlementKey" in productDef)) {
+    if (!productDef || productDef.type !== "SUBSCRIPTION") {
       return {
         status: "failed",
         error: `Unknown or invalid subscription product: ${priceId}`,
@@ -360,27 +360,72 @@ class StripePurchaseService {
     const gracePeriod = 3 * 24 * 60 * 60 * 1000;
     const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
 
-    await storage.grantEntitlement({
-      userId,
-      entitlementKey: productDef.entitlementKey,
-      source: "purchase",
-      sourceReference: event.id,
-      expiresAt,
-    });
-    
-    await analyticsService.purchaseCompleted(userId, {
-      subscriptionId,
-      stripeEventId: event.id,
-      type: "subscription_renewal",
-      entitlementKey: productDef.entitlementKey,
-      expiresAt: expiresAt.toISOString(),
-      amountTotal: invoice.amount_paid,
-      currency: invoice.currency,
-    });
+    let packptsGranted = 0;
+    let entitlementGranted: string | null = null;
+
+    // Check if this is a PackPTS subscription (grants points) vs entitlement subscription (grants access)
+    if ("packptsGrant" in productDef && productDef.packptsGrant > 0) {
+      // Monthly PackPTS subscription - credit points to user's wallet
+      const idempotencyKey = `stripe_sub_${event.id}_${priceId}`;
+      const result = await walletService.purchaseCredit(
+        userId,
+        productDef.packptsGrant,
+        `Monthly subscription: ${productDef.name}`,
+        idempotencyKey,
+        { stripeEventId: event.id, subscriptionId, priceId, sku: internalSku }
+      );
+
+      if (result.success && !result.idempotent) {
+        packptsGranted = productDef.packptsGrant;
+      }
+      
+      await analyticsService.purchaseCompleted(userId, {
+        subscriptionId,
+        stripeEventId: event.id,
+        type: "subscription_renewal",
+        sku: internalSku,
+        packptsGranted,
+        amountTotal: invoice.amount_paid,
+        currency: invoice.currency,
+      });
+
+      return {
+        status: "processed",
+        message: `Subscription credited ${packptsGranted} PackPTS for '${productDef.name}'`,
+        userId,
+      };
+    } else if ("entitlementKey" in productDef) {
+      // Entitlement subscription - grant access (Pro tier, etc.)
+      await storage.grantEntitlement({
+        userId,
+        entitlementKey: productDef.entitlementKey,
+        source: "purchase",
+        sourceReference: event.id,
+        expiresAt,
+      });
+      
+      entitlementGranted = productDef.entitlementKey;
+      
+      await analyticsService.purchaseCompleted(userId, {
+        subscriptionId,
+        stripeEventId: event.id,
+        type: "subscription_renewal",
+        entitlementKey: productDef.entitlementKey,
+        expiresAt: expiresAt.toISOString(),
+        amountTotal: invoice.amount_paid,
+        currency: invoice.currency,
+      });
+
+      return {
+        status: "processed",
+        message: `Subscription entitlement '${productDef.entitlementKey}' granted until ${expiresAt.toISOString()}`,
+        userId,
+      };
+    }
 
     return {
-      status: "processed",
-      message: `Subscription entitlement '${productDef.entitlementKey}' granted until ${expiresAt.toISOString()}`,
+      status: "failed",
+      error: `Subscription product ${internalSku} has neither packptsGrant nor entitlementKey`,
       userId,
     };
   }
