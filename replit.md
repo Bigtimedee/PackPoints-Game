@@ -80,14 +80,16 @@ Integrated with Stripe, this system handles the purchase of PackPTS bundles. It 
 - **Goldin Auctions**: Curated listings managed via admin interface.
 
 ### Live Listings Marketplace
-A unified marketplace search feature aggregates listings from eBay and Goldin Auctions. Key components:
-- **Database Tables**: `marketplace_cache` (TTL-based caching), `outbound_clicks` (click tracking), `external_listings_snapshot` (historical data), `goldin_curated_listings` (admin-managed feed)
+A unified marketplace search feature aggregates listings from eBay and Goldin Auctions with context-aware filtering. Key components:
+- **Database Tables**: `marketplace_cache` (TTL-based caching), `outbound_clicks` (click tracking), `external_listings_snapshot` (historical data), `goldin_curated_listings` (admin-managed feed with contextTags), `game_sets` (playable card sets), `user_active_sets` (user's recently played sets), `match_context_log` (match-to-set association events)
 - **eBay Integration**: OAuth 2.0 client credentials, Browse API search with sandbox/production support via EBAY_ENV
-- **Goldin Feed**: DB-backed curated listings with admin CRUD endpoints
+- **Goldin Feed**: DB-backed curated listings with admin CRUD endpoints, filtered by contextTags matching game set context
 - **Outbound Tracking**: HMAC-signed redirect tokens with 1-hour expiry, click logging with session/IP attribution
 - **Affiliate Tracking**: eBay Partner Network (EPN) parameter injection via EBAY_EPN_CAMPAIGN_ID and EBAY_EPN_TRACKING_ID
 - **Rate Limiting**: In-memory rate limiter (20 requests/min per IP) for search endpoint
-- **Frontend**: Tabbed marketplace page with search, source/sort filters, listing cards, and affiliate disclosure
+- **Context-Aware Search**: Marketplace can filter listings by game set context (sport:year:brand). Users can toggle between contextual search (limited to their played sets) and freeform search. Context tabs show recently played sets with one-click filtering.
+- **Frontend**: Tabbed marketplace page with context chips, contextual/freeform toggle, search within context, source/sort filters, listing cards, and affiliate disclosure. Post-match CTA links to marketplace with setId parameter.
+- **Admin Endpoints**: CRUD for game sets (GET/POST/PUT/DELETE /api/admin/game-sets), Goldin contextTags management
 - **Environment Variables**: EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_ENV, EBAY_EPN_CAMPAIGN_ID, EBAY_EPN_TRACKING_ID, OUTBOUND_SECRET
 
 ### Authentication System
