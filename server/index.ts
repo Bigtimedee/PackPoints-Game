@@ -83,8 +83,7 @@ app.use((req, res, next) => {
     if (stripeConfigured && process.env.DATABASE_URL) {
       console.log('Initializing Stripe schema...');
       await runMigrations({ 
-        databaseUrl: process.env.DATABASE_URL,
-        schema: 'stripe'
+        databaseUrl: process.env.DATABASE_URL
       });
       console.log('Stripe schema ready');
       
