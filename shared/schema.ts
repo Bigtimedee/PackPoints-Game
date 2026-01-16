@@ -1498,3 +1498,47 @@ export const contextualSearchSchema = z.object({
 });
 
 export type ContextualSearchParams = z.infer<typeof contextualSearchSchema>;
+
+// Subscription Products - admin-managed monthly PackPTS subscription packages
+export const billingIntervals = ["month", "year"] as const;
+export type BillingInterval = typeof billingIntervals[number];
+
+export const subscriptionProducts = pgTable("subscription_products", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 200 }).notNull(),
+  description: text("description"),
+  packptsGrant: integer("packpts_grant").notNull(), // PackPTS credited each billing cycle
+  priceUsd: integer("price_usd").notNull(), // price in cents (e.g., 499 = $4.99)
+  billingInterval: varchar("billing_interval", { length: 20 }).notNull().default("month"),
+  stripePriceId: varchar("stripe_price_id", { length: 100 }), // Stripe Price ID for checkout
+  sortOrder: integer("sort_order").notNull().default(0), // for display ordering
+  isBestValue: boolean("is_best_value").notNull().default(false), // highlight badge
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_subscription_products_active").on(table.isActive),
+  index("idx_subscription_products_sort").on(table.sortOrder),
+]);
+
+export const insertSubscriptionProductSchema = createInsertSchema(subscriptionProducts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const updateSubscriptionProductSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional(),
+  packptsGrant: z.number().int().positive().optional(),
+  priceUsd: z.number().int().positive().optional(),
+  billingInterval: z.enum(billingIntervals).optional(),
+  stripePriceId: z.string().max(100).optional().nullable(),
+  sortOrder: z.number().int().optional(),
+  isBestValue: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export type InsertSubscriptionProduct = z.infer<typeof insertSubscriptionProductSchema>;
+export type UpdateSubscriptionProduct = z.infer<typeof updateSubscriptionProductSchema>;
+export type SubscriptionProduct = typeof subscriptionProducts.$inferSelect;
