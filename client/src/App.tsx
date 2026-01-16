@@ -27,6 +27,7 @@ import AdminRedemptions from "@/pages/admin/redemptions";
 import AdminTiers from "@/pages/admin/tiers";
 import AdminStreaks from "@/pages/admin/streaks";
 import AdminProducts from "@/pages/admin/products";
+import AdminSubscriptions from "@/pages/admin/subscriptions";
 import AdminAccess from "@/pages/admin/access";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
@@ -74,6 +75,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminProducts />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/subscriptions">
+        {() => (
+          <AdminLayout>
+            <AdminSubscriptions />
           </AdminLayout>
         )}
       </Route>

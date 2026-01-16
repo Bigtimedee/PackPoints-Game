@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { db } from "../db";
-import { stripeCheckoutSessions, type CheckoutSessionStatus as DbCheckoutSessionStatus } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { stripeCheckoutSessions, subscriptionProducts, type CheckoutSessionStatus as DbCheckoutSessionStatus, type SubscriptionProduct } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 import { PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, PACKPTS_MONTHLY_SKUS, type InternalSku, getSubscriptionProducts } from "./productMap";
 import { analyticsService } from "./analyticsService";
 
@@ -43,6 +43,7 @@ export interface PackPtsSubscriptionProduct {
   formattedPrice: string;
   valuePerDollar: number;
   isBestValue: boolean;
+  stripePriceId?: string | null;
 }
 
 export interface CheckoutResult {
@@ -202,9 +203,53 @@ class StoreCheckoutService {
       .where(eq(stripeCheckoutSessions.stripeSessionId, stripeSessionId));
   }
 
-  // Get available monthly PackPTS subscription products
-  getPackPtsSubscriptions(): PackPtsSubscriptionProduct[] {
-    return getSubscriptionProducts();
+  // Get available monthly PackPTS subscription products from database
+  async getPackPtsSubscriptions(): Promise<PackPtsSubscriptionProduct[]> {
+    try {
+      const dbProducts = await db
+        .select()
+        .from(subscriptionProducts)
+        .where(eq(subscriptionProducts.isActive, true))
+        .orderBy(subscriptionProducts.sortOrder);
+      
+      if (dbProducts.length === 0) {
+        // Fallback to hardcoded products if database is empty
+        return getSubscriptionProducts();
+      }
+      
+      return dbProducts.map(product => {
+        const priceUsd = product.priceUsd / 100;
+        return {
+          sku: product.id, // Use database ID as SKU for DB-managed products
+          name: product.name,
+          packptsGrant: product.packptsGrant,
+          priceUsd: product.priceUsd,
+          description: product.description || "",
+          formattedPrice: `$${priceUsd.toFixed(2)}/month`,
+          valuePerDollar: Math.round(product.packptsGrant / priceUsd),
+          isBestValue: product.isBestValue,
+          stripePriceId: product.stripePriceId,
+        };
+      });
+    } catch (error) {
+      console.error("[StoreCheckout] Error getting subscription products from DB:", error);
+      // Fallback to hardcoded products on error
+      return getSubscriptionProducts();
+    }
+  }
+  
+  // Get a subscription product by ID from database
+  async getSubscriptionProductById(productId: string): Promise<SubscriptionProduct | null> {
+    const result = await db
+      .select()
+      .from(subscriptionProducts)
+      .where(and(
+        eq(subscriptionProducts.id, productId),
+        eq(subscriptionProducts.isActive, true)
+      ))
+      .limit(1);
+    
+    return result[0] || null;
   }
 
   // Create a subscription checkout session for monthly PackPTS packages
@@ -218,52 +263,86 @@ class StoreCheckoutService {
       return { success: false, error: "Stripe is not configured" };
     }
 
-    if (!PACKPTS_MONTHLY_SKUS.includes(sku as any)) {
-      return { success: false, error: "Invalid SKU - only monthly PackPTS subscriptions are allowed" };
-    }
-
-    const productDef = PRODUCT_DEFINITIONS[sku as InternalSku];
-    if (!productDef || productDef.type !== "SUBSCRIPTION") {
-      return { success: false, error: "Product not found or not a subscription" };
-    }
+    // Try to find product in database first (by ID)
+    const dbProduct = await this.getSubscriptionProductById(sku);
     
-    const packptsGrant = (productDef as { packptsGrant: number }).packptsGrant;
-    const description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS every month`;
+    // Fall back to hardcoded products if not found in DB
+    let productName: string;
+    let packptsGrant: number;
+    let priceUsd: number;
+    let description: string;
+    let stripePriceId: string | null = null;
+    let billingInterval: string = "month";
+    
+    if (dbProduct) {
+      // Use database product
+      productName = dbProduct.name;
+      packptsGrant = dbProduct.packptsGrant;
+      priceUsd = dbProduct.priceUsd;
+      description = dbProduct.description || `Get ${packptsGrant} PackPTS every month`;
+      stripePriceId = dbProduct.stripePriceId;
+      billingInterval = dbProduct.billingInterval;
+    } else if (PACKPTS_MONTHLY_SKUS.includes(sku as any)) {
+      // Fall back to hardcoded product
+      const productDef = PRODUCT_DEFINITIONS[sku as InternalSku];
+      if (!productDef || productDef.type !== "SUBSCRIPTION") {
+        return { success: false, error: "Product not found or not a subscription" };
+      }
+      productName = productDef.name;
+      packptsGrant = (productDef as { packptsGrant: number }).packptsGrant;
+      priceUsd = productDef.priceUsd;
+      description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS every month`;
+    } else {
+      return { success: false, error: "Invalid subscription product" };
+    }
 
     try {
       const stripeClient = getStripe();
+      
+      // Build checkout session config
+      let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
+      
+      if (stripePriceId) {
+        // Use pre-created Stripe Price if configured
+        lineItems = [{ price: stripePriceId, quantity: 1 }];
+      } else {
+        // Create price on-the-fly
+        lineItems = [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: productName,
+                description,
+              },
+              unit_amount: priceUsd,
+              recurring: {
+                interval: billingInterval as "month" | "year",
+              },
+            },
+            quantity: 1,
+          },
+        ];
+      }
       
       // Create a subscription checkout session with recurring billing
       const session = await stripeClient.checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: productDef.name,
-                description,
-              },
-              unit_amount: productDef.priceUsd,
-              recurring: {
-                interval: "month",
-              },
-            },
-            quantity: 1,
-          },
-        ],
+        line_items: lineItems,
         subscription_data: {
           metadata: {
             userId,
             sku,
             packptsGrant: packptsGrant.toString(),
+            productId: dbProduct?.id || sku,
           },
         },
         metadata: {
           userId,
           sku,
           packptsGrant: packptsGrant.toString(),
+          productId: dbProduct?.id || sku,
         },
         client_reference_id: userId,
         success_url: successUrl,
@@ -276,12 +355,13 @@ class StoreCheckoutService {
         stripeSessionId: session.id,
         status: "CREATED",
         packptsGrant,
-        amountCents: productDef.priceUsd,
+        amountCents: priceUsd,
         currency: "usd",
         metadata: { 
-          productName: productDef.name,
+          productName,
           isSubscription: true,
-          billingInterval: "month",
+          billingInterval,
+          productId: dbProduct?.id,
         },
       });
 
@@ -289,7 +369,7 @@ class StoreCheckoutService {
         sku,
         sessionId: session.id,
         packptsGrant,
-        amountCents: productDef.priceUsd,
+        amountCents: priceUsd,
         isSubscription: true,
       });
 

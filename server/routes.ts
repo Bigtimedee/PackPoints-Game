@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, type User, type InsertGameSet } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -2025,7 +2025,7 @@ export async function registerRoutes(
   // Get available monthly PackPTS subscription products
   app.get("/api/store/subscriptions", async (req: any, res) => {
     try {
-      const subscriptions = storeCheckoutService.getPackPtsSubscriptions();
+      const subscriptions = await storeCheckoutService.getPackPtsSubscriptions();
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (userId) {
@@ -4504,6 +4504,103 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting Goldin listing:", error);
       res.status(500).json({ error: "Failed to delete listing" });
+    }
+  });
+
+  // ============================================
+  // ADMIN: SUBSCRIPTION PRODUCTS MANAGEMENT
+  // ============================================
+
+  // Admin: Get all subscription products
+  app.get("/api/admin/subscription-products", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const products = await db
+        .select()
+        .from(subscriptionProducts)
+        .orderBy(subscriptionProducts.sortOrder);
+      res.json(products);
+    } catch (error) {
+      console.error("Error getting subscription products:", error);
+      res.status(500).json({ error: "Failed to get subscription products" });
+    }
+  });
+
+  // Admin: Create subscription product
+  app.post("/api/admin/subscription-products", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const parsed = insertSubscriptionProductSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const [product] = await db.insert(subscriptionProducts).values(parsed.data).returning();
+      res.status(201).json(product);
+    } catch (error) {
+      console.error("Error creating subscription product:", error);
+      res.status(500).json({ error: "Failed to create subscription product" });
+    }
+  });
+
+  // Admin: Update subscription product
+  app.put("/api/admin/subscription-products/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const parsed = updateSubscriptionProductSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const updateData: Record<string, any> = { updatedAt: new Date() };
+      if (parsed.data.name !== undefined) updateData.name = parsed.data.name;
+      if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
+      if (parsed.data.packptsGrant !== undefined) updateData.packptsGrant = parsed.data.packptsGrant;
+      if (parsed.data.priceUsd !== undefined) updateData.priceUsd = parsed.data.priceUsd;
+      if (parsed.data.billingInterval !== undefined) updateData.billingInterval = parsed.data.billingInterval;
+      if (parsed.data.stripePriceId !== undefined) updateData.stripePriceId = parsed.data.stripePriceId;
+      if (parsed.data.sortOrder !== undefined) updateData.sortOrder = parsed.data.sortOrder;
+      if (parsed.data.isBestValue !== undefined) updateData.isBestValue = parsed.data.isBestValue;
+      if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
+      
+      if (Object.keys(updateData).length === 1) { // only updatedAt
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+      
+      const [updated] = await db
+        .update(subscriptionProducts)
+        .set(updateData)
+        .where(eq(subscriptionProducts.id, id))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Subscription product not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating subscription product:", error);
+      res.status(500).json({ error: "Failed to update subscription product" });
+    }
+  });
+
+  // Admin: Delete (deactivate) subscription product
+  app.delete("/api/admin/subscription-products/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const [deleted] = await db
+        .update(subscriptionProducts)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(subscriptionProducts.id, id))
+        .returning();
+      
+      if (!deleted) {
+        return res.status(404).json({ error: "Subscription product not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting subscription product:", error);
+      res.status(500).json({ error: "Failed to delete subscription product" });
     }
   });
 
