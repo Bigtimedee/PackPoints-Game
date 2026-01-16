@@ -34,11 +34,16 @@ import * as contextService from "./services/marketplace/context";
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
   const user = req.user as any;
-  if (!user?.claims?.sub) {
+  const session = req.session as any;
+  
+  // Get user ID from either Replit Auth or local session
+  const userId = user?.claims?.sub || session?.localUserId;
+  
+  if (!userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
   
-  const dbUser = await storage.getUser(user.claims.sub);
+  const dbUser = await storage.getUser(userId);
   if (!dbUser?.isAdmin) {
     return res.status(403).json({ message: "Admin access required" });
   }

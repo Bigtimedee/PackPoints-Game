@@ -7,13 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Shield, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AdminLogin() {
   const [, navigate] = useLocation();
-  const { user, isLoading, isAuthenticated, refetch } = useAuth();
+  const queryClient = useQueryClient();
+  const { user, isLoading, isAuthenticated } = useAuth();
   const { toast } = useToast();
   
   const [usernameOrEmail, setUsernameOrEmail] = useState("");
@@ -25,7 +26,7 @@ export default function AdminLogin() {
       return response.json();
     },
     onSuccess: async () => {
-      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       navigate("/admin/dashboard");
     },
     onError: (error: Error) => {
