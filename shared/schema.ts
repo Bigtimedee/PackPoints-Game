@@ -1397,3 +1397,93 @@ export const insertGoldinCuratedListingSchema = createInsertSchema(goldinCurated
 
 export type InsertGoldinCuratedListing = z.infer<typeof insertGoldinCuratedListingSchema>;
 export type GoldinCuratedListing = typeof goldinCuratedListings.$inferSelect;
+
+// Game Sets - canonical playable card set contexts
+export const sportEnum = ["baseball", "basketball", "football", "hockey"] as const;
+export type Sport = typeof sportEnum[number];
+
+export const gameSets = pgTable("game_sets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sport: text("sport").notNull(),
+  brand: text("brand").notNull(),
+  year: integer("year").notNull(),
+  setName: text("set_name").notNull(),
+  league: text("league"),
+  isActive: boolean("is_active").notNull().default(true),
+  marketplaceKeywords: jsonb("marketplace_keywords").$type<string[]>().notNull().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_game_sets_active").on(table.isActive),
+  index("idx_game_sets_sport_year").on(table.sport, table.year),
+]);
+
+export const insertGameSetSchema = createInsertSchema(gameSets).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertGameSet = z.infer<typeof insertGameSetSchema>;
+export type GameSet = typeof gameSets.$inferSelect;
+
+// User Active Sets - which game sets a user has selected
+export const userActiveSets = pgTable("user_active_sets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  gameSetId: varchar("game_set_id").notNull().references(() => gameSets.id),
+  lastUsedAt: timestamp("last_used_at").defaultNow(),
+  isDefault: boolean("is_default").notNull().default(false),
+}, (table) => [
+  index("idx_user_active_sets_user").on(table.userId),
+  index("idx_user_active_sets_game_set").on(table.gameSetId),
+]);
+
+export const insertUserActiveSetSchema = createInsertSchema(userActiveSets).omit({
+  id: true,
+});
+
+export type InsertUserActiveSet = z.infer<typeof insertUserActiveSetSchema>;
+export type UserActiveSet = typeof userActiveSets.$inferSelect;
+
+// Match Context Log - tracks which contexts users play
+export const matchContextEventTypes = ["MATCH_STARTED", "MATCH_COMPLETED", "SET_SELECTED"] as const;
+export type MatchContextEventType = typeof matchContextEventTypes[number];
+
+export const matchContextLog = pgTable("match_context_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  matchId: varchar("match_id"),
+  gameSetId: varchar("game_set_id").notNull().references(() => gameSets.id),
+  eventType: text("event_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_match_context_user_created").on(table.userId, table.createdAt),
+  index("idx_match_context_game_set").on(table.gameSetId),
+]);
+
+export const insertMatchContextLogSchema = createInsertSchema(matchContextLog).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMatchContextLog = z.infer<typeof insertMatchContextLogSchema>;
+export type MatchContextLog = typeof matchContextLog.$inferSelect;
+
+// API schemas for game set endpoints
+export const updateActiveGameSetsSchema = z.object({
+  gameSetIds: z.array(z.string().uuid()),
+  defaultSetId: z.string().uuid().optional(),
+});
+
+export type UpdateActiveGameSetsRequest = z.infer<typeof updateActiveGameSetsSchema>;
+
+// Contextual search params
+export const contextualSearchSchema = z.object({
+  q: z.string().optional(),
+  source: z.enum(["ebay", "goldin", "all"]).default("all"),
+  setId: z.string().uuid().optional(),
+  limit: z.number().min(1).max(100).default(20),
+  sort: z.enum(["relevance", "priceAsc", "priceDesc", "endingSoon"]).default("relevance"),
+  forceRefresh: z.boolean().default(false),
+});
+
+export type ContextualSearchParams = z.infer<typeof contextualSearchSchema>;
