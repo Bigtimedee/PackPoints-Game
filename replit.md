@@ -48,12 +48,14 @@ An event tracking system via `analyticsService` logs key user actions (e.g., `ma
 ### Store & PackPTS Purchase System
 Integrated with Stripe, this system handles both one-time PackPTS bundle purchases and monthly subscription packages. Key components:
 - **One-Time Bundles**: PACKPTS_1500, PACKPTS_6000, PACKPTS_15000 for instant PackPTS credit
-- **Monthly Subscriptions**: PACKPTS_MONTHLY_500 ($4.99/mo), PACKPTS_MONTHLY_2000 ($14.99/mo), PACKPTS_MONTHLY_5000 ($29.99/mo)
-- **Product Map**: `productMap.ts` defines all products with type, priceUsd, packptsGrant, and billingInterval
-- **Subscription Checkout**: Creates Stripe subscription-mode sessions with metadata for webhook processing
+- **Monthly Subscriptions**: Database-managed subscription products with admin CRUD (Starter, Collector, Legend packs)
+- **Product Map**: `productMap.ts` defines one-time products with type, priceUsd, packptsGrant
+- **Subscription Products Table**: `subscription_products` stores admin-managed subscription packages with name, packptsGrant, priceUsd, billingInterval, stripePriceId, sortOrder, isBestValue, isActive
+- **Subscription Checkout**: Creates Stripe subscription-mode sessions with metadata for webhook processing, using database product ID as SKU
 - **Webhook Handler**: `invoice.paid` event credits PackPTS for subscription renewals using idempotency keys
 - **Store UI**: Tabbed interface separating one-time purchases from monthly subscriptions
-- **API Endpoints**: GET /api/store/subscriptions, POST /api/store/subscribe (authenticated)
+- **Admin Subscription Management**: /admin/subscriptions page with full CRUD for subscription packages - admins can create, edit, deactivate packages and modify PackPTS grants, pricing, and display order
+- **API Endpoints**: GET /api/store/subscriptions, POST /api/store/subscribe (authenticated), GET/POST/PUT/DELETE /api/admin/subscription-products (admin-only)
 
 ## External Dependencies
 
