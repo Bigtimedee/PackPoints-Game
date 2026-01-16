@@ -44,4 +44,3 @@ integrations = ["javascript_database:1.0.0", "javascript_log_in_with_replit:2.0.
 [userenv]
 
 [userenv.shared]
-OUTBOUND_SECRET = "a3acf3f64a1a2905f0de977fcde4e7cbcd0247d2012eab6cebf595e70f4311a0"
