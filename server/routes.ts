@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, type User } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, type User, type InsertGameSet } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -614,7 +614,7 @@ export async function registerRoutes(
           });
           
           if (setId) {
-            await contextService.logMatchContext(userId, session.id, setId).catch((err) => {
+            await contextService.logMatchContext(userId, setId, session.id, "MATCH_STARTED").catch((err) => {
               console.warn("[Context] Failed to log match context:", err);
             });
           }
@@ -4288,6 +4288,93 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error in contextual search:", error);
       res.status(500).json({ error: "Failed to search marketplace" });
+    }
+  });
+
+  // Admin: Get all game sets
+  app.get("/api/admin/game-sets", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const sets = await db.select().from(gameSets).orderBy(gameSets.year);
+      res.json(sets);
+    } catch (error) {
+      console.error("Error getting game sets:", error);
+      res.status(500).json({ error: "Failed to get game sets" });
+    }
+  });
+
+  // Admin: Create game set
+  app.post("/api/admin/game-sets", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const parsed = insertGameSetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const [gameSet] = await db.insert(gameSets).values(parsed.data).returning();
+      res.status(201).json(gameSet);
+    } catch (error) {
+      console.error("Error creating game set:", error);
+      res.status(500).json({ error: "Failed to create game set" });
+    }
+  });
+
+  // Admin: Update game set
+  app.put("/api/admin/game-sets/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const parsed = updateGameSetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const updateData: Record<string, any> = {};
+      if (parsed.data.setName !== undefined) updateData.setName = parsed.data.setName;
+      if (parsed.data.sport !== undefined) updateData.sport = parsed.data.sport;
+      if (parsed.data.year !== undefined) updateData.year = parsed.data.year;
+      if (parsed.data.brand !== undefined) updateData.brand = parsed.data.brand;
+      if (parsed.data.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = parsed.data.marketplaceKeywords;
+      if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
+      
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+      
+      const [updated] = await db
+        .update(gameSets)
+        .set(updateData)
+        .where(eq(gameSets.id, id))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating game set:", error);
+      res.status(500).json({ error: "Failed to update game set" });
+    }
+  });
+
+  // Admin: Delete game set
+  app.delete("/api/admin/game-sets/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const [deleted] = await db
+        .update(gameSets)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(gameSets.id, id))
+        .returning();
+      
+      if (!deleted) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting game set:", error);
+      res.status(500).json({ error: "Failed to delete game set" });
     }
   });
 

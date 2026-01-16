@@ -1423,7 +1423,17 @@ export const insertGameSetSchema = createInsertSchema(gameSets).omit({
   createdAt: true,
 });
 
+export const updateGameSetSchema = z.object({
+  setName: z.string().min(1).optional(),
+  sport: z.enum(sportEnum).optional(),
+  year: z.number().int().min(1800).max(2100).optional(),
+  brand: z.string().min(1).optional(),
+  marketplaceKeywords: z.array(z.string()).optional(),
+  isActive: z.boolean().optional(),
+});
+
 export type InsertGameSet = z.infer<typeof insertGameSetSchema>;
+export type UpdateGameSet = z.infer<typeof updateGameSetSchema>;
 export type GameSet = typeof gameSets.$inferSelect;
 
 // User Active Sets - which game sets a user has selected

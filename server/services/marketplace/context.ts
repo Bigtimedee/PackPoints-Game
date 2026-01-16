@@ -164,15 +164,35 @@ export async function logMatchContext(
     eventType,
   });
 
-  await db
-    .update(userActiveSets)
-    .set({ lastUsedAt: new Date() })
+  const existing = await db
+    .select()
+    .from(userActiveSets)
     .where(
       and(
         eq(userActiveSets.userId, userId),
         eq(userActiveSets.gameSetId, gameSetId)
       )
-    );
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    await db
+      .update(userActiveSets)
+      .set({ lastUsedAt: new Date() })
+      .where(
+        and(
+          eq(userActiveSets.userId, userId),
+          eq(userActiveSets.gameSetId, gameSetId)
+        )
+      );
+  } else {
+    await db.insert(userActiveSets).values({
+      userId,
+      gameSetId,
+      lastUsedAt: new Date(),
+      isDefault: false,
+    });
+  }
 }
 
 export function buildMarketplaceQuery(

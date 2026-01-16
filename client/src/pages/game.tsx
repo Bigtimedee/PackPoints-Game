@@ -13,7 +13,7 @@ import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Co
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { SiX, SiFacebook } from "react-icons/si";
-import type { GameSession, GameQuestion } from "@shared/schema";
+import type { GameSession, GameQuestion, GameSet } from "@shared/schema";
 
 function AnswerButton({
   option,
@@ -168,6 +168,13 @@ export default function Game() {
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
   });
+  
+  const { data: gameSets } = useQuery<GameSet[]>({
+    queryKey: ["/api/game/sets"],
+    staleTime: 5 * 60 * 1000,
+  });
+  
+  const currentGameSet = gameSets?.[0];
 
   const [startError, setStartError] = useState<{ isRateLimit: boolean; message: string } | null>(null);
 
@@ -176,6 +183,7 @@ export default function Game() {
       const res = await apiRequest("POST", "/api/game/start", {
         mode: mode || "solo",
         totalQuestions: cardCount,
+        setId: currentGameSet?.id,
       });
       return res.json();
     },
@@ -541,14 +549,16 @@ export default function Game() {
               </div>
             </div>
             
-            <div className="pt-2 border-t">
-              <Link href="/marketplace?setId=d98e37f3-a6ae-427e-aac0-8f6e54bae3a5">
-                <Button variant="outline" className="w-full gap-2" data-testid="button-browse-cards">
-                  <ShoppingBag className="h-4 w-4" />
-                  Browse 1987 Topps Cards for Sale
-                </Button>
-              </Link>
-            </div>
+            {currentGameSet && (
+              <div className="pt-2 border-t">
+                <Link href={`/marketplace?setId=${currentGameSet.id}`}>
+                  <Button variant="outline" className="w-full gap-2" data-testid="button-browse-cards">
+                    <ShoppingBag className="h-4 w-4" />
+                    Browse {currentGameSet.setName} Cards for Sale
+                  </Button>
+                </Link>
+              </div>
+            )}
             
             {!isAuthenticated && !hasSeenSignupPrompt && session.score > 0 && (
               <div className="pt-2">
