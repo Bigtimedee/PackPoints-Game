@@ -4122,6 +4122,168 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/game/sets - Get all active game sets
+  app.get("/api/game/sets", async (req, res) => {
+    try {
+      const { getActiveGameSets } = await import("./services/marketplace/context");
+      const sets = await getActiveGameSets();
+      res.json(sets);
+    } catch (error) {
+      console.error("Error getting game sets:", error);
+      res.status(500).json({ error: "Failed to get game sets" });
+    }
+  });
+
+  // GET /api/marketplace/contexts - Get user's active contexts
+  app.get("/api/marketplace/contexts", async (req: any, res) => {
+    try {
+      const { getUserActiveContexts, getActiveGameSets } = await import("./services/marketplace/context");
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const contexts = await getUserActiveContexts(userId);
+      const allSets = await getActiveGameSets();
+      
+      res.json({
+        activeContexts: contexts,
+        allSets,
+        userId: userId || null,
+      });
+    } catch (error) {
+      console.error("Error getting marketplace contexts:", error);
+      res.status(500).json({ error: "Failed to get contexts" });
+    }
+  });
+
+  // POST /api/game/active-sets - Update user's active game sets
+  app.post("/api/game/active-sets", isAuthenticated, async (req: any, res) => {
+    try {
+      const { updateUserActiveSets } = await import("./services/marketplace/context");
+      const { updateActiveGameSetsSchema } = await import("@shared/schema");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const parsed = updateActiveGameSetsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      await updateUserActiveSets(userId, parsed.data.gameSetIds, parsed.data.defaultSetId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating active sets:", error);
+      res.status(500).json({ error: "Failed to update active sets" });
+    }
+  });
+
+  // GET /api/marketplace/contextual-search - Context-aware marketplace search
+  app.get("/api/marketplace/contextual-search", async (req: any, res) => {
+    if (!checkMarketplaceRateLimit(req)) {
+      return res.status(429).json({ error: "Too many requests. Please wait a minute before searching again." });
+    }
+    
+    try {
+      const {
+        getUserActiveContexts,
+        getGameSetById,
+        buildMarketplaceQuery,
+        getBroadeningQuery,
+        getContextTags,
+        gameSetToContext,
+      } = await import("./services/marketplace/context");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const q = (req.query.q as string)?.trim() || "";
+      const source = (req.query.source as string) || "all";
+      const setId = req.query.setId as string | undefined;
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+      const sort = (req.query.sort as string) || "relevance";
+      const forceRefresh = req.query.forceRefresh === "true";
+
+      if (!["all", "ebay", "goldin"].includes(source)) {
+        return res.status(400).json({ error: "Invalid source" });
+      }
+      if (!["relevance", "priceAsc", "priceDesc", "endingSoon"].includes(sort)) {
+        return res.status(400).json({ error: "Invalid sort" });
+      }
+
+      let contexts;
+      
+      if (setId) {
+        const gameSet = await getGameSetById(setId);
+        if (!gameSet || !gameSet.isActive) {
+          return res.status(404).json({ error: "Game set not found or inactive" });
+        }
+        contexts = [gameSetToContext(gameSet)];
+      } else {
+        contexts = await getUserActiveContexts(userId);
+      }
+
+      if (contexts.length === 0) {
+        return res.json({
+          contexts: [],
+          appliedContextIds: [],
+          noteIfBroadened: null,
+        });
+      }
+
+      const baseUrl = process.env.APP_BASE_URL || `https://${req.get("host")}`;
+      const MIN_RESULTS = 5;
+      const results = [];
+
+      for (const context of contexts) {
+        const marketplaceQuery = buildMarketplaceQuery(context.gameSet, q);
+        
+        let searchResult = await marketplaceService.searchMarketplace({
+          q: marketplaceQuery,
+          source: source as any,
+          limit,
+          sort: sort as any,
+        });
+
+        let broadened = false;
+        if (searchResult.listings.length < MIN_RESULTS && q) {
+          const broaderQuery = getBroadeningQuery(context.gameSet);
+          searchResult = await marketplaceService.searchMarketplace({
+            q: broaderQuery,
+            source: source as any,
+            limit,
+            sort: sort as any,
+          });
+          broadened = true;
+        }
+
+        const listingsWithOutboundUrls = searchResult.listings.map((listing) => ({
+          ...listing,
+          outboundUrl: marketplaceService.generateListingWithOutboundUrl(listing, baseUrl),
+        }));
+
+        results.push({
+          gameSet: context.gameSet,
+          contextKey: context.contextKey,
+          listings: listingsWithOutboundUrls,
+          lastUpdated: searchResult.lastUpdated,
+          cached: searchResult.cached,
+          broadened,
+          query: marketplaceQuery,
+        });
+      }
+
+      res.json({
+        contexts: results,
+        appliedContextIds: contexts.map((c) => c.gameSet.id),
+        noteIfBroadened: results.some((r) => r.broadened) 
+          ? "Some results were broadened to show more items within the same vintage."
+          : null,
+      });
+    } catch (error) {
+      console.error("Error in contextual search:", error);
+      res.status(500).json({ error: "Failed to search marketplace" });
+    }
+  });
+
   // Admin: Create/Update Goldin curated listing
   app.post("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
