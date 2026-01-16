@@ -9,7 +9,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor } from "lucide-react";
+import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { SiX, SiFacebook } from "react-icons/si";
@@ -539,6 +539,15 @@ export default function Game() {
                   </Button>
                 )}
               </div>
+            </div>
+            
+            <div className="pt-2 border-t">
+              <Link href="/marketplace?setId=d98e37f3-a6ae-427e-aac0-8f6e54bae3a5">
+                <Button variant="outline" className="w-full gap-2" data-testid="button-browse-cards">
+                  <ShoppingBag className="h-4 w-4" />
+                  Browse 1987 Topps Cards for Sale
+                </Button>
+              </Link>
             </div>
             
             {!isAuthenticated && !hasSeenSignupPrompt && session.score > 0 && (
