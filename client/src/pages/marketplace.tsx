@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -15,12 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle } from "lucide-react";
+import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle, Layers } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
-import type { RedemptionOption } from "@shared/schema";
+import type { RedemptionOption, GameSet } from "@shared/schema";
 
 interface RedemptionCardProps {
   option: RedemptionOption;
@@ -156,6 +159,33 @@ interface LiveListingsResponse {
   listings: LiveListing[];
   sources: { ebay: boolean; goldin: boolean };
   cached: boolean;
+}
+
+interface GameContext {
+  gameSet: GameSet;
+  contextKey: string;
+}
+
+interface ContextsResponse {
+  activeContexts: GameContext[];
+  allSets: GameSet[];
+  userId: string | null;
+}
+
+interface ContextualSearchResult {
+  gameSet: GameSet;
+  contextKey: string;
+  listings: LiveListing[];
+  lastUpdated: string;
+  cached: boolean;
+  broadened: boolean;
+  query: string;
+}
+
+interface ContextualSearchResponse {
+  contexts: ContextualSearchResult[];
+  appliedContextIds: string[];
+  noteIfBroadened: string | null;
 }
 
 function formatTimeRemaining(endsAt: string | null): string {
@@ -297,6 +327,7 @@ function LiveListingsSkeleton() {
 
 export default function Marketplace() {
   const { toast } = useToast();
+  const searchParams = useSearch();
   const [selectedOption, setSelectedOption] = useState<RedemptionOption | null>(null);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
@@ -306,6 +337,17 @@ export default function Marketplace() {
   const [activeSearch, setActiveSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "ebay" | "goldin">("all");
   const [sortBy, setSortBy] = useState<"relevance" | "priceAsc" | "priceDesc" | "endingSoon">("relevance");
+  
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const [useContextualSearch, setUseContextualSearch] = useState(true);
+  
+  const urlSetId = new URLSearchParams(searchParams).get("setId");
+  
+  useEffect(() => {
+    if (urlSetId) {
+      setSelectedSetId(urlSetId);
+    }
+  }, [urlSetId]);
 
   const { data: redemptions, isLoading } = useQuery<RedemptionOption[]>({
     queryKey: ["/api/marketplace"],
@@ -317,6 +359,33 @@ export default function Marketplace() {
 
   const { data: walletData } = useQuery<WalletData>({
     queryKey: ["/api/wallet"],
+  });
+  
+  const { data: contextsData } = useQuery<ContextsResponse>({
+    queryKey: ["/api/marketplace/contexts"],
+  });
+  
+  const { 
+    data: contextualSearchData, 
+    isLoading: isLoadingContextual, 
+    error: contextualError,
+    refetch: refetchContextual,
+  } = useQuery<ContextualSearchResponse>({
+    queryKey: ["/api/marketplace/contextual-search", selectedSetId, activeSearch, sourceFilter, sortBy],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (activeSearch) params.set("q", activeSearch);
+      if (selectedSetId) params.set("setId", selectedSetId);
+      params.set("source", sourceFilter);
+      params.set("sort", sortBy);
+      params.set("limit", "24");
+      
+      const res = await fetch(`/api/marketplace/contextual-search?${params}`);
+      if (!res.ok) throw new Error("Failed to search listings");
+      return res.json();
+    },
+    enabled: useContextualSearch,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: liveListingsData, isLoading: isLoadingListings, error: listingsError } = useQuery<LiveListingsResponse>({
@@ -425,13 +494,61 @@ export default function Marketplace() {
           </TabsList>
 
           <TabsContent value="live" className="space-y-6">
+            {contextsData?.allSets && contextsData.allSets.length > 0 && (
+              <Card>
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Game Sets</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="contextual-mode"
+                        checked={useContextualSearch}
+                        onCheckedChange={setUseContextualSearch}
+                        data-testid="switch-contextual-mode"
+                      />
+                      <Label htmlFor="contextual-mode" className="text-sm text-muted-foreground">
+                        Match to your games
+                      </Label>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={selectedSetId === null ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedSetId(null)}
+                      data-testid="button-context-all"
+                    >
+                      All Sets
+                    </Button>
+                    {contextsData.allSets.map((set) => (
+                      <Button
+                        key={set.id}
+                        variant={selectedSetId === set.id ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setSelectedSetId(set.id)}
+                        data-testid={`button-context-${set.id}`}
+                      >
+                        {set.setName}
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            
             <Card>
               <CardContent className="p-4">
                 <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search for cards... (e.g., 1987 Topps Mark McGwire)"
+                      placeholder={selectedSetId 
+                        ? "Search within this set... (e.g., Kirby Puckett)"
+                        : "Search for cards... (e.g., 1987 Topps Mark McGwire)"
+                      }
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-10"
@@ -468,7 +585,78 @@ export default function Marketplace() {
               </CardContent>
             </Card>
 
-            {!activeSearch ? (
+            {useContextualSearch ? (
+              isLoadingContextual ? (
+                <LiveListingsSkeleton />
+              ) : contextualError ? (
+                <Card>
+                  <CardContent className="p-12 text-center space-y-4">
+                    <AlertCircle className="h-12 w-12 mx-auto text-destructive" />
+                    <div>
+                      <h3 className="font-semibold text-lg">Search Failed</h3>
+                      <p className="text-muted-foreground">
+                        Unable to search listings right now. Please try again later.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : contextualSearchData?.contexts && contextualSearchData.contexts.length > 0 ? (
+                <div className="space-y-8">
+                  {contextualSearchData.noteIfBroadened && (
+                    <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
+                      {contextualSearchData.noteIfBroadened}
+                    </div>
+                  )}
+                  {contextualSearchData.contexts.map((contextResult) => (
+                    <div key={contextResult.contextKey} className="space-y-4">
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="gap-1" data-testid={`badge-context-${contextResult.gameSet.id}`}>
+                            <Layers className="h-3 w-3" />
+                            {contextResult.gameSet.setName}
+                          </Badge>
+                          {contextResult.broadened && (
+                            <span className="text-xs text-muted-foreground">(broadened search)</span>
+                          )}
+                          {contextResult.cached && (
+                            <span className="text-xs text-muted-foreground">(cached)</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {contextResult.listings.length} listings
+                        </p>
+                      </div>
+                      {contextResult.listings.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                          {contextResult.listings.map((listing) => (
+                            <LiveListingCard key={listing.id} listing={listing} />
+                          ))}
+                        </div>
+                      ) : (
+                        <Card>
+                          <CardContent className="p-6 text-center">
+                            <p className="text-muted-foreground">No listings found for this set</p>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </div>
+                  ))}
+                  <AffiliateDisclosure variant="full" className="mt-6" />
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-12 text-center space-y-4">
+                    <Layers className="h-12 w-12 mx-auto text-muted-foreground" />
+                    <div>
+                      <h3 className="font-semibold text-lg">Browse Cards From Your Games</h3>
+                      <p className="text-muted-foreground">
+                        Select a game set above to see matching listings, or enter a search term to find specific cards.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            ) : !activeSearch ? (
               <Card>
                 <CardContent className="p-12 text-center space-y-4">
                   <Search className="h-12 w-12 mx-auto text-muted-foreground" />

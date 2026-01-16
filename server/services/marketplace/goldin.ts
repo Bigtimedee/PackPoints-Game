@@ -105,3 +105,24 @@ export async function getAllCuratedListingsAdmin(): Promise<GoldinCuratedListing
     orderBy: (listings, { desc }) => [desc(listings.createdAt)],
   });
 }
+
+export async function getCuratedGoldinListingsByContextTags(
+  contextTags: string[],
+  limit: number = 20
+): Promise<Listing[]> {
+  const listings = await db.query.goldinCuratedListings.findMany({
+    where: eq(goldinCuratedListings.isActive, true),
+    limit: limit * 2,
+    orderBy: (listings, { desc }) => [desc(listings.createdAt)],
+  });
+
+  const filtered = listings.filter((listing) => {
+    if (!listing.tags || listing.tags.length === 0) return false;
+    const listingTags = listing.tags.map((t) => t.toLowerCase());
+    return contextTags.every((tag) =>
+      listingTags.some((lt) => lt === tag.toLowerCase())
+    );
+  });
+
+  return filtered.slice(0, limit).map(normalizeGoldinListing);
+}
