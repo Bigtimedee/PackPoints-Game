@@ -113,10 +113,57 @@ export class DatabaseStorage implements IStorage {
       console.log(`Loaded ${allCards.length} cards for 1987 Topps set (${verifiedCount} with verified images)`);
       
       await this.seedMockUsers();
+      await this.ensureAdminUser();
     } catch (error) {
       console.error("Failed to initialize card data:", error);
       this.initialized = false;
       throw error;
+    }
+  }
+
+  private async ensureAdminUser(): Promise<void> {
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    const adminUsername = process.env.ADMIN_USERNAME;
+    
+    if (!adminEmail || !adminPassword || !adminUsername) {
+      console.log("[Admin] ADMIN_EMAIL, ADMIN_PASSWORD, and ADMIN_USERNAME env vars not set - skipping admin bootstrap");
+      return;
+    }
+    
+    const existingUser = await this.getUserByEmail(adminEmail);
+    
+    if (existingUser) {
+      if (!existingUser.isAdmin) {
+        await db.update(users).set({ isAdmin: true }).where(eq(users.id, existingUser.id));
+        console.log(`[Admin] Updated ${adminEmail} to admin status`);
+      }
+      
+      const [existingCreds] = await db.select().from(localCredentials).where(eq(localCredentials.userId, existingUser.id));
+      const newHash = await bcrypt.hash(adminPassword, 10);
+      
+      if (existingCreds) {
+        await db.update(localCredentials).set({ passwordHash: newHash }).where(eq(localCredentials.userId, existingUser.id));
+        console.log(`[Admin] Reset password for ${adminEmail}`);
+      } else {
+        await db.insert(localCredentials).values({ userId: existingUser.id, passwordHash: newHash });
+        console.log(`[Admin] Created credentials for ${adminEmail}`);
+      }
+    } else {
+      const { normalizeEmail } = await import("./services/accessService");
+      const passwordHash = await bcrypt.hash(adminPassword, 10);
+      
+      const [newAdmin] = await db.insert(users).values({
+        username: adminUsername,
+        email: adminEmail,
+        emailNormalized: normalizeEmail(adminEmail),
+        firstName: adminUsername,
+        isAdmin: true,
+        status: "ACTIVE",
+      }).returning();
+      
+      await db.insert(localCredentials).values({ userId: newAdmin.id, passwordHash });
+      console.log(`[Admin] Created admin user ${adminEmail}`);
     }
   }
 
