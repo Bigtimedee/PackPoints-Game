@@ -1,0 +1,145 @@
+Implement “Mobile-Optimized Geo Intelligence” in the PackPts Admin Portal to estimate where users are playing by US state WITHOUT asking for City/State/Zip, optimized for mobile browser usage (carrier NAT, LTE/Wi-Fi switching).
+
+STACK (do not change)
+Frontend: React 18 + Vite + TS + Tailwind + shadcn/ui + React Query + Wouter
+Backend: Express + TS + Passport + express-session + ws
+DB: Postgres (Neon) + Drizzle ORM + Zod
+Payments: Stripe
+
+GOALS
+1) Infer coarse location primarily via IP geolocation to US state (region), optimized for mobile browsers.
+2) Store session-level geo signals (not raw IP) and compute a “home state” with confidence smoothing.
+3) Provide Admin Portal views: DAU/WAU/MAU by state, new users by state, and “any users in Hawaii?” quick check.
+4) Avoid requiring user input for address fields and avoid GPS permissions.
+
+PROVIDER
+Use IP geolocation via ipinfo.io (recommended for simplicity) OR MaxMind GeoLite2 if already set up.
+Add env vars:
+- GEO_PROVIDER=ipinfo|maxmind
+- IPINFO_TOKEN= (if ipinfo)
+- GEO_SALT= (HMAC salt for hashing IP)
+- GEO_TTL_DAYS=30
+- HOME_STATE_MIN_DISTINCT_DAYS=3
+- HOME_STATE_MIN_SESSIONS=5
+
+PRIVACY CONSTRAINTS
+- Do not store raw IP long-term. Store ONLY:
+  - ip_hash = HMAC_SHA256(GEO_SALT, ip)
+  - optional ip_trunc (IPv4 /24 or IPv6 /48) if needed for abuse defense (not required)
+- Store only coarse geo: country + US state (region). City optional but do not rely on it for decisions.
+- All admin access must be role-protected.
+
+DATA MODEL (Drizzle migrations)
+1) user_geo_session (new)
+- id uuid pk
+- user_id uuid nullable
+- session_id text nullable
+- started_at timestamp
+- last_seen_at timestamp
+- ip_hash text nullable
+- user_agent text nullable
+- timezone text nullable              // from X-Client-Timezone
+- country text nullable
+- region text nullable                // US state code if possible (CA, MA, HI)
+- asn text nullable
+- carrier_name text nullable
+- is_vpn boolean nullable
+- source enum('http','ws')
+- geo_confidence int default 0        // 0–100 (session-level)
+Indexes: (user_id, last_seen_at), (country, region), (session_id)
+
+2) user_geo_profile (new)
+- user_id uuid pk
+- home_country text nullable
+- home_region text nullable           // inferred “home state”
+- confidence int default 0
+- basis jsonb                         // stats used to compute home state
+- last_computed_at timestamp
+
+3) geo_rollups_daily (optional but recommended for fast admin pages)
+- day date
+- country text
+- region text
+- active_users int
+- sessions int
+- new_users int
+PRIMARY KEY(day, country, region)
+
+COLLECTION STRATEGY (MOBILE OPTIMIZED)
+1) Only collect geo on:
+- /api/me (first authenticated request each day)
+- /api/match/start and /api/match/finish
+- WebSocket connect event (ws) for 1v1 sessions
+Do NOT geo-resolve every API call.
+
+2) Frontend sends timezone on every API call:
+- Header: X-Client-Timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+3) Server geo middleware:
+- Extract req.ip (respect proxy headers if configured)
+- Compute ip_hash = HMAC_SHA256(GEO_SALT, ip)
+- Geo-resolve ip to {country, region/state, asn, carrier/vpn if available}
+- Normalize region to 2-letter US state code when possible
+- Compute session-level confidence:
+  - start at 50
+  - -30 if is_vpn true
+  - +10 if repeated same region for same ip_hash within 24h
+  - +10 if timezone strongly matches region (e.g., Pacific/Hawaii patterns)
+  - clamp 0..100
+- Upsert user_geo_session by (session_id) with last_seen_at updates.
+
+HOME STATE INFERENCE (SMOOTHING)
+Implement a nightly job (and admin manual trigger) to compute user_geo_profile:
+- Consider last GEO_TTL_DAYS of user_geo_session for each user
+- Group by region (state), compute:
+  - distinct_days_seen
+  - session_count
+  - weighted_score = sum(weight(recencyDays) * session_confidence)
+  - where weight(recencyDays) = exp(-recencyDays/10)
+- Choose region with highest weighted_score, but only if:
+  - distinct_days_seen >= HOME_STATE_MIN_DISTINCT_DAYS
+  - session_count >= HOME_STATE_MIN_SESSIONS
+- If not met, home_region = NULL and confidence low.
+- Store basis stats in basis JSON (top 3 states and scores) for debugging.
+
+DAILY ROLLUPS
+Create a daily rollup job that writes geo_rollups_daily for:
+- active_users by state (unique users with sessions that day)
+- sessions by state
+- new_users by state (users activated that day + their best session region)
+
+ADMIN API (role-protected)
+- GET /api/admin/geo/states?window=24h|7d|30d
+  - returns state rows with activeUsers, sessions, newUsers, pctOfTotal
+- GET /api/admin/geo/coverage?window=30d
+  - returns statesWithUsers, statesWithoutUsers, hiCount, hasHawaiiUsers
+- GET /api/admin/geo/user/:id
+  - returns user_geo_profile + recent sessions summary (masked)
+- POST /api/admin/geo/recompute
+  - triggers recompute jobs
+
+ADMIN PORTAL UI
+Add Admin -> Geo Dashboard page:
+- Window selector: 24h / 7d / 30d
+- Table: state, active users, % share, new users
+- Quick cards:
+  - “California penetration” (count + %)
+  - “Massachusetts penetration”
+  - “Hawaii users?” yes/no with count
+- Bucket for Unknown/Low confidence
+
+ABUSE-RESISTANT NOTES (optional)
+If you already collect device fingerprints for founders/waitlist, store it in geo_session too for better dedup.
+
+TESTS
+- Session-level geo is stored with hashed IP only
+- Home state smoothing chooses correct state with mixed LTE/Wi-Fi sessions
+- VPN sessions reduce confidence
+- Admin endpoints aggregate correctly for CA/MA/HI
+
+DELIVERABLES
+- Drizzle migrations
+- ipinfo/maxmind adapter + geo middleware wired to match + ws events
+- home state + daily rollup jobs (scripts: npm run jobs:geo-profile, npm run jobs:geo-rollup)
+- admin endpoints + UI page
+- README notes: limitations for mobile browsers, privacy, VPN effects
