@@ -30,6 +30,8 @@ import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
 import * as contextService from "./services/marketplace/context";
+import { collectGeo } from "./middleware/geoMiddleware";
+import { geoService } from "./services/geoService";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -503,7 +505,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/start", async (req: any, res) => {
+  app.post("/api/game/start", collectGeo, async (req: any, res) => {
     try {
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -4606,6 +4608,68 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting subscription product:", error);
       res.status(500).json({ error: "Failed to delete subscription product" });
+    }
+  });
+
+  // ============================================
+  // GEO INTELLIGENCE ADMIN ENDPOINTS
+  // ============================================
+
+  // Admin: Get geo stats by state
+  app.get("/api/admin/geo/states", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const windowParam = req.query.window as string || "30d";
+      let windowDays = 30;
+      if (windowParam === "24h") windowDays = 1;
+      else if (windowParam === "7d") windowDays = 7;
+      else if (windowParam === "30d") windowDays = 30;
+      
+      const stats = await geoService.getGeoStats(windowDays);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting geo stats:", error);
+      res.status(500).json({ error: "Failed to get geo stats" });
+    }
+  });
+
+  // Admin: Get geo coverage stats
+  app.get("/api/admin/geo/coverage", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const windowParam = req.query.window as string || "30d";
+      let windowDays = 30;
+      if (windowParam === "24h") windowDays = 1;
+      else if (windowParam === "7d") windowDays = 7;
+      else if (windowParam === "30d") windowDays = 30;
+      
+      const coverage = await geoService.getCoverageStats(windowDays);
+      res.json(coverage);
+    } catch (error) {
+      console.error("Error getting geo coverage:", error);
+      res.status(500).json({ error: "Failed to get geo coverage" });
+    }
+  });
+
+  // Admin: Get user geo profile
+  app.get("/api/admin/geo/user/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const geoProfile = await geoService.getUserGeoProfile(id);
+      res.json(geoProfile);
+    } catch (error) {
+      console.error("Error getting user geo profile:", error);
+      res.status(500).json({ error: "Failed to get user geo profile" });
+    }
+  });
+
+  // Admin: Trigger recompute of home states
+  app.post("/api/admin/geo/recompute", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const count = await geoService.computeAllHomeStates();
+      await geoService.computeDailyRollups();
+      res.json({ success: true, usersProcessed: count });
+    } catch (error) {
+      console.error("Error recomputing geo:", error);
+      res.status(500).json({ error: "Failed to recompute geo" });
     }
   });
 

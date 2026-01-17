@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, jsonb, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1542,3 +1542,74 @@ export const updateSubscriptionProductSchema = z.object({
 export type InsertSubscriptionProduct = z.infer<typeof insertSubscriptionProductSchema>;
 export type UpdateSubscriptionProduct = z.infer<typeof updateSubscriptionProductSchema>;
 export type SubscriptionProduct = typeof subscriptionProducts.$inferSelect;
+
+// ============================================
+// GEO INTELLIGENCE TABLES
+// ============================================
+
+// Geo session source enum
+export const geoSessionSources = ["http", "ws"] as const;
+export type GeoSessionSource = typeof geoSessionSources[number];
+
+// User geo session - tracks session-level geo data with privacy-safe IP hashing
+export const userGeoSession = pgTable("user_geo_session", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  sessionId: text("session_id"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  ipHash: text("ip_hash"), // HMAC-SHA256 hashed IP for privacy
+  userAgent: text("user_agent"),
+  timezone: text("timezone"), // from X-Client-Timezone header
+  country: text("country"),
+  region: text("region"), // US state code (CA, MA, HI, etc.)
+  asn: text("asn"),
+  carrierName: text("carrier_name"),
+  isVpn: boolean("is_vpn"),
+  source: varchar("source", { length: 10 }).notNull().default("http"),
+  geoConfidence: integer("geo_confidence").notNull().default(0), // 0-100
+}, (table) => [
+  index("idx_user_geo_session_user_last_seen").on(table.userId, table.lastSeenAt),
+  index("idx_user_geo_session_country_region").on(table.country, table.region),
+  index("idx_user_geo_session_session_id").on(table.sessionId),
+]);
+
+export const insertUserGeoSessionSchema = createInsertSchema(userGeoSession).omit({
+  id: true,
+});
+
+export type InsertUserGeoSession = z.infer<typeof insertUserGeoSessionSchema>;
+export type UserGeoSession = typeof userGeoSession.$inferSelect;
+
+// User geo profile - computed home state with confidence
+export const userGeoProfile = pgTable("user_geo_profile", {
+  userId: varchar("user_id").primaryKey().references(() => users.id),
+  homeCountry: text("home_country"),
+  homeRegion: text("home_region"), // Inferred "home state"
+  confidence: integer("confidence").notNull().default(0), // 0-100
+  basis: jsonb("basis"), // Stats used to compute home state (top 3 states, scores)
+  lastComputedAt: timestamp("last_computed_at").defaultNow(),
+});
+
+export const insertUserGeoProfileSchema = createInsertSchema(userGeoProfile);
+
+export type InsertUserGeoProfile = z.infer<typeof insertUserGeoProfileSchema>;
+export type UserGeoProfile = typeof userGeoProfile.$inferSelect;
+
+// Geo rollups daily - pre-aggregated stats for fast admin queries
+export const geoRollupsDaily = pgTable("geo_rollups_daily", {
+  day: timestamp("day").notNull(),
+  country: text("country").notNull(),
+  region: text("region").notNull(),
+  activeUsers: integer("active_users").notNull().default(0),
+  sessions: integer("sessions").notNull().default(0),
+  newUsers: integer("new_users").notNull().default(0),
+}, (table) => [
+  uniqueIndex("idx_geo_rollups_daily_unique").on(table.day, table.country, table.region),
+  index("idx_geo_rollups_daily_day").on(table.day),
+]);
+
+export const insertGeoRollupsDailySchema = createInsertSchema(geoRollupsDaily);
+
+export type InsertGeoRollupsDaily = z.infer<typeof insertGeoRollupsDailySchema>;
+export type GeoRollupsDaily = typeof geoRollupsDaily.$inferSelect;

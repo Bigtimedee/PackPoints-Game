@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { authStorage } from "./storage";
 import * as client from "openid-client";
 import memoize from "memoizee";
+import { collectGeo } from "../../middleware/geoMiddleware";
 
 const getOidcConfig = memoize(
   async () => {
@@ -16,7 +17,7 @@ const getOidcConfig = memoize(
 // Register auth-specific routes
 export function registerAuthRoutes(app: Express): void {
   // Get current authenticated user (checks both Replit Auth and local auth)
-  app.get("/api/auth/user", async (req: any, res) => {
+  app.get("/api/auth/user", collectGeo, async (req: any, res) => {
     try {
       // First check for Replit Auth user
       if (req.isAuthenticated() && req.user?.claims?.sub) {

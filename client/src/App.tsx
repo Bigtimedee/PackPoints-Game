@@ -29,6 +29,7 @@ import AdminStreaks from "@/pages/admin/streaks";
 import AdminProducts from "@/pages/admin/products";
 import AdminSubscriptions from "@/pages/admin/subscriptions";
 import AdminAccess from "@/pages/admin/access";
+import AdminGeo from "@/pages/admin/geo";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -131,6 +132,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminAccess />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/geo">
+        {() => (
+          <AdminLayout>
+            <AdminGeo />
           </AdminLayout>
         )}
       </Route>
