@@ -45,6 +45,17 @@ A closed-loop redemption system allows conversion of PackPTS into store credit w
 ### Analytics System
 An event tracking system via `analyticsService` logs key user actions (e.g., `match_started`, `pts_earned`, `purchase_completed`) to an `event_log` table, with an extensible dispatcher for future integrations.
 
+### Geo Intelligence System
+A privacy-safe geolocation tracking system for market analysis by US state. Key components:
+- **Database Tables**: `user_geo_session` (individual session geo data), `user_geo_profile` (inferred home state), `geo_rollups_daily` (pre-aggregated stats)
+- **Privacy Protection**: IPs are never stored raw - HMAC-SHA256 hashed with GEO_SALT env var. Random salt generated on startup if not configured.
+- **Geo Provider**: ipinfo.io integration with configurable 3-second timeout (GEO_TIMEOUT_MS) to prevent request blocking
+- **Session Tracking**: Geo collected on `/api/game/start` and `/api/auth/user` endpoints via middleware
+- **Home State Inference**: Algorithm requires 3+ distinct days and 5+ sessions to confidently assign a home state. Includes VPN detection and timezone correlation.
+- **Admin Dashboard**: `/admin/geo` page with state coverage, session stats, time window filtering (24h/7d/30d), and recompute trigger
+- **Admin API Endpoints**: GET /api/admin/geo/states, GET /api/admin/geo/coverage, GET /api/admin/geo/user/:id, POST /api/admin/geo/recompute
+- **Environment Variables**: IPINFO_TOKEN (required for geo), GEO_SALT (recommended for consistent hashing), GEO_TTL_DAYS, GEO_TIMEOUT_MS, HOME_STATE_MIN_DISTINCT_DAYS, HOME_STATE_MIN_SESSIONS
+
 ### Store & PackPTS Purchase System
 Integrated with Stripe, this system handles both one-time PackPTS bundle purchases and monthly subscription packages. Key components:
 - **One-Time Bundles**: PACKPTS_1500, PACKPTS_6000, PACKPTS_15000 for instant PackPTS credit
