@@ -76,7 +76,25 @@ function isLastFirstFormat(name: string): boolean {
   
   const isReasonableLength = lastName.length >= 2 && firstName.length >= 2;
   
-  return hasNoMultiPlayerSeparators && isReasonableLength;
+  if (!hasNoMultiPlayerSeparators || !isReasonableLength) {
+    return false;
+  }
+  
+  const lastNameWords = lastName.split(/\s+/).filter(w => w.length > 0);
+  const firstNameWords = firstName.split(/\s+/).filter(w => w.length > 0);
+  
+  if (lastNameWords.length >= 2 && firstNameWords.length >= 2) {
+    const hasJr = /\b(jr\.?|sr\.?|ii|iii|iv)\b/i.test(firstName);
+    if (!hasJr) {
+      return false;
+    }
+  }
+  
+  if (lastNameWords.length > 3 || firstNameWords.length > 3) {
+    return false;
+  }
+  
+  return true;
 }
 
 export function classifyCards(cards: CardInput[]): Map<number, CardClassification> {
