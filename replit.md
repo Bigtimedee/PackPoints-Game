@@ -121,6 +121,43 @@ Integrated with Stripe, this system handles both one-time PackPTS bundle purchas
 - **eBay Browse API**: Live listing search via OAuth 2.0 client credentials flow.
 - **Goldin Auctions**: Curated listings managed via admin interface.
 
+### Profit Guardrail & Marketplace Redemptions
+A minimum profit guardrail system for PackPTS redemptions applied to external marketplace purchases (eBay/Goldin). Key components:
+
+**Business Math Formula:**
+- P = purchase price in USD
+- A = affiliate revenue rate (default 0.02)
+- h = affiliate reliability haircut (default 0.70)
+- m = minimum profit margin (default 0.25)
+- r = processing fee rate (default 0)
+- f = fixed fee per transaction (default 0)
+- v = USD value per PackPTS (default $0.002)
+- C_max = ((h*A - m)*P - f) / (1+r)
+- R_max = floor(C_max / v)
+
+**Database Tables:**
+- `profit_policy` - Versioned policy parameters (margin, rates, fees)
+- `external_purchase_intent` - Tracks listing quotes and redemption status
+- `redemption_credit` - Granted credits linked to ledger entries
+
+**API Endpoints:**
+- `GET /api/profit-policy` - Public policy for UI display
+- `POST /api/marketplace/redemption/quote` - Compute R_max for a listing
+- `POST /api/marketplace/redemption/apply` - Reserve PackPTS with idempotency
+- `POST /api/marketplace/purchase/confirm` - Confirm purchase (stub for admin review)
+- `GET /api/marketplace/redemption/intents` - User's purchase intents
+- `POST /api/admin/profit-policy` - Update policy (admin)
+- `GET /api/admin/redemptions` - Redemption queue (admin)
+- `POST /api/admin/redemptions/:id/reverse` - Reverse redemption (admin)
+
+**Frontend UI:**
+- Marketplace listing cards show "Apply PackPTS" button for authenticated users
+- Redemption modal with slider to select amount up to R_max
+- Real-time credit value calculation
+- Status indicators for not-eligible listings
+
+**Service:** `server/services/profitGuardrailService.ts`
+
 ### Live Listings Marketplace
 A unified marketplace search feature aggregates listings from eBay and Goldin Auctions with context-aware filtering. Key components:
 - **Database Tables**: `marketplace_cache` (TTL-based caching), `outbound_clicks` (click tracking), `external_listings_snapshot` (historical data), `goldin_curated_listings` (admin-managed feed with contextTags), `game_sets` (playable card sets), `user_active_sets` (user's recently played sets), `match_context_log` (match-to-set association events)

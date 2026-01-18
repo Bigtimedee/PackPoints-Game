@@ -5376,5 +5376,192 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // PROFIT GUARDRAIL & MARKETPLACE REDEMPTIONS
+  // ============================================
+
+  // GET /api/profit-policy - Public endpoint to get active policy for UI display
+  app.get("/api/profit-policy", async (_req, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      const policy = await profitGuardrailService.getPolicyForDisplay();
+      
+      if (!policy) {
+        return res.status(404).json({ error: "No active profit policy configured" });
+      }
+      
+      res.json(policy);
+    } catch (error) {
+      console.error("Error getting profit policy:", error);
+      res.status(500).json({ error: "Failed to get profit policy" });
+    }
+  });
+
+  // POST /api/marketplace/redemption/quote - Get redemption quote for a listing
+  app.post("/api/marketplace/redemption/quote", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      const { redemptionQuoteRequestSchema } = await import("@shared/schema");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const parsed = redemptionQuoteRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { source, listingId, listingUrl, priceCents, currency } = parsed.data;
+      
+      const quote = await profitGuardrailService.createQuote(
+        userId,
+        source,
+        listingId,
+        listingUrl,
+        priceCents,
+        currency
+      );
+      
+      res.json(quote);
+    } catch (error: any) {
+      console.error("Error creating redemption quote:", error);
+      res.status(500).json({ error: error.message || "Failed to create redemption quote" });
+    }
+  });
+
+  // POST /api/marketplace/redemption/apply - Apply PackPTS to a purchase intent
+  app.post("/api/marketplace/redemption/apply", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      const { redemptionApplyRequestSchema } = await import("@shared/schema");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const parsed = redemptionApplyRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { purchaseIntentId, requestedRedeemPackpts } = parsed.data;
+      
+      const result = await profitGuardrailService.applyRedemption(
+        userId,
+        purchaseIntentId,
+        requestedRedeemPackpts
+      );
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error applying redemption:", error);
+      res.status(500).json({ error: error.message || "Failed to apply redemption" });
+    }
+  });
+
+  // POST /api/marketplace/purchase/confirm - Confirm a purchase (stub for admin review)
+  app.post("/api/marketplace/purchase/confirm", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      const { purchaseConfirmRequestSchema } = await import("@shared/schema");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const parsed = purchaseConfirmRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { purchaseIntentId, evidence } = parsed.data;
+      
+      const result = await profitGuardrailService.confirmPurchase(
+        userId,
+        purchaseIntentId,
+        evidence
+      );
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error confirming purchase:", error);
+      res.status(500).json({ error: error.message || "Failed to confirm purchase" });
+    }
+  });
+
+  // GET /api/marketplace/redemption/intents - Get user's purchase intents
+  app.get("/api/marketplace/redemption/intents", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const status = req.query.status as string | undefined;
+      const intents = await profitGuardrailService.getUserPurchaseIntents(userId, status);
+      
+      res.json(intents);
+    } catch (error: any) {
+      console.error("Error getting purchase intents:", error);
+      res.status(500).json({ error: error.message || "Failed to get purchase intents" });
+    }
+  });
+
+  // Admin: Update profit policy
+  app.post("/api/admin/profit-policy", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      
+      const newPolicy = await profitGuardrailService.updatePolicy(req.body);
+      
+      res.json(newPolicy);
+    } catch (error: any) {
+      console.error("Error updating profit policy:", error);
+      res.status(500).json({ error: error.message || "Failed to update profit policy" });
+    }
+  });
+
+  // Admin: Get redemption queue
+  app.get("/api/admin/redemptions", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      
+      const status = req.query.status as "PENDING" | "GRANTED" | "REVERSED" | undefined;
+      const redemptions = await profitGuardrailService.getRedemptionQueue(status);
+      
+      res.json(redemptions);
+    } catch (error: any) {
+      console.error("Error getting redemption queue:", error);
+      res.status(500).json({ error: error.message || "Failed to get redemption queue" });
+    }
+  });
+
+  // Admin: Reverse a redemption
+  app.post("/api/admin/redemptions/:id/reverse", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      if (!reason) {
+        return res.status(400).json({ error: "Reason is required" });
+      }
+      
+      const result = await profitGuardrailService.reverseRedemption(id, reason);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error reversing redemption:", error);
+      res.status(500).json({ error: error.message || "Failed to reverse redemption" });
+    }
+  });
+
   return httpServer;
 }

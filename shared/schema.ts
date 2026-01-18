@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1689,3 +1689,142 @@ export const insertCardhedgeImportRunSchema = createInsertSchema(cardhedgeImport
 
 export type InsertCardhedgeImportRun = z.infer<typeof insertCardhedgeImportRunSchema>;
 export type CardhedgeImportRun = typeof cardhedgeImportRuns.$inferSelect;
+
+// ============================================
+// PROFIT GUARDRAIL & MARKETPLACE REDEMPTIONS
+// ============================================
+
+// Profit Policy - single active row, versioned for auditability
+export const profitPolicy = pgTable("profit_policy", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  minMarginM: real("min_margin_m").notNull().default(0.25), // minimum profit margin (e.g., 0.25 = 25%)
+  affiliateRateA: real("affiliate_rate_a").notNull().default(0.02), // affiliate revenue rate (e.g., 0.02 = 2%)
+  affiliateHaircutH: real("affiliate_haircut_h").notNull().default(0.70), // haircut for affiliate reliability (e.g., 0.70 = 70%)
+  processingFeeRateR: real("processing_fee_rate_r").notNull().default(0.00), // processing fee rate
+  fixedFeeFCents: integer("fixed_fee_f_cents").notNull().default(0), // fixed fee in cents
+  packptsValueVMicrousd: integer("packpts_value_v_microusd").notNull().default(2000), // value per PackPTS in micro-USD (2000 = $0.002)
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_profit_policy_effective").on(table.effectiveFrom),
+  index("idx_profit_policy_enabled").on(table.enabled),
+]);
+
+export const insertProfitPolicySchema = createInsertSchema(profitPolicy).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertProfitPolicy = z.infer<typeof insertProfitPolicySchema>;
+export type ProfitPolicy = typeof profitPolicy.$inferSelect;
+
+// External Purchase Intent Status Enum
+export const purchaseIntentStatusEnum = pgEnum("purchase_intent_status", [
+  "CREATED",
+  "APPROVED",
+  "DENIED",
+  "PURCHASE_CONFIRMED",
+  "CREDIT_GRANTED",
+  "CANCELED",
+]);
+
+// External Purchase Intent - tracks the listing and redemption calculation
+export const externalPurchaseIntent = pgTable("external_purchase_intent", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  source: marketplaceSourceEnum("source").notNull(),
+  listingId: text("listing_id").notNull(),
+  listingUrl: text("listing_url").notNull(),
+  priceCents: integer("price_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  computedRmax: integer("computed_rmax").notNull().default(0),
+  requestedRedeemPackpts: integer("requested_redeem_packpts").notNull().default(0),
+  approvedRedeemPackpts: integer("approved_redeem_packpts").notNull().default(0),
+  status: purchaseIntentStatusEnum("status").notNull().default("CREATED"),
+  calcSnapshot: jsonb("calc_snapshot").$type<{
+    P: number; // purchase price USD
+    A: number; // affiliate rate
+    h: number; // haircut
+    m: number; // min margin
+    r: number; // processing rate
+    f: number; // fixed fee USD
+    v: number; // USD per PackPTS
+    Cmax: number; // max credit USD
+    Rmax: number; // max redeemable PackPTS
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_external_purchase_intent_user").on(table.userId),
+  index("idx_external_purchase_intent_status").on(table.status),
+  index("idx_external_purchase_intent_source").on(table.source),
+  index("idx_external_purchase_intent_created").on(table.createdAt),
+]);
+
+export const insertExternalPurchaseIntentSchema = createInsertSchema(externalPurchaseIntent).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertExternalPurchaseIntent = z.infer<typeof insertExternalPurchaseIntentSchema>;
+export type ExternalPurchaseIntent = typeof externalPurchaseIntent.$inferSelect;
+
+// Redemption Credit Status Enum
+export const redemptionCreditStatusEnum = pgEnum("redemption_credit_status", [
+  "PENDING",
+  "GRANTED",
+  "REVERSED",
+]);
+
+// Redemption Credit - what we grant as store credit / rebate credit
+export const redemptionCredit = pgTable("redemption_credit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  purchaseIntentId: varchar("purchase_intent_id").notNull().references(() => externalPurchaseIntent.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  packptsSpent: integer("packpts_spent").notNull(),
+  creditCents: integer("credit_cents").notNull(),
+  status: redemptionCreditStatusEnum("status").notNull().default("PENDING"),
+  ledgerSpendEntryId: varchar("ledger_spend_entry_id").references(() => ledgerEntries.id),
+  ledgerCreditEntryId: varchar("ledger_credit_entry_id").references(() => ledgerEntries.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_redemption_credit_purchase_intent").on(table.purchaseIntentId),
+  index("idx_redemption_credit_user").on(table.userId),
+  index("idx_redemption_credit_status").on(table.status),
+  unique("redemption_credit_purchase_intent_unique").on(table.purchaseIntentId),
+]);
+
+export const insertRedemptionCreditSchema = createInsertSchema(redemptionCredit).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertRedemptionCredit = z.infer<typeof insertRedemptionCreditSchema>;
+export type RedemptionCredit = typeof redemptionCredit.$inferSelect;
+
+// API schemas for profit guardrail
+export const redemptionQuoteRequestSchema = z.object({
+  source: z.enum(["ebay", "goldin"]),
+  listingId: z.string().min(1),
+  listingUrl: z.string().url(),
+  priceCents: z.number().int().positive(),
+  currency: z.string().default("usd"),
+});
+
+export type RedemptionQuoteRequest = z.infer<typeof redemptionQuoteRequestSchema>;
+
+export const redemptionApplyRequestSchema = z.object({
+  purchaseIntentId: z.string().uuid(),
+  requestedRedeemPackpts: z.number().int().min(0),
+});
+
+export type RedemptionApplyRequest = z.infer<typeof redemptionApplyRequestSchema>;
+
+export const purchaseConfirmRequestSchema = z.object({
+  purchaseIntentId: z.string().uuid(),
+  evidence: z.string().optional(), // receipt URL or reference
+});
+
+export type PurchaseConfirmRequest = z.infer<typeof purchaseConfirmRequestSchema>;

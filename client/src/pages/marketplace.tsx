@@ -208,11 +208,30 @@ function formatTimeRemaining(endsAt: string | null): string {
   return `${minutes}m`;
 }
 
-interface LiveListingCardProps {
-  listing: LiveListing;
+interface QuoteResult {
+  rMax: number;
+  creditCentsMax: number;
+  policySummary: {
+    minMargin: number;
+    packptsValueUsd: number;
+  };
+  explanationText: string;
+  purchaseIntentId: string;
 }
 
-function LiveListingCard({ listing }: LiveListingCardProps) {
+interface LiveListingCardProps {
+  listing: LiveListing;
+  userBalance?: number;
+  isAuthenticated?: boolean;
+  onRedemptionComplete?: () => void;
+}
+
+function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, onRedemptionComplete }: LiveListingCardProps) {
+  const [showRedemptionModal, setShowRedemptionModal] = useState(false);
+  const [quote, setQuote] = useState<QuoteResult | null>(null);
+  const [selectedAmount, setSelectedAmount] = useState(0);
+  const { toast } = useToast();
+  
   const platformIcon = listing.source === "goldin" ? (
     <span className="font-bold text-xs">G</span>
   ) : (
@@ -224,81 +243,273 @@ function LiveListingCard({ listing }: LiveListingCardProps) {
   const timeRemaining = formatTimeRemaining(listing.endsAt);
   const isEndingSoon = listing.endsAt && new Date(listing.endsAt).getTime() - Date.now() < 24 * 60 * 60 * 1000;
 
+  const quoteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/marketplace/redemption/quote", {
+        source: listing.source,
+        listingId: listing.id,
+        listingUrl: listing.destinationUrl,
+        priceCents: listing.priceCents || 0,
+        currency: listing.currency || "usd",
+      });
+      return res.json() as Promise<QuoteResult>;
+    },
+    onSuccess: (data) => {
+      setQuote(data);
+      if (data.rMax > 0) {
+        setSelectedAmount(Math.min(data.rMax, userBalance));
+        setShowRedemptionModal(true);
+      } else {
+        toast({
+          title: "Not Eligible",
+          description: data.explanationText,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to get redemption quote",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const applyMutation = useMutation({
+    mutationFn: async () => {
+      if (!quote) throw new Error("No quote available");
+      const res = await apiRequest("POST", "/api/marketplace/redemption/apply", {
+        purchaseIntentId: quote.purchaseIntentId,
+        requestedRedeemPackpts: selectedAmount,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setShowRedemptionModal(false);
+      if (data.success) {
+        toast({
+          title: "PackPTS Reserved",
+          description: data.message,
+        });
+        onRedemptionComplete?.();
+        queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+      } else {
+        toast({
+          title: "Redemption Denied",
+          description: data.message,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to apply redemption",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleApplyPackPTS = () => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Sign In Required",
+        description: "Please sign in to use PackPTS for discounts",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!listing.priceCents) {
+      toast({
+        title: "Price Required",
+        description: "Cannot apply PackPTS to listings without a price",
+        variant: "destructive",
+      });
+      return;
+    }
+    quoteMutation.mutate();
+  };
+
+  const creditAmount = quote ? (selectedAmount * (quote.policySummary.packptsValueUsd || 0.002)).toFixed(2) : "0.00";
+
   return (
-    <Card 
-      className="overflow-visible hover-elevate"
-      data-testid={`card-listing-${listing.id}`}
-    >
-      <div className="aspect-[4/3] bg-gradient-to-br from-muted to-muted/50 rounded-t-md relative overflow-hidden">
-        {listing.imageUrl ? (
-          <img 
-            src={listing.imageUrl} 
-            alt={listing.title}
-            className="w-full h-full object-contain"
-            loading="lazy"
-          />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <ShoppingBag className="h-16 w-16 text-muted-foreground/30" />
-          </div>
-        )}
-        <Badge className={`absolute top-3 right-3 ${platformColor} text-white gap-1`}>
-          {platformIcon}
-          {platformName}
-        </Badge>
-        {isEndingSoon && timeRemaining && (
-          <Badge variant="destructive" className="absolute top-3 left-3 gap-1">
-            <Timer className="h-3 w-3" />
-            {timeRemaining}
-          </Badge>
-        )}
-      </div>
-      <CardContent className="p-4 space-y-3">
-        <div>
-          <h3 className="font-semibold line-clamp-2 text-sm" data-testid={`text-listing-title-${listing.id}`}>
-            {listing.title}
-          </h3>
-          {listing.condition && (
-            <p className="text-xs text-muted-foreground mt-1">{listing.condition}</p>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          {listing.priceCents !== null ? (
-            <div className="flex items-center gap-1 font-mono">
-              <DollarSign className="h-4 w-4 text-accent" />
-              <span className="font-semibold text-accent" data-testid={`text-price-${listing.id}`}>
-                {(listing.priceCents / 100).toFixed(2)} {listing.currency}
-              </span>
-            </div>
+    <>
+      <Card 
+        className="overflow-visible hover-elevate"
+        data-testid={`card-listing-${listing.id}`}
+      >
+        <div className="aspect-[4/3] bg-gradient-to-br from-muted to-muted/50 rounded-t-md relative overflow-hidden">
+          {listing.imageUrl ? (
+            <img 
+              src={listing.imageUrl} 
+              alt={listing.title}
+              className="w-full h-full object-contain"
+              loading="lazy"
+            />
           ) : (
-            <span className="text-sm text-muted-foreground">Price TBD</span>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <ShoppingBag className="h-16 w-16 text-muted-foreground/30" />
+            </div>
           )}
-          {timeRemaining && !isEndingSoon && (
-            <Badge variant="secondary" className="gap-1 text-xs">
+          <Badge className={`absolute top-3 right-3 ${platformColor} text-white gap-1`}>
+            {platformIcon}
+            {platformName}
+          </Badge>
+          {isEndingSoon && timeRemaining && (
+            <Badge variant="destructive" className="absolute top-3 left-3 gap-1">
               <Timer className="h-3 w-3" />
               {timeRemaining}
             </Badge>
           )}
         </div>
-        <Button 
-          variant="outline" 
-          className="w-full gap-2" 
-          size="sm"
-          asChild
-          data-testid={`button-view-listing-${listing.id}`}
-        >
-          <a 
-            href={listing.outboundUrl || "#"} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            aria-label={`View ${listing.title} on ${platformName}`}
+        <CardContent className="p-4 space-y-3">
+          <div>
+            <h3 className="font-semibold line-clamp-2 text-sm" data-testid={`text-listing-title-${listing.id}`}>
+              {listing.title}
+            </h3>
+            {listing.condition && (
+              <p className="text-xs text-muted-foreground mt-1">{listing.condition}</p>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            {listing.priceCents !== null ? (
+              <div className="flex items-center gap-1 font-mono">
+                <DollarSign className="h-4 w-4 text-accent" />
+                <span className="font-semibold text-accent" data-testid={`text-price-${listing.id}`}>
+                  {(listing.priceCents / 100).toFixed(2)} {listing.currency}
+                </span>
+              </div>
+            ) : (
+              <span className="text-sm text-muted-foreground">Price TBD</span>
+            )}
+            {timeRemaining && !isEndingSoon && (
+              <Badge variant="secondary" className="gap-1 text-xs">
+                <Timer className="h-3 w-3" />
+                {timeRemaining}
+              </Badge>
+            )}
+          </div>
+          
+          {isAuthenticated && listing.priceCents && userBalance > 0 && (
+            <Button 
+              variant="secondary" 
+              className="w-full gap-2" 
+              size="sm"
+              onClick={handleApplyPackPTS}
+              disabled={quoteMutation.isPending}
+              data-testid={`button-apply-packpts-${listing.id}`}
+            >
+              {quoteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-3 w-3" />
+                  Apply PackPTS
+                </>
+              )}
+            </Button>
+          )}
+          
+          <Button 
+            variant="outline" 
+            className="w-full gap-2" 
+            size="sm"
+            asChild
+            data-testid={`button-view-listing-${listing.id}`}
           >
-            View Listing
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </Button>
-      </CardContent>
-    </Card>
+            <a 
+              href={listing.outboundUrl || "#"} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              aria-label={`View ${listing.title} on ${platformName}`}
+            >
+              View Listing
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showRedemptionModal} onOpenChange={setShowRedemptionModal}>
+        <DialogContent data-testid="dialog-redemption">
+          <DialogHeader>
+            <DialogTitle>Apply PackPTS to Purchase</DialogTitle>
+            <DialogDescription>
+              Use your PackPTS as credit toward this purchase on {platformName}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="text-sm text-muted-foreground">
+              <p className="font-medium text-foreground mb-2">{listing.title}</p>
+              <p>Price: ${((listing.priceCents || 0) / 100).toFixed(2)}</p>
+              <p>Your Balance: {userBalance.toLocaleString()} PackPTS</p>
+              {quote && <p>Maximum Redeemable: {quote.rMax.toLocaleString()} PackPTS</p>}
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="redemption-amount">PackPTS to Apply</Label>
+              <div className="flex items-center gap-4">
+                <input
+                  id="redemption-amount"
+                  type="range"
+                  min={0}
+                  max={Math.min(quote?.rMax || 0, userBalance)}
+                  value={selectedAmount}
+                  onChange={(e) => setSelectedAmount(Number(e.target.value))}
+                  className="flex-1"
+                  data-testid="slider-redemption-amount"
+                />
+                <span className="font-mono text-sm w-24 text-right">
+                  {selectedAmount.toLocaleString()}
+                </span>
+              </div>
+            </div>
+            
+            <div className="bg-muted rounded-lg p-4 text-center">
+              <p className="text-sm text-muted-foreground">Credit Value</p>
+              <p className="text-2xl font-bold text-accent" data-testid="text-credit-value">
+                ${creditAmount}
+              </p>
+            </div>
+            
+            {quote?.rMax === 0 && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <p>This listing is not eligible for PackPTS credit due to margin requirements.</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRedemptionModal(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => applyMutation.mutate()}
+              disabled={applyMutation.isPending || selectedAmount === 0}
+              data-testid="button-confirm-redemption"
+            >
+              {applyMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Applying...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Apply {selectedAmount.toLocaleString()} PackPTS
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -629,7 +840,12 @@ export default function Marketplace() {
                       {contextResult.listings.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                           {contextResult.listings.map((listing) => (
-                            <LiveListingCard key={listing.id} listing={listing} />
+                            <LiveListingCard 
+                              key={listing.id} 
+                              listing={listing}
+                              userBalance={userBalance}
+                              isAuthenticated={!!contextsData?.userId}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -708,7 +924,12 @@ export default function Marketplace() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {liveListingsData.listings.map((listing) => (
-                    <LiveListingCard key={listing.id} listing={listing} />
+                    <LiveListingCard 
+                      key={listing.id} 
+                      listing={listing}
+                      userBalance={userBalance}
+                      isAuthenticated={!!contextsData?.userId}
+                    />
                   ))}
                 </div>
                 <AffiliateDisclosure variant="full" className="mt-6" />
