@@ -1442,6 +1442,16 @@ export type InsertGameSet = z.infer<typeof insertGameSetSchema>;
 export type UpdateGameSet = z.infer<typeof updateGameSetSchema>;
 export type GameSet = typeof gameSets.$inferSelect;
 
+export type PlayableSet = {
+  id: string;
+  sport: string;
+  brand: string;
+  year: number;
+  setName: string;
+  league: string | null;
+  cardsImportedCount: number;
+};
+
 // User Active Sets - which game sets a user has selected
 export const userActiveSets = pgTable("user_active_sets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -13,7 +13,7 @@ import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Co
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { SiX, SiFacebook } from "react-icons/si";
-import type { GameSession, GameQuestion, GameSet } from "@shared/schema";
+import type { GameSession, GameQuestion, GameSet, PlayableSet } from "@shared/schema";
 
 function AnswerButton({
   option,
@@ -58,7 +58,7 @@ function AnswerButton({
   );
 }
 
-function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: boolean }) {
+function GameCard({ imageUrl, isRevealed, setLabel }: { imageUrl: string; isRevealed: boolean; setLabel?: string }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
@@ -82,7 +82,7 @@ function GameCard({ imageUrl, isRevealed }: { imageUrl: string; isRevealed: bool
         <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: "linear-gradient(135deg, #d4a574 0%, #c4956a 50%, #b48560 100%)" }}>
           <div className="w-full h-full flex flex-col">
             <div className="h-[18%] bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600/90 flex items-center justify-center border-b-2 border-slate-900">
-              <span className="text-xs font-bold text-slate-200 tracking-widest">1987 TOPPS</span>
+              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
             </div>
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center px-4">
@@ -163,18 +163,25 @@ export default function Game() {
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
   const [selectedCardCount, setSelectedCardCount] = useState("10");
   const [hasStartedGame, setHasStartedGame] = useState(false);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
   });
   
-  const { data: gameSets } = useQuery<GameSet[]>({
-    queryKey: ["/api/game/sets"],
+  const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
+    queryKey: ["/api/playable-sets"],
     staleTime: 5 * 60 * 1000,
   });
   
-  const currentGameSet = gameSets?.[0];
+  const currentGameSet = playableSets?.find(s => s.id === selectedSetId) || playableSets?.[0];
+  
+  useEffect(() => {
+    if (playableSets?.length && !selectedSetId) {
+      setSelectedSetId(playableSets[0].id);
+    }
+  }, [playableSets, selectedSetId]);
 
   const [startError, setStartError] = useState<{ isRateLimit: boolean; message: string } | null>(null);
 
@@ -183,7 +190,7 @@ export default function Game() {
       const res = await apiRequest("POST", "/api/game/start", {
         mode: mode || "solo",
         totalQuestions: cardCount,
-        setId: currentGameSet?.id,
+        setId: selectedSetId || currentGameSet?.id,
       });
       return res.json();
     },
@@ -340,6 +347,11 @@ export default function Game() {
     );
   }
 
+  const getSetDisplayName = (set: PlayableSet | undefined) => {
+    if (!set) return "Card Set";
+    return `${set.year} ${set.brand} ${set.sport}`;
+  };
+
   // Show pre-game selection screen for Solo mode
   if (!hasStartedGame && !session) {
     return (
@@ -360,8 +372,31 @@ export default function Game() {
                 </div>
                 <h1 className="text-2xl font-bold" data-testid="text-solo-title">1v Computer</h1>
                 <p className="text-muted-foreground">
-                  Test your knowledge of 1987 Topps baseball cards. Earn points for each correct guess!
+                  Test your knowledge of {currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards. Earn points for each correct guess!
                 </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="card-set">Card Set</Label>
+                {setsLoading ? (
+                  <div className="flex items-center gap-2 h-10 px-3 border rounded-md">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-muted-foreground text-sm">Loading sets...</span>
+                  </div>
+                ) : (
+                  <Select value={selectedSetId || ""} onValueChange={setSelectedSetId}>
+                    <SelectTrigger id="card-set" data-testid="select-card-set">
+                      <SelectValue placeholder="Select a card set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {playableSets?.map((set) => (
+                        <SelectItem key={set.id} value={set.id} data-testid={`option-set-${set.id}`}>
+                          {set.year} {set.brand} {set.sport} ({set.cardsImportedCount} cards)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               
               <div className="space-y-2">
@@ -383,6 +418,7 @@ export default function Game() {
                 className="w-full gap-2" 
                 size="lg" 
                 onClick={handleStartGame}
+                disabled={!selectedSetId || setsLoading}
                 data-testid="button-start-game"
               >
                 <Play className="h-5 w-5" />
@@ -437,7 +473,8 @@ export default function Game() {
       ? Math.round((session.correctAnswers / session.totalQuestions) * 100) 
       : 0;
 
-    const shareText = `I scored ${session.score} points on PackPoints! I identified ${session.correctAnswers}/${session.totalQuestions} classic 1987 Topps baseball cards with ${accuracy}% accuracy. Can you beat my score?`;
+    const setName = currentGameSet ? getSetDisplayName(currentGameSet) : "classic";
+    const shareText = `I scored ${session.score} points on PackPoints! I identified ${session.correctAnswers}/${session.totalQuestions} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
     const handleShare = async (platform: "twitter" | "facebook" | "native" | "copy") => {
@@ -493,7 +530,7 @@ export default function Game() {
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-bold" data-testid="text-game-over-title">Game Complete!</h2>
-              <p className="text-muted-foreground">Here's how well you know your 1987 Topps cards</p>
+              <p className="text-muted-foreground">Here's how well you know your {currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-md bg-muted">
@@ -638,7 +675,8 @@ export default function Game() {
           <div className="relative">
             <GameCard 
               imageUrl={currentQuestion.card.imageUrl} 
-              isRevealed={isRevealed} 
+              isRevealed={isRevealed}
+              setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
             />
             <PointsAnimation points={earnedPoints} show={showPointsAnimation} />
           </div>
@@ -646,7 +684,7 @@ export default function Game() {
           {currentQuestion && (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-sm text-muted-foreground">Who is on this 1987 Topps card?</p>
+                <p className="text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
                 <Badge variant="outline" className="font-mono" data-testid="badge-point-value">
                   Worth {currentQuestion.pointValue} pts
                 </Badge>

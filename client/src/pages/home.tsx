@@ -70,14 +70,14 @@ export default function Home() {
           <div className="max-w-3xl mx-auto text-center space-y-6">
             <Badge variant="outline" className="gap-1.5 px-3 py-1">
               <Star className="h-3 w-3" />
-              1987 Topps Collection
+              Classic Card Collections
             </Badge>
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight" data-testid="text-hero-title">
               Know Your Cards.{" "}
               <span className="text-primary">Earn Your Points.</span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-hero-description">
-              The ultimate trivia game for baseball card collectors. Guess the player on classic 1987 Topps cards, 
+              The ultimate trivia game for sports card collectors. Guess the player on classic cards from your favorite sets, 
               earn PackPTS, and use them as a discount toward cards on Goldin and eBay.
             </p>
             <div className="flex flex-wrap justify-center gap-4 pt-4">
@@ -184,7 +184,7 @@ export default function Home() {
                   <span>Guess the Player</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  A 1987 Topps card appears with the name hidden. Choose the correct player from 4 options.
+                  A card from your selected set appears with the name hidden. Choose the correct player from 4 options.
                 </p>
               </div>
               <div className="space-y-2">
