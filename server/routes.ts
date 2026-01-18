@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -25,7 +25,7 @@ import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, desc, and } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -4429,7 +4429,7 @@ export async function registerRoutes(
       
       const [deleted] = await db
         .update(gameSets)
-        .set({ isActive: false, updatedAt: new Date() })
+        .set({ isActive: false })
         .where(eq(gameSets.id, id))
         .returning();
       
@@ -4670,6 +4670,627 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error recomputing geo:", error);
       res.status(500).json({ error: "Failed to recompute geo" });
+    }
+  });
+
+  // ============================================
+  // CARD HEDGE & PLAYABLE SETS ADMIN ENDPOINTS
+  // ============================================
+
+  // Admin: Search Card Hedge directly
+  app.post("/api/admin/cardhedge/search", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { cardSearch, CardSearchRequestSchema } = await import("./services/cardhedge");
+      const validated = CardSearchRequestSchema.parse(req.body);
+      const result = await cardSearch(validated);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error searching Card Hedge:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+      }
+      res.status(500).json({ error: error.message || "Failed to search Card Hedge" });
+    }
+  });
+
+  // Admin: Search Card Hedge with sorting
+  app.post("/api/admin/cardhedge/search-sorted", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { cardSearchSorted, CardSearchSortedRequestSchema } = await import("./services/cardhedge");
+      const validated = CardSearchSortedRequestSchema.parse(req.body);
+      const result = await cardSearchSorted(validated);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error searching Card Hedge (sorted):", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+      }
+      res.status(500).json({ error: error.message || "Failed to search Card Hedge" });
+    }
+  });
+
+  // Admin: Get Card Hedge card details
+  app.post("/api/admin/cardhedge/card-details", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { cardDetails, CardDetailsRequestSchema } = await import("./services/cardhedge");
+      const validated = CardDetailsRequestSchema.parse(req.body);
+      const result = await cardDetails(validated);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error getting Card Hedge card details:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+      }
+      res.status(500).json({ error: error.message || "Failed to get card details" });
+    }
+  });
+
+  // Zod schemas for playable sets validation
+  const CreatePlayableSetSchema = z.object({
+    sport: z.string().min(1, "sport is required"),
+    brand: z.string().min(1, "brand is required"),
+    year: z.coerce.number().int().min(1850).max(2100),
+    setName: z.string().min(1, "setName is required"),
+    cardhedgeSetQuery: z.string().optional(),
+    cardhedgeCategory: z.string().optional(),
+    marketplaceKeywords: z.array(z.string()).optional().default([]),
+  });
+
+  const UpdatePlayableSetSchema = z.object({
+    sport: z.string().min(1).optional(),
+    brand: z.string().min(1).optional(),
+    year: z.coerce.number().int().min(1850).max(2100).optional(),
+    setName: z.string().min(1).optional(),
+    cardhedgeSetQuery: z.string().nullable().optional(),
+    cardhedgeCategory: z.string().nullable().optional(),
+    marketplaceKeywords: z.array(z.string()).optional(),
+    isActive: z.boolean().optional(),
+  });
+
+  // Admin: Create playable set (game set with Card Hedge config)
+  app.post("/api/admin/playable-sets", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const validated = CreatePlayableSetSchema.parse(req.body);
+      
+      const [newSet] = await db
+        .insert(gameSets)
+        .values({
+          sport: validated.sport,
+          brand: validated.brand,
+          year: validated.year,
+          setName: validated.setName,
+          cardhedgeSetQuery: validated.cardhedgeSetQuery || validated.setName,
+          cardhedgeCategory: validated.cardhedgeCategory || validated.sport.charAt(0).toUpperCase() + validated.sport.slice(1),
+          marketplaceKeywords: validated.marketplaceKeywords,
+          isActive: true,
+        })
+        .returning();
+      
+      res.json(newSet);
+    } catch (error: any) {
+      console.error("Error creating playable set:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create playable set" });
+    }
+  });
+
+  // Admin: Update playable set
+  app.put("/api/admin/playable-sets/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const validated = UpdatePlayableSetSchema.parse(req.body);
+      
+      const updateData: any = {};
+      if (validated.sport !== undefined) updateData.sport = validated.sport;
+      if (validated.brand !== undefined) updateData.brand = validated.brand;
+      if (validated.year !== undefined) updateData.year = validated.year;
+      if (validated.setName !== undefined) updateData.setName = validated.setName;
+      if (validated.cardhedgeSetQuery !== undefined) updateData.cardhedgeSetQuery = validated.cardhedgeSetQuery;
+      if (validated.cardhedgeCategory !== undefined) updateData.cardhedgeCategory = validated.cardhedgeCategory;
+      if (validated.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = validated.marketplaceKeywords;
+      if (validated.isActive !== undefined) updateData.isActive = validated.isActive;
+      
+      const [updated] = await db
+        .update(gameSets)
+        .set(updateData)
+        .where(eq(gameSets.id, id))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Playable set not found" });
+      }
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating playable set:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update playable set" });
+    }
+  });
+
+  // Admin: Import cards from Card Hedge for a set
+  app.post("/api/admin/playable-sets/:id/import", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const MAX_PAGE_SIZE = 100;
+      const rawPageSize = parseInt(req.body.page_size || "100", 10);
+      const pageSize = Math.min(Math.max(1, rawPageSize), MAX_PAGE_SIZE);
+      
+      const [gameSet] = await db
+        .select()
+        .from(gameSets)
+        .where(eq(gameSets.id, id));
+      
+      if (!gameSet) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      if (!gameSet.cardhedgeSetQuery) {
+        return res.status(400).json({ error: "Game set has no cardhedgeSetQuery configured" });
+      }
+      
+      const [importRun] = await db
+        .insert(cardhedgeImportRuns)
+        .values({
+          gameSetId: id,
+          status: "RUNNING",
+          pageSize,
+        })
+        .returning();
+      
+      try {
+        const { cardSearchSorted, normalizeImageUrl } = await import("./services/cardhedge");
+        
+        let page = 1;
+        let totalCardsImported = 0;
+        let hasMorePages = true;
+        
+        while (hasMorePages) {
+          const result = await cardSearchSorted({
+            set: gameSet.cardhedgeSetQuery,
+            category: gameSet.cardhedgeCategory || undefined,
+            page,
+            page_size: pageSize,
+          });
+          
+          if (!result.cards || result.cards.length === 0) {
+            hasMorePages = false;
+            break;
+          }
+          
+          for (const card of result.cards) {
+            if (!card.card_id) continue;
+            
+            const imageUrl = normalizeImageUrl(card.image);
+            
+            await db
+              .insert(playableCards)
+              .values({
+                gameSetId: id,
+                cardhedgeCardId: card.card_id,
+                description: card.description,
+                player: card.player,
+                set: card.set,
+                number: card.number,
+                variant: card.variant,
+                imageUrl,
+                category: card.category,
+                rookie: card.rookie,
+              })
+              .onConflictDoUpdate({
+                target: playableCards.cardhedgeCardId,
+                set: {
+                  description: card.description,
+                  player: card.player,
+                  set: card.set,
+                  number: card.number,
+                  variant: card.variant,
+                  imageUrl,
+                  category: card.category,
+                  rookie: card.rookie,
+                  updatedAt: new Date(),
+                },
+              });
+            
+            totalCardsImported++;
+          }
+          
+          await db
+            .update(cardhedgeImportRuns)
+            .set({ pagesFetched: page, cardsImported: totalCardsImported })
+            .where(eq(cardhedgeImportRuns.id, importRun.id));
+          
+          const totalPages = result.pages || 1;
+          if (page >= totalPages) {
+            hasMorePages = false;
+          } else {
+            page++;
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+        }
+        
+        await db
+          .update(cardhedgeImportRuns)
+          .set({
+            status: "SUCCESS",
+            finishedAt: new Date(),
+            pagesFetched: page,
+            cardsImported: totalCardsImported,
+          })
+          .where(eq(cardhedgeImportRuns.id, importRun.id));
+        
+        await db
+          .update(gameSets)
+          .set({
+            cardsImportedCount: totalCardsImported,
+            lastImportAt: new Date(),
+          })
+          .where(eq(gameSets.id, id));
+        
+        res.json({
+          success: true,
+          importRunId: importRun.id,
+          cardsImported: totalCardsImported,
+          pagesFetched: page,
+        });
+      } catch (importError: any) {
+        await db
+          .update(cardhedgeImportRuns)
+          .set({
+            status: "FAILED",
+            finishedAt: new Date(),
+            error: importError.message || "Unknown error",
+          })
+          .where(eq(cardhedgeImportRuns.id, importRun.id));
+        
+        throw importError;
+      }
+    } catch (error: any) {
+      console.error("Error importing cards:", error);
+      res.status(500).json({ error: error.message || "Failed to import cards" });
+    }
+  });
+
+  // Admin: Get import runs for a set
+  app.get("/api/admin/playable-sets/:id/imports", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const runs = await db
+        .select()
+        .from(cardhedgeImportRuns)
+        .where(eq(cardhedgeImportRuns.gameSetId, id))
+        .orderBy(desc(cardhedgeImportRuns.startedAt))
+        .limit(10);
+      
+      res.json(runs);
+    } catch (error) {
+      console.error("Error getting import runs:", error);
+      res.status(500).json({ error: "Failed to get import runs" });
+    }
+  });
+
+  // Public: Get active playable sets with card counts
+  app.get("/api/playable-sets", async (_req, res) => {
+    try {
+      const sets = await db
+        .select({
+          id: gameSets.id,
+          sport: gameSets.sport,
+          brand: gameSets.brand,
+          year: gameSets.year,
+          setName: gameSets.setName,
+          league: gameSets.league,
+          cardsImportedCount: gameSets.cardsImportedCount,
+          lastImportAt: gameSets.lastImportAt,
+        })
+        .from(gameSets)
+        .where(eq(gameSets.isActive, true))
+        .orderBy(gameSets.year, gameSets.setName);
+      
+      res.json(sets);
+    } catch (error) {
+      console.error("Error getting playable sets:", error);
+      res.status(500).json({ error: "Failed to get playable sets" });
+    }
+  });
+
+  // Public: Get cards from a playable set (for gameplay)
+  app.get("/api/playable-sets/:id/cards", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { random, limit = "20", offset = "0", player, number } = req.query;
+      
+      const conditions = [eq(playableCards.gameSetId, id)];
+      
+      if (player) {
+        conditions.push(sql`${playableCards.player} ILIKE ${"%" + player + "%"}`);
+      }
+      
+      if (number) {
+        conditions.push(eq(playableCards.number, number as string));
+      }
+      
+      const orderByClause = random === "1" || random === "true" 
+        ? sql`RANDOM()` 
+        : playableCards.player;
+      
+      const cards = await db
+        .select()
+        .from(playableCards)
+        .where(and(...conditions))
+        .orderBy(orderByClause)
+        .limit(parseInt(limit as string, 10))
+        .offset(parseInt(offset as string, 10));
+      
+      res.json(cards);
+    } catch (error) {
+      console.error("Error getting playable cards:", error);
+      res.status(500).json({ error: "Failed to get playable cards" });
+    }
+  });
+
+  // Public: Get card by Card Hedge ID
+  app.get("/api/cards/:cardhedgeCardId", async (req, res) => {
+    try {
+      const { cardhedgeCardId } = req.params;
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.cardhedgeCardId, cardhedgeCardId));
+      
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      res.json(card);
+    } catch (error) {
+      console.error("Error getting card:", error);
+      res.status(500).json({ error: "Failed to get card" });
+    }
+  });
+
+  // ============================================
+  // IMAGE PROXY ENDPOINT (CORS-safe)
+  // ============================================
+
+  const ALLOWED_IMAGE_DOMAINS = [
+    "s3.amazonaws.com",
+    "cdn.bubble.io",
+    "bubble.io",
+    "cardhedger.com",
+    "comc.com",
+    "ebayimg.com",
+    "i.ebayimg.com",
+  ];
+
+  const isPrivateIpAddress = (ip: string): boolean => {
+    const privateIPv4Patterns = [
+      /^127\./, // Loopback
+      /^10\./, // Private A
+      /^192\.168\./, // Private C
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private B
+      /^0\./, // Current network
+      /^169\.254\./, // Link-local
+      /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // Carrier-grade NAT
+      /^192\.0\.0\./, // IETF protocol assignments
+      /^192\.0\.2\./, // TEST-NET-1
+      /^198\.51\.100\./, // TEST-NET-2
+      /^203\.0\.113\./, // TEST-NET-3
+      /^224\./, // Multicast
+      /^240\./, // Reserved
+      /^255\./, // Broadcast
+    ];
+    
+    const privateIPv6Patterns = [
+      /^::1$/, // Loopback
+      /^fe80:/i, // Link-local
+      /^fc00:/i, // Unique local
+      /^fd[0-9a-f]{2}:/i, // Unique local
+      /^::$/, // Unspecified
+      /^::ffff:(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i, // IPv4-mapped private
+    ];
+    
+    return privateIPv4Patterns.some(p => p.test(ip)) || 
+           privateIPv6Patterns.some(p => p.test(ip));
+  };
+
+  const isPrivateIp = (hostname: string): boolean => {
+    const privatePatterns = [
+      /^localhost$/,
+      /^127\./,
+      /^10\./,
+      /^192\.168\./,
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+      /^0\./,
+      /^169\.254\./,
+      /^\[::1\]$/,
+      /^\[fc00:/,
+      /^\[fd00:/,
+    ];
+    return privatePatterns.some(pattern => pattern.test(hostname));
+  };
+
+  /**
+   * DNS resolution with private IP validation.
+   * 
+   * SECURITY NOTE: While there's a theoretical TOCTOU gap between DNS resolution
+   * and the fetch connection, the practical risk is minimal because:
+   * 1. ALLOWED_IMAGE_DOMAINS contains only trusted CDN domains (AWS S3, eBay CDN, etc.)
+   * 2. Attackers cannot control DNS for these trusted domains
+   * 3. Multiple layers of defense: allowlist + DNS check + redirect validation
+   * 
+   * For maximum security, all card images should be hosted on a controlled CDN
+   * rather than proxied from arbitrary sources.
+   */
+  const resolveAndCheckPrivateIp = async (hostname: string): Promise<{ allowed: boolean; error?: string }> => {
+    const dns = await import("dns");
+    const { promisify } = await import("util");
+    const lookup = promisify(dns.lookup);
+    
+    try {
+      const result = await lookup(hostname, { all: true });
+      const addresses = Array.isArray(result) ? result : [result];
+      
+      for (const addr of addresses) {
+        if (isPrivateIpAddress(addr.address)) {
+          return { allowed: false, error: `Hostname resolves to private IP` };
+        }
+      }
+      return { allowed: true };
+    } catch (err: any) {
+      if (err.code === "ENOTFOUND") {
+        return { allowed: false, error: "Hostname could not be resolved" };
+      }
+      return { allowed: false, error: `DNS lookup failed: ${err.code || err.message}` };
+    }
+  };
+
+  app.get("/api/images/proxy", async (req, res) => {
+    try {
+      const proxyEnabled = process.env.CARD_IMAGE_PROXY_ENABLED !== "false";
+      if (!proxyEnabled) {
+        return res.status(403).json({ error: "Image proxy is disabled" });
+      }
+
+      const { url } = req.query;
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ error: "URL parameter required" });
+      }
+
+      if (url.length > 2000) {
+        return res.status(400).json({ error: "URL too long" });
+      }
+
+      let parsedUrl: URL;
+      try {
+        let normalizedUrl = url;
+        if (url.startsWith("//")) {
+          normalizedUrl = `https:${url}`;
+        }
+        parsedUrl = new URL(normalizedUrl);
+      } catch {
+        return res.status(400).json({ error: "Invalid URL" });
+      }
+
+      if (parsedUrl.protocol !== "https:") {
+        return res.status(400).json({ error: "Only HTTPS URLs allowed" });
+      }
+
+      if (isPrivateIp(parsedUrl.hostname)) {
+        return res.status(400).json({ error: "Private IP addresses not allowed" });
+      }
+
+      const isAllowed = ALLOWED_IMAGE_DOMAINS.some(domain => 
+        parsedUrl.hostname === domain || parsedUrl.hostname.endsWith(`.${domain}`)
+      );
+
+      if (!isAllowed) {
+        return res.status(403).json({ 
+          error: "Domain not in allowlist",
+          hostname: parsedUrl.hostname,
+        });
+      }
+
+      const dnsCheck = await resolveAndCheckPrivateIp(parsedUrl.hostname);
+      if (!dnsCheck.allowed) {
+        return res.status(400).json({ error: dnsCheck.error });
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const MAX_REDIRECTS = 5;
+      let currentUrl = parsedUrl;
+      let redirectCount = 0;
+
+      try {
+        while (redirectCount <= MAX_REDIRECTS) {
+          const response = await fetch(currentUrl.toString(), {
+            signal: controller.signal,
+            redirect: "manual",
+            headers: {
+              "User-Agent": "PackPoints-ImageProxy/1.0",
+            },
+          });
+
+          if (response.status >= 300 && response.status < 400) {
+            const locationHeader = response.headers.get("location");
+            if (!locationHeader) {
+              return res.status(502).json({ error: "Redirect without location header" });
+            }
+
+            let redirectUrl: URL;
+            try {
+              redirectUrl = new URL(locationHeader, currentUrl.toString());
+            } catch {
+              return res.status(400).json({ error: "Invalid redirect URL" });
+            }
+
+            if (redirectUrl.protocol !== "https:") {
+              return res.status(400).json({ error: "Redirect to non-HTTPS not allowed" });
+            }
+
+            if (isPrivateIp(redirectUrl.hostname)) {
+              return res.status(400).json({ error: "Redirect to private IP not allowed" });
+            }
+
+            const redirectAllowed = ALLOWED_IMAGE_DOMAINS.some(domain => 
+              redirectUrl.hostname === domain || redirectUrl.hostname.endsWith(`.${domain}`)
+            );
+            if (!redirectAllowed) {
+              return res.status(403).json({ 
+                error: "Redirect to domain not in allowlist",
+                hostname: redirectUrl.hostname,
+              });
+            }
+
+            const redirectDnsCheck = await resolveAndCheckPrivateIp(redirectUrl.hostname);
+            if (!redirectDnsCheck.allowed) {
+              return res.status(400).json({ error: `Redirect blocked: ${redirectDnsCheck.error}` });
+            }
+
+            currentUrl = redirectUrl;
+            redirectCount++;
+            continue;
+          }
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            return res.status(response.status).json({ error: "Failed to fetch image" });
+          }
+
+          const contentType = response.headers.get("content-type");
+          if (!contentType || !contentType.startsWith("image/")) {
+            return res.status(400).json({ error: "URL does not point to an image" });
+          }
+
+          res.setHeader("Content-Type", contentType);
+          res.setHeader("Cache-Control", "public, max-age=86400");
+          res.setHeader("X-Content-Type-Options", "nosniff");
+
+          const arrayBuffer = await response.arrayBuffer();
+          return res.send(Buffer.from(arrayBuffer));
+        }
+
+        clearTimeout(timeoutId);
+        return res.status(400).json({ error: "Too many redirects" });
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === "AbortError") {
+          return res.status(504).json({ error: "Image fetch timed out" });
+        }
+        throw error;
+      }
+    } catch (error) {
+      console.error("Error proxying image:", error);
+      res.status(500).json({ error: "Failed to proxy image" });
     }
   });
 

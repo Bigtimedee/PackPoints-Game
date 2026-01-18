@@ -30,6 +30,7 @@ import AdminProducts from "@/pages/admin/products";
 import AdminSubscriptions from "@/pages/admin/subscriptions";
 import AdminAccess from "@/pages/admin/access";
 import AdminGeo from "@/pages/admin/geo";
+import AdminPlayableSets from "@/pages/admin/playable-sets";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -139,6 +140,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminGeo />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/playable-sets">
+        {() => (
+          <AdminLayout>
+            <AdminPlayableSets />
           </AdminLayout>
         )}
       </Route>

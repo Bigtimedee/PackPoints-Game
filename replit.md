@@ -17,6 +17,28 @@ The backend is built with Node.js, Express, and TypeScript, providing RESTful JS
 ### Card Image System
 Baseball card images are sourced from the Card Hedge API and verified CDN URLs. The system masks player names during gameplay. Admin endpoints facilitate card data synchronization.
 
+### Card Hedge API Integration
+A comprehensive integration with Card Hedge API for importing and managing playable card sets. Key components:
+- **Card Hedge Client**: Typed HTTP client (`server/services/cardhedge/client.ts`) with timeout, retry, and in-memory caching
+- **Database Tables**: `playable_cards` (imported cards), `cardhedge_import_runs` (import job tracking), extended `game_sets` with `cardhedgeSetQuery` and `cardhedgeCategory` columns
+- **Import Workflow**: Admin endpoint `POST /api/admin/playable-sets/:id/import` pages through Card Hedge API and upserts cards locally
+- **Admin Endpoints**: 
+  - `POST /api/admin/cardhedge/search` - Direct Card Hedge search
+  - `POST /api/admin/cardhedge/search-sorted` - Sorted search with filters
+  - `POST /api/admin/cardhedge/card-details` - Get card details
+  - `POST /api/admin/playable-sets` - Create playable set with Card Hedge config
+  - `PUT /api/admin/playable-sets/:id` - Update playable set
+  - `POST /api/admin/playable-sets/:id/import` - Run import
+  - `GET /api/admin/playable-sets/:id/imports` - View import history
+- **Public Endpoints**:
+  - `GET /api/playable-sets` - List active sets with card counts
+  - `GET /api/playable-sets/:id/cards` - Get cards for gameplay (supports random, paging, player/number filters)
+  - `GET /api/cards/:cardhedgeCardId` - Get single card by Card Hedge ID
+- **Image Proxy**: `GET /api/images/proxy?url=<encoded>` with SSRF protection (HTTPS-only, domain allowlist, private IP rejection)
+- **Admin UI**: `/admin/playable-sets` page for set management and Card Hedge search
+- **Environment Variables**: CARDHEDGE_API_KEY (required), CARDHEDGE_BASE_URL, CARDHEDGE_HTTP_TIMEOUT_MS, CARDHEDGE_CACHE_TTL_SECONDS, CARDHEDGE_IMPORT_PAGE_SIZE, CARD_IMAGE_PROXY_ENABLED
+- **Seeded Sets**: 1987 Topps Baseball, 1992 Upper Deck Basketball
+
 ### Monetization & Wallet
 A ledger-first wallet tracks user points (PackPTS) with various entry types (EARN, SPEND, ADJUST, PURCHASE_CREDIT, REVERSAL). A product catalog defines purchasable items. A tier system (Free, Pro, Legend) gates access to features and multipliers, enforced by match tokens and daily quotas. A bucket-based expiration system manages point lifecycles, spending points from earliest-expiring buckets first.
 

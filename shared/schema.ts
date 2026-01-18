@@ -1412,6 +1412,10 @@ export const gameSets = pgTable("game_sets", {
   league: text("league"),
   isActive: boolean("is_active").notNull().default(true),
   marketplaceKeywords: jsonb("marketplace_keywords").$type<string[]>().notNull().default([]),
+  cardhedgeSetQuery: text("cardhedge_set_query"), // Exact query string for Card Hedge API
+  cardhedgeCategory: text("cardhedge_category"), // Card Hedge category (Baseball, Basketball, etc.)
+  cardsImportedCount: integer("cards_imported_count").notNull().default(0),
+  lastImportAt: timestamp("last_import_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_game_sets_active").on(table.isActive),
@@ -1430,6 +1434,8 @@ export const updateGameSetSchema = z.object({
   brand: z.string().min(1).optional(),
   marketplaceKeywords: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
+  cardhedgeSetQuery: z.string().optional(),
+  cardhedgeCategory: z.string().optional(),
 });
 
 export type InsertGameSet = z.infer<typeof insertGameSetSchema>;
@@ -1613,3 +1619,63 @@ export const insertGeoRollupsDailySchema = createInsertSchema(geoRollupsDaily);
 
 export type InsertGeoRollupsDaily = z.infer<typeof insertGeoRollupsDailySchema>;
 export type GeoRollupsDaily = typeof geoRollupsDaily.$inferSelect;
+
+// Playable Cards - cards imported from Card Hedge for gameplay
+export const playableCards = pgTable("playable_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  gameSetId: varchar("game_set_id").notNull().references(() => gameSets.id),
+  cardhedgeCardId: text("cardhedge_card_id").notNull().unique(), // Card Hedge card_id
+  description: text("description"),
+  player: text("player"),
+  set: text("set"),
+  number: text("number"),
+  variant: text("variant"),
+  imageUrl: text("image_url"),
+  category: text("category"),
+  rookie: boolean("rookie"),
+  rawImagesOnly: boolean("raw_images_only").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_playable_cards_game_set").on(table.gameSetId),
+  index("idx_playable_cards_player").on(table.player),
+  index("idx_playable_cards_set").on(table.set),
+  index("idx_playable_cards_number").on(table.number),
+]);
+
+export const insertPlayableCardSchema = createInsertSchema(playableCards).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPlayableCard = z.infer<typeof insertPlayableCardSchema>;
+export type PlayableCard = typeof playableCards.$inferSelect;
+
+// Card Hedge Import Runs - tracking import job status
+export const importRunStatuses = ["PENDING", "RUNNING", "SUCCESS", "FAILED"] as const;
+export type ImportRunStatus = typeof importRunStatuses[number];
+
+export const cardhedgeImportRuns = pgTable("cardhedge_import_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  gameSetId: varchar("game_set_id").notNull().references(() => gameSets.id),
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+  startedAt: timestamp("started_at").defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  pageSize: integer("page_size").notNull().default(100),
+  pagesFetched: integer("pages_fetched").notNull().default(0),
+  cardsImported: integer("cards_imported").notNull().default(0),
+  error: text("error"),
+}, (table) => [
+  index("idx_cardhedge_import_runs_game_set").on(table.gameSetId),
+  index("idx_cardhedge_import_runs_status").on(table.status),
+]);
+
+export const insertCardhedgeImportRunSchema = createInsertSchema(cardhedgeImportRuns).omit({
+  id: true,
+  startedAt: true,
+  finishedAt: true,
+});
+
+export type InsertCardhedgeImportRun = z.infer<typeof insertCardhedgeImportRunSchema>;
+export type CardhedgeImportRun = typeof cardhedgeImportRuns.$inferSelect;
