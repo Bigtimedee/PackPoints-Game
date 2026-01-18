@@ -20,7 +20,6 @@ const CLUBHOUSE_PATTERN = /\bclubhouse\b/i;
 export function classifyCard(card: CardInput): CardClassification {
   const player = (card.player || '').trim();
   const description = (card.description || '').trim();
-  const combined = `${player} ${description}`;
 
   if (!player) {
     return { isPlayable: false, blockedReason: 'no-player' };
@@ -31,35 +30,35 @@ export function classifyCard(card: CardInput): CardClassification {
     return { isPlayable: false, blockedReason: 'checklist' };
   }
 
-  if (LEADERS_PATTERN.test(player)) {
+  if (LEADERS_PATTERN.test(player) || LEADERS_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'leaders' };
   }
 
-  if (ALL_STAR_PATTERN.test(player)) {
+  if (ALL_STAR_PATTERN.test(player) || ALL_STAR_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'all-stars' };
   }
 
-  if (TEAM_CARD_PATTERN.test(player) && !looksLikeSinglePlayerName(player)) {
+  if ((TEAM_CARD_PATTERN.test(player) || TEAM_CARD_PATTERN.test(description)) && !looksLikeSinglePlayerName(player)) {
     return { isPlayable: false, blockedReason: 'team-card' };
   }
 
-  if (PROSPECTS_PATTERN.test(player)) {
+  if (PROSPECTS_PATTERN.test(player) || PROSPECTS_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'prospects' };
   }
 
-  if (AWARDS_PATTERN.test(player)) {
+  if (AWARDS_PATTERN.test(player) || AWARDS_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'awards' };
   }
 
-  if (HIGHLIGHTS_PATTERN.test(player)) {
+  if (HIGHLIGHTS_PATTERN.test(player) || HIGHLIGHTS_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'highlights' };
   }
 
-  if (COMBO_PATTERN.test(player)) {
+  if (COMBO_PATTERN.test(player) || COMBO_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'combo-card' };
   }
 
-  if (CLUBHOUSE_PATTERN.test(player)) {
+  if (CLUBHOUSE_PATTERN.test(player) || CLUBHOUSE_PATTERN.test(description)) {
     return { isPlayable: false, blockedReason: 'clubhouse' };
   }
 
