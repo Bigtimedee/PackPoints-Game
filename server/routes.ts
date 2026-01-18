@@ -4865,6 +4865,20 @@ export async function registerRoutes(
           for (const card of result.cards) {
             if (!card.card_id) continue;
             
+            // Skip checklist cards - they can't be used in gameplay
+            const playerName = card.player || '';
+            const description = card.description || '';
+            const isChecklist = 
+              playerName.toLowerCase().includes('checklist') ||
+              description.toLowerCase().includes('checklist') ||
+              playerName.trim() === '' ||
+              !playerName;
+            
+            if (isChecklist) {
+              console.log(`[CardHedge Import] Skipping checklist card: ${card.card_id} - ${description || playerName || 'no player'}`);
+              continue;
+            }
+            
             const imageUrl = normalizeImageUrl(card.image);
             
             await db

@@ -390,7 +390,12 @@ export class DatabaseStorage implements IStorage {
           isNotNull(playableCards.imageUrl),
           ne(playableCards.imageUrl, ''),
           not(like(playableCards.imageUrl, '%null%')),
-          like(playableCards.imageUrl, 'https://%')
+          like(playableCards.imageUrl, 'https://%'),
+          // Filter out checklist cards - they can't be identified by a single player
+          isNotNull(playableCards.player),
+          ne(playableCards.player, ''),
+          not(like(playableCards.player, '%Checklist%')),
+          not(like(playableCards.player, '%checklist%'))
         )
       )
       .orderBy(sql`RANDOM()`)
@@ -401,7 +406,15 @@ export class DatabaseStorage implements IStorage {
     const cards = await db
       .select({ player: playableCards.player })
       .from(playableCards)
-      .where(eq(playableCards.gameSetId, setId));
+      .where(
+        and(
+          eq(playableCards.gameSetId, setId),
+          isNotNull(playableCards.player),
+          ne(playableCards.player, ''),
+          not(like(playableCards.player, '%Checklist%')),
+          not(like(playableCards.player, '%checklist%'))
+        )
+      );
     
     return cards
       .map(c => c.player)
@@ -412,7 +425,15 @@ export class DatabaseStorage implements IStorage {
     const cards = await db
       .select({ player: playableCards.player })
       .from(playableCards)
-      .where(eq(playableCards.gameSetId, setId))
+      .where(
+        and(
+          eq(playableCards.gameSetId, setId),
+          isNotNull(playableCards.player),
+          ne(playableCards.player, ''),
+          not(like(playableCards.player, '%Checklist%')),
+          not(like(playableCards.player, '%checklist%'))
+        )
+      )
       .orderBy(sql`RANDOM()`)
       .limit(sampleSize);
     
