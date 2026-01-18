@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -40,7 +40,11 @@ export interface IStorage {
   addCard(card: InsertBaseballCard): Promise<BaseballCard>;
   updateCardImage(playerName: string, imageUrl: string, verified: boolean): Promise<void>;
   
-  createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string): Promise<GameSession>;
+  getRandomCardsFromSet(setId: string, count: number): Promise<PlayableCard[]>;
+  getSamplePlayerNamesFromSet(setId: string, sampleSize: number): Promise<string[]>;
+  getDefaultPlayableSetId(): Promise<string | null>;
+  
+  createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string, setId?: string): Promise<GameSession>;
   getGameSession(id: string): Promise<GameSession | undefined>;
   updateGameSession(session: GameSession): Promise<GameSession>;
   
@@ -376,6 +380,83 @@ export class DatabaseStorage implements IStorage {
       .where(eq(baseballCards.playerName, playerName));
   }
 
+  async getRandomCardsFromSet(setId: string, count: number): Promise<PlayableCard[]> {
+    return await db
+      .select()
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, setId))
+      .orderBy(sql`RANDOM()`)
+      .limit(count);
+  }
+
+  async getPlayerNamesFromSet(setId: string): Promise<string[]> {
+    const cards = await db
+      .select({ player: playableCards.player })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, setId));
+    
+    return cards
+      .map(c => c.player)
+      .filter((name): name is string => !!name);
+  }
+
+  async getSamplePlayerNamesFromSet(setId: string, sampleSize: number): Promise<string[]> {
+    const cards = await db
+      .select({ player: playableCards.player })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, setId))
+      .orderBy(sql`RANDOM()`)
+      .limit(sampleSize);
+    
+    return cards
+      .map(c => c.player)
+      .filter((name): name is string => !!name);
+  }
+
+  async getDefaultPlayableSetId(): Promise<string | null> {
+    const [activeSet] = await db
+      .select({ id: gameSets.id })
+      .from(gameSets)
+      .where(eq(gameSets.isActive, true))
+      .limit(1);
+    
+    return activeSet?.id || null;
+  }
+
+  private generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): GameQuestion {
+    const correctAnswer = card.player || "Unknown Player";
+    const availableNames = [...playerNames, ...this.playerNames];
+    let wrongOptions = availableNames
+      .filter(name => name !== correctAnswer && name)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
+    
+    const options = [correctAnswer, ...wrongOptions].sort(() => Math.random() - 0.5);
+    
+    const basePoints = 100;
+    const pointValue = basePoints;
+    
+    const cardAsBaseballCard: BaseballCard = {
+      id: card.id,
+      playerName: card.player || "Unknown Player",
+      team: card.set || "",
+      year: 0,
+      cardNumber: card.number || "",
+      imageUrl: card.imageUrl || "",
+      popularity: 50,
+      imageVerified: true,
+      setName: card.set || "",
+      position: "",
+    };
+    
+    return {
+      card: cardAsBaseballCard,
+      options,
+      correctAnswer,
+      pointValue,
+    };
+  }
+
   private generateQuestion(card: BaseballCard): GameQuestion {
     const wrongOptions = this.playerNames
       .filter(name => name !== card.playerName)
@@ -395,9 +476,27 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string): Promise<GameSession> {
-    const cards = await this.getRandomCards(totalQuestions);
-    const questions = cards.map(card => this.generateQuestion(card));
+  async createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string, setId?: string): Promise<GameSession> {
+    let questions: GameQuestion[];
+    
+    const effectiveSetId = setId || await this.getDefaultPlayableSetId();
+    
+    if (effectiveSetId) {
+      const playableSetCards = await this.getRandomCardsFromSet(effectiveSetId, totalQuestions);
+      
+      if (playableSetCards.length === 0) {
+        const cards = await this.getRandomCards(totalQuestions);
+        questions = cards.map(card => this.generateQuestion(card));
+      } else {
+        const playerNames = playableSetCards.map(c => c.player).filter((p): p is string => !!p);
+        const additionalNames = await this.getSamplePlayerNamesFromSet(effectiveSetId, 100);
+        const allNames = Array.from(new Set([...playerNames, ...additionalNames, ...this.playerNames]));
+        questions = playableSetCards.map(card => this.generateQuestionFromPlayableCard(card, allNames));
+      }
+    } else {
+      const cards = await this.getRandomCards(totalQuestions);
+      questions = cards.map(card => this.generateQuestion(card));
+    }
     
     const session: GameSession = {
       id: randomUUID(),

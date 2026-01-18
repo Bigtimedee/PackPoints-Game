@@ -591,7 +591,7 @@ export async function registerRoutes(
         guestSessionId = req.session.guestId;
       }
       
-      const session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId);
+      const session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId, setId);
       
       const maxPoints = session.questions.reduce((sum, q) => sum + q.pointValue, 0);
       
@@ -4971,6 +4971,88 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting import runs:", error);
       res.status(500).json({ error: "Failed to get import runs" });
+    }
+  });
+
+  // Admin: Test card distribution - verify random selection works across full set
+  app.post("/api/admin/playable-sets/:id/test-distribution", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { trials = 50, cardsPerTrial = 10 } = req.body;
+      
+      const [gameSet] = await db
+        .select()
+        .from(gameSets)
+        .where(eq(gameSets.id, id));
+      
+      if (!gameSet) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      const totalCards = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, id));
+      
+      const totalCardCount = Number(totalCards[0]?.count || 0);
+      
+      if (totalCardCount === 0) {
+        return res.status(400).json({ error: "No cards in this set. Run import first." });
+      }
+      
+      const cardSelectionCounts = new Map<string, number>();
+      
+      for (let trial = 0; trial < trials; trial++) {
+        const selectedCards = await storage.getRandomCardsFromSet(id, cardsPerTrial);
+        
+        for (const card of selectedCards) {
+          const count = cardSelectionCounts.get(card.id) || 0;
+          cardSelectionCounts.set(card.id, count + 1);
+        }
+      }
+      
+      const uniqueCardsSelected = cardSelectionCounts.size;
+      const coveragePercentage = (uniqueCardsSelected / totalCardCount) * 100;
+      
+      const selectionCounts = Array.from(cardSelectionCounts.values());
+      const avgSelections = selectionCounts.length > 0 
+        ? selectionCounts.reduce((a, b) => a + b, 0) / selectionCounts.length 
+        : 0;
+      const maxSelections = Math.max(...selectionCounts, 0);
+      const minSelections = Math.min(...selectionCounts, 0);
+      
+      const expectedSelectionsPerCard = (trials * cardsPerTrial) / totalCardCount;
+      
+      res.json({
+        setId: id,
+        setName: gameSet.setName,
+        testParameters: {
+          trials,
+          cardsPerTrial,
+          totalSelectionsAttempted: trials * cardsPerTrial,
+        },
+        results: {
+          totalCardsInSet: totalCardCount,
+          uniqueCardsSelected,
+          coveragePercentage: coveragePercentage.toFixed(2) + "%",
+          expectedSelectionsPerCard: expectedSelectionsPerCard.toFixed(2),
+          actualAvgSelectionsPerCard: avgSelections.toFixed(2),
+          minSelections,
+          maxSelections,
+        },
+        analysis: {
+          distributionIsRandom: uniqueCardsSelected > totalCardCount * 0.3,
+          fullSetAccessible: uniqueCardsSelected > 0 && coveragePercentage > 50,
+          recommendation: coveragePercentage < 50 
+            ? "Low coverage - check if cards are being properly randomized"
+            : coveragePercentage < 80
+            ? "Good coverage - run more trials for better assessment"
+            : "Excellent coverage - randomization is working well",
+        },
+      });
+    } catch (error) {
+      console.error("Error testing distribution:", error);
+      res.status(500).json({ error: "Failed to test card distribution" });
     }
   });
 
