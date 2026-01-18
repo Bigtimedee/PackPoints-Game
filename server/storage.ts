@@ -395,7 +395,9 @@ export class DatabaseStorage implements IStorage {
           isNotNull(playableCards.player),
           ne(playableCards.player, ''),
           not(like(playableCards.player, '%Checklist%')),
-          not(like(playableCards.player, '%checklist%'))
+          not(like(playableCards.player, '%checklist%')),
+          // Also filter by description to catch all checklist cards
+          sql`(${playableCards.description} IS NULL OR ${playableCards.description} NOT ILIKE '%checklist%')`
         )
       )
       .orderBy(sql`RANDOM()`)
@@ -412,7 +414,8 @@ export class DatabaseStorage implements IStorage {
           isNotNull(playableCards.player),
           ne(playableCards.player, ''),
           not(like(playableCards.player, '%Checklist%')),
-          not(like(playableCards.player, '%checklist%'))
+          not(like(playableCards.player, '%checklist%')),
+          sql`(${playableCards.description} IS NULL OR ${playableCards.description} NOT ILIKE '%checklist%')`
         )
       );
     
@@ -431,7 +434,8 @@ export class DatabaseStorage implements IStorage {
           isNotNull(playableCards.player),
           ne(playableCards.player, ''),
           not(like(playableCards.player, '%Checklist%')),
-          not(like(playableCards.player, '%checklist%'))
+          not(like(playableCards.player, '%checklist%')),
+          sql`(${playableCards.description} IS NULL OR ${playableCards.description} NOT ILIKE '%checklist%')`
         )
       )
       .orderBy(sql`RANDOM()`)
