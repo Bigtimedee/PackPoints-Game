@@ -387,17 +387,13 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(playableCards.gameSetId, setId),
+          eq(playableCards.isPlayable, true),
           isNotNull(playableCards.imageUrl),
           ne(playableCards.imageUrl, ''),
           not(like(playableCards.imageUrl, '%null%')),
           like(playableCards.imageUrl, 'https://%'),
-          // Filter out checklist cards - they can't be identified by a single player
           isNotNull(playableCards.player),
-          ne(playableCards.player, ''),
-          not(like(playableCards.player, '%Checklist%')),
-          not(like(playableCards.player, '%checklist%')),
-          // Also filter by description to catch all checklist cards
-          sql`(${playableCards.description} IS NULL OR ${playableCards.description} NOT ILIKE '%checklist%')`
+          ne(playableCards.player, '')
         )
       )
       .orderBy(sql`RANDOM()`)
@@ -411,11 +407,9 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(playableCards.gameSetId, setId),
+          eq(playableCards.isPlayable, true),
           isNotNull(playableCards.player),
-          ne(playableCards.player, ''),
-          not(like(playableCards.player, '%Checklist%')),
-          not(like(playableCards.player, '%checklist%')),
-          sql`(${playableCards.description} IS NULL OR ${playableCards.description} NOT ILIKE '%checklist%')`
+          ne(playableCards.player, '')
         )
       );
     
@@ -431,11 +425,9 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(playableCards.gameSetId, setId),
+          eq(playableCards.isPlayable, true),
           isNotNull(playableCards.player),
-          ne(playableCards.player, ''),
-          not(like(playableCards.player, '%Checklist%')),
-          not(like(playableCards.player, '%checklist%')),
-          sql`(${playableCards.description} IS NULL OR ${playableCards.description} NOT ILIKE '%checklist%')`
+          ne(playableCards.player, '')
         )
       )
       .orderBy(sql`RANDOM()`)

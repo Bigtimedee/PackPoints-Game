@@ -4865,7 +4865,7 @@ export async function registerRoutes(
           for (const card of result.cards) {
             if (!card.card_id) continue;
             
-            // Skip checklist cards - they can't be used in gameplay
+            // Determine if card is playable (not a checklist or multi-player card)
             const playerName = card.player || '';
             const description = card.description || '';
             const isChecklist = 
@@ -4874,9 +4874,17 @@ export async function registerRoutes(
               playerName.trim() === '' ||
               !playerName;
             
-            if (isChecklist) {
-              console.log(`[CardHedge Import] Skipping checklist card: ${card.card_id} - ${description || playerName || 'no player'}`);
-              continue;
+            // Also detect multi-player cards (e.g., "Player 1 / Player 2 / Player 3")
+            const slashCount = (playerName.match(/\//g) || []).length;
+            const isMultiPlayer = slashCount >= 2;
+            
+            const isPlayable = !isChecklist && !isMultiPlayer;
+            let blockedReason: string | null = null;
+            if (isChecklist) blockedReason = 'checklist';
+            else if (isMultiPlayer) blockedReason = 'multi-player';
+            
+            if (!isPlayable) {
+              console.log(`[CardHedge Import] Marking non-playable card: ${card.card_id} - ${blockedReason} - ${playerName || description}`);
             }
             
             const imageUrl = normalizeImageUrl(card.image);
@@ -4894,6 +4902,8 @@ export async function registerRoutes(
                 imageUrl,
                 category: card.category,
                 rookie: card.rookie,
+                isPlayable,
+                blockedReason,
               })
               .onConflictDoUpdate({
                 target: playableCards.cardhedgeCardId,
@@ -4906,6 +4916,8 @@ export async function registerRoutes(
                   imageUrl,
                   category: card.category,
                   rookie: card.rookie,
+                  isPlayable,
+                  blockedReason,
                   updatedAt: new Date(),
                 },
               });

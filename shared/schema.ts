@@ -1644,6 +1644,8 @@ export const playableCards = pgTable("playable_cards", {
   category: text("category"),
   rookie: boolean("rookie"),
   rawImagesOnly: boolean("raw_images_only").notNull().default(false),
+  isPlayable: boolean("is_playable").notNull().default(true), // false for checklists, multi-player cards
+  blockedReason: text("blocked_reason"), // Reason if isPlayable=false (e.g., "checklist", "multi-player")
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1651,6 +1653,7 @@ export const playableCards = pgTable("playable_cards", {
   index("idx_playable_cards_player").on(table.player),
   index("idx_playable_cards_set").on(table.set),
   index("idx_playable_cards_number").on(table.number),
+  index("idx_playable_cards_is_playable").on(table.isPlayable),
 ]);
 
 export const insertPlayableCardSchema = createInsertSchema(playableCards).omit({
