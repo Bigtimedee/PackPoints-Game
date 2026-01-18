@@ -2,7 +2,7 @@ import { type User, type InsertUser, type BaseballCard, type GameSession, type G
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
-import { eq, sql, desc, and, gte } from "drizzle-orm";
+import { eq, sql, desc, and, gte, isNotNull, ne, not, like } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
@@ -384,7 +384,15 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(playableCards)
-      .where(eq(playableCards.gameSetId, setId))
+      .where(
+        and(
+          eq(playableCards.gameSetId, setId),
+          isNotNull(playableCards.imageUrl),
+          ne(playableCards.imageUrl, ''),
+          not(like(playableCards.imageUrl, '%null%')),
+          like(playableCards.imageUrl, 'https://%')
+        )
+      )
       .orderBy(sql`RANDOM()`)
       .limit(count);
   }

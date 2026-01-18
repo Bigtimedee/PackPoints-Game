@@ -58,7 +58,7 @@ function AnswerButton({
   );
 }
 
-function GameCard({ imageUrl, isRevealed, setLabel }: { imageUrl: string; isRevealed: boolean; setLabel?: string }) {
+function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: string; isRevealed: boolean; setLabel?: string; onImageError?: () => void }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
@@ -66,9 +66,15 @@ function GameCard({ imageUrl, isRevealed, setLabel }: { imageUrl: string; isReve
     const img = e.currentTarget;
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
       setImageError(true);
+      onImageError?.();
     } else {
       setImageLoaded(true);
     }
+  };
+
+  const handleError = () => {
+    setImageError(true);
+    onImageError?.();
   };
 
   return (
@@ -79,22 +85,10 @@ function GameCard({ imageUrl, isRevealed, setLabel }: { imageUrl: string; isReve
         </div>
       )}
       {imageError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: "linear-gradient(135deg, #d4a574 0%, #c4956a 50%, #b48560 100%)" }}>
-          <div className="w-full h-full flex flex-col">
-            <div className="h-[18%] bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600/90 flex items-center justify-center border-b-2 border-slate-900">
-              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
-            </div>
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center px-4">
-                <div className="w-24 h-32 mx-auto mb-3 rounded bg-slate-600/30 flex items-center justify-center">
-                  <span className="text-4xl text-slate-700">?</span>
-                </div>
-                <p className="text-sm font-medium text-slate-700">Mystery Player</p>
-              </div>
-            </div>
-            <div className="h-[20%] bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600/90 flex items-center justify-center border-t-2 border-amber-900">
-              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
-            </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
+          <div className="text-center space-y-3">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Image unavailable, loading next card...</p>
           </div>
         </div>
       )}
@@ -106,7 +100,7 @@ function GameCard({ imageUrl, isRevealed, setLabel }: { imageUrl: string; isReve
           opacity: imageLoaded && !imageError ? 1 : 0,
         }}
         onLoad={handleImageLoad}
-        onError={() => setImageError(true)}
+        onError={handleError}
         referrerPolicy="no-referrer"
       />
       {/* Top mask - covers PSA slab label where player name appears */}
@@ -677,6 +671,11 @@ export default function Game() {
               imageUrl={currentQuestion.card.imageUrl} 
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
+              onImageError={() => {
+                if (!isRevealed && !nextQuestionMutation.isPending) {
+                  nextQuestionMutation.mutate();
+                }
+              }}
             />
             <PointsAnimation points={earnedPoints} show={showPointsAnimation} />
           </div>
