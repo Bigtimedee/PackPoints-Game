@@ -668,6 +668,7 @@ export default function Game() {
         <div className="space-y-8">
           <div className="relative">
             <GameCard 
+              key={`${session.id}-${session.currentQuestionIndex}`}
               imageUrl={currentQuestion.card.imageUrl} 
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
