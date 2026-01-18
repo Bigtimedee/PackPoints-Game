@@ -98,6 +98,12 @@ interface SetFormData {
   isActive: boolean;
 }
 
+interface SetLookupResult {
+  setName: string;
+  cardCount: number;
+  category: string;
+}
+
 const defaultFormData: SetFormData = {
   sport: "baseball",
   brand: "",
@@ -115,11 +121,14 @@ export default function AdminPlayableSets() {
   const { toast } = useToast();
   const [showDialog, setShowDialog] = useState(false);
   const [showSearchDialog, setShowSearchDialog] = useState(false);
+  const [showSetLookupDialog, setShowSetLookupDialog] = useState(false);
   const [editingSet, setEditingSet] = useState<GameSet | null>(null);
   const [formData, setFormData] = useState<SetFormData>(defaultFormData);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCategory, setSearchCategory] = useState("Baseball");
   const [selectedSetForImport, setSelectedSetForImport] = useState<GameSet | null>(null);
+  const [setLookupQuery, setSetLookupQuery] = useState("");
+  const [setLookupResults, setSetLookupResults] = useState<SetLookupResult[]>([]);
 
   const { data: gameSets, isLoading } = useQuery<GameSet[]>({
     queryKey: ["/api/admin/game-sets"],
@@ -141,6 +150,39 @@ export default function AdminPlayableSets() {
     },
     onError: (error: Error) => {
       toast({ title: "Search failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const setLookupMutation = useMutation({
+    mutationFn: async ({ search, category }: { search: string; category: string }) => {
+      const res = await apiRequest("POST", "/api/admin/cardhedge/search", {
+        search,
+        category,
+        page_size: 100,
+      });
+      return res.json() as Promise<CardHedgeSearchResult>;
+    },
+    onSuccess: (data) => {
+      const setMap = new Map<string, { count: number; category: string }>();
+      data.cards?.forEach((card) => {
+        if (card.set) {
+          const existing = setMap.get(card.set);
+          setMap.set(card.set, {
+            count: (existing?.count || 0) + 1,
+            category: searchCategory,
+          });
+        }
+      });
+      const results: SetLookupResult[] = Array.from(setMap.entries()).map(([setName, info]) => ({
+        setName,
+        cardCount: info.count,
+        category: info.category,
+      }));
+      results.sort((a, b) => b.cardCount - a.cardCount);
+      setSetLookupResults(results);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Lookup failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -243,6 +285,23 @@ export default function AdminPlayableSets() {
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
     searchMutation.mutate({ search: searchQuery, category: searchCategory });
+  };
+
+  const openSetLookupDialog = () => {
+    setSetLookupQuery(`${formData.year} ${formData.brand}`.trim() || `${formData.sport}`);
+    setSetLookupResults([]);
+    setShowSetLookupDialog(true);
+  };
+
+  const handleSetLookup = () => {
+    if (!setLookupQuery.trim()) return;
+    setLookupMutation.mutate({ search: setLookupQuery, category: formData.cardhedgeCategory });
+  };
+
+  const selectSetFromLookup = (setName: string) => {
+    setFormData({ ...formData, cardhedgeSetQuery: setName });
+    setShowSetLookupDialog(false);
+    toast({ title: "Set selected", description: `"${setName}" has been applied` });
   };
 
   const getStatusBadge = (set: GameSet) => {
@@ -435,15 +494,26 @@ export default function AdminPlayableSets() {
 
             <div className="space-y-2">
               <Label htmlFor="cardhedgeSetQuery">Card Hedge Set Query</Label>
-              <Input 
-                id="cardhedgeSetQuery"
-                value={formData.cardhedgeSetQuery}
-                onChange={(e) => setFormData({ ...formData, cardhedgeSetQuery: e.target.value })}
-                placeholder="Exact set name for Card Hedge API"
-                data-testid="input-cardhedge-query"
-              />
+              <div className="flex gap-2">
+                <Input 
+                  id="cardhedgeSetQuery"
+                  value={formData.cardhedgeSetQuery}
+                  onChange={(e) => setFormData({ ...formData, cardhedgeSetQuery: e.target.value })}
+                  placeholder="Exact set name for Card Hedge API"
+                  data-testid="input-cardhedge-query"
+                  className="flex-1"
+                />
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={openSetLookupDialog}
+                  data-testid="button-lookup-set"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Use Search Card Hedge to find the exact set name
+                Click the search button to find and select the exact set name
               </p>
             </div>
 
@@ -560,6 +630,81 @@ export default function AdminPlayableSets() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSetLookupDialog} onOpenChange={setShowSetLookupDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Find Card Hedge Set Name</DialogTitle>
+            <DialogDescription>
+              Search for sets to find the exact name for the Card Hedge API
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Input 
+                placeholder="Search by year, brand, or set name..."
+                value={setLookupQuery}
+                onChange={(e) => setSetLookupQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSetLookup()}
+                data-testid="input-set-lookup-query"
+                className="flex-1 min-w-[200px]"
+              />
+              <Button 
+                onClick={handleSetLookup}
+                disabled={setLookupMutation.isPending}
+                data-testid="button-set-lookup-search"
+              >
+                {setLookupMutation.isPending 
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Search className="h-4 w-4" />
+                }
+              </Button>
+            </div>
+
+            {setLookupResults.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Found {setLookupResults.length} set name{setLookupResults.length !== 1 ? "s" : ""}. Click to select:
+                </p>
+                <div className="border rounded-md p-2 space-y-1 max-h-[300px] overflow-y-auto">
+                  {setLookupResults.map((result, i) => (
+                    <Button
+                      key={`${result.setName}-${i}`}
+                      type="button"
+                      variant="ghost"
+                      className="w-full justify-between gap-2"
+                      onClick={() => selectSetFromLookup(result.setName)}
+                      data-testid={`button-select-set-${i}`}
+                    >
+                      <span className="font-medium truncate">{result.setName}</span>
+                      <Badge variant="secondary" className="shrink-0">
+                        {result.cardCount} card{result.cardCount !== 1 ? "s" : ""}
+                      </Badge>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {setLookupMutation.isSuccess && setLookupResults.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No sets found. Try a different search term.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowSetLookupDialog(false)}
+              data-testid="button-cancel-lookup"
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
