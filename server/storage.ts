@@ -433,13 +433,16 @@ export class DatabaseStorage implements IStorage {
 
   private generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): GameQuestion {
     const correctAnswer = card.player || "Unknown Player";
-    const availableNames = [...playerNames, ...this.playerNames];
-    let wrongOptions = availableNames
+    // Only use player names from the same set - do NOT mix with legacy baseball players
+    // Ensure unique names to prevent duplicate key issues in React
+    const uniqueNames = Array.from(new Set(playerNames));
+    let wrongOptions = uniqueNames
       .filter(name => name !== correctAnswer && name)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
     
-    const options = [correctAnswer, ...wrongOptions].sort(() => Math.random() - 0.5);
+    // Ensure no duplicates in final options array
+    const options = Array.from(new Set([correctAnswer, ...wrongOptions])).sort(() => Math.random() - 0.5);
     
     const basePoints = 100;
     const pointValue = basePoints;
@@ -498,7 +501,8 @@ export class DatabaseStorage implements IStorage {
       } else {
         const playerNames = playableSetCards.map(c => c.player).filter((p): p is string => !!p);
         const additionalNames = await this.getSamplePlayerNamesFromSet(effectiveSetId, 100);
-        const allNames = Array.from(new Set([...playerNames, ...additionalNames, ...this.playerNames]));
+        // Only use player names from the same set - do NOT mix with legacy baseball players
+        const allNames = Array.from(new Set([...playerNames, ...additionalNames]));
         questions = playableSetCards.map(card => this.generateQuestionFromPlayableCard(card, allNames));
       }
     } else {
