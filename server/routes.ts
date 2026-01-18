@@ -4844,6 +4844,7 @@ export async function registerRoutes(
       
       try {
         const { cardSearchSorted, normalizeImageUrl } = await import("./services/cardhedge");
+        const { classifyCard } = await import("./services/cardClassifier");
         
         let page = 1;
         let totalCardsImported = 0;
@@ -4865,26 +4866,12 @@ export async function registerRoutes(
           for (const card of result.cards) {
             if (!card.card_id) continue;
             
-            // Determine if card is playable (not a checklist or multi-player card)
-            const playerName = card.player || '';
-            const description = card.description || '';
-            const isChecklist = 
-              playerName.toLowerCase().includes('checklist') ||
-              description.toLowerCase().includes('checklist') ||
-              playerName.trim() === '' ||
-              !playerName;
-            
-            // Also detect multi-player cards (e.g., "Player 1 / Player 2 / Player 3")
-            const slashCount = (playerName.match(/\//g) || []).length;
-            const isMultiPlayer = slashCount >= 2;
-            
-            const isPlayable = !isChecklist && !isMultiPlayer;
-            let blockedReason: string | null = null;
-            if (isChecklist) blockedReason = 'checklist';
-            else if (isMultiPlayer) blockedReason = 'multi-player';
+            // Use shared classifier to determine playability
+            const classification = classifyCard({ player: card.player, description: card.description });
+            const { isPlayable, blockedReason } = classification;
             
             if (!isPlayable) {
-              console.log(`[CardHedge Import] Marking non-playable card: ${card.card_id} - ${blockedReason} - ${playerName || description}`);
+              console.log(`[CardHedge Import] Marking non-playable card: ${card.card_id} - ${blockedReason} - ${card.player || card.description}`);
             }
             
             const imageUrl = normalizeImageUrl(card.image);
@@ -5160,6 +5147,66 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting card:", error);
       res.status(500).json({ error: "Failed to get card" });
+    }
+  });
+
+  // Admin: Backfill card playability using shared classifier
+  app.post("/api/admin/playable-cards/backfill", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { classifyCard } = await import("./services/cardClassifier");
+      
+      const allCards = await db
+        .select({
+          id: playableCards.id,
+          player: playableCards.player,
+          description: playableCards.description,
+          isPlayable: playableCards.isPlayable,
+          blockedReason: playableCards.blockedReason,
+        })
+        .from(playableCards);
+      
+      let updated = 0;
+      let unchanged = 0;
+      const changes: Array<{ id: string; player: string | null; oldPlayable: boolean; newPlayable: boolean; reason: string | null }> = [];
+      
+      for (const card of allCards) {
+        const classification = classifyCard({ player: card.player, description: card.description });
+        
+        if (card.isPlayable !== classification.isPlayable || card.blockedReason !== classification.blockedReason) {
+          await db
+            .update(playableCards)
+            .set({
+              isPlayable: classification.isPlayable,
+              blockedReason: classification.blockedReason,
+              updatedAt: new Date(),
+            })
+            .where(eq(playableCards.id, card.id));
+          
+          changes.push({
+            id: card.id,
+            player: card.player,
+            oldPlayable: card.isPlayable,
+            newPlayable: classification.isPlayable,
+            reason: classification.blockedReason,
+          });
+          updated++;
+        } else {
+          unchanged++;
+        }
+      }
+      
+      console.log(`[Card Backfill] Updated ${updated} cards, ${unchanged} unchanged`);
+      
+      res.json({
+        success: true,
+        totalCards: allCards.length,
+        updated,
+        unchanged,
+        changes: changes.slice(0, 100),
+      });
+    } catch (error) {
+      console.error("Error backfilling card playability:", error);
+      res.status(500).json({ error: "Failed to backfill card playability" });
     }
   });
 
