@@ -32,6 +32,7 @@ import * as marketplaceService from "./services/marketplace";
 import * as contextService from "./services/marketplace/context";
 import { collectGeo } from "./middleware/geoMiddleware";
 import { geoService } from "./services/geoService";
+import * as rewardEngine from "./services/rewardEngine";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -657,7 +658,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/answer", async (req, res) => {
+  app.post("/api/game/answer", async (req: any, res) => {
     try {
       const parsed = submitAnswerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -686,9 +687,43 @@ export async function registerRoutes(
       }
       
       const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
+      let pointsEarned = 0;
+      let rewardResult: rewardEngine.AwardResult | null = null;
+      
+      const playerKey = rewardEngine.normalizePlayerKey(currentQuestion.correctAnswer, "baseball");
+      await rewardEngine.updatePlayerStats(playerKey, isCorrect);
       
       if (isCorrect) {
-        session.score += currentQuestion.pointValue;
+        const userId = session.userId || req.session?.localUserId;
+        
+        if (userId) {
+          const cardContext: rewardEngine.CardContext = {
+            cardId: (currentQuestion.card as any)?.id,
+            playerName: currentQuestion.correctAnswer,
+            year: currentQuestion.card?.year,
+            rarityType: "base",
+            sport: "baseball",
+          };
+          
+          const matchPointsAwarded = (session as any).matchPointsAwarded || 0;
+          
+          rewardResult = await rewardEngine.awardPoints(
+            userId,
+            cardContext,
+            sessionId,
+            `q${questionIndex}`,
+            matchPointsAwarded
+          );
+          
+          if (rewardResult) {
+            pointsEarned = rewardResult.finalPts;
+            (session as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
+          }
+        } else {
+          pointsEarned = currentQuestion.pointValue;
+        }
+        
+        session.score += pointsEarned;
         session.correctAnswers += 1;
       }
       
@@ -700,9 +735,18 @@ export async function registerRoutes(
       res.json({
         correct: isCorrect,
         correctAnswer: currentQuestion.correctAnswer,
-        pointsEarned: isCorrect ? currentQuestion.pointValue : 0,
+        pointsEarned,
         totalScore: session.score,
         session,
+        reward: rewardResult ? {
+          basePts: rewardResult.basePts,
+          finalPts: rewardResult.finalPts,
+          fameScore: rewardResult.fameScore,
+          vintageMultiplier: rewardResult.vintageMultiplier,
+          rarityMultiplier: rewardResult.rarityMultiplier,
+          capped: rewardResult.capped,
+          cappedReason: rewardResult.cappedReason,
+        } : null,
       });
     } catch (error) {
       console.error("Error submitting answer:", error);
@@ -5207,6 +5251,219 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error backfilling card playability:", error);
       res.status(500).json({ error: "Failed to backfill card playability" });
+    }
+  });
+
+  // ============================================
+  // REWARD SYSTEM ENDPOINTS
+  // ============================================
+
+  // Public: Explain reward calculation for a card
+  app.get("/api/rewards/explain", async (req, res) => {
+    try {
+      const { cardId, playerName, year, rarityType } = req.query;
+      
+      if (!playerName && !cardId) {
+        return res.status(400).json({ error: "playerName or cardId required" });
+      }
+      
+      let cardContext: rewardEngine.CardContext;
+      
+      if (cardId) {
+        const [card] = await db
+          .select()
+          .from(playableCards)
+          .where(eq(playableCards.id, cardId as string))
+          .limit(1);
+        
+        if (!card) {
+          return res.status(404).json({ error: "Card not found" });
+        }
+        
+        cardContext = {
+          cardId: card.id,
+          playerName: card.player || "Unknown",
+          year: card.year || undefined,
+          rarityType: "base",
+          sport: "baseball",
+        };
+      } else {
+        cardContext = {
+          playerName: playerName as string,
+          year: year ? parseInt(year as string, 10) : undefined,
+          rarityType: (rarityType as any) || "base",
+          sport: "baseball",
+        };
+      }
+      
+      const explanation = await rewardEngine.explainReward(cardContext);
+      res.json(explanation);
+    } catch (error) {
+      console.error("Error explaining reward:", error);
+      res.status(500).json({ error: "Failed to explain reward" });
+    }
+  });
+
+  // Admin: Get current reward policy
+  app.get("/api/admin/rewards/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const policy = await rewardEngine.loadActivePolicy();
+      res.json(policy);
+    } catch (error) {
+      console.error("Error getting reward policy:", error);
+      res.status(500).json({ error: "Failed to get reward policy" });
+    }
+  });
+
+  // Admin: Create new reward policy
+  app.post("/api/admin/rewards/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { createRewardPolicySchema, rewardPolicy: rewardPolicyTable } = await import("@shared/schema");
+      const parsed = createRewardPolicySchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const data = parsed.data;
+      const effectiveFrom = data.effectiveFrom ? new Date(data.effectiveFrom) : new Date();
+      
+      const [newPolicy] = await db
+        .insert(rewardPolicyTable)
+        .values({
+          effectiveFrom,
+          enabled: true,
+          minPts: data.minPts ?? 100,
+          maxPts: data.maxPts ?? 200,
+          gamma: data.gamma ?? 2.0,
+          maxAwardCap: data.maxAwardCap ?? 250,
+          vintageMultipliers: data.vintageMultipliers ?? { pre1980: 1.15, "1980_1999": 1.05, "2000_2019": 1.0, "2020_plus": 0.9 },
+          rarityMultipliers: data.rarityMultipliers ?? { base: 1.0, insert: 1.1, parallel: 1.2, sp: 1.3 },
+          dailyPointsCap: data.dailyPointsCap ?? 5000,
+          perMatchPointsCap: data.perMatchPointsCap ?? 1000,
+        })
+        .returning();
+      
+      rewardEngine.clearPolicyCache();
+      
+      res.json({ success: true, policy: newPolicy });
+    } catch (error) {
+      console.error("Error creating reward policy:", error);
+      res.status(500).json({ error: "Failed to create reward policy" });
+    }
+  });
+
+  // Admin: Search player fame
+  app.get("/api/admin/rewards/player-fame", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { q, sport, limit = "50" } = req.query;
+      const { playerFame: playerFameTable } = await import("@shared/schema");
+      
+      let query = db.select().from(playerFameTable);
+      
+      if (q) {
+        query = query.where(sql`${playerFameTable.playerName} ILIKE ${"%" + q + "%"}`);
+      }
+      
+      if (sport) {
+        query = query.where(eq(playerFameTable.sport, sport));
+      }
+      
+      const results = await query.limit(parseInt(limit as string, 10));
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching player fame:", error);
+      res.status(500).json({ error: "Failed to search player fame" });
+    }
+  });
+
+  // Admin: Update player fame (override)
+  app.post("/api/admin/rewards/player-fame", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { updatePlayerFameSchema, playerFame: playerFameTable } = await import("@shared/schema");
+      const parsed = updatePlayerFameSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+      
+      const { playerKey, fameScore, sport } = parsed.data;
+      
+      const [existing] = await db
+        .select()
+        .from(playerFameTable)
+        .where(eq(playerFameTable.playerKey, playerKey))
+        .limit(1);
+      
+      if (existing) {
+        await db
+          .update(playerFameTable)
+          .set({
+            fameScore,
+            sourceBreakdown: { ...((existing.sourceBreakdown as any) || {}), override: true, overrideValue: fameScore },
+            lastUpdated: new Date(),
+          })
+          .where(eq(playerFameTable.playerKey, playerKey));
+      } else {
+        await db.insert(playerFameTable).values({
+          sport: sport || "baseball",
+          playerName: playerKey.split(":").slice(1).join(":") || playerKey,
+          playerKey,
+          fameScore,
+          sourceBreakdown: { override: true, overrideValue: fameScore },
+        });
+      }
+      
+      res.json({ success: true, playerKey, fameScore });
+    } catch (error) {
+      console.error("Error updating player fame:", error);
+      res.status(500).json({ error: "Failed to update player fame" });
+    }
+  });
+
+  // Admin: Get points awards audit log
+  app.get("/api/admin/rewards/audits", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { userId, from, to, limit = "100" } = req.query;
+      const { pointsAwards: pointsAwardsTable } = await import("@shared/schema");
+      
+      let conditions = [];
+      
+      if (userId) {
+        conditions.push(eq(pointsAwardsTable.userId, userId as string));
+      }
+      
+      if (from) {
+        conditions.push(sql`${pointsAwardsTable.createdAt} >= ${new Date(from as string)}`);
+      }
+      
+      if (to) {
+        conditions.push(sql`${pointsAwardsTable.createdAt} <= ${new Date(to as string)}`);
+      }
+      
+      const query = conditions.length > 0
+        ? db.select().from(pointsAwardsTable).where(and(...conditions))
+        : db.select().from(pointsAwardsTable);
+      
+      const audits = await query
+        .orderBy(desc(pointsAwardsTable.createdAt))
+        .limit(parseInt(limit as string, 10));
+      
+      res.json(audits);
+    } catch (error) {
+      console.error("Error getting reward audits:", error);
+      res.status(500).json({ error: "Failed to get reward audits" });
+    }
+  });
+
+  // Admin: Recompute fame scores from gameplay stats
+  app.post("/api/admin/rewards/recompute-fame", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const updated = await rewardEngine.recomputeFameFromStats();
+      res.json({ success: true, updated });
+    } catch (error) {
+      console.error("Error recomputing fame:", error);
+      res.status(500).json({ error: "Failed to recompute fame" });
     }
   });
 
