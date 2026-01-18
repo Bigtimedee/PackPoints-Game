@@ -11,6 +11,7 @@ import {
   type RedemptionCredit,
 } from "@shared/schema";
 import { walletService } from "./walletService";
+import { treasuryService } from "./treasuryService";
 
 export interface CalcSnapshot {
   P: number;
@@ -27,9 +28,17 @@ export interface CalcSnapshot {
 export interface QuoteResult {
   rMax: number;
   creditCentsMax: number;
+  marginBackedRmax: number;
+  marginBackedCreditCentsMax: number;
+  marginPoolAvailable: boolean;
   policySummary: {
     minMargin: number;
     packptsValueUsd: number;
+  };
+  treasurySnapshot: {
+    availableMarginPoolCents: number;
+    transactionMarginCents: number;
+    allowedCapCents: number;
   };
   explanationText: string;
   purchaseIntentId: string;
@@ -110,7 +119,23 @@ class ProfitGuardrailService {
       throw new Error("No active profit policy configured");
     }
 
+    // Compute formula-based Rmax
     const calc = this.computeRmax(priceCents, policy);
+
+    // Get treasury status and transaction margin
+    const treasury = await treasuryService.getTreasuryStatus();
+    const txMargin = await treasuryService.computeTransactionMargin(source, priceCents);
+    
+    // Compute margin-backed allowed cap
+    const allowedCapCents = treasury.availableMarginPoolCents + txMargin.transactionMarginCents;
+    const packptsValueCents = policy.packptsValueVMicrousd / 10000; // micro-USD to cents
+    
+    // Margin-backed Rmax is the minimum of formula Rmax and what the margin pool can support
+    const formulaCreditCents = Math.floor(calc.Rmax * packptsValueCents);
+    const marginBackedCreditCentsMax = Math.min(formulaCreditCents, allowedCapCents);
+    const marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
+    
+    const marginPoolAvailable = allowedCapCents > 0;
 
     const [intent] = await db
       .insert(externalPurchaseIntent)
@@ -121,27 +146,41 @@ class ProfitGuardrailService {
         listingUrl,
         priceCents,
         currency,
-        computedRmax: calc.Rmax,
-        calcSnapshot: calc,
+        computedRmax: marginBackedRmax, // Store margin-backed limit
+        calcSnapshot: {
+          ...calc,
+          marginPoolCents: treasury.availableMarginPoolCents,
+          txMarginCents: txMargin.transactionMarginCents,
+          allowedCapCents,
+        },
         status: "CREATED",
       })
       .returning();
 
     let explanationText: string;
-    if (calc.Rmax === 0) {
-      explanationText =
-        "This listing is not eligible for PackPTS credit due to margin requirements.";
+    if (!marginPoolAvailable) {
+      explanationText = "PackPTS redemption temporarily unavailable for external purchases.";
+    } else if (marginBackedRmax === 0) {
+      explanationText = "This listing is not eligible for PackPTS credit due to margin requirements.";
     } else {
-      const creditDollars = (calc.Rmax * calc.v).toFixed(2);
-      explanationText = `You can apply up to ${calc.Rmax.toLocaleString()} PackPTS for $${creditDollars} credit on this purchase.`;
+      const creditDollars = (marginBackedRmax * (policy.packptsValueVMicrousd / 1_000_000)).toFixed(2);
+      explanationText = `You can apply up to ${marginBackedRmax.toLocaleString()} PackPTS for $${creditDollars} credit on this purchase.`;
     }
 
     return {
-      rMax: calc.Rmax,
-      creditCentsMax: Math.floor(calc.Rmax * calc.v * 100),
+      rMax: calc.Rmax, // Formula-based max (for reference)
+      creditCentsMax: formulaCreditCents,
+      marginBackedRmax, // Margin-pool backed max (actual limit)
+      marginBackedCreditCentsMax,
+      marginPoolAvailable,
       policySummary: {
         minMargin: policy.minMarginM,
-        packptsValueUsd: calc.v,
+        packptsValueUsd: policy.packptsValueVMicrousd / 1_000_000,
+      },
+      treasurySnapshot: {
+        availableMarginPoolCents: treasury.availableMarginPoolCents,
+        transactionMarginCents: txMargin.transactionMarginCents,
+        allowedCapCents,
       },
       explanationText,
       purchaseIntentId: intent.id,
@@ -176,16 +215,44 @@ class ProfitGuardrailService {
       throw new Error("No active profit policy configured");
     }
 
-    const freshCalc = this.computeRmax(intent.priceCents, policy);
-
     const wallet = await walletService.getWallet(userId);
     const userBalance = wallet?.balance ?? 0;
 
-    const approvedRedeemPackpts = Math.min(
+    // Use treasury service to compute allowed redemption with margin pool checks
+    const allowed = await treasuryService.computeAllowedRedemption(
+      userId,
+      intent.source as "ebay" | "goldin",
+      intent.priceCents,
       requestedRedeemPackpts,
-      freshCalc.Rmax,
       userBalance
     );
+
+    if (allowed.rejected) {
+      await db
+        .update(externalPurchaseIntent)
+        .set({
+          status: "DENIED",
+          requestedRedeemPackpts,
+          approvedRedeemPackpts: 0,
+          updatedAt: new Date(),
+        })
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+
+      return {
+        success: false,
+        approvedRedeemPackpts: 0,
+        creditCents: 0,
+        redemptionCreditId: "",
+        message: allowed.reason === "INSUFFICIENT_MARGIN_BACKING"
+          ? "PackPTS redemption temporarily unavailable - insufficient margin backing"
+          : userBalance === 0
+            ? "Insufficient PackPTS balance"
+            : "No redemption allowed for this purchase",
+      };
+    }
+
+    const approvedRedeemPackpts = allowed.approvedPackpts;
+    const creditCents = allowed.approvedCreditCents;
 
     if (approvedRedeemPackpts <= 0) {
       await db
@@ -203,16 +270,9 @@ class ProfitGuardrailService {
         approvedRedeemPackpts: 0,
         creditCents: 0,
         redemptionCreditId: "",
-        message:
-          approvedRedeemPackpts === 0 && userBalance === 0
-            ? "Insufficient PackPTS balance"
-            : "No redemption allowed for this purchase",
+        message: "No redemption allowed for this purchase",
       };
     }
-
-    const creditCents = Math.floor(
-      approvedRedeemPackpts * (policy.packptsValueVMicrousd / 1_000_000) * 100
-    );
 
     // Check if a redemption credit already exists for this intent (idempotency check)
     const [existingCredit] = await db
@@ -221,7 +281,6 @@ class ProfitGuardrailService {
       .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
 
     if (existingCredit) {
-      // Return the existing result for idempotency
       return {
         success: true,
         approvedRedeemPackpts: existingCredit.packptsSpent,
@@ -231,6 +290,10 @@ class ProfitGuardrailService {
       };
     }
 
+    // Step 1: Create margin reservation BEFORE spending PackPTS
+    await treasuryService.createReservation(purchaseIntentId, creditCents);
+
+    // Step 2: Spend user PackPTS
     const idempotencyKey = `redeem:${purchaseIntentId}`;
     const spendResult = await walletService.spend(
       userId,
@@ -240,10 +303,12 @@ class ProfitGuardrailService {
     );
 
     if (!spendResult.success || !spendResult.ledgerEntry) {
+      // Rollback reservation if spend fails
+      await treasuryService.releaseReservation(purchaseIntentId);
       throw new Error(spendResult.error || "Failed to spend PackPTS");
     }
 
-    // Use onConflictDoNothing to handle race conditions with the unique constraint
+    // Step 3: Create redemption credit record
     const [credit] = await db
       .insert(redemptionCredit)
       .values({
@@ -257,7 +322,6 @@ class ProfitGuardrailService {
       .onConflictDoNothing()
       .returning();
 
-    // If no credit was created due to conflict, fetch the existing one
     if (!credit) {
       const [existingAfterConflict] = await db
         .select()
@@ -276,6 +340,7 @@ class ProfitGuardrailService {
       throw new Error("Failed to create redemption credit");
     }
 
+    // Step 4: Update purchase intent status
     await db
       .update(externalPurchaseIntent)
       .set({
@@ -286,12 +351,16 @@ class ProfitGuardrailService {
       })
       .where(eq(externalPurchaseIntent.id, purchaseIntentId));
 
+    const clampedMessage = allowed.clamped
+      ? ` (clamped from ${requestedRedeemPackpts.toLocaleString()} due to margin limits)`
+      : "";
+
     return {
       success: true,
       approvedRedeemPackpts,
       creditCents,
       redemptionCreditId: credit.id,
-      message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS for $${(creditCents / 100).toFixed(2)} credit`,
+      message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS for $${(creditCents / 100).toFixed(2)} credit${clampedMessage}`,
     };
   }
 
@@ -318,14 +387,29 @@ class ProfitGuardrailService {
       throw new Error(`Cannot confirm purchase: intent status is ${intent.status}`);
     }
 
+    // Get the redemption credit to consume the reservation
+    const [credit] = await db
+      .select()
+      .from(redemptionCredit)
+      .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+
+    if (!credit) {
+      throw new Error("Redemption credit not found for this purchase intent");
+    }
+
+    // Consume the reservation and record margin usage
+    await treasuryService.consumeReservation(purchaseIntentId, credit.id);
+
+    // Update intent status
     await db
       .update(externalPurchaseIntent)
       .set({
-        status: "PURCHASE_CONFIRMED",
+        status: "CREDIT_GRANTED",
         updatedAt: new Date(),
       })
       .where(eq(externalPurchaseIntent.id, purchaseIntentId));
 
+    // Grant the credit
     await db
       .update(redemptionCredit)
       .set({ status: "GRANTED" })
@@ -443,6 +527,10 @@ class ProfitGuardrailService {
       return { success: false, message: "Redemption already reversed" };
     }
 
+    // Release the margin reservation (if still active)
+    await treasuryService.releaseReservation(credit.purchaseIntentId);
+
+    // Refund the PackPTS to the user
     const idempotencyKey = `reversal:${redemptionCreditId}`;
     await walletService.earn(
       credit.userId,
@@ -467,6 +555,70 @@ class ProfitGuardrailService {
     return {
       success: true,
       message: `Reversed ${credit.packptsSpent} PackPTS`,
+    };
+  }
+
+  async cancelRedemption(
+    userId: string,
+    purchaseIntentId: string
+  ): Promise<{ success: boolean; message: string }> {
+    const [intent] = await db
+      .select()
+      .from(externalPurchaseIntent)
+      .where(
+        and(
+          eq(externalPurchaseIntent.id, purchaseIntentId),
+          eq(externalPurchaseIntent.userId, userId)
+        )
+      );
+
+    if (!intent) {
+      throw new Error("Purchase intent not found");
+    }
+
+    if (intent.status !== "APPROVED") {
+      throw new Error(`Cannot cancel: intent status is ${intent.status}`);
+    }
+
+    // Get the redemption credit
+    const [credit] = await db
+      .select()
+      .from(redemptionCredit)
+      .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+
+    if (!credit) {
+      throw new Error("Redemption credit not found");
+    }
+
+    // Release the margin reservation
+    await treasuryService.releaseReservation(purchaseIntentId);
+
+    // Refund PackPTS
+    const idempotencyKey = `cancel:${purchaseIntentId}`;
+    await walletService.earn(
+      userId,
+      credit.packptsSpent,
+      `Redemption canceled by user`,
+      idempotencyKey
+    );
+
+    // Update statuses
+    await db
+      .update(redemptionCredit)
+      .set({ status: "REVERSED" })
+      .where(eq(redemptionCredit.id, credit.id));
+
+    await db
+      .update(externalPurchaseIntent)
+      .set({
+        status: "CANCELED",
+        updatedAt: new Date(),
+      })
+      .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+
+    return {
+      success: true,
+      message: `Canceled redemption and refunded ${credit.packptsSpent} PackPTS`,
     };
   }
 }
