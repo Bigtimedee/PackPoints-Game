@@ -53,6 +53,17 @@ A financial backing system that ensures a real margin is maintained on every Pac
 ### Live Listings Marketplace
 A unified marketplace search feature aggregates listings from eBay and Goldin Auctions. It supports context-aware filtering based on game sets, affiliate tracking, outbound click logging, and in-memory rate limiting.
 
+### Non-Linear Reward System
+A fame-based point calculation system that awards more PackPTS for identifying obscure players and fewer for famous players:
+- **Formula**: `basePts = minPts + (maxPts - minPts) * (1 - fame_score^gamma)` where default gamma=2.0
+- **Point Range**: 100-200 pts base (obscure players get up to 200pts, famous players get 100pts)
+- **Vintage Multipliers**: Pre-1980: 1.15x, 1980-1999: 1.05x, 2000-2019: 1.0x, 2020+: 0.9x
+- **Rarity Multipliers**: Base: 1.0x, Insert: 1.1x, Parallel: 1.2x, SP: 1.3x
+- **Caps**: Daily 5000pts, per-match 1000pts enforced at award time
+- **Database Tables**: reward_policy, player_fame, points_awards, user_points_counters, internal_player_stats
+- **Admin Endpoints**: Policy management, player fame overrides, audit logs, fame recomputation
+- **Player Stats Tracking**: Records correct/incorrect responses per player to compute fame scores from gameplay data
+
 ## External Dependencies
 
 ### Database
