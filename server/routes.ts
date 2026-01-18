@@ -5563,5 +5563,148 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Get treasury status
+  app.get("/api/admin/treasury/status", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      
+      const status = await treasuryService.getTreasuryStatus();
+      
+      res.json(status);
+    } catch (error: any) {
+      console.error("Error getting treasury status:", error);
+      res.status(500).json({ error: error.message || "Failed to get treasury status" });
+    }
+  });
+
+  // Admin: Credit margin pool (from affiliate payout, partner rebate, or manual adjustment)
+  app.post("/api/admin/treasury/credit", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      
+      const { amountCents, type, referenceId, description } = req.body;
+      
+      if (!amountCents || typeof amountCents !== "number" || amountCents <= 0) {
+        return res.status(400).json({ error: "Valid positive amountCents required" });
+      }
+      
+      const validTypes = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "ADJUSTMENT"];
+      if (!type || !validTypes.includes(type)) {
+        return res.status(400).json({ error: `Type must be one of: ${validTypes.join(", ")}` });
+      }
+      
+      const entry = await treasuryService.creditMarginPool(
+        amountCents,
+        type,
+        referenceId || null,
+        description || `Admin credit: ${type}`
+      );
+      
+      res.json({ success: true, entry });
+    } catch (error: any) {
+      console.error("Error crediting treasury:", error);
+      res.status(500).json({ error: error.message || "Failed to credit treasury" });
+    }
+  });
+
+  // Admin: Get margin ledger history
+  app.get("/api/admin/treasury/ledger", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      
+      const limit = parseInt(req.query.limit as string) || 50;
+      const ledger = await treasuryService.getMarginLedger(limit);
+      
+      res.json(ledger);
+    } catch (error: any) {
+      console.error("Error getting margin ledger:", error);
+      res.status(500).json({ error: error.message || "Failed to get margin ledger" });
+    }
+  });
+
+  // Admin: Get marketplace margin config
+  app.get("/api/admin/treasury/marketplace-config", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      
+      const configs = await treasuryService.getMarketplaceConfigs();
+      
+      res.json(configs);
+    } catch (error: any) {
+      console.error("Error getting marketplace config:", error);
+      res.status(500).json({ error: error.message || "Failed to get marketplace config" });
+    }
+  });
+
+  // Admin: Update marketplace margin config
+  app.put("/api/admin/treasury/marketplace-config/:source", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      
+      const { source } = req.params;
+      const { affiliateRateBps, haircutRateBps } = req.body;
+      
+      if (affiliateRateBps !== undefined && (typeof affiliateRateBps !== "number" || affiliateRateBps < 0 || affiliateRateBps > 10000)) {
+        return res.status(400).json({ error: "affiliateRateBps must be 0-10000" });
+      }
+      
+      if (haircutRateBps !== undefined && (typeof haircutRateBps !== "number" || haircutRateBps < 0 || haircutRateBps > 10000)) {
+        return res.status(400).json({ error: "haircutRateBps must be 0-10000" });
+      }
+      
+      const updated = await treasuryService.updateMarketplaceConfig(source, {
+        affiliateRateBps,
+        haircutRateBps,
+      });
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Marketplace config not found" });
+      }
+      
+      res.json({ success: true, config: updated });
+    } catch (error: any) {
+      console.error("Error updating marketplace config:", error);
+      res.status(500).json({ error: error.message || "Failed to update marketplace config" });
+    }
+  });
+
+  // Admin: Get active reservations
+  app.get("/api/admin/treasury/reservations", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      
+      const reservations = await treasuryService.getActiveReservations();
+      
+      res.json(reservations);
+    } catch (error: any) {
+      console.error("Error getting reservations:", error);
+      res.status(500).json({ error: error.message || "Failed to get reservations" });
+    }
+  });
+
+  // User: Cancel redemption
+  app.post("/api/marketplace/redemption/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { purchaseIntentId } = req.body;
+      if (!purchaseIntentId) {
+        return res.status(400).json({ error: "purchaseIntentId required" });
+      }
+
+      const result = await profitGuardrailService.cancelRedemption(userId, purchaseIntentId);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error canceling redemption:", error);
+      res.status(500).json({ error: error.message || "Failed to cancel redemption" });
+    }
+  });
+
   return httpServer;
 }

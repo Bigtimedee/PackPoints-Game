@@ -255,37 +255,62 @@ class TreasuryService {
     return entry.id;
   }
 
+  async creditMarginPool(
+    amountCents: number,
+    type: "PACKPTS_SALE" | "AFFILIATE_PAYOUT" | "PARTNER_REBATE" | "ADJUSTMENT",
+    referenceId: string | null,
+    description: string
+  ): Promise<any> {
+    if (amountCents <= 0) {
+      throw new Error("Credit amount must be positive");
+    }
+
+    const [entry] = await db
+      .insert(marginLedger)
+      .values({
+        amountCents,
+        sourceType: type,
+        referenceId,
+        description,
+      })
+      .returning();
+
+    console.log(`[Treasury] Credited margin pool: ${amountCents} cents from ${type}`);
+    return entry;
+  }
+
   async updateMarketplaceConfig(
-    source: "ebay" | "goldin",
-    affiliateRate: number,
-    haircut: number
-  ): Promise<void> {
+    source: string,
+    updates: { affiliateRateBps?: number; haircutRateBps?: number }
+  ): Promise<any | null> {
     const [existing] = await db
       .select()
       .from(marketplaceMarginConfig)
       .where(eq(marketplaceMarginConfig.source, source));
 
-    if (existing) {
-      await db
-        .update(marketplaceMarginConfig)
-        .set({ 
-          affiliateRate, 
-          haircut,
-          updatedAt: new Date(),
-        })
-        .where(eq(marketplaceMarginConfig.source, source));
-    } else {
-      await db
-        .insert(marketplaceMarginConfig)
-        .values({
-          source,
-          affiliateRate,
-          haircut,
-        });
+    if (!existing) {
+      return null;
     }
+
+    const newValues: any = { updatedAt: new Date() };
+    
+    if (updates.affiliateRateBps !== undefined) {
+      newValues.affiliateRate = updates.affiliateRateBps / 10000; // BPS to decimal
+    }
+    if (updates.haircutRateBps !== undefined) {
+      newValues.haircut = updates.haircutRateBps / 10000;
+    }
+
+    const [updated] = await db
+      .update(marketplaceMarginConfig)
+      .set(newValues)
+      .where(eq(marketplaceMarginConfig.source, source))
+      .returning();
+
+    return updated;
   }
 
-  async getMarginLedgerHistory(limit: number = 50): Promise<any[]> {
+  async getMarginLedger(limit: number = 50): Promise<any[]> {
     return db
       .select()
       .from(marginLedger)
@@ -293,8 +318,16 @@ class TreasuryService {
       .limit(limit);
   }
 
-  async getAllMarketplaceConfigs(): Promise<any[]> {
+  async getMarketplaceConfigs(): Promise<any[]> {
     return db.select().from(marketplaceMarginConfig);
+  }
+
+  async getActiveReservations(): Promise<any[]> {
+    return db
+      .select()
+      .from(redemptionReservations)
+      .where(eq(redemptionReservations.status, "ACTIVE"))
+      .orderBy(sql`${redemptionReservations.createdAt} DESC`);
   }
 }
 
