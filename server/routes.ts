@@ -5280,10 +5280,11 @@ export async function registerRoutes(
           return res.status(404).json({ error: "Card not found" });
         }
         
+        const setYear = card.set ? parseInt(card.set.match(/^\d{4}/)?.[0] || "0", 10) || undefined : undefined;
         cardContext = {
           cardId: card.id,
           playerName: card.player || "Unknown",
-          year: card.year || undefined,
+          year: setYear,
           rarityType: "base",
           sport: "baseball",
         };
@@ -5359,17 +5360,20 @@ export async function registerRoutes(
       const { q, sport, limit = "50" } = req.query;
       const { playerFame: playerFameTable } = await import("@shared/schema");
       
-      let query = db.select().from(playerFameTable);
+      const conditions = [];
       
       if (q) {
-        query = query.where(sql`${playerFameTable.playerName} ILIKE ${"%" + q + "%"}`);
+        conditions.push(sql`${playerFameTable.playerName} ILIKE ${"%" + q + "%"}`);
       }
       
       if (sport) {
-        query = query.where(eq(playerFameTable.sport, sport));
+        conditions.push(eq(playerFameTable.sport, sport as string));
       }
       
-      const results = await query.limit(parseInt(limit as string, 10));
+      const results = conditions.length > 0
+        ? await db.select().from(playerFameTable).where(and(...conditions)).limit(parseInt(limit as string, 10))
+        : await db.select().from(playerFameTable).limit(parseInt(limit as string, 10));
+      
       res.json(results);
     } catch (error) {
       console.error("Error searching player fame:", error);

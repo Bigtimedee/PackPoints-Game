@@ -129,14 +129,62 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
   );
 }
 
-function PointsAnimation({ points, show }: { points: number; show: boolean }) {
+interface RewardDetails {
+  basePts: number;
+  finalPts: number;
+  fameScore: number;
+  vintageMultiplier: number;
+  rarityMultiplier: number;
+  capped: boolean;
+  cappedReason?: string;
+}
+
+function PointsAnimation({ points, show, reward }: { points: number; show: boolean; reward?: RewardDetails | null }) {
   if (!show) return null;
 
+  const getFameLabel = (score: number) => {
+    if (score <= 0.2) return "Obscure";
+    if (score <= 0.5) return "Lesser Known";
+    if (score <= 0.8) return "Well Known";
+    return "Famous";
+  };
+
   return (
-    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-bounce">
-      <div className="flex items-center gap-2 bg-accent text-accent-foreground px-4 py-2 rounded-md shadow-lg">
-        <Zap className="h-5 w-5" />
-        <span className="font-bold font-mono text-xl">+{points}</span>
+    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
+      <div className="flex flex-col items-center gap-2 animate-bounce">
+        <div className="flex items-center gap-2 bg-accent text-accent-foreground px-4 py-2 rounded-md shadow-lg">
+          <Zap className="h-5 w-5" />
+          <span className="font-bold font-mono text-xl" data-testid="text-points-earned">+{points}</span>
+        </div>
+        {reward && (
+          <div className="bg-card/95 backdrop-blur text-card-foreground px-3 py-2 rounded-md shadow-lg text-xs space-y-1 animate-fade-in" data-testid="reward-breakdown">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Player:</span>
+              <span className="font-medium">{getFameLabel(reward.fameScore)}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Base:</span>
+              <span className="font-mono">{reward.basePts} pts</span>
+            </div>
+            {reward.vintageMultiplier !== 1.0 && (
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Vintage:</span>
+                <span className="font-mono text-green-500">x{reward.vintageMultiplier.toFixed(2)}</span>
+              </div>
+            )}
+            {reward.rarityMultiplier !== 1.0 && (
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Rarity:</span>
+                <span className="font-mono text-blue-500">x{reward.rarityMultiplier.toFixed(2)}</span>
+              </div>
+            )}
+            {reward.capped && (
+              <div className="text-amber-500 text-center pt-1 border-t border-border">
+                {reward.cappedReason?.includes("daily") ? "Daily cap reached" : "Match cap reached"}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -152,6 +200,15 @@ export default function Game() {
   const [isRevealed, setIsRevealed] = useState(false);
   const [earnedPoints, setEarnedPoints] = useState(0);
   const [showPointsAnimation, setShowPointsAnimation] = useState(false);
+  const [rewardDetails, setRewardDetails] = useState<{
+    basePts: number;
+    finalPts: number;
+    fameScore: number;
+    vintageMultiplier: number;
+    rarityMultiplier: number;
+    capped: boolean;
+    cappedReason?: string;
+  } | null>(null);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
@@ -232,8 +289,11 @@ export default function Game() {
     onSuccess: (data) => {
       if (data.correct) {
         setEarnedPoints(data.pointsEarned);
+        setRewardDetails(data.reward || null);
         setShowPointsAnimation(true);
-        setTimeout(() => setShowPointsAnimation(false), 1500);
+        setTimeout(() => setShowPointsAnimation(false), 2000);
+      } else {
+        setRewardDetails(null);
       }
       if (data.session) {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
@@ -678,7 +738,7 @@ export default function Game() {
                 }
               }}
             />
-            <PointsAnimation points={earnedPoints} show={showPointsAnimation} />
+            <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
           </div>
 
           {currentQuestion && (
