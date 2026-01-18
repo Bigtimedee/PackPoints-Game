@@ -116,7 +116,7 @@ function GameCard({ imageUrl, isRevealed, setLabel }: { imageUrl: string; isReve
           style={{ height: "18%" }}
         >
           <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600/90 flex items-center justify-center border-b-2 border-slate-900">
-            <span className="text-xs font-bold text-slate-200 tracking-widest">1987 TOPPS</span>
+            <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
           </div>
         </div>
       )}
