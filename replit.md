@@ -1,7 +1,7 @@
 # PackPoints
 
 ## Overview
-PackPoints is a card-collecting gaming platform where users guess baseball players from card images to earn points. It offers solo, 1v1, and tournament game modes, a leaderboard, and a marketplace for redeeming points for credits on platforms like Goldin Auctions and eBay. The project aims to provide an engaging gaming experience focused on baseball card recognition and collection with strong monetization and retention features.
+PackPoints is a card-collecting gaming platform where users identify baseball players from card images to earn points. It features solo, 1v1, and tournament game modes, a global leaderboard, and a marketplace. Users can redeem earned points for credits on platforms like Goldin Auctions and eBay. The project aims to deliver an engaging baseball card recognition experience with robust monetization and user retention capabilities.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,95 +9,58 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Frontend
-The frontend uses React 18, TypeScript, Vite, Wouter for routing, Tailwind CSS, and shadcn/ui for components. State management uses TanStack React Query. The design system supports dark/light themes, specific fonts, and is mobile-first, responsive, and gaming-inspired.
+The frontend is built with React 18, TypeScript, Vite, Wouter for routing, Tailwind CSS, and shadcn/ui for UI components. State management is handled by TanStack React Query. The design system emphasizes a mobile-first, responsive, and gaming-inspired aesthetic, supporting both dark and light themes.
 
 ### Backend
-The backend is built with Node.js, Express, and TypeScript, providing RESTful JSON endpoints. It uses esbuild for optimization and Drizzle ORM with PostgreSQL for data storage, validated by Zod. Key features include user authentication (Replit Auth, local), game session management, point calculation, and admin tools. Real-time 1v1 games are supported via WebSockets for lobbies, matchmaking, and secure game logic.
+The backend utilizes Node.js, Express, and TypeScript, exposing RESTful JSON endpoints. It uses esbuild for bundling and Drizzle ORM with PostgreSQL for data persistence, validated by Zod schemas. Key functionalities include user authentication, game session management, point calculation, and admin tooling. Real-time 1v1 game modes are facilitated through WebSockets for lobbies, matchmaking, and secure game logic.
 
 ### Card Image System
-Baseball card images are sourced from the Card Hedge API and verified CDN URLs. The system masks player names during gameplay. Admin endpoints facilitate card data synchronization.
-
-### Card Hedge API Integration
-A comprehensive integration with Card Hedge API for importing and managing playable card sets. Key components:
-- **Card Hedge Client**: Typed HTTP client (`server/services/cardhedge/client.ts`) with timeout, retry, and in-memory caching
-- **Database Tables**: `playable_cards` (imported cards), `cardhedge_import_runs` (import job tracking), extended `game_sets` with `cardhedgeSetQuery` and `cardhedgeCategory` columns
-- **Import Workflow**: Admin endpoint `POST /api/admin/playable-sets/:id/import` pages through Card Hedge API and upserts cards locally
-- **Admin Endpoints**: 
-  - `POST /api/admin/cardhedge/search` - Direct Card Hedge search
-  - `POST /api/admin/cardhedge/search-sorted` - Sorted search with filters
-  - `POST /api/admin/cardhedge/card-details` - Get card details
-  - `POST /api/admin/playable-sets` - Create playable set with Card Hedge config
-  - `PUT /api/admin/playable-sets/:id` - Update playable set
-  - `POST /api/admin/playable-sets/:id/import` - Run import
-  - `GET /api/admin/playable-sets/:id/imports` - View import history
-- **Public Endpoints**:
-  - `GET /api/playable-sets` - List active sets with card counts
-  - `GET /api/playable-sets/:id/cards` - Get cards for gameplay (supports random, paging, player/number filters)
-  - `GET /api/cards/:cardhedgeCardId` - Get single card by Card Hedge ID
-- **Image Proxy**: `GET /api/images/proxy?url=<encoded>` with SSRF protection (HTTPS-only, domain allowlist, private IP rejection)
-- **Admin UI**: `/admin/playable-sets` page for set management and Card Hedge search
-- **Environment Variables**: CARDHEDGE_API_KEY (required), CARDHEDGE_BASE_URL, CARDHEDGE_HTTP_TIMEOUT_MS, CARDHEDGE_CACHE_TTL_SECONDS, CARDHEDGE_IMPORT_PAGE_SIZE, CARD_IMAGE_PROXY_ENABLED
-- **Seeded Sets**: 1987 Topps Baseball, 1992 Upper Deck Basketball
+Baseball card images are primarily sourced from the Card Hedge API, with player names masked during gameplay. Admin tools support synchronization of card data.
 
 ### Monetization & Wallet
-A ledger-first wallet tracks user points (PackPTS) with various entry types (EARN, SPEND, ADJUST, PURCHASE_CREDIT, REVERSAL). A product catalog defines purchasable items. A tier system (Free, Pro, Legend) gates access to features and multipliers, enforced by match tokens and daily quotas. A bucket-based expiration system manages point lifecycles, spending points from earliest-expiring buckets first.
+The platform incorporates a ledger-first wallet for tracking user points (PackPTS) with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) provides feature access and point multipliers, enforced by match tokens and daily quotas. A bucket-based expiration system manages point lifecycles, ensuring earlier-earned points are spent first.
 
 ### Authentication and Identity Linking
-The system supports multi-provider authentication (Replit OAuth, WorkOS, local) with a secure identity linking system to prevent account takeover. It includes a three-case OAuth callback flow for existing identities, email collisions, and new user creation, requiring proof of ownership for linking. High-value accounts (e.g., those with significant PackPTS or Stripe customer IDs) require magic-link verification for linking or certain actions. A password reset system is also implemented.
+The system supports multi-provider authentication (Replit Auth, WorkOS, local) with a secure identity linking mechanism to prevent account takeovers. High-value accounts require magic-link verification for certain actions.
 
 ### Founders Cap Access Control
-An access control system limits active users to a configurable cap with waitlist and invite code mechanisms. It features reserved seats for invite code holders, atomic activation using database locks, and email normalization for unique users.
+An access control system limits active users to a configurable cap, featuring a waitlist and invite code mechanism for managing new user onboarding and reserved seats.
 
 ### Founders Pass Viral Invite System
-A viral referral system where each active Founder receives a one-time shareable pass link. Key components:
-- **Token Security**: SHA-256 hashing with secret pepper (FOUNDERS_PASS_PEPPER env var)
-- **Pass Flow**: GET /p/:token → stores hash in session → POST /api/founders-pass/redeem → approved → registration consumes pass atomically
-- **Auto-Issuance**: New passes automatically issued to activated Founders while cap is not reached
-- **Global Deactivation**: All remaining passes deactivated when 500th user activates
-- **Database Tables**: `founders_pass` (stores pass metadata), `founders_pass_events` (audit trail)
-- **Frontend Components**: `/redeem` page for invited users, FoundersPassCard on profile, FoundersCounter on landing page
-- **Admin Endpoints**: List passes, deactivate-all, view events
+A referral system where active Founders receive a shareable pass link. This system handles token security, redemption flow, automatic pass issuance, and global deactivation when a user cap is reached.
 
 ### Admin Tools
-Comprehensive admin tools provide user, admin, wallet (PackPTS adjustment), and entitlement management. It includes feature flags, audit logging, and a metrics dashboard for DAU, conversion, and PackPTS liability.
+Comprehensive admin tools provide management capabilities for users, wallets (PackPTS adjustments), entitlements, feature flags, and audit logging. It also includes a metrics dashboard for key performance indicators.
 
 ### Redemption System
-A closed-loop redemption system allows conversion of PackPTS into store credit with non-linear tier pricing. Redemptions above a certain threshold require admin approval. The system ensures idempotency and provides secure credit tokens for store checkout.
+A closed-loop redemption system allows conversion of PackPTS into store credit with non-linear tier pricing. Redemptions above a certain threshold require admin approval.
 
 ### Analytics System
-An event tracking system via `analyticsService` logs key user actions (e.g., `match_started`, `pts_earned`, `purchase_completed`) to an `event_log` table, with an extensible dispatcher for future integrations.
+An event tracking system logs key user actions to an `event_log` table, providing extensibility for future analytics integrations.
 
 ### Geo Intelligence System
-A privacy-safe geolocation tracking system for market analysis by US state. Key components:
-- **Database Tables**: `user_geo_session` (individual session geo data), `user_geo_profile` (inferred home state), `geo_rollups_daily` (pre-aggregated stats)
-- **Privacy Protection**: IPs are never stored raw - HMAC-SHA256 hashed with GEO_SALT env var. Random salt generated on startup if not configured.
-- **Geo Provider**: ipinfo.io integration with configurable 3-second timeout (GEO_TIMEOUT_MS) to prevent request blocking
-- **Session Tracking**: Geo collected on `/api/game/start` and `/api/auth/user` endpoints via middleware
-- **Home State Inference**: Algorithm requires 3+ distinct days and 5+ sessions to confidently assign a home state. Includes VPN detection and timezone correlation.
-- **Admin Dashboard**: `/admin/geo` page with state coverage, session stats, time window filtering (24h/7d/30d), and recompute trigger
-- **Admin API Endpoints**: GET /api/admin/geo/states, GET /api/admin/geo/coverage, GET /api/admin/geo/user/:id, POST /api/admin/geo/recompute
-- **Environment Variables**: IPINFO_TOKEN (required for geo), GEO_SALT (recommended for consistent hashing), GEO_TTL_DAYS, GEO_TIMEOUT_MS, HOME_STATE_MIN_DISTINCT_DAYS, HOME_STATE_MIN_SESSIONS
+A privacy-safe geolocation tracking system infers user home states for market analysis. It uses IP hashing for privacy, integrates with ipinfo.io, and infers home states based on session patterns, including VPN detection.
 
 ### Store & PackPTS Purchase System
-Integrated with Stripe, this system handles both one-time PackPTS bundle purchases and monthly subscription packages. Key components:
-- **One-Time Bundles**: PACKPTS_1500, PACKPTS_6000, PACKPTS_15000 for instant PackPTS credit
-- **Monthly Subscriptions**: Database-managed subscription products with admin CRUD (Starter, Collector, Legend packs)
-- **Product Map**: `productMap.ts` defines one-time products with type, priceUsd, packptsGrant
-- **Subscription Products Table**: `subscription_products` stores admin-managed subscription packages with name, packptsGrant, priceUsd, billingInterval, stripePriceId, sortOrder, isBestValue, isActive
-- **Subscription Checkout**: Creates Stripe subscription-mode sessions with metadata for webhook processing, using database product ID as SKU
-- **Webhook Handler**: `invoice.paid` event credits PackPTS for subscription renewals using idempotency keys
-- **Store UI**: Tabbed interface separating one-time purchases from monthly subscriptions
-- **Admin Subscription Management**: /admin/subscriptions page with full CRUD for subscription packages - admins can create, edit, deactivate packages and modify PackPTS grants, pricing, and display order
-- **API Endpoints**: GET /api/store/subscriptions, POST /api/store/subscribe (authenticated), GET/POST/PUT/DELETE /api/admin/subscription-products (admin-only)
+Integrated with Stripe, this system manages both one-time PackPTS bundle purchases and monthly subscription packages, with admin interfaces for subscription product management.
+
+### Profit Guardrail & Marketplace Redemptions
+A profit guardrail system ensures minimum profitability for PackPTS redemptions on external marketplace purchases (eBay/Goldin), applying business math formulas to calculate maximum redeemable points.
+
+### Treasury-Backed Margin Pool System
+A financial backing system that ensures a real margin is maintained on every PackPTS redemption for marketplace purchases. It tracks available margin from revenue sources and enforces redemption limits based on a dynamically calculated margin pool.
+
+### Live Listings Marketplace
+A unified marketplace search feature aggregates listings from eBay and Goldin Auctions. It supports context-aware filtering based on game sets, affiliate tracking, outbound click logging, and in-memory rate limiting.
 
 ## External Dependencies
 
 ### Database
-- **PostgreSQL**: Primary database.
+- **PostgreSQL**: Primary data store.
 - **Drizzle Kit**: For database schema migrations.
 
 ### Frontend Libraries
-- **Radix UI**: Accessible component primitives.
+- **Radix UI**: Accessible UI component primitives.
 - **Embla Carousel**: Carousel functionality.
 - **Recharts**: Data visualization.
 - **Lucide React & React Icons**: Icon libraries.
@@ -113,64 +76,13 @@ Integrated with Stripe, this system handles both one-time PackPTS bundle purchas
 - **esbuild**: Backend bundling.
 
 ### Payment & Billing
-- **Stripe**: Payment processing for purchases and managing webhooks.
+- **Stripe**: Payment processing for purchases and webhook management.
 
 ### Third-party APIs
 - **Card Hedge API**: Primary source for baseball card images.
 - **Zyla API**: Fallback for card images.
-- **eBay Browse API**: Live listing search via OAuth 2.0 client credentials flow.
-- **Goldin Auctions**: Curated listings managed via admin interface.
-
-### Profit Guardrail & Marketplace Redemptions
-A minimum profit guardrail system for PackPTS redemptions applied to external marketplace purchases (eBay/Goldin). Key components:
-
-**Business Math Formula:**
-- P = purchase price in USD
-- A = affiliate revenue rate (default 0.02)
-- h = affiliate reliability haircut (default 0.70)
-- m = minimum profit margin (default 0.25)
-- r = processing fee rate (default 0)
-- f = fixed fee per transaction (default 0)
-- v = USD value per PackPTS (default $0.002)
-- C_max = ((h*A - m)*P - f) / (1+r)
-- R_max = floor(C_max / v)
-
-**Database Tables:**
-- `profit_policy` - Versioned policy parameters (margin, rates, fees)
-- `external_purchase_intent` - Tracks listing quotes and redemption status
-- `redemption_credit` - Granted credits linked to ledger entries
-
-**API Endpoints:**
-- `GET /api/profit-policy` - Public policy for UI display
-- `POST /api/marketplace/redemption/quote` - Compute R_max for a listing
-- `POST /api/marketplace/redemption/apply` - Reserve PackPTS with idempotency
-- `POST /api/marketplace/purchase/confirm` - Confirm purchase (stub for admin review)
-- `GET /api/marketplace/redemption/intents` - User's purchase intents
-- `POST /api/admin/profit-policy` - Update policy (admin)
-- `GET /api/admin/redemptions` - Redemption queue (admin)
-- `POST /api/admin/redemptions/:id/reverse` - Reverse redemption (admin)
-
-**Frontend UI:**
-- Marketplace listing cards show "Apply PackPTS" button for authenticated users
-- Redemption modal with slider to select amount up to R_max
-- Real-time credit value calculation
-- Status indicators for not-eligible listings
-
-**Service:** `server/services/profitGuardrailService.ts`
-
-### Live Listings Marketplace
-A unified marketplace search feature aggregates listings from eBay and Goldin Auctions with context-aware filtering. Key components:
-- **Database Tables**: `marketplace_cache` (TTL-based caching), `outbound_clicks` (click tracking), `external_listings_snapshot` (historical data), `goldin_curated_listings` (admin-managed feed with contextTags), `game_sets` (playable card sets), `user_active_sets` (user's recently played sets), `match_context_log` (match-to-set association events)
-- **eBay Integration**: OAuth 2.0 client credentials, Browse API search with sandbox/production support via EBAY_ENV
-- **Goldin Feed**: DB-backed curated listings with admin CRUD endpoints, filtered by contextTags matching game set context
-- **Outbound Tracking**: HMAC-signed redirect tokens with 1-hour expiry, click logging with session/IP attribution
-- **Affiliate Tracking**: eBay Partner Network (EPN) parameter injection via EBAY_EPN_CAMPAIGN_ID and EBAY_EPN_TRACKING_ID
-- **Rate Limiting**: In-memory rate limiter (20 requests/min per IP) for search endpoint
-- **Context-Aware Search**: Marketplace can filter listings by game set context (sport:year:brand). Users can toggle between contextual search (limited to their played sets) and freeform search. Context tabs show recently played sets with one-click filtering.
-- **Frontend**: Tabbed marketplace page with context chips, contextual/freeform toggle, search within context, source/sort filters, listing cards, and affiliate disclosure. Post-match CTA links to marketplace with setId parameter.
-- **Admin Endpoints**: CRUD for game sets (GET/POST/PUT/DELETE /api/admin/game-sets), Goldin contextTags management
-- **Environment Variables**: EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_ENV, EBAY_EPN_CAMPAIGN_ID, EBAY_EPN_TRACKING_ID, OUTBOUND_SECRET
-
-### Authentication System
+- **eBay Browse API**: Live listing search for marketplace integration.
+- **Goldin Auctions**: Curated listings integrated via admin interface.
+- **ipinfo.io**: Geolocation data provider.
 - **WorkOS**: For multi-provider authentication.
-- **Nodemailer**: For sending password reset and magic link emails via Gmail SMTP.
+- **Nodemailer**: For sending password reset and magic link emails.

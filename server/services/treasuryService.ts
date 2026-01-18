@@ -12,6 +12,9 @@ import {
 } from "@shared/schema";
 import { eq, sql, and, sum } from "drizzle-orm";
 
+const VALID_SOURCE_TYPES = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "ADJUSTMENT"] as const;
+type MarginSourceType = typeof VALID_SOURCE_TYPES[number];
+
 const SAFETY_THRESHOLD_CENTS = 10000; // $100 - log alert when below this
 
 export interface TreasuryStatus {
@@ -213,32 +216,38 @@ class TreasuryService {
   }
 
   async consumeReservation(purchaseIntentId: string, redemptionId: string): Promise<void> {
-    // Get the reservation
-    const [reservation] = await db
-      .select()
-      .from(redemptionReservations)
-      .where(eq(redemptionReservations.purchaseIntentId, purchaseIntentId));
+    // Use transaction for atomicity
+    await db.transaction(async (tx) => {
+      // Get the reservation with FOR UPDATE lock
+      const [reservation] = await tx
+        .select()
+        .from(redemptionReservations)
+        .where(and(
+          eq(redemptionReservations.purchaseIntentId, purchaseIntentId),
+          eq(redemptionReservations.status, "ACTIVE")
+        ));
 
-    if (!reservation || reservation.status !== "ACTIVE") {
-      throw new Error("No active reservation found for this purchase intent");
-    }
+      if (!reservation) {
+        throw new Error("No active reservation found for this purchase intent");
+      }
 
-    // Mark reservation as consumed
-    await db
-      .update(redemptionReservations)
-      .set({ 
-        status: "CONSUMED",
-        updatedAt: new Date(),
-      })
-      .where(eq(redemptionReservations.id, reservation.id));
+      // Mark reservation as consumed
+      await tx
+        .update(redemptionReservations)
+        .set({ 
+          status: "CONSUMED",
+          updatedAt: new Date(),
+        })
+        .where(eq(redemptionReservations.id, reservation.id));
 
-    // Record margin usage
-    await db
-      .insert(marginUsage)
-      .values({
-        redemptionId,
-        amountCents: reservation.reservedCents,
-      });
+      // Record margin usage
+      await tx
+        .insert(marginUsage)
+        .values({
+          redemptionId,
+          amountCents: reservation.reservedCents,
+        });
+    });
   }
 
   async addMarginCredit(data: InsertMarginLedger): Promise<string> {
@@ -257,19 +266,24 @@ class TreasuryService {
 
   async creditMarginPool(
     amountCents: number,
-    type: "PACKPTS_SALE" | "AFFILIATE_PAYOUT" | "PARTNER_REBATE" | "ADJUSTMENT",
+    type: string,
     referenceId: string | null,
     description: string
   ): Promise<any> {
-    if (amountCents <= 0) {
-      throw new Error("Credit amount must be positive");
+    // Validate type
+    if (!VALID_SOURCE_TYPES.includes(type as MarginSourceType)) {
+      throw new Error(`Invalid source type: ${type}. Must be one of: ${VALID_SOURCE_TYPES.join(", ")}`);
+    }
+
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      throw new Error("Credit amount must be a positive integer");
     }
 
     const [entry] = await db
       .insert(marginLedger)
       .values({
         amountCents,
-        sourceType: type,
+        sourceType: type as MarginSourceType,
         referenceId,
         description,
       })
