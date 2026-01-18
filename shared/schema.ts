@@ -1828,3 +1828,122 @@ export const purchaseConfirmRequestSchema = z.object({
 });
 
 export type PurchaseConfirmRequest = z.infer<typeof purchaseConfirmRequestSchema>;
+
+// ============================================
+// TREASURY & MARGIN POOL SYSTEM
+// ============================================
+
+// Margin Ledger Source Type Enum
+export const marginSourceTypeEnum = pgEnum("margin_source_type", [
+  "PACKPTS_SALE",      // Revenue from selling PackPTS bundles
+  "AFFILIATE_PAYOUT",  // Confirmed affiliate commission
+  "PARTNER_REBATE",    // Partner/merchant rebates
+  "MANUAL_ADJUSTMENT", // Admin manual adjustments
+]);
+
+// Margin Ledger - company-side accounting (NOT user-visible)
+export const marginLedger = pgTable("margin_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceType: marginSourceTypeEnum("source_type").notNull(),
+  amountCents: integer("amount_cents").notNull(), // positive only
+  referenceId: text("reference_id"), // link to order/payout/etc
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_margin_ledger_source_type").on(table.sourceType),
+  index("idx_margin_ledger_created").on(table.createdAt),
+]);
+
+export const insertMarginLedgerSchema = createInsertSchema(marginLedger).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMarginLedger = z.infer<typeof insertMarginLedgerSchema>;
+export type MarginLedger = typeof marginLedger.$inferSelect;
+
+// Margin Usage - tracks consumed margin per redemption
+export const marginUsage = pgTable("margin_usage", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  redemptionId: varchar("redemption_id").notNull().references(() => redemptionCredit.id),
+  amountCents: integer("amount_cents").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_margin_usage_redemption").on(table.redemptionId),
+  index("idx_margin_usage_created").on(table.createdAt),
+]);
+
+export const insertMarginUsageSchema = createInsertSchema(marginUsage).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMarginUsage = z.infer<typeof insertMarginUsageSchema>;
+export type MarginUsage = typeof marginUsage.$inferSelect;
+
+// Reservation Status Enum
+export const reservationStatusEnum = pgEnum("reservation_status", [
+  "ACTIVE",   // Reserved, pending purchase
+  "RELEASED", // Canceled, margin returned to pool
+  "CONSUMED", // Purchase confirmed, margin used
+]);
+
+// Redemption Reservations - prevents race conditions on margin pool
+export const redemptionReservations = pgTable("redemption_reservations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  purchaseIntentId: varchar("purchase_intent_id").notNull().references(() => externalPurchaseIntent.id),
+  reservedCents: integer("reserved_cents").notNull(),
+  status: reservationStatusEnum("status").notNull().default("ACTIVE"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_redemption_reservations_intent").on(table.purchaseIntentId),
+  index("idx_redemption_reservations_status").on(table.status),
+  unique("redemption_reservations_intent_unique").on(table.purchaseIntentId),
+]);
+
+export const insertRedemptionReservationSchema = createInsertSchema(redemptionReservations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertRedemptionReservation = z.infer<typeof insertRedemptionReservationSchema>;
+export type RedemptionReservation = typeof redemptionReservations.$inferSelect;
+
+// Marketplace Margin Config - per-source affiliate rates and haircuts
+export const marketplaceMarginConfig = pgTable("marketplace_margin_config", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: marketplaceSourceEnum("source").notNull().unique(),
+  affiliateRate: real("affiliate_rate").notNull().default(0.02), // e.g., 0.02 = 2%
+  haircut: real("haircut").notNull().default(0.50), // e.g., 0.50 = 50%
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_marketplace_margin_config_source").on(table.source),
+]);
+
+export const insertMarketplaceMarginConfigSchema = createInsertSchema(marketplaceMarginConfig).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertMarketplaceMarginConfig = z.infer<typeof insertMarketplaceMarginConfigSchema>;
+export type MarketplaceMarginConfig = typeof marketplaceMarginConfig.$inferSelect;
+
+// API schemas for treasury
+export const manualMarginCreditSchema = z.object({
+  amountCents: z.number().int().positive(),
+  sourceType: z.enum(["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "MANUAL_ADJUSTMENT"]),
+  note: z.string().optional(),
+  referenceId: z.string().optional(),
+});
+
+export type ManualMarginCredit = z.infer<typeof manualMarginCreditSchema>;
+
+export const updateMarketplaceMarginConfigSchema = z.object({
+  source: z.enum(["ebay", "goldin"]),
+  affiliateRate: z.number().min(0).max(1),
+  haircut: z.number().min(0).max(1),
+});
+
+export type UpdateMarketplaceMarginConfig = z.infer<typeof updateMarketplaceMarginConfigSchema>;
