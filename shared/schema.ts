@@ -1950,3 +1950,161 @@ export const updateMarketplaceMarginConfigSchema = z.object({
 });
 
 export type UpdateMarketplaceMarginConfig = z.infer<typeof updateMarketplaceMarginConfigSchema>;
+
+// ============================================
+// REWARD SYSTEM - Fame-based PackPTS awards
+// ============================================
+
+// Reward Policy - versioned, one active at a time
+export const rewardPolicy = pgTable("reward_policy", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+  enabled: boolean("enabled").notNull().default(true),
+  minPts: integer("min_pts").notNull().default(100),
+  maxPts: integer("max_pts").notNull().default(200),
+  gamma: real("gamma").notNull().default(2.0),
+  maxAwardCap: integer("max_award_cap").notNull().default(250),
+  vintageMultipliers: jsonb("vintage_multipliers").notNull().default({
+    pre1980: 1.15,
+    "1980_1999": 1.05,
+    "2000_2019": 1.0,
+    "2020_plus": 0.9,
+  }),
+  rarityMultipliers: jsonb("rarity_multipliers").notNull().default({
+    base: 1.0,
+    insert: 1.1,
+    parallel: 1.2,
+    sp: 1.3,
+  }),
+  dailyPointsCap: integer("daily_points_cap").notNull().default(5000),
+  perMatchPointsCap: integer("per_match_points_cap").notNull().default(1000),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_reward_policy_effective").on(table.effectiveFrom),
+  index("idx_reward_policy_enabled").on(table.enabled),
+]);
+
+export const insertRewardPolicySchema = createInsertSchema(rewardPolicy).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertRewardPolicy = z.infer<typeof insertRewardPolicySchema>;
+export type RewardPolicy = typeof rewardPolicy.$inferSelect;
+
+// Player Fame - stores fame scores for players
+export const playerFame = pgTable("player_fame", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sport: varchar("sport", { length: 20 }).notNull().default("baseball"),
+  playerName: text("player_name").notNull(),
+  playerKey: text("player_key").notNull().unique(),
+  fameScore: real("fame_score").notNull().default(0.5),
+  sourceBreakdown: jsonb("source_breakdown").default({}),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+}, (table) => [
+  index("idx_player_fame_sport_name").on(table.sport, table.playerName),
+  index("idx_player_fame_key").on(table.playerKey),
+]);
+
+export const insertPlayerFameSchema = createInsertSchema(playerFame).omit({
+  id: true,
+  lastUpdated: true,
+});
+
+export type InsertPlayerFame = z.infer<typeof insertPlayerFameSchema>;
+export type PlayerFame = typeof playerFame.$inferSelect;
+
+// Award reason enum
+export const awardReasonEnum = pgEnum("award_reason", ["QUIZ_CORRECT", "STREAK_BONUS", "OTHER"]);
+
+// Rarity type enum for cards
+export const rarityTypeEnum = pgEnum("rarity_type", ["base", "insert", "parallel", "sp"]);
+
+// Points Awards - append-only audit log
+export const pointsAwards = pgTable("points_awards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  matchId: varchar("match_id"),
+  cardId: varchar("card_id"),
+  playerKey: text("player_key"),
+  fameScore: real("fame_score"),
+  basePts: integer("base_pts").notNull(),
+  vintageMultiplier: real("vintage_multiplier").notNull().default(1.0),
+  rarityMultiplier: real("rarity_multiplier").notNull().default(1.0),
+  finalPts: integer("final_pts").notNull(),
+  policyId: varchar("policy_id").references(() => rewardPolicy.id),
+  reason: awardReasonEnum("reason").notNull().default("QUIZ_CORRECT"),
+  idempotencyKey: varchar("idempotency_key").unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_points_awards_user_created").on(table.userId, table.createdAt),
+  index("idx_points_awards_match").on(table.matchId),
+  index("idx_points_awards_idempotency").on(table.idempotencyKey),
+]);
+
+export const insertPointsAwardSchema = createInsertSchema(pointsAwards).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPointsAward = z.infer<typeof insertPointsAwardSchema>;
+export type PointsAward = typeof pointsAwards.$inferSelect;
+
+// User Points Counters - for daily cap enforcement
+export const userPointsCounters = pgTable("user_points_counters", {
+  userId: varchar("user_id").primaryKey().references(() => users.id),
+  date: varchar("date", { length: 10 }).notNull(),
+  pointsAwardedToday: integer("points_awarded_today").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_user_points_counters_date").on(table.date),
+]);
+
+export const insertUserPointsCounterSchema = createInsertSchema(userPointsCounters).omit({
+  updatedAt: true,
+});
+
+export type InsertUserPointsCounter = z.infer<typeof insertUserPointsCounterSchema>;
+export type UserPointsCounter = typeof userPointsCounters.$inferSelect;
+
+// Internal Player Stats - for computing fame from gameplay
+export const internalPlayerStats = pgTable("internal_player_stats", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  playerKey: text("player_key").notNull().unique(),
+  attempts: integer("attempts").notNull().default(0),
+  correct: integer("correct").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_internal_player_stats_key").on(table.playerKey),
+]);
+
+export const insertInternalPlayerStatsSchema = createInsertSchema(internalPlayerStats).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertInternalPlayerStats = z.infer<typeof insertInternalPlayerStatsSchema>;
+export type InternalPlayerStats = typeof internalPlayerStats.$inferSelect;
+
+// API schemas for reward system
+export const createRewardPolicySchema = z.object({
+  minPts: z.number().int().min(1).max(1000).optional(),
+  maxPts: z.number().int().min(1).max(1000).optional(),
+  gamma: z.number().min(0.1).max(10).optional(),
+  maxAwardCap: z.number().int().min(1).max(1000).optional(),
+  vintageMultipliers: z.record(z.number()).optional(),
+  rarityMultipliers: z.record(z.number()).optional(),
+  dailyPointsCap: z.number().int().min(100).max(100000).optional(),
+  perMatchPointsCap: z.number().int().min(100).max(10000).optional(),
+  effectiveFrom: z.string().datetime().optional(),
+});
+
+export type CreateRewardPolicy = z.infer<typeof createRewardPolicySchema>;
+
+export const updatePlayerFameSchema = z.object({
+  playerKey: z.string().min(1),
+  fameScore: z.number().min(0).max(1),
+  sport: z.enum(["baseball", "basketball", "football", "hockey"]).optional(),
+});
+
+export type UpdatePlayerFame = z.infer<typeof updatePlayerFameSchema>;
