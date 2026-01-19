@@ -2191,3 +2191,135 @@ export const insertCardhedgeSearchCacheSchema = createInsertSchema(cardhedgeSear
 
 export type InsertCardhedgeSearchCache = z.infer<typeof insertCardhedgeSearchCacheSchema>;
 export type CardhedgeSearchCache = typeof cardhedgeSearchCache.$inferSelect;
+
+// ============================================
+// STORE PACKAGE PROFIT GUARDRAILS
+// ============================================
+
+// Sales Channel Enum - where the sale originates
+export const salesChannelEnum = pgEnum("sales_channel", [
+  "web_stripe",    // Web Stripe checkout
+  "ios_iap",       // iOS In-App Purchase
+  "android_iap",   // Android In-App Purchase
+]);
+
+// Store Fee Profiles - fee structures per sales channel
+export const storeFeeProfiles = pgTable("store_fee_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  channel: salesChannelEnum("channel").notNull().unique(),
+  feeRate: real("fee_rate").notNull(), // e.g., 0.029 for 2.9%
+  feeFixedCents: integer("fee_fixed_cents").notNull(), // e.g., 30 for $0.30
+  platformFeeRate: real("platform_fee_rate").notNull().default(0), // 0 for web, 0.15-0.30 for app stores
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_store_fee_profiles_channel").on(table.channel),
+  index("idx_store_fee_profiles_active").on(table.isActive),
+]);
+
+export const insertStoreFeeProfileSchema = createInsertSchema(storeFeeProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStoreFeeProfile = z.infer<typeof insertStoreFeeProfileSchema>;
+export type StoreFeeProfile = typeof storeFeeProfiles.$inferSelect;
+
+// Store Package Policy - global policy settings for package validation
+export const storePackagePolicy = pgTable("store_package_policy", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  minMarginRate: real("min_margin_rate").notNull().default(0.30), // 30% minimum gross margin
+  warnMarginBand: real("warn_margin_band").notNull().default(0.05), // warn if within 5% of min
+  maxValuePerPtMicrousd: integer("max_value_per_pt_microusd").notNull().default(2000), // 0.002 USD/pt in micro-USD
+  allowOverride: boolean("allow_override").notNull().default(false),
+  reserveRate: real("reserve_rate").notNull().default(1.0), // % of net revenue to margin pool
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_store_package_policy_active").on(table.isActive),
+]);
+
+export const insertStorePackagePolicySchema = createInsertSchema(storePackagePolicy).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStorePackagePolicy = z.infer<typeof insertStorePackagePolicySchema>;
+export type StorePackagePolicy = typeof storePackagePolicy.$inferSelect;
+
+// Package Validation Decision Enum
+export const packageValidationDecisionEnum = pgEnum("package_validation_decision", [
+  "PASS",      // All guardrails satisfied
+  "WARN",      // Within warning band or too generous
+  "BLOCK",     // Below minimum margin - blocked
+  "OVERRIDE",  // Admin override of a blocked package
+]);
+
+// Store Package Validations - audit log of all package evaluations
+export const storePackageValidations = pgTable("store_package_validations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  productId: varchar("product_id").references(() => products.id),
+  policyId: varchar("policy_id").notNull().references(() => storePackagePolicy.id),
+  feeProfileId: varchar("fee_profile_id").notNull().references(() => storeFeeProfiles.id),
+  priceCents: integer("price_cents").notNull(),
+  ptsGrant: integer("pts_grant").notNull(),
+  channel: salesChannelEnum("channel").notNull(),
+  totalFeesCents: integer("total_fees_cents").notNull(),
+  netRevenueCents: integer("net_revenue_cents").notNull(),
+  grossMarginRate: real("gross_margin_rate").notNull(),
+  impliedValuePerPtMicrousd: integer("implied_value_per_pt_microusd").notNull(),
+  decision: packageValidationDecisionEnum("decision").notNull(),
+  reasons: text("reasons").array().notNull(),
+  adminUserId: varchar("admin_user_id").references(() => users.id),
+  overrideNote: text("override_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_store_package_validations_product").on(table.productId),
+  index("idx_store_package_validations_decision").on(table.decision),
+  index("idx_store_package_validations_created").on(table.createdAt),
+]);
+
+export const insertStorePackageValidationSchema = createInsertSchema(storePackageValidations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertStorePackageValidation = z.infer<typeof insertStorePackageValidationSchema>;
+export type StorePackageValidation = typeof storePackageValidations.$inferSelect;
+
+// API Schemas for Store Package Guardrails
+export const evaluatePackageSchema = z.object({
+  priceCents: z.number().int().positive(),
+  ptsGrant: z.number().int().positive(),
+  channel: z.enum(["web_stripe", "ios_iap", "android_iap"]).default("web_stripe"),
+});
+
+export type EvaluatePackageRequest = z.infer<typeof evaluatePackageSchema>;
+
+export const createStorePackageSchema = z.object({
+  sku: z.string().min(1).max(100),
+  name: z.string().min(1).max(200),
+  priceCents: z.number().int().positive(),
+  ptsGrant: z.number().int().positive(),
+  channel: z.enum(["web_stripe", "ios_iap", "android_iap"]).default("web_stripe"),
+  confirm: z.boolean().optional(), // required to confirm WARN decisions
+});
+
+export type CreateStorePackageRequest = z.infer<typeof createStorePackageSchema>;
+
+export const updateStorePackageSchema = createStorePackageSchema.partial().extend({
+  priceCents: z.number().int().positive().optional(),
+  ptsGrant: z.number().int().positive().optional(),
+});
+
+export type UpdateStorePackageRequest = z.infer<typeof updateStorePackageSchema>;
+
+export const overridePackageSchema = z.object({
+  note: z.string().min(1).max(500),
+});
+
+export type OverridePackageRequest = z.infer<typeof overridePackageSchema>;
