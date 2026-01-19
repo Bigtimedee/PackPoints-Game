@@ -81,12 +81,12 @@ export default function AdminCardReports() {
   });
 
   const { data: pendingReports, isLoading: reportsLoading, refetch: refetchReports } = useQuery<ReportsResponse>({
-    queryKey: ["/api/admin/card-reports", "pending"],
+    queryKey: ["/api/admin/card-reports?status=pending"],
     enabled: isAuthenticated && user?.isAdmin,
   });
 
-  const { data: resolvedReports, isLoading: resolvedLoading } = useQuery<ReportsResponse>({
-    queryKey: ["/api/admin/card-reports", { status: "resolved" }],
+  const { data: resolvedReports, isLoading: resolvedLoading, refetch: refetchResolved } = useQuery<ReportsResponse>({
+    queryKey: ["/api/admin/card-reports?status=resolved"],
     enabled: isAuthenticated && user?.isAdmin && activeTab === "resolved",
   });
 
@@ -95,9 +95,9 @@ export default function AdminCardReports() {
       return apiRequest("POST", `/api/admin/cards/${cardId}/review`, { action, resolution });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/card-reports"] });
       refetchFlagged();
       refetchReports();
+      refetchResolved();
       setReviewDialogOpen(false);
       setSelectedCard(null);
       setResolution("");
@@ -124,6 +124,7 @@ export default function AdminCardReports() {
   const refreshAll = () => {
     refetchFlagged();
     refetchReports();
+    refetchResolved();
   };
 
   if (authLoading) {
