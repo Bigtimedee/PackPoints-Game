@@ -228,13 +228,16 @@ export default function Game() {
     staleTime: 5 * 60 * 1000,
   });
   
-  const currentGameSet = playableSets?.find(s => s.id === selectedSetId) || playableSets?.[0];
+  // Filter to only show sets with imported cards
+  const availableSets = playableSets?.filter(s => s.cardsImportedCount > 0) || [];
+  
+  const currentGameSet = availableSets.find(s => s.id === selectedSetId) || availableSets[0];
   
   useEffect(() => {
-    if (playableSets?.length && !selectedSetId) {
-      setSelectedSetId(playableSets[0].id);
+    if (availableSets.length && !selectedSetId) {
+      setSelectedSetId(availableSets[0].id);
     }
-  }, [playableSets, selectedSetId]);
+  }, [availableSets, selectedSetId]);
 
   const [startError, setStartError] = useState<{ isRateLimit: boolean; message: string } | null>(null);
 
@@ -475,7 +478,7 @@ export default function Game() {
                       <SelectValue placeholder="Select a card set" />
                     </SelectTrigger>
                     <SelectContent>
-                      {playableSets?.map((set) => (
+                      {availableSets.map((set) => (
                         <SelectItem key={set.id} value={set.id} data-testid={`option-set-${set.id}`}>
                           {set.year} {set.brand} {set.sport} ({set.cardsImportedCount} cards)
                         </SelectItem>

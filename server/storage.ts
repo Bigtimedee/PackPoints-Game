@@ -439,10 +439,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDefaultPlayableSetId(): Promise<string | null> {
+    // Get active set that actually has imported playable cards
     const [activeSet] = await db
       .select({ id: gameSets.id })
       .from(gameSets)
-      .where(eq(gameSets.isActive, true))
+      .innerJoin(playableCards, eq(playableCards.gameSetId, gameSets.id))
+      .where(
+        and(
+          eq(gameSets.isActive, true),
+          eq(playableCards.isPlayable, true),
+          isNotNull(playableCards.imageUrl)
+        )
+      )
+      .groupBy(gameSets.id)
       .limit(1);
     
     return activeSet?.id || null;
