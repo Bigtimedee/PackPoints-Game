@@ -28,12 +28,12 @@ export const CardHedgeCardSchema = z.object({
 export type CardHedgeCard = z.infer<typeof CardHedgeCardSchema>;
 
 export const CardSearchRequestSchema = z.object({
-  search: z.string().optional(),
-  set: z.string().optional(),
-  category: z.string().optional(),
-  player: z.string().optional(),
-  rookie: z.boolean().optional(),
-  raw_images_only: z.boolean().optional(),
+  search: z.string().nullable().optional(),
+  set: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+  player: z.string().nullable().optional(),
+  rookie: z.boolean().nullable().optional(),
+  raw_images_only: z.boolean().nullable().optional(),
   page: z.number().int().min(1).default(1),
   page_size: z.number().int().min(1).max(100).default(20),
 });
