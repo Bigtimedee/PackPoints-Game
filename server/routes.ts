@@ -25,7 +25,7 @@ import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, and } from "drizzle-orm";
+import { eq, sql, desc, and, or, gte } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -5251,6 +5251,242 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error backfilling card playability:", error);
       res.status(500).json({ error: "Failed to backfill card playability" });
+    }
+  });
+
+  // ============================================
+  // CARD IMAGE REPORT ENDPOINTS
+  // ============================================
+
+  // User: Report a card with a wrong/mismatched image (allows anonymous reports)
+  app.post("/api/cards/:cardId/report", async (req: any, res) => {
+    try {
+      const { cardId } = req.params;
+      const { createCardImageReportSchema, cardImageReports } = await import("@shared/schema");
+      
+      const parsed = createCardImageReportSchema.safeParse({ cardId, ...req.body });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid report data", details: parsed.error.flatten() });
+      }
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+      
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      // Get user ID if authenticated, otherwise null for anonymous report
+      const reporterId = (req as any).user?.id || null;
+      
+      const [report] = await db
+        .insert(cardImageReports)
+        .values({
+          cardId,
+          reporterId,
+          sessionId: parsed.data.sessionId,
+          reason: parsed.data.reason,
+          description: parsed.data.description,
+          status: "pending",
+        })
+        .returning();
+      
+      await db
+        .update(playableCards)
+        .set({
+          reportCount: sql`${playableCards.reportCount} + 1`,
+          imageReviewStatus: sql`CASE WHEN ${playableCards.reportCount} >= 2 THEN 'flagged' ELSE ${playableCards.imageReviewStatus} END`,
+          updatedAt: new Date(),
+        })
+        .where(eq(playableCards.id, cardId));
+      
+      console.log(`[Card Report] Card ${cardId} reported for ${parsed.data.reason} by ${reporterId || "guest"}`);
+      
+      res.json({ success: true, reportId: report.id });
+    } catch (error) {
+      console.error("Error creating card report:", error);
+      res.status(500).json({ error: "Failed to submit report" });
+    }
+  });
+
+  // Admin: List pending card image reports
+  app.get("/api/admin/card-reports", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { cardImageReports } = await import("@shared/schema");
+      const { status = "pending", limit: limitParam = "50", offset: offsetParam = "0" } = req.query;
+      
+      const limitNum = Math.min(parseInt(limitParam as string, 10) || 50, 100);
+      const offsetNum = parseInt(offsetParam as string, 10) || 0;
+      
+      const reports = await db
+        .select({
+          report: cardImageReports,
+          card: playableCards,
+        })
+        .from(cardImageReports)
+        .leftJoin(playableCards, eq(cardImageReports.cardId, playableCards.id))
+        .where(eq(cardImageReports.status, status as string))
+        .orderBy(desc(cardImageReports.createdAt))
+        .limit(limitNum)
+        .offset(offsetNum);
+      
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(cardImageReports)
+        .where(eq(cardImageReports.status, status as string));
+      
+      res.json({ reports, total: Number(count), limit: limitNum, offset: offsetNum });
+    } catch (error) {
+      console.error("Error fetching card reports:", error);
+      res.status(500).json({ error: "Failed to fetch card reports" });
+    }
+  });
+
+  // Admin: Get cards with multiple reports (prioritized review queue)
+  app.get("/api/admin/card-reports/flagged", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const flaggedCards = await db
+        .select()
+        .from(playableCards)
+        .where(
+          or(
+            eq(playableCards.imageReviewStatus, "flagged"),
+            gte(playableCards.reportCount, 3)
+          )
+        )
+        .orderBy(desc(playableCards.reportCount))
+        .limit(100);
+      
+      res.json({ cards: flaggedCards });
+    } catch (error) {
+      console.error("Error fetching flagged cards:", error);
+      res.status(500).json({ error: "Failed to fetch flagged cards" });
+    }
+  });
+
+  // Admin: Resolve a card report (approve card, reject card, dismiss report)
+  app.post("/api/admin/card-reports/:reportId/resolve", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { reportId } = req.params;
+      const { action, resolution } = req.body;
+      const { cardImageReports } = await import("@shared/schema");
+      
+      if (!["approve", "reject", "dismiss"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action. Must be: approve, reject, dismiss" });
+      }
+      
+      const [report] = await db
+        .select()
+        .from(cardImageReports)
+        .where(eq(cardImageReports.id, reportId))
+        .limit(1);
+      
+      if (!report) {
+        return res.status(404).json({ error: "Report not found" });
+      }
+      
+      await db
+        .update(cardImageReports)
+        .set({
+          status: "resolved",
+          resolvedBy: req.user.id,
+          resolvedAt: new Date(),
+          resolution: resolution || action,
+        })
+        .where(eq(cardImageReports.id, reportId));
+      
+      if (action === "approve") {
+        await db
+          .update(playableCards)
+          .set({
+            imageReviewStatus: "approved",
+            updatedAt: new Date(),
+          })
+          .where(eq(playableCards.id, report.cardId));
+      } else if (action === "reject") {
+        await db
+          .update(playableCards)
+          .set({
+            imageReviewStatus: "rejected",
+            isPlayable: false,
+            blockedReason: "Image mismatch confirmed via report",
+            updatedAt: new Date(),
+          })
+          .where(eq(playableCards.id, report.cardId));
+      }
+      
+      console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${req.user.id}`);
+      
+      res.json({ success: true, action });
+    } catch (error) {
+      console.error("Error resolving card report:", error);
+      res.status(500).json({ error: "Failed to resolve report" });
+    }
+  });
+
+  // Admin: Bulk resolve all pending reports for a card
+  app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { cardId } = req.params;
+      const { action, resolution } = req.body;
+      const { cardImageReports } = await import("@shared/schema");
+      
+      if (!["approve", "reject"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action. Must be: approve or reject" });
+      }
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+      
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      await db
+        .update(cardImageReports)
+        .set({
+          status: "resolved",
+          resolvedBy: req.user.id,
+          resolvedAt: new Date(),
+          resolution: resolution || `Bulk ${action} by admin`,
+        })
+        .where(and(
+          eq(cardImageReports.cardId, cardId),
+          eq(cardImageReports.status, "pending")
+        ));
+      
+      if (action === "approve") {
+        await db
+          .update(playableCards)
+          .set({
+            imageReviewStatus: "approved",
+            updatedAt: new Date(),
+          })
+          .where(eq(playableCards.id, cardId));
+      } else if (action === "reject") {
+        await db
+          .update(playableCards)
+          .set({
+            imageReviewStatus: "rejected",
+            isPlayable: false,
+            blockedReason: resolution || "Image mismatch confirmed via admin review",
+            updatedAt: new Date(),
+          })
+          .where(eq(playableCards.id, cardId));
+      }
+      
+      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${req.user.id}`);
+      
+      res.json({ success: true, action, cardId });
+    } catch (error) {
+      console.error("Error reviewing card:", error);
+      res.status(500).json({ error: "Failed to review card" });
     }
   });
 
