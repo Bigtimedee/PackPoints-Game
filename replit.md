@@ -17,6 +17,17 @@ The backend utilizes Node.js, Express, and TypeScript, exposing RESTful JSON end
 ### Card Image System
 Baseball card images are primarily sourced from the Card Hedge API, with player names masked during gameplay. Admin tools support synchronization of card data.
 
+### CardHedge Card Details API
+A dedicated integration for fetching detailed card metadata, pricing, and sales history by card ID:
+- **Public Endpoint**: `GET /api/cardhedge/card/:cardId?rawImagesOnly=true|false` - Returns normalized card details with caching
+- **Gameplay Endpoint**: `GET /api/cardhedge/gameplay-image/:cardId` - Optimized for gameplay, prefers raw images
+- **Admin UI**: `/admin/cardhedge-card` - Test interface with card preview, sales data, and JSON inspector
+- **Database Cache**: `card_details_cache` table provides persistent caching with configurable TTL
+- **Rate Limiting**: 30 req/min/IP for public endpoint, 60 req/min for gameplay endpoint
+- **Normalized Response**: cardId, description, player, set, number, variant, category, imageUrl, rookie, sales7d, sales30d, gain, prices, raw
+- **Error Handling**: Falls back to stale cache if API fails; returns 503 CARD_DATA_TEMPORARILY_UNAVAILABLE otherwise
+- **Env Vars**: CARDHEDGE_CACHE_TTL_SECONDS (default: 600)
+
 ### Card Image Quality Control
 A user reporting and admin review workflow addresses Card Hedge API data quality issues where wrong sport images may be returned:
 - **User Reporting**: Players can report wrong images during gameplay with reasons: wrong_sport, wrong_player, wrong_set, bad_image, other

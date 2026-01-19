@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -4764,6 +4764,158 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
       }
       res.status(500).json({ error: error.message || "Failed to get card details" });
+    }
+  });
+
+  // In-memory rate limiter
+  const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+  const CACHE_TTL_SECONDS = parseInt(process.env.CARDHEDGE_CACHE_TTL_SECONDS || "600", 10);
+
+  function checkRateLimit(key: string, maxRequests: number, windowMs: number): boolean {
+    const now = Date.now();
+    const entry = rateLimitStore.get(key);
+    
+    if (!entry || entry.resetAt < now) {
+      rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+    
+    if (entry.count >= maxRequests) {
+      return false;
+    }
+    
+    entry.count++;
+    return true;
+  }
+
+  // Public: Get Card Details by ID (with caching and rate limiting)
+  app.get("/api/cardhedge/card/:cardId", async (req, res) => {
+    try {
+      const { cardId } = req.params;
+      const rawImagesOnly = req.query.rawImagesOnly === "true";
+      
+      // Validate cardId
+      if (!cardId || cardId.length < 1) {
+        return res.status(422).json({ error: "Invalid card_id" });
+      }
+      
+      // Rate limiting: 30 requests/min/IP for public endpoint
+      const clientIp = req.ip || req.headers["x-forwarded-for"] || "unknown";
+      const rateLimitKey = `cardhedge:${clientIp}`;
+      if (!checkRateLimit(rateLimitKey, 30, 60000)) {
+        return res.status(429).json({ error: "Rate limit exceeded. Please try again later." });
+      }
+      
+      // Check database cache first (using composite key: cardId + rawImagesOnly)
+      const [cached] = await db
+        .select()
+        .from(cardDetailsCache)
+        .where(and(
+          eq(cardDetailsCache.cardId, cardId),
+          eq(cardDetailsCache.rawImagesOnly, rawImagesOnly)
+        ))
+        .limit(1);
+      
+      if (cached && cached.expiresAt > new Date()) {
+        console.log(`[CardHedge] Cache HIT for ${cardId}`);
+        return res.json(cached.payload);
+      }
+      
+      // Fetch from CardHedge API
+      console.log(`[CardHedge] Cache MISS for ${cardId}, fetching from API...`);
+      const normalized = await cardhedgeApi.fetchCardDetailsNormalized(cardId, rawImagesOnly);
+      
+      if (!normalized) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      // Store in database cache (upsert by composite key)
+      const expiresAt = new Date(Date.now() + CACHE_TTL_SECONDS * 1000);
+      await db
+        .insert(cardDetailsCache)
+        .values({
+          cardId,
+          rawImagesOnly,
+          payload: normalized,
+          expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: [cardDetailsCache.cardId, cardDetailsCache.rawImagesOnly],
+          set: {
+            payload: normalized,
+            fetchedAt: new Date(),
+            expiresAt,
+          },
+        });
+      
+      res.json(normalized);
+    } catch (error: any) {
+      console.error("Error getting card details:", error);
+      
+      // Try to return cached data if available (even if expired)
+      const { cardId } = req.params;
+      const rawImagesOnly = req.query.rawImagesOnly === "true";
+      
+      const [staleCache] = await db
+        .select()
+        .from(cardDetailsCache)
+        .where(and(
+          eq(cardDetailsCache.cardId, cardId),
+          eq(cardDetailsCache.rawImagesOnly, rawImagesOnly)
+        ))
+        .limit(1);
+      
+      if (staleCache) {
+        console.log(`[CardHedge] Returning stale cache for ${cardId} due to API error`);
+        return res.json(staleCache.payload);
+      }
+      
+      res.status(503).json({
+        error: "CARD_DATA_TEMPORARILY_UNAVAILABLE",
+        message: "Card image temporarily unavailable - retrying"
+      });
+    }
+  });
+
+  // Gameplay helper: Get card image for gameplay (prefers raw images)
+  app.get("/api/cardhedge/gameplay-image/:cardId", async (req, res) => {
+    try {
+      const { cardId } = req.params;
+      
+      if (!cardId) {
+        return res.status(422).json({ error: "Invalid card_id" });
+      }
+      
+      // Rate limiting: 60 requests/min/IP for gameplay
+      const clientIp = req.ip || req.headers["x-forwarded-for"] || "unknown";
+      const rateLimitKey = `gameplay:${clientIp}`;
+      if (!checkRateLimit(rateLimitKey, 60, 60000)) {
+        return res.status(429).json({ error: "Rate limit exceeded" });
+      }
+      
+      // Try raw images first (preferred for gameplay)
+      let normalized = await cardhedgeApi.fetchCardDetailsNormalized(cardId, true);
+      
+      // Fallback to standard image if no raw image
+      if (!normalized?.imageUrl) {
+        normalized = await cardhedgeApi.fetchCardDetailsNormalized(cardId, false);
+      }
+      
+      if (!normalized) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      res.json({
+        cardId: normalized.cardId,
+        imageUrl: normalized.imageUrl,
+        player: normalized.player,
+      });
+    } catch (error: any) {
+      console.error("Error getting gameplay image:", error);
+      res.status(503).json({
+        error: "CARD_DATA_TEMPORARILY_UNAVAILABLE",
+        message: "Card image temporarily unavailable"
+      });
     }
   });
 

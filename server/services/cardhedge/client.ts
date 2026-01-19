@@ -16,6 +16,9 @@ export const CardHedgeCardSchema = z.object({
   category_group: z.string().optional(),
   set_type: z.string().optional(),
   rookie: z.boolean().optional(),
+  "7 Day Sales": z.number().optional(),
+  "30 Day Sales": z.number().optional(),
+  gain: z.number().optional(),
   prices: z.array(z.object({
     grade: z.string(),
     price: z.string(),
@@ -49,6 +52,7 @@ export type CardSearchSortedRequest = z.infer<typeof CardSearchSortedRequestSche
 
 export const CardDetailsRequestSchema = z.object({
   card_id: z.string(),
+  raw_images_only: z.boolean().optional(),
 });
 
 export type CardDetailsRequest = z.infer<typeof CardDetailsRequestSchema>;
@@ -63,10 +67,29 @@ export const CardSearchResponseSchema = z.object({
 export type CardSearchResponse = z.infer<typeof CardSearchResponseSchema>;
 
 export const CardDetailsResponseSchema = z.object({
-  card: CardHedgeCardSchema.optional(),
+  cards: z.array(CardHedgeCardSchema),
 });
 
 export type CardDetailsResponse = z.infer<typeof CardDetailsResponseSchema>;
+
+export interface NormalizedCardDetails {
+  cardId: string;
+  description: string | null;
+  player: string | null;
+  set: string | null;
+  number: string | null;
+  variant: string | null;
+  category: string | null;
+  categoryGroup: string | null;
+  setType: string | null;
+  imageUrl: string | null;
+  rookie: boolean;
+  sales7d: number | null;
+  sales30d: number | null;
+  gain: number | null;
+  prices: Array<{ grade: string; price: string }>;
+  raw: CardHedgeCard;
+}
 
 export class CardHedgeError extends Error {
   constructor(
@@ -201,6 +224,38 @@ export async function cardSearchSorted(request: CardSearchSortedRequest): Promis
 export async function cardDetails(request: CardDetailsRequest): Promise<CardDetailsResponse> {
   const validated = CardDetailsRequestSchema.parse(request);
   return cardHedgeFetch<CardDetailsResponse>("/v1/cards/card-details", "POST", validated);
+}
+
+export function normalizeCardDetails(card: CardHedgeCard): NormalizedCardDetails {
+  return {
+    cardId: card.card_id || "",
+    description: card.description || null,
+    player: card.player || null,
+    set: card.set || null,
+    number: card.number || null,
+    variant: card.variant || null,
+    category: card.category || null,
+    categoryGroup: card.category_group || null,
+    setType: card.set_type || null,
+    imageUrl: normalizeImageUrl(card.image),
+    rookie: card.rookie || false,
+    sales7d: card["7 Day Sales"] ?? null,
+    sales30d: card["30 Day Sales"] ?? null,
+    gain: card.gain ?? null,
+    prices: card.prices || [],
+    raw: card,
+  };
+}
+
+export async function fetchCardDetailsNormalized(
+  cardId: string,
+  rawImagesOnly?: boolean
+): Promise<NormalizedCardDetails | null> {
+  const response = await cardDetails({ card_id: cardId, raw_images_only: rawImagesOnly });
+  if (!response.cards || response.cards.length === 0) {
+    return null;
+  }
+  return normalizeCardDetails(response.cards[0]);
 }
 
 export function normalizeImageUrl(url: string | undefined): string | null {

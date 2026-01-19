@@ -2152,3 +2152,24 @@ export const updatePlayerFameSchema = z.object({
 });
 
 export type UpdatePlayerFame = z.infer<typeof updatePlayerFameSchema>;
+
+// CardHedge Card Details Cache - persistent cache for card details API
+export const cardDetailsCache = pgTable("card_details_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cardId: varchar("card_id").notNull(),
+  rawImagesOnly: boolean("raw_images_only").notNull().default(false),
+  payload: jsonb("payload").notNull(),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => [
+  index("idx_card_details_cache_expires").on(table.expiresAt),
+  uniqueIndex("idx_card_details_cache_card_raw").on(table.cardId, table.rawImagesOnly),
+]);
+
+export const insertCardDetailsCacheSchema = createInsertSchema(cardDetailsCache).omit({
+  id: true,
+  fetchedAt: true,
+});
+
+export type InsertCardDetailsCache = z.infer<typeof insertCardDetailsCacheSchema>;
+export type CardDetailsCache = typeof cardDetailsCache.$inferSelect;
