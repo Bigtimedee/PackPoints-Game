@@ -6,6 +6,7 @@ import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
+import * as cardhedgeApi from "./services/cardhedge";
 import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { isAuthenticated } from "./replit_integrations/auth";
@@ -4724,9 +4725,8 @@ export async function registerRoutes(
   // Admin: Search Card Hedge directly
   app.post("/api/admin/cardhedge/search", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const { cardSearch, CardSearchRequestSchema } = await import("./services/cardhedge");
-      const validated = CardSearchRequestSchema.parse(req.body);
-      const result = await cardSearch(validated);
+      const validated = cardhedgeApi.CardSearchRequestSchema.parse(req.body);
+      const result = await cardhedgeApi.cardSearch(validated);
       res.json(result);
     } catch (error: any) {
       console.error("Error searching Card Hedge:", error);
@@ -4740,9 +4740,8 @@ export async function registerRoutes(
   // Admin: Search Card Hedge with sorting
   app.post("/api/admin/cardhedge/search-sorted", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const { cardSearchSorted, CardSearchSortedRequestSchema } = await import("./services/cardhedge");
-      const validated = CardSearchSortedRequestSchema.parse(req.body);
-      const result = await cardSearchSorted(validated);
+      const validated = cardhedgeApi.CardSearchSortedRequestSchema.parse(req.body);
+      const result = await cardhedgeApi.cardSearchSorted(validated);
       res.json(result);
     } catch (error: any) {
       console.error("Error searching Card Hedge (sorted):", error);
@@ -4756,9 +4755,8 @@ export async function registerRoutes(
   // Admin: Get Card Hedge card details
   app.post("/api/admin/cardhedge/card-details", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const { cardDetails, CardDetailsRequestSchema } = await import("./services/cardhedge");
-      const validated = CardDetailsRequestSchema.parse(req.body);
-      const result = await cardDetails(validated);
+      const validated = cardhedgeApi.CardDetailsRequestSchema.parse(req.body);
+      const result = await cardhedgeApi.cardDetails(validated);
       res.json(result);
     } catch (error: any) {
       console.error("Error getting Card Hedge card details:", error);
@@ -4887,7 +4885,6 @@ export async function registerRoutes(
         .returning();
       
       try {
-        const { cardSearchSorted, normalizeImageUrl } = await import("./services/cardhedge");
         const { classifyCard } = await import("./services/cardClassifier");
         
         let page = 1;
@@ -4895,7 +4892,7 @@ export async function registerRoutes(
         let hasMorePages = true;
         
         while (hasMorePages) {
-          const result = await cardSearchSorted({
+          const result = await cardhedgeApi.cardSearchSorted({
             set: gameSet.cardhedgeSetQuery,
             category: gameSet.cardhedgeCategory || undefined,
             page,
@@ -4918,7 +4915,7 @@ export async function registerRoutes(
               console.log(`[CardHedge Import] Marking non-playable card: ${card.card_id} - ${blockedReason} - ${card.player || card.description}`);
             }
             
-            const imageUrl = normalizeImageUrl(card.image);
+            const imageUrl = cardhedgeApi.normalizeImageUrl(card.image);
             
             await db
               .insert(playableCards)
