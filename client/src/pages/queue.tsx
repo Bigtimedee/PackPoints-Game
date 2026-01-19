@@ -1,41 +1,41 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Loader2, Users, X, ArrowLeft, Play } from "lucide-react";
+import { Loader2, Users, X, ArrowLeft, Play, LogIn, Shuffle } from "lucide-react";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAuth } from "@/hooks/use-auth";
 
-function getOrCreateUserId(): string {
-  let id = localStorage.getItem("packpoints_user_id");
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("packpoints_user_id", id);
-  }
-  return id;
-}
-
-function getOrCreateUsername(): string {
-  let name = localStorage.getItem("packpoints_username");
-  if (!name) {
-    const adjectives = ["Swift", "Lucky", "Clever", "Bold", "Quick"];
-    const nouns = ["Collector", "Trader", "Scout", "Pro", "Champ"];
-    name = `${adjectives[Math.floor(Math.random() * adjectives.length)]}${nouns[Math.floor(Math.random() * nouns.length)]}${Math.floor(Math.random() * 1000)}`;
-    localStorage.setItem("packpoints_username", name);
-  }
-  return name;
+interface PlayableSet {
+  id: string;
+  name: string;
+  year: number | null;
+  brand: string | null;
+  sport: string | null;
+  cardsImportedCount: number;
 }
 
 export default function Queue() {
   const [, navigate] = useLocation();
-  const [userId] = useState(getOrCreateUserId);
-  const [username] = useState(getOrCreateUsername);
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [queueSize, setQueueSize] = useState(0);
   const [searchTime, setSearchTime] = useState(0);
   const [status, setStatus] = useState<"idle" | "connecting" | "searching" | "matched">("idle");
   const [selectedCardCount, setSelectedCardCount] = useState("10");
+  const [selectedSetId, setSelectedSetId] = useState("random");
+
+  const { data: playableSets } = useQuery<PlayableSet[]>({
+    queryKey: ["/api/playable-sets"],
+    enabled: isAuthenticated,
+  });
+
+  const availableSets = playableSets?.filter(s => s.cardsImportedCount > 0) || [];
+  const userId = user?.id || "";
+  const username = user?.username || user?.displayName || "Player";
 
   const handleMessage = useCallback((message: { type: string; payload: any }) => {
     const { type, payload } = message;
@@ -73,12 +73,17 @@ export default function Queue() {
     if (status === "connecting") {
       if (isConnected) {
         // Already connected, send join immediately
-        send("join_queue", { userId, username, totalQuestions: parseInt(selectedCardCount) });
+        send("join_queue", { 
+          userId, 
+          username, 
+          totalQuestions: parseInt(selectedCardCount),
+          gameSetId: selectedSetId === "random" ? null : selectedSetId 
+        });
         setStatus("searching");
       }
       // If not connected, the connect() effect will trigger and then this will run again
     }
-  }, [isConnected, status, send, userId, username, selectedCardCount]);
+  }, [isConnected, status, send, userId, username, selectedCardCount, selectedSetId]);
 
   const handleStartSearch = () => {
     // Reset state for a fresh search
@@ -109,6 +114,53 @@ export default function Queue() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <Button variant="ghost" onClick={() => navigate("/")} className="mb-4 gap-2" data-testid="button-back-home">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          
+          <Card>
+            <CardHeader className="text-center">
+              <div className="mx-auto p-3 rounded-full bg-primary/10 w-fit mb-2">
+                <Users className="h-8 w-8 text-primary" />
+              </div>
+              <CardTitle className="text-2xl">1v1 Random Match</CardTitle>
+              <CardDescription>
+                Sign in to challenge other players
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-center text-muted-foreground">
+                You need to be logged in to play 1v1 matches. Create an account or sign in to compete against other collectors.
+              </p>
+              <Button 
+                className="w-full gap-2" 
+                size="lg" 
+                onClick={() => navigate("/login")}
+                data-testid="button-login-to-play"
+              >
+                <LogIn className="h-5 w-5" />
+                Sign In to Play
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -134,6 +186,28 @@ export default function Queue() {
           <CardContent className="space-y-6">
             {status === "idle" && (
               <div className="space-y-6" data-testid="status-idle">
+                <div className="space-y-2">
+                  <Label htmlFor="card-set">Card Set</Label>
+                  <Select value={selectedSetId} onValueChange={setSelectedSetId}>
+                    <SelectTrigger id="card-set" data-testid="select-card-set">
+                      <SelectValue placeholder="Select a card set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="random">
+                        <div className="flex items-center gap-2">
+                          <Shuffle className="h-4 w-4" />
+                          <span>Let PackPTS Choose</span>
+                        </div>
+                      </SelectItem>
+                      {availableSets.map((set) => (
+                        <SelectItem key={set.id} value={set.id}>
+                          {set.year} {set.brand} {set.sport} ({set.cardsImportedCount} cards)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
                 <div className="space-y-2">
                   <Label htmlFor="card-count">Number of Cards</Label>
                   <Select value={selectedCardCount} onValueChange={setSelectedCardCount}>
