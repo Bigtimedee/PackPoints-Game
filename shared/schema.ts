@@ -192,6 +192,7 @@ export const lobbies = pgTable("lobbies", {
   status: text("status").notNull().default("waiting"),
   mode: text("mode").notNull().default("1v1_friend"),
   totalQuestions: integer("total_questions").notNull().default(10),
+  gameSetId: varchar("game_set_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

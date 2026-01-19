@@ -8,6 +8,8 @@ interface QueuedPlayer {
   username: string;
   joinedAt: number;
   ws: any;
+  gameSetId: string | null;
+  totalQuestions: number;
 }
 
 function generateJoinCode(): string {
@@ -42,7 +44,7 @@ class MatchmakingService {
     }, 1000);
   }
 
-  async joinQueue(userId: string, username: string, ws: any): Promise<{ position: number }> {
+  async joinQueue(userId: string, username: string, ws: any, totalQuestions: number = 10, gameSetId: string | null = null): Promise<{ position: number }> {
     if (this.queue.has(userId)) {
       return { position: this.getQueuePosition(userId) };
     }
@@ -51,10 +53,12 @@ class MatchmakingService {
       userId,
       username,
       joinedAt: Date.now(),
-      ws
+      ws,
+      gameSetId,
+      totalQuestions
     });
 
-    console.log(`[Matchmaking] ${username} joined queue. Queue size: ${this.queue.size}`);
+    console.log(`[Matchmaking] ${username} joined queue. Queue size: ${this.queue.size}, Set: ${gameSetId || 'random'}`);
 
     this.tryMatchPlayers();
 
@@ -93,7 +97,11 @@ class MatchmakingService {
     this.queue.delete(player1Id);
     this.queue.delete(player2Id);
 
-    console.log(`[Matchmaking] Matching ${player1.username} vs ${player2.username}`);
+    // Use player1's game set selection, or pick a random one if they chose "random"
+    let gameSetId = player1.gameSetId;
+    const totalQuestions = Math.max(player1.totalQuestions, player2.totalQuestions);
+
+    console.log(`[Matchmaking] Matching ${player1.username} vs ${player2.username}, Set: ${gameSetId || 'random'}, Questions: ${totalQuestions}`);
 
     try {
       const joinCode = generateJoinCode();
@@ -112,7 +120,8 @@ class MatchmakingService {
         guestSecret,
         status: "ready",
         mode: "1v1_random",
-        totalQuestions: 5,
+        totalQuestions,
+        gameSetId,
         createdAt: new Date()
       });
 

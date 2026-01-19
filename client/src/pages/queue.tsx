@@ -35,7 +35,7 @@ export default function Queue() {
 
   const availableSets = playableSets?.filter(s => s.cardsImportedCount > 0) || [];
   const userId = user?.id || "";
-  const username = user?.username || user?.displayName || "Player";
+  const username = user?.username || user?.firstName || "Player";
 
   const handleMessage = useCallback((message: { type: string; payload: any }) => {
     const { type, payload } = message;

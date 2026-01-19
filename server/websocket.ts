@@ -411,8 +411,8 @@ function broadcastToMatch(matchId: string, message: any) {
   });
 }
 
-async function handleJoinQueue(ws: WebSocket, payload: { userId: string; username: string }) {
-  const { userId, username } = payload;
+async function handleJoinQueue(ws: WebSocket, payload: { userId: string; username: string; totalQuestions?: number; gameSetId?: string | null }) {
+  const { userId, username, totalQuestions = 10, gameSetId = null } = payload;
   
   const existingClient = clients.get(ws);
   if (existingClient && existingClient.userId && existingClient.userId !== userId) {
@@ -422,7 +422,7 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
   
   clients.set(ws, { userId, username, inQueue: true });
   
-  const result = await matchmakingService.joinQueue(userId, username, ws);
+  const result = await matchmakingService.joinQueue(userId, username, ws, totalQuestions, gameSetId);
   
   ws.send(JSON.stringify({
     type: "queue_joined",
