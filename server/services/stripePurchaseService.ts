@@ -7,6 +7,7 @@ import { storage } from "../storage";
 import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku, isPackPtsSubscription } from "./productMap";
 import { analyticsService } from "./analyticsService";
 import { getStripeClient, getStripeSync, isStripeConfiguredSync, isStripeConfiguredAsync } from "../stripeClient";
+import { marginLedgerService } from "./marginLedgerService";
 
 export function isStripeConfigured(): boolean {
   return isStripeConfiguredSync();
@@ -245,6 +246,22 @@ class StripePurchaseService {
 
         if (result.success && !result.idempotent) {
           totalPackPts += amount;
+          
+          const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
+          if (priceCents > 0) {
+            try {
+              await marginLedgerService.recordPackPtsPurchaseMargin({
+                stripeEventId: event.id,
+                userId,
+                priceCents,
+                ptsGrant: amount,
+                productName: productDef.name,
+                channel: "web_stripe",
+              });
+            } catch (marginError) {
+              console.error("Failed to record margin contribution:", marginError);
+            }
+          }
         }
       } else if (productDef.type === "ENTITLEMENT" && "entitlementKey" in productDef) {
         await storage.grantEntitlement({
@@ -360,6 +377,22 @@ class StripePurchaseService {
 
       if (result.success && !result.idempotent) {
         packptsGranted = productDef.packptsGrant;
+        
+        const priceCents = "priceUsd" in productDef ? productDef.priceUsd : 0;
+        if (priceCents > 0) {
+          try {
+            await marginLedgerService.recordPackPtsPurchaseMargin({
+              stripeEventId: event.id,
+              userId,
+              priceCents,
+              ptsGrant: packptsGranted,
+              productName: productDef.name,
+              channel: "web_stripe",
+            });
+          } catch (marginError) {
+            console.error("Failed to record margin contribution for subscription:", marginError);
+          }
+        }
       }
       
       await analyticsService.purchaseCompleted(userId, {
