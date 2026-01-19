@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -4722,16 +4722,125 @@ export async function registerRoutes(
   // CARD HEDGE & PLAYABLE SETS ADMIN ENDPOINTS
   // ============================================
 
-  // Admin: Search Card Hedge directly
+  // Admin: Search Card Hedge with caching and rate limiting
   app.post("/api/admin/cardhedge/search", isAuthenticated, requireAdmin, async (req, res) => {
+    // Get stable admin user ID for rate limiting
+    const session = req.session as any;
+    const adminUserId = session?.localUserId || (req.user as any)?.claims?.sub || "unknown";
+    const rateLimitKey = `cardhedge-search:admin:${adminUserId}`;
+    
+    // Rate limiting: 120 requests/min for admin
+    if (!checkRateLimit(rateLimitKey, 120, 60000)) {
+      return res.status(429).json({ error: "Rate limit exceeded. Please try again later." });
+    }
+    
+    // Input validation with additional constraints
+    const rawInput = req.body;
+    
+    // Coerce empty strings to null
+    const sanitizedInput = {
+      search: rawInput.search?.trim() || null,
+      set: rawInput.set?.trim() || null,
+      category: rawInput.category?.trim() || null,
+      player: rawInput.player?.trim() || null,
+      rookie: rawInput.rookie != null ? (rawInput.rookie === "true" || rawInput.rookie === true) : null,
+      raw_images_only: rawInput.raw_images_only != null ? (rawInput.raw_images_only === "true" || rawInput.raw_images_only === true) : null,
+      page: parseInt(rawInput.page) || 1,
+      page_size: Math.min(parseInt(rawInput.page_size) || 20, 100),
+    };
+    
+    // Max string length validation
+    const maxLen = 120;
+    if (sanitizedInput.search && sanitizedInput.search.length > maxLen) {
+      return res.status(422).json({ error: `search exceeds max length of ${maxLen}` });
+    }
+    if (sanitizedInput.set && sanitizedInput.set.length > maxLen) {
+      return res.status(422).json({ error: `set exceeds max length of ${maxLen}` });
+    }
+    if (sanitizedInput.player && sanitizedInput.player.length > maxLen) {
+      return res.status(422).json({ error: `player exceeds max length of ${maxLen}` });
+    }
+    
+    // Generate stable cache key from sanitized input (used for both fresh read and stale fallback)
+    const cacheKey = JSON.stringify(sanitizedInput);
+    
     try {
-      const validated = cardhedgeApi.CardSearchRequestSchema.parse(req.body);
+      // Validate with Zod
+      const validated = cardhedgeApi.CardSearchRequestSchema.parse({
+        search: sanitizedInput.search,
+        set: sanitizedInput.set,
+        category: sanitizedInput.category,
+        player: sanitizedInput.player,
+        rookie: sanitizedInput.rookie,
+        raw_images_only: sanitizedInput.raw_images_only,
+        page: sanitizedInput.page,
+        page_size: sanitizedInput.page_size,
+      });
+      
+      // Check database cache
+      const [cached] = await db
+        .select()
+        .from(cardhedgeSearchCache)
+        .where(eq(cardhedgeSearchCache.cacheKey, cacheKey))
+        .limit(1);
+      
+      if (cached && cached.expiresAt > new Date()) {
+        console.log(`[CardHedge Search] Cache HIT`);
+        return res.json(cached.payload);
+      }
+      
+      // Fetch from CardHedge API
+      console.log(`[CardHedge Search] Cache MISS, fetching from API...`);
       const result = await cardhedgeApi.cardSearch(validated);
-      res.json(result);
+      const normalized = cardhedgeApi.normalizeCardSearchResponse(result);
+      
+      // Store in database cache
+      const SEARCH_CACHE_TTL = parseInt(process.env.CARDHEDGE_CACHE_TTL_SECONDS || "300", 10);
+      const expiresAt = new Date(Date.now() + SEARCH_CACHE_TTL * 1000);
+      await db
+        .insert(cardhedgeSearchCache)
+        .values({
+          cacheKey,
+          payload: normalized,
+          expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: cardhedgeSearchCache.cacheKey,
+          set: {
+            payload: normalized,
+            fetchedAt: new Date(),
+            expiresAt,
+          },
+        });
+      
+      res.json(normalized);
     } catch (error: any) {
       console.error("Error searching Card Hedge:", error);
+      
+      // Try to return stale cache if available (uses same cacheKey from sanitized input)
+      try {
+        const [staleCache] = await db
+          .select()
+          .from(cardhedgeSearchCache)
+          .where(eq(cardhedgeSearchCache.cacheKey, cacheKey))
+          .limit(1);
+        
+        if (staleCache) {
+          console.log(`[CardHedge Search] Returning stale cache due to API error`);
+          return res.json(staleCache.payload);
+        }
+      } catch (cacheError) {
+        console.error("Error checking stale cache:", cacheError);
+      }
+      
       if (error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+        return res.status(422).json({ error: "Invalid request parameters", details: error.errors });
+      }
+      if (error.name === "CardHedgeError") {
+        return res.status(503).json({ 
+          error: "CARDHEDGE_UNAVAILABLE",
+          message: "Card data temporarily unavailable — retrying"
+        });
       }
       res.status(500).json({ error: error.message || "Failed to search Card Hedge" });
     }

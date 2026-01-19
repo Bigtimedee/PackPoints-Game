@@ -28,6 +28,18 @@ A dedicated integration for fetching detailed card metadata, pricing, and sales 
 - **Error Handling**: Falls back to stale cache if API fails; returns 503 CARD_DATA_TEMPORARILY_UNAVAILABLE otherwise
 - **Env Vars**: CARDHEDGE_CACHE_TTL_SECONDS (default: 600)
 
+### CardHedge Card Search API
+A searchable card discovery system for admin card discovery, playable set ingestion, and fame scoring signals:
+- **Admin Endpoint**: `POST /api/admin/cardhedge/search` - Search cards with filters and pagination
+- **Admin UI**: `/admin/card-search` - Search interface with filters, results grid, and pagination controls
+- **Database Cache**: `cardhedge_search_cache` table stores search results with configurable TTL (default: 300s)
+- **Rate Limiting**: 120 req/min per admin user
+- **Request Body**: `{ search, set, category, player, rookie, raw_images_only, page, page_size }`
+- **Validation**: page >= 1, page_size <= 100, max string length 120 chars, empty strings coerced to null
+- **Normalized Response**: `{ pages, count, cards: [{cardId, description, player, set, number, variant, category, imageUrl, sales7d, sales30d, gain, prices, raw}] }`
+- **Gameplay Helper**: `getPlayableCardSearchResults()` - For seeding playable card pools, fame scoring input, and difficulty weighting
+- **Error Handling**: Falls back to stale cache on API failure, returns 503 CARDHEDGE_UNAVAILABLE otherwise
+
 ### Card Image Quality Control
 A user reporting and admin review workflow addresses Card Hedge API data quality issues where wrong sport images may be returned:
 - **User Reporting**: Players can report wrong images during gameplay with reasons: wrong_sport, wrong_player, wrong_set, bad_image, other

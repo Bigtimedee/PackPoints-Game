@@ -2173,3 +2173,20 @@ export const insertCardDetailsCacheSchema = createInsertSchema(cardDetailsCache)
 
 export type InsertCardDetailsCache = z.infer<typeof insertCardDetailsCacheSchema>;
 export type CardDetailsCache = typeof cardDetailsCache.$inferSelect;
+
+// CardHedge Search Cache - persistent cache for card search API
+export const cardhedgeSearchCache = pgTable("cardhedge_search_cache", {
+  cacheKey: varchar("cache_key").primaryKey(),
+  payload: jsonb("payload").notNull(),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => [
+  index("idx_cardhedge_search_cache_expires").on(table.expiresAt),
+]);
+
+export const insertCardhedgeSearchCacheSchema = createInsertSchema(cardhedgeSearchCache).omit({
+  fetchedAt: true,
+});
+
+export type InsertCardhedgeSearchCache = z.infer<typeof insertCardhedgeSearchCacheSchema>;
+export type CardhedgeSearchCache = typeof cardhedgeSearchCache.$inferSelect;

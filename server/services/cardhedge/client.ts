@@ -62,9 +62,35 @@ export const CardSearchResponseSchema = z.object({
   page: z.number().optional(),
   pages: z.number().optional(),
   total: z.number().optional(),
+  count: z.number().optional(),
 });
 
 export type CardSearchResponse = z.infer<typeof CardSearchResponseSchema>;
+
+export interface NormalizedCardSearchResult {
+  cardId: string;
+  description: string | null;
+  player: string | null;
+  set: string | null;
+  number: string | null;
+  variant: string | null;
+  category: string | null;
+  categoryGroup: string | null;
+  setType: string | null;
+  imageUrl: string | null;
+  rookie: boolean;
+  sales7d: number | null;
+  sales30d: number | null;
+  gain: number | null;
+  prices: Array<{ grade: string; price: string }>;
+  raw: CardHedgeCard;
+}
+
+export interface NormalizedCardSearchResponse {
+  pages: number;
+  count: number;
+  cards: NormalizedCardSearchResult[];
+}
 
 export const CardDetailsResponseSchema = z.object({
   cards: z.array(CardHedgeCardSchema),
@@ -275,5 +301,76 @@ export function getCacheStats(): { size: number; keys: string[] } {
   return {
     size: httpCache.size,
     keys: Array.from(httpCache.keys()),
+  };
+}
+
+export function normalizeCardSearchResponse(response: CardSearchResponse): NormalizedCardSearchResponse {
+  return {
+    pages: response.pages || 1,
+    count: response.count || response.total || response.cards?.length || 0,
+    cards: (response.cards || []).map(card => ({
+      cardId: card.card_id || "",
+      description: card.description || null,
+      player: card.player || null,
+      set: card.set || null,
+      number: card.number || null,
+      variant: card.variant || null,
+      category: card.category || null,
+      categoryGroup: card.category_group || null,
+      setType: card.set_type || null,
+      imageUrl: normalizeImageUrl(card.image),
+      rookie: card.rookie || false,
+      sales7d: card["7 Day Sales"] ?? null,
+      sales30d: card["30 Day Sales"] ?? null,
+      gain: card.gain ?? null,
+      prices: card.prices || [],
+      raw: card,
+    })),
+  };
+}
+
+export async function cardSearchNormalized(
+  request: CardSearchRequest
+): Promise<NormalizedCardSearchResponse> {
+  const response = await cardSearch(request);
+  return normalizeCardSearchResponse(response);
+}
+
+export interface PlayableCardSearchOptions {
+  category?: string;
+  set?: string;
+  rookie?: boolean;
+  minSales7d?: number;
+  maxGain?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function getPlayableCardSearchResults(
+  options: PlayableCardSearchOptions = {}
+): Promise<NormalizedCardSearchResponse> {
+  const request: CardSearchRequest = {
+    category: options.category || "Baseball",
+    set: options.set,
+    rookie: options.rookie,
+    raw_images_only: true,
+    page: options.page || 1,
+    page_size: options.pageSize || 100,
+  };
+  
+  const response = await cardSearchNormalized(request);
+  
+  let filteredCards = response.cards;
+  if (options.minSales7d !== undefined) {
+    filteredCards = filteredCards.filter(c => (c.sales7d ?? 0) >= options.minSales7d!);
+  }
+  if (options.maxGain !== undefined) {
+    filteredCards = filteredCards.filter(c => c.gain === null || c.gain <= options.maxGain!);
+  }
+  
+  return {
+    ...response,
+    cards: filteredCards,
+    count: filteredCards.length,
   };
 }
