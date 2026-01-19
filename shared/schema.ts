@@ -1631,6 +1631,9 @@ export type InsertGeoRollupsDaily = z.infer<typeof insertGeoRollupsDailySchema>;
 export type GeoRollupsDaily = typeof geoRollupsDaily.$inferSelect;
 
 // Playable Cards - cards imported from Card Hedge for gameplay
+export const imageReviewStatuses = ["unreviewed", "reported", "approved", "rejected"] as const;
+export type ImageReviewStatus = typeof imageReviewStatuses[number];
+
 export const playableCards = pgTable("playable_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   gameSetId: varchar("game_set_id").notNull().references(() => gameSets.id),
@@ -1646,6 +1649,8 @@ export const playableCards = pgTable("playable_cards", {
   rawImagesOnly: boolean("raw_images_only").notNull().default(false),
   isPlayable: boolean("is_playable").notNull().default(true), // false for checklists, multi-player cards
   blockedReason: text("blocked_reason"), // Reason if isPlayable=false (e.g., "checklist", "multi-player")
+  imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"), // Image quality review
+  reportCount: integer("report_count").notNull().default(0), // Number of user reports for wrong image
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1654,6 +1659,7 @@ export const playableCards = pgTable("playable_cards", {
   index("idx_playable_cards_set").on(table.set),
   index("idx_playable_cards_number").on(table.number),
   index("idx_playable_cards_is_playable").on(table.isPlayable),
+  index("idx_playable_cards_image_review").on(table.imageReviewStatus),
 ]);
 
 export const insertPlayableCardSchema = createInsertSchema(playableCards).omit({
@@ -1664,6 +1670,44 @@ export const insertPlayableCardSchema = createInsertSchema(playableCards).omit({
 
 export type InsertPlayableCard = z.infer<typeof insertPlayableCardSchema>;
 export type PlayableCard = typeof playableCards.$inferSelect;
+
+// Card Image Reports - user reports for wrong/mismatched card images
+export const cardImageReportReasons = ["wrong_sport", "wrong_player", "wrong_set", "bad_image", "other"] as const;
+export type CardImageReportReason = typeof cardImageReportReasons[number];
+
+export const cardImageReports = pgTable("card_image_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cardId: varchar("card_id").notNull().references(() => playableCards.id),
+  reporterId: varchar("reporter_id").references(() => users.id), // null for guest reports
+  sessionId: varchar("session_id"), // game session where report was made
+  reason: varchar("reason", { length: 30 }).notNull(), // wrong_sport, wrong_player, wrong_set, bad_image, other
+  description: text("description"), // Optional user description
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, reviewed, resolved, dismissed
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolution: text("resolution"), // What action was taken
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_card_image_reports_card").on(table.cardId),
+  index("idx_card_image_reports_status").on(table.status),
+  index("idx_card_image_reports_reporter").on(table.reporterId),
+]);
+
+export const insertCardImageReportSchema = createInsertSchema(cardImageReports).omit({
+  id: true,
+  createdAt: true,
+  resolvedAt: true,
+});
+
+export const createCardImageReportSchema = z.object({
+  cardId: z.string().min(1),
+  sessionId: z.string().optional(),
+  reason: z.enum(cardImageReportReasons),
+  description: z.string().max(500).optional(),
+});
+
+export type InsertCardImageReport = z.infer<typeof insertCardImageReportSchema>;
+export type CardImageReport = typeof cardImageReports.$inferSelect;
 
 // Card Hedge Import Runs - tracking import job status
 export const importRunStatuses = ["PENDING", "RUNNING", "SUCCESS", "FAILED"] as const;
