@@ -10,6 +10,7 @@ import { verifyEmailConfig } from "./services/emailService";
 import { registerWorkosRoutes } from "./services/workosAuth";
 import { initializeStripeConnection, getStripeSync } from "./stripeClient";
 import { runMigrations } from "stripe-replit-sync";
+import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
 
 const app = express();
 const httpServer = createServer(app);
@@ -73,6 +74,13 @@ app.use((req, res, next) => {
 (async () => {
   await storage.initialize();
   await matchService.initialize();
+  
+  // Seed package guardrail configuration
+  try {
+    await seedPackageGuardrailConfig();
+  } catch (error) {
+    console.log('[PackageGuardrails] Seed failed:', error instanceof Error ? error.message : 'Unknown');
+  }
   
   // Verify email configuration
   await verifyEmailConfig();

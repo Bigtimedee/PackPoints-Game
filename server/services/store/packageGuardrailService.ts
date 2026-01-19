@@ -469,4 +469,56 @@ export class WarnPackageError extends Error {
   }
 }
 
+export async function seedPackageGuardrailConfig(): Promise<void> {
+  const existingPolicy = await db
+    .select()
+    .from(storePackagePolicy)
+    .where(eq(storePackagePolicy.isActive, true))
+    .limit(1);
+
+  if (existingPolicy.length === 0) {
+    console.log("[PackageGuardrails] Creating default policy...");
+    await db.insert(storePackagePolicy).values({
+      minMarginRate: 0.30,
+      warnMarginBand: 0.05,
+      maxValuePerPtMicrousd: 2000,
+      allowOverride: false,
+      reserveRate: 1.0,
+      isActive: true,
+    });
+  }
+
+  const existingFeeProfiles = await db
+    .select()
+    .from(storeFeeProfiles)
+    .where(eq(storeFeeProfiles.isActive, true));
+
+  const channelConfigs: Array<{ 
+    channel: SalesChannel; 
+    feeRate: number; 
+    feeFixedCents: number; 
+    platformFeeRate: number 
+  }> = [
+    { channel: "web_stripe", feeRate: 0.029, feeFixedCents: 30, platformFeeRate: 0 },
+    { channel: "ios_iap", feeRate: 0, feeFixedCents: 0, platformFeeRate: 0.30 },
+    { channel: "android_iap", feeRate: 0, feeFixedCents: 0, platformFeeRate: 0.15 },
+  ];
+
+  for (const config of channelConfigs) {
+    const exists = existingFeeProfiles.some(fp => fp.channel === config.channel);
+    if (!exists) {
+      console.log(`[PackageGuardrails] Creating fee profile for ${config.channel}...`);
+      await db.insert(storeFeeProfiles).values({
+        channel: config.channel,
+        feeRate: config.feeRate,
+        feeFixedCents: config.feeFixedCents,
+        platformFeeRate: config.platformFeeRate,
+        isActive: true,
+      });
+    }
+  }
+
+  console.log("[PackageGuardrails] Configuration seeded successfully");
+}
+
 export const packageGuardrailService = new PackageGuardrailService();
