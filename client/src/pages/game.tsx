@@ -9,7 +9,9 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag } from "lucide-react";
+import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { SiX, SiFacebook } from "react-icons/si";
@@ -319,6 +321,36 @@ export default function Game() {
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
+    },
+  });
+
+  // Card image report state and mutation
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<string>("wrong_sport");
+  const [reportedCardIds, setReportedCardIds] = useState<Set<string>>(new Set());
+
+  const reportCardMutation = useMutation({
+    mutationFn: async ({ cardId, reason }: { cardId: string; reason: string }) => {
+      const res = await apiRequest("POST", `/api/cards/${cardId}/report`, {
+        reason,
+        sessionId,
+      });
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      setReportedCardIds(prev => new Set(prev).add(variables.cardId));
+      setReportDialogOpen(false);
+      toast({
+        title: "Report Submitted",
+        description: "Thanks for helping us improve card quality!",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to submit report. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -781,19 +813,101 @@ export default function Game() {
                     Submit Answer
                   </Button>
                 ) : (
-                  <Button
-                    onClick={handleNextQuestion}
-                    disabled={nextQuestionMutation.isPending}
-                    className="w-full gap-2"
-                    size="lg"
-                    data-testid="button-next-question"
-                  >
-                    {nextQuestionMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "Next Question"
+                  <div className="space-y-3">
+                    <Button
+                      onClick={handleNextQuestion}
+                      disabled={nextQuestionMutation.isPending}
+                      className="w-full gap-2"
+                      size="lg"
+                      data-testid="button-next-question"
+                    >
+                      {nextQuestionMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Next Question"
+                      )}
+                    </Button>
+                    
+                    {currentQuestion?.card?.id && !reportedCardIds.has(currentQuestion.card.id) && (
+                      <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full gap-2 text-muted-foreground"
+                            data-testid="button-report-image"
+                          >
+                            <Flag className="h-3 w-3" />
+                            Report Wrong Image
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                              <AlertTriangle className="h-5 w-5 text-amber-500" />
+                              Report Card Image Issue
+                            </DialogTitle>
+                            <DialogDescription>
+                              Help us improve by reporting cards with incorrect or mismatched images.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4 py-4">
+                            <Label>What's wrong with this image?</Label>
+                            <RadioGroup value={reportReason} onValueChange={setReportReason}>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="wrong_sport" id="wrong_sport" />
+                                <Label htmlFor="wrong_sport" className="font-normal">Wrong sport (e.g., football instead of baseball)</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="wrong_player" id="wrong_player" />
+                                <Label htmlFor="wrong_player" className="font-normal">Wrong player shown</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="wrong_set" id="wrong_set" />
+                                <Label htmlFor="wrong_set" className="font-normal">Wrong card set/year</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="bad_image" id="bad_image" />
+                                <Label htmlFor="bad_image" className="font-normal">Blurry/corrupted image</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="other" id="other" />
+                                <Label htmlFor="other" className="font-normal">Other issue</Label>
+                              </div>
+                            </RadioGroup>
+                          </div>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setReportDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                if (currentQuestion?.card?.id) {
+                                  reportCardMutation.mutate({
+                                    cardId: currentQuestion.card.id,
+                                    reason: reportReason,
+                                  });
+                                }
+                              }}
+                              disabled={reportCardMutation.isPending}
+                              data-testid="button-submit-report"
+                            >
+                              {reportCardMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              ) : null}
+                              Submit Report
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
                     )}
-                  </Button>
+                    {currentQuestion?.card?.id && reportedCardIds.has(currentQuestion.card.id) && (
+                      <p className="text-center text-xs text-muted-foreground" data-testid="text-report-submitted">
+                        <CheckCircle className="h-3 w-3 inline mr-1" />
+                        Report submitted
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
