@@ -62,6 +62,7 @@ interface ComputedMetrics {
   platformFeeCents: number;
   totalFeesCents: number;
   netRevenueCents: number;
+  totalRedemptionCostCents: number;
   grossMarginRate: number;
   impliedValuePerPtMicrousd: number;
   marginContributionCents: number;
@@ -425,6 +426,10 @@ export default function AdminPackageGuardrails() {
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Platform Fee ({formatPercent(evaluation.computed.platformFeeRate)})</span>
                         <span>{formatCents(evaluation.computed.platformFeeCents)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Redemption Liability ({evaluation.computed.ptsGrant} pts)</span>
+                        <span className="text-orange-600" data-testid="text-redemption-cost">-{formatCents(evaluation.computed.totalRedemptionCostCents)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Implied Value per PackPTS</span>

@@ -76,6 +76,24 @@ A privacy-safe geolocation tracking system infers user home states for market an
 ### Store & PackPTS Purchase System
 Integrated with Stripe, this system manages both one-time PackPTS bundle purchases and monthly subscription packages, with admin interfaces for subscription product management.
 
+### Store Package Profit Guardrails
+A validation system that ensures PackPTS package profitability before admin creation, with automatic margin ledger tracking:
+- **Admin UI**: `/admin/package-guardrails` - Three-tab interface (Calculator, Policy, Fees) with live profit preview
+- **Decision States**: PASS (green), WARN (requires confirmation), BLOCK (cannot save unless override enabled)
+- **Sales Channels**: web_stripe (2.9% + $0.30), ios_iap (30% platform fee), android_iap (15% platform fee)
+- **Business Math**:
+  - Processor fees = priceCents × feeRate + feeFixedCents
+  - Platform fees = priceCents × platformFeeRate
+  - Net revenue = priceCents - processorFees - platformFees
+  - Redemption cost = ptsGrant × maxValuePerPtMicrousd / 10000
+  - Gross margin = (netRevenue - redemptionCost) / netRevenue
+  - Implied value/pt = priceCents × 100 / ptsGrant (in microusd)
+  - Margin contribution = netRevenue × reserveRate
+- **Policy Settings**: minMarginRate (30%), warnMarginBand (5%), maxValuePerPtMicrousd (2000 = $0.002/pt), reserveRate (100%)
+- **Database Tables**: store_fee_profiles, store_package_policy, store_package_validations
+- **Margin Ledger Integration**: Automatically records PACKPTS_SALE entries on Stripe purchase completion
+- **Startup Seeding**: Default policy and fee profiles created via seedPackageGuardrailConfig()
+
 ### Profit Guardrail & Marketplace Redemptions
 A profit guardrail system ensures minimum profitability for PackPTS redemptions on external marketplace purchases (eBay/Goldin), applying business math formulas to calculate maximum redeemable points.
 

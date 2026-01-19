@@ -25,6 +25,7 @@ export interface ComputedPackageMetrics {
   platformFeeCents: number;
   totalFeesCents: number;
   netRevenueCents: number;
+  totalRedemptionCostCents: number;
   grossMarginRate: number;
   impliedValuePerPtMicrousd: number;
   marginContributionCents: number;
@@ -90,14 +91,36 @@ class PackageGuardrailService {
     feeProfile: StoreFeeProfile,
     policy: StorePackagePolicy
   ): ComputedPackageMetrics {
+    // Step 1: Calculate processor fees = priceCents * feeRate + feeFixedCents
     const processorFeeCents = Math.round(priceCents * feeProfile.feeRate) + feeProfile.feeFixedCents;
+    
+    // Step 2: Calculate platform fees = priceCents * platformFeeRate
     const platformFeeCents = Math.round(priceCents * feeProfile.platformFeeRate);
+    
+    // Step 3: Total fees
     const totalFeesCents = processorFeeCents + platformFeeCents;
+    
+    // Step 4: Net revenue = priceCents - processorFees - platformFees
     const netRevenueCents = priceCents - totalFeesCents;
-    const grossMarginRate = priceCents > 0 ? netRevenueCents / priceCents : 0;
-    const impliedValuePerPtMicrousd = ptsGrant > 0 
-      ? Math.round((netRevenueCents / ptsGrant) * 10000)
+    
+    // Step 5: Total redemption cost - the liability created when granting pts
+    // Uses maxValuePerPtMicrousd as the expected redemption value per point
+    // microusd = millionths of a dollar, so divide by 1,000,000 to get dollars, then * 100 for cents
+    const totalRedemptionCostCents = Math.round(ptsGrant * policy.maxValuePerPtMicrousd / 10000);
+    
+    // Step 6: Gross margin = (netRevenue - totalRedemptionCost) / netRevenue
+    // This measures what % of net revenue is profit after accounting for redemption liability
+    const grossMarginRate = netRevenueCents > 0 
+      ? (netRevenueCents - totalRedemptionCostCents) / netRevenueCents 
       : 0;
+    
+    // Step 7: Implied value per pt = priceCents * 100 / packpts (in microusd)
+    // This is what each point is "worth" based on the package price (not net revenue)
+    const impliedValuePerPtMicrousd = ptsGrant > 0 
+      ? Math.round((priceCents * 100) / ptsGrant)
+      : 0;
+    
+    // Step 8: Margin contribution = netRevenue * reserveRate
     const marginContributionCents = Math.round(netRevenueCents * policy.reserveRate);
 
     return {
@@ -111,6 +134,7 @@ class PackageGuardrailService {
       platformFeeCents,
       totalFeesCents,
       netRevenueCents,
+      totalRedemptionCostCents,
       grossMarginRate,
       impliedValuePerPtMicrousd,
       marginContributionCents,
