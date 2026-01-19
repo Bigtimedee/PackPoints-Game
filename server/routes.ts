@@ -6534,5 +6534,343 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // STORE PACKAGE PROFIT GUARDRAILS
+  // ============================================
+
+  // Admin: Preview package evaluation (no save)
+  app.post("/api/admin/store/packages/preview", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+      const { evaluatePackageSchema } = await import("@shared/schema");
+
+      const parsed = evaluatePackageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const evaluation = await packageGuardrailService.evaluatePackage(
+        parsed.data.priceCents,
+        parsed.data.ptsGrant,
+        parsed.data.channel
+      );
+
+      res.json(evaluation);
+    } catch (error: any) {
+      console.error("Error previewing package:", error);
+      res.status(500).json({ error: error.message || "Failed to preview package" });
+    }
+  });
+
+  // Admin: Get package policy and fee profiles
+  app.get("/api/admin/store/packages/config", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const policy = await packageGuardrailService.getActivePolicy();
+      const feeProfiles = await packageGuardrailService.getAllFeeProfiles();
+
+      res.json({
+        policy: policy ? {
+          id: policy.id,
+          minMarginRate: policy.minMarginRate,
+          warnMarginBand: policy.warnMarginBand,
+          maxValuePerPtMicrousd: policy.maxValuePerPtMicrousd,
+          allowOverride: policy.allowOverride,
+          reserveRate: policy.reserveRate,
+        } : null,
+        feeProfiles: feeProfiles.map(fp => ({
+          id: fp.id,
+          channel: fp.channel,
+          feeRate: fp.feeRate,
+          feeFixedCents: fp.feeFixedCents,
+          platformFeeRate: fp.platformFeeRate,
+        })),
+      });
+    } catch (error: any) {
+      console.error("Error getting package config:", error);
+      res.status(500).json({ error: error.message || "Failed to get package config" });
+    }
+  });
+
+  // Admin: Update package policy
+  app.put("/api/admin/store/packages/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const updateSchema = z.object({
+        minMarginRate: z.number().min(0).max(1).optional(),
+        warnMarginBand: z.number().min(0).max(0.5).optional(),
+        maxValuePerPtMicrousd: z.number().int().positive().optional(),
+        allowOverride: z.boolean().optional(),
+        reserveRate: z.number().min(0).max(1).optional(),
+      });
+
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const updatedPolicy = await packageGuardrailService.updatePolicy(parsed.data);
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(
+        adminUserId,
+        "store_package_policy_updated",
+        null,
+        { policyId: updatedPolicy.id, updates: parsed.data }
+      );
+
+      res.json({ success: true, policy: updatedPolicy });
+    } catch (error: any) {
+      console.error("Error updating package policy:", error);
+      res.status(500).json({ error: error.message || "Failed to update package policy" });
+    }
+  });
+
+  // Admin: Update fee profile
+  app.put("/api/admin/store/packages/fee-profile/:channel", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const { channel } = req.params;
+      if (!["web_stripe", "ios_iap", "android_iap"].includes(channel)) {
+        return res.status(400).json({ error: "Invalid channel" });
+      }
+
+      const updateSchema = z.object({
+        feeRate: z.number().min(0).max(1).optional(),
+        feeFixedCents: z.number().int().min(0).optional(),
+        platformFeeRate: z.number().min(0).max(1).optional(),
+      });
+
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const updatedProfile = await packageGuardrailService.updateFeeProfile(
+        channel as "web_stripe" | "ios_iap" | "android_iap",
+        parsed.data
+      );
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(
+        adminUserId,
+        "store_fee_profile_updated",
+        null,
+        { channel, updates: parsed.data }
+      );
+
+      res.json({ success: true, feeProfile: updatedProfile });
+    } catch (error: any) {
+      console.error("Error updating fee profile:", error);
+      res.status(500).json({ error: error.message || "Failed to update fee profile" });
+    }
+  });
+
+  // Admin: Create PackPTS package with guardrail validation
+  app.post("/api/admin/store/packages", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService, BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+      const { createStorePackageSchema } = await import("@shared/schema");
+
+      const parsed = createStorePackageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { productId, validationId, evaluation } = await packageGuardrailService.createPackage(
+        parsed.data.sku,
+        parsed.data.name,
+        parsed.data.priceCents,
+        parsed.data.ptsGrant,
+        parsed.data.channel,
+        adminUserId,
+        parsed.data.confirm ?? false
+      );
+
+      await adminService.logAction(
+        adminUserId,
+        "store_package_created",
+        null,
+        { productId, validationId, sku: parsed.data.sku }
+      );
+
+      res.json({
+        success: true,
+        productId,
+        validationId,
+        evaluation,
+      });
+    } catch (error: any) {
+      const { BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+      
+      if (error instanceof BlockedPackageError) {
+        return res.status(422).json({
+          error: "PACKAGE_BLOCKED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+      
+      if (error instanceof WarnPackageError) {
+        return res.status(409).json({
+          error: "CONFIRMATION_REQUIRED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+
+      console.error("Error creating package:", error);
+      res.status(500).json({ error: error.message || "Failed to create package" });
+    }
+  });
+
+  // Admin: Update PackPTS package with guardrail validation
+  app.put("/api/admin/store/packages/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService, BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+      const { updateStorePackageSchema } = await import("@shared/schema");
+
+      const { id } = req.params;
+
+      const parsed = updateStorePackageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { validationId, evaluation } = await packageGuardrailService.updatePackage(
+        id,
+        {
+          sku: parsed.data.sku,
+          name: parsed.data.name,
+          priceCents: parsed.data.priceCents,
+          ptsGrant: parsed.data.ptsGrant,
+          channel: parsed.data.channel,
+        },
+        adminUserId,
+        parsed.data.confirm ?? false
+      );
+
+      await adminService.logAction(
+        adminUserId,
+        "store_package_updated",
+        null,
+        { productId: id, validationId }
+      );
+
+      res.json({
+        success: true,
+        productId: id,
+        validationId,
+        evaluation,
+      });
+    } catch (error: any) {
+      const { BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+      
+      if (error instanceof BlockedPackageError) {
+        return res.status(422).json({
+          error: "PACKAGE_BLOCKED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+      
+      if (error instanceof WarnPackageError) {
+        return res.status(409).json({
+          error: "CONFIRMATION_REQUIRED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+
+      console.error("Error updating package:", error);
+      res.status(500).json({ error: error.message || "Failed to update package" });
+    }
+  });
+
+  // Admin: Override blocked package
+  app.post("/api/admin/store/packages/:id/override", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+      const { overridePackageSchema } = await import("@shared/schema");
+
+      const { id } = req.params;
+
+      const parsed = overridePackageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { validationId } = await packageGuardrailService.overridePackage(
+        id,
+        parsed.data.note,
+        adminUserId
+      );
+
+      await adminService.logAction(
+        adminUserId,
+        "store_package_override",
+        null,
+        { productId: id, validationId, note: parsed.data.note }
+      );
+
+      res.json({ success: true, validationId });
+    } catch (error: any) {
+      console.error("Error overriding package:", error);
+      res.status(500).json({ error: error.message || "Failed to override package" });
+    }
+  });
+
+  // Admin: Get validation history for a package
+  app.get("/api/admin/store/packages/:id/validations", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const { id } = req.params;
+      const validations = await packageGuardrailService.getValidationHistory(id);
+
+      res.json({ validations });
+    } catch (error: any) {
+      console.error("Error getting validation history:", error);
+      res.status(500).json({ error: error.message || "Failed to get validation history" });
+    }
+  });
+
+  // Admin: Get latest validation for a package
+  app.get("/api/admin/store/packages/:id/validation", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const { id } = req.params;
+      const validation = await packageGuardrailService.getLatestValidation(id);
+
+      if (!validation) {
+        return res.status(404).json({ error: "No validations found" });
+      }
+
+      res.json({ validation });
+    } catch (error: any) {
+      console.error("Error getting latest validation:", error);
+      res.status(500).json({ error: error.message || "Failed to get latest validation" });
+    }
+  });
+
   return httpServer;
 }
