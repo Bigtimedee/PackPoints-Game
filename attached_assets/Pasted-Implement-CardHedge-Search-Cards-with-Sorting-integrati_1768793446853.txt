@@ -1,0 +1,253 @@
+Implement CardHedge “Search Cards with Sorting” integration for PackPTS using:
+
+POST https://api.cardhedger.com/v1/cards/card-search
+
+This endpoint will power:
+- Admin card discovery
+- Playable set ingestion
+- Fame scoring signals (sales velocity + gain)
+- Gameplay content pipelines
+
+STACK (DO NOT CHANGE)
+Frontend: React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack React Query + Wouter
+Backend: Express + TypeScript (tsx dev)
+Database: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+SECURITY REQUIREMENTS
+- NEVER expose CardHedge API key to frontend
+- Backend-only requests
+- Enforce HTTPS
+- Add rate limiting
+
+ENV VARS (.env)
+CARDHEDGE_BASE_URL=https://api.cardhedger.com
+CARDHEDGE_API_KEY=
+CARDHEDGE_TIMEOUT_MS=10000
+CARDHEDGE_CACHE_TTL_SECONDS=300
+
+CARDHEDGE REQUEST FORMAT (MUST MATCH API)
+
+POST /v1/cards/card-search
+
+Headers:
+Content-Type: application/json
+X-API-Key: <CARDHEDGE_API_KEY>
+
+Body parameters:
+
+{
+  "search": string | null,          // ex: "Shohei Ohtani"
+  "set": string | null,             // ex: "2018 Topps Chrome Baseball"
+  "category": string | null,        // ex: "Baseball"
+  "player": string | null,
+  "rookie": boolean | string | null,
+  "raw_images_only": boolean | null,
+  "page": number (min 1, default 1),
+  "page_size": number (min 1, max 100, default 20)
+}
+
+REFERENCE EXAMPLE
+
+{
+  "search": "Shohei Ohtani",
+  "category": "Baseball",
+  "page": 1,
+  "page_size": 20
+}
+
+EXPECTED RESPONSE STRUCTURE
+
+{
+  "pages": number,
+  "count": number,
+  "cards": [
+    {
+      "description": string,
+      "player": string,
+      "set": string,
+      "number": string,
+      "variant": string,
+      "card_id": string,
+      "image": string,
+      "category": string,
+      "category_group": string,
+      "set_type": string,
+      "7 Day Sales": number,
+      "30 Day Sales": number,
+      "rookie": boolean,
+      "gain": number,
+      "prices": [
+        { "grade": string, "price": string }
+      ]
+    }
+  ]
+}
+
+BACKEND IMPLEMENTATION
+
+1) Create CardHedge client module
+
+File:
+src/services/cardhedge/cardSearch.ts
+
+Function:
+async function cardSearch(params)
+
+Responsibilities:
+- POST request to CardHedge endpoint
+- Inject headers
+- Timeout handling
+- Retry once on network failure
+- Normalize provider errors:
+  { provider: "cardhedge", statusCode, message }
+
+2) Input validation (Zod)
+
+Rules:
+- page >= 1
+- page_size <= 100
+- Max string length: 120 chars
+- Convert empty strings → null
+- Accept rookie as boolean or string
+- Reject malformed payloads with 422
+
+3) Caching Layer
+
+Create DB table:
+
+cardhedge_search_cache
+
+Fields:
+- cache_key text PRIMARY KEY
+- payload jsonb
+- expires_at timestamp
+
+Cache key:
+Stable JSON stringify of request body
+
+TTL:
+CARDHEDGE_CACHE_TTL_SECONDS
+
+If cached and not expired → serve immediately
+
+4) Express API Endpoint
+
+POST /api/admin/cardhedge/search
+
+(Admin-only)
+
+Flow:
+- Validate request
+- Check cache
+- Call CardHedge if needed
+- Normalize response
+
+Normalized output format:
+
+{
+  pages,
+  count,
+  cards: cards.map(c => ({
+    cardId: c.card_id,
+    description: c.description,
+    player: c.player,
+    set: c.set,
+    number: c.number,
+    variant: c.variant,
+    category: c.category,
+    categoryGroup: c.category_group,
+    setType: c.set_type,
+    imageUrl: c.image.startsWith('//') ? `https:${c.image}` : c.image,
+    sales7d: c["7 Day Sales"],
+    sales30d: c["30 Day Sales"],
+    rookie: c.rookie,
+    gain: c.gain,
+    prices: c.prices,
+    raw: c
+  }))
+}
+
+IMPORTANT:
+Store original CardHedge object in `raw` field for future-proofing.
+
+5) Rate Limiting
+
+Admin search:
+- 120 req/min
+
+Authenticated users (if exposed later):
+- 30 req/min
+
+6) Admin UI Tool
+
+Create page:
+
+/admin/card-search
+
+Features:
+- Input fields:
+  - Search text
+  - Category dropdown (Baseball, Basketball, Football, Hockey)
+  - Set filter
+  - Rookie toggle
+  - Raw image toggle
+  - Page + page_size
+- Results grid:
+  - Card image
+  - Player name
+  - Description
+  - Set + Number + Variant
+  - Rookie badge
+  - 7 Day Sales
+  - 30 Day Sales
+  - Gain %
+  - Prices list
+- Pagination controls
+
+7) Gameplay Integration Hook
+
+Expose helper:
+
+getPlayableCardSearchResults()
+
+Used for:
+- Seeding playable card pools
+- Fame scoring input signals
+- Difficulty weighting
+- Dynamic pack generation
+
+8) Error Handling
+
+If CardHedge fails:
+- Serve cached data if available
+- Otherwise return:
+  503 CARDHEDGE_UNAVAILABLE
+
+Frontend should show:
+“Card data temporarily unavailable — retrying”
+
+9) Tests Required
+
+- page_size > 100 rejected
+- protocol-relative image URLs converted to https
+- cache prevents duplicate API calls
+- correct pagination behavior
+- timeout handling
+- invalid inputs rejected
+- raw payload preserved
+
+DELIVERABLES
+
+- CardHedge card-search service
+- Express API endpoint
+- DB cache table + migration
+- Admin UI search tool
+- Gameplay helper integration
+- README usage example:
+
+Search:
+Shohei Ohtani
+Category: Baseball
+Page: 1
+Page Size: 20
