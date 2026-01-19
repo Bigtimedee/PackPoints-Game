@@ -17,6 +17,15 @@ The backend utilizes Node.js, Express, and TypeScript, exposing RESTful JSON end
 ### Card Image System
 Baseball card images are primarily sourced from the Card Hedge API, with player names masked during gameplay. Admin tools support synchronization of card data.
 
+### Card Image Quality Control
+A user reporting and admin review workflow addresses Card Hedge API data quality issues where wrong sport images may be returned:
+- **User Reporting**: Players can report wrong images during gameplay with reasons: wrong_sport, wrong_player, wrong_set, bad_image, other
+- **Automatic Flagging**: Cards with 3+ reports are automatically flagged for admin review
+- **Admin Review**: Endpoints to list flagged cards, view reports, approve (keeps playable) or reject (disables with reason)
+- **Database Fields**: `image_review_status` (pending/approved/rejected), `report_count`, `blocked_reason` on playable_cards
+- **Reports Table**: `card_image_reports` tracks individual reports with timestamps and reporter info
+- **Frontend Filter**: Game UI filters to only show card sets with imported cards (cardsImportedCount > 0)
+
 ### Monetization & Wallet
 The platform incorporates a ledger-first wallet for tracking user points (PackPTS) with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) provides feature access and point multipliers, enforced by match tokens and daily quotas. A bucket-based expiration system manages point lifecycles, ensuring earlier-earned points are spent first.
 
