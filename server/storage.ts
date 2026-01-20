@@ -381,7 +381,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRandomCardsFromSet(setId: string, count: number): Promise<PlayableCard[]> {
-    return await db
+    // First get the game set's sport for validation
+    const [gameSet] = await db
+      .select({ sport: gameSets.sport })
+      .from(gameSets)
+      .where(eq(gameSets.id, setId))
+      .limit(1);
+    
+    const expectedSport = gameSet?.sport?.toLowerCase() || "";
+    
+    // Query playable cards with sport category validation
+    const cards = await db
       .select()
       .from(playableCards)
       .where(
@@ -397,7 +407,26 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(sql`RANDOM()`)
-      .limit(count);
+      .limit(count * 3); // Fetch more to filter wrong-sport cards
+    
+    // Filter cards whose category matches the game set's sport (case-insensitive)
+    // This is a strict safety check - only allow cards with matching category
+    const validCards = expectedSport 
+      ? cards.filter(card => {
+          const cardCategory = (card.category || "").toLowerCase();
+          // Require category to exist AND match the expected sport - no empty categories allowed
+          // This prevents wrong-sport cards from slipping through if Card Hedge omits category
+          return cardCategory && cardCategory === expectedSport;
+        })
+      : cards;
+    
+    // If we filtered out too many cards, log a warning
+    if (validCards.length < cards.length) {
+      const filteredCount = cards.length - validCards.length;
+      console.log(`[Storage] Filtered ${filteredCount} wrong-sport cards from set ${setId} (expected sport: ${expectedSport})`);
+    }
+    
+    return validCards.slice(0, count);
   }
 
   async getPlayerNamesFromSet(setId: string): Promise<string[]> {

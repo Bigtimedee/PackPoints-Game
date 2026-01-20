@@ -5150,7 +5150,11 @@ export async function registerRoutes(
         
         let page = 1;
         let totalCardsImported = 0;
+        let wrongSportSkipped = 0;
         let hasMorePages = true;
+        
+        // Normalize sport for comparison (e.g., "basketball" vs "Basketball")
+        const expectedSport = gameSet.sport.toLowerCase();
         
         while (hasMorePages) {
           const result = await cardhedgeApi.cardSearchSorted({
@@ -5167,6 +5171,14 @@ export async function registerRoutes(
           
           for (const card of result.cards) {
             if (!card.card_id) continue;
+            
+            // Validate sport category matches the game set's sport
+            const cardCategory = (card.category || "").toLowerCase();
+            if (cardCategory && cardCategory !== expectedSport) {
+              console.log(`[CardHedge Import] SKIPPING wrong-sport card: ${card.card_id} - category "${card.category}" does not match set sport "${gameSet.sport}" - ${card.player || card.description}`);
+              wrongSportSkipped++;
+              continue;
+            }
             
             // Use shared classifier to determine playability
             const classification = classifyCard({ player: card.player, description: card.description });
@@ -5246,10 +5258,15 @@ export async function registerRoutes(
           })
           .where(eq(gameSets.id, id));
         
+        if (wrongSportSkipped > 0) {
+          console.log(`[CardHedge Import] Completed: ${totalCardsImported} cards imported, ${wrongSportSkipped} wrong-sport cards skipped`);
+        }
+        
         res.json({
           success: true,
           importRunId: importRun.id,
           cardsImported: totalCardsImported,
+          wrongSportSkipped,
           pagesFetched: page,
         });
       } catch (importError: any) {
