@@ -286,3 +286,34 @@
     inset: -1px;
   }
 }
+
+/* Touch device detection utilities */
+/* Show only on touch/mobile devices (coarse pointer like finger) */
+.touch-only {
+  display: none;
+}
+
+/* Show only on desktop/mouse devices (fine pointer) */
+.desktop-only {
+  display: block;
+}
+
+/* On touch devices: show touch-only, hide desktop-only */
+@media (pointer: coarse) {
+  .touch-only {
+    display: block;
+  }
+  .desktop-only {
+    display: none;
+  }
+}
+
+/* Fallback for devices that don't report pointer type - treat as touch */
+@media (hover: none) {
+  .touch-only {
+    display: block;
+  }
+  .desktop-only {
+    display: none;
+  }
+}
