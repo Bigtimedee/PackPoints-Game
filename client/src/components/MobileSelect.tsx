@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { shouldUseNativeSelect } from "@/lib/mobileDetection";
 
 interface SelectOption {
   value: string;
@@ -16,14 +17,6 @@ interface MobileSelectProps {
   "data-testid"?: string;
 }
 
-function isIOSSafari(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  const isIOS = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
-  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|Chrome/.test(ua);
-  return isIOS && isSafari;
-}
-
 export function MobileSelect({
   options,
   value,
@@ -35,7 +28,7 @@ export function MobileSelect({
 }: MobileSelectProps) {
   const [open, setOpen] = useState(false);
 
-  if (isIOSSafari()) {
+  if (shouldUseNativeSelect()) {
     return (
       <select
         id={id}

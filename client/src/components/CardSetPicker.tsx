@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Shuffle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { shouldUseNativeSelect } from "@/lib/mobileDetection";
 
 interface CardSet {
   id: string;
@@ -23,14 +24,6 @@ interface CardSetPickerProps {
   randomOptionLabel?: string;
 }
 
-function isIOSSafari(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  const isIOS = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
-  const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|Chrome/.test(ua);
-  return isIOS && isSafari;
-}
-
 function formatSetLabel(set: CardSet): string {
   return `${set.year || ""} ${set.brand || ""} ${set.sport || ""} (${set.cardsImportedCount} cards)`.trim();
 }
@@ -48,7 +41,7 @@ export function CardSetPicker({
 }: CardSetPickerProps) {
   const [open, setOpen] = useState(false);
 
-  if (isIOSSafari()) {
+  if (shouldUseNativeSelect()) {
     return (
       <select
         id={id}
