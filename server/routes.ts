@@ -6,7 +6,17 @@ import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
-import * as cardhedgeApi from "./services/cardhedge";
+import {
+  CardSearchRequestSchema,
+  CardSearchSortedRequestSchema,
+  CardDetailsRequestSchema,
+  cardSearch,
+  cardSearchSorted,
+  cardDetails,
+  normalizeCardSearchResponse,
+  fetchCardDetailsNormalized,
+  normalizeImageUrl,
+} from "./services/cardhedge";
 import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { isAuthenticated } from "./replit_integrations/auth";
@@ -4779,7 +4789,7 @@ export async function registerRoutes(
     
     try {
       // Validate with Zod
-      const validated = cardhedgeApi.CardSearchRequestSchema.parse({
+      const validated = CardSearchRequestSchema.parse({
         search: sanitizedInput.search,
         set: sanitizedInput.set,
         category: sanitizedInput.category,
@@ -4804,8 +4814,8 @@ export async function registerRoutes(
       
       // Fetch from CardHedge API
       console.log(`[CardHedge Search] Cache MISS, fetching from API...`);
-      const result = await cardhedgeApi.cardSearch(validated);
-      const normalized = cardhedgeApi.normalizeCardSearchResponse(result);
+      const result = await cardSearch(validated);
+      const normalized = normalizeCardSearchResponse(result);
       
       // Store in database cache
       const SEARCH_CACHE_TTL = parseInt(process.env.CARDHEDGE_CACHE_TTL_SECONDS || "300", 10);
@@ -4862,8 +4872,8 @@ export async function registerRoutes(
   // Admin: Search Card Hedge with sorting
   app.post("/api/admin/cardhedge/search-sorted", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const validated = cardhedgeApi.CardSearchSortedRequestSchema.parse(req.body);
-      const result = await cardhedgeApi.cardSearchSorted(validated);
+      const validated = CardSearchSortedRequestSchema.parse(req.body);
+      const result = await cardSearchSorted(validated);
       res.json(result);
     } catch (error: any) {
       console.error("Error searching Card Hedge (sorted):", error);
@@ -4877,8 +4887,8 @@ export async function registerRoutes(
   // Admin: Get Card Hedge card details
   app.post("/api/admin/cardhedge/card-details", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const validated = cardhedgeApi.CardDetailsRequestSchema.parse(req.body);
-      const result = await cardhedgeApi.cardDetails(validated);
+      const validated = CardDetailsRequestSchema.parse(req.body);
+      const result = await cardDetails(validated);
       res.json(result);
     } catch (error: any) {
       console.error("Error getting Card Hedge card details:", error);
@@ -4945,7 +4955,7 @@ export async function registerRoutes(
       
       // Fetch from CardHedge API
       console.log(`[CardHedge] Cache MISS for ${cardId}, fetching from API...`);
-      const normalized = await cardhedgeApi.fetchCardDetailsNormalized(cardId, rawImagesOnly);
+      const normalized = await fetchCardDetailsNormalized(cardId, rawImagesOnly);
       
       if (!normalized) {
         return res.status(404).json({ error: "Card not found" });
@@ -5016,11 +5026,11 @@ export async function registerRoutes(
       }
       
       // Try raw images first (preferred for gameplay)
-      let normalized = await cardhedgeApi.fetchCardDetailsNormalized(cardId, true);
+      let normalized = await fetchCardDetailsNormalized(cardId, true);
       
       // Fallback to standard image if no raw image
       if (!normalized?.imageUrl) {
-        normalized = await cardhedgeApi.fetchCardDetailsNormalized(cardId, false);
+        normalized = await fetchCardDetailsNormalized(cardId, false);
       }
       
       if (!normalized) {
@@ -5170,7 +5180,7 @@ export async function registerRoutes(
         const expectedSport = gameSet.sport.toLowerCase();
         
         while (hasMorePages) {
-          const result = await cardhedgeApi.cardSearchSorted({
+          const result = await cardSearchSorted({
             set: gameSet.cardhedgeSetQuery,
             category: gameSet.cardhedgeCategory || undefined,
             page,
@@ -5201,7 +5211,7 @@ export async function registerRoutes(
               console.log(`[CardHedge Import] Marking non-playable card: ${card.card_id} - ${blockedReason} - ${card.player || card.description}`);
             }
             
-            const imageUrl = cardhedgeApi.normalizeImageUrl(card.image);
+            const imageUrl = normalizeImageUrl(card.image);
             
             await db
               .insert(playableCards)
