@@ -4110,7 +4110,8 @@ export async function registerRoutes(
   // Clean up old rate limit entries every 5 minutes
   setInterval(() => {
     const now = Date.now();
-    for (const [key, value] of marketplaceRateLimiter.entries()) {
+    const entries = Array.from(marketplaceRateLimiter.entries());
+    for (const [key, value] of entries) {
       if (now >= value.resetAt) {
         marketplaceRateLimiter.delete(key);
       }
@@ -4421,7 +4422,19 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
       }
       
-      const [gameSet] = await db.insert(gameSets).values(parsed.data).returning();
+      const insertData: typeof gameSets.$inferInsert = {
+        sport: parsed.data.sport,
+        brand: parsed.data.brand,
+        year: parsed.data.year,
+        setName: parsed.data.setName,
+        league: parsed.data.league ?? null,
+        isActive: parsed.data.isActive ?? true,
+        marketplaceKeywords: (parsed.data.marketplaceKeywords ?? []) as string[],
+        cardhedgeSetQuery: parsed.data.cardhedgeSetQuery ?? null,
+        cardhedgeCategory: parsed.data.cardhedgeCategory ?? null,
+      };
+      
+      const [gameSet] = await db.insert(gameSets).values(insertData).returning();
       res.status(201).json(gameSet);
     } catch (error) {
       console.error("Error creating game set:", error);
