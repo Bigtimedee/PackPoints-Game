@@ -225,9 +225,10 @@ export default function Game() {
     enabled: !!sessionId,
   });
   
-  const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
+  const { data: playableSets, isLoading: setsLoading, error: setsError, refetch: refetchSets } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
     staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
   
   // Filter to only show sets with imported cards
@@ -469,15 +470,32 @@ export default function Game() {
               
               <div className="space-y-2">
                 <Label htmlFor="card-set">Card Set</Label>
-                <CardSetPicker
-                  sets={availableSets}
-                  value={selectedSetId || ""}
-                  onValueChange={setSelectedSetId}
-                  placeholder="Select a card set"
-                  id="card-set"
-                  data-testid="select-card-set"
-                  isLoading={setsLoading}
-                />
+                {setsError ? (
+                  <div className="flex items-center gap-2 min-h-9 w-full rounded-md border border-destructive bg-background text-sm px-3">
+                    <span className="text-destructive text-sm">Failed to load sets</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => refetchSets()}
+                      className="ml-auto"
+                      data-testid="button-retry-sets"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1" />
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <CardSetPicker
+                    sets={availableSets}
+                    value={selectedSetId || ""}
+                    onValueChange={setSelectedSetId}
+                    placeholder="Select a card set"
+                    id="card-set"
+                    data-testid="select-card-set"
+                    isLoading={setsLoading}
+                  />
+                )}
               </div>
               
               <div className="space-y-2">

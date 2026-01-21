@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Shuffle, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Shuffle, Loader2, ChevronDown } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PlayableSet } from "@shared/schema";
 
@@ -25,6 +25,27 @@ function formatSetLabel(set: PlayableSet): string {
   return parts.join(" ");
 }
 
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isAndroid = /Android/.test(navigator.userAgent);
+      const isSmallScreen = window.innerWidth < 768;
+      
+      setIsMobile(hasTouch && (isIOS || isAndroid || isSmallScreen));
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  return isMobile;
+}
+
 export function CardSetPicker({
   sets,
   value,
@@ -37,13 +58,12 @@ export function CardSetPicker({
   randomOptionLabel = "Let PackPTS Choose",
   isLoading = false,
 }: CardSetPickerProps) {
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
 
-  // Ensure sets is always an array
   const safeSets = sets || [];
   const hasOptions = safeSets.length > 0 || showRandomOption;
 
-  // Show loading state
   if (isLoading) {
     return (
       <div 
@@ -56,7 +76,6 @@ export function CardSetPicker({
     );
   }
 
-  // Show empty state if no options
   if (!hasOptions) {
     return (
       <div 
@@ -68,6 +87,46 @@ export function CardSetPicker({
     );
   }
 
+  // Native HTML select for iOS/mobile - works reliably on all touch devices
+  if (isMobile) {
+    const selectedSet = safeSets.find(s => s.id === value);
+    const displayValue = value === "random" 
+      ? randomOptionLabel 
+      : selectedSet 
+        ? formatSetLabel(selectedSet) 
+        : placeholder;
+
+    return (
+      <div className="relative w-full">
+        <select
+          id={id}
+          data-testid={testId}
+          value={value || ""}
+          onChange={(e) => onValueChange(e.target.value)}
+          disabled={disabled}
+          className="w-full min-h-9 appearance-none rounded-md border border-input bg-background px-3 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ WebkitAppearance: 'none', MozAppearance: 'none' }}
+        >
+          <option value="" disabled>
+            {placeholder}
+          </option>
+          {showRandomOption && (
+            <option value="random">
+              {randomOptionLabel}
+            </option>
+          )}
+          {safeSets.map((set) => (
+            <option key={set.id} value={set.id}>
+              {formatSetLabel(set)}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50 pointer-events-none" />
+      </div>
+    );
+  }
+
+  // Radix Select for desktop browsers
   return (
     <Select
       open={open}
