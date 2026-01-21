@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Loader2, Users, X, ArrowLeft, Play, LogIn, Shuffle } from "lucide-react";
+import { CardSetPicker } from "@/components/CardSetPicker";
+import { MobileSelect } from "@/components/MobileSelect";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -188,39 +190,33 @@ export default function Queue() {
               <div className="space-y-6" data-testid="status-idle">
                 <div className="space-y-2">
                   <Label htmlFor="card-set">Card Set</Label>
-                  <Select value={selectedSetId} onValueChange={setSelectedSetId}>
-                    <SelectTrigger id="card-set" data-testid="select-card-set">
-                      <SelectValue placeholder="Select a card set" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="random">
-                        <div className="flex items-center gap-2">
-                          <Shuffle className="h-4 w-4" />
-                          <span>Let PackPTS Choose</span>
-                        </div>
-                      </SelectItem>
-                      {availableSets.map((set) => (
-                        <SelectItem key={set.id} value={set.id}>
-                          {set.year} {set.brand} {set.sport} ({set.cardsImportedCount} cards)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CardSetPicker
+                    sets={availableSets}
+                    value={selectedSetId}
+                    onValueChange={setSelectedSetId}
+                    placeholder="Select a card set"
+                    id="card-set"
+                    data-testid="select-card-set"
+                    showRandomOption={true}
+                    randomOptionLabel="Let PackPTS Choose"
+                  />
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="card-count">Number of Cards</Label>
-                  <Select value={selectedCardCount} onValueChange={setSelectedCardCount}>
-                    <SelectTrigger id="card-count" data-testid="select-card-count">
-                      <SelectValue placeholder="Select cards" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5 Cards</SelectItem>
-                      <SelectItem value="10">10 Cards</SelectItem>
-                      <SelectItem value="15">15 Cards</SelectItem>
-                      <SelectItem value="20">20 Cards</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <MobileSelect
+                    options={[
+                      { value: "5", label: "5 Cards" },
+                      { value: "10", label: "10 Cards" },
+                      { value: "15", label: "15 Cards" },
+                      { value: "20", label: "20 Cards" },
+                    ]}
+                    value={selectedCardCount}
+                    onValueChange={setSelectedCardCount}
+                    placeholder="Select cards"
+                    id="card-count"
+                    data-testid="select-card-count"
+                  />
                 </div>
                 
                 <Button 

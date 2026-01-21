@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { CardSetPicker } from "@/components/CardSetPicker";
+import { MobileSelect } from "@/components/MobileSelect";
 import { SiX, SiFacebook } from "react-icons/si";
 import type { GameSession, GameQuestion, GameSet, PlayableSet } from "@shared/schema";
 
@@ -473,34 +475,32 @@ export default function Game() {
                     <span className="text-muted-foreground text-sm">Loading sets...</span>
                   </div>
                 ) : (
-                  <Select value={selectedSetId || ""} onValueChange={setSelectedSetId}>
-                    <SelectTrigger id="card-set" data-testid="select-card-set">
-                      <SelectValue placeholder="Select a card set" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableSets.map((set) => (
-                        <SelectItem key={set.id} value={set.id} data-testid={`option-set-${set.id}`}>
-                          {set.year} {set.brand} {set.sport} ({set.cardsImportedCount} cards)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CardSetPicker
+                    sets={availableSets}
+                    value={selectedSetId || ""}
+                    onValueChange={setSelectedSetId}
+                    placeholder="Select a card set"
+                    id="card-set"
+                    data-testid="select-card-set"
+                  />
                 )}
               </div>
               
               <div className="space-y-2">
                 <Label htmlFor="card-count">Number of Cards</Label>
-                <Select value={selectedCardCount} onValueChange={setSelectedCardCount}>
-                  <SelectTrigger id="card-count" data-testid="select-card-count">
-                    <SelectValue placeholder="Select cards" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="5">5 Cards</SelectItem>
-                    <SelectItem value="10">10 Cards</SelectItem>
-                    <SelectItem value="15">15 Cards</SelectItem>
-                    <SelectItem value="20">20 Cards</SelectItem>
-                  </SelectContent>
-                </Select>
+                <MobileSelect
+                  options={[
+                    { value: "5", label: "5 Cards" },
+                    { value: "10", label: "10 Cards" },
+                    { value: "15", label: "15 Cards" },
+                    { value: "20", label: "20 Cards" },
+                  ]}
+                  value={selectedCardCount}
+                  onValueChange={setSelectedCardCount}
+                  placeholder="Select cards"
+                  id="card-count"
+                  data-testid="select-card-count"
+                />
               </div>
               
               <Button 
