@@ -41,14 +41,14 @@ export function CardSetPicker({
 
   // Create a stable key based on actual set IDs to force iOS to remount when data changes
   const setsKey = useMemo(() => {
-    if (sets.length === 0) return "empty";
+    if (!sets || sets.length === 0) return "empty";
     return sets.map(s => s.id).join("-");
   }, [sets]);
 
   // Build options array for native select
   const nativeOptions = useMemo(() => [
     ...(showRandomOption ? [{ id: "random", label: randomOptionLabel }] : []),
-    ...sets.map(set => ({ id: set.id, label: formatSetLabel(set) })),
+    ...(sets || []).map(set => ({ id: set.id, label: formatSetLabel(set) })),
   ], [sets, showRandomOption, randomOptionLabel]);
 
   const hasOptions = nativeOptions.length > 0;
