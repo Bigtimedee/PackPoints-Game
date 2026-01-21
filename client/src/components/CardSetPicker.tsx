@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Shuffle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { shouldUseNativeSelect } from "@/lib/mobileDetection";
+import { useNativeSelect } from "@/hooks/useMobileDetection";
 
 interface CardSet {
   id: string;
@@ -40,8 +40,9 @@ export function CardSetPicker({
   randomOptionLabel = "Let PackPTS Choose",
 }: CardSetPickerProps) {
   const [open, setOpen] = useState(false);
+  const useNative = useNativeSelect();
 
-  if (shouldUseNativeSelect()) {
+  if (useNative) {
     return (
       <select
         id={id}

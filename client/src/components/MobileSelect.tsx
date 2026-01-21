@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { shouldUseNativeSelect } from "@/lib/mobileDetection";
+import { useNativeSelect } from "@/hooks/useMobileDetection";
 
 interface SelectOption {
   value: string;
@@ -27,8 +27,9 @@ export function MobileSelect({
   "data-testid": testId,
 }: MobileSelectProps) {
   const [open, setOpen] = useState(false);
+  const useNative = useNativeSelect();
 
-  if (shouldUseNativeSelect()) {
+  if (useNative) {
     return (
       <select
         id={id}
