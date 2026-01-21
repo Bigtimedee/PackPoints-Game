@@ -1,18 +1,10 @@
 import { useState } from "react";
 import { Shuffle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-interface CardSet {
-  id: string;
-  name?: string;
-  year: number | null;
-  brand: string | null;
-  sport: string | null;
-  cardsImportedCount: number;
-}
+import type { PlayableSet } from "@shared/schema";
 
 interface CardSetPickerProps {
-  sets: CardSet[];
+  sets: PlayableSet[];
   value: string;
   onValueChange: (value: string) => void;
   placeholder?: string;
@@ -23,8 +15,13 @@ interface CardSetPickerProps {
   randomOptionLabel?: string;
 }
 
-function formatSetLabel(set: CardSet): string {
-  return `${set.year || ""} ${set.brand || ""} ${set.sport || ""} (${set.cardsImportedCount} cards)`.trim();
+function formatSetLabel(set: PlayableSet): string {
+  const parts = [];
+  if (set.year) parts.push(set.year);
+  if (set.brand) parts.push(set.brand);
+  if (set.sport) parts.push(set.sport);
+  parts.push(`(${set.cardsImportedCount} cards)`);
+  return parts.join(" ");
 }
 
 export function CardSetPicker({
@@ -40,17 +37,26 @@ export function CardSetPicker({
 }: CardSetPickerProps) {
   const [open, setOpen] = useState(false);
 
+  // Build options array for native select
+  const nativeOptions = [
+    ...(showRandomOption ? [{ id: "random", label: randomOptionLabel }] : []),
+    ...sets.map(set => ({ id: set.id, label: formatSetLabel(set) })),
+  ];
+
   return (
     <>
       {/* Native select - shown on touch devices via CSS */}
       <select
+        key={`native-select-${sets.length}`}
         id={id ? `${id}-native` : undefined}
         data-testid={testId ? `${testId}-native` : undefined}
-        value={value}
+        value={value || ""}
         onChange={(e) => onValueChange(e.target.value)}
         disabled={disabled}
-        className="touch-only flex min-h-9 w-full items-center justify-between rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 appearance-none"
+        className="touch-only-select min-h-9 w-full rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         style={{
+          WebkitAppearance: "none",
+          appearance: "none",
           backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
           backgroundPosition: "right 0.5rem center",
           backgroundRepeat: "no-repeat",
@@ -59,17 +65,10 @@ export function CardSetPicker({
           paddingLeft: "0.75rem",
         }}
       >
-        <option value="" disabled>
-          {placeholder}
-        </option>
-        {showRandomOption && (
-          <option value="random">
-            {randomOptionLabel}
-          </option>
-        )}
-        {sets.map((set) => (
-          <option key={set.id} value={set.id}>
-            {formatSetLabel(set)}
+        <option value="">{placeholder}</option>
+        {nativeOptions.map((opt) => (
+          <option key={opt.id} value={opt.id}>
+            {opt.label}
           </option>
         ))}
       </select>
