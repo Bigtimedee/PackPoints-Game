@@ -469,21 +469,15 @@ export default function Game() {
               
               <div className="space-y-2">
                 <Label htmlFor="card-set">Card Set</Label>
-                {setsLoading ? (
-                  <div className="flex items-center gap-2 h-10 px-3 border rounded-md">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-muted-foreground text-sm">Loading sets...</span>
-                  </div>
-                ) : (
-                  <CardSetPicker
-                    sets={availableSets}
-                    value={selectedSetId || ""}
-                    onValueChange={setSelectedSetId}
-                    placeholder="Select a card set"
-                    id="card-set"
-                    data-testid="select-card-set"
-                  />
-                )}
+                <CardSetPicker
+                  sets={availableSets}
+                  value={selectedSetId || ""}
+                  onValueChange={setSelectedSetId}
+                  placeholder="Select a card set"
+                  id="card-set"
+                  data-testid="select-card-set"
+                  isLoading={setsLoading}
+                />
               </div>
               
               <div className="space-y-2">

@@ -10,15 +10,7 @@ import { CardSetPicker } from "@/components/CardSetPicker";
 import { MobileSelect } from "@/components/MobileSelect";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
-
-interface PlayableSet {
-  id: string;
-  name: string;
-  year: number | null;
-  brand: string | null;
-  sport: string | null;
-  cardsImportedCount: number;
-}
+import type { PlayableSet } from "@shared/schema";
 
 export default function Queue() {
   const [, navigate] = useLocation();
@@ -30,7 +22,7 @@ export default function Queue() {
   const [selectedCardCount, setSelectedCardCount] = useState("10");
   const [selectedSetId, setSelectedSetId] = useState("random");
 
-  const { data: playableSets } = useQuery<PlayableSet[]>({
+  const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
     enabled: isAuthenticated,
   });
@@ -199,6 +191,7 @@ export default function Queue() {
                     data-testid="select-card-set"
                     showRandomOption={true}
                     randomOptionLabel="Let PackPTS Choose"
+                    isLoading={setsLoading}
                   />
                 </div>
                 
