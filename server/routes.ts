@@ -16,7 +16,7 @@ import {
   normalizeCardSearchResponse,
   fetchCardDetailsNormalized,
   normalizeImageUrl,
-} from "./services/cardhedge";
+} from "./services/cardhedge/client";
 import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { isAuthenticated } from "./replit_integrations/auth";
