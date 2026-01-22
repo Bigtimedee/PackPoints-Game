@@ -114,6 +114,22 @@ A fame-based point calculation system that awards more PackPTS for identifying o
 - **Admin Endpoints**: Policy management, player fame overrides, audit logs, fame recomputation
 - **Player Stats Tracking**: Records correct/incorrect responses per player to compute fame scores from gameplay data
 
+### Financial Guardrails & Fraud Prevention
+A multi-layered system to prevent revenue loss and abuse through user risk tracking, chargeback handling, and pattern-based fraud detection:
+- **User Risk States**: NORMAL, UNDER_REVIEW, FROZEN status tracked in `user_risk_state` table
+- **Earning Path Enforcement**: Both FROZEN and UNDER_REVIEW statuses block all PackPTS earning:
+  - Wallet service `earn()` method blocks frozen/under-review users
+  - Streak service `processMatchCompletion()` blocks frozen/under-review users
+  - Reward engine `checkAndAwardMatchPoints()` blocks frozen/under-review users
+  - Stripe purchases (`purchaseCredit`) are NOT blocked (paid transactions still allowed)
+- **Chargeback Handling**: Stripe webhook automatically sets FROZEN status on `charge.dispute.created` events and records risk signals
+- **Risk Signals**: Tracked in `risk_signals` table for patterns like repeat_pairing, fast_response, high_volume_gameplay
+- **Risk Engine**: Pattern detection service analyzes gameplay behavior for suspicious activity
+- **Admin Endpoints**: Freeze/unfreeze users at `/api/admin/risk/:userId/freeze`, list frozen users, view risk signals
+- **Frontend Integration**: Frozen/under-review accounts display shield warning in header
+- **Database Tables**: user_risk_state, risk_signals, risk_actions, match_points_counters, gameplay_events
+- **Stripe Integration**: Records STRIPE_REFUND and STRIPE_DISPUTE signals in risk_signals table
+
 ## External Dependencies
 
 ### Database

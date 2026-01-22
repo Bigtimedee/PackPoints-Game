@@ -3,6 +3,7 @@ import {
   streakState,
   streakRewardConfig,
   streakClaimLog,
+  userRiskState,
   DEFAULT_STREAK_SCHEDULE,
   DEFAULT_MILESTONE_BONUSES,
   MAX_DAILY_STREAK_REWARD,
@@ -13,6 +14,20 @@ import {
 import { eq, and, lte, gte, isNull, or, desc, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { analyticsService } from "./analyticsService";
+
+async function isUserFrozen(userId: string): Promise<boolean> {
+  try {
+    const [state] = await db
+      .select()
+      .from(userRiskState)
+      .where(eq(userRiskState.userId, userId))
+      .limit(1);
+    // Block earning if FROZEN or UNDER_REVIEW (consistent with walletService and rewardEngine)
+    return state?.status === "FROZEN" || state?.status === "UNDER_REVIEW";
+  } catch (e) {
+    return false;
+  }
+}
 
 export interface StreakInfo {
   currentDays: number;
@@ -259,6 +274,11 @@ class StreakService {
   }
 
   async processMatchCompletion(userId: string, matchId: string): Promise<StreakClaimResult> {
+    // GUARDRAIL: Check if user is frozen
+    if (await isUserFrozen(userId)) {
+      return { success: false, error: "Account frozen - cannot earn streak rewards" };
+    }
+
     const state = await this.getOrCreateStreakState(userId);
     const config = await this.getActiveConfig();
     const todayLocal = this.getUserLocalDate(state.timezone);

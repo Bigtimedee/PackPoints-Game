@@ -2,10 +2,12 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
-import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle, Coins } from "lucide-react";
+import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle, Coins, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useWallet } from "@/hooks/use-wallet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StreakBadge } from "./streak-card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +29,7 @@ import {
 export function Header() {
   const [location] = useLocation();
   const { user, isLoading, isAuthenticated } = useAuth();
+  const { isRestricted, isFrozen, isUnderReview, restrictedReason } = useWallet();
   const [showLoginWarning, setShowLoginWarning] = useState(false);
 
   const isInEmbeddedWebview = () => {
@@ -118,10 +121,29 @@ export function Header() {
           {isAuthenticated && user && (
             <>
               <StreakBadge />
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/80 font-mono" data-testid="text-points-balance">
-                <Zap className="h-4 w-4 text-secondary-foreground" />
-                <span className="font-semibold text-secondary-foreground">{(user.points || 0).toLocaleString()}</span>
-              </div>
+              {isRestricted ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-destructive/20 border border-destructive font-mono cursor-help" data-testid="text-points-balance-restricted">
+                      <ShieldAlert className="h-4 w-4 text-destructive" />
+                      <span className="font-semibold text-destructive">{(user.points || 0).toLocaleString()}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-64">
+                    <p className="font-semibold">{isFrozen ? "Account Frozen" : "Account Under Review"}</p>
+                    <p className="text-muted-foreground text-xs">
+                      {isFrozen 
+                        ? "Earning points is currently paused. Contact support if you believe this is an error."
+                        : "Your account is being reviewed. Earning points is temporarily paused."}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/80 font-mono" data-testid="text-points-balance">
+                  <Zap className="h-4 w-4 text-secondary-foreground" />
+                  <span className="font-semibold text-secondary-foreground">{(user.points || 0).toLocaleString()}</span>
+                </div>
+              )}
             </>
           )}
           

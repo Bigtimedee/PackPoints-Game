@@ -1,7 +1,25 @@
 import { db } from "../db";
-import { wallets, ledgerEntries, packptsBucket, packptsSpendAllocation, type Wallet, type LedgerEntry, type LedgerEntryType, type BucketSourceType } from "@shared/schema";
+import { wallets, ledgerEntries, packptsBucket, packptsSpendAllocation, userRiskState, type Wallet, type LedgerEntry, type LedgerEntryType, type BucketSourceType } from "@shared/schema";
 import { eq, sql, and, asc, gt, isNull } from "drizzle-orm";
 import { bucketService } from "./bucketService";
+
+async function isUserFrozen(userId: string): Promise<{ frozen: boolean; reason?: string }> {
+  try {
+    const [state] = await db
+      .select()
+      .from(userRiskState)
+      .where(eq(userRiskState.userId, userId))
+      .limit(1);
+    
+    if (!state || state.status === "NORMAL") {
+      return { frozen: false };
+    }
+    
+    return { frozen: true, reason: state.reason || "Account frozen" };
+  } catch (e) {
+    return { frozen: false };
+  }
+}
 
 export interface WalletOperationResult {
   success: boolean;
@@ -78,6 +96,12 @@ class WalletService {
   ): Promise<WalletOperationResult> {
     if (amount <= 0) {
       return { success: false, error: "Amount must be positive" };
+    }
+
+    // GUARDRAIL: Check if user is frozen
+    const frozenCheck = await isUserFrozen(userId);
+    if (frozenCheck.frozen) {
+      return { success: false, error: `Account frozen: ${frozenCheck.reason}` };
     }
 
     return await db.transaction(async (tx) => {

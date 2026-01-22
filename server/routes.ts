@@ -131,6 +131,21 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Wallet not found" });
       }
 
+      // Check user risk state (NORMAL, UNDER_REVIEW, or FROZEN)
+      let riskState: { status: "NORMAL" | "UNDER_REVIEW" | "FROZEN"; reason?: string } = { status: "NORMAL" };
+      try {
+        const [state] = await db
+          .select()
+          .from(userRiskState)
+          .where(eq(userRiskState.userId, userId))
+          .limit(1);
+        if (state) {
+          riskState = { status: state.status as "NORMAL" | "UNDER_REVIEW" | "FROZEN", reason: state.reason || undefined };
+        }
+      } catch (e) {
+        // Risk state table might not exist yet, silently continue
+      }
+
       res.json({
         wallet: {
           id: walletData.wallet.id,
@@ -141,6 +156,7 @@ export async function registerRoutes(
           createdAt: walletData.wallet.createdAt,
           updatedAt: walletData.wallet.updatedAt,
         },
+        riskState,
         recentTransactions: walletData.recentEntries.map(e => ({
           id: e.id,
           type: e.entryType,
