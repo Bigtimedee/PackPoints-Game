@@ -702,6 +702,12 @@ export async function registerRoutes(
         }
       }
       
+      // Mark when the first question is shown for response time tracking
+      if (session.questions[0]) {
+        (session.questions[0] as any).shownAt = new Date().toISOString();
+        await storage.updateGameSession(session);
+      }
+
       res.json({
         ...session,
         matchToken,
@@ -864,6 +870,33 @@ export async function registerRoutes(
       (currentQuestion as any).userAnswer = selectedAnswer;
       
       await storage.updateGameSession(session);
+
+      // Log gameplay event for risk analysis (non-blocking)
+      try {
+        const userId = session.userId || req.session?.localUserId;
+        if (userId) {
+          const { logGameplayEvent } = await import("./services/risk/events");
+          // Use shownAt timestamp if available for accurate response time measurement
+          // Fallback to session creation time if shownAt not set (legacy sessions)
+          let shownAt = (currentQuestion as any).shownAt;
+          if (!shownAt) {
+            // Set shownAt now for future reference and use session start as fallback
+            shownAt = session.createdAt;
+            (currentQuestion as any).shownAt = new Date().toISOString();
+          }
+          const responseTimeMs = shownAt ? Date.now() - new Date(shownAt).getTime() : null;
+          await logGameplayEvent({
+            userId,
+            sessionId,
+            questionIndex,
+            responseTimeMs,
+            isCorrect,
+            pointsAwarded: pointsEarned,
+          });
+        }
+      } catch (riskError) {
+        console.error("[RiskPipeline] Failed to log gameplay event:", riskError);
+      }
       
       res.json({
         correct: isCorrect,
@@ -1001,6 +1034,11 @@ export async function registerRoutes(
         session.score = finalScore;
       } else {
         session.currentQuestionIndex += 1;
+        // Mark when the new question is shown for response time tracking
+        const nextQuestion = session.questions[session.currentQuestionIndex];
+        if (nextQuestion) {
+          (nextQuestion as any).shownAt = new Date().toISOString();
+        }
       }
       
       await storage.updateGameSession(session);
@@ -1195,8 +1233,19 @@ export async function registerRoutes(
       
       const user = await storage.validateLocalCredentials(usernameOrEmail, password);
       if (!user) {
+        const { logAuthEvent } = await import("./services/risk/events");
+        await logAuthEvent("LOGIN_FAIL", { req });
         return res.status(401).json({ error: "Invalid username or password" });
       }
+      
+      const { logAuthEvent, logDeviceSeen, getRiskContext } = await import("./services/risk/events");
+      const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
+      const riskCtx = getRiskContext(req);
+      await logAuthEvent("LOGIN_SUCCESS", { userId: user.id, req });
+      if (riskCtx.deviceId) {
+        await logDeviceSeen({ userId: user.id, deviceId: riskCtx.deviceId, req });
+      }
+      enqueueRiskRecalc(user.id, riskCtx.deviceId || undefined, riskCtx.ipHash || undefined);
       
       // Transfer any pending guest points to the logged-in user's account
       if (req.session.pendingPoints) {
@@ -3034,6 +3083,22 @@ export async function registerRoutes(
       
       if (!result.success) {
         return res.status(400).json({ error: result.error });
+      }
+
+      // Log redemption event for risk analysis (non-blocking)
+      try {
+        const { logRedemptionEvent } = await import("./services/risk/events");
+        const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
+        await logRedemptionEvent({
+          userId,
+          redemptionId: result.redemption?.id,
+          packptsSpent: parseResult.data.packptsAmount,
+          usdValue: result.redemption?.usdValue || 0,
+          destination: "EXTERNAL",
+        });
+        enqueueRiskRecalc(userId);
+      } catch (riskError) {
+        console.error("[RiskPipeline] Failed to log redemption event:", riskError);
       }
 
       res.json({
@@ -7190,6 +7255,157 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error getting latest validation:", error);
       res.status(500).json({ error: error.message || "Failed to get latest validation" });
+    }
+  });
+
+  // ============================================
+  // FRAUD SCORING PIPELINE & RISK API ENDPOINTS
+  // ============================================
+
+  // Internal: Get user's own risk info (limited data)
+  app.get("/api/internal/risk/snapshot", isAuthenticated, async (req: any, res) => {
+    try {
+      const { getPublicRiskInfo } = await import("./services/risk/riskAPI");
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const info = await getPublicRiskInfo(userId);
+      if (!info) {
+        return res.json({ tierSuggestion: "LOW", topReasons: [] });
+      }
+
+      res.json(info);
+    } catch (error: any) {
+      console.error("Error getting risk info:", error);
+      res.status(500).json({ error: "Failed to get risk info" });
+    }
+  });
+
+  // Internal: Request risk recalculation for current user
+  app.post("/api/internal/risk/recompute", isAuthenticated, async (req: any, res) => {
+    try {
+      const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const rateLimitKey = `risk-recompute:${userId}`;
+      if (!checkRateLimit(rateLimitKey, 1, 60000)) {
+        return res.status(429).json({ error: "Rate limit exceeded. Try again in 1 minute." });
+      }
+
+      await enqueueRiskRecalc(userId);
+      res.json({ success: true, message: "Risk recalculation queued" });
+    } catch (error: any) {
+      console.error("Error queueing risk recompute:", error);
+      res.status(500).json({ error: "Failed to queue risk recompute" });
+    }
+  });
+
+  // Admin: Get full risk snapshot for a user
+  app.get("/api/admin/risk/snapshot/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { getFullRiskSnapshot } = await import("./services/risk/riskAPI");
+      const { userId } = req.params;
+
+      const snapshot = await getFullRiskSnapshot(userId);
+      if (!snapshot) {
+        return res.json({ userId, tierSuggestion: "LOW", score: 0, flags: {}, topReasons: [] });
+      }
+
+      res.json(snapshot);
+    } catch (error: any) {
+      console.error("Error getting admin risk snapshot:", error);
+      res.status(500).json({ error: "Failed to get risk snapshot" });
+    }
+  });
+
+  // Admin: Get recent fraud signals for a user
+  app.get("/api/admin/risk/signals/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { getRecentFraudSignals } = await import("./services/risk/riskAPI");
+      const { userId } = req.params;
+      const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+
+      const signals = await getRecentFraudSignals(userId, limit);
+      res.json({ signals });
+    } catch (error: any) {
+      console.error("Error getting fraud signals:", error);
+      res.status(500).json({ error: "Failed to get fraud signals" });
+    }
+  });
+
+  // Admin: Create or update risk suppression
+  app.post("/api/admin/risk/suppressions", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { createRiskSuppression } = await import("./services/risk/riskAPI");
+      const { userId, signalType, expiresAt, reason } = req.body;
+
+      if (!userId || !signalType || !expiresAt) {
+        return res.status(400).json({ error: "userId, signalType, and expiresAt are required" });
+      }
+
+      const suppression = await createRiskSuppression(
+        userId,
+        signalType,
+        new Date(expiresAt),
+        reason
+      );
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(
+        adminUserId,
+        "risk_suppression_created",
+        userId,
+        { signalType, expiresAt, reason }
+      );
+
+      res.json({ success: true, suppression });
+    } catch (error: any) {
+      console.error("Error creating risk suppression:", error);
+      res.status(500).json({ error: "Failed to create risk suppression" });
+    }
+  });
+
+  // Admin: Get active suppressions for a user
+  app.get("/api/admin/risk/suppressions/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { getActiveSuppressions } = await import("./services/risk/riskAPI");
+      const { userId } = req.params;
+
+      const suppressions = await getActiveSuppressions(userId);
+      res.json({ suppressions });
+    } catch (error: any) {
+      console.error("Error getting risk suppressions:", error);
+      res.status(500).json({ error: "Failed to get risk suppressions" });
+    }
+  });
+
+  // Admin: Force risk recalculation for a user
+  app.post("/api/admin/risk/recompute/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { updateRiskSnapshot } = await import("./services/risk/snapshot");
+      const { userId } = req.params;
+
+      const snapshot = await updateRiskSnapshot(userId);
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(
+        adminUserId,
+        "risk_recompute_forced",
+        userId,
+        { newTier: snapshot.tierSuggestion, newScore: snapshot.score }
+      );
+
+      res.json({ success: true, snapshot });
+    } catch (error: any) {
+      console.error("Error forcing risk recompute:", error);
+      res.status(500).json({ error: "Failed to recompute risk" });
     }
   });
 

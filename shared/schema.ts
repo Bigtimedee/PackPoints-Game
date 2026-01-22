@@ -2489,3 +2489,285 @@ export const insertRiskActionSchema = createInsertSchema(riskActions).omit({
 
 export type InsertRiskAction = z.infer<typeof insertRiskActionSchema>;
 export type RiskAction = typeof riskActions.$inferSelect;
+
+// ==========================================
+// FRAUD SCORING PIPELINE - Append-only event tables + rollups + signals + snapshots
+// ==========================================
+
+// Auth Events (append-only)
+export const authEventTypeEnum = pgEnum("auth_event_type", [
+  "LOGIN_SUCCESS", "LOGIN_FAIL", "SIGNUP", "LOGOUT", "PASSWORD_RESET", "OAUTH_LINK", "SESSION_CREATED"
+]);
+
+export const authEvents = pgTable("auth_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"),
+  eventType: authEventTypeEnum("event_type").notNull(),
+  sessionId: text("session_id"),
+  deviceId: text("device_id"),
+  ipHash: text("ip_hash"),
+  ipCountry: text("ip_country"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_auth_events_user").on(table.userId),
+  index("idx_auth_events_type").on(table.eventType),
+  index("idx_auth_events_created").on(table.createdAt),
+  index("idx_auth_events_device").on(table.deviceId),
+  index("idx_auth_events_ip").on(table.ipHash),
+]);
+
+export const insertAuthEventSchema = createInsertSchema(authEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAuthEvent = z.infer<typeof insertAuthEventSchema>;
+export type AuthEvent = typeof authEvents.$inferSelect;
+
+// Device Events (append-only)
+export const deviceEventTypeEnum = pgEnum("device_event_type", [
+  "DEVICE_SEEN", "COOKIE_RESET", "STORAGE_RESET"
+]);
+
+export const deviceEvents = pgTable("device_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"),
+  deviceId: text("device_id").notNull(),
+  fingerprintVersion: text("fingerprint_version"),
+  ipHash: text("ip_hash"),
+  ipCountry: text("ip_country"),
+  eventType: deviceEventTypeEnum("event_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_device_events_user").on(table.userId),
+  index("idx_device_events_device").on(table.deviceId),
+  index("idx_device_events_created").on(table.createdAt),
+  index("idx_device_events_ip").on(table.ipHash),
+]);
+
+export const insertDeviceEventSchema = createInsertSchema(deviceEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertDeviceEvent = z.infer<typeof insertDeviceEventSchema>;
+export type DeviceEvent = typeof deviceEvents.$inferSelect;
+
+// Payment Events (append-only)
+export const paymentEventTypeEnum = pgEnum("payment_event_type", [
+  "CHECKOUT_CREATED", "PAID", "SETTLED", "REFUNDED", "DISPUTE_OPENED", "DISPUTE_WON", "DISPUTE_LOST", "PAYMENT_FAILED"
+]);
+
+export const paymentEvents = pgTable("payment_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  purchaseId: varchar("purchase_id"),
+  stripeEventId: text("stripe_event_id").unique(),
+  eventType: paymentEventTypeEnum("event_type").notNull(),
+  amountCents: integer("amount_cents").notNull().default(0),
+  currency: text("currency").default("usd"),
+  paymentMethodFingerprint: text("payment_method_fingerprint"),
+  ipHash: text("ip_hash"),
+  ipCountry: text("ip_country"),
+  deviceId: text("device_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_payment_events_user").on(table.userId),
+  index("idx_payment_events_type").on(table.eventType),
+  index("idx_payment_events_created").on(table.createdAt),
+  index("idx_payment_events_stripe").on(table.stripeEventId),
+  index("idx_payment_events_device").on(table.deviceId),
+]);
+
+export const insertPaymentEventSchema = createInsertSchema(paymentEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertPaymentEvent = z.infer<typeof insertPaymentEventSchema>;
+export type PaymentEvent = typeof paymentEvents.$inferSelect;
+
+// Redemption Events (append-only)
+export const redemptionSourceEnum = pgEnum("redemption_source", ["ebay", "goldin"]);
+export const redemptionEventTypeEnum = pgEnum("redemption_event_type", [
+  "QUOTE", "APPLY", "RESERVE", "RELEASE", "CONSUME", "CANCEL", "CONFIRM"
+]);
+
+export const redemptionEvents = pgTable("redemption_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  purchaseIntentId: varchar("purchase_intent_id"),
+  source: redemptionSourceEnum("source"),
+  eventType: redemptionEventTypeEnum("event_type").notNull(),
+  priceCents: integer("price_cents"),
+  ptsRequested: integer("pts_requested"),
+  ptsApproved: integer("pts_approved"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_redemption_events_user").on(table.userId),
+  index("idx_redemption_events_type").on(table.eventType),
+  index("idx_redemption_events_created").on(table.createdAt),
+]);
+
+export const insertRedemptionEventSchema = createInsertSchema(redemptionEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertRedemptionEvent = z.infer<typeof insertRedemptionEventSchema>;
+export type RedemptionEvent = typeof redemptionEvents.$inferSelect;
+
+// User Rollup 24h - Aggregated activity per user per day
+export const userRollup24h = pgTable("user_rollup_24h", {
+  userId: varchar("user_id").notNull(),
+  windowStart: timestamp("window_start").notNull(),
+  loginFailCount: integer("login_fail_count").default(0),
+  loginSuccessCount: integer("login_success_count").default(0),
+  distinctDeviceCount: integer("distinct_device_count").default(0),
+  distinctIpCount: integer("distinct_ip_count").default(0),
+  purchaseCount: integer("purchase_count").default(0),
+  purchaseAmountCents: integer("purchase_amount_cents").default(0),
+  redemptionApplyCount: integer("redemption_apply_count").default(0),
+  redemptionPtsApproved: integer("redemption_pts_approved").default(0),
+  gameplayMatches: integer("gameplay_matches").default(0),
+  gameplayAnswers: integer("gameplay_answers").default(0),
+  gameplayCorrect: integer("gameplay_correct").default(0),
+  gameplayMedianResponseMs: integer("gameplay_median_response_ms"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_user_rollup_24h_window").on(table.windowStart),
+  unique("user_rollup_24h_pk").on(table.userId, table.windowStart),
+]);
+
+export const insertUserRollup24hSchema = createInsertSchema(userRollup24h);
+export type InsertUserRollup24h = z.infer<typeof insertUserRollup24hSchema>;
+export type UserRollup24h = typeof userRollup24h.$inferSelect;
+
+// Device Rollup 24h - Aggregated activity per device per day
+export const deviceRollup24h = pgTable("device_rollup_24h", {
+  deviceId: text("device_id").notNull(),
+  windowStart: timestamp("window_start").notNull(),
+  distinctUserCount: integer("distinct_user_count").default(0),
+  purchaseCount: integer("purchase_count").default(0),
+  purchaseAmountCents: integer("purchase_amount_cents").default(0),
+  signupCount: integer("signup_count").default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_device_rollup_24h_window").on(table.windowStart),
+  unique("device_rollup_24h_pk").on(table.deviceId, table.windowStart),
+]);
+
+export const insertDeviceRollup24hSchema = createInsertSchema(deviceRollup24h);
+export type InsertDeviceRollup24h = z.infer<typeof insertDeviceRollup24hSchema>;
+export type DeviceRollup24h = typeof deviceRollup24h.$inferSelect;
+
+// IP Rollup 24h - Aggregated activity per IP hash per day
+export const ipRollup24h = pgTable("ip_rollup_24h", {
+  ipHash: text("ip_hash").notNull(),
+  windowStart: timestamp("window_start").notNull(),
+  distinctUserCount: integer("distinct_user_count").default(0),
+  purchaseCount: integer("purchase_count").default(0),
+  purchaseAmountCents: integer("purchase_amount_cents").default(0),
+  signupCount: integer("signup_count").default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_ip_rollup_24h_window").on(table.windowStart),
+  unique("ip_rollup_24h_pk").on(table.ipHash, table.windowStart),
+]);
+
+export const insertIpRollup24hSchema = createInsertSchema(ipRollup24h);
+export type InsertIpRollup24h = z.infer<typeof insertIpRollup24hSchema>;
+export type IpRollup24h = typeof ipRollup24h.$inferSelect;
+
+// Fraud Signals (append-only) - More granular signals than existing risk_signals
+export const fraudSignals = pgTable("fraud_signals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  signalType: text("signal_type").notNull(),
+  severity: integer("severity").notNull(),
+  window: text("window").notNull().default("24h"),  // "window" is reserved in SQL but Drizzle handles quoting
+  evidence: jsonb("evidence").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_fraud_signals_user_created").on(table.userId, table.createdAt),
+  index("idx_fraud_signals_type_created").on(table.signalType, table.createdAt),
+]);
+
+export const insertFraudSignalSchema = createInsertSchema(fraudSignals).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertFraudSignal = z.infer<typeof insertFraudSignalSchema>;
+export type FraudSignal = typeof fraudSignals.$inferSelect;
+
+// Risk Snapshot (one row per user) - Current risk assessment
+export const riskTierEnum = pgEnum("risk_tier", ["LOW", "MEDIUM", "HIGH"]);
+
+export const riskSnapshots = pgTable("risk_snapshots", {
+  userId: varchar("user_id").primaryKey(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  tierSuggestion: riskTierEnum("tier_suggestion").default("LOW"),
+  score: integer("score").default(0),
+  flags: jsonb("flags").default({}),
+  topReasons: text("top_reasons").array().default([]),
+  lastPurchaseAt: timestamp("last_purchase_at"),
+  lastRedemptionApplyAt: timestamp("last_redemption_apply_at"),
+  lastDeviceId: text("last_device_id"),
+  lastIpHash: text("last_ip_hash"),
+  lastCountry: text("last_country"),
+});
+
+export const insertRiskSnapshotSchema = createInsertSchema(riskSnapshots);
+export type InsertRiskSnapshot = z.infer<typeof insertRiskSnapshotSchema>;
+export type RiskSnapshot = typeof riskSnapshots.$inferSelect;
+
+// Risk Suppressions - Temporarily ignore certain signals for a user
+export const riskSuppressions = pgTable("risk_suppressions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  signalType: text("signal_type").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_risk_suppressions_user").on(table.userId),
+  index("idx_risk_suppressions_expires").on(table.expiresAt),
+  unique("risk_suppressions_user_signal").on(table.userId, table.signalType),
+]);
+
+export const insertRiskSuppressionSchema = createInsertSchema(riskSuppressions).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertRiskSuppression = z.infer<typeof insertRiskSuppressionSchema>;
+export type RiskSuppression = typeof riskSuppressions.$inferSelect;
+
+// Risk Jobs - DB-backed queue for rollup/signal/snapshot computation
+export const riskJobTypeEnum = pgEnum("risk_job_type", [
+  "ROLLUP_24H", "COMPUTE_SIGNALS", "UPDATE_SNAPSHOT"
+]);
+export const riskJobStatusEnum = pgEnum("risk_job_status", [
+  "PENDING", "RUNNING", "SUCCEEDED", "FAILED"
+]);
+
+export const riskJobs = pgTable("risk_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobType: riskJobTypeEnum("job_type").notNull(),
+  userId: varchar("user_id"),
+  deviceId: text("device_id"),
+  ipHash: text("ip_hash"),
+  runAfter: timestamp("run_after").defaultNow(),
+  status: riskJobStatusEnum("status").default("PENDING"),
+  attempts: integer("attempts").default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_risk_jobs_status_run").on(table.status, table.runAfter),
+  index("idx_risk_jobs_type_run").on(table.jobType, table.runAfter),
+]);
+
+export const insertRiskJobSchema = createInsertSchema(riskJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertRiskJob = z.infer<typeof insertRiskJobSchema>;
+export type RiskJob = typeof riskJobs.$inferSelect;

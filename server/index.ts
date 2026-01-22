@@ -139,6 +139,12 @@ app.use((req, res, next) => {
   setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);
 
+  // Start the risk pipeline job worker
+  if (process.env.RISK_PIPELINE_ENABLED !== "false") {
+    const { startRiskJobWorker } = await import("./services/risk/jobQueue");
+    startRiskJobWorker();
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

@@ -288,6 +288,21 @@ class StripePurchaseService {
         amountTotal: session.amount_total,
         currency: session.currency,
       });
+      
+      try {
+        const { logPaymentEvent } = await import("./risk/events");
+        const { enqueueRiskRecalc } = await import("./risk/jobQueue");
+        await logPaymentEvent("PAID", {
+          userId,
+          purchaseId: session.id,
+          stripeEventId: event.id,
+          amountCents: session.amount_total || 0,
+          currency: session.currency || "usd",
+        });
+        enqueueRiskRecalc(userId);
+      } catch (riskError) {
+        console.error("[RiskPipeline] Failed to log payment event:", riskError);
+      }
     }
 
     // Update checkout session status to PAID for UI polling
@@ -637,6 +652,20 @@ class StripePurchaseService {
       stripeEventId: event.id,
     });
 
+    try {
+      const { logPaymentEvent } = await import("./risk/events");
+      const { enqueueRiskRecalc } = await import("./risk/jobQueue");
+      await logPaymentEvent("REFUNDED", {
+        userId,
+        stripeEventId: event.id,
+        amountCents: charge.amount_refunded || 0,
+        currency: charge.currency || "usd",
+      });
+      enqueueRiskRecalc(userId);
+    } catch (riskError) {
+      console.error("[RiskPipeline] Failed to log refund event:", riskError);
+    }
+
     return {
       status: "processed",
       message,
@@ -677,6 +706,20 @@ class StripePurchaseService {
       amount: dispute.amount,
       stripeEventId: event.id,
     });
+
+    try {
+      const { logPaymentEvent } = await import("./risk/events");
+      const { enqueueRiskRecalc } = await import("./risk/jobQueue");
+      await logPaymentEvent("DISPUTE_OPENED", {
+        userId,
+        stripeEventId: event.id,
+        amountCents: dispute.amount || 0,
+        currency: dispute.currency || "usd",
+      });
+      enqueueRiskRecalc(userId);
+    } catch (riskError) {
+      console.error("[RiskPipeline] Failed to log dispute event:", riskError);
+    }
 
     console.error(`CHARGEBACK: User ${userId} frozen due to dispute ${dispute.id}`);
 
