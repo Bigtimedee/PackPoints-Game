@@ -283,9 +283,9 @@ class TreasuryService {
       .insert(marginLedger)
       .values({
         amountCents,
-        sourceType: type as MarginSourceType,
+        sourceType: type as "PACKPTS_SALE" | "AFFILIATE_PAYOUT" | "PARTNER_REBATE" | "MANUAL_ADJUSTMENT",
         referenceId,
-        description,
+        note: description,
       })
       .returning();
 
@@ -300,7 +300,7 @@ class TreasuryService {
     const [existing] = await db
       .select()
       .from(marketplaceMarginConfig)
-      .where(eq(marketplaceMarginConfig.source, source));
+      .where(eq(marketplaceMarginConfig.source, source as "ebay" | "goldin"));
 
     if (!existing) {
       return null;
@@ -318,7 +318,7 @@ class TreasuryService {
     const [updated] = await db
       .update(marketplaceMarginConfig)
       .set(newValues)
-      .where(eq(marketplaceMarginConfig.source, source))
+      .where(eq(marketplaceMarginConfig.source, source as "ebay" | "goldin"))
       .returning();
 
     return updated;
