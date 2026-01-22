@@ -360,6 +360,19 @@ export default function Game() {
     },
   });
 
+  // Report image load failures (for auto-flagging)
+  const reportImageFailureMutation = useMutation({
+    mutationFn: async (cardId: string) => {
+      const res = await apiRequest("POST", `/api/cards/${cardId}/image-failure`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.autoFlagged) {
+        console.log(`[Game] Card auto-flagged after ${data.failureCount} failures`);
+      }
+    },
+  });
+
   // No longer auto-start - user selects card count first
 
   // Show signup modal after game completion for unauthenticated users with points
@@ -780,6 +793,11 @@ export default function Game() {
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
               onImageError={() => {
+                // Report image failure for auto-flagging
+                if (currentQuestion?.card?.id) {
+                  reportImageFailureMutation.mutate(currentQuestion.card.id);
+                }
+                // Skip to next card
                 if (!isRevealed && !nextQuestionMutation.isPending) {
                   nextQuestionMutation.mutate();
                 }

@@ -28,6 +28,7 @@ import { analyticsService } from "./services/analyticsService";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
+import { validateImageUrl, recordImageLoadFailure, shouldAutoFlagCard } from "./services/imageValidator";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
 import { identityService } from "./services/identityService";
@@ -5628,6 +5629,58 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error creating card report:", error);
       res.status(500).json({ error: "Failed to submit report" });
+    }
+  });
+
+  // Report an image load failure during gameplay (auto-flag mechanism)
+  // Rate limited to prevent abuse
+  app.post("/api/cards/:cardId/image-failure", async (req: any, res) => {
+    try {
+      const { cardId } = req.params;
+      
+      // Rate limit by IP to prevent abuse (max 10 failures per minute per IP)
+      const clientIp = req.ip || req.socket?.remoteAddress || "unknown";
+      const rateLimitKey = `image-failure:${clientIp}`;
+      if (!checkRateLimit(rateLimitKey, 10, 60000)) {
+        return res.status(429).json({ error: "Too many image failure reports" });
+      }
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+      
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      // Record the failure and check if it should be auto-flagged
+      const failureCount = recordImageLoadFailure(cardId);
+      const shouldFlag = shouldAutoFlagCard(cardId);
+      
+      if (shouldFlag && card.imageReviewStatus !== "flagged" && card.imageReviewStatus !== "rejected") {
+        await db
+          .update(playableCards)
+          .set({
+            imageReviewStatus: "flagged",
+            blockedReason: "Auto-flagged: repeated image load failures",
+            reportCount: sql`${playableCards.reportCount} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(playableCards.id, cardId));
+        
+        console.log(`[ImageValidator] Auto-flagged card ${cardId} after ${failureCount} load failures`);
+      }
+      
+      res.json({ 
+        recorded: true, 
+        failureCount, 
+        autoFlagged: shouldFlag && card.imageReviewStatus !== "flagged" 
+      });
+    } catch (error) {
+      console.error("Error recording image failure:", error);
+      res.status(500).json({ error: "Failed to record image failure" });
     }
   });
 

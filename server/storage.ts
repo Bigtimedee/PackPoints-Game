@@ -2,7 +2,7 @@ import { type User, type InsertUser, type BaseballCard, type GameSession, type G
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
-import { eq, sql, desc, and, gte, isNotNull, ne, not, like } from "drizzle-orm";
+import { eq, sql, desc, and, gte, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
@@ -391,6 +391,7 @@ export class DatabaseStorage implements IStorage {
     const expectedSport = gameSet?.sport?.toLowerCase() || "";
     
     // Query playable cards with sport category validation
+    // Also filter out flagged/rejected cards (image quality issues)
     const cards = await db
       .select()
       .from(playableCards)
@@ -403,7 +404,13 @@ export class DatabaseStorage implements IStorage {
           not(like(playableCards.imageUrl, '%null%')),
           like(playableCards.imageUrl, 'https://%'),
           isNotNull(playableCards.player),
-          ne(playableCards.player, '')
+          ne(playableCards.player, ''),
+          // Exclude only rejected cards (admin has confirmed bad image)
+          // Flagged cards still appear until admin reviews them
+          or(
+            isNull(playableCards.imageReviewStatus),
+            ne(playableCards.imageReviewStatus, 'rejected')
+          )
         )
       )
       .orderBy(sql`RANDOM()`)
