@@ -2330,3 +2330,154 @@ export const overridePackageSchema = z.object({
 });
 
 export type OverridePackageRequest = z.infer<typeof overridePackageSchema>;
+
+// ==========================================
+// GUARDRAIL #2 - Match Points Counters (per-match earning cap enforcement)
+// ==========================================
+export const matchPointsCounters = pgTable("match_points_counters", {
+  matchId: varchar("match_id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  pointsAwarded: integer("points_awarded").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_match_points_counters_user").on(table.userId),
+]);
+
+export const insertMatchPointsCounterSchema = createInsertSchema(matchPointsCounters).omit({
+  updatedAt: true,
+});
+
+export type InsertMatchPointsCounter = z.infer<typeof insertMatchPointsCounterSchema>;
+export type MatchPointsCounter = typeof matchPointsCounters.$inferSelect;
+
+// ==========================================
+// GUARDRAIL #3 - User Risk State (refund-safe issuance)
+// ==========================================
+export const userRiskStatusEnum = pgEnum("user_risk_status", ["NORMAL", "FROZEN"]);
+
+export const userRiskState = pgTable("user_risk_state", {
+  userId: varchar("user_id").primaryKey().references(() => users.id),
+  status: userRiskStatusEnum("status").notNull().default("NORMAL"),
+  reason: text("reason"),
+  frozenAt: timestamp("frozen_at"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_user_risk_state_status").on(table.status),
+]);
+
+export const insertUserRiskStateSchema = createInsertSchema(userRiskState).omit({
+  updatedAt: true,
+  frozenAt: true,
+});
+
+export type InsertUserRiskState = z.infer<typeof insertUserRiskStateSchema>;
+export type UserRiskState = typeof userRiskState.$inferSelect;
+
+// Store Purchases - track PENDING vs SETTLED PackPTS
+export const storePurchaseStatusEnum = pgEnum("store_purchase_status", [
+  "CREATED", "PAID_PENDING", "SETTLED", "REFUNDED", "CHARGEBACK"
+]);
+
+export const storePurchases = pgTable("store_purchases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  stripeSessionId: text("stripe_session_id").unique(),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  status: storePurchaseStatusEnum("status").notNull().default("CREATED"),
+  ptsGrant: integer("pts_grant").notNull(),
+  priceCents: integer("price_cents").notNull(),
+  productSku: text("product_sku"),
+  settledAt: timestamp("settled_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_store_purchases_user").on(table.userId),
+  index("idx_store_purchases_status").on(table.status),
+  index("idx_store_purchases_session").on(table.stripeSessionId),
+]);
+
+export const insertStorePurchaseSchema = createInsertSchema(storePurchases).omit({
+  id: true,
+  settledAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertStorePurchase = z.infer<typeof insertStorePurchaseSchema>;
+export type StorePurchase = typeof storePurchases.$inferSelect;
+
+// ==========================================
+// GUARDRAIL #4 - Anti-Collusion & Bot Detection
+// ==========================================
+export const gameplayEventTypeEnum = pgEnum("gameplay_event_type", [
+  "QUESTION_SHOWN", "ANSWER_SUBMITTED", "MATCH_END"
+]);
+
+export const gameplayEvents = pgTable("gameplay_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  matchId: varchar("match_id").notNull(),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  opponentId: varchar("opponent_id"),
+  eventType: gameplayEventTypeEnum("event_type").notNull(),
+  cardId: varchar("card_id"),
+  answerCorrect: boolean("answer_correct"),
+  responseTimeMs: integer("response_time_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_gameplay_events_match").on(table.matchId),
+  index("idx_gameplay_events_user").on(table.userId),
+  index("idx_gameplay_events_created").on(table.createdAt),
+]);
+
+export const insertGameplayEventSchema = createInsertSchema(gameplayEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertGameplayEvent = z.infer<typeof insertGameplayEventSchema>;
+export type GameplayEvent = typeof gameplayEvents.$inferSelect;
+
+// Risk Signals - patterns detected by risk engine
+export const riskSignalTypeEnum = pgEnum("risk_signal_type", [
+  "REPEAT_PAIRING", "WIN_TRADING", "FAST_RESPONSES", "HIGH_VOLUME", "MULTI_ACCOUNT"
+]);
+
+export const riskSignals = pgTable("risk_signals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  signalType: riskSignalTypeEnum("signal_type").notNull(),
+  severity: integer("severity").notNull().default(1),
+  details: jsonb("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_risk_signals_user").on(table.userId),
+  index("idx_risk_signals_type").on(table.signalType),
+  index("idx_risk_signals_created").on(table.createdAt),
+]);
+
+export const insertRiskSignalSchema = createInsertSchema(riskSignals).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertRiskSignal = z.infer<typeof insertRiskSignalSchema>;
+export type RiskSignal = typeof riskSignals.$inferSelect;
+
+// Risk Actions - enforcement actions taken
+export const riskActionTypeEnum = pgEnum("risk_action_type", [
+  "THROTTLE", "REDUCE_REWARDS", "CAP_LOWER", "CAPTCHA", "FREEZE"
+]);
+
+export const riskActions = pgTable("risk_actions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  action: riskActionTypeEnum("action").notNull(),
+  reason: text("reason"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_risk_actions_user").on(table.userId),
+  index("idx_risk_actions_action").on(table.action),
+  index("idx_risk_actions_created").on(table.createdAt),
+  index("idx_risk_actions_expires").on(table.expiresAt),
+]);
