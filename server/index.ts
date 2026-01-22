@@ -11,6 +11,7 @@ import { registerWorkosRoutes } from "./services/workosAuth";
 import { initializeStripeConnection, getStripeSync } from "./stripeClient";
 import { runMigrations } from "stripe-replit-sync";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
+import { seedRewardPolicy } from "./services/rewardEngine";
 
 const app = express();
 const httpServer = createServer(app);
@@ -80,6 +81,13 @@ app.use((req, res, next) => {
     await seedPackageGuardrailConfig();
   } catch (error) {
     console.log('[PackageGuardrails] Seed failed:', error instanceof Error ? error.message : 'Unknown');
+  }
+  
+  // Seed reward policy for gameplay
+  try {
+    await seedRewardPolicy();
+  } catch (error) {
+    console.log('[RewardEngine] Seed failed:', error instanceof Error ? error.message : 'Unknown');
   }
   
   // Verify email configuration

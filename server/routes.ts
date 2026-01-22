@@ -700,35 +700,49 @@ export async function registerRoutes(
       const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
       let pointsEarned = 0;
       let rewardResult: rewardEngine.AwardResult | null = null;
+      let rewardError: string | null = null;
       
-      const playerKey = rewardEngine.normalizePlayerKey(currentQuestion.correctAnswer, "baseball");
-      await rewardEngine.updatePlayerStats(playerKey, isCorrect);
+      // Try to update player stats (non-blocking - gameplay should work even if this fails)
+      try {
+        const playerKey = rewardEngine.normalizePlayerKey(currentQuestion.correctAnswer, "baseball");
+        await rewardEngine.updatePlayerStats(playerKey, isCorrect);
+      } catch (statsError: any) {
+        console.error("[Game] Failed to update player stats:", statsError?.message);
+        // Continue - this is not critical for gameplay
+      }
       
       if (isCorrect) {
         const userId = session.userId || req.session?.localUserId;
         
         if (userId) {
-          const cardContext: rewardEngine.CardContext = {
-            cardId: (currentQuestion.card as any)?.id,
-            playerName: currentQuestion.correctAnswer,
-            year: currentQuestion.card?.year,
-            rarityType: "base",
-            sport: "baseball",
-          };
-          
-          const matchPointsAwarded = (session as any).matchPointsAwarded || 0;
-          
-          rewardResult = await rewardEngine.awardPoints(
-            userId,
-            cardContext,
-            sessionId,
-            `q${questionIndex}`,
-            matchPointsAwarded
-          );
-          
-          if (rewardResult) {
-            pointsEarned = rewardResult.finalPts;
-            (session as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
+          try {
+            const cardContext: rewardEngine.CardContext = {
+              cardId: (currentQuestion.card as any)?.id,
+              playerName: currentQuestion.correctAnswer,
+              year: currentQuestion.card?.year,
+              rarityType: "base",
+              sport: "baseball",
+            };
+            
+            const matchPointsAwarded = (session as any).matchPointsAwarded || 0;
+            
+            rewardResult = await rewardEngine.awardPoints(
+              userId,
+              cardContext,
+              sessionId,
+              `q${questionIndex}`,
+              matchPointsAwarded
+            );
+            
+            if (rewardResult) {
+              pointsEarned = rewardResult.finalPts;
+              (session as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
+            }
+          } catch (rewardErr: any) {
+            console.error("[Game] Failed to award points:", rewardErr?.message);
+            rewardError = rewardErr?.message || "Reward system unavailable";
+            // Fall back to base point value
+            pointsEarned = currentQuestion.pointValue;
           }
         } else {
           pointsEarned = currentQuestion.pointValue;
@@ -758,10 +772,17 @@ export async function registerRoutes(
           capped: rewardResult.capped,
           cappedReason: rewardResult.cappedReason,
         } : null,
+        rewardWarning: rewardError,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting answer:", error);
-      res.status(500).json({ error: "Failed to submit answer" });
+      const errorMessage = error?.message || "Unknown error";
+      const errorCode = error?.code || "SUBMIT_ANSWER_FAILED";
+      res.status(500).json({ 
+        error: "Failed to submit answer", 
+        details: errorMessage,
+        code: errorCode 
+      });
     }
   });
 

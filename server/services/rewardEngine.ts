@@ -437,3 +437,60 @@ export function clearPolicyCache(): void {
   cachedPolicy = null;
   policyCacheTime = 0;
 }
+
+/**
+ * Seeds the default reward policy if none exists in the database.
+ * Also performs a health check on critical tables.
+ * Call this at application startup to ensure gameplay works.
+ */
+export async function seedRewardPolicy(): Promise<void> {
+  try {
+    // First, check if the table exists by querying it
+    const [existing] = await db
+      .select()
+      .from(rewardPolicy)
+      .where(eq(rewardPolicy.enabled, true))
+      .limit(1);
+    
+    if (existing) {
+      console.log('[RewardEngine] Active reward policy exists');
+    } else {
+      await db.insert(rewardPolicy).values({
+        effectiveFrom: new Date(),
+        enabled: true,
+        minPts: 100,
+        maxPts: 200,
+        gamma: 2.0,
+        maxAwardCap: 250,
+        vintageMultipliers: { pre1980: 1.15, "1980_1999": 1.05, "2000_2019": 1.0, "2020_plus": 0.9 },
+        rarityMultipliers: { base: 1.0, insert: 1.1, parallel: 1.2, sp: 1.3 },
+        dailyPointsCap: 5000,
+        perMatchPointsCap: 1000,
+      });
+      console.log('[RewardEngine] Default reward policy seeded successfully');
+    }
+    
+    // Health check: try to query the other critical tables
+    try {
+      await db.select().from(internalPlayerStats).limit(1);
+    } catch (e: any) {
+      console.error('[RewardEngine] WARNING: internalPlayerStats table may be missing:', e?.message);
+    }
+    
+    try {
+      await db.select().from(playerFame).limit(1);
+    } catch (e: any) {
+      console.error('[RewardEngine] WARNING: playerFame table may be missing:', e?.message);
+    }
+    
+    try {
+      await db.select().from(pointsAwards).limit(1);
+    } catch (e: any) {
+      console.error('[RewardEngine] WARNING: pointsAwards table may be missing:', e?.message);
+    }
+    
+    console.log('[RewardEngine] Health check complete');
+  } catch (error) {
+    console.error('[RewardEngine] Failed to seed/check reward policy:', error);
+  }
+}
