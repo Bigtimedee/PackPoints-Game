@@ -187,7 +187,7 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError, imageRotation 
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
           <div className="text-center space-y-3">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Image unavailable, loading next card...</p>
+            <p className="text-sm text-muted-foreground">Finding a replacement card...</p>
           </div>
         </div>
       )}
@@ -469,6 +469,50 @@ export default function Game() {
       }
     },
   });
+
+  // Track failed card IDs this session to exclude from replacements
+  const [failedCardIds, setFailedCardIds] = useState<string[]>([]);
+
+  // Replace card when image fails to load - user doesn't lose PackPTS opportunity
+  const replaceCardMutation = useMutation({
+    mutationFn: async (failedCardId: string) => {
+      const res = await apiRequest("POST", `/api/game/session/${sessionId}/replace-card`, {
+        failedCardId,
+        excludeCardIds: failedCardIds
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success && data.question) {
+        // Update the session with the replacement question
+        queryClient.setQueryData(["/api/game/session", sessionId], (oldData: any) => {
+          if (!oldData) return oldData;
+          const newQuestions = [...oldData.questions];
+          newQuestions[oldData.currentQuestionIndex] = data.question;
+          return { ...oldData, questions: newQuestions };
+        });
+        console.log(`[Game] Card replaced successfully with ${data.question.card.id}`);
+      }
+    },
+    onError: (error) => {
+      console.log(`[Game] Card replacement failed, skipping to next:`, error);
+      // Fall back to skipping if replacement fails
+      if (!isRevealed && !nextQuestionMutation.isPending) {
+        nextQuestionMutation.mutate();
+      }
+    }
+  });
+
+  // Handle image error - try to replace card first, only skip if replacement unavailable
+  const handleCardImageError = (failedCardId: string) => {
+    // Track this failed card to exclude from future replacements
+    setFailedCardIds(prev => [...prev, failedCardId]);
+    
+    // Try to get a replacement card
+    if (!isRevealed && !replaceCardMutation.isPending) {
+      replaceCardMutation.mutate(failedCardId);
+    }
+  };
 
   // No longer auto-start - user selects card count first
 
@@ -885,19 +929,17 @@ export default function Game() {
         <div className="space-y-8">
           <div className="relative">
             <GameCard 
-              key={`${session.id}-${session.currentQuestionIndex}`}
+              key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}`}
               imageUrl={currentQuestion.card.imageUrl} 
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
               imageRotation={currentQuestion.card.imageRotation}
               onImageError={() => {
-                // Report image failure for auto-flagging
-                if (currentQuestion?.card?.id) {
-                  reportImageFailureMutation.mutate(currentQuestion.card.id);
-                }
-                // Skip to next card
-                if (!isRevealed && !nextQuestionMutation.isPending) {
-                  nextQuestionMutation.mutate();
+                // Get the failed card ID (prefer playableCardId for accurate tracking)
+                const failedCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
+                if (failedCardId) {
+                  // Try to replace with a new card instead of skipping
+                  handleCardImageError(failedCardId);
                 }
               }}
             />

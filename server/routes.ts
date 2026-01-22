@@ -670,6 +670,52 @@ export async function registerRoutes(
     }
   });
 
+  // Replace a card that failed to load - serves new card without losing PackPTS opportunity
+  app.post("/api/game/session/:id/replace-card", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { failedCardId, excludeCardIds = [] } = req.body;
+      
+      if (!failedCardId) {
+        return res.status(400).json({ error: "failedCardId is required" });
+      }
+
+      const session = await storage.getGameSession(id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      if (session.status !== "active") {
+        return res.status(400).json({ error: "Session is not active" });
+      }
+
+      // Always flag the failed card for admin review (regardless of replacement availability)
+      await storage.flagCardForImageFailure(failedCardId);
+
+      const result = await storage.getReplacementCardForSession(id, failedCardId, excludeCardIds);
+      
+      if (!result) {
+        console.log(`[CardReplacement] No replacement available for session ${id}, card ${failedCardId} (flagged for review)`);
+        return res.status(404).json({ error: "No replacement card available", flagged: true });
+      }
+
+      // Update the session with the replacement question
+      session.questions[session.currentQuestionIndex] = result.question;
+      await storage.updateGameSession(session);
+
+      console.log(`[CardReplacement] Replaced card ${failedCardId} with ${result.question.card.id} in session ${id}`);
+
+      res.json({
+        success: true,
+        question: result.question,
+        flagged: result.flagged
+      });
+    } catch (error) {
+      console.error("Error replacing card:", error);
+      res.status(500).json({ error: "Failed to replace card" });
+    }
+  });
+
   app.post("/api/game/answer", async (req: any, res) => {
     try {
       const parsed = submitAnswerSchema.safeParse(req.body);

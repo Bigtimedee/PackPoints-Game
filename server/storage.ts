@@ -601,6 +601,112 @@ export class DatabaseStorage implements IStorage {
     return session;
   }
 
+  async getReplacementCardForSession(
+    sessionId: string,
+    failedCardId: string,
+    excludeCardIds: string[] = []
+  ): Promise<{ question: GameQuestion; flagged: boolean } | null> {
+    const session = await this.getGameSession(sessionId);
+    if (!session) return null;
+
+    // Get all card IDs already used in this session plus excluded ones
+    const usedCardIds = new Set([
+      ...session.questions.map(q => q.card.playableCardId || q.card.id),
+      ...excludeCardIds,
+      failedCardId
+    ]);
+
+    // Get a replacement card from the same set, excluding used cards
+    const currentQuestion = session.questions[session.currentQuestionIndex];
+    const setName = currentQuestion?.card.setName;
+
+    // Find the set ID
+    let targetSetId: string | null = null;
+    if (setName) {
+      const [gameSet] = await db
+        .select()
+        .from(gameSets)
+        .where(eq(gameSets.setName, setName))
+        .limit(1);
+      targetSetId = gameSet?.id || null;
+    }
+
+    // Query for a replacement card
+    let replacementCard: typeof playableCards.$inferSelect | undefined;
+    
+    if (targetSetId) {
+      const candidates = await db
+        .select()
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.gameSetId, targetSetId),
+            eq(playableCards.isPlayable, true),
+            or(
+              eq(playableCards.imageReviewStatus, "pending"),
+              eq(playableCards.imageReviewStatus, "approved")
+            )
+          )
+        )
+        .limit(50);
+      
+      // Filter out used cards and pick randomly
+      const available = candidates.filter(c => !usedCardIds.has(c.id));
+      if (available.length > 0) {
+        replacementCard = available[Math.floor(Math.random() * available.length)];
+      }
+    }
+
+    // If no replacement found from same set, try any active set
+    if (!replacementCard) {
+      const fallbackSetId = await this.getDefaultPlayableSetId();
+      if (fallbackSetId) {
+        const candidates = await db
+          .select()
+          .from(playableCards)
+          .where(
+            and(
+              eq(playableCards.gameSetId, fallbackSetId),
+              eq(playableCards.isPlayable, true)
+            )
+          )
+          .limit(50);
+        
+        const available = candidates.filter(c => !usedCardIds.has(c.id));
+        if (available.length > 0) {
+          replacementCard = available[Math.floor(Math.random() * available.length)];
+        }
+      }
+    }
+
+    if (!replacementCard) return null;
+
+    // Get player names for options
+    const additionalNames = await this.getSamplePlayerNamesFromSet(
+      replacementCard.gameSetId || "",
+      100
+    );
+    const question = this.generateQuestionFromPlayableCard(replacementCard, additionalNames);
+
+    return { question, flagged: true };
+  }
+
+  async flagCardForImageFailure(cardId: string): Promise<void> {
+    try {
+      // Increment report count on the card for admin review
+      await db
+        .update(playableCards)
+        .set({
+          reportCount: sql`COALESCE(${playableCards.reportCount}, 0) + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(playableCards.id, cardId));
+      console.log(`[CardReplacement] Flagged card ${cardId} for image load failure`);
+    } catch (error) {
+      console.error(`[CardReplacement] Failed to flag card ${cardId}:`, error);
+    }
+  }
+
   async getLeaderboard(limit: number = 10): Promise<LeaderboardEntry[]> {
     const topUsers = await db
       .select()
