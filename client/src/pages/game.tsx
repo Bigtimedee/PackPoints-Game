@@ -62,6 +62,79 @@ function AnswerButton({
   );
 }
 
+// Check if an image is blank (all one color) using canvas pixel sampling
+function isBlankImage(img: HTMLImageElement): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    
+    // Use small sample size for performance
+    const sampleSize = 50;
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    
+    // Draw scaled image to canvas
+    ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+    
+    // Sample pixels from different areas
+    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const pixels = imageData.data;
+    
+    // Get the first pixel as reference
+    const refR = pixels[0];
+    const refG = pixels[1];
+    const refB = pixels[2];
+    
+    // Check if pixel is very light (white/near-white)
+    const isVeryLight = refR > 240 && refG > 240 && refB > 240;
+    // Check if pixel is very dark (black/near-black)
+    const isVeryDark = refR < 15 && refG < 15 && refB < 15;
+    
+    if (!isVeryLight && !isVeryDark) {
+      // Reference pixel has color, image is not blank
+      return false;
+    }
+    
+    // Sample multiple pixels across the image to verify uniformity
+    const samplePoints = [
+      0, // top-left
+      (sampleSize / 2) * 4, // top-center
+      (sampleSize - 1) * 4, // top-right
+      (sampleSize * sampleSize / 2) * 4, // center
+      (sampleSize * (sampleSize - 1)) * 4, // bottom-left
+      (sampleSize * sampleSize - 1) * 4, // bottom-right
+    ];
+    
+    const tolerance = 20; // Allow slight variation
+    for (const offset of samplePoints) {
+      if (offset >= pixels.length) continue;
+      const r = pixels[offset];
+      const g = pixels[offset + 1];
+      const b = pixels[offset + 2];
+      
+      // Check if this pixel differs significantly from reference
+      if (Math.abs(r - refR) > tolerance || 
+          Math.abs(g - refG) > tolerance || 
+          Math.abs(b - refB) > tolerance) {
+        return false; // Found variation, not blank
+      }
+    }
+    
+    // All sampled pixels are similar and very light/dark = blank image
+    return true;
+  } catch (e) {
+    // CORS/SecurityError occurs with cross-origin images - can't inspect pixels
+    // This is expected for CDN-hosted images, treat as non-blank
+    if (e instanceof DOMException && e.name === 'SecurityError') {
+      // Silent fallback - CORS images can't be inspected
+      return false;
+    }
+    console.error('[GameCard] Error checking for blank image:', e);
+    return false; // Don't flag as blank if we can't check
+  }
+}
+
 function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: string; isRevealed: boolean; setLabel?: string; onImageError?: () => void }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -82,6 +155,14 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
     // Duplicated images are landscape (width > height, ratio > 1)
     if (aspectRatio > 1.3) {
       console.log(`[GameCard] Detected abnormal aspect ratio ${aspectRatio.toFixed(2)} for image, likely duplicated`);
+      setImageError(true);
+      onImageError?.();
+      return;
+    }
+    
+    // Check for blank/white images using canvas pixel sampling
+    if (isBlankImage(img)) {
+      console.log(`[GameCard] Detected blank/uniform color image, skipping`);
       setImageError(true);
       onImageError?.();
       return;
@@ -114,6 +195,7 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
         src={imageUrl}
         alt="Baseball card"
         className="absolute inset-0 w-full h-full object-contain"
+        crossOrigin="anonymous"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
         }}
