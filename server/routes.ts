@@ -5803,7 +5803,7 @@ export async function registerRoutes(
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      const { action, resolution } = req.body;
+      const { action, resolution, imageRotation } = req.body;
       const { cardImageReports } = await import("@shared/schema");
       
       if (!["approve", "reject"].includes(action)) {
@@ -5834,12 +5834,17 @@ export async function registerRoutes(
         ));
       
       if (action === "approve") {
+        // Build update object - include rotation if provided
+        const updateData: any = {
+          imageReviewStatus: "approved",
+          updatedAt: new Date(),
+        };
+        if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
+          updateData.imageRotation = imageRotation;
+        }
         await db
           .update(playableCards)
-          .set({
-            imageReviewStatus: "approved",
-            updatedAt: new Date(),
-          })
+          .set(updateData)
           .where(eq(playableCards.id, cardId));
       } else if (action === "reject") {
         await db

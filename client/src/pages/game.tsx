@@ -135,7 +135,7 @@ function isBlankImage(img: HTMLImageElement): boolean {
   }
 }
 
-function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: string; isRevealed: boolean; setLabel?: string; onImageError?: () => void }) {
+function GameCard({ imageUrl, isRevealed, setLabel, onImageError, imageRotation = 0 }: { imageUrl: string; isRevealed: boolean; setLabel?: string; onImageError?: () => void; imageRotation?: number }) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
@@ -198,6 +198,7 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
         crossOrigin="anonymous"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
+          transform: imageRotation ? `rotate(${imageRotation}deg)` : undefined,
         }}
         onLoad={handleImageLoad}
         onError={handleError}
@@ -888,6 +889,7 @@ export default function Game() {
               imageUrl={currentQuestion.card.imageUrl} 
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
+              imageRotation={currentQuestion.card.imageRotation}
               onImageError={() => {
                 // Report image failure for auto-flagging
                 if (currentQuestion?.card?.id) {
@@ -998,6 +1000,10 @@ export default function Game() {
                               <div className="flex items-center space-x-2">
                                 <RadioGroupItem value="bad_image" id="bad_image" />
                                 <Label htmlFor="bad_image" className="font-normal">Blurry/corrupted image</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="upside_down" id="upside_down" />
+                                <Label htmlFor="upside_down" className="font-normal">Image is upside down or rotated</Label>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <RadioGroupItem value="other" id="other" />

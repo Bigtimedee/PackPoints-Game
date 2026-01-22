@@ -109,8 +109,14 @@ export const insertBaseballCardSchema = createInsertSchema(baseballCards).omit({
 export type InsertBaseballCard = z.infer<typeof insertBaseballCardSchema>;
 export type BaseballCard = typeof baseballCards.$inferSelect;
 
+// Extended card type for gameplay that includes rotation correction
+export interface GameplayCard extends BaseballCard {
+  imageRotation?: number; // 0, 90, 180, 270 degrees
+  playableCardId?: string; // Original playable_cards id for reporting
+}
+
 export interface GameQuestion {
-  card: BaseballCard;
+  card: GameplayCard;
   options: string[];
   correctAnswer: string;
   pointValue: number;
@@ -1652,6 +1658,7 @@ export const playableCards = pgTable("playable_cards", {
   blockedReason: text("blocked_reason"), // Reason if isPlayable=false (e.g., "checklist", "multi-player")
   imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"), // Image quality review
   reportCount: integer("report_count").notNull().default(0), // Number of user reports for wrong image
+  imageRotation: integer("image_rotation").notNull().default(0), // Rotation correction: 0, 90, 180, 270 degrees
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1673,7 +1680,7 @@ export type InsertPlayableCard = z.infer<typeof insertPlayableCardSchema>;
 export type PlayableCard = typeof playableCards.$inferSelect;
 
 // Card Image Reports - user reports for wrong/mismatched card images
-export const cardImageReportReasons = ["wrong_sport", "wrong_player", "wrong_set", "bad_image", "other"] as const;
+export const cardImageReportReasons = ["wrong_sport", "wrong_player", "wrong_set", "bad_image", "upside_down", "other"] as const;
 export type CardImageReportReason = typeof cardImageReportReasons[number];
 
 export const cardImageReports = pgTable("card_image_reports", {

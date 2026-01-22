@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Flag, Check, X, AlertTriangle, Loader2, Image, RefreshCw } from "lucide-react";
+import { Flag, Check, X, AlertTriangle, Loader2, Image, RefreshCw, RotateCw } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -29,6 +29,7 @@ interface PlayableCard {
   imageReviewStatus: string;
   blockedReason: string | null;
   isPlayable: boolean;
+  imageRotation?: number;
 }
 
 interface CardReport {
@@ -58,6 +59,7 @@ const REASON_LABELS: Record<string, string> = {
   wrong_player: "Wrong Player",
   wrong_set: "Wrong Set",
   bad_image: "Bad/Unclear Image",
+  upside_down: "Upside Down/Rotated",
   other: "Other Issue",
 };
 
@@ -68,6 +70,7 @@ export default function AdminCardReports() {
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState<PlayableCard | null>(null);
   const [resolution, setResolution] = useState("");
+  const [previewRotation, setPreviewRotation] = useState(0);
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !user?.isAdmin)) {
@@ -91,8 +94,8 @@ export default function AdminCardReports() {
   });
 
   const reviewMutation = useMutation({
-    mutationFn: async ({ cardId, action, resolution }: { cardId: string; action: "approve" | "reject"; resolution?: string }) => {
-      return apiRequest("POST", `/api/admin/cards/${cardId}/review`, { action, resolution });
+    mutationFn: async ({ cardId, action, resolution, imageRotation }: { cardId: string; action: "approve" | "reject"; resolution?: string; imageRotation?: number }) => {
+      return apiRequest("POST", `/api/admin/cards/${cardId}/review`, { action, resolution, imageRotation });
     },
     onSuccess: () => {
       refetchFlagged();
@@ -101,17 +104,23 @@ export default function AdminCardReports() {
       setReviewDialogOpen(false);
       setSelectedCard(null);
       setResolution("");
+      setPreviewRotation(0);
     },
   });
 
   const handleReview = (card: PlayableCard) => {
     setSelectedCard(card);
+    setPreviewRotation(card.imageRotation || 0);
     setReviewDialogOpen(true);
+  };
+  
+  const handleRotate = () => {
+    setPreviewRotation((prev) => (prev + 90) % 360);
   };
 
   const handleApprove = () => {
     if (selectedCard) {
-      reviewMutation.mutate({ cardId: selectedCard.id, action: "approve", resolution });
+      reviewMutation.mutate({ cardId: selectedCard.id, action: "approve", resolution, imageRotation: previewRotation });
     }
   };
 
@@ -381,19 +390,32 @@ export default function AdminCardReports() {
           {selectedCard && (
             <div className="space-y-4">
               <div className="flex gap-4">
-                <div className="w-48 h-64 bg-muted rounded overflow-hidden flex-shrink-0">
-                  {selectedCard.imageUrl ? (
-                    <img
-                      src={selectedCard.imageUrl}
-                      alt={selectedCard.player}
-                      className="w-full h-full object-contain"
-                      data-testid="img-review-card"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <Image className="h-12 w-12 text-muted-foreground" />
-                    </div>
-                  )}
+                <div className="flex flex-col gap-2">
+                  <div className="w-48 h-64 bg-muted rounded overflow-hidden flex-shrink-0">
+                    {selectedCard.imageUrl ? (
+                      <img
+                        src={selectedCard.imageUrl}
+                        alt={selectedCard.player}
+                        className="w-full h-full object-contain"
+                        style={{ transform: `rotate(${previewRotation}deg)` }}
+                        data-testid="img-review-card"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <Image className="h-12 w-12 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleRotate}
+                    className="w-full"
+                    data-testid="button-rotate"
+                  >
+                    <RotateCw className="h-4 w-4 mr-2" />
+                    Rotate ({previewRotation}°)
+                  </Button>
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold" data-testid="text-review-player">

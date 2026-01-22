@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -509,7 +509,7 @@ export class DatabaseStorage implements IStorage {
     const basePoints = 100;
     const pointValue = basePoints;
     
-    const cardAsBaseballCard: BaseballCard = {
+    const cardAsGameplayCard: GameplayCard = {
       id: card.id,
       playerName: card.player || "Unknown Player",
       team: card.set || "",
@@ -520,10 +520,12 @@ export class DatabaseStorage implements IStorage {
       imageVerified: true,
       setName: card.set || "",
       position: "",
+      imageRotation: card.imageRotation || 0, // Include rotation correction
+      playableCardId: card.id, // Track original card id for reporting
     };
     
     return {
-      card: cardAsBaseballCard,
+      card: cardAsGameplayCard,
       options,
       correctAnswer,
       pointValue,
