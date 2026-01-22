@@ -82,7 +82,7 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
   };
 
   return (
-    <div className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-card">
+    <div className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900">
       {!imageLoaded && !imageError && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -99,7 +99,7 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
       <img
         src={imageUrl}
         alt="Baseball card"
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-contain"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
         }}
