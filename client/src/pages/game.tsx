@@ -221,7 +221,7 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError, imageRotation 
           className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
           style={{ height: "20%" }}
         >
-          <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600/90 flex items-center justify-center border-t-2 border-amber-900">
+          <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
             <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
           </div>
         </div>
