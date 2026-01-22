@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { db } from "../db";
-import { purchaseEvents, stripeCustomers, stripeCheckoutSessions, type PurchaseEventStatus } from "@shared/schema";
+import { purchaseEvents, stripeCustomers, stripeCheckoutSessions, userRiskState, riskSignals, type PurchaseEventStatus } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
@@ -154,6 +154,9 @@ class StripePurchaseService {
       
       case "charge.refunded":
         return this.handleChargeRefunded(event);
+      
+      case "charge.dispute.created":
+        return this.handleChargeDispute(event);
       
       default:
         return {
@@ -626,11 +629,106 @@ class StripePurchaseService {
 
     console.warn(`Refund processed for user ${userId}: ${message}`);
 
+    // Record refund risk signal
+    await this.recordRiskSignal(userId, "HIGH_VOLUME", 2, {
+      type: "refund",
+      chargeId: charge.id,
+      reversedAmount,
+      stripeEventId: event.id,
+    });
+
     return {
       status: "processed",
       message,
       userId,
     };
+  }
+
+  private async handleChargeDispute(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    const dispute = event.data.object as Stripe.Dispute;
+    
+    const userId = (dispute as any).metadata?.userId 
+      || await this.getUserIdFromStripeCustomer(
+          typeof (dispute as any).customer === "string" 
+            ? (dispute as any).customer 
+            : ((dispute as any).customer as any)?.id
+        );
+
+    if (!userId) {
+      return {
+        status: "ignored",
+        message: "No userId found for disputed charge",
+      };
+    }
+
+    // CRITICAL: Freeze user account immediately on chargeback
+    await this.freezeUser(userId, `Chargeback: ${dispute.id} - Reason: ${dispute.reason}`);
+
+    // Record high-severity risk signal
+    await this.recordRiskSignal(userId, "HIGH_VOLUME", 5, {
+      type: "chargeback",
+      disputeId: dispute.id,
+      reason: dispute.reason,
+      amount: dispute.amount,
+      stripeEventId: event.id,
+    });
+
+    console.error(`CHARGEBACK: User ${userId} frozen due to dispute ${dispute.id}`);
+
+    return {
+      status: "processed",
+      message: `User frozen due to chargeback dispute ${dispute.id}`,
+      userId,
+    };
+  }
+
+  /**
+   * Freeze a user account - prevents earning points and flags for review
+   */
+  private async freezeUser(userId: string, reason: string): Promise<void> {
+    await db
+      .insert(userRiskState)
+      .values({
+        userId,
+        status: "FROZEN",
+        reason,
+        frozenAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: userRiskState.userId,
+        set: {
+          status: "FROZEN",
+          reason,
+          frozenAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  /**
+   * Record a risk signal for pattern detection
+   */
+  private async recordRiskSignal(
+    userId: string, 
+    signalType: "REPEAT_PAIRING" | "WIN_TRADING" | "FAST_RESPONSES" | "HIGH_VOLUME" | "MULTI_ACCOUNT",
+    severity: number,
+    details: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      await db.insert(riskSignals).values({
+        userId,
+        signalType,
+        severity,
+        details,
+      });
+    } catch (e) {
+      console.error("Failed to record risk signal:", e);
+    }
   }
 
   async syncUserPurchases(userId: string, stripeCustomerId?: string): Promise<SyncResult> {

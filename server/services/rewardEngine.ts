@@ -7,6 +7,8 @@ import {
   internalPlayerStats,
   ledgerEntries,
   wallets,
+  matchPointsCounters,
+  userRiskState,
   type RewardPolicy,
   type PlayerFame 
 } from "@shared/schema";
@@ -196,6 +198,56 @@ export async function getTodayPointsAwarded(userId: string): Promise<number> {
   return counter?.pointsAwardedToday || 0;
 }
 
+/**
+ * Get match-level points counter from database
+ */
+export async function getMatchPointsAwarded(matchId: string): Promise<number> {
+  const [counter] = await db
+    .select()
+    .from(matchPointsCounters)
+    .where(eq(matchPointsCounters.matchId, matchId))
+    .limit(1);
+  
+  return counter?.pointsAwarded || 0;
+}
+
+/**
+ * Update match-level points counter in database
+ */
+export async function updateMatchCounter(matchId: string, userId: string, points: number): Promise<void> {
+  await db
+    .insert(matchPointsCounters)
+    .values({
+      matchId,
+      userId,
+      pointsAwarded: points,
+    })
+    .onConflictDoUpdate({
+      target: matchPointsCounters.matchId,
+      set: {
+        pointsAwarded: sql`${matchPointsCounters.pointsAwarded} + ${points}`,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+/**
+ * Check if user is frozen (cannot earn points)
+ */
+export async function isUserFrozen(userId: string): Promise<{ frozen: boolean; reason?: string }> {
+  const [state] = await db
+    .select()
+    .from(userRiskState)
+    .where(eq(userRiskState.userId, userId))
+    .limit(1);
+  
+  if (!state || state.status === "NORMAL") {
+    return { frozen: false };
+  }
+  
+  return { frozen: true, reason: state.reason || "Account frozen" };
+}
+
 export async function updateDailyCounter(userId: string, points: number): Promise<void> {
   const today = new Date().toISOString().split("T")[0];
   
@@ -223,8 +275,23 @@ export async function awardPoints(
   card: CardContext,
   matchId?: string,
   questionId?: string,
-  matchPointsAwarded: number = 0
+  matchPointsAwarded: number = 0  // Legacy param - now we use DB-backed counter
 ): Promise<AwardResult | null> {
+  // GUARDRAIL #1: Check if user is frozen (refunds, chargebacks, fraud)
+  const frozenCheck = await isUserFrozen(userId);
+  if (frozenCheck.frozen) {
+    return {
+      basePts: 0,
+      finalPts: 0,
+      fameScore: 0,
+      vintageMultiplier: 1,
+      rarityMultiplier: 1,
+      policyId: "",
+      capped: true,
+      cappedReason: `account_frozen:${frozenCheck.reason}`,
+    };
+  }
+
   const idempotencyKey = matchId && questionId 
     ? `award:${matchId}:${questionId}:${userId}` 
     : null;
@@ -258,6 +325,7 @@ export async function awardPoints(
   let capped = false;
   let cappedReason: string | undefined;
 
+  // GUARDRAIL #2: Daily cap check
   const todayAwarded = await getTodayPointsAwarded(userId);
   const dailyRemaining = policy.dailyPointsCap - todayAwarded;
   if (dailyRemaining <= 0) {
@@ -274,7 +342,12 @@ export async function awardPoints(
     cappedReason = "daily_cap_partial";
   }
 
-  const matchRemaining = policy.perMatchPointsCap - matchPointsAwarded;
+  // GUARDRAIL #3: Match cap check - use database counter instead of passed param
+  let currentMatchPoints = matchPointsAwarded;
+  if (matchId) {
+    currentMatchPoints = await getMatchPointsAwarded(matchId);
+  }
+  const matchRemaining = policy.perMatchPointsCap - currentMatchPoints;
   if (matchRemaining <= 0) {
     return {
       ...reward,
@@ -287,6 +360,14 @@ export async function awardPoints(
     finalPts = matchRemaining;
     capped = true;
     cappedReason = cappedReason ? `${cappedReason},match_cap_partial` : "match_cap_partial";
+  }
+
+  // GUARDRAIL #4: Hard maximum per single award (absolute protection)
+  const ABSOLUTE_MAX_AWARD = policy.maxAwardCap || 250;
+  if (finalPts > ABSOLUTE_MAX_AWARD) {
+    finalPts = ABSOLUTE_MAX_AWARD;
+    capped = true;
+    cappedReason = cappedReason ? `${cappedReason},max_award_capped` : "max_award_capped";
   }
 
   await db.insert(pointsAwards).values({
@@ -304,7 +385,13 @@ export async function awardPoints(
     idempotencyKey,
   });
 
+  // Update daily counter
   await updateDailyCounter(userId, finalPts);
+
+  // Update match counter in database
+  if (matchId) {
+    await updateMatchCounter(matchId, userId, finalPts);
+  }
 
   const [wallet] = await db
     .select()
