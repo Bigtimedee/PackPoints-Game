@@ -68,12 +68,26 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError }: { imageUrl: 
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
+    const aspectRatio = img.naturalWidth / img.naturalHeight;
+    
+    // Check for too-small images
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
       setImageError(true);
       onImageError?.();
-    } else {
-      setImageLoaded(true);
+      return;
     }
+    
+    // Check for abnormally wide images (likely duplicates/corrupted)
+    // Normal trading cards have portrait orientation (height > width, ratio < 1)
+    // Duplicated images are landscape (width > height, ratio > 1)
+    if (aspectRatio > 1.3) {
+      console.log(`[GameCard] Detected abnormal aspect ratio ${aspectRatio.toFixed(2)} for image, likely duplicated`);
+      setImageError(true);
+      onImageError?.();
+      return;
+    }
+    
+    setImageLoaded(true);
   };
 
   const handleError = () => {
