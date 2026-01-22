@@ -1,0 +1,299 @@
+Implement “PackPTS Non-Negotiable Guardrails” as enforceable code (not policies) across gameplay, store purchases, and redemptions. These guardrails must prevent PackPTS Inc. from losing money, stop farming/abuse, and protect the treasury/liability model.
+
+STACK (do not change)
+Frontend: React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack React Query + Wouter
+Backend: Express + TypeScript (tsx dev) + ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session (Replit OAuth + local)
+Payments: Stripe
+Marketplace: eBay/Goldin integrations
+Card data: CardHedge
+
+THE 5 NON-NEGOTIABLE GUARDRAILS (MUST ENFORCE IN CODE)
+1) Treasury-backed redemptions (no negative contribution margin)
+2) Daily + per-match earning caps (no inflation via farming)
+3) Refund-safe issuance (no “buy → spend → chargeback” exploit)
+4) Anti-collusion + bot detection (no win-trading / automation)
+5) Admin pricing guardrails for PackPTS packages (no unprofitable USD→PTS ratios)
+
+----------------------------------------------------------------
+GUARDRAIL #1 — TREASURY-BACKED REDEMPTIONS (HARD BLOCK)
+RULE:
+approved_credit_cents <= available_margin_pool_cents + transaction_margin_cents
+
+DATA MODEL (migrations)
+A) margin_ledger (company treasury)
+- id uuid pk
+- source_type enum('PACKPTS_SALE','AFFILIATE_PAYOUT','PARTNER_REBATE','MANUAL_ADJUSTMENT')
+- amount_cents int (positive)
+- reference_id text nullable
+- created_at timestamp
+
+B) margin_usage
+- id uuid pk
+- redemption_id uuid
+- amount_cents int
+- created_at timestamp
+
+C) redemption_reservations (prevents race conditions)
+- id uuid pk
+- purchase_intent_id uuid
+- reserved_cents int
+- status enum('ACTIVE','RELEASED','CONSUMED')
+- created_at timestamp
+
+D) marketplace_margin_config
+- source enum('ebay','goldin') pk
+- affiliate_rate numeric default 0.02
+- haircut numeric default 0.50
+- updated_at timestamp
+
+IMPLEMENTATION
+Create service: src/services/treasury/treasury.ts
+- getAvailableMarginPool(): total_margin - total_used - total_reserved
+- reserveMargin(purchaseIntentId, cents): inserts ACTIVE reservation
+- consumeMargin(purchaseIntentId, redemptionId): marks reservation CONSUMED and writes margin_usage
+- releaseMargin(purchaseIntentId): marks RELEASED
+
+Create redemption engine: src/services/redemptions/redemptionEngine.ts
+- quoteRedemption({source, priceCents, userId}): returns maxRedeemablePackpts and maxCreditCents
+- applyRedemption({purchaseIntentId, requestedPackpts}):
+  - recompute everything server-side
+  - clamp to allowable cap
+  - if cap <= 0 => hard block
+  - reserve margin (ACTIVE)
+  - spend user PackPTS via wallet ledger (idempotent)
+  - persist approved amounts + calc snapshot
+- finalizeRedemption({purchaseIntentId, outcome}):
+  - if confirmed purchase => consume margin + grant credit (closed-loop only)
+  - if canceled/expired => release margin + reverse user spend
+
+----------------------------------------------------------------
+GUARDRAIL #2 — DAILY + PER-MATCH EARNING CAPS (HARD CLAMP)
+RULES:
+- user_points_awarded_today <= policy.daily_points_cap
+- user_points_awarded_per_match <= policy.per_match_points_cap
+- always clamp award to remaining allowance (never exceed)
+
+DATA MODEL
+A) reward_policy (extend if exists)
+- id uuid pk
+- daily_points_cap int default 5000
+- per_match_points_cap int default 1000
+- created_at timestamp
+- is_active boolean default true
+
+B) user_points_counters
+- user_id uuid
+- date date
+- points_awarded_today int
+- updated_at timestamp
+PRIMARY KEY (user_id, date)
+
+C) match_points_counters
+- match_id uuid pk
+- user_id uuid
+- points_awarded int default 0
+- updated_at timestamp
+
+IMPLEMENTATION
+Create service: src/services/rewards/caps.ts
+- getDailyRemaining(userId): daily_cap - points_awarded_today
+- getMatchRemaining(matchId, userId): per_match_cap - points_awarded
+- clampAward(userId, matchId, ptsRequested): returns ptsApproved
+Integrate into ALL award paths:
+- quiz correct
+- streak bonus
+- referral bonus
+- any promotions
+Write awards via append-only wallet ledger with idempotency keys.
+
+----------------------------------------------------------------
+GUARDRAIL #3 — REFUND-SAFE ISSUANCE (NO BUY→SPEND→CHARGEBACK)
+RULES:
+- PackPTS purchased are PENDING until Stripe confirms via webhook
+- Optionally add “settlement delay” (e.g., 10 minutes) before points become spendable
+- If refund/chargeback occurs:
+  - freeze account
+  - create negative balance or lock spending
+  - reverse unspent points; if spent, mark debt and block redemptions until repaid
+
+DATA MODEL
+A) wallet_ledger (if exists, extend types)
+- type enum('EARN','PURCHASE_PENDING','PURCHASE_SETTLED','SPEND','ADJUST','REVERSAL','DEBT')
+
+B) store_purchases
+- id uuid pk
+- user_id uuid
+- stripe_session_id text unique
+- status enum('CREATED','PAID_PENDING','SETTLED','REFUNDED','CHARGEBACK')
+- pts_grant int
+- created_at timestamp
+- updated_at timestamp
+
+C) user_risk_state
+- user_id uuid pk
+- status enum('NORMAL','FROZEN')
+- reason text nullable
+- updated_at timestamp
+
+IMPLEMENTATION
+Stripe webhook handler MUST:
+- on checkout.session.completed:
+  - create store_purchases status=PAID_PENDING
+  - write ledger PURCHASE_PENDING (not spendable)
+  - then mark SETTLED after delay OR immediately if you choose
+  - write ledger PURCHASE_SETTLED (moves from pending to available)
+- on charge.refunded / dispute created:
+  - mark purchase REFUNDED/CHARGEBACK
+  - freeze user
+  - reverse remaining unspent points; if deficit => ledger DEBT and require repayment via future purchase
+
+Wallet balance function must:
+- exclude PURCHASE_PENDING from available/spendable balance
+- enforce FROZEN users cannot redeem or earn bonuses
+
+----------------------------------------------------------------
+GUARDRAIL #4 — ANTI-COLLUSION + BOT DETECTION (AUTO THROTTLE / BAN)
+RULES:
+- Detect win-trading and repeated opponent pairing
+- Detect impossible reaction times / bot-like patterns
+- Reduce rewards and/or freeze accounts when thresholds triggered
+- Require step-up verification (captcha / email / phone) for suspicious activity
+
+DATA MODEL
+A) gameplay_events (append-only)
+- id uuid pk
+- match_id uuid
+- user_id uuid
+- opponent_id uuid nullable
+- event_type enum('QUESTION_SHOWN','ANSWER_SUBMITTED','MATCH_END')
+- card_id uuid nullable
+- answer_correct boolean nullable
+- response_time_ms int nullable
+- created_at timestamp
+
+B) risk_signals
+- id uuid pk
+- user_id uuid
+- signal_type enum('REPEAT_PAIRING','WIN_TRADING','FAST_RESPONSES','HIGH_VOLUME','MULTI_ACCOUNT')
+- severity int
+- details jsonb
+- created_at timestamp
+
+C) risk_actions
+- id uuid pk
+- user_id uuid
+- action enum('THROTTLE','REDUCE_REWARDS','CAP_LOWER','CAPTCHA','FREEZE')
+- reason text
+- created_at timestamp
+
+IMPLEMENTATION
+Create risk engine: src/services/risk/riskEngine.ts
+- computeSignals(userId, window=24h):
+  - repeat pairing: same opponent > N times/day
+  - win-trading: alternating wins pattern + high match count
+  - bot: median response_time_ms < threshold (e.g., 350ms) + low variance
+  - high volume: matches/hour > threshold
+- applyActions(signals):
+  - THROTTLE: limit matches/hour
+  - REDUCE_REWARDS: multiply awards by factor (e.g., 0.5) for 24h
+  - CAPTCHA: require verification before next match
+  - FREEZE: set user_risk_state=FROZEN
+
+Integrate checks:
+- before starting a match (ws): deny/throttle if flagged
+- before awarding points: apply reward multiplier + log
+
+----------------------------------------------------------------
+GUARDRAIL #5 — ADMIN PACKPTS PACKAGE PRICING GUARDRAILS (BLOCK/WARN)
+RULES:
+- Admin cannot create or edit a package that fails minimum margin
+- Must consider fee profile (Stripe web, iOS IAP, Android IAP)
+- Must record validation audit
+
+DATA MODEL
+A) store_fee_profiles
+- channel enum('web_stripe','ios_iap','android_iap') pk
+- fee_rate numeric
+- fee_fixed_cents int
+- platform_fee_rate numeric
+- updated_at timestamp
+
+B) store_package_policy
+- id uuid pk
+- min_margin_rate numeric default 0.30
+- warn_margin_band numeric default 0.05
+- max_value_per_pt_microusds int default 2000
+- allow_override boolean default false
+- is_active boolean default true
+
+C) store_package_validations
+- id uuid pk
+- product_id uuid nullable
+- decision enum('PASS','WARN','BLOCK','OVERRIDE')
+- reasons text[]
+- computed jsonb
+- created_at timestamp
+
+IMPLEMENTATION
+Create: src/services/store/packageGuardrails.ts
+For package with price_cents and pts_grant:
+- total_fees = round(price*fee_rate) + fee_fixed + round(price*platform_fee_rate)
+- net_rev = price - total_fees
+- gross_margin_rate = net_rev / price
+- implied_value_per_pt = net_rev / pts_grant
+BLOCK if gross_margin_rate < min_margin_rate
+WARN if gross_margin_rate < min_margin_rate + warn_margin_band OR implied_value_per_pt too generous
+Admin endpoints must:
+- preview evaluation live
+- block save on BLOCK
+- require typed confirm on WARN
+- log every decision
+
+----------------------------------------------------------------
+ROUTES TO IMPLEMENT
+1) Redemptions:
+- POST /api/marketplace/redemption/quote
+- POST /api/marketplace/redemption/apply
+- POST /api/marketplace/redemption/finalize
+
+2) Rewards:
+- (integrate caps + risk checks into existing award pathways)
+
+3) Stripe webhooks:
+- POST /api/webhooks/stripe (raw body verification)
+- handle checkout.session.completed + refunds/disputes
+
+4) Admin store:
+- POST /api/admin/store/packages/preview
+- POST /api/admin/store/packages
+- PUT /api/admin/store/packages/:id
+
+5) Admin treasury:
+- GET /api/admin/treasury/status
+
+6) Admin risk:
+- GET /api/admin/risk/users?status=...
+- POST /api/admin/risk/users/:id/freeze|unfreeze
+
+FRONTEND REQUIREMENTS
+- Admin package editor shows “Profit Preview” (fees, net revenue, margin %, implied value/pt) + PASS/WARN/BLOCK badge.
+- User wallet shows available vs pending points.
+- If user flagged: show “Verification required” and block match start.
+
+TESTS (MUST)
+- Redemption cannot exceed available_margin_pool + transaction_margin
+- Concurrent redemptions cannot overdraw pool (reservations)
+- Daily/match caps clamp properly
+- Pending points not spendable
+- Refund triggers freeze + reversal/debt
+- Risk engine flags repeated pairing + fast responses
+- Package guardrails block unprofitable packages
+
+DELIVERABLES
+- Drizzle migrations for all tables above
+- Services: treasury, redemptionEngine, caps, riskEngine, packageGuardrails
+- Route handlers wired into existing app
+- Minimal admin UIs for treasury/risk/package preview
+- README explaining enforcement + thresholds + tuning knobs
