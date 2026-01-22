@@ -2481,3 +2481,11 @@ export const riskActions = pgTable("risk_actions", {
   index("idx_risk_actions_created").on(table.createdAt),
   index("idx_risk_actions_expires").on(table.expiresAt),
 ]);
+
+export const insertRiskActionSchema = createInsertSchema(riskActions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertRiskAction = z.infer<typeof insertRiskActionSchema>;
+export type RiskAction = typeof riskActions.$inferSelect;

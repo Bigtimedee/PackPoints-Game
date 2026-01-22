@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -6672,6 +6672,101 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error getting reservations:", error);
       res.status(500).json({ error: error.message || "Failed to get reservations" });
+    }
+  });
+
+  // ============================================
+  // ADMIN: RISK MANAGEMENT
+  // ============================================
+
+  // Get user risk state
+  app.get("/api/admin/risk/user/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { riskEngine } = await import("./services/riskEngine");
+      const userId = req.params.userId;
+      
+      const [riskState, assessment, actions] = await Promise.all([
+        riskEngine.getUserRiskState(userId),
+        riskEngine.detectPatterns(userId),
+        riskEngine.getActiveActions(userId),
+      ]);
+      
+      res.json({
+        userId,
+        riskState: riskState || { status: "NORMAL" },
+        assessment,
+        activeActions: actions,
+      });
+    } catch (error: any) {
+      console.error("Error getting user risk state:", error);
+      res.status(500).json({ error: error.message || "Failed to get risk state" });
+    }
+  });
+
+  // Freeze user
+  app.post("/api/admin/risk/freeze/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { riskEngine } = await import("./services/riskEngine");
+      const userId = req.params.userId;
+      const reason = req.body.reason || "Admin freeze";
+      
+      await riskEngine.applyAction(userId, "FREEZE", reason);
+      
+      res.json({ success: true, message: `User ${userId} frozen` });
+    } catch (error: any) {
+      console.error("Error freezing user:", error);
+      res.status(500).json({ error: error.message || "Failed to freeze user" });
+    }
+  });
+
+  // Unfreeze user
+  app.post("/api/admin/risk/unfreeze/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { riskEngine } = await import("./services/riskEngine");
+      const userId = req.params.userId;
+      const adminNote = req.body.note || "Unfrozen by admin";
+      
+      await riskEngine.unfreezeUser(userId, adminNote);
+      
+      res.json({ success: true, message: `User ${userId} unfrozen` });
+    } catch (error: any) {
+      console.error("Error unfreezing user:", error);
+      res.status(500).json({ error: error.message || "Failed to unfreeze user" });
+    }
+  });
+
+  // List frozen users
+  app.get("/api/admin/risk/frozen-users", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const frozenUsers = await db
+        .select()
+        .from(userRiskState)
+        .where(eq(userRiskState.status, "FROZEN"));
+      
+      res.json(frozenUsers);
+    } catch (error: any) {
+      console.error("Error listing frozen users:", error);
+      res.status(500).json({ error: error.message || "Failed to list frozen users" });
+    }
+  });
+
+  // Get risk signals for a user
+  app.get("/api/admin/risk/signals/:userId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const userId = req.params.userId;
+      const limit = parseInt(req.query.limit) || 50;
+      
+      const signals = await db
+        .select()
+        .from(riskSignals)
+        .where(eq(riskSignals.userId, userId))
+        .orderBy(desc(riskSignals.createdAt))
+        .limit(limit);
+      
+      res.json(signals);
+    } catch (error: any) {
+      console.error("Error getting risk signals:", error);
+      res.status(500).json({ error: error.message || "Failed to get risk signals" });
     }
   });
 
