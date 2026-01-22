@@ -172,6 +172,51 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/user/daily-progress - Get today's PackPTS earning progress
+  app.get("/api/user/daily-progress", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const [todayEarned, policy] = await Promise.all([
+        rewardEngine.getTodayPointsAwarded(userId),
+        rewardEngine.loadActivePolicy(),
+      ]);
+
+      const dailyCap = policy.dailyPointsCap;
+      const remaining = Math.max(0, dailyCap - todayEarned);
+      const percentUsed = Math.min(100, Math.round((todayEarned / dailyCap) * 100));
+      const isAtCap = todayEarned >= dailyCap;
+
+      // Calculate time until midnight UTC (when daily cap resets)
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      tomorrow.setUTCHours(0, 0, 0, 0);
+      const msUntilReset = tomorrow.getTime() - now.getTime();
+      const hoursUntilReset = Math.floor(msUntilReset / (1000 * 60 * 60));
+      const minutesUntilReset = Math.floor((msUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+
+      res.json({
+        todayEarned,
+        dailyCap,
+        remaining,
+        percentUsed,
+        isAtCap,
+        resetIn: {
+          hours: hoursUntilReset,
+          minutes: minutesUntilReset,
+          ms: msUntilReset,
+        },
+      });
+    } catch (error) {
+      console.error("Error getting daily progress:", error);
+      res.status(500).json({ error: "Failed to get daily progress" });
+    }
+  });
+
   // POST /wallet/spend - Spend PackPTS (auth required, idempotent)
   app.post("/wallet/spend", isAuthenticated, async (req: any, res) => {
     try {

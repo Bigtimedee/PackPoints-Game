@@ -114,6 +114,15 @@ A fame-based point calculation system that awards more PackPTS for identifying o
 - **Admin Endpoints**: Policy management, player fame overrides, audit logs, fame recomputation
 - **Player Stats Tracking**: Records correct/incorrect responses per player to compute fame scores from gameplay data
 
+### Daily Cap UI Feedback
+Visual feedback system showing users their daily earning progress and cap status:
+- **API Endpoint**: `GET /api/user/daily-progress` returns todayEarned, dailyCap, remaining, percentUsed, isAtCap
+- **Header Badge**: DailyProgressBadge component shows X/5,000 progress bar with tooltip
+- **Reset Countdown**: Calculated client-side using user's local timezone midnight
+- **Cap Warnings**: Toast notifications when daily_cap_reached or daily_cap_partial
+- **Visual States**: Amber warning styling when at cap, muted styling otherwise
+- **Cache Invalidation**: Progress updates after each answer submission
+
 ### Financial Guardrails & Fraud Prevention
 A multi-layered system to prevent revenue loss and abuse through user risk tracking, chargeback handling, and pattern-based fraud detection:
 - **User Risk States**: NORMAL, UNDER_REVIEW, FROZEN status tracked in `user_risk_state` table

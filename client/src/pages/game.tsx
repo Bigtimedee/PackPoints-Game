@@ -397,12 +397,27 @@ export default function Game() {
         setRewardDetails(data.reward || null);
         setShowPointsAnimation(true);
         setTimeout(() => setShowPointsAnimation(false), 2000);
+        
+        // Show toast when daily cap is reached
+        if (data.reward?.capped && data.reward?.cappedReason?.includes("daily_cap_reached")) {
+          toast({
+            title: "Daily Limit Reached",
+            description: "You've earned the maximum PackPTS for today. Keep playing for practice - your limit resets at midnight!",
+          });
+        } else if (data.reward?.capped && data.reward?.cappedReason?.includes("daily_cap_partial")) {
+          toast({
+            title: "Approaching Daily Limit",
+            description: "You're close to your daily PackPTS limit. Points may be reduced.",
+          });
+        }
       } else {
         setRewardDetails(null);
       }
       if (data.session) {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
       }
+      // Invalidate daily progress to update the header badge
+      queryClient.invalidateQueries({ queryKey: ["/api/user/daily-progress"] });
     },
     onError: () => {
       toast({

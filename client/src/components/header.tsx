@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useWallet } from "@/hooks/use-wallet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StreakBadge } from "./streak-card";
+import { DailyProgressBadge } from "./daily-progress-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -121,6 +122,7 @@ export function Header() {
           {isAuthenticated && user && (
             <>
               <StreakBadge />
+              {!isRestricted && <DailyProgressBadge />}
               {isRestricted ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
