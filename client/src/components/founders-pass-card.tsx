@@ -50,8 +50,8 @@ export function FoundersPassCard() {
     if (passData?.shareUrl && navigator.share) {
       try {
         await navigator.share({
-          title: "Join PackPoints as a Founder!",
-          text: "Use my Founders Pass to skip the waitlist and become one of the first 500 PackPoints Founders!",
+          title: "Join PackPTS as a Founder!",
+          text: "Use my Founders Pass to skip the waitlist and become one of the first 500 PackPTS Founders!",
           url: passData.shareUrl,
         });
       } catch (err) {
@@ -148,7 +148,7 @@ export function FoundersPassCard() {
             <Users className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
             <p className="text-sm font-medium">Pass Used</p>
             <p className="text-xs text-muted-foreground">
-              Someone joined PackPoints using your pass on{" "}
+              Someone joined PackPTS using your pass on{" "}
               {pass.consumedAt && new Date(pass.consumedAt).toLocaleDateString()}
             </p>
           </div>

@@ -119,7 +119,7 @@ export default function Leaderboard() {
       <div className="container mx-auto px-4 py-8 max-w-3xl">
         <div className="text-center space-y-2 mb-8">
           <h1 className="text-3xl font-bold" data-testid="text-leaderboard-title">Leaderboard</h1>
-          <p className="text-muted-foreground">Top collectors ranked by PackPoints</p>
+          <p className="text-muted-foreground">Top collectors ranked by PackPTS</p>
         </div>
 
         {isLoading ? (

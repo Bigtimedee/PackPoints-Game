@@ -202,7 +202,7 @@ export default function LinkRequiredPage() {
           </div>
           <CardTitle>Account Protection</CardTitle>
           <CardDescription>
-            We found an existing PackPoints account with the email{" "}
+            We found an existing PackPTS account with the email{" "}
             <span className="font-mono text-foreground">{challenge.email || maskedEmail}</span>.
           </CardDescription>
         </CardHeader>
@@ -246,7 +246,7 @@ export default function LinkRequiredPage() {
 
               <TabsContent value="login" className="mt-4 space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Log in to your existing PackPoints account to link your {providerName} login.
+                  Log in to your existing PackPTS account to link your {providerName} login.
                 </p>
 
                 <Form {...loginForm}>

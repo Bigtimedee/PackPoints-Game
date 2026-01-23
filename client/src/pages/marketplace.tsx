@@ -961,7 +961,7 @@ export default function Marketplace() {
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                         1
                       </div>
-                      <p className="text-muted-foreground">Earn PackPoints by correctly identifying players in games</p>
+                      <p className="text-muted-foreground">Earn PackPTS by correctly identifying players in games</p>
                     </div>
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">

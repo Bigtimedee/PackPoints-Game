@@ -70,7 +70,7 @@ export default function InvitePage() {
       
       if (data.activated) {
         toast({
-          title: "Welcome to PackPoints!",
+          title: "Welcome to PackPTS!",
           description: "Your account is now active. Start playing!",
         });
         setLocation("/");
@@ -139,7 +139,7 @@ export default function InvitePage() {
           </div>
           <CardTitle className="text-2xl">Enter Invite Code</CardTitle>
           <CardDescription>
-            Skip the waitlist with an invite code from a friend or the PackPoints team.
+            Skip the waitlist with an invite code from a friend or the PackPTS team.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

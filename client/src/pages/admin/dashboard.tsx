@@ -70,7 +70,7 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold" data-testid="text-admin-dashboard-title">Admin Dashboard</h1>
-        <p className="text-muted-foreground">Overview of PackPoints platform statistics</p>
+        <p className="text-muted-foreground">Overview of PackPTS platform statistics</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">

@@ -744,7 +744,7 @@ export default function Game() {
       : 0;
 
     const setName = currentGameSet ? getSetDisplayName(currentGameSet) : "classic";
-    const shareText = `I scored ${session.score} points on PackPoints! I identified ${session.correctAnswers}/${session.totalQuestions} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
+    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${session.totalQuestions} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
     const handleShare = async (platform: "twitter" | "facebook" | "native" | "copy") => {
@@ -762,7 +762,7 @@ export default function Game() {
           if (navigator.share) {
             try {
               await navigator.share({
-                title: "PackPoints Score",
+                title: "PackPTS Score",
                 text: shareText,
                 url: shareUrl,
               });

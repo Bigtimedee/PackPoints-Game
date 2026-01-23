@@ -205,7 +205,7 @@ export default function WaitlistPage() {
           </div>
           <CardTitle className="text-2xl">Join the Founders</CardTitle>
           <CardDescription>
-            PackPoints is in limited early access. Join the waitlist or use an invite code.
+            PackPTS is in limited early access. Join the waitlist or use an invite code.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

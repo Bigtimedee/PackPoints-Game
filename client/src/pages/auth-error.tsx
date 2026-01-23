@@ -7,7 +7,7 @@ const ERROR_CONFIGS: Record<string, { title: string; icon: React.ReactNode; desc
   IDENTITY_IN_USE: {
     title: "Account Already Linked",
     icon: <Link2Off className="h-6 w-6 text-destructive" />,
-    description: "This login method is already connected to a different PackPoints account. Each login can only be linked to one account.",
+    description: "This login method is already connected to a different PackPTS account. Each login can only be linked to one account.",
     showRetry: false,
   },
   CHALLENGE_EXPIRED: {

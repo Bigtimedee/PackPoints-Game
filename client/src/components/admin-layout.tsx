@@ -43,7 +43,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <Link href="/admin/dashboard">
               <div className="flex items-center gap-2 cursor-pointer">
                 <Shield className="h-6 w-6 text-primary" />
-                <span className="font-bold text-lg">PackPoints Admin</span>
+                <span className="font-bold text-lg">PackPTS Admin</span>
               </div>
             </Link>
             <nav className="hidden md:flex items-center gap-1 ml-6">

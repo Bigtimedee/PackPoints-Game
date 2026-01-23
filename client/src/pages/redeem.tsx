@@ -175,7 +175,7 @@ export default function RedeemPage() {
 
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground text-center">
-                This pass grants you guaranteed access to PackPoints as one of the first 500 Founders.
+                This pass grants you guaranteed access to PackPTS as one of the first 500 Founders.
               </p>
               <ul className="text-sm space-y-2">
                 <li className="flex items-center gap-2">

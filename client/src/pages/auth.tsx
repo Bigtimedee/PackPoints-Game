@@ -105,7 +105,7 @@ export default function AuthPage() {
       } else {
         toast({
           title: "Account created!",
-          description: "Welcome to PackPoints. Start playing to earn PackPTS!",
+          description: "Welcome to PackPTS. Start playing to earn PackPTS!",
         });
         await new Promise(resolve => setTimeout(resolve, 150));
         setLocation("/");
@@ -191,7 +191,7 @@ export default function AuthPage() {
           <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-2">
             <Sparkles className="h-8 w-8 text-primary" />
           </div>
-          <CardTitle className="text-2xl font-bold">PackPoints</CardTitle>
+          <CardTitle className="text-2xl font-bold">PackPTS</CardTitle>
           <CardDescription>
             Guess the player. Earn points. Redeem rewards.
           </CardDescription>

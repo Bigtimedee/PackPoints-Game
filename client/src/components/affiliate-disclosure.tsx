@@ -22,10 +22,10 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
         <div className="text-xs text-muted-foreground space-y-1">
           <p>
             Prices and availability are sourced from third-party marketplaces (eBay, Goldin Auctions).
-            PackPoints is not responsible for listing accuracy.
+            PackPTS is not responsible for listing accuracy.
           </p>
           <p>
-            Some links may include affiliate tracking. PackPoints may earn a commission on purchases
+            Some links may include affiliate tracking. PackPTS may earn a commission on purchases
             made through these links at no additional cost to you.
           </p>
         </div>

@@ -152,8 +152,8 @@ export default function Lobby() {
     if (!lobby) return;
     
     const shareData = {
-      title: "PackPoints 1v1 Battle",
-      text: `Join my PackPoints game! Use code: ${lobby.joinCode}`,
+      title: "PackPTS 1v1 Battle",
+      text: `Join my PackPTS game! Use code: ${lobby.joinCode}`,
       url: `${window.location.origin}/lobby/join?code=${lobby.joinCode}`,
     };
     
