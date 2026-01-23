@@ -1216,8 +1216,17 @@ export async function registerRoutes(
           }
         });
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error registering user:", error);
+      console.error("Error details:", {
+        message: error?.message,
+        code: error?.code,
+        constraint: error?.constraint,
+        detail: error?.detail,
+        table: error?.table,
+        column: error?.column,
+        stack: error?.stack?.split('\n').slice(0, 5).join('\n')
+      });
       res.status(500).json({ error: "Failed to register" });
     }
   });
