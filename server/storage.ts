@@ -75,10 +75,73 @@ export class DatabaseStorage implements IStorage {
     this.gameSessions = new Map();
   }
 
+  private async ensureAuthTablesExist(): Promise<void> {
+    try {
+      // Ensure pgcrypto extension exists for gen_random_uuid()
+      await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+      
+      // Check if local_credentials table exists, create if not (matches shared/schema.ts exactly)
+      const result = await db.execute(sql`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'local_credentials'
+        ) as exists
+      `);
+      
+      const tableExists = (result.rows[0] as any)?.exists === true;
+      
+      if (!tableExists) {
+        console.log('[Auth] Creating local_credentials table...');
+        await db.execute(sql`
+          CREATE TABLE local_credentials (
+            id VARCHAR NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id VARCHAR NOT NULL REFERENCES users(id),
+            password_hash VARCHAR NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+          )
+        `);
+        console.log('[Auth] local_credentials table created');
+      }
+      
+      // Check if password_reset_tokens table exists, create if not (matches shared/schema.ts exactly)
+      const resetResult = await db.execute(sql`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'password_reset_tokens'
+        ) as exists
+      `);
+      
+      const resetTableExists = (resetResult.rows[0] as any)?.exists === true;
+      
+      if (!resetTableExists) {
+        console.log('[Auth] Creating password_reset_tokens table...');
+        await db.execute(sql`
+          CREATE TABLE password_reset_tokens (
+            id VARCHAR NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id VARCHAR NOT NULL REFERENCES users(id),
+            token VARCHAR NOT NULL UNIQUE,
+            expires_at TIMESTAMP NOT NULL,
+            used_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW()
+          )
+        `);
+        console.log('[Auth] password_reset_tokens table created');
+      }
+    } catch (error) {
+      console.error('[Auth] Error ensuring auth tables exist:', error);
+      throw error;
+    }
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
     this.initialized = true;
+    
+    // Ensure critical auth tables exist (for production where db:push may not have run)
+    await this.ensureAuthTablesExist();
     
     console.log("Initializing card data from PriceCharting/COMC...");
     
