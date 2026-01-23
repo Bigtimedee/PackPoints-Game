@@ -1,0 +1,308 @@
+Build “Marketplace Feeds” for PackPTS.com so the app pulls LIVE, relevant trading card listings from:
+1) eBay (via eBay Buy Browse API search)
+2) Goldin (via official/partner feed if available; otherwise implement the Goldin adapter as a pluggable provider so we can drop in the correct feed once Goldin provides an API/affiliate catalog endpoint)
+
+IMPORTANT CONTEXT
+- eBay’s legacy Finding/Shopping APIs are deprecated/decommissioned; use the Buy Browse API for keyword search and item summaries.  [oai_citation:0‡eBay Developers](https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search?utm_source=chatgpt.com)
+
+STACK (do not change)
+Frontend: React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack React Query + Wouter
+Backend: Express + TypeScript (tsx dev)
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+GOAL
+- Pull live listings filtered to the “vintages” and “sets” currently being played in PackPTS (e.g., Topps 1987 Baseball)
+- Normalize all listings into one internal schema
+- Cache results to avoid rate limits
+- Refresh automatically in the background
+- Expose a single API to the frontend: GET /api/marketplace/listings?... that returns a merged feed (eBay + Goldin)
+
+========================================
+A) ENV VARS
+Add to .env:
+
+# eBay (production)
+EBAY_ENV=production
+EBAY_CLIENT_ID=
+EBAY_CLIENT_SECRET=
+EBAY_MARKETPLACE_ID=EBAY_US
+EBAY_OAUTH_SCOPE=https://api.ebay.com/oauth/api_scope
+EBAY_OAUTH_TOKEN_URL=https://api.ebay.com/identity/v1/oauth2/token
+EBAY_BROWSE_SEARCH_URL=https://api.ebay.com/buy/browse/v1/item_summary/search
+
+# Goldin (depends on what you have: partner API OR affiliate catalog feed)
+GOLDIN_FEED_MODE=disabled   # values: disabled | partner_api | affiliate_feed
+GOLDIN_BASE_URL=
+GOLDIN_API_KEY=
+GOLDIN_AFFILIATE_FEED_URL=
+GOLDIN_AFFILIATE_TOKEN=
+
+MARKETPLACE_CACHE_TTL_SECONDS=300
+MARKETPLACE_REFRESH_INTERVAL_SECONDS=600
+
+========================================
+B) DATABASE TABLES (DRIZZLE MIGRATIONS)
+
+1) marketplace_listings_cache
+- cache_key text PRIMARY KEY
+- provider text NOT NULL   // 'ebay' | 'goldin'
+- query jsonb NOT NULL
+- payload jsonb NOT NULL
+- expires_at timestamp NOT NULL
+- created_at timestamp default now
+
+2) marketplace_listings
+(optional “store latest snapshot” for faster UI + analytics)
+- id uuid pk
+- provider text
+- external_id text
+- title text
+- price_cents int
+- currency text
+- image_url text
+- item_url text
+- condition text nullable
+- end_time timestamp nullable
+- set_name text nullable
+- year int nullable
+- sport text nullable
+- player text nullable
+- raw jsonb
+- updated_at timestamp default now
+Unique(provider, external_id)
+
+3) active_game_sets
+This is how we filter “pertinent” listings to what’s being played.
+- id uuid pk
+- sport text NOT NULL        // Baseball/Basketball/Football/Hockey
+- year int NOT NULL          // 1987
+- brand text nullable        // Topps/Upper Deck/etc
+- set_name text NOT NULL     // "1987 Topps Baseball"
+- keywords text[] NOT NULL   // ["1987 Topps", "Topps 1987", "1987 Topps Baseball"]
+- is_active boolean default true
+- updated_at timestamp default now
+
+========================================
+C) PROVIDER ADAPTER INTERFACE
+
+Create:
+src/services/marketplace/providers/types.ts
+
+export type MarketplaceProvider = 'ebay' | 'goldin';
+
+export type MarketplaceQuery = {
+  sport: 'Baseball'|'Basketball'|'Football'|'Hockey';
+  year?: number;
+  setName?: string;          // "1987 Topps Baseball"
+  player?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type NormalizedListing = {
+  provider: MarketplaceProvider;
+  externalId: string;
+  title: string;
+  priceCents: number;
+  currency: string;
+  imageUrl?: string;
+  itemUrl: string;
+  condition?: string;
+  endTime?: string;
+  // classification fields
+  sport?: string;
+  year?: number;
+  setName?: string;
+  player?: string;
+  raw: any;
+};
+
+export interface ProviderAdapter {
+  provider: MarketplaceProvider;
+  search(query: MarketplaceQuery): Promise<{items: NormalizedListing[]; nextPage?: number;}>;
+}
+
+========================================
+D) EBAY INTEGRATION (LIVE SEARCH)
+
+1) Build eBay OAuth “application token” (client credentials)
+
+Create:
+src/services/marketplace/providers/ebay/oauth.ts
+
+- getEbayAppToken(): caches token in-memory with expiry
+- POST to EBAY_OAUTH_TOKEN_URL with:
+  grant_type=client_credentials
+  scope=EBAY_OAUTH_SCOPE
+  Authorization: Basic base64(client_id:client_secret)
+- Store token + expires_in
+- Refresh automatically when < 60s remaining
+
+2) Build eBay Browse search adapter
+
+Create:
+src/services/marketplace/providers/ebay/ebayAdapter.ts
+
+Use Browse API search endpoint (item_summary search) for keyword-based listing retrieval.  [oai_citation:1‡eBay Developers](https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search?utm_source=chatgpt.com)
+
+- Build keyword query string from MarketplaceQuery:
+  keywords = [
+    year + " " + brand,
+    setName,
+    player (optional),
+    sport (optional)
+  ].join(" ")
+
+- Call:
+GET EBAY_BROWSE_SEARCH_URL?q=<urlencoded keywords>&limit=<pageSize>&offset=<offset>
+
+Headers:
+Authorization: Bearer <app_token>
+X-EBAY-C-MARKETPLACE-ID: EBAY_US
+
+- Normalize each item_summary into NormalizedListing:
+  provider='ebay'
+  externalId=itemId
+  title=title
+  priceCents = parse price.value * 100
+  currency = price.currency
+  imageUrl = image.imageUrl (if present)
+  itemUrl = itemWebUrl (if present)
+  condition = condition (if present)
+  endTime = itemEndDate (if present)
+  raw = item_summary
+
+- IMPORTANT: Create a safe “listing URL” that includes your eBay partner/affiliate tracking parameters if you have them (do not break the URL; store separately if needed).
+
+3) Handle pagination
+- Translate page/pageSize → offset/limit
+- Return nextPage if there are more results
+
+========================================
+E) GOLDIN INTEGRATION (PLUGGABLE)
+
+Create:
+src/services/marketplace/providers/goldin/goldinAdapter.ts
+
+Implement modes:
+
+MODE 1: partner_api
+- If Goldin provides an authenticated API endpoint for listings/search:
+  - use GOLDIN_BASE_URL + documented path
+  - auth header with GOLDIN_API_KEY
+  - normalize to NormalizedListing
+
+MODE 2: affiliate_feed
+- If Goldin provides an affiliate catalog/feed endpoint:
+  - fetch feed (JSON/CSV) periodically
+  - filter locally by active_game_sets keywords
+  - return normalized items
+
+MODE 3: disabled
+- returns empty list
+
+DO NOT SCRAPE HTML PAGES. Use only official partner API or official affiliate/catalog feeds.
+
+========================================
+F) CACHING + RATE LIMIT SAFETY
+
+Create:
+src/services/marketplace/cache.ts
+
+- makeCacheKey(provider, query): stable JSON stringify
+- getCached(provider, query): return cached payload if not expired
+- setCached(provider, query, payload, ttlSeconds)
+
+Behavior:
+- If cache hit → return cached
+- Else call provider adapter → cache results for MARKETPLACE_CACHE_TTL_SECONDS
+
+========================================
+G) “PERTINENT LISTINGS” LOGIC (MATCH WHAT’S BEING PLAYED)
+
+Create:
+src/services/marketplace/pertinence.ts
+
+- loadActiveGameSets(): SELECT * FROM active_game_sets WHERE is_active=true
+- buildQueriesFromActiveSets(optional player filter):
+  For each active set:
+    query = { sport, year, setName, player? }
+- The Marketplace page should request by:
+  - current game’s set (single)
+  - or user’s currently selected “active sets” (multiple)
+
+========================================
+H) BACKGROUND REFRESH JOB
+
+Create:
+src/services/marketplace/refreshJob.ts
+
+- every MARKETPLACE_REFRESH_INTERVAL_SECONDS:
+  - loadActiveGameSets
+  - for each set, for each provider:
+    - run search(query with page=1 pageSize=20)
+    - cache results
+    - (optional) upsert into marketplace_listings table
+
+Use a simple in-process interval for now; later migrate to job table if needed.
+
+========================================
+I) API ENDPOINTS (MINIMAL)
+
+1) GET /api/marketplace/listings
+Query params:
+- sport=Baseball|Basketball|Football|Hockey
+- year=1987 (optional)
+- setName=... (optional)
+- player=... (optional)
+- page=1
+- pageSize=20
+- providers=ebay,goldin (optional)
+
+Response:
+{
+  "items": NormalizedListing[],
+  "sources": { "ebay": { "ok": true }, "goldin": { "ok": true } }
+}
+
+Implementation:
+- Validate inputs (Zod)
+- Call providers in parallel (Promise.all)
+- Merge items
+- Sort by price or “best match” (basic: keep provider order + price ascending)
+- Return
+
+2) Admin endpoints to manage active sets:
+- GET /api/admin/active-sets
+- POST /api/admin/active-sets
+- PUT /api/admin/active-sets/:id
+Admin-only
+
+========================================
+J) FRONTEND (MARKETPLACE PAGE)
+
+Create page:
+/marketplace
+
+- Dropdown filters: Sport, Set (from active_game_sets), Player (optional)
+- Uses TanStack Query to call /api/marketplace/listings
+- Renders listing cards with image, title, price, provider badge, and outbound link button
+- Outbound links open in new tab (rel=noopener noreferrer)
+
+========================================
+K) ACCEPTANCE TESTS
+- eBay listings appear live on page refresh (cache TTL respected)
+- Changing set filter changes results
+- Works even if Goldin disabled (no crashes)
+- Caches reduce repeated calls
+- Active sets control relevance: only sets marked active are refreshed
+
+DELIVERABLES
+- Drizzle migrations
+- Provider adapter interface
+- eBay OAuth app token module + Browse search adapter  [oai_citation:2‡eBay Developers](https://developer.ebay.com/api-docs/buy/browse/resources/item_summary/methods/search?utm_source=chatgpt.com)
+- Goldin adapter with modes (partner_api / affiliate_feed / disabled)
+- Cache service + refresh job
+- Marketplace listings API + admin active-set CRUD
+- Marketplace UI page wired to the API
