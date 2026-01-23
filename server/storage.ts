@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -143,6 +143,28 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  private async ensureAccessCounterExists(): Promise<void> {
+    try {
+      // Check if active_user_counter row exists
+      const [existingCounter] = await db.select().from(activeUserCounter).where(eq(activeUserCounter.id, 1));
+      
+      if (!existingCounter) {
+        console.log('[Access] Creating active user counter row...');
+        await db.insert(activeUserCounter).values({
+          id: 1,
+          count: 0,
+          reservedSeatsUsed: 0,
+        }).onConflictDoNothing();
+        console.log('[Access] Active user counter row created');
+      } else {
+        console.log('[Access] Active user counter verified');
+      }
+    } catch (error) {
+      console.error('[Access] Error ensuring access counter exists:', error);
+      // Don't throw - let the app continue and fail gracefully on actual operations
+    }
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
@@ -150,6 +172,9 @@ export class DatabaseStorage implements IStorage {
     
     // Ensure critical auth tables exist (for production where db:push may not have run)
     await this.ensureAuthTablesExist();
+    
+    // Ensure access counter row exists (required for registration)
+    await this.ensureAccessCounterExists();
     
     console.log("Initializing card data from PriceCharting/COMC...");
     
