@@ -77,10 +77,14 @@ export class DatabaseStorage implements IStorage {
 
   private async ensureAuthTablesExist(): Promise<void> {
     try {
-      // Ensure pgcrypto extension exists for gen_random_uuid()
-      await db.execute(sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+      // Try to enable uuid-ossp extension (more widely available than pgcrypto)
+      try {
+        await db.execute(sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+      } catch (extError) {
+        console.log('[Auth] uuid-ossp extension not available, will use application-generated UUIDs');
+      }
       
-      // Check if local_credentials table exists, create if not (matches shared/schema.ts exactly)
+      // Check if local_credentials table exists, create if not
       const result = await db.execute(sql`
         SELECT EXISTS (
           SELECT FROM information_schema.tables 
@@ -93,9 +97,10 @@ export class DatabaseStorage implements IStorage {
       
       if (!tableExists) {
         console.log('[Auth] Creating local_credentials table...');
+        // Create without default UUID - application will provide ID
         await db.execute(sql`
           CREATE TABLE local_credentials (
-            id VARCHAR NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+            id VARCHAR NOT NULL PRIMARY KEY,
             user_id VARCHAR NOT NULL REFERENCES users(id),
             password_hash VARCHAR NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
@@ -104,7 +109,7 @@ export class DatabaseStorage implements IStorage {
         console.log('[Auth] local_credentials table created');
       }
       
-      // Check if password_reset_tokens table exists, create if not (matches shared/schema.ts exactly)
+      // Check if password_reset_tokens table exists, create if not
       const resetResult = await db.execute(sql`
         SELECT EXISTS (
           SELECT FROM information_schema.tables 
@@ -117,9 +122,10 @@ export class DatabaseStorage implements IStorage {
       
       if (!resetTableExists) {
         console.log('[Auth] Creating password_reset_tokens table...');
+        // Create without default UUID - application will provide ID
         await db.execute(sql`
           CREATE TABLE password_reset_tokens (
-            id VARCHAR NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
+            id VARCHAR NOT NULL PRIMARY KEY,
             user_id VARCHAR NOT NULL REFERENCES users(id),
             token VARCHAR NOT NULL UNIQUE,
             expires_at TIMESTAMP NOT NULL,
@@ -129,9 +135,11 @@ export class DatabaseStorage implements IStorage {
         `);
         console.log('[Auth] password_reset_tokens table created');
       }
+      
+      console.log('[Auth] Auth tables verified');
     } catch (error) {
       console.error('[Auth] Error ensuring auth tables exist:', error);
-      throw error;
+      // Don't throw - let the app continue and fail gracefully on actual operations
     }
   }
 
@@ -213,7 +221,7 @@ export class DatabaseStorage implements IStorage {
         await db.update(localCredentials).set({ passwordHash: newHash }).where(eq(localCredentials.userId, existingUser.id));
         console.log(`[Admin] Reset password for ${adminEmail}`);
       } else {
-        await db.insert(localCredentials).values({ userId: existingUser.id, passwordHash: newHash });
+        await db.insert(localCredentials).values({ id: randomUUID(), userId: existingUser.id, passwordHash: newHash });
         console.log(`[Admin] Created credentials for ${adminEmail}`);
       }
     } else {
@@ -229,7 +237,7 @@ export class DatabaseStorage implements IStorage {
         status: "ACTIVE",
       }).returning();
       
-      await db.insert(localCredentials).values({ userId: newAdmin.id, passwordHash });
+      await db.insert(localCredentials).values({ id: randomUUID(), userId: newAdmin.id, passwordHash });
       console.log(`[Admin] Created admin user ${adminEmail}`);
     }
   }
@@ -289,6 +297,7 @@ export class DatabaseStorage implements IStorage {
   async createLocalUser(username: string, email: string, password: string): Promise<User> {
     const passwordHash = await bcrypt.hash(password, 10);
     const { normalizeEmail } = await import("./services/accessService");
+    const { randomUUID } = await import("crypto");
     
     const [user] = await db.insert(users).values({
       username,
@@ -298,7 +307,9 @@ export class DatabaseStorage implements IStorage {
       status: "PENDING",
     }).returning();
     
+    // Provide explicit ID in case database doesn't have UUID generation capability
     await db.insert(localCredentials).values({
+      id: randomUUID(),
       userId: user.id,
       passwordHash,
     });
@@ -356,6 +367,7 @@ export class DatabaseStorage implements IStorage {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
     
     const [resetToken] = await db.insert(passwordResetTokens).values({
+      id: randomUUID(),
       userId,
       token,
       expiresAt,

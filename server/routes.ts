@@ -1227,7 +1227,52 @@ export async function registerRoutes(
         column: error?.column,
         stack: error?.stack?.split('\n').slice(0, 5).join('\n')
       });
-      res.status(500).json({ error: "Failed to register" });
+      // Show specific error only if DEBUG_REGISTRATION is enabled
+      const errorMsg = error?.message || "Unknown error";
+      const errorCode = error?.code || "";
+      const response: any = { error: "Failed to register" };
+      if (process.env.DEBUG_REGISTRATION === "true") {
+        response.debug = `${errorCode}: ${errorMsg}`.slice(0, 200);
+      }
+      res.status(500).json(response);
+    }
+  });
+
+  // Health check endpoint to verify auth tables exist
+  app.get("/api/health/auth", async (_req, res) => {
+    try {
+      const { sql } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      
+      const localCredCheck = await db.execute(sql`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' AND table_name = 'local_credentials'
+        ) as exists
+      `);
+      
+      const resetTokenCheck = await db.execute(sql`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' AND table_name = 'password_reset_tokens'
+        ) as exists
+      `);
+      
+      const localCredExists = (localCredCheck.rows[0] as any)?.exists === true;
+      const resetTokenExists = (resetTokenCheck.rows[0] as any)?.exists === true;
+      
+      res.json({
+        status: localCredExists && resetTokenExists ? "healthy" : "unhealthy",
+        tables: {
+          local_credentials: localCredExists,
+          password_reset_tokens: resetTokenExists
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ 
+        status: "error", 
+        message: error?.message 
+      });
     }
   });
 
