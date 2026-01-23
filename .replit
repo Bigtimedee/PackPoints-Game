@@ -45,3 +45,5 @@ integrations = ["javascript_database:1.0.0", "javascript_log_in_with_replit:2.0.
 
 [userenv.shared]
 DEBUG_REGISTRATION = "true"
+EBAY_ENV = "production"
+OUTBOUND_SECRET = "dbd50413e58623efcd94cc3d89fe495e2ecd9ae77d335d75fd411ee50a8ced02"
