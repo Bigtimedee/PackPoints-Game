@@ -4,12 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Zap, Coins, Crown, Star, ShieldCheck, Sparkles, CreditCard, ShoppingBag, ArrowRight, Calendar, RefreshCw } from "lucide-react";
+import { Zap, Coins, Crown, ShieldCheck, Sparkles, CreditCard, ShoppingBag, ArrowRight, Calendar, RefreshCw } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { WalletExpirationCard } from "@/components/wallet-expiration-card";
 import { Link } from "wouter";
+import packStarterImg from "@/assets/pack-starter.png";
+import packProImg from "@/assets/pack-pro.png";
+import packLegendImg from "@/assets/pack-legend.png";
 
 interface PackPtsBundle {
   sku: string;
@@ -51,16 +54,16 @@ function BundleCard({
   onPurchase: (sku: string) => void;
   isPurchasing: boolean;
 }) {
-  const getIcon = () => {
-    if (bundle.packptsGrant >= 15000) return <Crown className="h-8 w-8" />;
-    if (bundle.packptsGrant >= 6000) return <Star className="h-8 w-8" />;
-    return <Coins className="h-8 w-8" />;
+  const getPackImage = () => {
+    if (bundle.packptsGrant >= 15000) return packLegendImg;
+    if (bundle.packptsGrant >= 6000) return packProImg;
+    return packStarterImg;
   };
 
-  const getGradient = () => {
-    if (bundle.packptsGrant >= 15000) return "from-amber-500/20 to-yellow-500/20";
-    if (bundle.packptsGrant >= 6000) return "from-purple-500/20 to-pink-500/20";
-    return "from-blue-500/20 to-cyan-500/20";
+  const getTierLabel = () => {
+    if (bundle.packptsGrant >= 15000) return "Legend";
+    if (bundle.packptsGrant >= 6000) return "Pro";
+    return "Starter";
   };
 
   return (
@@ -77,10 +80,13 @@ function BundleCard({
           Best Value
         </Badge>
       )}
-      <div className={`aspect-[4/3] bg-gradient-to-br ${getGradient()} rounded-t-md flex items-center justify-center`}>
-        <div className="text-muted-foreground/80">
-          {getIcon()}
-        </div>
+      <div className="aspect-[4/3] rounded-t-md overflow-hidden relative">
+        <img 
+          src={getPackImage()} 
+          alt={`${getTierLabel()} Pack`}
+          className="w-full h-full object-cover"
+          data-testid={`img-pack-${bundle.sku}`}
+        />
       </div>
       <CardContent className="p-4 space-y-4">
         <div className="text-center">
@@ -126,16 +132,16 @@ function SubscriptionCard({
   onSubscribe: (sku: string) => void;
   isSubscribing: boolean;
 }) {
-  const getIcon = () => {
-    if (subscription.packptsGrant >= 5000) return <Crown className="h-8 w-8" />;
-    if (subscription.packptsGrant >= 2000) return <Star className="h-8 w-8" />;
-    return <Coins className="h-8 w-8" />;
+  const getPackImage = () => {
+    if (subscription.packptsGrant >= 5000) return packLegendImg;
+    if (subscription.packptsGrant >= 2000) return packProImg;
+    return packStarterImg;
   };
 
-  const getGradient = () => {
-    if (subscription.packptsGrant >= 5000) return "from-amber-500/20 to-yellow-500/20";
-    if (subscription.packptsGrant >= 2000) return "from-purple-500/20 to-pink-500/20";
-    return "from-blue-500/20 to-cyan-500/20";
+  const getTierLabel = () => {
+    if (subscription.packptsGrant >= 5000) return "Legend";
+    if (subscription.packptsGrant >= 2000) return "Pro";
+    return "Starter";
   };
 
   return (
@@ -152,10 +158,13 @@ function SubscriptionCard({
           Best Value
         </Badge>
       )}
-      <div className={`aspect-[4/3] bg-gradient-to-br ${getGradient()} rounded-t-md flex items-center justify-center relative`}>
-        <div className="text-muted-foreground/80">
-          {getIcon()}
-        </div>
+      <div className="aspect-[4/3] rounded-t-md overflow-hidden relative">
+        <img 
+          src={getPackImage()} 
+          alt={`${getTierLabel()} Pack`}
+          className="w-full h-full object-cover"
+          data-testid={`img-pack-subscription-${subscription.sku}`}
+        />
         <Badge 
           variant="secondary" 
           className="absolute top-2 right-2 gap-1"
