@@ -181,6 +181,13 @@ export async function cardHedgeFetch<T>(
 
   try {
     const url = `${CARDHEDGE_BASE_URL}${path}`;
+    
+    // Log request details for debugging
+    console.log(`[CardHedge] ${method} ${path}`, {
+      body: body ? JSON.stringify(body) : undefined,
+      retry: retryCount,
+    });
+    
     const response = await fetch(url, {
       method,
       headers: {
@@ -194,9 +201,25 @@ export async function cardHedgeFetch<T>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      // Try to get the response body for better error diagnostics
+      let errorBody = "";
+      try {
+        errorBody = await response.text();
+      } catch (e) {
+        errorBody = "Unable to read response body";
+      }
+      
+      console.error(`[CardHedge] API Error: ${response.status} ${response.statusText}`, {
+        path,
+        body,
+        errorBody,
+        retry: retryCount,
+      });
+      
       const isRetryable = response.status >= 500 || response.status === 429;
       if (isRetryable && retryCount < MAX_RETRIES) {
         const delay = Math.pow(2, retryCount) * 500;
+        console.log(`[CardHedge] Retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return cardHedgeFetch<T>(path, method, body, {
           useCache,
@@ -204,7 +227,7 @@ export async function cardHedgeFetch<T>(
         });
       }
       throw new CardHedgeError(
-        `Card Hedge API error: ${response.status} ${response.statusText}`,
+        `Card Hedge API error: ${response.status} ${response.statusText} - ${errorBody}`,
         response.status,
         isRetryable
       );
