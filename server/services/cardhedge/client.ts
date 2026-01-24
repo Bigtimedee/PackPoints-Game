@@ -2,7 +2,8 @@ import { z } from "zod";
 
 const CARDHEDGE_BASE_URL = process.env.CARDHEDGE_BASE_URL || "https://api.cardhedger.com";
 const CARDHEDGE_TIMEOUT_MS = parseInt(process.env.CARDHEDGE_HTTP_TIMEOUT_MS || "10000", 10);
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3; // Default retries
+const MAX_RETRIES_503 = 5; // Extra retries for 503 (service temporarily unavailable)
 
 export const CardHedgeCardSchema = z.object({
   card_id: z.string().optional(),
@@ -19,6 +20,7 @@ export const CardHedgeCardSchema = z.object({
   "7 Day Sales": z.number().optional(),
   "30 Day Sales": z.number().optional(),
   gain: z.number().optional(),
+  gain_30day: z.number().optional(),
   prices: z.array(z.object({
     grade: z.string(),
     price: z.string(),
@@ -41,7 +43,7 @@ export const CardSearchRequestSchema = z.object({
 export type CardSearchRequest = z.infer<typeof CardSearchRequestSchema>;
 
 export const CardSearchSortedRequestSchema = CardSearchRequestSchema.extend({
-  sort_by: z.enum(["price", "name", "set", "number"]).optional(),
+  sort_by: z.enum(["gain", "gain_30day", "sales", "sales_7day", "sales_30day", "price", "description"]).optional(),
   sort_order: z.enum(["asc", "desc"]).optional(),
 }).refine(
   (data) => data.search || data.set || data.category || data.player,
@@ -82,6 +84,7 @@ export interface NormalizedCardSearchResult {
   sales7d: number | null;
   sales30d: number | null;
   gain: number | null;
+  gain30d: number | null;
   prices: Array<{ grade: string; price: string }>;
   raw: CardHedgeCard;
 }
@@ -113,6 +116,7 @@ export interface NormalizedCardDetails {
   sales7d: number | null;
   sales30d: number | null;
   gain: number | null;
+  gain30d: number | null;
   prices: Array<{ grade: string; price: string }>;
   raw: CardHedgeCard;
 }
@@ -128,21 +132,36 @@ export class CardHedgeError extends Error {
   }
 }
 
-const httpCache = new Map<string, { data: unknown; expiresAt: number }>();
+const httpCache = new Map<string, { data: unknown; expiresAt: number; staleAt: number }>();
 const CACHE_TTL_MS = parseInt(process.env.CARDHEDGE_CACHE_TTL_SECONDS || "3600", 10) * 1000;
+const STALE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // Keep stale data for 24 hours as fallback
 
 function getCacheKey(path: string, body: unknown): string {
   return `${path}:${JSON.stringify(body)}`;
 }
 
-function getFromCache<T>(key: string): T | null {
+function getFromCache<T>(key: string, allowStale: boolean = false): T | null {
   const entry = httpCache.get(key);
-  if (entry && entry.expiresAt > Date.now()) {
+  if (!entry) return null;
+  
+  const now = Date.now();
+  
+  // Return fresh data
+  if (entry.expiresAt > now) {
     return entry.data as T;
   }
-  if (entry) {
+  
+  // Return stale data as fallback if allowed and not too old
+  if (allowStale && entry.staleAt > now) {
+    console.log(`[CardHedge] Using stale cache for ${key}`);
+    return entry.data as T;
+  }
+  
+  // Data is too old, clean up
+  if (entry.staleAt <= now) {
     httpCache.delete(key);
   }
+  
   return null;
 }
 
@@ -151,7 +170,11 @@ function setInCache<T>(key: string, data: T): void {
     const oldestKey = httpCache.keys().next().value;
     if (oldestKey) httpCache.delete(oldestKey);
   }
-  httpCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  httpCache.set(key, { 
+    data, 
+    expiresAt: Date.now() + CACHE_TTL_MS,
+    staleAt: Date.now() + STALE_CACHE_TTL_MS
+  });
 }
 
 export async function cardHedgeFetch<T>(
@@ -217,15 +240,26 @@ export async function cardHedgeFetch<T>(
       });
       
       const isRetryable = response.status >= 500 || response.status === 429;
-      if (isRetryable && retryCount < MAX_RETRIES) {
+      const maxRetries = response.status === 503 ? MAX_RETRIES_503 : MAX_RETRIES;
+      if (isRetryable && retryCount < maxRetries) {
         const delay = Math.pow(2, retryCount) * 500;
-        console.log(`[CardHedge] Retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        console.log(`[CardHedge] Retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return cardHedgeFetch<T>(path, method, body, {
           useCache,
           retryCount: retryCount + 1,
         });
       }
+      
+      // Try stale cache as fallback for server errors
+      if (isRetryable && useCache && method === "POST") {
+        const staleData = getFromCache<T>(cacheKey, true);
+        if (staleData) {
+          console.log(`[CardHedge] API unavailable, using stale cache fallback`);
+          return staleData;
+        }
+      }
+      
       throw new CardHedgeError(
         `Card Hedge API error: ${response.status} ${response.statusText} - ${errorBody}`,
         response.status,
@@ -243,6 +277,14 @@ export async function cardHedgeFetch<T>(
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof CardHedgeError) {
+      // For retryable CardHedgeErrors, try stale cache before re-throwing
+      if (error.isRetryable && useCache && method === "POST") {
+        const staleData = getFromCache<T>(cacheKey, true);
+        if (staleData) {
+          console.log(`[CardHedge] API error, using stale cache fallback`);
+          return staleData;
+        }
+      }
       throw error;
     }
     if (error instanceof Error && error.name === "AbortError") {
@@ -252,8 +294,26 @@ export async function cardHedgeFetch<T>(
           retryCount: retryCount + 1,
         });
       }
+      // Try stale cache for timeout errors
+      if (useCache && method === "POST") {
+        const staleData = getFromCache<T>(cacheKey, true);
+        if (staleData) {
+          console.log(`[CardHedge] Request timed out, using stale cache fallback`);
+          return staleData;
+        }
+      }
       throw new CardHedgeError("Card Hedge API request timed out", undefined, true);
     }
+    
+    // Try stale cache for network errors
+    if (useCache && method === "POST") {
+      const staleData = getFromCache<T>(cacheKey, true);
+      if (staleData) {
+        console.log(`[CardHedge] Network error, using stale cache fallback`);
+        return staleData;
+      }
+    }
+    
     throw new CardHedgeError(
       `Card Hedge API request failed: ${error instanceof Error ? error.message : "Unknown error"}`
     );
@@ -291,6 +351,7 @@ export function normalizeCardDetails(card: CardHedgeCard): NormalizedCardDetails
     sales7d: card["7 Day Sales"] ?? null,
     sales30d: card["30 Day Sales"] ?? null,
     gain: card.gain ?? null,
+    gain30d: card.gain_30day ?? null,
     prices: card.prices || [],
     raw: card,
   };
@@ -346,6 +407,7 @@ export function normalizeCardSearchResponse(response: CardSearchResponse): Norma
       sales7d: card["7 Day Sales"] ?? null,
       sales30d: card["30 Day Sales"] ?? null,
       gain: card.gain ?? null,
+      gain30d: card.gain_30day ?? null,
       prices: card.prices || [],
       raw: card,
     })),
