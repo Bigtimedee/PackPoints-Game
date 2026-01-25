@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Clock, TrendingUp, AlertTriangle } from "lucide-react";
 
 export function DailyProgressBadge() {
-  const { todayEarned, dailyCap, percentUsed, isAtCap, resetIn, isLoading } = useDailyProgress();
+  const { todayEarned, dailyCap, percentUsed, isAtCap, cardsCompleted, cardsMax, resetIn, isLoading } = useDailyProgress();
 
   if (isLoading) {
     return (
@@ -45,7 +45,7 @@ export function DailyProgressBadge() {
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1.5">
               <span className={`text-xs font-medium ${isAtCap ? "text-amber-500" : "text-muted-foreground"}`}>
-                {todayEarned.toLocaleString()}/{dailyCap.toLocaleString()}
+                {cardsCompleted}/{cardsMax} cards
               </span>
             </div>
             <Progress 
@@ -55,15 +55,25 @@ export function DailyProgressBadge() {
           </div>
         </div>
       </TooltipTrigger>
-      <TooltipContent side="bottom" className="max-w-64">
+      <TooltipContent side="bottom" className="max-w-72">
         <div className="space-y-2">
           <p className="font-semibold">
-            {isAtCap ? "Daily Limit Reached" : "Today's Earnings"}
+            {isAtCap ? "Daily Limit Reached" : "Today's Progress"}
           </p>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Cards completed:</span>
+              <span className="font-medium text-foreground">{cardsCompleted}/{cardsMax}</span>
+            </div>
+            <div className="flex justify-between text-muted-foreground">
+              <span>PackPTS earned:</span>
+              <span className="font-medium text-foreground">{todayEarned.toLocaleString()}/{dailyCap.toLocaleString()}</span>
+            </div>
+          </div>
           <p className="text-muted-foreground text-xs">
             {isAtCap 
-              ? "You've earned the maximum PackPTS for today. You can still play, but won't earn additional points."
-              : `You've earned ${todayEarned.toLocaleString()} of ${dailyCap.toLocaleString()} PackPTS today.`
+              ? "You've reached the daily cap. Play again tomorrow to earn more PackPTS!"
+              : `Complete ${cardsMax - cardsCompleted} more cards to max out today's earnings.`
             }
           </p>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

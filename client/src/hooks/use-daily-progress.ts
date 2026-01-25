@@ -7,6 +7,9 @@ interface DailyProgressResponse {
   remaining: number;
   percentUsed: number;
   isAtCap: boolean;
+  cardsCompleted: number;
+  cardsMax: number;
+  dayKey: string;
 }
 
 function getLocalMidnightReset(): { hours: number; minutes: number; ms: number } {
@@ -42,10 +45,13 @@ export function useDailyProgress() {
   return {
     progress: data ?? null,
     todayEarned: data?.todayEarned ?? 0,
-    dailyCap: data?.dailyCap ?? 5000,
-    remaining: data?.remaining ?? 5000,
+    dailyCap: data?.dailyCap ?? 15000,
+    remaining: data?.remaining ?? 15000,
     percentUsed: data?.percentUsed ?? 0,
     isAtCap: data?.isAtCap ?? false,
+    cardsCompleted: data?.cardsCompleted ?? 0,
+    cardsMax: data?.cardsMax ?? 200,
+    dayKey: data?.dayKey ?? "",
     resetIn,
     isLoading,
     error,
