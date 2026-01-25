@@ -21,6 +21,7 @@ import {
 import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle, Layers, TrendingDown } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
+import { useWallet } from "@/hooks/use-wallet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
 import type { RedemptionOption, GameSet } from "@shared/schema";
@@ -127,16 +128,6 @@ interface RedemptionTier {
   description: string;
   sortOrder: number;
   isActive: boolean;
-}
-
-interface WalletData {
-  availablePts: number;
-  pendingPts?: number;
-  lockedPts?: number;
-  debtPts?: number;
-  status?: "NORMAL" | "RESTRICTED" | "FROZEN";
-  lifetimeEarned?: number;
-  lifetimeSpent?: number;
 }
 
 interface RedemptionResponse {
@@ -319,7 +310,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           description: data.message,
         });
         onRedemptionComplete?.();
-        queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
+        queryClient.invalidateQueries({ queryKey: ["/wallet"] });
       } else {
         toast({
           title: "Redemption Denied",
@@ -653,9 +644,8 @@ export default function Marketplace() {
     queryKey: ["/api/redemption/tiers"],
   });
 
-  const { data: walletData } = useQuery<WalletData>({
-    queryKey: ["/api/wallet/balance"],
-  });
+  // Use the shared wallet hook for consistent balance across the app
+  const { wallet } = useWallet();
   
   const { data: contextsData } = useQuery<ContextsResponse>({
     queryKey: ["/api/marketplace/contexts"],
@@ -750,7 +740,7 @@ export default function Marketplace() {
       setLastRedemption(data);
       setSuccessDialogOpen(true);
       
-      queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
+      queryClient.invalidateQueries({ queryKey: ["/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/redeem/history"] });
       
       if (data.status === "PENDING_REVIEW") {
@@ -794,7 +784,7 @@ export default function Marketplace() {
   };
 
   const tiers = (tiersData?.tiers || []).filter(t => t.isActive);
-  const userBalance = walletData?.availablePts || 0;
+  const userBalance = wallet?.balance || 0;
 
   return (
     <div className="min-h-screen pb-20 md:pb-8">
