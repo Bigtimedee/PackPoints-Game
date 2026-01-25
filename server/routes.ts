@@ -364,6 +364,57 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // PACKPTS WALLET ENDPOINTS
+  // ============================================
+
+  // GET /api/wallet/balance - Get user's wallet balance and status
+  app.get("/api/wallet/balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { walletService } = await import("./services/walletService");
+      const { riskEngine } = await import("./services/riskEngine");
+
+      // Get wallet balance
+      const wallet = await walletService.getOrCreateWallet(userId);
+      
+      // Get risk status (NORMAL, RESTRICTED, FROZEN)
+      const riskState = await riskEngine.getUserRiskState(userId);
+      
+      // Calculate debt (negative balance scenario or pending chargebacks)
+      const debtPts = wallet.balance < 0 ? Math.abs(wallet.balance) : 0;
+      
+      // Determine status based on risk state
+      let status: "NORMAL" | "RESTRICTED" | "FROZEN" = "NORMAL";
+      if (riskState) {
+        if (riskState.status === "FROZEN") {
+          status = "FROZEN";
+        }
+      }
+      // If user has debt, they are restricted
+      if (debtPts > 0) {
+        status = "RESTRICTED";
+      }
+      
+      res.json({
+        availablePts: Math.max(0, wallet.balance),
+        pendingPts: 0, // Could be extended to track pending transactions
+        lockedPts: 0, // Could be extended to track locked reservations
+        debtPts,
+        status,
+        lifetimeEarned: wallet.lifetimeEarned,
+        lifetimeSpent: wallet.lifetimeSpent,
+      });
+    } catch (error) {
+      console.error("Error getting wallet balance:", error);
+      res.status(500).json({ error: "Failed to get wallet balance" });
+    }
+  });
+
+  // ============================================
   // PACKPTS EXPIRATION ENDPOINTS
   // ============================================
 
@@ -6916,6 +6967,117 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error creating redemption quote:", error);
       res.status(500).json({ error: error.message || "Failed to create redemption quote" });
+    }
+  });
+
+  // POST /api/marketplace/redemption/quote-batch - Get batch quotes for multiple listings
+  app.post("/api/marketplace/redemption/quote-batch", isAuthenticated, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      const { walletService } = await import("./services/walletService");
+      const { riskEngine } = await import("./services/riskEngine");
+      
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { items } = req.body as { items: Array<{ provider: "ebay" | "goldin"; externalId: string; priceCents: number; currency?: string }> };
+      
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "items array required" });
+      }
+      
+      if (items.length > 50) {
+        return res.status(400).json({ error: "Maximum 50 items per batch" });
+      }
+
+      // Get user wallet and risk status once (not per item)
+      const wallet = await walletService.getOrCreateWallet(userId);
+      const riskState = await riskEngine.getUserRiskState(userId);
+      const debtPts = wallet.balance < 0 ? Math.abs(wallet.balance) : 0;
+      const availablePts = Math.max(0, wallet.balance);
+      
+      // Determine if user can redeem at all
+      const isFrozen = riskState?.status === "FROZEN";
+      const hasDebt = debtPts > 0;
+      const canRedeem = !isFrozen && !hasDebt && availablePts > 0;
+      
+      const quotes: Record<string, any> = {};
+      
+      for (const item of items) {
+        const key = `${item.provider}:${item.externalId}`;
+        
+        if (!canRedeem) {
+          // User cannot redeem - return zero quote with reasons
+          const reasons: string[] = [];
+          if (isFrozen) reasons.push("Redemption disabled (account frozen)");
+          if (hasDebt) reasons.push("Debt balance must be repaid");
+          if (availablePts === 0) reasons.push("You have 0 available PackPTS");
+          
+          quotes[key] = {
+            listing: { provider: item.provider, externalId: item.externalId },
+            cashPriceCents: item.priceCents,
+            ptsMaxApplicable: 0,
+            ptsApplied: 0,
+            usdDueCents: item.priceCents,
+            usdSavingsCents: 0,
+            effectiveValuePerPtMicrousds: 0,
+            reasons,
+            ctaLabel: "Earn PackPTS",
+          };
+          continue;
+        }
+        
+        try {
+          // Create quote using existing service
+          const quote = await profitGuardrailService.createQuote(
+            userId,
+            item.provider,
+            item.externalId,
+            "", // listingUrl not needed for batch preview
+            item.priceCents,
+            item.currency || "USD"
+          );
+          
+          // Transform to spec format
+          const ptsMaxApplicable = quote.rMax;
+          const ptsApplied = Math.min(ptsMaxApplicable, Math.floor(ptsMaxApplicable * 0.5)); // Default 50%
+          const valuePerPtCents = quote.policySummary?.packptsValueUsd || 0.002;
+          const usdSavingsCents = Math.round(ptsApplied * valuePerPtCents * 100);
+          const usdDueCents = Math.max(0, item.priceCents - usdSavingsCents);
+          
+          quotes[key] = {
+            listing: { provider: item.provider, externalId: item.externalId },
+            cashPriceCents: item.priceCents,
+            ptsMaxApplicable,
+            ptsApplied,
+            usdDueCents,
+            usdSavingsCents,
+            effectiveValuePerPtMicrousds: Math.round(valuePerPtCents * 1000000),
+            reasons: [],
+            ctaLabel: ptsMaxApplicable > 0 ? "Apply PackPTS" : "Earn PackPTS",
+          };
+        } catch (e) {
+          // On error, return non-applicable quote
+          quotes[key] = {
+            listing: { provider: item.provider, externalId: item.externalId },
+            cashPriceCents: item.priceCents,
+            ptsMaxApplicable: 0,
+            ptsApplied: 0,
+            usdDueCents: item.priceCents,
+            usdSavingsCents: 0,
+            effectiveValuePerPtMicrousds: 0,
+            reasons: ["Quote unavailable"],
+            ctaLabel: "View Listing",
+          };
+        }
+      }
+      
+      res.json({ quotes });
+    } catch (error: any) {
+      console.error("Error creating batch quotes:", error);
+      res.status(500).json({ error: error.message || "Failed to create batch quotes" });
     }
   });
 

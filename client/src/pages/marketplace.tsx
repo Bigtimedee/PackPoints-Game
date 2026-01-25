@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle, Layers } from "lucide-react";
+import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle, Layers, TrendingDown } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -219,18 +219,38 @@ interface QuoteResult {
   purchaseIntentId: string;
 }
 
+interface BatchQuote {
+  listing: { provider: string; externalId: string };
+  cashPriceCents: number;
+  ptsMaxApplicable: number;
+  ptsApplied: number;
+  usdDueCents: number;
+  usdSavingsCents: number;
+  effectiveValuePerPtMicrousds: number;
+  reasons: string[];
+  ctaLabel: string;
+}
+
 interface LiveListingCardProps {
   listing: LiveListing;
   userBalance?: number;
   isAuthenticated?: boolean;
   onRedemptionComplete?: () => void;
+  batchQuote?: BatchQuote | null;
+  walletStatus?: "NORMAL" | "RESTRICTED" | "FROZEN";
 }
 
-function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, onRedemptionComplete }: LiveListingCardProps) {
+function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, onRedemptionComplete, batchQuote, walletStatus = "NORMAL" }: LiveListingCardProps) {
   const [showRedemptionModal, setShowRedemptionModal] = useState(false);
   const [quote, setQuote] = useState<QuoteResult | null>(null);
   const [selectedAmount, setSelectedAmount] = useState(0);
   const { toast } = useToast();
+  
+  // Calculate PackPTS offer from batch quote
+  const canApplyPackPTS = batchQuote && batchQuote.ptsMaxApplicable > 0;
+  const savingsInDollars = batchQuote ? (batchQuote.usdSavingsCents / 100).toFixed(2) : "0.00";
+  const priceWithPackPTS = batchQuote ? (batchQuote.usdDueCents / 100).toFixed(2) : null;
+  const ptsToApply = batchQuote?.ptsApplied || 0;
   
   const platformIcon = listing.source === "goldin" ? (
     <span className="font-bold text-xs">G</span>
@@ -372,17 +392,62 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
               <p className="text-xs text-muted-foreground mt-1">{listing.condition}</p>
             )}
           </div>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
+          {/* Dual Price Display */}
+          <div className="space-y-2">
             {listing.priceCents !== null ? (
-              <div className="flex items-center gap-1 font-mono">
-                <DollarSign className="h-4 w-4 text-accent" />
-                <span className="font-semibold text-accent" data-testid={`text-price-${listing.id}`}>
-                  {(listing.priceCents / 100).toFixed(2)} {listing.currency}
-                </span>
-              </div>
+              <>
+                {/* Top Line: Buy Now price */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-muted-foreground">Buy Now</span>
+                  </div>
+                  <span className="font-mono font-semibold" data-testid={`text-price-${listing.id}`}>
+                    ${(listing.priceCents / 100).toFixed(2)}
+                  </span>
+                </div>
+                
+                {/* Second Line: PackPTS offer (highlighted) */}
+                {isAuthenticated && canApplyPackPTS && priceWithPackPTS && (
+                  <div className="flex items-center justify-between gap-2 bg-accent/10 rounded-md px-2 py-1.5 border border-accent/20">
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-accent" />
+                      <span className="text-xs font-medium text-accent">With PackPTS:</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-semibold text-accent text-sm" data-testid={`text-packpts-price-${listing.id}`}>
+                        {ptsToApply.toLocaleString()} pts + ${priceWithPackPTS}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Savings badge */}
+                {isAuthenticated && canApplyPackPTS && parseFloat(savingsInDollars) >= 0.50 && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20 gap-1">
+                      <TrendingDown className="h-3 w-3" />
+                      Save ${savingsInDollars}
+                    </Badge>
+                    {parseFloat(savingsInDollars) >= 5 && (
+                      <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs">
+                        Best Price
+                      </Badge>
+                    )}
+                  </div>
+                )}
+                
+                {/* PackPTS unavailable message */}
+                {isAuthenticated && batchQuote && !canApplyPackPTS && batchQuote.reasons.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Zap className="h-3 w-3" />
+                    <span>PackPTS unavailable: {batchQuote.reasons[0]}</span>
+                  </div>
+                )}
+              </>
             ) : (
               <span className="text-sm text-muted-foreground">Price TBD</span>
             )}
+            
             {timeRemaining && !isEndingSoon && (
               <Badge variant="secondary" className="gap-1 text-xs">
                 <Timer className="h-3 w-3" />
@@ -391,9 +456,10 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
             )}
           </div>
           
-          {isAuthenticated && listing.priceCents && userBalance > 0 && (
+          {/* CTA Button - Show Apply PackPTS if user can redeem or if no batch quote but has balance */}
+          {isAuthenticated && listing.priceCents && (canApplyPackPTS || (!batchQuote && userBalance > 0)) ? (
             <Button 
-              variant="secondary" 
+              variant="default" 
               className="w-full gap-2" 
               size="sm"
               onClick={handleApplyPackPTS}
@@ -412,7 +478,20 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                 </>
               )}
             </Button>
-          )}
+          ) : isAuthenticated && userBalance === 0 ? (
+            <Button 
+              variant="secondary" 
+              className="w-full gap-2" 
+              size="sm"
+              asChild
+              data-testid={`button-earn-packpts-${listing.id}`}
+            >
+              <a href="/play">
+                <Zap className="h-3 w-3" />
+                Earn PackPTS
+              </a>
+            </Button>
+          ) : null}
           
           <Button 
             variant="outline" 
@@ -616,6 +695,40 @@ export default function Marketplace() {
     enabled: activeSearch.length > 0,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Collect all listings for batch quote
+  const allListings = [
+    ...(liveListingsData?.listings || []),
+    ...(contextualSearchData?.contexts?.flatMap(c => c.listings) || []),
+  ];
+
+  // Batch quote query - fetches quotes for all visible listings
+  const { data: batchQuotesData } = useQuery<{ quotes: Record<string, BatchQuote> }>({
+    queryKey: ["/api/marketplace/redemption/quote-batch", allListings.map(l => `${l.source}:${l.id}`).join(",")],
+    queryFn: async () => {
+      if (allListings.length === 0) return { quotes: {} };
+      const items = allListings
+        .filter(l => l.priceCents && l.priceCents > 0)
+        .map(l => ({
+          provider: l.source,
+          externalId: l.id,
+          priceCents: l.priceCents || 0,
+          currency: l.currency || "USD",
+        }));
+      if (items.length === 0) return { quotes: {} };
+      const res = await apiRequest("POST", "/api/marketplace/redemption/quote-batch", { items });
+      if (!res.ok) return { quotes: {} };
+      return res.json();
+    },
+    enabled: allListings.length > 0 && contextsData?.userId != null,
+    staleTime: 60 * 1000, // Cache for 60 seconds
+  });
+
+  // Helper to get batch quote for a listing
+  const getBatchQuote = (listing: LiveListing): BatchQuote | null => {
+    const key = `${listing.source}:${listing.id}`;
+    return batchQuotesData?.quotes?.[key] || null;
+  };
 
   const redeemMutation = useMutation({
     mutationFn: async (packptsAmount: number) => {
@@ -845,6 +958,7 @@ export default function Marketplace() {
                               listing={listing}
                               userBalance={userBalance}
                               isAuthenticated={!!contextsData?.userId}
+                              batchQuote={getBatchQuote(listing)}
                             />
                           ))}
                         </div>
@@ -929,6 +1043,7 @@ export default function Marketplace() {
                       listing={listing}
                       userBalance={userBalance}
                       isAuthenticated={!!contextsData?.userId}
+                      batchQuote={getBatchQuote(listing)}
                     />
                   ))}
                 </div>
