@@ -3023,3 +3023,42 @@ export const insertPvpMatchSchema = createInsertSchema(pvpMatches).omit({
 });
 export type InsertPvpMatch = z.infer<typeof insertPvpMatchSchema>;
 export type PvpMatch = typeof pvpMatches.$inferSelect;
+
+export const userGameplayDailyCounters = pgTable("user_gameplay_daily_counters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  dayKey: varchar("day_key", { length: 10 }).notNull(),
+  cardsCompleted: integer("cards_completed").notNull().default(0),
+  basePtsAwarded: integer("base_pts_awarded").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_user_gameplay_daily_unique").on(table.userId, table.dayKey),
+  index("idx_user_gameplay_daily_day").on(table.dayKey),
+]);
+
+export const insertUserGameplayDailyCounterSchema = createInsertSchema(userGameplayDailyCounters).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertUserGameplayDailyCounter = z.infer<typeof insertUserGameplayDailyCounterSchema>;
+export type UserGameplayDailyCounter = typeof userGameplayDailyCounters.$inferSelect;
+
+export const gameplayCardDailyEvents = pgTable("gameplay_card_daily_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  dayKey: varchar("day_key", { length: 10 }).notNull(),
+  matchId: varchar("match_id"),
+  cardId: varchar("card_id").notNull(),
+  isCorrect: boolean("is_correct").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_gameplay_card_daily_unique").on(table.userId, table.dayKey, table.cardId),
+  index("idx_gameplay_card_daily_user_day").on(table.userId, table.dayKey),
+]);
+
+export const insertGameplayCardDailyEventSchema = createInsertSchema(gameplayCardDailyEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertGameplayCardDailyEvent = z.infer<typeof insertGameplayCardDailyEventSchema>;
+export type GameplayCardDailyEvent = typeof gameplayCardDailyEvents.$inferSelect;
