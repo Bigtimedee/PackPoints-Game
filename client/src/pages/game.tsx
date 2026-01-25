@@ -9,7 +9,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle } from "lucide-react";
+import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle, SkipForward } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -135,7 +135,23 @@ function isBlankImage(img: HTMLImageElement): boolean {
   }
 }
 
-function GameCard({ imageUrl, isRevealed, setLabel, onImageError, imageRotation = 0 }: { imageUrl: string; isRevealed: boolean; setLabel?: string; onImageError?: () => void; imageRotation?: number }) {
+function GameCard({ 
+  imageUrl, 
+  isRevealed, 
+  setLabel, 
+  onImageError, 
+  imageRotation = 0,
+  showSkipButton = false,
+  onSkip
+}: { 
+  imageUrl: string; 
+  isRevealed: boolean; 
+  setLabel?: string; 
+  onImageError?: () => void; 
+  imageRotation?: number;
+  showSkipButton?: boolean;
+  onSkip?: () => void;
+}) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
@@ -186,8 +202,25 @@ function GameCard({ imageUrl, isRevealed, setLabel, onImageError, imageRotation 
       {imageError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted">
           <div className="text-center space-y-3">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Finding a replacement card...</p>
+            {!showSkipButton ? (
+              <>
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Finding a replacement card...</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">Unable to load card image</p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={onSkip}
+                  data-testid="button-skip-broken-card"
+                >
+                  <SkipForward className="h-4 w-4 mr-2" />
+                  Skip to Next
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -360,6 +393,8 @@ export default function Game() {
       // Reset replacement tracking for new session
       setFailedCardIds([]);
       setReplacedQuestionIndices(new Set());
+      setShowSkipButton(false);
+      setReplacementStartTime(null);
     },
     onError: (error: any) => {
       const errorMessage = error?.message || "";
@@ -494,6 +529,9 @@ export default function Game() {
   // Track question indices that have already had a replacement attempted
   // This prevents auto-skipping when replacement card's image also fails
   const [replacedQuestionIndices, setReplacedQuestionIndices] = useState<Set<number>>(new Set());
+  
+  // Track when to show skip button (after timeout or replacement failure)
+  const [showSkipButton, setShowSkipButton] = useState(false);
 
   // Replace card when image fails to load - user doesn't lose PackPTS opportunity
   const replaceCardMutation = useMutation({
@@ -529,6 +567,60 @@ export default function Game() {
       // Only skip if explicitly requested by user or if there's truly no card to show
     }
   });
+
+  // Track if we're in a replacement loading state (image failed and replacement is being attempted)
+  const [replacementStartTime, setReplacementStartTime] = useState<number | null>(null);
+  
+  // Track when replacement starts
+  useEffect(() => {
+    if (replaceCardMutation.isPending && !replacementStartTime) {
+      setReplacementStartTime(Date.now());
+    } else if (!replaceCardMutation.isPending) {
+      setReplacementStartTime(null);
+    }
+  }, [replaceCardMutation.isPending, replacementStartTime]);
+  
+  // Show skip button after timeout OR when replacement has already been attempted
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    const currentIndex = session?.currentQuestionIndex ?? -1;
+    
+    // If we've already attempted a replacement for this question, show skip immediately
+    if (replacedQuestionIndices.has(currentIndex)) {
+      setShowSkipButton(true);
+      return;
+    }
+    
+    // If replacement is pending, start a 5-second timeout
+    if (replaceCardMutation.isPending) {
+      setShowSkipButton(false);
+      timeoutId = setTimeout(() => {
+        setShowSkipButton(true);
+      }, 5000);
+    } else if (failedCardIds.length > 0 && !replaceCardMutation.isPending) {
+      // Card failed but replacement isn't pending - this means replacement failed or wasn't possible
+      // Show skip button after a short delay to avoid flash
+      timeoutId = setTimeout(() => {
+        setShowSkipButton(true);
+      }, 2000);
+    } else {
+      setShowSkipButton(false);
+    }
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [replaceCardMutation.isPending, session?.currentQuestionIndex, replacedQuestionIndices, failedCardIds.length]);
+  
+  // Handle manual skip when user clicks "Skip to Next" button
+  const handleManualSkip = () => {
+    if (!isRevealed && !nextQuestionMutation.isPending) {
+      nextQuestionMutation.mutate();
+    }
+  };
 
   // Handle image error - try to replace card first, only skip if replacement unavailable
   const handleCardImageError = (failedCardId: string) => {
@@ -613,6 +705,8 @@ export default function Game() {
     // Reset replacement tracking for new game
     setFailedCardIds([]);
     setReplacedQuestionIndices(new Set());
+    setShowSkipButton(false);
+    setReplacementStartTime(null);
   };
 
   const handleStartGame = () => {
@@ -972,6 +1066,8 @@ export default function Game() {
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
               imageRotation={currentQuestion.card.imageRotation}
+              showSkipButton={showSkipButton}
+              onSkip={handleManualSkip}
               onImageError={() => {
                 // Get the failed card ID (prefer playableCardId for accurate tracking)
                 const failedCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
