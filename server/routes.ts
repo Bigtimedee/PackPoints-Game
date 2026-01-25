@@ -5616,10 +5616,9 @@ export async function registerRoutes(
         .values({
           gameSetId: id,
           status: "running",
-          pagesAttempted: 0,
-          cardsFound: 0,
-          cardsInserted: 0,
-          cardsLinked: 0,
+          pageSize,
+          pagesFetched: 0,
+          cardsImported: 0,
         })
         .returning();
       
@@ -5708,9 +5707,8 @@ export async function registerRoutes(
           await db
             .update(cardhedgeImportRuns)
             .set({
-              pagesAttempted: pagesFetched,
-              cardsFound: totalCardsImported + wrongSportSkipped,
-              cardsInserted: totalCardsImported,
+              pagesFetched,
+              cardsImported: totalCardsImported,
             })
             .where(eq(cardhedgeImportRuns.id, importRun.id));
           
@@ -5733,10 +5731,9 @@ export async function registerRoutes(
           .update(cardhedgeImportRuns)
           .set({
             status: "completed",
-            completedAt: new Date(),
-            pagesAttempted: pagesFetched,
-            cardsFound: totalCardsImported + wrongSportSkipped,
-            cardsInserted: totalCardsImported,
+            finishedAt: new Date(),
+            pagesFetched,
+            cardsImported: totalCardsImported,
           })
           .where(eq(cardhedgeImportRuns.id, importRun.id));
         
@@ -5755,8 +5752,8 @@ export async function registerRoutes(
           .update(cardhedgeImportRuns)
           .set({
             status: "failed",
-            completedAt: new Date(),
-            errorMessage: importError.message,
+            finishedAt: new Date(),
+            error: importError.message,
           })
           .where(eq(cardhedgeImportRuns.id, importRun.id));
         
