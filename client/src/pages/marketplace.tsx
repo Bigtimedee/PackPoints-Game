@@ -319,7 +319,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           description: data.message,
         });
         onRedemptionComplete?.();
-        queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
       } else {
         toast({
           title: "Redemption Denied",
@@ -750,7 +750,7 @@ export default function Marketplace() {
       setLastRedemption(data);
       setSuccessDialogOpen(true);
       
-      queryClient.invalidateQueries({ queryKey: ["/api/wallet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/redeem/history"] });
       
       if (data.status === "PENDING_REVIEW") {
