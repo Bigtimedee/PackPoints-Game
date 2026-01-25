@@ -146,10 +146,16 @@ export async function registerRoutes(
         // Risk state table might not exist yet, silently continue
       }
 
+      // Calculate debt (negative balance scenario)
+      const debtPts = walletData.wallet.balance < 0 ? Math.abs(walletData.wallet.balance) : 0;
+      const availablePts = Math.max(0, walletData.wallet.balance);
+
       res.json({
         wallet: {
           id: walletData.wallet.id,
           balance: walletData.wallet.balance,
+          availablePts,
+          debtPts,
           lifetimeEarned: walletData.wallet.lifetimeEarned,
           lifetimeSpent: walletData.wallet.lifetimeSpent,
           status: walletData.wallet.status,

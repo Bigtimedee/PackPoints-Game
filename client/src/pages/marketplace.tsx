@@ -31,9 +31,10 @@ interface RedemptionCardProps {
   userBalance: number;
   onRedeem: (option: RedemptionOption) => void;
   isRedeeming: boolean;
+  walletStatus?: "NORMAL" | "RESTRICTED" | "FROZEN" | "UNDER_REVIEW";
 }
 
-function RedemptionCard({ option, userBalance, onRedeem, isRedeeming }: RedemptionCardProps) {
+function RedemptionCard({ option, userBalance, onRedeem, isRedeeming, walletStatus = "NORMAL" }: RedemptionCardProps) {
   const platformIcon = option.platform === "goldin" ? (
     <span className="font-bold text-xs">G</span>
   ) : (
@@ -42,6 +43,7 @@ function RedemptionCard({ option, userBalance, onRedeem, isRedeeming }: Redempti
 
   const platformName = option.platform === "goldin" ? "Goldin" : "eBay";
   const platformColor = option.platform === "goldin" ? "bg-amber-500" : "bg-blue-500";
+  const isWalletActive = walletStatus === "NORMAL";
   const hasEnoughPoints = userBalance >= option.pointsCost;
 
   return (
@@ -74,7 +76,7 @@ function RedemptionCard({ option, userBalance, onRedeem, isRedeeming }: Redempti
           variant="outline" 
           className="w-full gap-2" 
           data-testid={`button-redeem-${option.id}`}
-          disabled={!hasEnoughPoints || isRedeeming}
+          disabled={!isWalletActive || !hasEnoughPoints || isRedeeming}
           onClick={() => onRedeem(option)}
         >
           {isRedeeming ? (
@@ -82,6 +84,8 @@ function RedemptionCard({ option, userBalance, onRedeem, isRedeeming }: Redempti
               <Loader2 className="h-4 w-4 animate-spin" />
               Processing...
             </>
+          ) : !isWalletActive ? (
+            "Account Restricted"
           ) : hasEnoughPoints ? (
             <>
               Get Discount
@@ -234,7 +238,7 @@ interface LiveListingCardProps {
   isAuthenticated?: boolean;
   onRedemptionComplete?: () => void;
   batchQuote?: BatchQuote | null;
-  walletStatus?: "NORMAL" | "RESTRICTED" | "FROZEN";
+  walletStatus?: "NORMAL" | "RESTRICTED" | "FROZEN" | "UNDER_REVIEW";
 }
 
 function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, onRedemptionComplete, batchQuote, walletStatus = "NORMAL" }: LiveListingCardProps) {
@@ -244,7 +248,9 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
   const { toast } = useToast();
   
   // Calculate PackPTS offer from batch quote
-  const canApplyPackPTS = batchQuote && batchQuote.ptsMaxApplicable > 0;
+  // User can only apply if they have a normal wallet status (not frozen or under review)
+  const isWalletActive = walletStatus === "NORMAL";
+  const canApplyPackPTS = isWalletActive && batchQuote && batchQuote.ptsMaxApplicable > 0;
   const savingsInDollars = batchQuote ? (batchQuote.usdSavingsCents / 100).toFixed(2) : "0.00";
   const priceWithPackPTS = batchQuote ? (batchQuote.usdDueCents / 100).toFixed(2) : null;
   const ptsToApply = batchQuote?.ptsApplied || 0;
@@ -454,7 +460,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           </div>
           
           {/* CTA Button - Show Apply PackPTS if user can redeem or if no batch quote but has balance */}
-          {isAuthenticated && listing.priceCents && (canApplyPackPTS || (!batchQuote && userBalance > 0)) ? (
+          {isAuthenticated && listing.priceCents && isWalletActive && (canApplyPackPTS || (!batchQuote && userBalance > 0)) ? (
             <Button 
               variant="default" 
               className="w-full gap-2" 
@@ -474,6 +480,17 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   Apply PackPTS
                 </>
               )}
+            </Button>
+          ) : isAuthenticated && !isWalletActive ? (
+            <Button 
+              variant="secondary" 
+              className="w-full gap-2" 
+              size="sm"
+              disabled
+              data-testid={`button-wallet-restricted-${listing.id}`}
+            >
+              <Zap className="h-3 w-3" />
+              Account Restricted
             </Button>
           ) : isAuthenticated && userBalance === 0 ? (
             <Button 
@@ -645,7 +662,7 @@ export default function Marketplace() {
   });
 
   // Use the shared wallet hook for consistent balance across the app
-  const { wallet } = useWallet();
+  const { wallet, availablePts, debtPts, canRedeem, riskState } = useWallet();
   
   const { data: contextsData } = useQuery<ContextsResponse>({
     queryKey: ["/api/marketplace/contexts"],
@@ -784,7 +801,8 @@ export default function Marketplace() {
   };
 
   const tiers = (tiersData?.tiers || []).filter(t => t.isActive);
-  const userBalance = wallet?.balance || 0;
+  // Use availablePts for consistent balance display (floor at 0, excludes debt)
+  const userBalance = availablePts;
 
   return (
     <div className="min-h-screen pb-20 md:pb-8">
@@ -955,6 +973,7 @@ export default function Marketplace() {
                               userBalance={userBalance}
                               isAuthenticated={!!contextsData?.userId}
                               batchQuote={getBatchQuote(listing)}
+                              walletStatus={riskState.status as "NORMAL" | "UNDER_REVIEW" | "FROZEN"}
                             />
                           ))}
                         </div>
@@ -1040,6 +1059,7 @@ export default function Marketplace() {
                       userBalance={userBalance}
                       isAuthenticated={!!contextsData?.userId}
                       batchQuote={getBatchQuote(listing)}
+                      walletStatus={riskState.status as "NORMAL" | "UNDER_REVIEW" | "FROZEN"}
                     />
                   ))}
                 </div>
@@ -1134,6 +1154,7 @@ export default function Marketplace() {
                         userBalance={userBalance}
                         onRedeem={handleRedeemClick}
                         isRedeeming={redeemMutation.isPending && selectedOption?.id === option.id}
+                        walletStatus={riskState.status as "NORMAL" | "UNDER_REVIEW" | "FROZEN"}
                       />
                     ))}
                   </div>
