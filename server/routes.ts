@@ -5592,6 +5592,21 @@ export async function registerRoutes(
       
       console.log(`[Purge & Reimport] Starting for set "${gameSet.setName}" (${id}) - purging ${cardsPurged} existing cards`);
       
+      // First, delete any card_image_reports for cards in this set (to avoid FK constraint)
+      const { cardImageReports } = await import("@shared/schema");
+      const cardIdsInSet = await db
+        .select({ id: playableCards.id })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, id));
+      
+      if (cardIdsInSet.length > 0) {
+        const cardIds = cardIdsInSet.map(c => c.id);
+        await db
+          .delete(cardImageReports)
+          .where(inArray(cardImageReports.cardId, cardIds));
+        console.log(`[Purge & Reimport] Deleted card_image_reports for ${cardIds.length} cards`);
+      }
+      
       // Delete all existing cards for this set
       await db
         .delete(playableCards)
