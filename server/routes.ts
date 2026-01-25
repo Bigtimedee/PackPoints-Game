@@ -5628,6 +5628,8 @@ export async function registerRoutes(
       let wrongSportSkipped = 0;
       
       try {
+        const { classifyCard } = await import("./services/cardClassifier");
+        
         let page = 1;
         let hasMorePages = true;
         const expectedSport = gameSet.sport.toLowerCase();
