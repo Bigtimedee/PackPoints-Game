@@ -263,26 +263,27 @@ export function getStoreProductIds(internalSku: string): string[] {
 }
 
 // Internal SKU definitions with PackPTS amounts
+// Updated to new guardrail-compliant pricing: ~3,000 pts/$ at 200 microusd per point
 export const PRODUCT_DEFINITIONS = {
-  PACKPTS_1500: {
-    name: "1,500 PackPTS",
-    type: "CONSUMABLE" as const,
-    packptsGrant: 1500,
-    priceUsd: 299, // $2.99
-    description: "Starter bundle - great for trying out the game",
-  },
-  PACKPTS_6000: {
-    name: "6,000 PackPTS",
-    type: "CONSUMABLE" as const,
-    packptsGrant: 6000,
-    priceUsd: 999, // $9.99 - Best value
-    description: "Most popular - best value for regular players",
-  },
   PACKPTS_15000: {
-    name: "15,000 PackPTS",
+    name: "Starter Pack",
     type: "CONSUMABLE" as const,
     packptsGrant: 15000,
-    priceUsd: 1999, // $19.99
+    priceUsd: 499, // $4.99
+    description: "Starter bundle - great for trying out the game",
+  },
+  PACKPTS_45000: {
+    name: "Value Pack",
+    type: "CONSUMABLE" as const,
+    packptsGrant: 45000,
+    priceUsd: 1499, // $14.99 - Best value
+    description: "Most popular - best value for regular players",
+  },
+  PACKPTS_80000: {
+    name: "Premium Pack",
+    type: "CONSUMABLE" as const,
+    packptsGrant: 80000,
+    priceUsd: 2499, // $24.99
     description: "Power pack - for serious collectors",
   },
   PRO_MONTHLY: {
@@ -329,7 +330,7 @@ export const PRODUCT_DEFINITIONS = {
 } as const;
 
 // PackPTS bundle SKUs for store page filtering (one-time purchases)
-export const PACKPTS_BUNDLE_SKUS = ["PACKPTS_1500", "PACKPTS_6000", "PACKPTS_15000"] as const;
+export const PACKPTS_BUNDLE_SKUS = ["PACKPTS_15000", "PACKPTS_45000", "PACKPTS_80000"] as const;
 export type PackPtsBundleSku = typeof PACKPTS_BUNDLE_SKUS[number];
 
 // Monthly PackPTS subscription SKUs

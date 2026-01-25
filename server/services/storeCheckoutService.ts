@@ -71,7 +71,7 @@ class StoreCheckoutService {
           description: product.description || "",
           formattedPrice: `$${priceUsd.toFixed(2)}`,
           valuePerDollar: Math.round(valuePerDollar),
-          isBestValue: sku === "PACKPTS_6000",
+          isBestValue: sku === "PACKPTS_45000",
         });
       }
     }

@@ -1,0 +1,161 @@
+Update the “Card-Completion Reward Curve” to be a DAILY CAP (UTC day) with a maximum of 15,000 PackPTS per day for completing up to 200 correct cards (e.g., 10 matches × 20 cards = 200). This daily relationship must be enforced everywhere in PackPTS.
+
+DAILY INVARIANT
+For each user, per UTC day:
+- C_day = number of correctly completed unique cards that day (max counted = 200)
+- P_day_max = 15,000 PackPTS
+- The user’s BASE gameplay earnings from correct cards that day must satisfy:
+  P_day(C_day) = floor( 15000 * min(C_day, 200) / 200 )
+- The system awards incrementally using delta:
+  delta = P_day(C_new) - P_day(C_old), where C_new = min(C_old+1,200)
+
+This ensures:
+- Max base earnings per day = 15,000
+- Any combination of matches/cards that reaches 200 correct cards yields the max
+- No overshoot due to rounding or concurrency
+
+========================================================
+A) GLOBAL CONFIG (SINGLE SOURCE OF TRUTH)
+
+Create/Update:
+src/config/rewards.ts
+
+export const DAILY_GAMEPLAY_BASE = {
+  CARDS_MAX_PER_DAY: 200,
+  PTS_MAX_PER_DAY: 15000,
+  dayKeyUTC: (d = new Date()) => {
+    // YYYY-MM-DD in UTC
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth()+1).padStart(2,'0');
+    const dd = String(d.getUTCDate()).padStart(2,'0');
+    return `${yyyy}-${mm}-${dd}`;
+  },
+  pointsForCardsCompleted: (c: number) =>
+    Math.floor(15000 * Math.min(c, 200) / 200)
+};
+
+========================================================
+B) DATABASE CHANGES (DRIZZLE MIGRATIONS)
+
+1) user_gameplay_daily_counters (per user per UTC day)
+- user_id uuid not null
+- day_key text not null              // "YYYY-MM-DD" (UTC)
+- cards_completed int default 0       // correct unique cards today
+- base_pts_awarded int default 0      // <= 15000
+- updated_at timestamp default now
+Primary key (user_id, day_key)
+
+2) gameplay_card_daily_events (idempotency per day)
+- id uuid pk
+- user_id uuid not null
+- day_key text not null
+- match_id uuid nullable
+- card_id uuid not null
+- is_correct boolean not null
+- created_at timestamp default now
+Unique(user_id, day_key, card_id)     // prevents double credit for same card in a day
+
+NOTE:
+If you already have gameplay_card_events, add day_key and unique constraint (user_id, day_key, card_id).
+
+3) wallet_ledger (ensure event type exists)
+- EARN_GAMEPLAY_BASE_DAILY
+Include metadata:
+{ "reason":"daily_card_completion", "day_key":"YYYY-MM-DD", "card_id":"...", "match_id":"..." }
+
+========================================================
+C) ATOMIC AWARD FUNCTION (TRANSACTION SAFE)
+
+Create:
+src/services/rewards/dailyGameplayBase.ts
+
+export async function awardDailyBaseForCorrectCard(params: {
+  userId: string;
+  matchId?: string;
+  cardId: string;
+  now?: Date;
+}) {
+  const dayKey = DAILY_GAMEPLAY_BASE.dayKeyUTC(params.now ?? new Date());
+
+  // Use a DB transaction with SELECT ... FOR UPDATE for counters
+  // Steps:
+  // 1) Idempotency insert: try insert gameplay_card_daily_events (userId, dayKey, cardId, is_correct=true)
+  //    - if conflict (already exists), return { deltaPts: 0 }
+  // 2) Lock counters row:
+  //    SELECT * FROM user_gameplay_daily_counters WHERE user_id=? AND day_key=? FOR UPDATE
+  //    If missing, insert initial row (0,0) then re-select FOR UPDATE.
+  // 3) Compute delta:
+  //    oldC = counters.cards_completed
+  //    newC = min(oldC + 1, 200)
+  //    oldP = counters.base_pts_awarded
+  //    targetP = pointsForCardsCompleted(newC)
+  //    delta = max(0, targetP - oldP)
+  // 4) Update counters:
+  //    cards_completed = newC
+  //    base_pts_awarded = oldP + delta
+  // 5) If delta>0, insert wallet_ledger entry EARN_GAMEPLAY_BASE_DAILY amount=delta
+  // 6) Commit and return delta + new totals
+
+  // IMPORTANT:
+  // - If is_correct=false, do not insert idempotency row or award points.
+  // - This function must be the ONLY place base daily points are awarded.
+}
+
+========================================================
+D) WHERE TO CALL THIS (APPLICATION-WIDE)
+
+In the endpoint that records an answer submission:
+- Determine isCorrect
+- If isCorrect:
+    await awardDailyBaseForCorrectCard({ userId, matchId, cardId })
+
+Ensure this is used for ALL modes (1vCPU, 1v1, pool, etc.).
+
+========================================================
+E) DAILY RESET (NO CRON NEEDED)
+
+No scheduled reset required.
+Because counters are keyed by day_key, a new UTC day automatically starts a fresh counter row.
+
+========================================================
+F) PROGRESS API (FOR UI + DEBUG)
+
+Add:
+GET /api/rewards/daily-progress
+
+Return:
+{
+  dayKey: "YYYY-MM-DD",
+  cardsCompleted: number,
+  cardsMax: 200,
+  basePtsAwarded: number,
+  basePtsMax: 15000,
+  remainingCards: number,
+  remainingPts: number,
+  progressPct: number
+}
+
+========================================================
+G) UI REQUIREMENTS
+
+On Play screen and Marketplace header:
+- Show “Daily cap: {basePtsAwarded}/15,000”
+- Show “Cards today: {cardsCompleted}/200”
+- Always use /api/rewards/daily-progress to avoid mismatched logic.
+
+========================================================
+H) TESTS (REQUIRED)
+
+Add tests:
+1) Awarding 200 unique correct cards on same day -> base_pts_awarded == 15000
+2) Awarding 201st card -> deltaPts == 0 and base_pts_awarded stays 15000
+3) Duplicate same card_id in same day -> deltaPts == 0
+4) Next UTC day: awarding starts again from 0 (day_key changes)
+5) Concurrency: simulate two awards at same time -> no overshoot
+
+DELIVERABLES
+- New daily counter + daily idempotency tables with correct constraints
+- Daily award function with transaction + delta method
+- API endpoint for daily progress
+- UI wired to daily progress
+- Tests enforcing the daily invariant
