@@ -5443,10 +5443,14 @@ export async function registerRoutes(
           for (const card of result.cards) {
             if (!card.card_id) continue;
             
-            // Validate sport category matches the game set's sport
-            const cardCategory = (card.category || "").toLowerCase();
-            if (cardCategory && cardCategory !== expectedSport) {
-              console.log(`[CardHedge Import] SKIPPING wrong-sport card: ${card.card_id} - category "${card.category}" does not match set sport "${gameSet.sport}" - ${card.player || card.description}`);
+            // Validate sport category positively matches the game set's sport
+            // Cards with missing/empty category are skipped since we can't verify their sport
+            const cardCategory = (card.category || "").toLowerCase().trim();
+            if (cardCategory !== expectedSport) {
+              const reason = cardCategory 
+                ? `category "${card.category}" does not match set sport "${gameSet.sport}"`
+                : `missing category field, expected sport "${gameSet.sport}"`;
+              console.log(`[CardHedge Import] SKIPPING wrong-sport card: ${card.card_id} - ${reason} - ${card.player || card.description}`);
               wrongSportSkipped++;
               continue;
             }
