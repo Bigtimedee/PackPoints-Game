@@ -720,15 +720,18 @@ export class DatabaseStorage implements IStorage {
     const currentQuestion = session.questions[session.currentQuestionIndex];
     const setName = currentQuestion?.card.setName;
 
-    // Find the set ID
+    // Find the set ID and sport
     let targetSetId: string | null = null;
+    let expectedSport: string | null = null;
+    
     if (setName) {
       const [gameSet] = await db
-        .select()
+        .select({ id: gameSets.id, sport: gameSets.sport })
         .from(gameSets)
         .where(eq(gameSets.setName, setName))
         .limit(1);
       targetSetId = gameSet?.id || null;
+      expectedSport = gameSet?.sport?.toLowerCase() || null;
     }
 
     // Query for a replacement card
@@ -750,36 +753,74 @@ export class DatabaseStorage implements IStorage {
         )
         .limit(50);
       
-      // Filter out used cards and pick randomly
-      const available = candidates.filter(c => !usedCardIds.has(c.id));
+      // Filter out used cards and filter by sport category
+      let available = candidates.filter(c => !usedCardIds.has(c.id));
+      
+      // Also filter by sport category for additional safety
+      if (expectedSport) {
+        available = available.filter(c => {
+          const cardCategory = (c.category || "").toLowerCase();
+          return cardCategory === expectedSport;
+        });
+      }
+      
       if (available.length > 0) {
         replacementCard = available[Math.floor(Math.random() * available.length)];
       }
     }
 
-    // If no replacement found from same set, try any active set
-    if (!replacementCard) {
-      const fallbackSetId = await this.getDefaultPlayableSetId();
-      if (fallbackSetId) {
+    // If no replacement found from same set, try another active set WITH THE SAME SPORT
+    if (!replacementCard && expectedSport) {
+      // Find an active set with the same sport
+      const [fallbackSet] = await db
+        .select({ id: gameSets.id })
+        .from(gameSets)
+        .innerJoin(playableCards, eq(playableCards.gameSetId, gameSets.id))
+        .where(
+          and(
+            eq(gameSets.isActive, true),
+            sql`LOWER(${gameSets.sport}) = ${expectedSport}`,
+            eq(playableCards.isPlayable, true),
+            isNotNull(playableCards.imageUrl)
+          )
+        )
+        .groupBy(gameSets.id)
+        .limit(1);
+      
+      if (fallbackSet) {
         const candidates = await db
           .select()
           .from(playableCards)
           .where(
             and(
-              eq(playableCards.gameSetId, fallbackSetId),
-              eq(playableCards.isPlayable, true)
+              eq(playableCards.gameSetId, fallbackSet.id),
+              eq(playableCards.isPlayable, true),
+              or(
+                eq(playableCards.imageReviewStatus, "pending"),
+                eq(playableCards.imageReviewStatus, "approved")
+              )
             )
           )
           .limit(50);
         
-        const available = candidates.filter(c => !usedCardIds.has(c.id));
+        // Filter by sport category for extra safety
+        let available = candidates.filter(c => !usedCardIds.has(c.id));
+        available = available.filter(c => {
+          const cardCategory = (c.category || "").toLowerCase();
+          return cardCategory === expectedSport;
+        });
+        
         if (available.length > 0) {
           replacementCard = available[Math.floor(Math.random() * available.length)];
+          console.log(`[CardReplacement] Using fallback set ${fallbackSet.id} for sport ${expectedSport}`);
         }
       }
     }
 
-    if (!replacementCard) return null;
+    if (!replacementCard) {
+      console.log(`[CardReplacement] No replacement found for sport ${expectedSport || 'unknown'}`);
+      return null;
+    }
 
     // Get player names for options
     const additionalNames = await this.getSamplePlayerNamesFromSet(
