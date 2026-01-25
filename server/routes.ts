@@ -5562,6 +5562,209 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Purge all cards from a set and re-import from Card Hedge
+  app.post("/api/admin/playable-sets/:id/purge-reimport", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get game set
+      const [gameSet] = await db
+        .select()
+        .from(gameSets)
+        .where(eq(gameSets.id, id))
+        .limit(1);
+      
+      if (!gameSet) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      if (!gameSet.cardhedgeSetQuery) {
+        return res.status(400).json({ error: "This set doesn't have a Card Hedge query configured" });
+      }
+      
+      // Count existing cards before purge
+      const [existingCount] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, id));
+      
+      const cardsPurged = existingCount?.count || 0;
+      
+      console.log(`[Purge & Reimport] Starting for set "${gameSet.setName}" (${id}) - purging ${cardsPurged} existing cards`);
+      
+      // Delete all existing cards for this set
+      await db
+        .delete(playableCards)
+        .where(eq(playableCards.gameSetId, id));
+      
+      // Reset the card count on the set
+      await db
+        .update(gameSets)
+        .set({ cardsImportedCount: 0 })
+        .where(eq(gameSets.id, id));
+      
+      console.log(`[Purge & Reimport] Purged ${cardsPurged} cards, now re-importing...`);
+      
+      // Now do the import (same logic as the import endpoint)
+      const MAX_PAGE_SIZE = 100;
+      const rawPageSize = parseInt(req.body.page_size || "100", 10);
+      const pageSize = Math.min(Math.max(1, rawPageSize), MAX_PAGE_SIZE);
+      
+      // Create import run record
+      const [importRun] = await db
+        .insert(cardhedgeImportRuns)
+        .values({
+          gameSetId: id,
+          status: "running",
+          pagesAttempted: 0,
+          cardsFound: 0,
+          cardsInserted: 0,
+          cardsLinked: 0,
+        })
+        .returning();
+      
+      let totalCardsImported = 0;
+      let pagesFetched = 0;
+      let wrongSportSkipped = 0;
+      
+      try {
+        let page = 1;
+        let hasMorePages = true;
+        const expectedSport = gameSet.sport.toLowerCase();
+        
+        while (hasMorePages) {
+          const result = await cardSearchSorted({
+            set: gameSet.cardhedgeSetQuery,
+            category: gameSet.cardhedgeCategory || undefined,
+            page,
+            page_size: pageSize,
+          });
+          
+          pagesFetched++;
+          
+          if (!result.cards || result.cards.length === 0) {
+            hasMorePages = false;
+            break;
+          }
+          
+          for (const card of result.cards) {
+            if (!card.card_id) continue;
+            
+            // Validate sport category positively matches
+            const cardCategory = (card.category || "").toLowerCase().trim();
+            if (cardCategory !== expectedSport) {
+              const reason = cardCategory 
+                ? `category "${card.category}" does not match set sport "${gameSet.sport}"`
+                : `missing category field, expected sport "${gameSet.sport}"`;
+              console.log(`[Purge & Reimport] SKIPPING wrong-sport card: ${card.card_id} - ${reason} - ${card.player || card.description}`);
+              wrongSportSkipped++;
+              continue;
+            }
+            
+            const classification = classifyCard({ player: card.player, description: card.description });
+            const { isPlayable, blockedReason } = classification;
+            
+            const imageUrl = normalizeImageUrl(card.image);
+            
+            await db
+              .insert(playableCards)
+              .values({
+                gameSetId: id,
+                cardhedgeCardId: card.card_id,
+                description: card.description,
+                player: card.player,
+                set: card.set,
+                number: card.number,
+                variant: card.variant,
+                imageUrl,
+                category: card.category,
+                rookie: card.rookie,
+                isPlayable,
+                blockedReason,
+              })
+              .onConflictDoUpdate({
+                target: [playableCards.gameSetId, playableCards.cardhedgeCardId],
+                set: {
+                  description: card.description,
+                  player: card.player,
+                  set: card.set,
+                  number: card.number,
+                  variant: card.variant,
+                  imageUrl,
+                  category: card.category,
+                  rookie: card.rookie,
+                  isPlayable,
+                  blockedReason,
+                },
+              });
+            
+            totalCardsImported++;
+          }
+          
+          // Update progress
+          await db
+            .update(cardhedgeImportRuns)
+            .set({
+              pagesAttempted: pagesFetched,
+              cardsFound: totalCardsImported + wrongSportSkipped,
+              cardsInserted: totalCardsImported,
+            })
+            .where(eq(cardhedgeImportRuns.id, importRun.id));
+          
+          hasMorePages = result.pages ? page < result.pages : result.cards.length === pageSize;
+          page++;
+          
+          if (page > 50) {
+            console.log(`[Purge & Reimport] Stopping at page 50 safety limit`);
+            break;
+          }
+        }
+        
+        // Update final counts
+        await db
+          .update(gameSets)
+          .set({ cardsImportedCount: totalCardsImported })
+          .where(eq(gameSets.id, id));
+        
+        await db
+          .update(cardhedgeImportRuns)
+          .set({
+            status: "completed",
+            completedAt: new Date(),
+            pagesAttempted: pagesFetched,
+            cardsFound: totalCardsImported + wrongSportSkipped,
+            cardsInserted: totalCardsImported,
+          })
+          .where(eq(cardhedgeImportRuns.id, importRun.id));
+        
+        console.log(`[Purge & Reimport] Completed: ${cardsPurged} purged, ${totalCardsImported} imported, ${wrongSportSkipped} wrong-sport skipped`);
+        
+        res.json({
+          success: true,
+          cardsPurged,
+          cardsImported: totalCardsImported,
+          wrongSportSkipped,
+          pagesFetched,
+          importRunId: importRun.id,
+        });
+      } catch (importError: any) {
+        await db
+          .update(cardhedgeImportRuns)
+          .set({
+            status: "failed",
+            completedAt: new Date(),
+            errorMessage: importError.message,
+          })
+          .where(eq(cardhedgeImportRuns.id, importRun.id));
+        
+        throw importError;
+      }
+    } catch (error: any) {
+      console.error("Error in purge & reimport:", error);
+      res.status(500).json({ error: error.message || "Failed to purge and reimport cards" });
+    }
+  });
+
   // Admin: Get import runs for a set
   app.get("/api/admin/playable-sets/:id/imports", isAuthenticated, requireAdmin, async (req, res) => {
     try {

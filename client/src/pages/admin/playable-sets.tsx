@@ -235,6 +235,43 @@ export default function AdminPlayableSets() {
     },
   });
 
+  const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
+  const [purgeTargetSet, setPurgeTargetSet] = useState<GameSet | null>(null);
+
+  const purgeReimportMutation = useMutation({
+    mutationFn: async (setId: string) => {
+      const res = await apiRequest("POST", `/api/admin/playable-sets/${setId}/purge-reimport`, {
+        page_size: 100,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ 
+        title: "Purge & Reimport completed", 
+        description: `Purged ${data.cardsPurged} cards, imported ${data.cardsImported} cards (${data.wrongSportSkipped} wrong-sport skipped)` 
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
+      setShowPurgeConfirm(false);
+      setPurgeTargetSet(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Purge & Reimport failed", description: error.message, variant: "destructive" });
+      setShowPurgeConfirm(false);
+      setPurgeTargetSet(null);
+    },
+  });
+
+  const handlePurgeReimport = (set: GameSet) => {
+    setPurgeTargetSet(set);
+    setShowPurgeConfirm(true);
+  };
+
+  const confirmPurgeReimport = () => {
+    if (purgeTargetSet) {
+      purgeReimportMutation.mutate(purgeTargetSet.id);
+    }
+  };
+
   const closeDialog = () => {
     setShowDialog(false);
     setEditingSet(null);
@@ -406,12 +443,28 @@ export default function AdminPlayableSets() {
                         onClick={() => handleImport(set)}
                         disabled={importMutation.isPending && selectedSetForImport?.id === set.id}
                         data-testid={`button-import-${set.id}`}
+                        title="Import cards"
                       >
                         {importMutation.isPending && selectedSetForImport?.id === set.id 
                           ? <Loader2 className="h-4 w-4 animate-spin" />
                           : <Download className="h-4 w-4" />
                         }
                       </Button>
+                      {set.cardhedgeSetQuery && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handlePurgeReimport(set)}
+                          disabled={purgeReimportMutation.isPending && purgeTargetSet?.id === set.id}
+                          data-testid={`button-purge-reimport-${set.id}`}
+                          title="Purge & Re-import (clean slate)"
+                        >
+                          {purgeReimportMutation.isPending && purgeTargetSet?.id === set.id 
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <RefreshCw className="h-4 w-4" />
+                          }
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -709,6 +762,50 @@ export default function AdminPlayableSets() {
               data-testid="button-cancel-lookup"
             >
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPurgeConfirm} onOpenChange={setShowPurgeConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Purge & Re-import Cards</DialogTitle>
+            <DialogDescription>
+              This will delete all {purgeTargetSet?.cardsImportedCount || 0} existing cards 
+              from "{purgeTargetSet?.setName}" and re-import fresh cards from Card Hedge with improved sport filtering.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-2">
+            <p className="text-sm font-medium">This action will:</p>
+            <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+              <li>Delete all currently imported cards from this set</li>
+              <li>Fetch fresh data from Card Hedge API</li>
+              <li>Skip cards that don't match the sport category</li>
+              <li>Re-import only cards with correct sport classification</li>
+            </ul>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowPurgeConfirm(false)}
+              disabled={purgeReimportMutation.isPending}
+              data-testid="button-cancel-purge"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={confirmPurgeReimport}
+              disabled={purgeReimportMutation.isPending}
+              data-testid="button-confirm-purge"
+            >
+              {purgeReimportMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              Purge & Re-import
             </Button>
           </DialogFooter>
         </DialogContent>
