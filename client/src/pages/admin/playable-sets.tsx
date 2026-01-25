@@ -446,7 +446,10 @@ export default function AdminPlayableSets() {
                 <Label htmlFor="sport">Sport</Label>
                 <Select 
                   value={formData.sport} 
-                  onValueChange={(v) => setFormData({ ...formData, sport: v })}
+                  onValueChange={(v) => {
+                    const capitalizedCategory = v.charAt(0).toUpperCase() + v.slice(1);
+                    setFormData({ ...formData, sport: v, cardhedgeCategory: capitalizedCategory });
+                  }}
                 >
                   <SelectTrigger data-testid="select-sport">
                     <SelectValue />
@@ -643,6 +646,9 @@ export default function AdminPlayableSets() {
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Searching in: <Badge variant="secondary" data-testid="badge-lookup-category">{formData.cardhedgeCategory}</Badge>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Input 
                 placeholder="Search by year, brand, or set name..."
