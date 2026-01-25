@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -7460,6 +7460,349 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error forcing risk recompute:", error);
       res.status(500).json({ error: "Failed to recompute risk" });
+    }
+  });
+
+  // ============================================================
+  // ADMIN SET IMPORTER ENDPOINTS
+  // ============================================================
+
+  // GET /api/admin/card-sets - List all card sets with latest job status
+  app.get("/api/admin/card-sets", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const sets = await db.select()
+        .from(cardSets)
+        .orderBy(sql`${cardSets.createdAt} DESC`);
+
+      const setsWithDetails = await Promise.all(sets.map(async (set) => {
+        const { getLatestJobForSet, getSetCardCount } = await import("./services/catalog/importer/setImporter");
+        const latestJob = await getLatestJobForSet(set.id);
+        const cardCount = await getSetCardCount(set.id);
+        return {
+          ...set,
+          linkedCardCount: cardCount,
+          latestJob: latestJob ? {
+            id: latestJob.id,
+            status: latestJob.status,
+            cardsLinked: latestJob.cardsLinked,
+            startedAt: latestJob.startedAt,
+            finishedAt: latestJob.finishedAt,
+          } : null,
+        };
+      }));
+
+      res.json({ sets: setsWithDetails });
+    } catch (error: any) {
+      console.error("Error listing card sets:", error);
+      res.status(500).json({ error: "Failed to list card sets" });
+    }
+  });
+
+  // POST /api/admin/card-sets - Create a new card set
+  app.post("/api/admin/card-sets", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { createCardSetSchema } = await import("@shared/schema");
+      const parsed = createCardSetSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const { sport, year, brand, setName, keywords, expectedCardCount } = parsed.data;
+
+      const [newSet] = await db.insert(cardSets)
+        .values({
+          sport,
+          year,
+          brand: brand || null,
+          setName,
+          keywords: keywords || [],
+          expectedCardCount: expectedCardCount || null,
+        })
+        .returning();
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(adminUserId, "card_set_created", newSet.id, { setName, sport, year });
+
+      res.json({ success: true, set: newSet });
+    } catch (error: any) {
+      console.error("Error creating card set:", error);
+      res.status(500).json({ error: "Failed to create card set" });
+    }
+  });
+
+  // GET /api/admin/card-sets/:id - Get card set details
+  app.get("/api/admin/card-sets/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      const [set] = await db.select()
+        .from(cardSets)
+        .where(eq(cardSets.id, id))
+        .limit(1);
+
+      if (!set) {
+        return res.status(404).json({ error: "Card set not found" });
+      }
+
+      const { getLatestJobForSet, getSetCardCount } = await import("./services/catalog/importer/setImporter");
+      const latestJob = await getLatestJobForSet(id);
+      const cardCount = await getSetCardCount(id);
+
+      res.json({
+        set: {
+          ...set,
+          linkedCardCount: cardCount,
+          latestJob,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error getting card set:", error);
+      res.status(500).json({ error: "Failed to get card set" });
+    }
+  });
+
+  // PUT /api/admin/card-sets/:id - Update a card set
+  app.put("/api/admin/card-sets/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { updateCardSetSchema } = await import("@shared/schema");
+      const parsed = updateCardSetSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      const data = parsed.data;
+      
+      if (data.sport !== undefined) updates.sport = data.sport;
+      if (data.year !== undefined) updates.year = data.year;
+      if (data.brand !== undefined) updates.brand = data.brand;
+      if (data.setName !== undefined) updates.setName = data.setName;
+      if (data.keywords !== undefined) updates.keywords = data.keywords;
+      if (data.expectedCardCount !== undefined) updates.expectedCardCount = data.expectedCardCount;
+      if (data.isActive !== undefined) updates.isActive = data.isActive;
+
+      const [updated] = await db.update(cardSets)
+        .set(updates)
+        .where(eq(cardSets.id, id))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Card set not found" });
+      }
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(adminUserId, "card_set_updated", id, updates);
+
+      res.json({ success: true, set: updated });
+    } catch (error: any) {
+      console.error("Error updating card set:", error);
+      res.status(500).json({ error: "Failed to update card set" });
+    }
+  });
+
+  // DELETE /api/admin/card-sets/:id - Delete a card set
+  app.delete("/api/admin/card-sets/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      await db.delete(cardSets).where(eq(cardSets.id, id));
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(adminUserId, "card_set_deleted", id, {});
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting card set:", error);
+      res.status(500).json({ error: "Failed to delete card set" });
+    }
+  });
+
+  // POST /api/admin/card-sets/:id/import - Start import job for a card set
+  app.post("/api/admin/card-sets/:id/import", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      const [set] = await db.select()
+        .from(cardSets)
+        .where(eq(cardSets.id, id))
+        .limit(1);
+
+      if (!set) {
+        return res.status(404).json({ error: "Card set not found" });
+      }
+
+      const { createImportJob, importSetFromCardHedge } = await import("./services/catalog/importer/setImporter");
+      const jobId = await createImportJob(id);
+
+      importSetFromCardHedge(id, jobId).catch((error) => {
+        console.error(`Import job ${jobId} failed:`, error);
+      });
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      await adminService.logAction(adminUserId, "card_set_import_started", id, { jobId });
+
+      res.json({ success: true, jobId });
+    } catch (error: any) {
+      console.error("Error starting import:", error);
+      res.status(500).json({ error: "Failed to start import" });
+    }
+  });
+
+  // GET /api/admin/set-import-jobs/:jobId - Get import job status and logs
+  app.get("/api/admin/set-import-jobs/:jobId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { jobId } = req.params;
+
+      const [job] = await db.select()
+        .from(setImportJobs)
+        .where(eq(setImportJobs.id, jobId))
+        .limit(1);
+
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      const { getJobLogs } = await import("./services/catalog/importer/setImporter");
+      const logs = await getJobLogs(jobId);
+
+      res.json({ job, logs });
+    } catch (error: any) {
+      console.error("Error getting import job:", error);
+      res.status(500).json({ error: "Failed to get import job" });
+    }
+  });
+
+  // GET /api/admin/card-sets/:id/cards - Get cards linked to a set
+  app.get("/api/admin/card-sets/:id/cards", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 100);
+      const offset = (page - 1) * pageSize;
+
+      const cards = await db.select({
+        id: catalogCards.id,
+        player: catalogCards.player,
+        description: catalogCards.description,
+        cardNumber: catalogCards.cardNumber,
+        variant: catalogCards.variant,
+        imageUrl: catalogCards.imageUrl,
+        setName: catalogCards.setName,
+      })
+        .from(cardSetCards)
+        .innerJoin(catalogCards, eq(cardSetCards.cardId, catalogCards.id))
+        .where(eq(cardSetCards.setId, id))
+        .orderBy(catalogCards.player)
+        .limit(pageSize)
+        .offset(offset);
+
+      const [countResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(cardSetCards)
+        .where(eq(cardSetCards.setId, id));
+
+      const totalCount = Number(countResult?.count ?? 0);
+
+      res.json({
+        cards,
+        pagination: {
+          page,
+          pageSize,
+          totalCount,
+          totalPages: Math.ceil(totalCount / pageSize),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error getting set cards:", error);
+      res.status(500).json({ error: "Failed to get set cards" });
+    }
+  });
+
+  // POST /api/admin/provider-diagnostics - Run provider diagnostics
+  app.post("/api/admin/provider-diagnostics", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { sport } = req.body;
+      
+      if (!sport || !["Baseball", "Basketball", "Football", "Hockey"].includes(sport)) {
+        return res.status(400).json({ error: "Invalid sport. Must be Baseball, Basketball, Football, or Hockey" });
+      }
+
+      const { cardHedgeProvider } = await import("./services/catalog/providers/cardhedge/cardhedgeProvider");
+      const result = await cardHedgeProvider.diagnoseCoverage({ sport });
+
+      res.json({ result });
+    } catch (error: any) {
+      console.error("Error running provider diagnostics:", error);
+      res.status(500).json({ error: "Failed to run provider diagnostics" });
+    }
+  });
+
+  // GET /api/card-sets - Public endpoint for active sets (for gameplay)
+  app.get("/api/card-sets", async (_req, res) => {
+    try {
+      const activeSets = await db.select({
+        id: cardSets.id,
+        sport: cardSets.sport,
+        year: cardSets.year,
+        brand: cardSets.brand,
+        setName: cardSets.setName,
+      })
+        .from(cardSets)
+        .where(eq(cardSets.isActive, true))
+        .orderBy(cardSets.year, cardSets.setName);
+
+      const setsWithCount = await Promise.all(activeSets.map(async (set) => {
+        const { getSetCardCount } = await import("./services/catalog/importer/setImporter");
+        const linkedCount = await getSetCardCount(set.id);
+        return { ...set, linkedCount };
+      }));
+
+      const playableSets = setsWithCount.filter(s => s.linkedCount >= 10);
+
+      res.json({ sets: playableSets });
+    } catch (error: any) {
+      console.error("Error getting card sets:", error);
+      res.status(500).json({ error: "Failed to get card sets" });
+    }
+  });
+
+  // GET /api/card-sets/:id/cards - Public endpoint for set cards (for gameplay)
+  app.get("/api/card-sets/:id/cards", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 100);
+      const offset = (page - 1) * pageSize;
+
+      const [set] = await db.select()
+        .from(cardSets)
+        .where(and(eq(cardSets.id, id), eq(cardSets.isActive, true)))
+        .limit(1);
+
+      if (!set) {
+        return res.status(404).json({ error: "Set not found or not active" });
+      }
+
+      const cards = await db.select({
+        id: catalogCards.id,
+        player: catalogCards.player,
+        description: catalogCards.description,
+        cardNumber: catalogCards.cardNumber,
+        variant: catalogCards.variant,
+        imageUrl: catalogCards.imageUrl,
+      })
+        .from(cardSetCards)
+        .innerJoin(catalogCards, eq(cardSetCards.cardId, catalogCards.id))
+        .where(eq(cardSetCards.setId, id))
+        .limit(pageSize)
+        .offset(offset);
+
+      res.json({ cards });
+    } catch (error: any) {
+      console.error("Error getting set cards:", error);
+      res.status(500).json({ error: "Failed to get set cards" });
     }
   });
 

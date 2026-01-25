@@ -35,6 +35,7 @@ import AdminCardHedgeCard from "@/pages/admin/cardhedge-card";
 import AdminCardSearch from "@/pages/admin/card-search";
 import AdminCardReports from "@/pages/admin/card-reports";
 import AdminPackageGuardrails from "@/pages/admin/package-guardrails";
+import AdminCardSets from "@/pages/admin/card-sets";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -151,6 +152,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminPlayableSets />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/card-sets">
+        {() => (
+          <AdminLayout>
+            <AdminCardSets />
           </AdminLayout>
         )}
       </Route>

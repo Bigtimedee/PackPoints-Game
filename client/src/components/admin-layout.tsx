@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Users, LogOut, Home, Shield, BarChart3, ScrollText, Gift, Coins, Flame, Package, UserPlus, RefreshCw, MapPin, Layers, Flag, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Home, Shield, BarChart3, ScrollText, Gift, Coins, Flame, Package, UserPlus, RefreshCw, MapPin, Layers, Flag, ShieldCheck, Download } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -10,6 +10,7 @@ const navItems = [
   { href: "/admin/access", label: "Access", icon: UserPlus },
   { href: "/admin/geo", label: "Geo", icon: MapPin },
   { href: "/admin/playable-sets", label: "Cards", icon: Layers },
+  { href: "/admin/card-sets", label: "Set Importer", icon: Download },
   { href: "/admin/card-reports", label: "Reports", icon: Flag },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/package-guardrails", label: "Guardrails", icon: ShieldCheck },

@@ -2771,3 +2771,158 @@ export const insertRiskJobSchema = createInsertSchema(riskJobs).omit({
 });
 export type InsertRiskJob = z.infer<typeof insertRiskJobSchema>;
 export type RiskJob = typeof riskJobs.$inferSelect;
+
+// ============================================================
+// ADMIN SET IMPORTER - Provider-Agnostic Card Import System
+// ============================================================
+
+// Card Set Sport Enum (uses capitalized format for CardHedge compatibility)
+export const cardSetSportEnum = pgEnum("card_set_sport", [
+  "Baseball", "Basketball", "Football", "Hockey"
+]);
+export type CardSetSport = "Baseball" | "Basketball" | "Football" | "Hockey";
+
+// Card Sets - Admin-defined sets for import
+export const cardSets = pgTable("card_sets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sport: cardSetSportEnum("sport").notNull(),
+  year: integer("year").notNull(),
+  brand: text("brand"),
+  setName: text("set_name").notNull(),
+  providerPreference: text("provider_preference").notNull().default("cardhedge"),
+  keywords: text("keywords").array().notNull().default([]),
+  expectedCardCount: integer("expected_card_count"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_card_sets_sport_year").on(table.sport, table.year),
+  index("idx_card_sets_active").on(table.isActive),
+]);
+
+export const insertCardSetSchema = createInsertSchema(cardSets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertCardSet = z.infer<typeof insertCardSetSchema>;
+export type CardSet = typeof cardSets.$inferSelect;
+
+// Cards - Local canonical catalog of imported cards
+export const catalogCards = pgTable("catalog_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  provider: text("provider").notNull(),
+  providerCardId: text("provider_card_id").notNull(),
+  sport: cardSetSportEnum("sport"),
+  year: integer("year"),
+  brand: text("brand"),
+  setName: text("set_name"),
+  cardNumber: text("card_number"),
+  variant: text("variant"),
+  player: text("player"),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  categoryRaw: text("category_raw"),
+  setRaw: text("set_raw"),
+  raw: jsonb("raw").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_catalog_cards_provider_id").on(table.provider, table.providerCardId),
+  index("idx_catalog_cards_sport").on(table.sport),
+  index("idx_catalog_cards_player").on(table.player),
+]);
+
+export const insertCatalogCardSchema = createInsertSchema(catalogCards).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCatalogCard = z.infer<typeof insertCatalogCardSchema>;
+export type CatalogCard = typeof catalogCards.$inferSelect;
+
+// Card Set Cards - Membership linking sets to cards
+export const cardSetCards = pgTable("card_set_cards", {
+  setId: varchar("set_id").notNull().references(() => cardSets.id, { onDelete: "cascade" }),
+  cardId: varchar("card_id").notNull().references(() => catalogCards.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_card_set_cards_set").on(table.setId),
+  index("idx_card_set_cards_card").on(table.cardId),
+]);
+
+// Set Import Job Status Enum
+export const setImportJobStatusEnum = pgEnum("set_import_job_status", [
+  "PENDING", "RUNNING", "SUCCEEDED", "FAILED", "PARTIAL"
+]);
+
+// Set Import Jobs - Track import progress
+export const setImportJobs = pgTable("set_import_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  setId: varchar("set_id").notNull().references(() => cardSets.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  status: setImportJobStatusEnum("status").notNull().default("PENDING"),
+  totalPages: integer("total_pages").notNull().default(0),
+  pagesFetched: integer("pages_fetched").notNull().default(0),
+  cardsFound: integer("cards_found").notNull().default(0),
+  cardsInserted: integer("cards_inserted").notNull().default(0),
+  cardsLinked: integer("cards_linked").notNull().default(0),
+  lastError: text("last_error"),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_set_import_jobs_set").on(table.setId),
+  index("idx_set_import_jobs_status").on(table.status),
+]);
+
+export const insertSetImportJobSchema = createInsertSchema(setImportJobs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSetImportJob = z.infer<typeof insertSetImportJobSchema>;
+export type SetImportJob = typeof setImportJobs.$inferSelect;
+
+// Set Import Job Log Level Enum
+export const setImportJobLogLevelEnum = pgEnum("set_import_job_log_level", [
+  "INFO", "WARN", "ERROR"
+]);
+
+// Set Import Job Logs - Detailed import logs
+export const setImportJobLogs = pgTable("set_import_job_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull().references(() => setImportJobs.id, { onDelete: "cascade" }),
+  level: setImportJobLogLevelEnum("level").notNull(),
+  message: text("message").notNull(),
+  meta: jsonb("meta"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_set_import_job_logs_job").on(table.jobId),
+]);
+
+export const insertSetImportJobLogSchema = createInsertSchema(setImportJobLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSetImportJobLog = z.infer<typeof insertSetImportJobLogSchema>;
+export type SetImportJobLog = typeof setImportJobLogs.$inferSelect;
+
+// API Schemas for Admin Set Importer
+export const createCardSetSchema = z.object({
+  sport: z.enum(["Baseball", "Basketball", "Football", "Hockey"]),
+  year: z.number().int().min(1800).max(2100),
+  brand: z.string().optional(),
+  setName: z.string().min(1),
+  keywords: z.array(z.string()).default([]),
+  expectedCardCount: z.number().int().positive().optional(),
+});
+export type CreateCardSetRequest = z.infer<typeof createCardSetSchema>;
+
+export const updateCardSetSchema = z.object({
+  sport: z.enum(["Baseball", "Basketball", "Football", "Hockey"]).optional(),
+  year: z.number().int().min(1800).max(2100).optional(),
+  brand: z.string().nullable().optional(),
+  setName: z.string().min(1).optional(),
+  keywords: z.array(z.string()).optional(),
+  expectedCardCount: z.number().int().positive().nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type UpdateCardSetRequest = z.infer<typeof updateCardSetSchema>;
