@@ -357,6 +357,9 @@ export default function Game() {
       setEarnedPoints(0);
       setStartError(null);
       setHasStartedGame(true);
+      // Reset replacement tracking for new session
+      setFailedCardIds([]);
+      setReplacedQuestionIndices(new Set());
     },
     onError: (error: any) => {
       const errorMessage = error?.message || "";
@@ -487,6 +490,10 @@ export default function Game() {
 
   // Track failed card IDs this session to exclude from replacements
   const [failedCardIds, setFailedCardIds] = useState<string[]>([]);
+  
+  // Track question indices that have already had a replacement attempted
+  // This prevents auto-skipping when replacement card's image also fails
+  const [replacedQuestionIndices, setReplacedQuestionIndices] = useState<Set<number>>(new Set());
 
   // Replace card when image fails to load - user doesn't lose PackPTS opportunity
   const replaceCardMutation = useMutation({
@@ -504,17 +511,22 @@ export default function Game() {
           if (!oldData) return oldData;
           const newQuestions = [...oldData.questions];
           newQuestions[oldData.currentQuestionIndex] = data.question;
+          // Mark this question index as having been replaced
+          setReplacedQuestionIndices(prev => new Set(prev).add(oldData.currentQuestionIndex));
           return { ...oldData, questions: newQuestions };
         });
         console.log(`[Game] Card replaced successfully with ${data.question.card.id}`);
       }
     },
     onError: (error) => {
-      console.log(`[Game] Card replacement failed, skipping to next:`, error);
-      // Fall back to skipping if replacement fails
-      if (!isRevealed && !nextQuestionMutation.isPending) {
-        nextQuestionMutation.mutate();
+      console.log(`[Game] Card replacement failed:`, error);
+      // Mark this question as having had a replacement attempt
+      if (session) {
+        setReplacedQuestionIndices(prev => new Set(prev).add(session.currentQuestionIndex));
       }
+      // DO NOT auto-skip to next question - the replacement just failed
+      // User should still try to answer the current question if the card is visible
+      // Only skip if explicitly requested by user or if there's truly no card to show
     }
   });
 
@@ -522,6 +534,14 @@ export default function Game() {
   const handleCardImageError = (failedCardId: string) => {
     // Track this failed card to exclude from future replacements
     setFailedCardIds(prev => [...prev, failedCardId]);
+    
+    // Check if we've already attempted a replacement for this question
+    // If so, don't try again - user still has the current card to attempt
+    const currentIndex = session?.currentQuestionIndex ?? -1;
+    if (replacedQuestionIndices.has(currentIndex)) {
+      console.log(`[Game] Already replaced card at question ${currentIndex + 1}, not replacing again`);
+      return;
+    }
     
     // Try to get a replacement card
     if (!isRevealed && !replaceCardMutation.isPending) {
@@ -590,6 +610,9 @@ export default function Game() {
     setHasStartedGame(false);
     setStartError(null);
     setPointsUpdatedForSession(null);
+    // Reset replacement tracking for new game
+    setFailedCardIds([]);
+    setReplacedQuestionIndices(new Set());
   };
 
   const handleStartGame = () => {
