@@ -5,26 +5,41 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Loader2, Users, X, ArrowLeft, Play, LogIn, Shuffle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Users, X, ArrowLeft, Play, LogIn, Shuffle, Radio, Gamepad2 } from "lucide-react";
 import { CardSetPicker } from "@/components/CardSetPicker";
 import { MobileSelect } from "@/components/MobileSelect";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
 import type { PlayableSet } from "@shared/schema";
 
+interface PresenceStats {
+  online: number;
+  searching: number;
+  inMatch: number;
+  queueSize: number;
+  queuesByBucket: Record<string, number>;
+}
+
 export default function Queue() {
   const [, navigate] = useLocation();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [ticketId, setTicketId] = useState<string | null>(null);
   const [queueSize, setQueueSize] = useState(0);
   const [searchTime, setSearchTime] = useState(0);
-  const [status, setStatus] = useState<"idle" | "connecting" | "searching" | "matched">("idle");
+  const [status, setStatus] = useState<"idle" | "connecting" | "searching" | "matched" | "expired">("idle");
   const [selectedCardCount, setSelectedCardCount] = useState("10");
   const [selectedSetId, setSelectedSetId] = useState("random");
 
   const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
     enabled: isAuthenticated,
+  });
+
+  const { data: presenceStats } = useQuery<PresenceStats>({
+    queryKey: ["/api/presence/stats"],
+    refetchInterval: status === "idle" ? 10000 : 5000,
   });
 
   const availableSets = playableSets?.filter(s => s.cardsImportedCount > 0) || [];
@@ -36,6 +51,7 @@ export default function Queue() {
     switch (type) {
       case "queue_joined":
         setQueuePosition(payload.position);
+        setTicketId(payload.ticketId);
         setQueueSize(payload.queueSize);
         setStatus("searching");
         break;
@@ -47,7 +63,12 @@ export default function Queue() {
         }, 1500);
         break;
       case "queue_left":
+        setTicketId(null);
         navigate("/");
+        break;
+      case "queue_expired":
+        setStatus("expired");
+        setTicketId(null);
         break;
       case "error":
         console.error("Queue error:", payload);
@@ -180,6 +201,25 @@ export default function Queue() {
           <CardContent className="space-y-6">
             {status === "idle" && (
               <div className="space-y-6" data-testid="status-idle">
+                {presenceStats && (presenceStats.online > 0 || presenceStats.searching > 0) && (
+                  <div className="flex items-center justify-center gap-4 py-2 px-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-2" data-testid="presence-online">
+                      <Radio className="h-3 w-3 text-green-500 animate-pulse" />
+                      <span className="text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">{presenceStats.online}</span> online
+                      </span>
+                    </div>
+                    {presenceStats.searching > 0 && (
+                      <div className="flex items-center gap-2" data-testid="presence-searching">
+                        <Gamepad2 className="h-3 w-3 text-primary" />
+                        <span className="text-sm text-muted-foreground">
+                          <span className="font-medium text-foreground">{presenceStats.searching}</span> searching
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 <div className="space-y-2">
                   <Label htmlFor="card-set">Card Set</Label>
                   <CardSetPicker
@@ -276,6 +316,39 @@ export default function Queue() {
               <p className="text-xl font-semibold text-green-500">Opponent Found!</p>
               <p className="text-muted-foreground">Starting match...</p>
               <Loader2 className="w-6 h-6 animate-spin mx-auto text-green-500" />
+            </div>
+          )}
+
+          {status === "expired" && (
+            <div className="text-center space-y-4" data-testid="status-expired">
+              <div className="w-24 h-24 mx-auto rounded-full bg-amber-500/20 flex items-center justify-center">
+                <X className="w-12 h-12 text-amber-500" />
+              </div>
+              <p className="text-xl font-semibold text-amber-600 dark:text-amber-400">Search Expired</p>
+              <p className="text-muted-foreground">
+                No opponents found after 5 minutes. Try again later when more players are online.
+              </p>
+              <div className="flex flex-col gap-2">
+                <Button 
+                  className="w-full gap-2" 
+                  onClick={() => {
+                    setStatus("idle");
+                    setSearchTime(0);
+                  }}
+                  data-testid="button-search-again"
+                >
+                  <Play className="h-5 w-5" />
+                  Try Again
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={() => navigate("/")}
+                  data-testid="button-go-home"
+                >
+                  Back to Home
+                </Button>
+              </div>
             </div>
           )}
           </CardContent>

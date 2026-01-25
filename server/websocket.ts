@@ -2,9 +2,14 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Server as HttpServer } from "http";
 import { matchService } from "./services/matchService";
 import { matchmakingService } from "./services/matchmakingService";
+import { presenceService } from "./services/presenceService";
 import { streakService } from "./services/streakService";
 import { log } from "./index";
 import type { MatchState } from "@shared/schema";
+
+// Heartbeat configuration
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+const HEARTBEAT_TIMEOUT = 10000; // 10 seconds to respond
 
 interface ClientConnection {
   userId: string;
@@ -14,14 +19,42 @@ interface ClientConnection {
   membershipSecret?: string;
   isAuthenticated?: boolean;
   inQueue?: boolean;
+  lastHeartbeat?: number;
+  heartbeatTimeout?: NodeJS.Timeout;
+  socketId?: string;
 }
 
 const clients = new Map<WebSocket, ClientConnection>();
+const userSockets = new Map<string, WebSocket>(); // userId -> WebSocket for quick lookup
 const lobbyConnections = new Map<string, Set<WebSocket>>();
 const matchConnections = new Map<string, Set<WebSocket>>();
 
+// Periodic heartbeat checker
+let heartbeatChecker: NodeJS.Timeout | null = null;
+
+function startHeartbeatChecker(wss: WebSocketServer) {
+  if (heartbeatChecker) return;
+  
+  heartbeatChecker = setInterval(() => {
+    const now = Date.now();
+    wss.clients.forEach((ws) => {
+      const client = clients.get(ws);
+      if (client && client.lastHeartbeat) {
+        const timeSinceHeartbeat = now - client.lastHeartbeat;
+        if (timeSinceHeartbeat > HEARTBEAT_INTERVAL + HEARTBEAT_TIMEOUT) {
+          log(`Heartbeat timeout for user ${client.userId}, closing connection`, "ws");
+          ws.terminate();
+        }
+      }
+    });
+  }, HEARTBEAT_INTERVAL);
+}
+
 export function setupWebSocket(httpServer: HttpServer) {
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  // Start periodic heartbeat checker
+  startHeartbeatChecker(wss);
 
   wss.on("connection", (ws) => {
     log("WebSocket client connected", "ws");
@@ -39,6 +72,19 @@ export function setupWebSocket(httpServer: HttpServer) {
     ws.on("close", async () => {
       const client = clients.get(ws);
       if (client) {
+        // Clear heartbeat timeout
+        if (client.heartbeatTimeout) {
+          clearTimeout(client.heartbeatTimeout);
+        }
+        
+        // Update presence to offline
+        if (client.userId) {
+          userSockets.delete(client.userId);
+          presenceService.setOffline(client.userId).catch((err: unknown) => {
+            console.error("Failed to update presence:", err);
+          });
+        }
+        
         if (client.inQueue) {
           matchmakingService.handleDisconnect(client.userId);
         }
@@ -61,10 +107,26 @@ export function setupWebSocket(httpServer: HttpServer) {
   return wss;
 }
 
+// Export for other modules to send messages to specific users
+export function sendToUser(userId: string, message: any): boolean {
+  const ws = userSockets.get(userId);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(message));
+    return true;
+  }
+  return false;
+}
+
 async function handleMessage(ws: WebSocket, message: any) {
   const { type, payload } = message;
 
   switch (type) {
+    case "heartbeat":
+      await handleHeartbeat(ws, payload);
+      break;
+    case "auth":
+      await handleAuth(ws, payload);
+      break;
     case "join_lobby":
       await handleJoinLobbyWs(ws, payload);
       break;
@@ -92,6 +154,63 @@ async function handleMessage(ws: WebSocket, message: any) {
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
   }
+}
+
+// Auth handler for initial connection
+async function handleAuth(ws: WebSocket, payload: { userId: string; username: string }) {
+  const { userId, username } = payload;
+  
+  if (!userId || !username) {
+    ws.send(JSON.stringify({ type: "error", message: "Invalid auth payload" }));
+    return;
+  }
+  
+  // Check if user already has a connection
+  const existingWs = userSockets.get(userId);
+  if (existingWs && existingWs !== ws && existingWs.readyState === WebSocket.OPEN) {
+    // Disconnect the old connection
+    existingWs.send(JSON.stringify({ type: "disconnected", message: "Connected from another location" }));
+    existingWs.close();
+  }
+  
+  const socketId = Math.random().toString(36).substring(7);
+  clients.set(ws, { 
+    userId, 
+    username, 
+    isAuthenticated: true,
+    lastHeartbeat: Date.now(),
+    socketId
+  });
+  userSockets.set(userId, ws);
+  
+  // Update presence in database
+  await presenceService.setOnline(userId, socketId);
+  
+  ws.send(JSON.stringify({ 
+    type: "auth_success", 
+    payload: { userId, socketId }
+  }));
+  
+  log(`User ${username} (${userId}) authenticated`, "ws");
+}
+
+// Heartbeat handler
+async function handleHeartbeat(ws: WebSocket, payload: { userId: string }) {
+  const client = clients.get(ws);
+  
+  if (!client || client.userId !== payload.userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Not authenticated" }));
+    return;
+  }
+  
+  client.lastHeartbeat = Date.now();
+  
+  // Update presence timestamp
+  presenceService.updateLastSeen(client.userId).catch((err: unknown) => {
+    console.error("Failed to update presence:", err);
+  });
+  
+  ws.send(JSON.stringify({ type: "heartbeat_ack", timestamp: Date.now() }));
 }
 
 async function handleJoinLobbyWs(ws: WebSocket, payload: { userId: string; username: string; lobbyId: string; membershipSecret: string }) {
@@ -415,35 +534,64 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
   const { userId, username, totalQuestions = 10, gameSetId = null } = payload;
   
   const existingClient = clients.get(ws);
-  if (existingClient && existingClient.userId && existingClient.userId !== userId) {
+  
+  // If client was previously authenticated, verify identity matches
+  if (existingClient && existingClient.isAuthenticated && existingClient.userId !== userId) {
     ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
     return;
   }
   
-  clients.set(ws, { userId, username, inQueue: true });
+  // Reuse existing socketId or generate new one
+  const socketId = existingClient?.socketId || Math.random().toString(36).substring(7);
   
-  const result = await matchmakingService.joinQueue(userId, username, ws, totalQuestions, gameSetId);
+  if (!existingClient || !existingClient.isAuthenticated) {
+    // First time - set up presence as online first
+    await presenceService.setOnline(userId, socketId);
+  }
+  
+  clients.set(ws, { 
+    userId, 
+    username, 
+    inQueue: true, 
+    isAuthenticated: true,
+    lastHeartbeat: Date.now(),
+    socketId
+  });
+  userSockets.set(userId, ws);
+  
+  // Update presence to SEARCHING
+  await presenceService.setSearching(userId);
+  
+  const result = await matchmakingService.joinQueue(userId, username, ws, socketId, totalQuestions, gameSetId);
   
   ws.send(JSON.stringify({
     type: "queue_joined",
     payload: {
       position: result.position,
+      ticketId: result.ticketId,
       queueSize: matchmakingService.getQueueSize(),
     },
   }));
   
-  log(`${username} joined matchmaking queue (position: ${result.position})`, "ws");
+  log(`${username} joined matchmaking queue (position: ${result.position}, ticket: ${result.ticketId.slice(0, 8)}...)`, "ws");
 }
 
 async function handleLeaveQueue(ws: WebSocket, payload: { userId: string }) {
   const { userId } = payload;
   
   const client = clients.get(ws);
-  if (client) {
-    client.inQueue = false;
+  if (!client || client.userId !== userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Not authenticated or user mismatch" }));
+    return;
   }
   
-  const removed = matchmakingService.leaveQueue(userId);
+  client.inQueue = false;
+  
+  // Update presence back to ONLINE using the stored socketId
+  const socketId = client.socketId || Math.random().toString(36).substring(7);
+  await presenceService.setOnline(userId, socketId);
+  
+  const removed = await matchmakingService.leaveQueue(userId);
   
   ws.send(JSON.stringify({
     type: "queue_left",

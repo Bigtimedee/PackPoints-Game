@@ -8015,5 +8015,79 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== MATCHMAKING & PRESENCE ENDPOINTS ====================
+
+  // GET /api/presence/stats - Get online player statistics (public)
+  app.get("/api/presence/stats", async (_req, res) => {
+    try {
+      const { presenceService } = await import("./services/presenceService");
+      const { matchmakingService } = await import("./services/matchmakingService");
+      
+      const presenceStats = await presenceService.getPresenceStats();
+      const queueStats = matchmakingService.getQueueStats();
+      
+      res.json({
+        online: presenceStats.total,
+        searching: presenceStats.searching,
+        inMatch: presenceStats.inMatch,
+        queueSize: queueStats.total,
+        queuesByBucket: queueStats.byBucket,
+      });
+    } catch (error: unknown) {
+      console.error("Error getting presence stats:", error);
+      res.status(500).json({ error: "Failed to get presence stats" });
+    }
+  });
+
+  // GET /api/matchmaking/status - Get current user's matchmaking status (authenticated)
+  app.get("/api/matchmaking/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { presenceService } = await import("./services/presenceService");
+      const { matchmakingService } = await import("./services/matchmakingService");
+
+      const presence = await presenceService.getPresence(userId);
+      const ticket = matchmakingService.getUserTicket(userId);
+      const activeTicket = await matchmakingService.getActiveTicket(userId);
+
+      res.json({
+        isOnline: presence?.status !== "OFFLINE",
+        status: presence?.status || "OFFLINE",
+        inQueue: !!ticket,
+        ticket: ticket ? {
+          ticketId: ticket.ticketId,
+          position: matchmakingService.getQueuePosition(ticket.ticketId),
+          bucket: ticket.bucket,
+          joinedAt: ticket.joinedAt,
+          waitTime: Date.now() - ticket.joinedAt,
+        } : null,
+        dbTicket: activeTicket,
+      });
+    } catch (error: unknown) {
+      console.error("Error getting matchmaking status:", error);
+      res.status(500).json({ error: "Failed to get matchmaking status" });
+    }
+  });
+
+  // GET /api/matchmaking/queue-size - Get queue size (public)
+  app.get("/api/matchmaking/queue-size", async (_req, res) => {
+    try {
+      const { matchmakingService } = await import("./services/matchmakingService");
+      const stats = matchmakingService.getQueueStats();
+      
+      res.json({
+        total: stats.total,
+        byBucket: stats.byBucket,
+      });
+    } catch (error: unknown) {
+      console.error("Error getting queue size:", error);
+      res.status(500).json({ error: "Failed to get queue size" });
+    }
+  });
+
   return httpServer;
 }
