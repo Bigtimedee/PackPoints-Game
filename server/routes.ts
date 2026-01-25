@@ -5685,8 +5685,9 @@ export async function registerRoutes(
                 blockedReason,
               })
               .onConflictDoUpdate({
-                target: [playableCards.gameSetId, playableCards.cardhedgeCardId],
+                target: playableCards.cardhedgeCardId,
                 set: {
+                  gameSetId: id,
                   description: card.description,
                   player: card.player,
                   set: card.set,
