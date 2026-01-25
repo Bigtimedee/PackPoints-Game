@@ -45,6 +45,7 @@ import * as contextService from "./services/marketplace/context";
 import { collectGeo } from "./middleware/geoMiddleware";
 import { geoService } from "./services/geoService";
 import * as rewardEngine from "./services/rewardEngine";
+import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -178,7 +179,7 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/user/daily-progress - Get today's PackPTS earning progress
+  // GET /api/user/daily-progress - Get today's PackPTS earning progress (card-based daily cap)
   app.get("/api/user/daily-progress", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
@@ -186,15 +187,7 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const [todayEarned, policy] = await Promise.all([
-        rewardEngine.getTodayPointsAwarded(userId),
-        rewardEngine.loadActivePolicy(),
-      ]);
-
-      const dailyCap = policy.dailyPointsCap;
-      const remaining = Math.max(0, dailyCap - todayEarned);
-      const percentUsed = Math.min(100, Math.round((todayEarned / dailyCap) * 100));
-      const isAtCap = todayEarned >= dailyCap;
+      const cardProgress = await getDailyProgress(userId);
 
       // Calculate time until midnight UTC (when daily cap resets)
       const now = new Date();
@@ -206,11 +199,14 @@ export async function registerRoutes(
       const minutesUntilReset = Math.floor((msUntilReset % (1000 * 60 * 60)) / (1000 * 60));
 
       res.json({
-        todayEarned,
-        dailyCap,
-        remaining,
-        percentUsed,
-        isAtCap,
+        todayEarned: cardProgress.basePtsAwarded,
+        dailyCap: cardProgress.basePtsMax,
+        remaining: cardProgress.remainingPts,
+        percentUsed: cardProgress.progressPct,
+        isAtCap: cardProgress.cardsCompleted >= cardProgress.cardsMax,
+        cardsCompleted: cardProgress.cardsCompleted,
+        cardsMax: cardProgress.cardsMax,
+        dayKey: cardProgress.dayKey,
         resetIn: {
           hours: hoursUntilReset,
           minutes: minutesUntilReset,
@@ -219,6 +215,22 @@ export async function registerRoutes(
       });
     } catch (error) {
       console.error("Error getting daily progress:", error);
+      res.status(500).json({ error: "Failed to get daily progress" });
+    }
+  });
+
+  // GET /api/rewards/daily-progress - Card-based daily progress (alternative endpoint)
+  app.get("/api/rewards/daily-progress", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const progress = await getDailyProgress(userId);
+      res.json(progress);
+    } catch (error) {
+      console.error("Error getting rewards daily progress:", error);
       res.status(500).json({ error: "Failed to get daily progress" });
     }
   });
@@ -887,28 +899,32 @@ export async function registerRoutes(
         
         if (userId) {
           try {
-            const cardContext: rewardEngine.CardContext = {
-              cardId: (currentQuestion.card as any)?.id,
-              playerName: currentQuestion.correctAnswer,
-              year: currentQuestion.card?.year,
-              rarityType: "base",
-              sport: "baseball",
+            const cardId = (currentQuestion.card as any)?.id || `${sessionId}:q${questionIndex}`;
+            
+            // Award daily base points using card-completion curve (200 cards = 15,000 pts)
+            const dailyBaseResult = await awardDailyBaseForCorrectCard({
+              userId,
+              matchId: sessionId,
+              cardId,
+            });
+            
+            pointsEarned = dailyBaseResult.deltaPts;
+            
+            // Build reward result for response
+            rewardResult = {
+              basePts: 75, // Fixed 75 pts per card in linear curve
+              finalPts: dailyBaseResult.deltaPts,
+              fameScore: 0.5, // Not used in new system
+              vintageMultiplier: 1.0,
+              rarityMultiplier: 1.0,
+              policyId: "daily_card_curve",
+              capped: dailyBaseResult.isDailyCapped,
+              cappedReason: dailyBaseResult.isDailyCapped ? "daily_card_cap_reached" : 
+                           dailyBaseResult.isDuplicate ? "duplicate_card" : undefined,
             };
             
             const matchPointsAwarded = (session as any).matchPointsAwarded || 0;
-            
-            rewardResult = await rewardEngine.awardPoints(
-              userId,
-              cardContext,
-              sessionId,
-              `q${questionIndex}`,
-              matchPointsAwarded
-            );
-            
-            if (rewardResult) {
-              pointsEarned = rewardResult.finalPts;
-              (session as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
-            }
+            (session as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
           } catch (rewardErr: any) {
             console.error("[Game] Failed to award points:", rewardErr?.message);
             rewardError = rewardErr?.message || "Reward system unavailable";
