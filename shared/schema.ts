@@ -2926,3 +2926,100 @@ export const updateCardSetSchema = z.object({
   isActive: z.boolean().optional(),
 });
 export type UpdateCardSetRequest = z.infer<typeof updateCardSetSchema>;
+
+// ============================================
+// 1vRandom Matchmaking System
+// ============================================
+
+// User Presence Status Enum
+export const presenceStatusEnum = pgEnum("presence_status", [
+  "ONLINE", "OFFLINE", "IN_MATCH", "SEARCHING"
+]);
+
+// User Presence - tracks real-time connection state
+export const userPresence = pgTable("user_presence", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  socketId: varchar("socket_id"),
+  status: presenceStatusEnum("status").notNull().default("OFFLINE"),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_user_presence_status").on(table.status),
+  index("idx_user_presence_last_seen").on(table.lastSeenAt),
+]);
+
+export const insertUserPresenceSchema = createInsertSchema(userPresence).omit({
+  updatedAt: true,
+});
+export type InsertUserPresence = z.infer<typeof insertUserPresenceSchema>;
+export type UserPresence = typeof userPresence.$inferSelect;
+
+// Matchmaking Ticket Status Enum
+export const ticketStatusEnum = pgEnum("ticket_status", [
+  "WAITING", "MATCHED", "CANCELLED", "EXPIRED"
+]);
+
+// Matchmaking Mode Enum
+export const matchmakingModeEnum = pgEnum("matchmaking_mode", [
+  "1vRandom"
+]);
+
+// Matchmaking Tickets - queue entries for users seeking matches
+export const matchmakingTickets = pgTable("matchmaking_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  mode: matchmakingModeEnum("mode").notNull(),
+  bucket: varchar("bucket").notNull(),
+  status: ticketStatusEnum("status").notNull().default("WAITING"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_matchmaking_tickets_user").on(table.userId),
+  index("idx_matchmaking_tickets_status").on(table.status),
+  index("idx_matchmaking_tickets_bucket").on(table.bucket),
+  uniqueIndex("idx_matchmaking_tickets_active_unique")
+    .on(table.userId, table.mode)
+    .where(sql`status IN ('WAITING', 'MATCHED')`),
+]);
+
+export const insertMatchmakingTicketSchema = createInsertSchema(matchmakingTickets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertMatchmakingTicket = z.infer<typeof insertMatchmakingTicketSchema>;
+export type MatchmakingTicket = typeof matchmakingTickets.$inferSelect;
+
+// PvP Match Status Enum
+export const pvpMatchStatusEnum = pgEnum("pvp_match_status", [
+  "CREATED", "ACTIVE", "FINISHED", "CANCELLED"
+]);
+
+// PvP Matches - active and historical 1v1 matchmaking games
+export const pvpMatches = pgTable("pvp_matches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  mode: matchmakingModeEnum("mode").notNull(),
+  bucket: varchar("bucket").notNull(),
+  player1Id: varchar("player1_id").notNull().references(() => users.id),
+  player2Id: varchar("player2_id").notNull().references(() => users.id),
+  player1TicketId: varchar("player1_ticket_id").references(() => matchmakingTickets.id),
+  player2TicketId: varchar("player2_ticket_id").references(() => matchmakingTickets.id),
+  status: pvpMatchStatusEnum("status").notNull().default("CREATED"),
+  winnerId: varchar("winner_id").references(() => users.id),
+  player1Score: integer("player1_score").default(0),
+  player2Score: integer("player2_score").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+}, (table) => [
+  index("idx_pvp_matches_player1").on(table.player1Id),
+  index("idx_pvp_matches_player2").on(table.player2Id),
+  index("idx_pvp_matches_status").on(table.status),
+]);
+
+export const insertPvpMatchSchema = createInsertSchema(pvpMatches).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertPvpMatch = z.infer<typeof insertPvpMatchSchema>;
+export type PvpMatch = typeof pvpMatches.$inferSelect;

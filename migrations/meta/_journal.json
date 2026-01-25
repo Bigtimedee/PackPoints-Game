@@ -8,6 +8,13 @@
       "when": 1768621232391,
       "tag": "0000_add_geo_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1769359756670,
+      "tag": "0001_fast_ozymandias",
+      "breakpoints": true
     }
   ]
 }
