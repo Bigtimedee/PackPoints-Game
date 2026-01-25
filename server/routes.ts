@@ -4409,14 +4409,29 @@ export async function registerRoutes(
       });
 
       const baseUrl = process.env.APP_BASE_URL || `https://${req.get("host")}`;
-      const listingsWithOutboundUrls = result.listings.map((listing) => ({
-        ...listing,
+      
+      // Transform listings to match frontend's expected format
+      const transformedListings = result.listings.map((listing) => ({
+        id: listing.listingId,
+        source: listing.source,
+        title: listing.title,
+        priceCents: listing.price ? Math.round(listing.price.amount * 100) : null,
+        currency: listing.price?.currency || "USD",
+        imageUrl: listing.imageUrl || null,
+        destinationUrl: listing.url,
+        condition: listing.condition || null,
+        endsAt: listing.endTime || null,
         outboundUrl: marketplaceService.generateListingWithOutboundUrl(listing, baseUrl),
       }));
 
       res.json({
-        ...result,
-        listings: listingsWithOutboundUrls,
+        listings: transformedListings,
+        sources: {
+          ebay: result.sourceBreakdown.ebay > 0,
+          goldin: result.sourceBreakdown.goldin > 0,
+        },
+        cached: result.cached,
+        lastUpdated: result.lastUpdated,
       });
     } catch (error) {
       console.error("Error searching marketplace:", error);
@@ -4632,15 +4647,24 @@ export async function registerRoutes(
           broadened = true;
         }
 
-        const listingsWithOutboundUrls = searchResult.listings.map((listing) => ({
-          ...listing,
+        // Transform listings to match frontend's expected format
+        const transformedListings = searchResult.listings.map((listing) => ({
+          id: listing.listingId,
+          source: listing.source,
+          title: listing.title,
+          priceCents: listing.price ? Math.round(listing.price.amount * 100) : null,
+          currency: listing.price?.currency || "USD",
+          imageUrl: listing.imageUrl || null,
+          destinationUrl: listing.url,
+          condition: listing.condition || null,
+          endsAt: listing.endTime || null,
           outboundUrl: marketplaceService.generateListingWithOutboundUrl(listing, baseUrl),
         }));
 
         results.push({
           gameSet: context.gameSet,
           contextKey: context.contextKey,
-          listings: listingsWithOutboundUrls,
+          listings: transformedListings,
           lastUpdated: searchResult.lastUpdated,
           cached: searchResult.cached,
           broadened,
