@@ -1063,6 +1063,10 @@ export default function Game() {
                                 <Label htmlFor="upside_down" className="font-normal">Image is upside down or rotated</Label>
                               </div>
                               <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="multi_player" id="multi_player" />
+                                <Label htmlFor="multi_player" className="font-normal">Multiple players on card</Label>
+                              </div>
+                              <div className="flex items-center space-x-2">
                                 <RadioGroupItem value="other" id="other" />
                                 <Label htmlFor="other" className="font-normal">Other issue</Label>
                               </div>

@@ -37,7 +37,7 @@ import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, and, or, gte } from "drizzle-orm";
+import { eq, sql, desc, and, or, gte, inArray } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -6299,6 +6299,75 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error reviewing card:", error);
       res.status(500).json({ error: "Failed to review card" });
+    }
+  });
+
+  // Schema for bulk card flag/unflag operations
+  const bulkCardIdsSchema = z.object({
+    cardIds: z.array(z.string().uuid()).min(1, "At least one card ID required").max(100, "Maximum 100 cards per request"),
+  });
+
+  // Flag cards as multi-player (bulk support)
+  app.post("/api/admin/cards/flag-multi-player", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const parsed = bulkCardIdsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0].message });
+      }
+      const { cardIds } = parsed.data;
+      
+      const results = await db
+        .update(playableCards)
+        .set({
+          isPlayable: false,
+          blockedReason: "multi-player",
+          updatedAt: new Date(),
+        })
+        .where(inArray(playableCards.id, cardIds))
+        .returning({ id: playableCards.id });
+      
+      console.log(`[Card Flag] ${results.length} cards flagged as multi-player by admin ${req.user.id}`);
+      
+      res.json({ 
+        success: true, 
+        flaggedCount: results.length,
+        cardIds: results.map(r => r.id)
+      });
+    } catch (error) {
+      console.error("Error flagging cards as multi-player:", error);
+      res.status(500).json({ error: "Failed to flag cards" });
+    }
+  });
+
+  // Unflag cards (restore playability)
+  app.post("/api/admin/cards/unflag", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const parsed = bulkCardIdsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0].message });
+      }
+      const { cardIds } = parsed.data;
+      
+      const results = await db
+        .update(playableCards)
+        .set({
+          isPlayable: true,
+          blockedReason: null,
+          updatedAt: new Date(),
+        })
+        .where(inArray(playableCards.id, cardIds))
+        .returning({ id: playableCards.id });
+      
+      console.log(`[Card Unflag] ${results.length} cards restored by admin ${req.user.id}`);
+      
+      res.json({ 
+        success: true, 
+        unflaggedCount: results.length,
+        cardIds: results.map(r => r.id)
+      });
+    } catch (error) {
+      console.error("Error unflagging cards:", error);
+      res.status(500).json({ error: "Failed to unflag cards" });
     }
   });
 

@@ -60,6 +60,7 @@ const REASON_LABELS: Record<string, string> = {
   wrong_set: "Wrong Set",
   bad_image: "Bad/Unclear Image",
   upside_down: "Upside Down/Rotated",
+  multi_player: "Multiple Players",
   other: "Other Issue",
 };
 
@@ -108,6 +109,28 @@ export default function AdminCardReports() {
     },
   });
 
+  const flagMultiPlayerMutation = useMutation({
+    mutationFn: async (cardIds: string[]) => {
+      return apiRequest("POST", "/api/admin/cards/flag-multi-player", { cardIds });
+    },
+    onSuccess: () => {
+      refetchFlagged();
+      refetchReports();
+      refetchResolved();
+    },
+  });
+
+  const unflagMutation = useMutation({
+    mutationFn: async (cardIds: string[]) => {
+      return apiRequest("POST", "/api/admin/cards/unflag", { cardIds });
+    },
+    onSuccess: () => {
+      refetchFlagged();
+      refetchReports();
+      refetchResolved();
+    },
+  });
+
   const handleReview = (card: PlayableCard) => {
     setSelectedCard(card);
     setPreviewRotation(card.imageRotation || 0);
@@ -116,6 +139,14 @@ export default function AdminCardReports() {
   
   const handleRotate = () => {
     setPreviewRotation((prev) => (prev + 90) % 360);
+  };
+
+  const handleFlagMultiPlayer = (cardId: string) => {
+    flagMultiPlayerMutation.mutate([cardId]);
+  };
+
+  const handleUnflag = (cardId: string) => {
+    unflagMutation.mutate([cardId]);
   };
 
   const handleApprove = () => {
@@ -253,6 +284,28 @@ export default function AdminCardReports() {
                       >
                         Review
                       </Button>
+                      {card.isPlayable && (
+                        <Button 
+                          size="sm" 
+                          variant="destructive"
+                          onClick={() => handleFlagMultiPlayer(card.id)}
+                          disabled={flagMultiPlayerMutation.isPending}
+                          data-testid={`button-flag-multiplayer-${card.id}`}
+                        >
+                          Flag Multi
+                        </Button>
+                      )}
+                      {!card.isPlayable && card.blockedReason === "multi-player" && (
+                        <Button 
+                          size="sm" 
+                          variant="secondary"
+                          onClick={() => handleUnflag(card.id)}
+                          disabled={unflagMutation.isPending}
+                          data-testid={`button-unflag-${card.id}`}
+                        >
+                          Unflag
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -320,6 +373,17 @@ export default function AdminCardReports() {
                             data-testid={`button-review-report-${report.id}`}
                           >
                             Review Card
+                          </Button>
+                        )}
+                        {card && report.reason === "multi_player" && card.isPlayable && (
+                          <Button 
+                            size="sm" 
+                            variant="destructive"
+                            onClick={() => handleFlagMultiPlayer(card.id)}
+                            disabled={flagMultiPlayerMutation.isPending}
+                            data-testid={`button-flag-report-${report.id}`}
+                          >
+                            Flag Multi
                           </Button>
                         )}
                       </div>

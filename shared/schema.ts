@@ -1680,7 +1680,7 @@ export type InsertPlayableCard = z.infer<typeof insertPlayableCardSchema>;
 export type PlayableCard = typeof playableCards.$inferSelect;
 
 // Card Image Reports - user reports for wrong/mismatched card images
-export const cardImageReportReasons = ["wrong_sport", "wrong_player", "wrong_set", "bad_image", "upside_down", "other"] as const;
+export const cardImageReportReasons = ["wrong_sport", "wrong_player", "wrong_set", "bad_image", "upside_down", "multi_player", "other"] as const;
 export type CardImageReportReason = typeof cardImageReportReasons[number];
 
 export const cardImageReports = pgTable("card_image_reports", {
