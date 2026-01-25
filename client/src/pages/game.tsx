@@ -142,6 +142,7 @@ function GameCard({
   onImageError, 
   imageRotation = 0,
   showSkipButton = false,
+  skipPending = false,
   onSkip
 }: { 
   imageUrl: string; 
@@ -150,6 +151,7 @@ function GameCard({
   onImageError?: () => void; 
   imageRotation?: number;
   showSkipButton?: boolean;
+  skipPending?: boolean;
   onSkip?: () => void;
 }) {
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -209,15 +211,20 @@ function GameCard({
               </>
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">Unable to load card image</p>
+                <p className="text-sm text-muted-foreground mb-2">Unable to load card image</p>
                 <Button 
-                  variant="outline" 
-                  size="sm"
+                  variant="default" 
+                  size="default"
                   onClick={onSkip}
+                  disabled={skipPending || !onSkip}
                   data-testid="button-skip-broken-card"
                 >
-                  <SkipForward className="h-4 w-4 mr-2" />
-                  Skip to Next
+                  {skipPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <SkipForward className="h-4 w-4 mr-2" />
+                  )}
+                  {skipPending ? "Skipping..." : "Skip to Next"}
                 </Button>
               </>
             )}
@@ -616,8 +623,9 @@ export default function Game() {
   }, [replaceCardMutation.isPending, session?.currentQuestionIndex, replacedQuestionIndices, failedCardIds.length]);
   
   // Handle manual skip when user clicks "Skip to Next" button
+  // Only allow skip when showSkipButton is true (indicating a card loading issue)
   const handleManualSkip = () => {
-    if (!isRevealed && !nextQuestionMutation.isPending) {
+    if (showSkipButton && !nextQuestionMutation.isPending) {
       nextQuestionMutation.mutate();
     }
   };
@@ -1067,6 +1075,7 @@ export default function Game() {
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
               imageRotation={currentQuestion.card.imageRotation}
               showSkipButton={showSkipButton}
+              skipPending={nextQuestionMutation.isPending}
               onSkip={handleManualSkip}
               onImageError={() => {
                 // Get the failed card ID (prefer playableCardId for accurate tracking)
