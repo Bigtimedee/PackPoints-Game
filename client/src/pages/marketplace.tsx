@@ -130,7 +130,13 @@ interface RedemptionTier {
 }
 
 interface WalletData {
-  balance: number;
+  availablePts: number;
+  pendingPts?: number;
+  lockedPts?: number;
+  debtPts?: number;
+  status?: "NORMAL" | "RESTRICTED" | "FROZEN";
+  lifetimeEarned?: number;
+  lifetimeSpent?: number;
 }
 
 interface RedemptionResponse {
@@ -648,7 +654,7 @@ export default function Marketplace() {
   });
 
   const { data: walletData } = useQuery<WalletData>({
-    queryKey: ["/api/wallet"],
+    queryKey: ["/api/wallet/balance"],
   });
   
   const { data: contextsData } = useQuery<ContextsResponse>({
@@ -788,7 +794,7 @@ export default function Marketplace() {
   };
 
   const tiers = (tiersData?.tiers || []).filter(t => t.isActive);
-  const userBalance = walletData?.balance || 0;
+  const userBalance = walletData?.availablePts || 0;
 
   return (
     <div className="min-h-screen pb-20 md:pb-8">
