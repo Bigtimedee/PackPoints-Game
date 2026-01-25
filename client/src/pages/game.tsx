@@ -234,7 +234,7 @@ function GameCard({
       <img
         src={imageUrl}
         alt="Baseball card"
-        className="absolute inset-0 w-full h-full object-contain"
+        className={`absolute inset-0 w-full h-full object-contain ${imageError ? 'pointer-events-none' : ''}`}
         crossOrigin="anonymous"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
