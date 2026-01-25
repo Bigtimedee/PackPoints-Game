@@ -56,6 +56,14 @@ A visual feedback system displays daily earning progress, cap status, and provid
 ### Financial Guardrails & Fraud Prevention
 A multi-layered system prevents revenue loss and abuse through user risk tracking, chargeback handling, and pattern-based fraud detection. It uses fraud scoring pipelines with event tables, rollups, signals, and risk snapshots.
 
+### 1v1 Matchmaking System
+A real-time random matchmaking system for PvP gameplay:
+- **Presence Tracking**: Database-backed user_presence table tracks ONLINE/SEARCHING/IN_MATCH states with socketId consistency
+- **Ticket Queue**: matchmaking_tickets table with WAITING/MATCHED/CANCELLED/EXPIRED statuses and 5-minute expiry
+- **Bucket Matching**: Players matched by game set preferences (same-bucket priority, fallback to any after 1 minute)
+- **WebSocket Lifecycle**: Heartbeat mechanism (30s intervals), presence state transitions, and match notifications
+- **REST Endpoints**: /api/presence/stats for online counts, /api/matchmaking/status for user queue status
+
 ## External Dependencies
 
 ### Database
