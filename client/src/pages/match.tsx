@@ -311,7 +311,7 @@ export default function Match() {
 
   if (!matchState) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[100dvh] flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
           <p className="text-muted-foreground">Connecting to match...</p>
@@ -330,7 +330,7 @@ export default function Match() {
     };
     
     return (
-      <div className="min-h-screen pb-20 md:pb-8 pt-8">
+      <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
         <div className="container mx-auto px-4 max-w-lg">
           <Card>
             <CardContent className="p-8 text-center space-y-6">
@@ -371,7 +371,7 @@ export default function Match() {
     const isDraw = !matchEnded.winner;
     
     return (
-      <div className="min-h-screen pb-20 md:pb-8 pt-8">
+      <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
         <div className="container mx-auto px-4 max-w-lg">
           <Card>
             <CardContent className="p-8 text-center space-y-6">
@@ -422,7 +422,7 @@ export default function Match() {
   const progress = ((matchState.currentQuestionIndex + 1) / matchState.totalQuestions) * 100;
 
   return (
-    <div className="min-h-screen pb-20 md:pb-8 pt-4">
+    <div className="min-h-[100dvh] pt-4" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 96px)' }}>
       <div className="container mx-auto px-4 max-w-lg">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -527,16 +527,18 @@ export default function Match() {
               })}
             </div>
             
-            {submitError && (
-              <div className="text-center text-destructive text-sm">
-                {submitError}
-              </div>
-            )}
-            
+          </div>
+        )}
+      </div>
+      
+      {currentQuestion && (
+        <div className="fixed left-0 right-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <div className="mx-auto max-w-lg px-4 py-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
             {!answerResult && !lockedIn && (
               <Button
                 onClick={submitAnswer}
                 disabled={!selectedChoice || submitting}
+                size="lg"
                 className="w-full"
                 data-testid="button-submit-answer"
               >
@@ -550,21 +552,29 @@ export default function Match() {
                 )}
               </Button>
             )}
-            
             {lockedIn && !answerResult && (
-              <div className="text-center text-muted-foreground">
+              <div className="text-center text-muted-foreground py-2">
                 <Check className="h-4 w-4 inline mr-2 text-green-500" />
                 Answer locked in! Waiting for result...
               </div>
             )}
-            
             {answerResult && !opponent?.hasAnsweredCurrent && (
-              <div className="text-center text-muted-foreground">
+              <div className="text-center text-muted-foreground py-2">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                 Waiting for opponent...
               </div>
             )}
-            
+            {answerResult && opponent?.hasAnsweredCurrent && (
+              <div className="text-center text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                Loading next question...
+              </div>
+            )}
+            {submitError && (
+              <div className="mt-2 text-center text-destructive text-sm">
+                {submitError}
+              </div>
+            )}
             {submitError && (
               <Button
                 variant="outline"
@@ -572,7 +582,7 @@ export default function Match() {
                   setSubmitError(null);
                   send("match_resync", { matchId });
                 }}
-                className="w-full"
+                className="w-full mt-2"
                 data-testid="button-resync"
               >
                 <RotateCcw className="h-4 w-4 mr-2" />
@@ -580,8 +590,8 @@ export default function Match() {
               </Button>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
