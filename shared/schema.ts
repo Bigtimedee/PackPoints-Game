@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -90,6 +90,25 @@ export const insertUserSchema = createInsertSchema(users).omit({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type UpsertUser = typeof users.$inferInsert;
+
+// User daily progress table - tracks cards answered per day
+export const userDailyProgress = pgTable("user_daily_progress", {
+  userId: varchar("user_id").notNull().references(() => users.id),
+  dayDate: date("day_date").notNull(),
+  cardsAnswered: integer("cards_answered").notNull().default(0),
+  matchesCompleted: integer("matches_completed").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.dayDate] }),
+  index("idx_user_daily_progress_date").on(table.dayDate),
+]);
+
+export const insertUserDailyProgressSchema = createInsertSchema(userDailyProgress).omit({
+  updatedAt: true,
+});
+
+export type InsertUserDailyProgress = z.infer<typeof insertUserDailyProgressSchema>;
+export type UserDailyProgress = typeof userDailyProgress.$inferSelect;
 
 export const baseballCards = pgTable("baseball_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -256,6 +275,7 @@ export const matches = pgTable("matches", {
   winnerUserId: varchar("winner_user_id"),
   hostCorrect: integer("host_correct").notNull().default(0),
   guestCorrect: integer("guest_correct").notNull().default(0),
+  progressApplied: boolean("progress_applied").notNull().default(false),
 }, (table) => [
   index("idx_matches_status").on(table.status),
   index("idx_matches_host").on(table.hostUserId),
