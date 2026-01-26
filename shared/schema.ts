@@ -22,6 +22,7 @@ export type UserStatus = typeof userStatuses[number];
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: varchar("username").unique(),
+  usernameNormalized: varchar("username_normalized"),
   email: varchar("email").unique(),
   emailNormalized: varchar("email_normalized"),
   firstName: varchar("first_name"),
@@ -43,6 +44,7 @@ export const users = pgTable("users", {
 }, (table) => [
   index("idx_users_status").on(table.status),
   index("idx_users_email_normalized").on(table.emailNormalized),
+  index("idx_users_username_normalized").on(table.usernameNormalized),
 ]);
 
 // Local credentials for username/password auth (separate from Replit OAuth)
@@ -284,6 +286,66 @@ export const matchAnswerSchema = z.object({
   questionIndex: z.number(),
   selectedAnswer: z.string(),
 });
+
+// Friendship status enum
+export const friendshipStatuses = ["PENDING", "ACCEPTED", "DECLINED", "BLOCKED"] as const;
+export type FriendshipStatus = typeof friendshipStatuses[number];
+export const friendshipStatusEnum = pgEnum("friendship_status", friendshipStatuses);
+
+// Friendships table - single-row undirected model (user_low < user_high by UUID)
+export const friendships = pgTable("friendships", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userLow: varchar("user_low").notNull().references(() => users.id),
+  userHigh: varchar("user_high").notNull().references(() => users.id),
+  status: friendshipStatusEnum("status").notNull().default("PENDING"),
+  initiatedBy: varchar("initiated_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_friendships_pair").on(table.userLow, table.userHigh),
+  index("idx_friendships_status").on(table.status),
+  index("idx_friendships_user_low").on(table.userLow),
+  index("idx_friendships_user_high").on(table.userHigh),
+]);
+
+export const insertFriendshipSchema = createInsertSchema(friendships).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertFriendship = z.infer<typeof insertFriendshipSchema>;
+export type Friendship = typeof friendships.$inferSelect;
+
+// Friend match invite status enum
+export const friendMatchInviteStatuses = ["PENDING", "ACCEPTED", "DECLINED", "EXPIRED", "CANCELLED"] as const;
+export type FriendMatchInviteStatus = typeof friendMatchInviteStatuses[number];
+export const friendMatchInviteStatusEnum = pgEnum("friend_match_invite_status", friendMatchInviteStatuses);
+
+// Friend match invites - for 1vFriends mode
+export const friendMatchInvites = pgTable("friend_match_invites", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fromUserId: varchar("from_user_id").notNull().references(() => users.id),
+  toUserId: varchar("to_user_id").notNull().references(() => users.id),
+  bucket: text("bucket").notNull().default("ANY"),
+  mode: text("mode").notNull().default("1vFriends"),
+  status: friendMatchInviteStatusEnum("status").notNull().default("PENDING"),
+  matchId: varchar("match_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => [
+  index("idx_friend_match_invites_to_user").on(table.toUserId, table.status),
+  index("idx_friend_match_invites_from_user").on(table.fromUserId, table.status),
+]);
+
+export const insertFriendMatchInviteSchema = createInsertSchema(friendMatchInvites).omit({
+  id: true,
+  createdAt: true,
+  matchId: true,
+});
+
+export type InsertFriendMatchInvite = z.infer<typeof insertFriendMatchInviteSchema>;
+export type FriendMatchInvite = typeof friendMatchInvites.$inferSelect;
 
 // PackPTS Wallet - stores user's balance and lifetime stats
 export const wallets = pgTable("wallets", {
