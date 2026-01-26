@@ -143,9 +143,9 @@ class DbMatchmakingQueue {
       RETURNING id
     `);
 
+    const userSocket = this.userSockets.get(userId);
     this.userSockets.delete(userId);
 
-    const userSocket = this.userSockets.get(userId);
     if (userSocket?.socketId) {
       await presenceService.setOnline(userId, userSocket.socketId);
     }
@@ -179,14 +179,16 @@ class DbMatchmakingQueue {
     const countResult = await db.execute(sql`
       SELECT COUNT(*) as count FROM matchmaking_tickets
       WHERE status = 'WAITING' 
-        AND last_heartbeat_at > NOW() - INTERVAL '${sql.raw(HEARTBEAT_ALIVE_SECONDS.toString())} seconds'
+        AND bucket = ${ticket.bucket}
+        AND last_heartbeat_at > NOW() - INTERVAL '30 seconds'
     `);
     
     const positionResult = await db.execute(sql`
       SELECT COUNT(*) + 1 as position FROM matchmaking_tickets
       WHERE status = 'WAITING' 
+        AND bucket = ${ticket.bucket}
         AND created_at < ${ticket.created_at}
-        AND last_heartbeat_at > NOW() - INTERVAL '${sql.raw(HEARTBEAT_ALIVE_SECONDS.toString())} seconds'
+        AND last_heartbeat_at > NOW() - INTERVAL '30 seconds'
     `);
 
     return {
@@ -196,56 +198,62 @@ class DbMatchmakingQueue {
     };
   }
 
-  async attemptPair(mode: MatchmakingMode = "1vRandom", bucket: string = "random"): Promise<MatchResult | null> {
+  async attemptPair(mode: MatchmakingMode = "1vRandom"): Promise<MatchResult | null> {
     try {
-      const result = await db.execute(sql`
-        SELECT id, user_id, bucket, socket_id 
-        FROM matchmaking_tickets
-        WHERE mode = ${mode}::matchmaking_mode 
-          AND status = 'WAITING'
-          AND last_heartbeat_at > NOW() - INTERVAL '${sql.raw(HEARTBEAT_ALIVE_SECONDS.toString())} seconds'
-        ORDER BY created_at ASC
-        FOR UPDATE SKIP LOCKED
-        LIMIT 2
+      const pairResult = await db.execute(sql`
+        WITH selected AS (
+          SELECT id, user_id, bucket, socket_id 
+          FROM matchmaking_tickets
+          WHERE mode = ${mode}::matchmaking_mode 
+            AND status = 'WAITING'
+            AND last_heartbeat_at > NOW() - INTERVAL '30 seconds'
+          ORDER BY bucket, created_at ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT 2
+        ),
+        same_bucket AS (
+          SELECT s1.id as id1, s1.user_id as user1, s1.bucket, s1.socket_id as socket1,
+                 s2.id as id2, s2.user_id as user2, s2.socket_id as socket2
+          FROM selected s1, selected s2
+          WHERE s1.id < s2.id AND s1.bucket = s2.bucket AND s1.user_id != s2.user_id
+          LIMIT 1
+        ),
+        updated AS (
+          UPDATE matchmaking_tickets 
+          SET status = 'MATCHED'::ticket_status, updated_at = NOW()
+          WHERE id IN (SELECT id1 FROM same_bucket UNION SELECT id2 FROM same_bucket)
+          RETURNING id
+        )
+        SELECT * FROM same_bucket
       `);
 
-      if (!result.rows || result.rows.length < 2) {
+      if (!pairResult.rows || pairResult.rows.length === 0) {
         return null;
       }
 
-      const ticket1 = result.rows[0] as unknown as TicketRow;
-      const ticket2 = result.rows[1] as unknown as TicketRow;
+      const pair = pairResult.rows[0] as {
+        id1: string; user1: string; bucket: string; socket1: string | null;
+        id2: string; user2: string; socket2: string | null;
+      };
 
-      if (ticket1.user_id === ticket2.user_id) {
-        console.warn("[DbQueue] Same user in both tickets, skipping");
-        return null;
-      }
-
-      const matchId = randomUUID();
       const lobbyId = randomUUID();
       const joinCode = generateJoinCode();
       const hostSecret = generateSecret();
       const guestSecret = generateSecret();
 
-      const user1Data = this.userSockets.get(ticket1.user_id);
-      const user2Data = this.userSockets.get(ticket2.user_id);
+      const user1Data = this.userSockets.get(pair.user1);
+      const user2Data = this.userSockets.get(pair.user2);
       
-      const gameSetId = user1Data?.gameSetId || user2Data?.gameSetId || null;
+      const gameSetId = pair.bucket !== "random" ? pair.bucket : null;
       const totalQuestions = Math.max(user1Data?.totalQuestions || 10, user2Data?.totalQuestions || 10);
-
-      await db.execute(sql`
-        UPDATE matchmaking_tickets 
-        SET status = 'MATCHED'::ticket_status, updated_at = NOW()
-        WHERE id IN (${ticket1.id}, ${ticket2.id})
-      `);
 
       await db.insert(lobbies).values({
         id: lobbyId,
         joinCode,
-        hostId: ticket1.user_id,
+        hostId: pair.user1,
         hostUsername: user1Data?.username || "Player1",
         hostSecret,
-        guestId: ticket2.user_id,
+        guestId: pair.user2,
         guestUsername: user2Data?.username || "Player2",
         guestSecret,
         status: "ready",
@@ -261,31 +269,31 @@ class DbMatchmakingQueue {
         await db.execute(sql`
           UPDATE matchmaking_tickets 
           SET status = 'WAITING'::ticket_status, updated_at = NOW()
-          WHERE id IN (${ticket1.id}, ${ticket2.id})
+          WHERE id IN (${pair.id1}, ${pair.id2})
         `);
         throw new Error("Failed to start match");
       }
 
       await Promise.all([
-        presenceService.setInMatch(ticket1.user_id),
-        presenceService.setInMatch(ticket2.user_id)
+        presenceService.setInMatch(pair.user1),
+        presenceService.setInMatch(pair.user2)
       ]);
 
       await this.createPvpMatch(
         match.matchId, 
-        ticket1.id, ticket1.user_id,
-        ticket2.id, ticket2.user_id,
-        ticket1.bucket
+        pair.id1, pair.user1,
+        pair.id2, pair.user2,
+        pair.bucket
       );
 
       const matchResult: MatchResult = {
         matchId: match.matchId,
         lobbyId,
-        player1: { userId: ticket1.user_id, secret: hostSecret },
-        player2: { userId: ticket2.user_id, secret: guestSecret }
+        player1: { userId: pair.user1, secret: hostSecret },
+        player2: { userId: pair.user2, secret: guestSecret }
       };
 
-      console.log(`[DbQueue] Match created: ${match.matchId} - ${user1Data?.username || ticket1.user_id} vs ${user2Data?.username || ticket2.user_id}`);
+      console.log(`[DbQueue] Match created: ${match.matchId} - ${user1Data?.username || pair.user1} vs ${user2Data?.username || pair.user2}`);
 
       if (user1Data?.ws && user1Data.ws.readyState === 1) {
         user1Data.ws.send(JSON.stringify({
@@ -311,8 +319,8 @@ class DbMatchmakingQueue {
         }));
       }
 
-      this.userSockets.delete(ticket1.user_id);
-      this.userSockets.delete(ticket2.user_id);
+      this.userSockets.delete(pair.user1);
+      this.userSockets.delete(pair.user2);
 
       if (this.onMatchCallback) {
         this.onMatchCallback(matchResult);
@@ -370,7 +378,7 @@ class DbMatchmakingQueue {
       UPDATE matchmaking_tickets 
       SET status = 'EXPIRED'::ticket_status, updated_at = NOW()
       WHERE status = 'WAITING' 
-        AND last_heartbeat_at < NOW() - INTERVAL '${sql.raw(HEARTBEAT_ALIVE_SECONDS.toString())} seconds'
+        AND last_heartbeat_at < NOW() - INTERVAL '30 seconds'
       RETURNING user_id
     `);
 
