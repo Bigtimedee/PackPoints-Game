@@ -1,0 +1,161 @@
+MISSION-CRITICAL BUGFIX: During a live 1vFriends match (card 1/10), submitting an answer shows “Match is no longer active” even though the match is active. Fix server + client match-status gating so ANSWER_SUBMIT is accepted when match.status is ACTIVE (or INITIALIZING with current question served), and prevent premature CANCELLED/FINISHED transitions. Add a resync path that restores correct state. DO NOT test after implementation (user will test manually).
+
+STACK (do not change)
+React 18 + Vite + TypeScript + Tailwind + shadcn/ui
+Backend: Express + TypeScript
+Realtime: ws
+Auth: Passport + express-session
+DB: Postgres (Neon) + Drizzle ORM
+
+WHAT THIS ERROR MEANS
+The client attempted to submit, the server rejected with something like:
+- match.status != 'ACTIVE' (e.g., 'INITIALIZING', 'LOBBY', 'CANCELLED', 'FINISHED')
+OR
+- match not found / stale matchId
+OR
+- idx mismatch (server current_index != client idx) and you mapped that to “not active”
+OR
+- server restarted and lost in-memory match state (if any), so it thinks match is inactive
+OR
+- ACK/timeout logic cancelled the match even though gameplay started
+
+GOAL
+1) Server is the source of truth and ONLY rejects submit when:
+   - user not participant, OR
+   - match truly CANCELLED/FINISHED, OR
+   - idx is stale (but that is NOT “not active”; it is “stale_index” + resync)
+2) Client error messages must be specific:
+   - “Match ended” only when status is FINISHED/CANCELLED
+   - “Out of sync. Tap Resync.” for stale_index or status INITIALIZING
+3) Eliminate any timer/ACK logic that cancels after gameplay has begun.
+4) Persist match state in DB (not memory) and compute everything from DB.
+
+========================================================
+A) BACKEND: STANDARDIZE REJECTION REASONS (NO GENERIC “NOT ACTIVE”)
+
+In answer submission handler (WS + REST), return structured rejections:
+
+REJECT reasons:
+- "not_participant"
+- "match_not_found"
+- "match_cancelled"
+- "match_finished"
+- "match_initializing"
+- "stale_index"
+- "bad_payload"
+
+STOP returning a generic “not active” for stale index or initializing.
+
+WS:
+Send ANSWER_ACK:
+{ type:"ANSWER_ACK", matchId, idx, clientMsgId, status:"REJECTED", reason:"stale_index", serverIndex, serverStatus }
+
+REST:
+Return 409 for stale_index:
+{ ok:false, reason:"stale_index", serverIndex, serverStatus }
+
+Return 425 (Too Early) or 409 for initializing:
+{ ok:false, reason:"match_initializing", serverIndex, serverStatus }
+
+========================================================
+B) BACKEND: FIX MATCH STATUS GATING
+
+Implement single function:
+src/services/matches/guardCanSubmit.ts
+
+Inputs: match row, userId, idx
+Logic:
+1) if !match => reject match_not_found
+2) if user not participant => reject not_participant
+3) if match.status == 'CANCELLED' => reject match_cancelled
+4) if match.status == 'FINISHED' => reject match_finished
+
+5) if match.status == 'INITIALIZING':
+   - Allow submit ONLY if match_questions exist AND idx == match.current_index AND idx==0
+   - Otherwise reject match_initializing with serverIndex/status
+   (This prevents false “not active” during the brief init window.)
+
+6) if match.status == 'ACTIVE':
+   - if idx != match.current_index => reject stale_index with serverIndex/status
+   - else OK
+
+IMPORTANT:
+- Do NOT treat idx mismatch as “not active”. It is “stale_index”.
+
+========================================================
+C) BACKEND: REMOVE/ADJUST ANY AUTO-CANCEL TIMERS THAT FIRE MID-GAME
+
+Search for any logic that sets CANCELLED due to:
+- no_ack timeout
+- lobby inactivity
+- player not “ready”
+- socket disconnect
+These must NOT cancel an ACTIVE match immediately.
+
+Rules:
+1) ACK timeout applies ONLY while status == 'INITIALIZING' and before started_at is set.
+2) Once match.status == 'ACTIVE' (started_at != null), never cancel due to ACK.
+3) Disconnect handling:
+   - Mark player as disconnected, allow a grace period (e.g., 60s) before cancelling.
+   - During grace, allow the remaining player to keep the match state; submissions can be accepted but advancement may require timeout.
+
+Implement:
+- matches.started_at set when first QUESTION is served (or both ack)
+- cancel due to ack timeout only if started_at is null
+
+========================================================
+D) BACKEND: ENSURE MATCH STATE IS DB-DRIVEN (NO IN-MEMORY LOSS)
+
+Answer submission must read:
+- matches.status
+- matches.current_index
+- match_questions for idx
+- match_answers for idx
+Do not rely on in-memory “current match” maps that could reset on deploy/restart.
+
+========================================================
+E) CLIENT: FIX THE MESSAGE AND AUTO-RESYNC
+
+When submit fails:
+- If reason == stale_index OR match_initializing:
+   Show: “Out of sync. Tap Resync.”
+   and keep Submit enabled (or disable briefly) but do NOT claim match ended.
+
+Only show “Match is no longer active” when:
+- reason == match_cancelled OR match_finished
+OR serverStatus is CANCELLED/FINISHED.
+
+Implement RESYNC:
+WS: send { type:"MATCH_RESYNC", matchId }
+Server replies:
+{ type:"MATCH_STATE", matchId, status, currentIndex, questionsTotal, question: payload for currentIndex }
+
+On MATCH_STATE:
+- Update local match status/index/question and clear the error.
+
+Also: If you get stale_index, automatically call resync once (no infinite loop).
+
+========================================================
+F) BACKEND: IMPLEMENT MATCH_RESYNC
+
+WS handler:
+- Validate participant
+- Load match + current question payload for match.current_index
+- Reply MATCH_STATE to that client only
+
+REST fallback:
+GET /api/matches/:matchId/state
+returns same payload
+
+========================================================
+G) ACCEPTANCE CRITERIA (USER WILL TEST)
+- On card 1/10 in a live 1vFriends match, Submit Answer does NOT show “Match is no longer active”.
+- If out-of-sync occurs, user can tap Resync and continue.
+- Match only ends when completed (10/10) or explicit cancel/timeout after grace.
+
+DELIVERABLES
+1) guardCanSubmit() used by WS+REST submission paths
+2) Standard rejection reasons + client handles them correctly
+3) Remove mid-game cancellations tied to ACK/lobby timers
+4) Implement MATCH_RESYNC (WS + optional REST)
+5) DO NOT TEST after implementation
