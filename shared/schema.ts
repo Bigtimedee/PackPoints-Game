@@ -289,8 +289,11 @@ export const matchAnswers = pgTable("match_answers", {
   selected: text("selected").notNull(),
   isCorrect: boolean("is_correct").notNull(),
   pointsEarned: integer("points_earned").notNull().default(0),
+  clientMsgId: text("client_msg_id"),
   answeredAt: timestamp("answered_at").defaultNow(),
-});
+}, (table) => [
+  unique("match_answers_match_user_idx_unique").on(table.matchId, table.userId, table.idx),
+]);
 
 export const insertMatchAnswerSchema = createInsertSchema(matchAnswers).omit({
   id: true,
