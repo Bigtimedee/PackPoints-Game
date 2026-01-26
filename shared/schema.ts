@@ -222,6 +222,17 @@ export const MatchStatus = {
 
 export type MatchStatusType = typeof MatchStatus[keyof typeof MatchStatus];
 
+export const MatchResult = {
+  PENDING: "PENDING",
+  HOST_WIN: "HOST_WIN",
+  GUEST_WIN: "GUEST_WIN",
+  TIE: "TIE",
+} as const;
+
+export type MatchResultType = typeof MatchResult[keyof typeof MatchResult];
+
+export const matchResultEnum = pgEnum("match_result", ["PENDING", "HOST_WIN", "GUEST_WIN", "TIE"]);
+
 export const matchModes = ["1vFriends", "1vRandom"] as const;
 export type MatchMode = typeof matchModes[number];
 
@@ -241,6 +252,10 @@ export const matches = pgTable("matches", {
   finishedAt: timestamp("finished_at"),
   endReason: text("end_reason"),
   endDetail: jsonb("end_detail"),
+  result: matchResultEnum("result").notNull().default("PENDING"),
+  winnerUserId: varchar("winner_user_id"),
+  hostCorrect: integer("host_correct").notNull().default(0),
+  guestCorrect: integer("guest_correct").notNull().default(0),
 }, (table) => [
   index("idx_matches_status").on(table.status),
   index("idx_matches_host").on(table.hostUserId),
@@ -252,6 +267,10 @@ export const insertMatchSchema = createInsertSchema(matches).omit({
   startedAt: true,
   finishedAt: true,
   endReason: true,
+  result: true,
+  winnerUserId: true,
+  hostCorrect: true,
+  guestCorrect: true,
 });
 
 export type InsertMatch = z.infer<typeof insertMatchSchema>;
@@ -365,6 +384,10 @@ export interface MatchState {
   }[];
   winner?: string;
   endReason?: string;
+  result?: MatchResultType;
+  winnerUserId?: string;
+  hostCorrect?: number;
+  guestCorrect?: number;
 }
 
 export const createLobbySchema = z.object({
