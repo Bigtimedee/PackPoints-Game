@@ -35,7 +35,7 @@ interface Participant {
 interface MatchState {
   matchId: string;
   lobbyId: string;
-  status: "waiting" | "active" | "completed";
+  status: "LOBBY" | "INITIALIZING" | "ACTIVE" | "FINISHED" | "CANCELLED";
   currentQuestionIndex: number;
   totalQuestions: number;
   currentQuestion: {
@@ -52,6 +52,20 @@ interface MatchState {
   } | null;
   participants: Participant[];
   winner?: string;
+  endReason?: string;
+}
+
+interface MatchEndEvent {
+  matchId: string;
+  reason: string;
+  status: "FINISHED" | "CANCELLED";
+  winner?: string;
+  participants: {
+    userId: string;
+    username: string;
+    score: number;
+    correctAnswers: number;
+  }[];
 }
 
 export default function Match() {
@@ -63,6 +77,7 @@ export default function Match() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [answerResult, setAnswerResult] = useState<{ correct: boolean; correctAnswer: string } | null>(null);
   const [imageError, setImageError] = useState(false);
+  const [matchEnded, setMatchEnded] = useState<MatchEndEvent | null>(null);
   const { toast } = useToast();
   
   const userId = getUserId();
@@ -90,7 +105,21 @@ export default function Match() {
         });
         break;
       case "match_completed":
-        setMatchState(message.payload);
+      case "match_end":
+        setMatchEnded(message.payload);
+        setMatchState((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            status: message.payload.status,
+            winner: message.payload.winner,
+            endReason: message.payload.reason,
+            participants: message.payload.participants.map((p: any) => ({
+              ...prev.participants.find((pp) => pp.userId === p.userId) || {},
+              ...p,
+            })),
+          };
+        });
         break;
       case "participant_disconnected":
         toast({ 
@@ -128,6 +157,18 @@ export default function Match() {
     }
   }, [isConnected, matchId, send, userId]);
 
+  useEffect(() => {
+    if (!isConnected || !matchId || matchEnded) return;
+    
+    if (matchState && !matchState.currentQuestion && matchState.status === "ACTIVE") {
+      const resyncTimeout = setTimeout(() => {
+        send("match_resync", { matchId });
+      }, 5000);
+      
+      return () => clearTimeout(resyncTimeout);
+    }
+  }, [isConnected, matchId, matchState, matchEnded, send]);
+
   const submitAnswer = (answer: string) => {
     if (selectedAnswer || !matchState || answerResult) return;
     
@@ -154,9 +195,55 @@ export default function Match() {
     );
   }
 
-  if (matchState.status === "completed") {
-    const iWon = matchState.winner === me?.username;
-    const isDraw = !matchState.winner;
+  if (matchEnded && matchEnded.status === "CANCELLED") {
+    const cancelReasonText: Record<string, string> = {
+      no_ack: "A player failed to acknowledge the match",
+      deck_empty: "Not enough cards available for this match",
+      timeout: "Match timed out",
+      forfeit: "A player forfeited the match",
+      disconnect: "A player disconnected",
+    };
+    
+    return (
+      <div className="min-h-screen pb-20 md:pb-8 pt-8">
+        <div className="container mx-auto px-4 max-w-lg">
+          <Card>
+            <CardContent className="p-8 text-center space-y-6">
+              <div className="mx-auto p-4 rounded-full w-fit bg-destructive/20">
+                <X className="h-12 w-12 text-destructive" />
+              </div>
+              
+              <div>
+                <h1 className="text-3xl font-bold mb-2" data-testid="text-match-result">
+                  Match Cancelled
+                </h1>
+                <p className="text-muted-foreground">
+                  {cancelReasonText[matchEnded.reason] || matchEnded.reason}
+                </p>
+              </div>
+              
+              <div className="flex flex-col gap-3">
+                <Button onClick={() => navigate("/lobby")} className="gap-2" data-testid="button-return-lobby">
+                  <RotateCcw className="h-4 w-4" />
+                  Return to Lobby
+                </Button>
+                <Button variant="outline" onClick={() => navigate("/")} className="gap-2" data-testid="button-home">
+                  <Home className="h-4 w-4" />
+                  Home
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (matchEnded && matchEnded.status === "FINISHED") {
+    const meResult = matchEnded.participants.find((p) => p.userId === userId);
+    const opponentResult = matchEnded.participants.find((p) => p.userId !== userId);
+    const iWon = matchEnded.winner === meResult?.username;
+    const isDraw = !matchEnded.winner;
     
     return (
       <div className="min-h-screen pb-20 md:pb-8 pt-8">
@@ -172,20 +259,20 @@ export default function Match() {
                   {iWon ? "You Win!" : isDraw ? "It's a Draw!" : "You Lose"}
                 </h1>
                 <p className="text-muted-foreground">
-                  {isDraw ? "Both players finished with the same score" : `${matchState.winner} won the match!`}
+                  {isDraw ? "Both players finished with the same score" : `${matchEnded.winner} won the match!`}
                 </p>
               </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 rounded-lg bg-muted/50 space-y-1">
                   <p className="text-sm text-muted-foreground">Your Score</p>
-                  <p className="text-3xl font-bold font-mono" data-testid="text-my-final-score">{me?.score || 0}</p>
-                  <p className="text-sm text-muted-foreground">{me?.correctAnswers}/{matchState.totalQuestions} correct</p>
+                  <p className="text-3xl font-bold font-mono" data-testid="text-my-final-score">{meResult?.score || 0}</p>
+                  <p className="text-sm text-muted-foreground">{meResult?.correctAnswers}/{matchState.totalQuestions} correct</p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50 space-y-1">
                   <p className="text-sm text-muted-foreground">Opponent</p>
-                  <p className="text-3xl font-bold font-mono" data-testid="text-opponent-final-score">{opponent?.score || 0}</p>
-                  <p className="text-sm text-muted-foreground">{opponent?.correctAnswers}/{matchState.totalQuestions} correct</p>
+                  <p className="text-3xl font-bold font-mono" data-testid="text-opponent-final-score">{opponentResult?.score || 0}</p>
+                  <p className="text-sm text-muted-foreground">{opponentResult?.correctAnswers}/{matchState.totalQuestions} correct</p>
                 </div>
               </div>
               

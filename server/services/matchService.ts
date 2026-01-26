@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { db } from "../db";
-import { lobbies, matches, matchParticipants, baseballCards, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
+import { lobbies, matches, matchParticipants, baseballCards, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 
 function generateJoinCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -111,22 +112,36 @@ class MatchService {
     return false;
   }
 
-  async forfeitMatch(matchId: string, forfeitingUserId: string): Promise<MatchState | null> {
+  async forfeitMatch(matchId: string, forfeitingUserId: string): Promise<{ matchState: MatchState | null; matchEnd?: MatchEndResult }> {
     const matchState = await this.getMatchStateWithFallback(matchId);
     if (!matchState) {
       console.error(`[MatchService] forfeitMatch: match ${matchId} not found`);
-      return null;
+      return { matchState: null };
     }
-    if (matchState.status !== "active") return null;
+    if (matchState.status !== MatchStatus.ACTIVE) return { matchState: null };
     
     const winner = matchState.participants.find(p => p.userId !== forfeitingUserId);
-    matchState.status = "completed";
+    matchState.status = MatchStatus.FINISHED;
     matchState.winner = winner?.username;
+    matchState.endReason = "forfeit";
     
-    await db.update(matches).set({ status: "completed", completedAt: new Date() }).where(eq(matches.id, matchId));
+    await db.update(matches).set({ status: MatchStatus.FINISHED, finishedAt: new Date(), endReason: "forfeit" }).where(eq(matches.id, matchId));
     await db.update(lobbies).set({ status: "completed" }).where(eq(lobbies.id, matchState.lobbyId));
     
-    return matchState;
+    const matchEnd: MatchEndResult = {
+      matchId,
+      reason: "forfeit",
+      status: MatchStatus.FINISHED,
+      winner: winner?.username,
+      participants: matchState.participants.map(p => ({
+        userId: p.userId,
+        username: p.username,
+        score: p.score,
+        correctAnswers: p.correctAnswers,
+      })),
+    };
+    
+    return { matchState, matchEnd };
   }
 
   async startMatch(lobbyId: string, hostId: string): Promise<{ matchState: MatchState | null; error?: string }> {
@@ -163,7 +178,7 @@ class MatchService {
     
     const [match] = await db.insert(matches).values({
       lobbyId,
-      status: "active",
+      status: MatchStatus.ACTIVE,
       totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
     }).returning();
@@ -178,7 +193,7 @@ class MatchService {
     const matchState: MatchState = {
       matchId: match.id,
       lobbyId: lobby.id,
-      status: "active",
+      status: MatchStatus.ACTIVE,
       currentQuestionIndex: 0,
       totalQuestions: questions.length,
       questions,
@@ -220,7 +235,7 @@ class MatchService {
     
     const [match] = await db.insert(matches).values({
       lobbyId,
-      status: "active",
+      status: MatchStatus.ACTIVE,
       totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
     }).returning();
@@ -235,7 +250,7 @@ class MatchService {
     const matchState: MatchState = {
       matchId: match.id,
       lobbyId: lobby.id,
-      status: "active",
+      status: MatchStatus.ACTIVE,
       currentQuestionIndex: 0,
       totalQuestions: questions.length,
       questions,
@@ -346,7 +361,7 @@ class MatchService {
       const matchState: MatchState = {
         matchId: match.id,
         lobbyId: match.lobbyId || "",
-        status: match.status as "active" | "completed",
+        status: match.status as typeof MatchStatus[keyof typeof MatchStatus],
         currentQuestionIndex: matchCurrentIndex,
         totalQuestions: match.totalQuestions,
         questions,
@@ -380,7 +395,7 @@ class MatchService {
       console.error(`[MatchService] submitAnswer: match ${matchId} not found`);
       return null;
     }
-    if (matchState.status !== "active") return null;
+    if (matchState.status !== MatchStatus.ACTIVE) return null;
     
     const participant = matchState.participants.find(p => p.userId === userId);
     if (!participant) return null;
@@ -416,33 +431,30 @@ class MatchService {
     return { correct: isCorrect, pointsEarned, matchState, bothAnswered };
   }
 
-  async advanceQuestion(matchId: string): Promise<MatchState | null> {
+  async advanceQuestion(matchId: string): Promise<{ matchState: MatchState | null; matchEnd?: MatchEndResult }> {
     const matchState = await this.getMatchStateWithFallback(matchId);
     if (!matchState) {
       console.error(`[MatchService] advanceQuestion: match ${matchId} not found`);
-      return null;
+      return { matchState: null };
     }
     
     const nextIndex = matchState.currentQuestionIndex + 1;
+    matchState.currentQuestionIndex = nextIndex;
     
-    if (nextIndex >= matchState.totalQuestions) {
-      matchState.status = "completed";
-      const winner = this.determineWinner(matchState);
-      matchState.winner = winner;
-      
-      await db.update(matches).set({ status: "completed", completedAt: new Date() }).where(eq(matches.id, matchId));
-      await db.update(lobbies).set({ status: "completed" }).where(eq(lobbies.id, matchState.lobbyId));
-    } else {
-      matchState.currentQuestionIndex = nextIndex;
-      matchState.participants.forEach(p => {
-        p.hasAnsweredCurrent = false;
-        p.currentQuestionIndex = nextIndex;
-      });
-      
-      await db.update(matches).set({ currentQuestionIndex: nextIndex }).where(eq(matches.id, matchId));
+    await db.update(matches).set({ currentQuestionIndex: nextIndex }).where(eq(matches.id, matchId));
+    
+    const matchEnd = await maybeFinish(matchState);
+    
+    if (matchEnd) {
+      return { matchState, matchEnd };
     }
     
-    return matchState;
+    matchState.participants.forEach(p => {
+      p.hasAnsweredCurrent = false;
+      p.currentQuestionIndex = nextIndex;
+    });
+    
+    return { matchState };
   }
 
   private determineWinner(matchState: MatchState): string | undefined {

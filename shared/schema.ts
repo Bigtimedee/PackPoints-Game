@@ -212,21 +212,33 @@ export const insertLobbySchema = createInsertSchema(lobbies).omit({
 export type InsertLobby = z.infer<typeof insertLobbySchema>;
 export type Lobby = typeof lobbies.$inferSelect;
 
+export const MatchStatus = {
+  LOBBY: "LOBBY",
+  INITIALIZING: "INITIALIZING", 
+  ACTIVE: "ACTIVE",
+  FINISHED: "FINISHED",
+  CANCELLED: "CANCELLED",
+} as const;
+
+export type MatchStatusType = typeof MatchStatus[keyof typeof MatchStatus];
+
 export const matches = pgTable("matches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   lobbyId: varchar("lobby_id").notNull(),
-  status: text("status").notNull().default("active"),
+  status: text("status").notNull().default("LOBBY"),
   currentQuestionIndex: integer("current_question_index").notNull().default(0),
   totalQuestions: integer("total_questions").notNull(),
   questionsData: text("questions_data").notNull(),
-  startedAt: timestamp("started_at").defaultNow(),
-  completedAt: timestamp("completed_at"),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  endReason: text("end_reason"),
 });
 
 export const insertMatchSchema = createInsertSchema(matches).omit({
   id: true,
   startedAt: true,
-  completedAt: true,
+  finishedAt: true,
+  endReason: true,
 });
 
 export type InsertMatch = z.infer<typeof insertMatchSchema>;
@@ -291,7 +303,7 @@ export type MatchAnswer = typeof matchAnswers.$inferSelect;
 export interface MatchState {
   matchId: string;
   lobbyId: string;
-  status: "waiting" | "active" | "completed";
+  status: MatchStatusType;
   currentQuestionIndex: number;
   totalQuestions: number;
   questions: GameQuestion[];
@@ -304,6 +316,7 @@ export interface MatchState {
     hasAnsweredCurrent: boolean;
   }[];
   winner?: string;
+  endReason?: string;
 }
 
 export const createLobbySchema = z.object({

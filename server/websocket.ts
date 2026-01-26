@@ -6,7 +6,7 @@ import { presenceService } from "./services/presenceService";
 import { streakService } from "./services/streakService";
 import { friendMatchInviteService } from "./services/friends/friendMatchInviteService";
 import { log } from "./index";
-import type { MatchState } from "@shared/schema";
+import { MatchStatus, type MatchState } from "@shared/schema";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
 let inviteExpirationInterval: NodeJS.Timeout | null = null;
@@ -212,6 +212,9 @@ async function handleMessage(ws: WebSocket, message: any) {
       break;
     case "leave_queue":
       await handleLeaveQueue(ws, payload);
+      break;
+    case "match_resync":
+      await handleMatchResync(ws, payload);
       break;
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
@@ -466,12 +469,10 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
   });
   
   if (result.bothAnswered) {
-    const advancedState = await matchService.advanceQuestion(matchId);
+    const { matchState: advancedState, matchEnd } = await matchService.advanceQuestion(matchId);
     if (advancedState) {
-      const clientMatchState = sanitizeMatchStateForClient(advancedState);
-      
-      if (advancedState.status === "completed") {
-        for (const participant of advancedState.participants) {
+      if (matchEnd) {
+        for (const participant of matchEnd.participants) {
           try {
             const streakResult = await streakService.processMatchCompletion(participant.userId, matchId);
             if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
@@ -483,10 +484,11 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
         }
 
         broadcastToMatch(matchId, {
-          type: "match_completed",
-          payload: clientMatchState,
+          type: "match_end",
+          payload: matchEnd,
         });
       } else {
+        const clientMatchState = sanitizeMatchStateForClient(advancedState);
         broadcastToMatch(matchId, {
           type: "next_question",
           payload: clientMatchState,
@@ -507,6 +509,48 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
       payload: clientMatchState,
     }));
   }
+}
+
+async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
+  const { matchId } = payload;
+  log(`[MatchResync] Resync requested for match ${matchId}`, "ws");
+  
+  const matchState = await matchService.getMatchStateWithFallback(matchId);
+  
+  if (!matchState) {
+    ws.send(JSON.stringify({ 
+      type: "error", 
+      message: "Match not found or has ended",
+    }));
+    return;
+  }
+  
+  if (matchState.status === MatchStatus.FINISHED || matchState.status === MatchStatus.CANCELLED) {
+    ws.send(JSON.stringify({
+      type: "match_end",
+      payload: {
+        matchId,
+        reason: matchState.endReason || (matchState.status === MatchStatus.FINISHED ? "completed" : "unknown"),
+        status: matchState.status,
+        winner: matchState.winner,
+        participants: matchState.participants.map(p => ({
+          userId: p.userId,
+          username: p.username,
+          score: p.score,
+          correctAnswers: p.correctAnswers,
+        })),
+      },
+    }));
+    return;
+  }
+  
+  const clientMatchState = sanitizeMatchStateForClient(matchState);
+  ws.send(JSON.stringify({
+    type: "match_state",
+    payload: clientMatchState,
+  }));
+  
+  log(`[MatchResync] Sent resync for match ${matchId}, status=${matchState.status}, questionIndex=${matchState.currentQuestionIndex}`, "ws");
 }
 
 async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret: string }) {
@@ -718,13 +762,12 @@ async function handleDisconnectFromMatch(ws: WebSocket, client: ClientConnection
   const matchClients = matchConnections.get(matchId);
   matchClients?.delete(ws);
   
-  const matchState = await matchService.forfeitMatch(matchId, userId);
+  const { matchEnd } = await matchService.forfeitMatch(matchId, userId);
   
-  if (matchState) {
-    const clientMatchState = sanitizeMatchStateForClient(matchState);
+  if (matchEnd) {
     broadcastToMatch(matchId, {
-      type: "match_completed",
-      payload: { ...clientMatchState, forfeit: true, forfeitedBy: username },
+      type: "match_end",
+      payload: matchEnd,
     });
     matchConnections.delete(matchId);
     log(`Player ${username} forfeited match ${matchId} by disconnecting`, "ws");
