@@ -1,0 +1,146 @@
+MISSION-CRITICAL BUGFIX: In 1vFriends matches, submitting an answer returns “Not authorized”. Fix authorization so authenticated users who are legitimate match participants (host/guest) can submit answers via WS and REST. After implementing, DO NOT test. User will manually test.
+
+STACK (do not change)
+React 18 + Vite + TS + Tailwind + shadcn/ui
+Backend: Express + TypeScript
+Realtime: ws
+Auth: Passport + express-session
+DB: Postgres (Neon) + Drizzle ORM
+
+SYMPTOM
+User is clearly logged in and in a 1vFriends match UI, but on Submit Answer the app shows “Not authorized”. This usually means:
+- WS connection is not associated with the logged-in session/user
+- OR REST endpoint is missing session cookie (cross-site / credentials)
+- OR server is checking the wrong user identifier (e.g., req.user undefined)
+- OR match participant check is failing due to wrong matchId/participant fields
+- OR middleware blocks the endpoint (401/403) and frontend surfaces it as “Not authorized”
+
+GOAL
+1) Every WS message and REST request can be tied to an authenticated userId.
+2) Server authorizes answer submission ONLY if userId is a participant in the match.
+3) Frontend always sends credentials for REST fallback.
+4) Provide clear reject reasons (not generic “Not authorized”) and log exact denial cause.
+
+========================================================
+A) BACKEND: DEFINE “AUTHORIZED MATCH PARTICIPANT”
+
+Create helper:
+src/services/auth/isMatchParticipant.ts
+
+isMatchParticipant(match, userId):
+- return userId === match.host_user_id || userId === match.guest_user_id
+
+Use this exact check everywhere for answer submission (WS + REST).
+
+========================================================
+B) BACKEND: FIX WS AUTH (MOST COMMON ROOT CAUSE)
+
+Problem: ws does NOT automatically include Passport session unless you parse cookies and load the session for the upgrade request.
+
+Implement ws upgrade auth:
+
+1) In server startup (where ws server is created), capture upgrade requests and parse session:
+- Use cookie parser on the upgrade request
+- Reuse the SAME session middleware used by Express (express-session with PG store)
+- Then call passport.initialize + passport.session for the upgrade request context
+- Attach userId to ws connection (ws.data.userId)
+
+Pseudo-steps (implementation required):
+- export your sessionMiddleware from express setup (the exact instance)
+- in ws upgrade handler:
+    sessionMiddleware(req as any, {} as any, () => {
+      passport.initialize()(req as any, {} as any, () => {
+        passport.session()(req as any, {} as any, () => {
+          const userId = (req as any).user?.id
+          if (!userId) reject upgrade (401)
+          else accept and set wsConn.userId = userId
+        })
+      })
+    })
+
+If your ws library is “ws”:
+- Use server.on('upgrade', ...) to run middleware chain before wss.handleUpgrade.
+
+CRITICAL:
+- Ensure cookie name matches express-session (e.g., connect.sid)
+- Ensure same SESSION_SECRET and same store is used
+- Ensure secure cookie settings don’t block on your environment (https vs http)
+
+========================================================
+C) BACKEND: WS ANSWER_SUBMIT AUTHORIZATION
+
+In ws handler for ANSWER_SUBMIT:
+1) userId = wsConn.userId (NOT from client payload)
+2) Load match by matchId
+3) If not participant => send ANSWER_ACK REJECTED reason='not_participant' (NOT 401)
+4) If participant => process answer
+
+Do NOT ever rely on client to tell you userId.
+
+========================================================
+D) BACKEND: REST FALLBACK MUST ACCEPT SESSION COOKIE
+
+If you have POST /api/matches/:matchId/answer:
+- Ensure it is behind requireAuth middleware:
+  - if !req.isAuthenticated() return 401
+- Then do the same participant check:
+  - if not participant return 403 with JSON { ok:false, reason:'not_participant' }
+- Return 200 JSON on success
+
+Also ensure CORS/credentials are correct (if applicable):
+- If frontend and backend are same origin (packpts.com), this is simpler.
+- If different origin, you MUST enable credentials and set correct sameSite settings.
+
+========================================================
+E) FRONTEND: ENSURE REST FALLBACK SENDS COOKIES
+
+In any fetch() used for submit/resync endpoints, set:
+credentials: "include"
+
+Example:
+fetch(`/api/matches/${matchId}/answer`, {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ idx, selected, clientMsgId })
+})
+
+If you use axios, set withCredentials:true.
+
+This prevents “Not authorized” caused by missing session cookie.
+
+========================================================
+F) FRONTEND: IMPROVE ERROR SURFACING
+
+When a submit fails:
+- If 401 => show “Session expired. Please refresh/login.”
+- If 403 with reason not_participant => show “You are not a participant in this match.”
+- Otherwise show generic error.
+
+Do NOT label everything “Not authorized” unless it is truly 401/403.
+
+========================================================
+G) SERVER LOGGING (TEMPORARY)
+
+Add logs ONLY around authorization failures:
+- event type (WS/REST)
+- matchId
+- ws userId / req.user?.id
+- match host/guest ids
+- decision path (missing_session vs not_participant)
+
+This will immediately reveal which part is failing.
+
+========================================================
+H) ACCEPTANCE CRITERIA (USER WILL TEST)
+- Logged-in host and guest can both submit answers in 1vFriends without “Not authorized”
+- Non-participant cannot submit (gets REJECTED not_participant)
+- WS and REST both work with session auth
+
+DELIVERABLES
+1) WS upgrade authentication using express-session + passport.session
+2) Store wsConn.userId on connect, use it for all ws handlers
+3) Participant authorization helper used consistently
+4) REST fetch uses credentials: "include"
+5) Clear error reasons returned to client
+6) DO NOT run tests; user will test manually
