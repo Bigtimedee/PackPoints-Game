@@ -47,6 +47,7 @@ import { geoService } from "./services/geoService";
 import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
 import friendsRouter from "./routes/friends";
+import * as matchEngine from "./services/matches/engine";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -8459,6 +8460,26 @@ export async function registerRoutes(
     } catch (error: unknown) {
       console.error("Error getting queue size:", error);
       res.status(500).json({ error: "Failed to get queue size" });
+    }
+  });
+
+  // GET /api/debug/matches/:matchId/events - Admin debug endpoint for match events audit log
+  app.get("/api/debug/matches/:matchId/events", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { matchId } = req.params;
+      const limit = parseInt(req.query.limit) || 200;
+      
+      const events = await matchEngine.getMatchEvents(matchId, Math.min(limit, 500));
+      
+      return res.json({
+        ok: true,
+        matchId,
+        count: events.length,
+        events,
+      });
+    } catch (error: unknown) {
+      console.error("Error getting match events:", error);
+      res.status(500).json({ ok: false, error: "Failed to get match events" });
     }
   });
 
