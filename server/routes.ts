@@ -46,6 +46,7 @@ import { collectGeo } from "./middleware/geoMiddleware";
 import { geoService } from "./services/geoService";
 import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
+import friendsRouter from "./routes/friends";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -94,6 +95,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  
+  // Friends and match invite routes
+  app.use(friendsRouter);
   
   // Health check endpoint for monitoring
   app.get("/health", async (req, res) => {
