@@ -424,24 +424,40 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
   });
 }
 
-async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; userId: string; questionIndex: number; selectedAnswer: string }) {
-  const { matchId, userId, questionIndex, selectedAnswer } = payload;
+async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; userId: string; questionIndex: number; selectedAnswer: string; clientMsgId?: string }) {
+  const { matchId, userId, questionIndex, selectedAnswer, clientMsgId } = payload;
   
   const client = clients.get(ws);
   if (!client || !client.isAuthenticated || client.userId !== userId) {
-    ws.send(JSON.stringify({ type: "error", message: "Unauthorized: user ID mismatch or not authenticated" }));
+    ws.send(JSON.stringify({ 
+      type: "answer_ack", 
+      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "unauthorized" } 
+    }));
     return;
   }
   
   if (client.matchId !== matchId) {
-    ws.send(JSON.stringify({ type: "error", message: "Unauthorized: you are not in this match" }));
+    ws.send(JSON.stringify({ 
+      type: "answer_ack", 
+      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "not_in_match" } 
+    }));
     return;
   }
   
-  const result = await matchService.submitAnswer(matchId, userId, questionIndex, selectedAnswer);
+  const result = await matchService.submitAnswer(matchId, userId, questionIndex, selectedAnswer, clientMsgId);
   
-  if (!result) {
-    ws.send(JSON.stringify({ type: "error", message: "Failed to submit answer" }));
+  ws.send(JSON.stringify({
+    type: "answer_ack",
+    payload: {
+      matchId,
+      idx: questionIndex,
+      clientMsgId: result.ack.clientMsgId,
+      status: result.ack.status,
+      reason: result.ack.reason,
+    },
+  }));
+  
+  if (result.ack.status === "REJECTED") {
     return;
   }
   
@@ -450,23 +466,25 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     payload: {
       correct: result.correct,
       pointsEarned: result.pointsEarned,
-      correctAnswer: result.matchState.questions[questionIndex].correctAnswer,
+      correctAnswer: result.correctAnswer,
     },
   }));
   
-  broadcastToMatch(matchId, {
-    type: "participant_answered",
-    payload: {
-      userId,
-      questionIndex,
-      participants: result.matchState.participants.map(p => ({
-        userId: p.userId,
-        username: p.username,
-        score: p.score,
-        hasAnsweredCurrent: p.hasAnsweredCurrent,
-      })),
-    },
-  });
+  if (result.matchState) {
+    broadcastToMatch(matchId, {
+      type: "participant_answered",
+      payload: {
+        userId,
+        questionIndex,
+        participants: result.matchState.participants.map(p => ({
+          userId: p.userId,
+          username: p.username,
+          score: p.score,
+          hasAnsweredCurrent: p.hasAnsweredCurrent,
+        })),
+      },
+    });
+  }
   
   if (result.bothAnswered) {
     const { matchState: advancedState, matchEnd } = await matchService.advanceQuestion(matchId);

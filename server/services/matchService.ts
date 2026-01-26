@@ -1,8 +1,24 @@
 import { randomUUID } from "crypto";
 import { db } from "../db";
-import { lobbies, matches, matchParticipants, baseballCards, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
+import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
+
+export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
+export type AnswerAckReason = "bad_payload" | "match_not_found" | "match_not_active" | "stale_index" | "not_participant" | "already_answered";
+
+export interface SubmitAnswerResult {
+  ack: {
+    status: AnswerAckStatus;
+    reason?: AnswerAckReason;
+    clientMsgId?: string;
+  };
+  correct?: boolean;
+  correctAnswer?: string;
+  pointsEarned?: number;
+  matchState?: MatchState;
+  bothAnswered?: boolean;
+}
 
 function generateJoinCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -384,27 +400,87 @@ class MatchService {
     }
   }
 
-  async submitAnswer(matchId: string, userId: string, questionIndex: number, selectedAnswer: string): Promise<{
-    correct: boolean;
-    pointsEarned: number;
-    matchState: MatchState;
-    bothAnswered: boolean;
-  } | null> {
+  async submitAnswer(matchId: string, userId: string, questionIndex: number, selectedAnswer: string, clientMsgId?: string): Promise<SubmitAnswerResult> {
     const matchState = await this.getMatchStateWithFallback(matchId);
     if (!matchState) {
       console.error(`[MatchService] submitAnswer: match ${matchId} not found`);
-      return null;
+      return { ack: { status: "REJECTED", reason: "match_not_found", clientMsgId } };
     }
-    if (matchState.status !== MatchStatus.ACTIVE) return null;
+    
+    if (matchState.status !== MatchStatus.ACTIVE) {
+      return { ack: { status: "REJECTED", reason: "match_not_active", clientMsgId } };
+    }
     
     const participant = matchState.participants.find(p => p.userId === userId);
-    if (!participant) return null;
-    if (participant.hasAnsweredCurrent) return null;
-    if (questionIndex !== matchState.currentQuestionIndex) return null;
+    if (!participant) {
+      return { ack: { status: "REJECTED", reason: "not_participant", clientMsgId } };
+    }
+    
+    if (questionIndex !== matchState.currentQuestionIndex) {
+      return { ack: { status: "REJECTED", reason: "stale_index", clientMsgId } };
+    }
+    
+    const [existingAnswer] = await db
+      .select()
+      .from(matchAnswers)
+      .where(and(
+        eq(matchAnswers.matchId, matchId),
+        eq(matchAnswers.userId, userId),
+        eq(matchAnswers.idx, questionIndex)
+      ));
+    
+    if (existingAnswer) {
+      const currentQuestion = matchState.questions[questionIndex];
+      const bothAnswered = matchState.participants.every(p => p.hasAnsweredCurrent);
+      return { 
+        ack: { status: "ACCEPTED", clientMsgId },
+        correct: existingAnswer.isCorrect,
+        correctAnswer: currentQuestion.correctAnswer,
+        pointsEarned: existingAnswer.pointsEarned,
+        matchState,
+        bothAnswered 
+      };
+    }
     
     const currentQuestion = matchState.questions[questionIndex];
     const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
     const pointsEarned = isCorrect ? currentQuestion.pointValue : 0;
+    
+    try {
+      await db.insert(matchAnswers).values({
+        matchId,
+        userId,
+        idx: questionIndex,
+        selected: selectedAnswer,
+        isCorrect,
+        pointsEarned,
+        clientMsgId,
+      });
+    } catch (error: any) {
+      if (error.code === '23505') {
+        const [existingAnswer] = await db
+          .select()
+          .from(matchAnswers)
+          .where(and(
+            eq(matchAnswers.matchId, matchId),
+            eq(matchAnswers.userId, userId),
+            eq(matchAnswers.idx, questionIndex)
+          ));
+        
+        if (existingAnswer) {
+          const bothAnswered = matchState.participants.every(p => p.hasAnsweredCurrent);
+          return { 
+            ack: { status: "ACCEPTED", clientMsgId },
+            correct: existingAnswer.isCorrect,
+            correctAnswer: currentQuestion.correctAnswer,
+            pointsEarned: existingAnswer.pointsEarned,
+            matchState,
+            bothAnswered 
+          };
+        }
+      }
+      throw error;
+    }
     
     participant.score += pointsEarned;
     if (isCorrect) participant.correctAnswers += 1;
@@ -428,7 +504,14 @@ class MatchService {
         eq(matchParticipants.userId, userId)
       ));
     
-    return { correct: isCorrect, pointsEarned, matchState, bothAnswered };
+    return { 
+      ack: { status: "ACCEPTED", clientMsgId },
+      correct: isCorrect, 
+      correctAnswer: currentQuestion.correctAnswer,
+      pointsEarned, 
+      matchState, 
+      bothAnswered 
+    };
   }
 
   async advanceQuestion(matchId: string): Promise<{ matchState: MatchState | null; matchEnd?: MatchEndResult }> {

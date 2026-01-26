@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,11 +74,20 @@ export default function Match() {
   const matchId = params?.matchId;
   
   const [matchState, setMatchState] = useState<MatchState | null>(null);
-  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [lockedIn, setLockedIn] = useState(false);
   const [answerResult, setAnswerResult] = useState<{ correct: boolean; correctAnswer: string } | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pendingClientMsgId, setPendingClientMsgId] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [matchEnded, setMatchEnded] = useState<MatchEndEvent | null>(null);
   const { toast } = useToast();
+  
+  const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const submittingRef = useRef(false);
+  const lockedInRef = useRef(false);
+  const pendingClientMsgIdRef = useRef<string | null>(null);
   
   const userId = getUserId();
   
@@ -88,9 +97,54 @@ export default function Match() {
       case "match_state":
       case "next_question":
         setMatchState(message.payload);
-        setSelectedAnswer(null);
+        setSelectedChoice(null);
+        setSubmitting(false);
+        submittingRef.current = false;
+        setLockedIn(false);
+        lockedInRef.current = false;
         setAnswerResult(null);
+        setSubmitError(null);
+        setPendingClientMsgId(null);
+        pendingClientMsgIdRef.current = null;
         setImageError(false);
+        if (fallbackTimeoutRef.current) {
+          clearTimeout(fallbackTimeoutRef.current);
+          fallbackTimeoutRef.current = null;
+        }
+        break;
+      case "answer_ack":
+        if (message.payload.clientMsgId === pendingClientMsgIdRef.current) {
+          if (fallbackTimeoutRef.current) {
+            clearTimeout(fallbackTimeoutRef.current);
+            fallbackTimeoutRef.current = null;
+          }
+          
+          if (message.payload.status === "ACCEPTED") {
+            setLockedIn(true);
+            lockedInRef.current = true;
+            setSubmitting(false);
+            submittingRef.current = false;
+            setSubmitError(null);
+            setPendingClientMsgId(null);
+            pendingClientMsgIdRef.current = null;
+          } else {
+            setSubmitting(false);
+            submittingRef.current = false;
+            setLockedIn(false);
+            lockedInRef.current = false;
+            setPendingClientMsgId(null);
+            pendingClientMsgIdRef.current = null;
+            const errorMessages: Record<string, string> = {
+              match_not_found: "Match not found",
+              match_not_active: "Match is no longer active",
+              stale_index: "Question has changed, please try again",
+              not_participant: "You are not in this match",
+              unauthorized: "Not authorized",
+              not_in_match: "You are not in this match",
+            };
+            setSubmitError(errorMessages[message.payload.reason] || message.payload.reason || "Failed to submit");
+          }
+        }
         break;
       case "answer_result":
         setAnswerResult(message.payload);
@@ -169,16 +223,86 @@ export default function Match() {
     }
   }, [isConnected, matchId, matchState, matchEnded, send]);
 
-  const submitAnswer = (answer: string) => {
-    if (selectedAnswer || !matchState || answerResult) return;
+  const handleSelectChoice = (choice: string) => {
+    if (lockedIn || submitting || answerResult) return;
+    setSelectedChoice(choice);
+    setSubmitError(null);
+  };
+
+  const submitAnswer = async () => {
+    if (!selectedChoice || !matchState || lockedInRef.current || submittingRef.current || pendingClientMsgIdRef.current) return;
     
-    setSelectedAnswer(answer);
-    send("submit_answer", {
-      matchId,
-      userId,
-      questionIndex: matchState.currentQuestionIndex,
-      selectedAnswer: answer,
-    });
+    setSubmitting(true);
+    submittingRef.current = true;
+    setSubmitError(null);
+    
+    const clientMsgId = crypto.randomUUID();
+    setPendingClientMsgId(clientMsgId);
+    pendingClientMsgIdRef.current = clientMsgId;
+    
+    const currentIdx = matchState.currentQuestionIndex;
+    const currentChoice = selectedChoice;
+    
+    try {
+      send("submit_answer", {
+        matchId,
+        userId,
+        questionIndex: currentIdx,
+        selectedAnswer: currentChoice,
+        clientMsgId,
+      });
+      
+      if (fallbackTimeoutRef.current) {
+        clearTimeout(fallbackTimeoutRef.current);
+      }
+      
+      fallbackTimeoutRef.current = setTimeout(async () => {
+        if (submittingRef.current && !lockedInRef.current) {
+          try {
+            const response = await fetch(`/api/matches/${matchId}/answer`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                idx: currentIdx,
+                selected: currentChoice,
+                clientMsgId,
+              }),
+            });
+            const data = await response.json();
+            if (data.ok) {
+              setLockedIn(true);
+              lockedInRef.current = true;
+              setSubmitting(false);
+              submittingRef.current = false;
+              setPendingClientMsgId(null);
+              pendingClientMsgIdRef.current = null;
+              setAnswerResult({ correct: data.correct, correctAnswer: data.correctAnswer });
+            } else {
+              setSubmitError(data.reason || "Failed to submit");
+              setSubmitting(false);
+              submittingRef.current = false;
+              setPendingClientMsgId(null);
+              pendingClientMsgIdRef.current = null;
+            }
+          } catch (error) {
+            setSubmitError("Network error, please try again");
+            setSubmitting(false);
+            submittingRef.current = false;
+            setPendingClientMsgId(null);
+            pendingClientMsgIdRef.current = null;
+          }
+        }
+        fallbackTimeoutRef.current = null;
+      }, 3000);
+      
+    } catch (error) {
+      setSubmitError("Failed to send answer");
+      setSubmitting(false);
+      submittingRef.current = false;
+      setPendingClientMsgId(null);
+      pendingClientMsgIdRef.current = null;
+    }
   };
 
   const me = matchState?.participants.find((p) => p.userId === userId);
@@ -373,7 +497,7 @@ export default function Match() {
             
             <div className="grid grid-cols-2 gap-3">
               {currentQuestion.options.map((option, index) => {
-                const isSelected = selectedAnswer === option;
+                const isSelected = selectedChoice === option;
                 const isCorrect = answerResult?.correctAnswer === option;
                 const showResult = answerResult !== null;
                 
@@ -381,15 +505,17 @@ export default function Match() {
                 if (showResult) {
                   if (isCorrect) variant = "default";
                   else if (isSelected && !isCorrect) variant = "destructive";
+                } else if (isSelected) {
+                  variant = "secondary";
                 }
                 
                 return (
                   <Button
                     key={option}
                     variant={variant}
-                    className={`h-auto py-3 px-4 text-left justify-start ${isSelected ? "ring-2 ring-primary" : ""}`}
-                    onClick={() => submitAnswer(option)}
-                    disabled={!!selectedAnswer}
+                    className={`h-auto py-3 px-4 text-left justify-start ${isSelected && !showResult ? "ring-2 ring-primary" : ""}`}
+                    onClick={() => handleSelectChoice(option)}
+                    disabled={lockedIn || submitting || showResult}
                     data-testid={`button-option-${index}`}
                   >
                     <span className="truncate">{option}</span>
@@ -400,11 +526,57 @@ export default function Match() {
               })}
             </div>
             
+            {submitError && (
+              <div className="text-center text-destructive text-sm">
+                {submitError}
+              </div>
+            )}
+            
+            {!answerResult && !lockedIn && (
+              <Button
+                onClick={submitAnswer}
+                disabled={!selectedChoice || submitting}
+                className="w-full"
+                data-testid="button-submit-answer"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Answer"
+                )}
+              </Button>
+            )}
+            
+            {lockedIn && !answerResult && (
+              <div className="text-center text-muted-foreground">
+                <Check className="h-4 w-4 inline mr-2 text-green-500" />
+                Answer locked in! Waiting for result...
+              </div>
+            )}
+            
             {answerResult && !opponent?.hasAnsweredCurrent && (
               <div className="text-center text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                 Waiting for opponent...
               </div>
+            )}
+            
+            {submitError && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSubmitError(null);
+                  send("match_resync", { matchId });
+                }}
+                className="w-full"
+                data-testid="button-resync"
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Resync
+              </Button>
             )}
           </div>
         )}

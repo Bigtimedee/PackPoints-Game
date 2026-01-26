@@ -8367,6 +8367,35 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/matches/:matchId/answer - REST fallback for answer submission
+  app.post("/api/matches/:matchId/answer", isAuthenticated, async (req: any, res) => {
+    try {
+      const { matchId } = req.params;
+      const { idx, selected, clientMsgId } = req.body;
+      const userId = req.user.id;
+      
+      if (typeof idx !== "number" || typeof selected !== "string" || !selected) {
+        return res.status(400).json({ ok: false, reason: "bad_payload" });
+      }
+      
+      const result = await matchService.submitAnswer(matchId, userId, idx, selected, clientMsgId);
+      
+      if (result.ack.status === "REJECTED") {
+        return res.json({ ok: false, reason: result.ack.reason });
+      }
+      
+      return res.json({ 
+        ok: true, 
+        correct: result.correct,
+        correctAnswer: result.correctAnswer,
+        pointsEarned: result.pointsEarned,
+      });
+    } catch (error: unknown) {
+      console.error("Error submitting answer via REST:", error);
+      res.status(500).json({ ok: false, reason: "server_error" });
+    }
+  });
+
   // GET /api/matchmaking/queue-size - Get queue size (public)
   app.get("/api/matchmaking/queue-size", async (_req, res) => {
     try {
