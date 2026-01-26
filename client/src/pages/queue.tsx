@@ -55,6 +55,10 @@ export default function Queue() {
         setQueueSize(payload.queueSize);
         setStatus("searching");
         break;
+      case "search_status":
+        setQueuePosition(payload.yourPosition);
+        setQueueSize(payload.playersInQueue);
+        break;
       case "matched":
         setStatus("matched");
         localStorage.setItem("packpoints_match_secret", payload.membershipSecret);

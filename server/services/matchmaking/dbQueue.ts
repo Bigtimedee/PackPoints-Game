@@ -213,8 +213,8 @@ class DbMatchmakingQueue {
         return null;
       }
 
-      const ticket1 = result.rows[0] as TicketRow;
-      const ticket2 = result.rows[1] as TicketRow;
+      const ticket1 = result.rows[0] as unknown as TicketRow;
+      const ticket2 = result.rows[1] as unknown as TicketRow;
 
       if (ticket1.user_id === ticket2.user_id) {
         console.warn("[DbQueue] Same user in both tickets, skipping");
@@ -343,7 +343,7 @@ class DbMatchmakingQueue {
   }
 
   private async broadcastQueueStatus(): Promise<void> {
-    for (const [userId, userData] of this.userSockets.entries()) {
+    for (const [userId, userData] of Array.from(this.userSockets.entries())) {
       const ticketResult = await db.execute(sql`
         SELECT id FROM matchmaking_tickets
         WHERE user_id = ${userId} AND status = 'WAITING'

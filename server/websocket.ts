@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server as HttpServer } from "http";
 import { matchService } from "./services/matchService";
-import { matchmakingService } from "./services/matchmakingService";
+import { dbMatchmakingQueue } from "./services/matchmaking/dbQueue";
 import { presenceService } from "./services/presenceService";
 import { streakService } from "./services/streakService";
 import { log } from "./index";
@@ -86,7 +86,7 @@ export function setupWebSocket(httpServer: HttpServer) {
         }
         
         if (client.inQueue) {
-          matchmakingService.handleDisconnect(client.userId);
+          dbMatchmakingQueue.handleDisconnect(client.userId);
         }
         if (client.lobbyId) {
           await handleDisconnectFromLobby(ws, client);
@@ -205,10 +205,15 @@ async function handleHeartbeat(ws: WebSocket, payload: { userId: string }) {
   
   client.lastHeartbeat = Date.now();
   
-  // Update presence timestamp
   presenceService.updateLastSeen(client.userId).catch((err: unknown) => {
     console.error("Failed to update presence:", err);
   });
+  
+  if (client.inQueue) {
+    dbMatchmakingQueue.updateHeartbeat(client.userId).catch((err: unknown) => {
+      console.error("Failed to update matchmaking heartbeat:", err);
+    });
+  }
   
   ws.send(JSON.stringify({ type: "heartbeat_ack", timestamp: Date.now() }));
 }
@@ -535,19 +540,12 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
   
   const existingClient = clients.get(ws);
   
-  // If client was previously authenticated, verify identity matches
   if (existingClient && existingClient.isAuthenticated && existingClient.userId !== userId) {
     ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
     return;
   }
   
-  // Reuse existing socketId or generate new one
   const socketId = existingClient?.socketId || Math.random().toString(36).substring(7);
-  
-  if (!existingClient || !existingClient.isAuthenticated) {
-    // First time - set up presence as online first
-    await presenceService.setOnline(userId, socketId);
-  }
   
   clients.set(ws, { 
     userId, 
@@ -559,17 +557,14 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
   });
   userSockets.set(userId, ws);
   
-  // Update presence to SEARCHING
-  await presenceService.setSearching(userId);
-  
-  const result = await matchmakingService.joinQueue(userId, username, ws, socketId, totalQuestions, gameSetId);
+  const result = await dbMatchmakingQueue.joinQueue(userId, username, ws, socketId, totalQuestions, gameSetId);
   
   ws.send(JSON.stringify({
     type: "queue_joined",
     payload: {
       position: result.position,
       ticketId: result.ticketId,
-      queueSize: matchmakingService.getQueueSize(),
+      queueSize: result.queueSize,
     },
   }));
   
@@ -587,11 +582,10 @@ async function handleLeaveQueue(ws: WebSocket, payload: { userId: string }) {
   
   client.inQueue = false;
   
-  // Update presence back to ONLINE using the stored socketId
   const socketId = client.socketId || Math.random().toString(36).substring(7);
   await presenceService.setOnline(userId, socketId);
   
-  const removed = await matchmakingService.leaveQueue(userId);
+  const removed = await dbMatchmakingQueue.leaveQueue(userId);
   
   ws.send(JSON.stringify({
     type: "queue_left",
