@@ -79,8 +79,13 @@ Enforces invariants to prevent matches from ending prematurely (e.g., 0/10 quest
 - **Match Recovery**: MATCH_RESYNC support retrieves current state or match_end event for finished matches
 - **Disconnect Grace Period**: 60-second timer re-checks DB status before canceling, only cancels if match still ACTIVE
 - **Admin Debug Endpoint**: GET /api/debug/matches/:matchId/events returns last 200 audit events
-- **MatchEndResult**: Structured payload with matchId, reason, status, winner, and participants for all match completion paths
+- **MatchEndResult**: Structured payload with matchId, reason, status, winner, winnerUserId, result, hostCorrect, guestCorrect, and participants for all match completion paths
 - **Idempotent Answer Handling**: Duplicate answer submissions are handled gracefully via unique constraint on match_answers
+- **Winner Determination by Correct Answers**: Winner is determined by comparing correct answer counts (not scores). The `computeResult.ts` service handles this:
+  - `computeAndPersistMatchResult()`: Computes and persists result (HOST_WIN, GUEST_WIN, TIE), winnerUserId, hostCorrect, guestCorrect
+  - `setForfeitResult()`: Sets winner as non-forfeiting player
+  - `setDisconnectResult()`: Sets winner as non-disconnecting player
+- **Match Result Schema**: Matches table includes `result` enum (PENDING, HOST_WIN, GUEST_WIN, TIE), `winnerUserId`, `hostCorrect`, `guestCorrect` columns
 
 ## External Dependencies
 
