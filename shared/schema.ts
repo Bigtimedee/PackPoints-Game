@@ -222,17 +222,30 @@ export const MatchStatus = {
 
 export type MatchStatusType = typeof MatchStatus[keyof typeof MatchStatus];
 
+export const matchModes = ["1vFriends", "1vRandom"] as const;
+export type MatchMode = typeof matchModes[number];
+
 export const matches = pgTable("matches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   lobbyId: varchar("lobby_id").notNull(),
+  mode: text("mode").notNull().default("1vFriends"),
   status: text("status").notNull().default("LOBBY"),
+  hostUserId: varchar("host_user_id"),
+  guestUserId: varchar("guest_user_id"),
+  cardSetId: varchar("card_set_id"),
   currentQuestionIndex: integer("current_question_index").notNull().default(0),
   totalQuestions: integer("total_questions").notNull(),
   questionsData: text("questions_data").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
   startedAt: timestamp("started_at"),
   finishedAt: timestamp("finished_at"),
   endReason: text("end_reason"),
-});
+  endDetail: jsonb("end_detail"),
+}, (table) => [
+  index("idx_matches_status").on(table.status),
+  index("idx_matches_host").on(table.hostUserId),
+  index("idx_matches_guest").on(table.guestUserId),
+]);
 
 export const insertMatchSchema = createInsertSchema(matches).omit({
   id: true,
@@ -244,16 +257,24 @@ export const insertMatchSchema = createInsertSchema(matches).omit({
 export type InsertMatch = z.infer<typeof insertMatchSchema>;
 export type Match = typeof matches.$inferSelect;
 
+export const matchParticipantRoles = ["HOST", "GUEST"] as const;
+export type MatchParticipantRole = typeof matchParticipantRoles[number];
+
 export const matchParticipants = pgTable("match_participants", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   matchId: varchar("match_id").notNull(),
   userId: varchar("user_id").notNull(),
   username: text("username").notNull(),
+  role: text("role").notNull().default("GUEST"),
   score: integer("score").notNull().default(0),
   correctAnswers: integer("correct_answers").notNull().default(0),
   currentQuestionIndex: integer("current_question_index").notNull().default(0),
   isConnected: boolean("is_connected").notNull().default(true),
-});
+  ackedAt: timestamp("acked_at"),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+}, (table) => [
+  unique("match_participants_match_user_unique").on(table.matchId, table.userId),
+]);
 
 export const insertMatchParticipantSchema = createInsertSchema(matchParticipants).omit({
   id: true,
@@ -302,6 +323,30 @@ export const insertMatchAnswerSchema = createInsertSchema(matchAnswers).omit({
 
 export type InsertMatchAnswer = z.infer<typeof insertMatchAnswerSchema>;
 export type MatchAnswer = typeof matchAnswers.$inferSelect;
+
+export const matchEventTypes = [
+  "CREATE", "INIT", "ACK", "SUBMIT", "ADVANCE", "END", "RESYNC", "ERROR"
+] as const;
+export type MatchEventType = typeof matchEventTypes[number];
+
+export const matchEvents = pgTable("match_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  matchId: varchar("match_id").notNull(),
+  ts: timestamp("ts").defaultNow().notNull(),
+  actorUserId: varchar("actor_user_id"),
+  type: text("type").notNull(),
+  payload: jsonb("payload").notNull(),
+}, (table) => [
+  index("idx_match_events_match_ts").on(table.matchId, table.ts),
+]);
+
+export const insertMatchEventSchema = createInsertSchema(matchEvents).omit({
+  id: true,
+  ts: true,
+});
+
+export type InsertMatchEvent = z.infer<typeof insertMatchEventSchema>;
+export type MatchEvent = typeof matchEvents.$inferSelect;
 
 export interface MatchState {
   matchId: string;
