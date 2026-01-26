@@ -522,39 +522,23 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     return;
   }
   
-  const matchState = await matchService.getMatchStateWithFallback(matchId);
-  if (!matchState) {
-    log(`[SubmitAnswer] REJECTED match_not_found: matchId=${matchId}`, "ws");
-    ws.send(JSON.stringify({ 
-      type: "answer_ack", 
-      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "match_not_found" } 
-    }));
-    return;
-  }
-  
-  if (!isMatchParticipantByState(matchState, serverUserId)) {
-    log(`[SubmitAnswer] REJECTED not_participant: serverUserId=${serverUserId}, participants=${matchState.participants.map(p => p.userId).join(",")}`, "ws");
-    ws.send(JSON.stringify({ 
-      type: "answer_ack", 
-      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "not_participant" } 
-    }));
-    return;
-  }
-  
-  const result = await matchService.submitAnswer(matchId, serverUserId, questionIndex, selectedAnswer, clientMsgId);
+  const result = await matchEngine.submitAnswer(matchId, serverUserId, questionIndex, selectedAnswer, clientMsgId);
   
   ws.send(JSON.stringify({
     type: "answer_ack",
     payload: {
       matchId,
       idx: questionIndex,
-      clientMsgId: result.ack.clientMsgId,
-      status: result.ack.status,
-      reason: result.ack.reason,
+      clientMsgId,
+      status: result.status,
+      reason: result.status === "REJECTED" ? result.reason : undefined,
+      serverIndex: result.status === "REJECTED" ? result.serverIndex : undefined,
+      serverStatus: result.status === "REJECTED" ? result.serverStatus : undefined,
     },
   }));
   
-  if (result.ack.status === "REJECTED") {
+  if (result.status === "REJECTED") {
+    log(`[SubmitAnswer] REJECTED: matchId=${matchId}, userId=${serverUserId}, idx=${questionIndex}, reason=${result.reason}`, "ws");
     return;
   }
   
@@ -567,13 +551,14 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     },
   }));
   
-  if (result.matchState) {
+  const updatedState = await matchEngine.buildMatchState(matchId);
+  if (updatedState) {
     broadcastToMatch(matchId, {
       type: "participant_answered",
       payload: {
         userId: serverUserId,
         questionIndex,
-        participants: result.matchState.participants.map(p => ({
+        participants: updatedState.participants.map(p => ({
           userId: p.userId,
           username: p.username,
           score: p.score,
@@ -583,26 +568,26 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     });
   }
   
-  if (result.bothAnswered) {
-    const { matchState: advancedState, matchEnd } = await matchService.advanceQuestion(matchId);
-    if (advancedState) {
-      if (matchEnd) {
-        for (const participant of matchEnd.participants) {
-          try {
-            const streakResult = await streakService.processMatchCompletion(participant.userId, matchId);
-            if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
-              log(`[Streak] User ${participant.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`, "ws");
-            }
-          } catch (streakError) {
-            console.error("Failed to process streak for participant:", streakError);
+  if (result.advance) {
+    if (result.advance.finished && result.advance.matchEnd) {
+      for (const participant of result.advance.matchEnd.participants) {
+        try {
+          const streakResult = await streakService.processMatchCompletion(participant.userId, matchId);
+          if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
+            log(`[Streak] User ${participant.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`, "ws");
           }
+        } catch (streakError) {
+          console.error("Failed to process streak for participant:", streakError);
         }
+      }
 
-        broadcastToMatch(matchId, {
-          type: "match_end",
-          payload: matchEnd,
-        });
-      } else {
+      broadcastToMatch(matchId, {
+        type: "match_end",
+        payload: result.advance.matchEnd,
+      });
+    } else if (result.advance.nextQuestion) {
+      const advancedState = await matchEngine.buildMatchState(matchId);
+      if (advancedState) {
         const clientMatchState = sanitizeMatchStateForClient(advancedState);
         broadcastToMatch(matchId, {
           type: "next_question",
@@ -628,14 +613,26 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
 
 async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
   const { matchId } = payload;
-  log(`[MatchResync] Resync requested for match ${matchId}`, "ws");
+  const extWs = ws as ExtendedWebSocket;
+  const client = clients.get(ws);
+  const userId = client?.userId || extWs.sessionUserId;
   
-  const matchState = await matchService.getMatchStateWithFallback(matchId);
+  log(`[MatchResync] Resync requested for match ${matchId}, userId=${userId}`, "ws");
+  
+  if (!userId) {
+    ws.send(JSON.stringify({ 
+      type: "error", 
+      message: "Not authenticated",
+    }));
+    return;
+  }
+  
+  const matchState = await matchEngine.resync(matchId, userId);
   
   if (!matchState) {
     ws.send(JSON.stringify({ 
       type: "error", 
-      message: "Match not found or has ended",
+      message: "Match not found or you are not a participant",
     }));
     return;
   }
