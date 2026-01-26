@@ -4,6 +4,12 @@ import { eq, and, sql, gt, lt } from "drizzle-orm";
 import { isAcceptedFriend } from "./friendshipService";
 import { matchService } from "../matchService";
 import { randomUUID } from "crypto";
+import { 
+  notifyFriendMatchInvite, 
+  notifyFriendMatchInviteCancelled,
+  notifyFriendMatchInviteExpired,
+  notifyFriendMatchAccepted,
+} from "../../websocket";
 
 const INVITE_EXPIRY_MINUTES = 5;
 const MAX_INVITES_PER_HOUR = 10;
@@ -77,6 +83,12 @@ export async function createFriendMatchInvite(
 
   const expiresAt = new Date(Date.now() + INVITE_EXPIRY_MINUTES * 60 * 1000);
 
+  const [fromUser] = await db
+    .select({ username: users.username })
+    .from(users)
+    .where(eq(users.id, fromUserId))
+    .limit(1);
+
   const [invite] = await db
     .insert(friendMatchInvites)
     .values({
@@ -88,6 +100,14 @@ export async function createFriendMatchInvite(
       expiresAt,
     })
     .returning();
+
+  notifyFriendMatchInvite(toUserId, {
+    inviteId: invite.id,
+    fromUserId,
+    fromUsername: fromUser?.username || "Unknown",
+    bucket,
+    expiresAt,
+  });
 
   return { success: true, invite };
 }
@@ -115,6 +135,8 @@ export async function cancelFriendMatchInvite(inviteId: string, userId: string):
     .update(friendMatchInvites)
     .set({ status: "CANCELLED" })
     .where(eq(friendMatchInvites.id, inviteId));
+
+  notifyFriendMatchInviteCancelled(invite.toUserId, inviteId);
 
   return { success: true };
 }
@@ -211,6 +233,20 @@ export async function respondToFriendMatchInvite(
     .set({ status: "ACCEPTED", matchId: match.matchId })
     .where(eq(friendMatchInvites.id, inviteId));
 
+  notifyFriendMatchAccepted(invite.fromUserId, {
+    inviteId,
+    matchId: match.matchId,
+    lobbyId,
+    membershipSecret: hostSecret,
+  });
+
+  notifyFriendMatchAccepted(invite.toUserId, {
+    inviteId,
+    matchId: match.matchId,
+    lobbyId,
+    membershipSecret: guestSecret,
+  });
+
   return { 
     success: true, 
     matchId: match.matchId, 
@@ -284,15 +320,26 @@ export async function getOutgoingInvites(userId: string): Promise<{ inviteId: st
   }));
 }
 
-export async function expireOldInvites(): Promise<string[]> {
+export async function expireOldInvites(): Promise<{ toUserId: string; inviteId: string }[]> {
   const result = await db.execute(sql`
     UPDATE friend_match_invites 
     SET status = 'EXPIRED'
     WHERE status = 'PENDING' AND expires_at < NOW()
-    RETURNING to_user_id
+    RETURNING id, to_user_id, from_user_id
   `);
 
-  return (result.rows || []).map((row: any) => row.to_user_id);
+  const expired = (result.rows || []).map((row: any) => ({
+    inviteId: row.id,
+    toUserId: row.to_user_id,
+    fromUserId: row.from_user_id,
+  }));
+
+  for (const { inviteId, toUserId, fromUserId } of expired) {
+    notifyFriendMatchInviteExpired(toUserId, inviteId);
+    notifyFriendMatchInviteExpired(fromUserId, inviteId);
+  }
+
+  return expired;
 }
 
 export const friendMatchInviteService = {

@@ -4,8 +4,27 @@ import { matchService } from "./services/matchService";
 import { dbMatchmakingQueue } from "./services/matchmaking/dbQueue";
 import { presenceService } from "./services/presenceService";
 import { streakService } from "./services/streakService";
+import { friendMatchInviteService } from "./services/friends/friendMatchInviteService";
 import { log } from "./index";
 import type { MatchState } from "@shared/schema";
+
+const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
+let inviteExpirationInterval: NodeJS.Timeout | null = null;
+
+function startInviteExpirationJob() {
+  if (inviteExpirationInterval) return;
+  
+  inviteExpirationInterval = setInterval(async () => {
+    try {
+      const expired = await friendMatchInviteService.expireOldInvites();
+      if (expired.length > 0) {
+        log(`[FriendMatchInvite] Expired ${expired.length} invite(s)`, "ws");
+      }
+    } catch (err) {
+      console.error("[FriendMatchInvite] Expiration job error:", err);
+    }
+  }, INVITE_EXPIRATION_INTERVAL);
+}
 
 // Heartbeat configuration
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -55,6 +74,9 @@ export function setupWebSocket(httpServer: HttpServer) {
 
   // Start periodic heartbeat checker
   startHeartbeatChecker(wss);
+  
+  // Start friend match invite expiration job
+  startInviteExpirationJob();
 
   wss.on("connection", (ws) => {
     log("WebSocket client connected", "ws");
@@ -115,6 +137,46 @@ export function sendToUser(userId: string, message: any): boolean {
     return true;
   }
   return false;
+}
+
+// Friend match invite notifications
+export function notifyFriendMatchInvite(toUserId: string, invite: {
+  inviteId: string;
+  fromUserId: string;
+  fromUsername: string;
+  bucket: string;
+  expiresAt: Date;
+}) {
+  return sendToUser(toUserId, {
+    type: "FRIEND_MATCH_INVITE",
+    payload: invite,
+  });
+}
+
+export function notifyFriendMatchInviteCancelled(toUserId: string, inviteId: string) {
+  return sendToUser(toUserId, {
+    type: "FRIEND_MATCH_INVITE_CANCELLED",
+    payload: { inviteId },
+  });
+}
+
+export function notifyFriendMatchInviteExpired(toUserId: string, inviteId: string) {
+  return sendToUser(toUserId, {
+    type: "FRIEND_MATCH_INVITE_EXPIRED",
+    payload: { inviteId },
+  });
+}
+
+export function notifyFriendMatchAccepted(toUserId: string, data: {
+  inviteId: string;
+  matchId: string;
+  lobbyId: string;
+  membershipSecret: string;
+}) {
+  return sendToUser(toUserId, {
+    type: "FRIEND_MATCH_ACCEPTED",
+    payload: data,
+  });
 }
 
 async function handleMessage(ws: WebSocket, message: any) {
