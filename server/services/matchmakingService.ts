@@ -285,11 +285,14 @@ class MatchmakingService {
         createdAt: new Date()
       });
 
-      const match = await matchService.startMatchForRandom(lobbyId);
+      const result = await matchService.startMatchForRandom(lobbyId);
 
-      if (!match) {
-        throw new Error("Failed to start match");
+      if (!result.matchState) {
+        console.error(`[MatchmakingService] Failed to start match: ${result.error}`);
+        throw new Error(result.error || "Failed to start match");
       }
+
+      const match = result.matchState;
 
       // Update tickets to MATCHED status
       await Promise.all([

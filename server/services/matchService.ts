@@ -126,21 +126,42 @@ class MatchService {
     return matchState;
   }
 
-  async startMatch(lobbyId: string, hostId: string): Promise<MatchState | null> {
+  async startMatch(lobbyId: string, hostId: string): Promise<{ matchState: MatchState | null; error?: string }> {
     const lobby = await this.getLobby(lobbyId);
-    if (!lobby) return null;
-    if (lobby.hostId !== hostId) return null;
-    if (!lobby.guestId || !lobby.guestUsername) return null;
-    if (lobby.status !== "waiting") return null;
+    if (!lobby) {
+      console.error(`[MatchService] startMatch failed: lobby not found ${lobbyId}`);
+      return { matchState: null, error: "Lobby not found" };
+    }
+    if (lobby.hostId !== hostId) {
+      console.error(`[MatchService] startMatch failed: not host. hostId=${lobby.hostId}, requesterId=${hostId}`);
+      return { matchState: null, error: "Only the host can start the match" };
+    }
+    if (!lobby.guestId || !lobby.guestUsername) {
+      console.error(`[MatchService] startMatch failed: no guest in lobby ${lobbyId}`);
+      return { matchState: null, error: "Waiting for a guest to join" };
+    }
+    if (lobby.status !== "waiting") {
+      console.error(`[MatchService] startMatch failed: lobby status is ${lobby.status}, expected waiting`);
+      return { matchState: null, error: "Match already started or ended" };
+    }
     
-    await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
+    console.log(`[MatchService] Starting match for lobby ${lobbyId}, host=${hostId}, guest=${lobby.guestId}`);
     
     const questions = await this.generateQuestions(lobby.totalQuestions);
+    
+    if (!questions || questions.length === 0) {
+      console.error(`[MatchService] startMatch failed: no questions generated for lobby ${lobbyId}. Need verified cards in database.`);
+      return { matchState: null, error: "Not enough cards available. Please try again later or contact support." };
+    }
+    
+    console.log(`[MatchService] Generated ${questions.length} questions for lobby ${lobbyId}`);
+    
+    await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
     
     const [match] = await db.insert(matches).values({
       lobbyId,
       status: "active",
-      totalQuestions: lobby.totalQuestions,
+      totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
     }).returning();
     
@@ -149,12 +170,14 @@ class MatchService {
       { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername },
     ]);
     
+    console.log(`[MatchService] Match ${match.id} created with ${questions.length} questions`);
+    
     const matchState: MatchState = {
       matchId: match.id,
       lobbyId: lobby.id,
       status: "active",
       currentQuestionIndex: 0,
-      totalQuestions: lobby.totalQuestions,
+      totalQuestions: questions.length,
       questions,
       participants: [
         { userId: lobby.hostId, username: lobby.hostUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
@@ -165,22 +188,37 @@ class MatchService {
     this.matchStates.set(match.id, matchState);
     this.playerAnswers.set(match.id, new Map());
     
-    return matchState;
+    return { matchState };
   }
 
-  async startMatchForRandom(lobbyId: string): Promise<MatchState | null> {
+  async startMatchForRandom(lobbyId: string): Promise<{ matchState: MatchState | null; error?: string }> {
     const lobby = await this.getLobby(lobbyId);
-    if (!lobby) return null;
-    if (!lobby.guestId || !lobby.guestUsername) return null;
+    if (!lobby) {
+      console.error(`[MatchService] startMatchForRandom failed: lobby not found ${lobbyId}`);
+      return { matchState: null, error: "Lobby not found" };
+    }
+    if (!lobby.guestId || !lobby.guestUsername) {
+      console.error(`[MatchService] startMatchForRandom failed: no guest in lobby ${lobbyId}`);
+      return { matchState: null, error: "No guest in lobby" };
+    }
     
-    await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
+    console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}`);
     
     const questions = await this.generateQuestions(lobby.totalQuestions);
+    
+    if (!questions || questions.length === 0) {
+      console.error(`[MatchService] startMatchForRandom failed: no questions generated for lobby ${lobbyId}. Need verified cards.`);
+      return { matchState: null, error: "Not enough cards available" };
+    }
+    
+    console.log(`[MatchService] Generated ${questions.length} questions for random match lobby ${lobbyId}`);
+    
+    await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
     
     const [match] = await db.insert(matches).values({
       lobbyId,
       status: "active",
-      totalQuestions: lobby.totalQuestions,
+      totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
     }).returning();
     
@@ -189,12 +227,14 @@ class MatchService {
       { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername },
     ]);
     
+    console.log(`[MatchService] Random match ${match.id} created with ${questions.length} questions`);
+    
     const matchState: MatchState = {
       matchId: match.id,
       lobbyId: lobby.id,
       status: "active",
       currentQuestionIndex: 0,
-      totalQuestions: lobby.totalQuestions,
+      totalQuestions: questions.length,
       questions,
       participants: [
         { userId: lobby.hostId, username: lobby.hostUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
@@ -205,7 +245,7 @@ class MatchService {
     this.matchStates.set(match.id, matchState);
     this.playerAnswers.set(match.id, new Map());
     
-    return matchState;
+    return { matchState };
   }
 
   private async generateQuestions(count: number): Promise<GameQuestion[]> {

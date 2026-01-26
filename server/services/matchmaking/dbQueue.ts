@@ -263,16 +263,19 @@ class DbMatchmakingQueue {
         createdAt: new Date()
       });
 
-      const match = await matchService.startMatchForRandom(lobbyId);
+      const result = await matchService.startMatchForRandom(lobbyId);
       
-      if (!match) {
+      if (!result.matchState) {
+        console.error(`[DbQueue] Failed to start match: ${result.error}`);
         await db.execute(sql`
           UPDATE matchmaking_tickets 
           SET status = 'WAITING'::ticket_status, updated_at = NOW()
           WHERE id IN (${pair.id1}, ${pair.id2})
         `);
-        throw new Error("Failed to start match");
+        throw new Error(result.error || "Failed to start match");
       }
+
+      const match = result.matchState;
 
       await Promise.all([
         presenceService.setInMatch(pair.user1),

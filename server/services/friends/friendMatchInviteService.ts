@@ -222,11 +222,14 @@ export async function respondToFriendMatchInvite(
     createdAt: new Date(),
   });
 
-  const match = await matchService.startMatchForRandom(lobbyId);
+  const result = await matchService.startMatchForRandom(lobbyId);
 
-  if (!match) {
-    return { success: false, error: "Failed to create match" };
+  if (!result.matchState) {
+    console.error(`[FriendMatchInvite] Failed to create match: ${result.error}`);
+    return { success: false, error: result.error || "Failed to create match" };
   }
+
+  const match = result.matchState;
 
   await db
     .update(friendMatchInvites)

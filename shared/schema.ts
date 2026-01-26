@@ -250,6 +250,44 @@ export const insertMatchParticipantSchema = createInsertSchema(matchParticipants
 export type InsertMatchParticipant = z.infer<typeof insertMatchParticipantSchema>;
 export type MatchParticipant = typeof matchParticipants.$inferSelect;
 
+export const matchQuestions = pgTable("match_questions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  matchId: varchar("match_id").notNull(),
+  idx: integer("idx").notNull(),
+  cardId: varchar("card_id").notNull(),
+  correctAnswer: text("correct_answer").notNull(),
+  choices: text("choices").notNull(),
+  pointValue: integer("point_value").notNull().default(100),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertMatchQuestionSchema = createInsertSchema(matchQuestions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMatchQuestion = z.infer<typeof insertMatchQuestionSchema>;
+export type MatchQuestion = typeof matchQuestions.$inferSelect;
+
+export const matchAnswers = pgTable("match_answers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  matchId: varchar("match_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  idx: integer("idx").notNull(),
+  selected: text("selected").notNull(),
+  isCorrect: boolean("is_correct").notNull(),
+  pointsEarned: integer("points_earned").notNull().default(0),
+  answeredAt: timestamp("answered_at").defaultNow(),
+});
+
+export const insertMatchAnswerSchema = createInsertSchema(matchAnswers).omit({
+  id: true,
+  answeredAt: true,
+});
+
+export type InsertMatchAnswer = z.infer<typeof insertMatchAnswerSchema>;
+export type MatchAnswer = typeof matchAnswers.$inferSelect;
+
 export interface MatchState {
   matchId: string;
   lobbyId: string;

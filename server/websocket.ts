@@ -374,18 +374,28 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
     return;
   }
   
-  const matchState = await matchService.startMatch(lobbyId, hostId);
+  log(`[StartMatch] Starting match for lobby ${lobbyId}, host=${hostId}`, "ws");
   
-  if (!matchState) {
-    ws.send(JSON.stringify({ type: "error", message: "Failed to start match" }));
+  const result = await matchService.startMatch(lobbyId, hostId);
+  
+  if (!result.matchState) {
+    log(`[StartMatch] Failed to start match: ${result.error}`, "ws");
+    ws.send(JSON.stringify({ type: "start_match_error", message: result.error || "Failed to start match" }));
     return;
   }
   
+  const matchState = result.matchState;
+  log(`[StartMatch] Match ${matchState.matchId} created with ${matchState.questions.length} questions`, "ws");
+  
   const lobbyClients = lobbyConnections.get(lobbyId);
+  const connectedPlayerCount = lobbyClients?.size || 0;
+  log(`[StartMatch] Lobby has ${connectedPlayerCount} connected clients`, "ws");
+  
   if (lobbyClients) {
-    Array.from(lobbyClients).forEach(client => {
-      const clientInfo = clients.get(client);
+    Array.from(lobbyClients).forEach(clientWs => {
+      const clientInfo = clients.get(clientWs);
       if (clientInfo) {
+        log(`[StartMatch] Moving client ${clientInfo.userId} from lobby to match`, "ws");
         clientInfo.matchId = matchState.matchId;
         clientInfo.lobbyId = undefined;
       }
@@ -393,12 +403,18 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
       if (!matchConnections.has(matchState.matchId)) {
         matchConnections.set(matchState.matchId, new Set());
       }
-      matchConnections.get(matchState.matchId)?.add(client);
+      matchConnections.get(matchState.matchId)?.add(clientWs);
     });
     lobbyConnections.delete(lobbyId);
   }
   
+  const matchClientCount = matchConnections.get(matchState.matchId)?.size || 0;
+  log(`[StartMatch] Match now has ${matchClientCount} connected clients`, "ws");
+  
   const clientMatchState = sanitizeMatchStateForClient(matchState);
+  
+  log(`[StartMatch] Broadcasting match_started to ${matchClientCount} clients, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
+  
   broadcastToMatch(matchState.matchId, {
     type: "match_started",
     payload: clientMatchState,
