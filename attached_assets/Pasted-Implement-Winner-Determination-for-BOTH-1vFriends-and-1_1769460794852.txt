@@ -1,0 +1,126 @@
+Implement “Winner Determination” for BOTH 1vFriends and 1vRandom matches. Winner = participant with more correct answers. If equal correct answers, match is a TIE (no winner). This must be computed server-side at match conclusion and persisted, then broadcast to both clients.
+
+STACK (do not change)
+Backend: Express + TS, ws
+DB: Postgres (Neon) + Drizzle ORM
+Frontend: React + TS
+
+========================================================
+A) DB CHANGES (DRIZZLE MIGRATION)
+
+1) Extend matches table:
+- winner_user_id uuid nullable
+- result enum('PENDING','HOST_WIN','GUEST_WIN','TIE') not null default 'PENDING'
+- host_correct int not null default 0
+- guest_correct int not null default 0
+
+(Keep existing: status, end_reason, questions_total, current_index, finished_at)
+
+2) Ensure match_answers exists with:
+- match_id uuid
+- user_id uuid
+- idx int
+- is_correct boolean
+Primary key(match_id, user_id, idx)
+
+========================================================
+B) SERVER: SINGLE RESULT COMPUTATION FUNCTION (SOURCE OF TRUTH)
+
+Create:
+src/services/matches/computeResult.ts
+
+export async function computeAndPersistMatchResult(matchId: string) {
+  // 1) Load match and participants (host_user_id, guest_user_id)
+  // 2) Aggregate correct counts from match_answers
+  // 3) Determine winner / tie
+  // 4) Persist to matches
+  // 5) Return structured results payload
+}
+
+Implementation details:
+
+- Query counts (use SQL or Drizzle):
+  hostCorrect = COUNT(*) WHERE match_id=matchId AND user_id=hostId AND is_correct=true
+  guestCorrect = COUNT(*) WHERE match_id=matchId AND user_id=guestId AND is_correct=true
+
+- Determine result:
+  if hostCorrect > guestCorrect:
+      result='HOST_WIN'; winner_user_id=hostId
+  else if guestCorrect > hostCorrect:
+      result='GUEST_WIN'; winner_user_id=guestId
+  else:
+      result='TIE'; winner_user_id=null
+
+- Persist:
+  UPDATE matches
+    SET host_correct=?, guest_correct=?, result=?, winner_user_id=?
+  WHERE id=matchId
+
+Return:
+{
+  matchId,
+  result,                 // 'HOST_WIN'|'GUEST_WIN'|'TIE'
+  winnerUserId,           // string|null
+  host: { userId: hostId, correct: hostCorrect },
+  guest:{ userId: guestId, correct: guestCorrect }
+}
+
+========================================================
+C) SERVER: CALL RESULT COMPUTATION ONLY WHEN MATCH ENDS
+
+In your match engine (where you set status FINISHED):
+- Only when newIndex >= questions_total (completed), OR explicit CANCELLED/forfeit/timeout.
+- For FINISHED completed matches:
+    1) set status='FINISHED', end_reason='completed', finished_at=now
+    2) call computeAndPersistMatchResult(matchId)
+    3) broadcast MATCH_END with results payload
+
+For CANCELLED matches:
+- winner logic depends on your policy:
+  - Option A (recommended): result='TIE' and winner_user_id=null unless you explicitly define forfeits.
+  - If you support FORFEIT: if user forfeits, other player wins by default:
+      result='HOST_WIN' or 'GUEST_WIN' accordingly; winner_user_id=other player.
+
+========================================================
+D) WS EVENTS
+
+Server -> Client:
+MATCH_END payload must include:
+{
+  type: "MATCH_END",
+  matchId,
+  status: "FINISHED"|"CANCELLED",
+  endReason: "completed"|"disconnect_timeout"|"forfeit"|...,
+  results: {
+    result: "HOST_WIN"|"GUEST_WIN"|"TIE",
+    winnerUserId: string|null,
+    host: { userId, correct },
+    guest:{ userId, correct }
+  }
+}
+
+Client must NOT compute the winner locally. It only displays what server sends.
+
+========================================================
+E) FRONTEND DISPLAY RULES
+
+On MATCH_END:
+- If results.result === 'TIE' => show “Tie”
+- Else if winnerUserId === currentUserId => show “You Win”
+- Else show “You Lose”
+Also display:
+- “You: X/10 correct”
+- “Opponent: Y/10 correct”
+
+========================================================
+F) ACCEPTANCE RULES
+
+- Winner declared strictly by correct count across all questions.
+- Ties produce no winner_user_id.
+- Same logic for 1vFriends and 1vRandom (both are 2-player matches).
+
+DELIVERABLES
+- Drizzle migration for matches fields
+- computeAndPersistMatchResult(matchId) service
+- Integrate into match completion path and broadcast MATCH_END with results
+- Client display uses results from server only
