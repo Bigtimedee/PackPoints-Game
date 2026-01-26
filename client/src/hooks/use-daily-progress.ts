@@ -6,25 +6,21 @@ interface DailyProgressResponse {
   cardsAnswered: number;
   matchesCompleted: number;
   capCards: number;
+  resetInMs: number;
 }
 
-function getLocalMidnightReset(): { hours: number; minutes: number; ms: number } {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const msUntilReset = tomorrow.getTime() - now.getTime();
+function msToResetTime(ms: number): { hours: number; minutes: number; ms: number } {
   return {
-    hours: Math.floor(msUntilReset / (1000 * 60 * 60)),
-    minutes: Math.floor((msUntilReset % (1000 * 60 * 60)) / (1000 * 60)),
-    ms: msUntilReset,
+    hours: Math.floor(ms / (1000 * 60 * 60)),
+    minutes: Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60)),
+    ms,
   };
 }
 
 export const DAILY_PROGRESS_QUERY_KEY = ["dailyProgress"];
 
 export function useDailyProgress() {
-  const { data, isLoading, refetch, error } = useQuery<DailyProgressResponse | null>({
+  const { data, isLoading, refetch, error, dataUpdatedAt } = useQuery<DailyProgressResponse | null>({
     queryKey: DAILY_PROGRESS_QUERY_KEY,
     queryFn: async () => {
       const res = await fetch("/api/progress/daily", { credentials: "include" });
@@ -39,14 +35,22 @@ export function useDailyProgress() {
     refetchInterval: 1000 * 60,
   });
 
-  const [resetIn, setResetIn] = useState(getLocalMidnightReset);
+  const [resetIn, setResetIn] = useState<{ hours: number; minutes: number; ms: number }>({ hours: 0, minutes: 0, ms: 0 });
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setResetIn(getLocalMidnightReset());
-    }, 60000);
+    if (!data?.resetInMs) return;
+    
+    const fetchedAt = dataUpdatedAt || Date.now();
+    const updateResetTime = () => {
+      const elapsed = Date.now() - fetchedAt;
+      const remaining = Math.max(0, data.resetInMs - elapsed);
+      setResetIn(msToResetTime(remaining));
+    };
+    
+    updateResetTime();
+    const interval = setInterval(updateResetTime, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [data?.resetInMs, dataUpdatedAt]);
 
   const cardsAnswered = data?.cardsAnswered ?? 0;
   const capCards = data?.capCards ?? 200;

@@ -53,6 +53,16 @@ A fame-based point calculation system awards more PackPTS for identifying obscur
 ### Daily Cap UI Feedback
 A visual feedback system displays daily earning progress, cap status, and provides notifications for users.
 
+### Daily Match Progress Tracking
+Server-authoritative tracking of cards answered per day across all match modes:
+- **Database**: `user_daily_progress` table with (user_id, day_date) composite primary key, tracks cards_answered and matches_completed
+- **Timezone**: Uses America/Chicago timezone for day boundaries (consistent server-side)
+- **Idempotency**: `progress_applied` boolean on matches table prevents double-counting; atomic transaction wraps flag update and progress bumps
+- **API**: GET /api/progress/daily returns cardsAnswered, matchesCompleted, capCards (200), and resetInMs (Chicago midnight countdown)
+- **Client Hook**: `useDailyProgress()` with exported `DAILY_PROGRESS_QUERY_KEY` for invalidation; countdown uses server-provided reset time
+- **Real-time Update**: Query invalidated on `match_end` WebSocket event for immediate UI refresh
+- **Implementation**: `server/services/progress/dailyProgress.ts` handles all progress logic
+
 ### Financial Guardrails & Fraud Prevention
 A multi-layered system prevents revenue loss and abuse through user risk tracking, chargeback handling, and pattern-based fraud detection. It uses fraud scoring pipelines with event tables, rollups, signals, and risk snapshots.
 

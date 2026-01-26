@@ -16,7 +16,7 @@ export function getChicagoDate(): string {
 }
 
 export async function bumpDailyProgressForMatch(params: {
-  tx?: typeof db;
+  tx?: any;
   userId: string;
   cardsDelta: number;
   matchesDelta: number;
@@ -43,50 +43,50 @@ export async function bumpDailyProgressForMatch(params: {
 }
 
 export async function applyProgressForMatchIfNeeded(params: {
-  tx?: typeof db;
   matchId: string;
   hostUserId: string;
   guestUserId: string;
   totalQuestions: number;
 }): Promise<boolean> {
-  const { matchId, hostUserId, guestUserId, totalQuestions, tx = db } = params;
+  const { matchId, hostUserId, guestUserId, totalQuestions } = params;
 
-  const [match] = await tx
-    .select({ progressApplied: matches.progressApplied })
-    .from(matches)
-    .where(eq(matches.id, matchId))
-    .limit(1);
+  return await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(matches)
+      .set({ progressApplied: true })
+      .where(and(eq(matches.id, matchId), eq(matches.progressApplied, false)))
+      .returning({ id: matches.id });
 
-  if (!match || match.progressApplied) {
-    return false;
-  }
+    if (!updated) {
+      return false;
+    }
 
-  const [updated] = await tx
-    .update(matches)
-    .set({ progressApplied: true })
-    .where(and(eq(matches.id, matchId), eq(matches.progressApplied, false)))
-    .returning({ id: matches.id });
+    await Promise.all([
+      bumpDailyProgressForMatch({
+        tx,
+        userId: hostUserId,
+        cardsDelta: totalQuestions,
+        matchesDelta: 1,
+      }),
+      bumpDailyProgressForMatch({
+        tx,
+        userId: guestUserId,
+        cardsDelta: totalQuestions,
+        matchesDelta: 1,
+      }),
+    ]);
 
-  if (!updated) {
-    return false;
-  }
+    return true;
+  });
+}
 
-  await Promise.all([
-    bumpDailyProgressForMatch({
-      tx,
-      userId: hostUserId,
-      cardsDelta: totalQuestions,
-      matchesDelta: 1,
-    }),
-    bumpDailyProgressForMatch({
-      tx,
-      userId: guestUserId,
-      cardsDelta: totalQuestions,
-      matchesDelta: 1,
-    }),
-  ]);
-
-  return true;
+function getChicagoMidnightResetMs(): number {
+  const now = new Date();
+  const chicagoNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const chicagoTomorrow = new Date(chicagoNow);
+  chicagoTomorrow.setDate(chicagoTomorrow.getDate() + 1);
+  chicagoTomorrow.setHours(0, 0, 0, 0);
+  return chicagoTomorrow.getTime() - chicagoNow.getTime();
 }
 
 export async function getDailyProgress(userId: string): Promise<{
@@ -94,8 +94,10 @@ export async function getDailyProgress(userId: string): Promise<{
   cardsAnswered: number;
   matchesCompleted: number;
   capCards: number;
+  resetInMs: number;
 }> {
   const dayDate = getChicagoDate();
+  const resetInMs = getChicagoMidnightResetMs();
 
   const [progress] = await db
     .select()
@@ -113,5 +115,6 @@ export async function getDailyProgress(userId: string): Promise<{
     cardsAnswered: progress?.cardsAnswered ?? 0,
     matchesCompleted: progress?.matchesCompleted ?? 0,
     capCards: DAILY_CARD_CAP,
+    resetInMs,
   };
 }
