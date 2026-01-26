@@ -53,6 +53,10 @@ interface MatchEndEvent {
   reason: string;
   status: "FINISHED" | "CANCELLED";
   winner?: string;
+  winnerUserId?: string;
+  result?: "PENDING" | "HOST_WIN" | "GUEST_WIN" | "TIE";
+  hostCorrect?: number;
+  guestCorrect?: number;
   participants: {
     userId: string;
     username: string;
@@ -398,7 +402,7 @@ export default function Match() {
                   {iWon ? "You Win!" : isDraw ? "It's a Draw!" : "You Lose"}
                 </h1>
                 <p className="text-muted-foreground">
-                  {isDraw ? "Both players finished with the same score" : `${matchEnded.winner} won the match!`}
+                  {isDraw ? "Both players got the same number correct" : `${matchEnded.winner} got more correct!`}
                 </p>
               </div>
               
