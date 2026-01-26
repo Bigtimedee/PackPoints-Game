@@ -16,6 +16,7 @@ import {
 } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { computeAndPersistMatchResult, setForfeitResult, setDisconnectResult, type ComputedResult } from "./computeResult";
+import { applyProgressForMatchIfNeeded } from "../progress/dailyProgress";
 
 export interface MatchEndResult {
   matchId: string;
@@ -440,6 +441,18 @@ async function maybeAdvance(
 
     const computed = await computeAndPersistMatchResult(matchId);
     const updatedParticipants = await getParticipants(matchId);
+    
+    const hostParticipant = updatedParticipants.find(p => p.role === "HOST");
+    const guestParticipant = updatedParticipants.find(p => p.role === "GUEST");
+    
+    if (hostParticipant && guestParticipant) {
+      await applyProgressForMatchIfNeeded({
+        matchId,
+        hostUserId: hostParticipant.userId,
+        guestUserId: guestParticipant.userId,
+        totalQuestions,
+      });
+    }
     
     const winnerParticipant = computed?.winnerUserId 
       ? updatedParticipants.find(p => p.userId === computed.winnerUserId)
