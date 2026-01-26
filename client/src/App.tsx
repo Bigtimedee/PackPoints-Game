@@ -46,6 +46,7 @@ import LinkRequired from "@/pages/link-required";
 import Waitlist from "@/pages/waitlist";
 import Invite from "@/pages/invite";
 import Redeem from "@/pages/redeem";
+import Friends from "@/pages/friends";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -63,6 +64,7 @@ function Router() {
       <Route path="/store/success" component={StoreSuccess} />
       <Route path="/store/cancel" component={StoreCancel} />
       <Route path="/profile" component={Profile} />
+      <Route path="/friends" component={Friends} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard">
         {() => (

@@ -1,16 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Users, X, ArrowLeft, Play, LogIn, Shuffle, Radio, Gamepad2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Loader2, Users, X, ArrowLeft, Play, LogIn, Shuffle, Radio, Gamepad2, UserPlus, Clock, Check, Mail } from "lucide-react";
 import { CardSetPicker } from "@/components/CardSetPicker";
 import { MobileSelect } from "@/components/MobileSelect";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { PlayableSet } from "@shared/schema";
 
 interface PresenceStats {
@@ -19,6 +23,35 @@ interface PresenceStats {
   inMatch: number;
   queueSize: number;
   queuesByBucket: Record<string, number>;
+}
+
+interface Friend {
+  friendshipId: string;
+  friendId: string;
+  friendUsername: string;
+  profileImageUrl: string | null;
+  status: string;
+}
+
+interface FriendsData {
+  accepted: Friend[];
+  pendingIncoming: any[];
+  pendingOutgoing: any[];
+}
+
+interface InboxInvite {
+  inviteId: string;
+  fromUserId: string;
+  fromUsername: string;
+  fromProfileImageUrl: string | null;
+  bucket: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+interface MatchInbox {
+  incoming: InboxInvite[];
+  outgoing: any[];
 }
 
 export default function Queue() {
@@ -31,6 +64,8 @@ export default function Queue() {
   const [status, setStatus] = useState<"idle" | "connecting" | "searching" | "matched" | "expired">("idle");
   const [selectedCardCount, setSelectedCardCount] = useState("10");
   const [selectedSetId, setSelectedSetId] = useState("random");
+  const [activeTab, setActiveTab] = useState<"random" | "friends">("random");
+  const { toast } = useToast();
 
   const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
@@ -40,6 +75,50 @@ export default function Queue() {
   const { data: presenceStats } = useQuery<PresenceStats>({
     queryKey: ["/api/presence/stats"],
     refetchInterval: status === "idle" ? 10000 : 5000,
+  });
+
+  const { data: friends, isLoading: friendsLoading } = useQuery<FriendsData>({
+    queryKey: ["/api/friends"],
+    enabled: isAuthenticated && activeTab === "friends",
+  });
+
+  const { data: matchInbox, refetch: refetchInbox } = useQuery<MatchInbox>({
+    queryKey: ["/api/matches/friends/inbox"],
+    enabled: isAuthenticated && activeTab === "friends",
+    refetchInterval: activeTab === "friends" ? 5000 : false,
+  });
+
+  const inviteToMatch = useMutation({
+    mutationFn: async (toUserId: string) => {
+      return apiRequest("POST", "/api/matches/friends/invite", { toUserId });
+    },
+    onSuccess: () => {
+      toast({ title: "Match invite sent!" });
+      refetchInbox();
+    },
+    onError: () => {
+      toast({ title: "Failed to send invite", variant: "destructive" });
+    },
+  });
+
+  const respondToInvite = useMutation({
+    mutationFn: async ({ inviteId, action }: { inviteId: string; action: "ACCEPT" | "DECLINE" }) => {
+      const response = await apiRequest("POST", "/api/matches/friends/respond", { inviteId, action });
+      return response.json();
+    },
+    onSuccess: (data, variables) => {
+      if (variables.action === "ACCEPT" && data.matchId) {
+        toast({ title: "Match starting!" });
+        localStorage.setItem("packpoints_match_secret", data.membershipSecret || "");
+        navigate(`/match/${data.matchId}`);
+      } else {
+        toast({ title: "Invite declined" });
+      }
+      refetchInbox();
+    },
+    onError: () => {
+      toast({ title: "Failed to respond", variant: "destructive" });
+    },
   });
 
   const availableSets = playableSets?.filter(s => s.cardsImportedCount > 0) || [];
@@ -180,6 +259,9 @@ export default function Queue() {
     );
   }
 
+  const acceptedFriends = friends?.accepted || [];
+  const incomingInvites = matchInbox?.incoming || [];
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -189,11 +271,32 @@ export default function Queue() {
             Back
           </Button>
         )}
+
+        {status === "idle" && (
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "random" | "friends")} className="mb-4">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="random" data-testid="tab-random">
+                <Shuffle className="h-4 w-4 mr-2" />
+                Random
+              </TabsTrigger>
+              <TabsTrigger value="friends" data-testid="tab-friends">
+                <Users className="h-4 w-4 mr-2" />
+                Friends
+                {incomingInvites.length > 0 && (
+                  <Badge variant="destructive" className="ml-2 h-5 min-w-5 px-1">
+                    {incomingInvites.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
         
+        {activeTab === "random" && (
         <Card>
           <CardHeader className="text-center">
             <div className="mx-auto p-3 rounded-full bg-primary/10 w-fit mb-2">
-              <Users className="h-8 w-8 text-primary" />
+              <Shuffle className="h-8 w-8 text-primary" />
             </div>
             <CardTitle className="text-2xl">1v1 Random Match</CardTitle>
             {status === "idle" && (
@@ -357,6 +460,132 @@ export default function Queue() {
           )}
           </CardContent>
         </Card>
+        )}
+
+        {activeTab === "friends" && status === "idle" && (
+          <div className="space-y-4">
+            {incomingInvites.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Mail className="h-5 w-5 text-primary" />
+                    Match Invites
+                    <Badge variant="destructive">{incomingInvites.length}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {incomingInvites.map((invite) => (
+                    <div key={invite.inviteId} className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                      <Avatar className="h-10 w-10">
+                        {invite.fromProfileImageUrl && (
+                          <AvatarImage src={invite.fromProfileImageUrl} alt={invite.fromUsername} />
+                        )}
+                        <AvatarFallback>
+                          {invite.fromUsername.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{invite.fromUsername}</p>
+                        <p className="text-xs text-muted-foreground">wants to play</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm"
+                          onClick={() => respondToInvite.mutate({ inviteId: invite.inviteId, action: "ACCEPT" })}
+                          disabled={respondToInvite.isPending}
+                          data-testid={`button-accept-invite-${invite.inviteId}`}
+                        >
+                          <Check className="h-4 w-4 mr-1" />
+                          Accept
+                        </Button>
+                        <Button 
+                          size="sm"
+                          variant="outline"
+                          onClick={() => respondToInvite.mutate({ inviteId: invite.inviteId, action: "DECLINE" })}
+                          disabled={respondToInvite.isPending}
+                          data-testid={`button-decline-invite-${invite.inviteId}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <UserPlus className="h-5 w-5" />
+                  Challenge a Friend
+                </CardTitle>
+                <CardDescription>
+                  Invite a friend to play a 1v1 match
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {friendsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : acceptedFriends.length === 0 ? (
+                  <div className="text-center py-6 space-y-3">
+                    <Users className="h-12 w-12 mx-auto text-muted-foreground" />
+                    <p className="text-muted-foreground">No friends yet</p>
+                    <Button variant="outline" onClick={() => navigate("/friends")} data-testid="button-add-friends">
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Add Friends
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {acceptedFriends.map((friend) => (
+                      <div 
+                        key={friend.friendshipId} 
+                        className="flex items-center gap-3 p-3 rounded-lg hover-elevate"
+                      >
+                        <Avatar className="h-10 w-10">
+                          {friend.profileImageUrl && (
+                            <AvatarImage src={friend.profileImageUrl} alt={friend.friendUsername} />
+                          )}
+                          <AvatarFallback>
+                            {friend.friendUsername.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{friend.friendUsername}</p>
+                        </div>
+                        <Button 
+                          size="sm"
+                          onClick={() => inviteToMatch.mutate(friend.friendId)}
+                          disabled={inviteToMatch.isPending}
+                          data-testid={`button-invite-${friend.friendId}`}
+                        >
+                          <Gamepad2 className="h-4 w-4 mr-1" />
+                          Invite
+                        </Button>
+                      </div>
+                    ))}
+                    
+                    <div className="pt-3 border-t">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full"
+                        onClick={() => navigate("/friends")}
+                        data-testid="button-manage-friends"
+                      >
+                        <Users className="h-4 w-4 mr-2" />
+                        Manage Friends
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );
