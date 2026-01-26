@@ -1,0 +1,191 @@
+Implement “1vFriends (Registered Users Only)” match invitations. Remove all non-user invite links. A user may only invite another EXISTING PackPTS registered user into a 1vFriends match via:
+1) selecting from an Accepted Friends list, OR
+2) searching a registered user by handle and sending a friend request first (must be accepted), then inviting to match.
+
+STACK (do not change)
+React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack Query + Wouter
+Backend: Express + TypeScript
+Realtime: ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+GOALS
+- Only registered users can receive match invites
+- 1vFriends requires an ACCEPTED friendship (mutual)
+- Match invites are real-time via ws when online; otherwise stored as inbox items
+- Invite lifecycle: PENDING → ACCEPTED/DECLINED/EXPIRED/CANCELLED
+- Secure: no email/phone; identify users by handle or friend list
+
+========================================================
+A) DATABASE (DRIZZLE MIGRATIONS)
+
+1) users (ensure)
+- handle text UNIQUE NOT NULL
+- handle_normalized text UNIQUE NOT NULL
+
+2) friendships (registered users only)
+Use a single-row undirected model:
+- id uuid pk
+- user_low uuid not null
+- user_high uuid not null
+- status enum('PENDING','ACCEPTED','DECLINED','BLOCKED') not null
+- initiated_by uuid not null
+- created_at timestamp default now
+- updated_at timestamp default now
+Unique(user_low, user_high)
+Index(status)
+
+Helper:
+function pair(a,b) => [low,high] by lexical UUID compare.
+
+3) friend_match_invites (registered users only)
+- id uuid pk
+- from_user_id uuid not null
+- to_user_id uuid not null
+- bucket text not null default 'ANY'     // or setId bucket
+- mode text not null default '1vFriends'
+- status enum('PENDING','ACCEPTED','DECLINED','EXPIRED','CANCELLED') default 'PENDING'
+- match_id uuid nullable
+- created_at timestamp default now
+- expires_at timestamp not null
+Indexes:
+- (to_user_id, status)
+- (from_user_id, status)
+
+4) matches (if not already)
+- id uuid pk
+- mode text not null
+- bucket text not null
+- player1_id uuid not null
+- player2_id uuid not null
+- status enum('CREATED','ACTIVE','FINISHED','CANCELLED') default 'CREATED'
+- created_at timestamp default now
+- started_at timestamp nullable
+- updated_at timestamp default now
+
+========================================================
+B) FRIENDSHIP PREREQUISITE (ENFORCE)
+A user can ONLY send a 1vFriends match invite to a user that is an ACCEPTED friend.
+
+Create helper:
+src/services/friends/isAcceptedFriend.ts
+- returns boolean for (fromUserId,toUserId)
+
+========================================================
+C) USER SEARCH (REGISTERED USERS ONLY)
+Endpoint:
+GET /api/users/search?handlePrefix=abc
+- requires >= 3 chars
+- returns top 10 users: { userId, handle }
+- never returns email/phone
+
+Friend request endpoints (if not already):
+POST /api/friends/request { toUserId }
+POST /api/friends/respond { friendshipId, action:'ACCEPT'|'DECLINE'|'BLOCK' }
+GET /api/friends (accepted + pending)
+
+========================================================
+D) 1vFRIENDS MATCH INVITE API
+
+1) POST /api/matches/friends/invite
+Body:
+{ toUserId: string, bucket?: string }  // bucket optional, default 'ANY'
+Rules:
+- must be ACCEPTED friends
+- must not invite self
+- prevent spamming: max 10 invites/hour
+- if there is already a PENDING invite between same pair and bucket, return existing
+- expires_at = now + 5 minutes
+Creates friend_match_invites row status=PENDING
+If recipient online, also push ws event (Section E)
+
+Return:
+{ inviteId, expiresAt }
+
+2) POST /api/matches/friends/cancel
+Body:
+{ inviteId }
+Rules:
+- only from_user_id may cancel
+- only if status=PENDING
+Set status=CANCELLED and notify recipient via ws if online
+
+3) POST /api/matches/friends/respond
+Body:
+{ inviteId, action:'ACCEPT'|'DECLINE' }
+Rules:
+- only to_user_id may respond
+- only if status=PENDING and not expired
+If DECLINE => status=DECLINED
+If ACCEPT:
+  - create match row status=CREATED with both players
+  - set invite status=ACCEPTED, match_id=match.id
+  - notify both users via ws MATCH_FOUND
+  - require ACK handshake (below) before MATCH_START
+
+4) GET /api/matches/friends/inbox
+Returns pending invites where to_user_id=current user and status=PENDING and expires_at>now
+Include from user handle + bucket + expiresAt
+
+========================================================
+E) WEBSOCKET REAL-TIME NOTIFICATIONS
+
+On ws connection, map userId -> socket.
+
+Send to recipient when invite created:
+{ type:'FRIEND_MATCH_INVITE', invite:{ inviteId, fromUser:{userId,handle}, bucket, expiresAt } }
+
+Send on cancel:
+{ type:'FRIEND_MATCH_INVITE_CANCELLED', inviteId }
+
+Send on accept (both users):
+{ type:'MATCH_FOUND', matchId, opponent:{userId,handle}, mode:'1vFriends', bucket }
+
+ACK HANDSHAKE:
+Client must reply within 10s:
+{ type:'MATCH_ACK', matchId }
+When both ack:
+- update matches.status='ACTIVE', started_at=now
+- send { type:'MATCH_START', matchId }
+
+If one fails:
+- cancel match + mark invite EXPIRED
+- return acked player to idle state and show error “Opponent didn’t respond”
+
+========================================================
+F) EXPIRATION JOB
+Every 10 seconds:
+- Mark invites EXPIRED where status=PENDING and expires_at < now
+- If expired and recipient is online, push:
+  { type:'FRIEND_MATCH_INVITE_EXPIRED', inviteId }
+
+========================================================
+G) FRONTEND UX
+
+1) Friends Page (/friends)
+- list accepted friends with “Invite to Match” button
+- button calls POST /api/matches/friends/invite
+- show “Invite sent (5:00)” countdown
+
+2) Play -> 1vFriends
+- show friends list + invite buttons
+- show “Incoming invites” panel fed by:
+  - ws push events + GET /api/matches/friends/inbox on load
+- incoming invite card has Accept/Decline buttons calling respond endpoint
+
+3) If user tries 1vFriends with zero friends:
+- show CTA “Search users by handle and add friend first”
+
+========================================================
+H) SECURITY / ABUSE CONTROLS
+- Rate limit invites per user (server side)
+- Blocked status prevents friend requests + invites
+- Only accepted friends can invite to match
+- No external invites, no links, registered users only
+
+DELIVERABLES
+- Drizzle migrations (friend_match_invites + ensure handle + friendships)
+- APIs: invite/cancel/respond/inbox
+- ws events: FRIEND_MATCH_INVITE + cancel + match found/start
+- expiration job
+- UI: invite friend to match + inbox accept/decline
