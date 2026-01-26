@@ -68,6 +68,16 @@ A real-time random matchmaking system for PvP gameplay using DB-backed atomic pa
 - **REST Endpoints**: /api/presence/stats for online counts, /api/matchmaking/status for user queue status
 - **Implementation**: `server/services/matchmaking/dbQueue.ts` handles all matchmaking logic with `attemptPair()` running every 500ms
 
+### Match Lifecycle State Machine
+Enforces invariants to prevent matches from ending prematurely (e.g., 0/10 questions after server restart):
+- **MatchStatus Enum**: LOBBY → INITIALIZING → ACTIVE → FINISHED/CANCELLED (defined in shared/schema.ts)
+- **State Machine**: `server/services/matches/stateMachine.ts` with assertCanActivate, maybeFinish, and cancelMatch functions
+- **Invariant Enforcement**: Matches can only finish when currentQuestionIndex >= totalQuestions, enforced via maybeFinish()
+- **Client Event-Driven**: Client shows Results screen only on `match_end` WebSocket event, not local status calculation
+- **Match Recovery**: MATCH_RESYNC support with 5-second timeout retrieves current state or match_end event for finished matches
+- **Database Persistence**: Match state (status, endReason, currentQuestionIndex) persisted to survive server restarts
+- **MatchEndResult**: Structured payload with matchId, reason, status, winner, and participants for all match completion paths
+
 ## External Dependencies
 
 ### Database
