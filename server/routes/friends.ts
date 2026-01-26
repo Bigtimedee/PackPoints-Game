@@ -91,8 +91,8 @@ router.post("/api/friends/respond", isAuthenticated, async (req: any, res: Respo
     } else if (action === "DECLINE") {
       result = await friendshipService.declineFriendRequest(friendshipId, req.user.id);
     } else if (action === "BLOCK") {
-      const [friendship] = await Promise.all([friendshipService.getFriendship(req.user.id, friendshipId)]);
-      if (friendship) {
+      const friendship = await friendshipService.getFriendshipById(friendshipId);
+      if (friendship && (friendship.userLow === req.user.id || friendship.userHigh === req.user.id)) {
         const otherId = friendship.userLow === req.user.id ? friendship.userHigh : friendship.userLow;
         result = await friendshipService.blockUser(req.user.id, otherId);
       } else {

@@ -156,8 +156,26 @@ export default function Queue() {
       case "error":
         console.error("Queue error:", payload);
         break;
+      case "FRIEND_MATCH_INVITE":
+        queryClient.invalidateQueries({ queryKey: ["/api/matches/friends/inbox"] });
+        toast({ title: `${payload.fromUsername} wants to play!` });
+        break;
+      case "FRIEND_MATCH_INVITE_CANCELLED":
+        queryClient.invalidateQueries({ queryKey: ["/api/matches/friends/inbox"] });
+        toast({ title: "Match invite was cancelled" });
+        break;
+      case "FRIEND_MATCH_INVITE_EXPIRED":
+        queryClient.invalidateQueries({ queryKey: ["/api/matches/friends/inbox"] });
+        break;
+      case "FRIEND_MATCH_ACCEPTED":
+        if (payload.matchId && payload.membershipSecret) {
+          toast({ title: "Match starting!" });
+          localStorage.setItem("packpoints_match_secret", payload.membershipSecret);
+          navigate(`/match/${payload.matchId}`);
+        }
+        break;
     }
-  }, [navigate]);
+  }, [navigate, toast]);
 
   const { isConnected, connect, send, disconnect } = useWebSocket({ onMessage: handleMessage });
 
@@ -246,7 +264,7 @@ export default function Queue() {
               <Button 
                 className="w-full gap-2" 
                 size="lg" 
-                onClick={() => navigate("/login")}
+                onClick={() => navigate("/auth")}
                 data-testid="button-login-to-play"
               >
                 <LogIn className="h-5 w-5" />

@@ -24,6 +24,16 @@ export async function isAcceptedFriend(userId1: string, userId2: string): Promis
   return result.length > 0;
 }
 
+export async function getFriendshipById(friendshipId: string): Promise<Friendship | null> {
+  const result = await db
+    .select()
+    .from(friendships)
+    .where(eq(friendships.id, friendshipId))
+    .limit(1);
+  
+  return result[0] || null;
+}
+
 export async function getFriendship(userId1: string, userId2: string): Promise<Friendship | null> {
   const { low, high } = pairUserIds(userId1, userId2);
   
@@ -286,6 +296,7 @@ export const friendshipService = {
   pairUserIds,
   isAcceptedFriend,
   getFriendship,
+  getFriendshipById,
   sendFriendRequest,
   acceptFriendRequest,
   declineFriendRequest,
