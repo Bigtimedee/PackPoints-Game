@@ -1,0 +1,215 @@
+CRITICAL BUGFIX: 1vFriend match starts, then immediately ends with no cards shown. Fix the 1vFriends “Start Match” pipeline end-to-end so both clients reliably receive: MATCH_START → GAME_INIT (deck/questions) → first question. Prevent premature FINISHED transitions.
+
+STACK (do not change)
+Frontend: React 18 + Vite + TS + Tailwind + shadcn/ui + TanStack Query + Wouter
+Backend: Express + TypeScript
+Realtime: ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+Card catalog: local DB (card_sets + card_set_cards + cards) (do NOT rely on provider at runtime)
+
+SYMPTOM
+- Lobby shows 2/2 players (Host + Guest)
+- Host clicks “Start Match”
+- Both clients do NOT receive cards/questions
+- Match concludes instantly (likely due to empty deck, missing init payload, wrong state transitions, or client-side navigation/cleanup firing)
+
+ROOT CAUSES (most likely)
+A) Server creates match but does not generate/attach a question deck (0 cards), so game loop ends immediately.
+B) “Start Match” event is only sent to host, not guest.
+C) Guest never ACKs/joins match room; server times out and marks match FINISHED/CANCELLED.
+D) Set selection is null/undefined, so card fetch returns zero rows.
+E) Client expects GAME_INIT payload, but server sends only MATCH_START (no cards), client treats as end.
+F) Match status flips to FINISHED because questionsRemaining==0 at init.
+
+GOAL
+When host starts:
+1) Validate both players connected + in lobby
+2) Select a valid card set
+3) Build a deterministic deck of N questions (e.g., 10)
+4) Persist match state (deck + index) server-side
+5) Broadcast GAME_INIT to BOTH players with first question payload
+6) Game proceeds; match can only finish after N questions answered or a forfeit/timeout.
+
+========================================================
+A) DATABASE: MATCH STATE + QUESTIONS
+
+1) matches (extend)
+- id uuid pk
+- mode enum('1vFriends','1vRandom',...) not null
+- status enum('LOBBY','INITIALIZING','ACTIVE','FINISHED','CANCELLED') not null default 'LOBBY'
+- host_user_id uuid not null
+- guest_user_id uuid not null
+- card_set_id uuid nullable
+- questions_total int not null default 10
+- current_index int not null default 0
+- created_at timestamp default now
+- started_at timestamp nullable
+- finished_at timestamp nullable
+
+2) match_questions
+- id uuid pk
+- match_id uuid not null references matches(id)
+- idx int not null                     // 0..questions_total-1
+- card_id uuid not null references cards(id)
+- correct_player text not null         // store unblurred name server-side (or derived from card)
+- choices jsonb not null               // 4-name menu (server generated)
+- created_at timestamp default now
+Unique(match_id, idx)
+
+3) match_answers (optional)
+- id uuid pk
+- match_id uuid
+- user_id uuid
+- idx int
+- selected text
+- is_correct boolean
+- answered_at timestamp default now
+Unique(match_id, user_id, idx)
+
+========================================================
+B) SERVER: LOBBY + START MATCH HANDSHAKE (WS)
+
+WS events:
+Client -> Server
+- FRIEND_LOBBY_CREATE (host)  -> returns joinCode + lobbyId
+- FRIEND_LOBBY_JOIN (guest)   -> joins lobby
+- FRIEND_LOBBY_START (host)   -> triggers match init
+- MATCH_ACK (both)            -> required before ACTIVE
+- ANSWER_SUBMIT (both)
+
+Server -> Client
+- LOBBY_UPDATE (both)         -> players list, ready status
+- MATCH_FOUND (both)          -> matchId
+- GAME_INIT (both)            -> questions_total, first question payload
+- QUESTION (both)             -> next question payload
+- MATCH_END (both)
+
+IMPORTANT: ensure broadcasts go to BOTH host and guest sockets.
+
+========================================================
+C) SERVER: START MATCH = ATOMIC INIT + NON-EMPTY DECK
+
+Create:
+src/services/matches/friendsStart.ts
+
+Function:
+startFriendsMatch({ matchId, hostUserId })
+
+Steps (must be transaction + validation):
+1) Load match row, verify:
+   - status == 'LOBBY'
+   - host_user_id == hostUserId
+   - guest_user_id exists
+   - both players currently connected OR allow offline but then don’t start
+
+2) Determine card set:
+   - If match.card_set_id null:
+        pick user’s currently selected set OR default active set (must exist)
+   - Validate set has enough cards:
+        SELECT COUNT(*) FROM card_set_cards WHERE set_id=card_set_id
+        Must be >= questions_total (10) else throw a friendly error
+
+3) Generate question deck:
+   - Randomly select N distinct cards from card_set_cards join cards
+   - For each card, generate 4 choices:
+        - correct player name from cards.player (must exist)
+        - 3 decoys drawn from same sport/set/year; ensure unique and not equal to correct
+   - Persist match_questions rows idx 0..N-1
+
+4) Update matches:
+   - status='INITIALIZING'
+   - questions_total=N
+   - current_index=0
+   - started_at=now
+
+5) Broadcast to BOTH players:
+   - MATCH_FOUND { matchId } (if not already)
+   - GAME_INIT payload containing:
+       { matchId, questionsTotal, currentIndex:0, question: buildQuestionPayload(idx=0) }
+
+6) Require ACK:
+   - Wait for both clients to send MATCH_ACK within 10s
+   - Once both ack:
+       update matches.status='ACTIVE'
+       send QUESTION (idx=0) or reuse GAME_INIT’s question and send MATCH_ACTIVE
+   - If one fails:
+       update matches.status='CANCELLED'
+       notify both with MATCH_END reason='no_ack'
+
+CRITICAL: Do NOT mark FINISHED unless idx >= questions_total OR explicit forfeit/timeout.
+
+========================================================
+D) SERVER: QUESTION FLOW (NO INSTANT FINISH)
+
+Create:
+src/services/matches/gameLoop.ts
+
+On ANSWER_SUBMIT:
+- validate match.status == 'ACTIVE'
+- validate idx == match.current_index
+- record answer
+- if both answered (or timer expires), advance:
+    newIndex = current_index + 1
+    if newIndex >= questions_total:
+        set status='FINISHED', finished_at=now
+        send MATCH_END with results
+    else:
+        update matches.current_index=newIndex
+        send QUESTION payload for newIndex to both
+
+If a match has 0 questions in DB, this is a fatal init error:
+- set status='CANCELLED'
+- send MATCH_END reason='deck_empty'
+- log error
+
+========================================================
+E) CLIENT FIXES (LIKELY REQUIRED)
+
+In friends match UI:
+1) Do NOT navigate to “results” until you receive MATCH_END.
+2) When Start Match pressed:
+   - send FRIEND_LOBBY_START
+   - show loading state “Preparing cards…”
+3) When receive GAME_INIT:
+   - store matchId, questionsTotal, currentIndex, question
+   - render first card immediately
+   - send MATCH_ACK back to server
+4) If receive MATCH_END without ever receiving GAME_INIT:
+   - show error banner with reason + “Try again”
+
+Also fix common bug:
+- Ensure both host and guest are subscribed to the same match channel/room on ws.
+- Ensure you don’t clear match state on route change before GAME_INIT arrives.
+
+========================================================
+F) LOGGING (MISSION CRITICAL DEBUG)
+
+Add server logs for:
+- startFriendsMatch called: matchId, host, guest, setId
+- cardsAvailableInSet count
+- questionsInserted count
+- broadcast recipients (socketIds)
+- transitions: LOBBY -> INITIALIZING -> ACTIVE -> FINISHED/CANCELLED
+Return a correlationId to clients for debugging.
+
+========================================================
+G) ACCEPTANCE TESTS
+
+1) With 2 users joined, host clicks Start:
+- both clients receive GAME_INIT within 1–2 seconds
+- first card renders
+- match does not finish until 10 questions completed
+
+2) If selected set has <10 cards:
+- show error “Not enough cards in this set” and remain in lobby
+
+3) If guest disconnects:
+- host cannot start OR match cancels with reason='guest_offline'
+
+DELIVERABLES
+- DB migrations for match_questions (+ match state fields)
+- startFriendsMatch transactional initializer that guarantees non-empty deck
+- ws broadcast to BOTH players + ACK handshake
+- client renders on GAME_INIT and never auto-finishes without MATCH_END
+- logs + tests
