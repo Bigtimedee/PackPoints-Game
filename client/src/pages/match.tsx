@@ -8,6 +8,8 @@ import { Trophy, User, Check, X, Loader2, Home, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
+import { queryClient } from "@/lib/queryClient";
+import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -188,6 +190,7 @@ export default function Match() {
             })),
           };
         });
+        queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
         break;
       case "participant_disconnected":
         toast({ 
