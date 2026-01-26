@@ -1,0 +1,190 @@
+MISSION-CRITICAL BUGFIX: 1vFriends matches are ending immediately (0/10 played) and showing results. Fix match lifecycle/state machine so a match CANNOT transition to FINISHED unless:
+- current_index >= questions_total (10), OR
+- explicit CANCELLED/forfeit/timeout rule triggers.
+Also fix client so it never navigates to Results unless it receives MATCH_END from server with a valid reason.
+
+STACK (do not change)
+Frontend: React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack Query + Wouter
+Backend: Express + TypeScript
+Realtime: ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+SYMPTOM
+Results screen: “You Lose”, both scores 0, and 0/10 correct, indicating the match ended before any question was served.
+
+MOST LIKELY ROOT CAUSE
+- Server sets match.status=FINISHED or emits MATCH_END prematurely during initialization (deck empty, missing ACK, guest not joined, or default index logic).
+- OR client is treating a non-end event (e.g., LOBBY_UPDATE, MATCH_FOUND, NAVIGATE) as match end and routing to results.
+- OR current_index / questions_total is undefined and client calculates “done” and ends locally.
+
+GOAL
+Server-authoritative match lifecycle:
+LOBBY -> INITIALIZING -> ACTIVE -> FINISHED
+Only server can issue MATCH_END (FINISHED/CANCELLED). Client only displays results after MATCH_END.
+
+========================================================
+A) HARD INVARIANTS (ENFORCE IN CODE + DB)
+
+Invariant 1:
+A match cannot be FINISHED unless current_index >= questions_total.
+
+Invariant 2:
+A match cannot be ACTIVE unless it has >= questions_total match_questions rows.
+
+Invariant 3:
+Client must never compute “finished” locally; it must wait for MATCH_END.
+
+========================================================
+B) DB SCHEMA (ENSURE EXISTS)
+
+matches table fields (required):
+- id uuid pk
+- mode text not null
+- status enum('LOBBY','INITIALIZING','ACTIVE','FINISHED','CANCELLED') not null default 'LOBBY'
+- host_user_id uuid not null
+- guest_user_id uuid not null
+- questions_total int not null default 10
+- current_index int not null default 0
+- started_at timestamp nullable
+- finished_at timestamp nullable
+- end_reason text nullable
+
+match_questions table (required):
+- match_id uuid not null
+- idx int not null
+- card_id uuid not null
+- correct_player text not null
+- choices jsonb not null
+Unique(match_id, idx)
+
+match_participants (recommended):
+- match_id uuid
+- user_id uuid
+- acked_at timestamp nullable
+Primary key(match_id, user_id)
+
+========================================================
+C) SERVER: CENTRALIZE ALL END LOGIC (NO EARLY FINISH)
+
+Create:
+src/services/matches/stateMachine.ts
+
+Implement functions:
+1) assertCanActivate(matchId)
+- Ensure match_questions count == questions_total
+- Ensure current_index == 0
+- Ensure status == 'INITIALIZING'
+
+2) maybeFinish(match)
+- if match.current_index >= match.questions_total:
+    set status='FINISHED', finished_at=now, end_reason='completed'
+    broadcast MATCH_END with results
+  else do nothing
+
+3) cancelMatch(matchId, reason)
+- set status='CANCELLED', finished_at=now, end_reason=reason
+- broadcast MATCH_END { reason }
+
+CRITICAL:
+Remove any code path that sets FINISHED during init. Use CANCELLED for failure modes.
+
+========================================================
+D) SERVER: START FLOW MUST NOT END MATCH
+
+On FRIEND_LOBBY_START (host):
+1) Create or load match
+2) status='INITIALIZING'
+3) Generate deck of 10 questions and INSERT match_questions (idx 0..9)
+4) Upsert match_participants for host+guest with acked_at=NULL
+5) Broadcast GAME_INIT to BOTH users:
+   { matchId, questionsTotal:10, currentIndex:0, question: idx0 payload }
+
+Then wait for ACKs:
+- Client sends MATCH_ACK { matchId }
+- Server stores acked_at
+- When BOTH acked:
+   - assertCanActivate(matchId)
+   - set matches.status='ACTIVE', started_at=now
+   - broadcast MATCH_ACTIVE (optional) and QUESTION idx0 (or rely on GAME_INIT question)
+
+If ACK timeout (10s):
+- cancelMatch(matchId, 'no_ack')
+DO NOT FINISH.
+
+========================================================
+E) SERVER: ADVANCING QUESTIONS (ONLY PLACE index increments)
+
+On ANSWER_SUBMIT:
+- Validate status == 'ACTIVE'
+- Validate submitted idx == current_index
+- Record answer
+- When both players answered (or timer expires):
+    newIndex = current_index + 1
+    update matches.current_index = newIndex
+    if newIndex >= questions_total:
+       maybeFinish(match)
+    else:
+       broadcast QUESTION payload for newIndex
+
+Ensure that current_index is NEVER initialized as questions_total accidentally.
+
+========================================================
+F) SERVER: GUARD AGAINST EMPTY DECK
+
+If deck generation yields <10 cards:
+- cancelMatch(matchId, 'deck_empty')
+- return error to host UI: “Not enough cards in selected set”
+Never proceed to ACTIVE, never FINISH.
+
+Add server log:
+- matchId, setId, cardsAvailable, questionsInserted
+
+========================================================
+G) CLIENT: STOP LOCAL AUTO-FINISH AND ROUTING BUGS
+
+In the 1vFriends game client:
+1) Only show Results screen on ws event:
+   { type:'MATCH_END', matchId, reason, results }
+2) Do NOT route to Results based on:
+   - currentIndex >= questionsTotal computed locally
+   - lack of question payload
+   - null match state
+3) On GAME_INIT:
+   - render first question immediately
+   - send MATCH_ACK
+4) If no question arrives within 5s after GAME_INIT:
+   - show “Loading cards…” and request a resync:
+     ws send { type:'MATCH_RESYNC', matchId }
+
+Implement MATCH_RESYNC:
+Server responds with:
+- current match status
+- current_index
+- question payload for current_index (if ACTIVE/INITIALIZING)
+This prevents clients from dropping into results due to missing payload.
+
+========================================================
+H) SAFETY: PREVENT RESULTS FROM SHOWING ON CANCEL
+If MATCH_END reason != 'completed':
+- show an error state (“Match cancelled: <reason>”) and a “Return to Lobby” button
+- Do not show “You Lose” when 0/10.
+
+========================================================
+I) TESTS (REQUIRED)
+
+1) Start match with 2 users:
+- status transitions: LOBBY->INITIALIZING->ACTIVE
+- current_index starts 0
+- NOT FINISHED until 10 questions advanced
+2) Deck empty:
+- status becomes CANCELLED, reason deck_empty, no results screen
+3) No ACK:
+- CANCELLED reason no_ack
+4) Regression: ensure no code path sets FINISHED when current_index=0
+
+DELIVERABLES
+- Server-side state machine with invariants (no premature FINISHED)
+- Proper CANCELLED handling for init failures
+- Client waits only for MATCH_END and supports RESYNC
+- Logging + tests to prevent recurrence
