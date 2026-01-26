@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +38,7 @@ export default function Lobby() {
   const [copied, setCopied] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState("10");
   const { toast } = useToast();
+  const lobbyRef = useRef<LobbyState | null>(null);
   
   // Use authenticated user data instead of localStorage
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -53,6 +54,10 @@ export default function Lobby() {
   });
 
   useEffect(() => {
+    lobbyRef.current = lobby;
+  }, [lobby]);
+
+  useEffect(() => {
     const cleanup1 = on("lobby_update", (updatedLobby: LobbyState) => {
       setLobby(updatedLobby);
     });
@@ -63,6 +68,9 @@ export default function Lobby() {
     });
     
     const cleanup3 = on("match_started", (matchState: any) => {
+      if (lobbyRef.current?.membershipSecret) {
+        localStorage.setItem("packpoints_match_secret", lobbyRef.current.membershipSecret);
+      }
       navigate(`/match/${matchState.matchId}`);
     });
     

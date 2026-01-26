@@ -7,21 +7,14 @@ import { Progress } from "@/components/ui/progress";
 import { Trophy, User, Check, X, Loader2, Home, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAuth } from "@/hooks/use-auth";
 
-function getUserId(): string {
-  return localStorage.getItem("packpoints_user_id") || "";
+function getMatchSecret(): string | null {
+  return localStorage.getItem("packpoints_match_secret");
 }
 
-function getUsername(): string {
-  return localStorage.getItem("packpoints_username") || "Player";
-}
-
-function getAndClearMatchSecret(): string | null {
-  const secret = localStorage.getItem("packpoints_match_secret");
-  if (secret) {
-    localStorage.removeItem("packpoints_match_secret");
-  }
-  return secret;
+function clearMatchSecret(): void {
+  localStorage.removeItem("packpoints_match_secret");
 }
 
 interface Participant {
@@ -72,6 +65,7 @@ export default function Match() {
   const [, navigate] = useLocation();
   const [, params] = useRoute("/match/:matchId");
   const matchId = params?.matchId;
+  const { user, isLoading: authLoading } = useAuth();
   
   const [matchState, setMatchState] = useState<MatchState | null>(null);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
@@ -88,8 +82,10 @@ export default function Match() {
   const submittingRef = useRef(false);
   const lockedInRef = useRef(false);
   const pendingClientMsgIdRef = useRef<string | null>(null);
+  const hasJoinedMatchRef = useRef(false);
   
-  const userId = getUserId();
+  const userId = user?.id || "";
+  const username = user?.username || user?.firstName || "Player";
   
   const handleMessage = useCallback((message: any) => {
     switch (message.type) {
@@ -191,25 +187,30 @@ export default function Match() {
   const { isConnected, connect, send, on } = useWebSocket({ onMessage: handleMessage });
 
   useEffect(() => {
-    if (!matchId) return;
+    if (!matchId || !userId || authLoading) return;
     connect();
-  }, [matchId, connect]);
+  }, [matchId, userId, authLoading, connect]);
 
   useEffect(() => {
-    if (isConnected && matchId) {
-      const matchSecret = getAndClearMatchSecret();
+    if (isConnected && matchId && userId && !hasJoinedMatchRef.current) {
+      const matchSecret = getMatchSecret();
+      console.log("[Match] Attempting join_match:", { matchId, userId, hasSecret: !!matchSecret });
       if (matchSecret) {
+        hasJoinedMatchRef.current = true;
+        clearMatchSecret();
+        console.log("[Match] Sending join_match with membershipSecret");
         send("join_match", { 
           matchId, 
           userId, 
-          username: getUsername(), 
+          username, 
           membershipSecret: matchSecret 
         });
       } else {
+        console.log("[Match] No secret, sending ready_next");
         send("ready_next", { matchId });
       }
     }
-  }, [isConnected, matchId, send, userId]);
+  }, [isConnected, matchId, send, userId, username]);
 
   useEffect(() => {
     if (!isConnected || !matchId || matchEnded) return;

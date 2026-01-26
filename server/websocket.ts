@@ -428,7 +428,10 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
   const { matchId, userId, questionIndex, selectedAnswer, clientMsgId } = payload;
   
   const client = clients.get(ws);
+  log(`[SubmitAnswer] userId=${userId}, client.userId=${client?.userId}, isAuth=${client?.isAuthenticated}, matchId=${matchId}, client.matchId=${client?.matchId}`, "ws");
+  
   if (!client || !client.isAuthenticated || client.userId !== userId) {
+    log(`[SubmitAnswer] REJECTED unauthorized: client=${!!client}, isAuth=${client?.isAuthenticated}, userId mismatch=${client?.userId !== userId}`, "ws");
     ws.send(JSON.stringify({ 
       type: "answer_ack", 
       payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "unauthorized" } 

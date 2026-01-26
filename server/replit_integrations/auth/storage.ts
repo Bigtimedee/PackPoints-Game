@@ -22,9 +22,25 @@ class AuthStorage implements IAuthStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
+    const existingUser = await this.getUser(userData.id as string);
+    
+    let username = existingUser?.username || userData.username;
+    if (!username) {
+      const randomSuffix = Math.random().toString(36).substring(2, 6);
+      if (userData.firstName || userData.lastName) {
+        const baseName = `${userData.firstName || ''}${userData.lastName || ''}`.replace(/\s+/g, '').toLowerCase();
+        username = baseName ? `${baseName}_${randomSuffix}` : `player_${randomSuffix}`;
+      } else if (userData.email) {
+        const emailBase = userData.email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
+        username = `${emailBase}_${randomSuffix}`;
+      } else {
+        username = `player_${randomSuffix}`;
+      }
+    }
+    
     const [user] = await db
       .insert(users)
-      .values(userData)
+      .values({ ...userData, username })
       .onConflictDoUpdate({
         target: users.id,
         set: {
