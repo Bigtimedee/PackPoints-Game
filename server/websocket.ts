@@ -10,9 +10,13 @@ import { MatchStatus, type MatchState } from "@shared/schema";
 import { getSession } from "./replit_integrations/auth/replitAuth";
 import { isMatchParticipantByState, isMatchParticipant } from "./services/auth/isMatchParticipant";
 import passport from "passport";
+import * as matchEngine from "./services/matches/engine";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
 let inviteExpirationInterval: NodeJS.Timeout | null = null;
+
+const DISCONNECT_GRACE_PERIOD = 60000; // 60 seconds before cancelling match on disconnect
+const disconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // key: matchId-userId
 
 function startInviteExpirationJob() {
   if (inviteExpirationInterval) return;
@@ -725,6 +729,9 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
   }
   matchConnections.get(matchId)?.add(ws);
   
+  cancelDisconnectTimer(matchId, userId);
+  await matchEngine.markConnected(matchId, userId);
+  
   const clientMatchState = sanitizeMatchStateForClient(matchState);
   
   log(`[JoinMatch] Sending match_started to ${username}, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
@@ -890,20 +897,63 @@ async function handleDisconnectFromMatch(ws: WebSocket, client: ClientConnection
   const matchClients = matchConnections.get(matchId);
   matchClients?.delete(ws);
   
-  const { matchEnd } = await matchService.forfeitMatch(matchId, userId);
+  await matchEngine.markDisconnected(matchId, userId);
   
-  if (matchEnd) {
-    broadcastToMatch(matchId, {
-      type: "match_end",
-      payload: matchEnd,
-    });
-    matchConnections.delete(matchId);
-    log(`Player ${username} forfeited match ${matchId} by disconnecting`, "ws");
-  } else {
-    broadcastToMatch(matchId, {
-      type: "participant_disconnected",
-      payload: { userId, username },
-    });
-    log(`Player ${username} disconnected from match ${matchId}`, "ws");
+  broadcastToMatch(matchId, {
+    type: "participant_disconnected",
+    payload: { userId, username },
+  });
+  log(`Player ${username} disconnected from match ${matchId}, starting ${DISCONNECT_GRACE_PERIOD / 1000}s grace period`, "ws");
+  
+  const timerKey = `${matchId}-${userId}`;
+  
+  if (disconnectTimers.has(timerKey)) {
+    clearTimeout(disconnectTimers.get(timerKey)!);
+  }
+  
+  const timer = setTimeout(async () => {
+    disconnectTimers.delete(timerKey);
+    
+    const match = await matchEngine.getMatchFromDb(matchId);
+    if (!match) {
+      log(`[DisconnectTimer] Match ${matchId} not found, skipping cancel`, "ws");
+      return;
+    }
+    
+    if (match.status !== MatchStatus.ACTIVE) {
+      log(`[DisconnectTimer] Match ${matchId} is ${match.status}, not ACTIVE. Skipping cancel.`, "ws");
+      return;
+    }
+    
+    const participants = await matchEngine.getParticipants(matchId);
+    const participant = participants.find(p => p.userId === userId);
+    
+    if (participant?.isConnected) {
+      log(`[DisconnectTimer] Player ${username} reconnected to match ${matchId}, skipping cancel`, "ws");
+      return;
+    }
+    
+    const matchEnd = await matchEngine.cancelMatchForDisconnect(matchId, userId);
+    
+    if (matchEnd) {
+      broadcastToMatch(matchId, {
+        type: "match_end",
+        payload: matchEnd,
+      });
+      matchConnections.delete(matchId);
+      log(`Player ${username} timed out from match ${matchId} after ${DISCONNECT_GRACE_PERIOD / 1000}s, match cancelled`, "ws");
+    }
+  }, DISCONNECT_GRACE_PERIOD);
+  
+  disconnectTimers.set(timerKey, timer);
+}
+
+function cancelDisconnectTimer(matchId: string, userId: string) {
+  const timerKey = `${matchId}-${userId}`;
+  const timer = disconnectTimers.get(timerKey);
+  if (timer) {
+    clearTimeout(timer);
+    disconnectTimers.delete(timerKey);
+    log(`[DisconnectTimer] Cancelled grace timer for ${userId} in match ${matchId}`, "ws");
   }
 }
