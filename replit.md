@@ -71,12 +71,16 @@ A real-time random matchmaking system for PvP gameplay using DB-backed atomic pa
 ### Match Lifecycle State Machine
 Enforces invariants to prevent matches from ending prematurely (e.g., 0/10 questions after server restart):
 - **MatchStatus Enum**: LOBBY → INITIALIZING → ACTIVE → FINISHED/CANCELLED (defined in shared/schema.ts)
-- **State Machine**: `server/services/matches/stateMachine.ts` with assertCanActivate, maybeFinish, and cancelMatch functions
-- **Invariant Enforcement**: Matches can only finish when currentQuestionIndex >= totalQuestions, enforced via maybeFinish()
+- **Centralized Match Engine**: `server/services/matches/engine.ts` provides all match state management with DB-backed state
+- **Invariant Enforcement**: Matches can only finish when currentQuestionIndex >= totalQuestions, enforced via maybeAdvance()
+- **Race Condition Prevention**: Compare-and-swap pattern in maybeAdvance() prevents concurrent double-increments using conditional UPDATE with expected index
+- **Audit Logging**: match_events table logs all transitions (INIT, ACK, SUBMIT, ADVANCE, END, RESYNC, ERROR) for debugging
 - **Client Event-Driven**: Client shows Results screen only on `match_end` WebSocket event, not local status calculation
-- **Match Recovery**: MATCH_RESYNC support with 5-second timeout retrieves current state or match_end event for finished matches
-- **Database Persistence**: Match state (status, endReason, currentQuestionIndex) persisted to survive server restarts
+- **Match Recovery**: MATCH_RESYNC support retrieves current state or match_end event for finished matches
+- **Disconnect Grace Period**: 60-second timer re-checks DB status before canceling, only cancels if match still ACTIVE
+- **Admin Debug Endpoint**: GET /api/debug/matches/:matchId/events returns last 200 audit events
 - **MatchEndResult**: Structured payload with matchId, reason, status, winner, and participants for all match completion paths
+- **Idempotent Answer Handling**: Duplicate answer submissions are handled gracefully via unique constraint on match_answers
 
 ## External Dependencies
 
