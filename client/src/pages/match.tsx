@@ -134,8 +134,9 @@ export default function Match() {
               match_not_found: "Match not found",
               match_not_active: "Match is no longer active",
               stale_index: "Question has changed, please try again",
-              not_participant: "You are not in this match",
-              unauthorized: "Not authorized",
+              not_participant: "You are not a participant in this match",
+              unauthorized: "Session expired. Please refresh the page.",
+              missing_session: "Session expired. Please refresh and try again.",
               not_in_match: "You are not in this match",
             };
             setSubmitError(errorMessages[message.payload.reason] || message.payload.reason || "Failed to submit");

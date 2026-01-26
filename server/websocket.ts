@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { Server as HttpServer } from "http";
+import { Server as HttpServer, IncomingMessage } from "http";
 import { matchService } from "./services/matchService";
 import { dbMatchmakingQueue } from "./services/matchmaking/dbQueue";
 import { presenceService } from "./services/presenceService";
@@ -7,6 +7,9 @@ import { streakService } from "./services/streakService";
 import { friendMatchInviteService } from "./services/friends/friendMatchInviteService";
 import { log } from "./index";
 import { MatchStatus, type MatchState } from "@shared/schema";
+import { getSession } from "./replit_integrations/auth/replitAuth";
+import { isMatchParticipantByState, isMatchParticipant } from "./services/auth/isMatchParticipant";
+import passport from "passport";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
 let inviteExpirationInterval: NodeJS.Timeout | null = null;
@@ -41,6 +44,12 @@ interface ClientConnection {
   lastHeartbeat?: number;
   heartbeatTimeout?: NodeJS.Timeout;
   socketId?: string;
+  sessionUserId?: string;
+}
+
+interface ExtendedWebSocket extends WebSocket {
+  sessionUserId?: string;
+  sessionUsername?: string;
 }
 
 const clients = new Map<WebSocket, ClientConnection>();
@@ -69,8 +78,64 @@ function startHeartbeatChecker(wss: WebSocketServer) {
   }, HEARTBEAT_INTERVAL);
 }
 
+function parseSessionFromUpgrade(req: IncomingMessage): Promise<{ userId?: string; username?: string }> {
+  return new Promise((resolve) => {
+    const sessionMiddleware = getSession();
+    const mockRes = { 
+      on: () => {}, 
+      end: () => {},
+      setHeader: () => {},
+      getHeader: () => undefined,
+    } as any;
+    
+    sessionMiddleware(req as any, mockRes, () => {
+      passport.initialize()(req as any, mockRes, () => {
+        passport.session()(req as any, mockRes, () => {
+          const user = (req as any).user;
+          const session = (req as any).session;
+          
+          if (user?.claims?.sub) {
+            resolve({ userId: user.claims.sub, username: user.claims.name || user.claims.preferred_username });
+          } else if (session?.localUserId) {
+            resolve({ userId: session.localUserId, username: session.localUsername });
+          } else {
+            resolve({});
+          }
+        });
+      });
+    });
+  });
+}
+
 export function setupWebSocket(httpServer: HttpServer) {
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wss = new WebSocketServer({ noServer: true, path: "/ws" });
+  
+  httpServer.on("upgrade", async (req, socket, head) => {
+    if (req.url !== "/ws" && !req.url?.startsWith("/ws?")) {
+      return;
+    }
+    
+    try {
+      const sessionData = await parseSessionFromUpgrade(req);
+      
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        const extWs = ws as ExtendedWebSocket;
+        extWs.sessionUserId = sessionData.userId;
+        extWs.sessionUsername = sessionData.username;
+        
+        if (sessionData.userId) {
+          log(`[WS Upgrade] Session authenticated: userId=${sessionData.userId}, username=${sessionData.username}`, "ws");
+        } else {
+          log(`[WS Upgrade] No session found, will rely on message-based auth`, "ws");
+        }
+        
+        wss.emit("connection", extWs, req);
+      });
+    } catch (err) {
+      console.error("[WS Upgrade] Error parsing session:", err);
+      socket.destroy();
+    }
+  });
 
   // Start periodic heartbeat checker
   startHeartbeatChecker(wss);
@@ -78,7 +143,7 @@ export function setupWebSocket(httpServer: HttpServer) {
   // Start friend match invite expiration job
   startInviteExpirationJob();
 
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws: ExtendedWebSocket) => {
     log("WebSocket client connected", "ws");
 
     ws.on("message", async (data) => {
@@ -425,21 +490,27 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
 }
 
 async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; userId: string; questionIndex: number; selectedAnswer: string; clientMsgId?: string }) {
-  const { matchId, userId, questionIndex, selectedAnswer, clientMsgId } = payload;
+  const { matchId, questionIndex, selectedAnswer, clientMsgId } = payload;
+  const extWs = ws as ExtendedWebSocket;
   
   const client = clients.get(ws);
-  log(`[SubmitAnswer] userId=${userId}, client.userId=${client?.userId}, isAuth=${client?.isAuthenticated}, matchId=${matchId}, client.matchId=${client?.matchId}`, "ws");
   
-  if (!client || !client.isAuthenticated || client.userId !== userId) {
-    log(`[SubmitAnswer] REJECTED unauthorized: client=${!!client}, isAuth=${client?.isAuthenticated}, userId mismatch=${client?.userId !== userId}`, "ws");
+  const serverUserId = client?.userId || extWs.sessionUserId;
+  const isAuthenticated = client?.isAuthenticated || !!extWs.sessionUserId;
+  
+  log(`[SubmitAnswer] payload.userId=${payload.userId}, client.userId=${client?.userId}, sessionUserId=${extWs.sessionUserId}, isAuth=${isAuthenticated}, matchId=${matchId}, client.matchId=${client?.matchId}`, "ws");
+  
+  if (!serverUserId || !isAuthenticated) {
+    log(`[SubmitAnswer] REJECTED missing_session: serverUserId=${serverUserId}, isAuthenticated=${isAuthenticated}`, "ws");
     ws.send(JSON.stringify({ 
       type: "answer_ack", 
-      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "unauthorized" } 
+      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "missing_session" } 
     }));
     return;
   }
   
-  if (client.matchId !== matchId) {
+  if (client?.matchId && client.matchId !== matchId) {
+    log(`[SubmitAnswer] REJECTED not_in_match: client.matchId=${client.matchId}, requested matchId=${matchId}`, "ws");
     ws.send(JSON.stringify({ 
       type: "answer_ack", 
       payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "not_in_match" } 
@@ -447,7 +518,26 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     return;
   }
   
-  const result = await matchService.submitAnswer(matchId, userId, questionIndex, selectedAnswer, clientMsgId);
+  const matchState = await matchService.getMatchStateWithFallback(matchId);
+  if (!matchState) {
+    log(`[SubmitAnswer] REJECTED match_not_found: matchId=${matchId}`, "ws");
+    ws.send(JSON.stringify({ 
+      type: "answer_ack", 
+      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "match_not_found" } 
+    }));
+    return;
+  }
+  
+  if (!isMatchParticipantByState(matchState, serverUserId)) {
+    log(`[SubmitAnswer] REJECTED not_participant: serverUserId=${serverUserId}, participants=${matchState.participants.map(p => p.userId).join(",")}`, "ws");
+    ws.send(JSON.stringify({ 
+      type: "answer_ack", 
+      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "not_participant" } 
+    }));
+    return;
+  }
+  
+  const result = await matchService.submitAnswer(matchId, serverUserId, questionIndex, selectedAnswer, clientMsgId);
   
   ws.send(JSON.stringify({
     type: "answer_ack",
@@ -477,7 +567,7 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     broadcastToMatch(matchId, {
       type: "participant_answered",
       payload: {
-        userId,
+        userId: serverUserId,
         questionIndex,
         participants: result.matchState.participants.map(p => ({
           userId: p.userId,
@@ -574,10 +664,23 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
   log(`[MatchResync] Sent resync for match ${matchId}, status=${matchState.status}, questionIndex=${matchState.currentQuestionIndex}`, "ws");
 }
 
-async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret: string }) {
-  const { matchId, userId, username, membershipSecret } = payload;
+async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret?: string }) {
+  const { matchId, membershipSecret } = payload;
+  const extWs = ws as ExtendedWebSocket;
   
-  log(`[JoinMatch] User ${username} (${userId}) attempting to join match ${matchId}`, "ws");
+  const sessionUserId = extWs.sessionUserId;
+  const sessionUsername = extWs.sessionUsername;
+  
+  const userId = payload.userId || sessionUserId;
+  const username = payload.username || sessionUsername || "Unknown";
+  
+  log(`[JoinMatch] User ${username} (${userId}) attempting to join match ${matchId}, sessionUserId=${sessionUserId}`, "ws");
+  
+  if (!userId) {
+    log(`[JoinMatch] REJECTED: No userId available (payload or session)`, "ws");
+    ws.send(JSON.stringify({ type: "error", message: "Not authenticated" }));
+    return;
+  }
   
   const existingClient = clients.get(ws);
   if (existingClient && existingClient.userId && existingClient.userId !== userId) {
@@ -600,18 +703,22 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
     return;
   }
   
-  if (!matchService.verifyMembershipSecret(lobby, userId, membershipSecret)) {
+  const hasValidSecret = membershipSecret && matchService.verifyMembershipSecret(lobby, userId, membershipSecret);
+  const hasSessionAuth = sessionUserId === userId && isMatchParticipant(lobby, userId);
+  
+  if (!hasValidSecret && !hasSessionAuth) {
+    log(`[JoinMatch] REJECTED: No valid auth - hasValidSecret=${hasValidSecret}, hasSessionAuth=${hasSessionAuth}, sessionUserId=${sessionUserId}, userId=${userId}, lobbyHostId=${lobby.hostId}, lobbyGuestId=${lobby.guestId}`, "ws");
     ws.send(JSON.stringify({ type: "error", message: "Invalid membership credentials" }));
     return;
   }
   
-  const isParticipant = matchState.participants.some(p => p.userId === userId);
-  if (!isParticipant) {
+  if (!isMatchParticipantByState(matchState, userId)) {
+    log(`[JoinMatch] REJECTED: not_participant - userId=${userId}, participants=${matchState.participants.map(p => p.userId).join(",")}`, "ws");
     ws.send(JSON.stringify({ type: "error", message: "You are not a participant in this match" }));
     return;
   }
   
-  clients.set(ws, { userId, username, matchId, membershipSecret, isAuthenticated: true });
+  clients.set(ws, { userId, username, matchId, membershipSecret, isAuthenticated: true, sessionUserId });
   
   if (!matchConnections.has(matchId)) {
     matchConnections.set(matchId, new Set());
