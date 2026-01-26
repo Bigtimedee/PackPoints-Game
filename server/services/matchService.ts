@@ -112,8 +112,11 @@ class MatchService {
   }
 
   async forfeitMatch(matchId: string, forfeitingUserId: string): Promise<MatchState | null> {
-    const matchState = this.matchStates.get(matchId);
-    if (!matchState) return null;
+    const matchState = await this.getMatchStateWithFallback(matchId);
+    if (!matchState) {
+      console.error(`[MatchService] forfeitMatch: match ${matchId} not found`);
+      return null;
+    }
     if (matchState.status !== "active") return null;
     
     const winner = matchState.participants.find(p => p.userId !== forfeitingUserId);
@@ -282,14 +285,101 @@ class MatchService {
     return this.matchStates.get(matchId);
   }
 
+  async getMatchStateWithFallback(matchId: string): Promise<MatchState | undefined> {
+    const memoryState = this.matchStates.get(matchId);
+    if (memoryState) {
+      return memoryState;
+    }
+
+    console.log(`[MatchService] Match ${matchId} not in memory, attempting database reconstruction`);
+    
+    const reconstructed = await this.reconstructMatchStateFromDb(matchId);
+    if (reconstructed) {
+      this.matchStates.set(matchId, reconstructed);
+      this.playerAnswers.set(matchId, new Map());
+      console.log(`[MatchService] Match ${matchId} reconstructed from database with ${reconstructed.questions.length} questions`);
+    }
+    
+    return reconstructed;
+  }
+
+  private async reconstructMatchStateFromDb(matchId: string): Promise<MatchState | undefined> {
+    try {
+      const [match] = await db
+        .select()
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1);
+
+      if (!match) {
+        console.error(`[MatchService] Match ${matchId} not found in database`);
+        return undefined;
+      }
+
+      const participants = await db
+        .select()
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, matchId));
+
+      if (participants.length === 0) {
+        console.error(`[MatchService] No participants found for match ${matchId}`);
+        return undefined;
+      }
+
+      let questions: GameQuestion[] = [];
+      try {
+        if (match.questionsData) {
+          questions = JSON.parse(match.questionsData);
+        }
+      } catch (e) {
+        console.error(`[MatchService] Failed to parse questionsData for match ${matchId}:`, e);
+        return undefined;
+      }
+
+      if (!questions || questions.length === 0) {
+        console.error(`[MatchService] Match ${matchId} has no questions in database`);
+        return undefined;
+      }
+
+      const matchCurrentIndex = match.currentQuestionIndex || 0;
+      
+      const matchState: MatchState = {
+        matchId: match.id,
+        lobbyId: match.lobbyId || "",
+        status: match.status as "active" | "completed",
+        currentQuestionIndex: matchCurrentIndex,
+        totalQuestions: match.totalQuestions,
+        questions,
+        participants: participants.map(p => ({
+          userId: p.userId,
+          username: p.username,
+          score: p.score || 0,
+          correctAnswers: p.correctAnswers || 0,
+          currentQuestionIndex: p.currentQuestionIndex || 0,
+          hasAnsweredCurrent: (p.currentQuestionIndex || 0) >= matchCurrentIndex,
+        })),
+      };
+      
+      console.log(`[MatchService] Reconstructed match ${matchId}: matchIndex=${matchCurrentIndex}, participants=[${participants.map(p => `${p.username}:idx=${p.currentQuestionIndex}`).join(', ')}]`);
+
+      return matchState;
+    } catch (error) {
+      console.error(`[MatchService] Error reconstructing match ${matchId}:`, error);
+      return undefined;
+    }
+  }
+
   async submitAnswer(matchId: string, userId: string, questionIndex: number, selectedAnswer: string): Promise<{
     correct: boolean;
     pointsEarned: number;
     matchState: MatchState;
     bothAnswered: boolean;
   } | null> {
-    const matchState = this.matchStates.get(matchId);
-    if (!matchState) return null;
+    const matchState = await this.getMatchStateWithFallback(matchId);
+    if (!matchState) {
+      console.error(`[MatchService] submitAnswer: match ${matchId} not found`);
+      return null;
+    }
     if (matchState.status !== "active") return null;
     
     const participant = matchState.participants.find(p => p.userId === userId);
@@ -327,8 +417,11 @@ class MatchService {
   }
 
   async advanceQuestion(matchId: string): Promise<MatchState | null> {
-    const matchState = this.matchStates.get(matchId);
-    if (!matchState) return null;
+    const matchState = await this.getMatchStateWithFallback(matchId);
+    if (!matchState) {
+      console.error(`[MatchService] advanceQuestion: match ${matchId} not found`);
+      return null;
+    }
     
     const nextIndex = matchState.currentQuestionIndex + 1;
     

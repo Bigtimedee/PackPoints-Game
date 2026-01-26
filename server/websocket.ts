@@ -498,7 +498,7 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
 
 async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
   const { matchId } = payload;
-  const matchState = matchService.getMatchState(matchId);
+  const matchState = await matchService.getMatchStateWithFallback(matchId);
   
   if (matchState) {
     const clientMatchState = sanitizeMatchStateForClient(matchState);
@@ -512,17 +512,22 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
 async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret: string }) {
   const { matchId, userId, username, membershipSecret } = payload;
   
+  log(`[JoinMatch] User ${username} (${userId}) attempting to join match ${matchId}`, "ws");
+  
   const existingClient = clients.get(ws);
   if (existingClient && existingClient.userId && existingClient.userId !== userId) {
     ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
     return;
   }
   
-  const matchState = matchService.getMatchState(matchId);
+  const matchState = await matchService.getMatchStateWithFallback(matchId);
   if (!matchState) {
-    ws.send(JSON.stringify({ type: "error", message: "Match not found" }));
+    log(`[JoinMatch] Match ${matchId} not found in memory or database`, "ws");
+    ws.send(JSON.stringify({ type: "error", message: "Match not found or has expired" }));
     return;
   }
+  
+  log(`[JoinMatch] Match ${matchId} found with ${matchState.questions.length} questions, status=${matchState.status}`, "ws");
   
   const lobby = await matchService.getLobby(matchState.lobbyId);
   if (!lobby) {
@@ -549,6 +554,9 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
   matchConnections.get(matchId)?.add(ws);
   
   const clientMatchState = sanitizeMatchStateForClient(matchState);
+  
+  log(`[JoinMatch] Sending match_started to ${username}, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
+  
   ws.send(JSON.stringify({
     type: "match_started",
     payload: clientMatchState,
