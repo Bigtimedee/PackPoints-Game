@@ -157,6 +157,10 @@ export async function buildMatchState(matchId: string): Promise<MatchState | und
     };
   });
 
+  const winnerParticipant = match.winnerUserId 
+    ? participantStates.find(p => p.userId === match.winnerUserId) 
+    : undefined;
+
   return {
     matchId: match.id,
     lobbyId: match.lobbyId,
@@ -165,7 +169,12 @@ export async function buildMatchState(matchId: string): Promise<MatchState | und
     totalQuestions: match.totalQuestions,
     questions,
     participants: participantStates,
+    winner: winnerParticipant?.username,
     endReason: match.endReason || undefined,
+    result: match.result as MatchResultType | undefined,
+    winnerUserId: match.winnerUserId || undefined,
+    hostCorrect: match.hostCorrect,
+    guestCorrect: match.guestCorrect,
   };
 }
 

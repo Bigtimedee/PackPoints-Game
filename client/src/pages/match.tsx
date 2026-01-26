@@ -385,8 +385,8 @@ export default function Match() {
   if (matchEnded && matchEnded.status === "FINISHED") {
     const meResult = matchEnded.participants.find((p) => p.userId === userId);
     const opponentResult = matchEnded.participants.find((p) => p.userId !== userId);
-    const iWon = matchEnded.winner === meResult?.username;
-    const isDraw = !matchEnded.winner;
+    const iWon = matchEnded.winnerUserId === userId;
+    const isDraw = matchEnded.result === "TIE" || (!matchEnded.winnerUserId && !matchEnded.winner);
     
     return (
       <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
