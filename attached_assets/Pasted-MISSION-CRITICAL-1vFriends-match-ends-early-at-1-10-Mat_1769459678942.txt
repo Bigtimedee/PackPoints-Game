@@ -1,0 +1,295 @@
+MISSION-CRITICAL: 1vFriends match ends early at 1/10 (“Match has ended”). Previous fixes failed. Implement a comprehensive, server-authoritative match engine with durable DB state, explicit end reasons, idempotent answer handling, resync, and strict invariants that make “end at 1/10” impossible unless an explicit cancel/forfeit/timeout occurs.
+
+ABSOLUTE INSTRUCTION
+After implementing, DO NOT test. The user will manually test.
+
+STACK (do not change)
+Frontend: React 18 + Vite + TS + Tailwind + shadcn/ui + TanStack Query + Wouter
+Backend: Express + TS
+Realtime: ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+PROBLEM SUMMARY
+A match is being marked ended (FINISHED/CANCELLED) while UI still shows 1/10. This can only happen if:
+- The server is transitioning status incorrectly (buggy state machine), OR
+- There are multiple match records and the client is viewing a stale/incorrect matchId, OR
+- A background timer cancels matches (ack/queue/disconnect) even after gameplay begins, OR
+- The server process restart loses in-memory state and cancels, OR
+- The advance logic increments index incorrectly and triggers finish, OR
+- The client treats any error/resync as “ended” due to missing structured reasons.
+
+SOLUTION: Rebuild the critical path with “DB as source of truth” and enforce invariants at every transition. No more silent status flips.
+
+================================================================================
+1) DATABASE: CANONICAL MATCH MODEL + DURABLE STATE
+
+Create/ensure these tables (Drizzle migrations):
+
+A) matches
+- id uuid pk
+- mode enum('1vFriends','1vRandom') not null
+- status enum('LOBBY','INITIALIZING','ACTIVE','FINISHED','CANCELLED') not null default 'LOBBY'
+- host_user_id uuid not null
+- guest_user_id uuid not null
+- card_set_id uuid not null
+- questions_total int not null default 10
+- current_index int not null default 0               -- 0..questions_total
+- created_at timestamp default now
+- started_at timestamp nullable
+- finished_at timestamp nullable
+- end_reason text nullable                            -- 'completed'|'no_ack'|'disconnect_timeout'|'forfeit'|'deck_empty'|'admin_cancel'|'server_error'
+- end_detail jsonb nullable
+
+Indexes:
+- (status)
+- (host_user_id)
+- (guest_user_id)
+
+B) match_participants
+- match_id uuid not null
+- user_id uuid not null
+- role enum('HOST','GUEST') not null
+- connected boolean not null default false
+- last_seen_at timestamp not null default now
+- acked_at timestamp nullable
+Primary key (match_id, user_id)
+
+C) match_questions (DECK)
+- match_id uuid not null
+- idx int not null                                   -- 0..9
+- card_id uuid not null
+- correct text not null
+- choices jsonb not null                              -- ["A","B","C","D"]
+Primary key (match_id, idx)
+
+D) match_answers
+- match_id uuid not null
+- user_id uuid not null
+- idx int not null
+- selected text not null
+- is_correct boolean not null
+- client_msg_id text not null
+- created_at timestamp default now
+Primary key (match_id, user_id, idx)
+Unique (match_id, user_id, client_msg_id)
+
+E) match_events (AUDIT LOG - REQUIRED)
+- id uuid pk
+- match_id uuid not null
+- ts timestamp default now
+- actor_user_id uuid nullable
+- type text not null                                  -- 'CREATE','INIT','ACK','SUBMIT','ADVANCE','END','RESYNC','ERROR'
+- payload jsonb not null
+Index (match_id, ts)
+
+WHY match_events: so we can see EXACTLY why it ended at 1/10 and never guess again.
+
+================================================================================
+2) SERVER: SINGLE STATE MACHINE MODULE (NO DUPLICATE LOGIC)
+
+Create:
+src/services/matches/engine.ts
+
+All match mutations MUST go through this module.
+
+Expose functions:
+- createFriendsMatch(hostId, guestId, cardSetId) -> matchId
+- initMatch(matchId) -> broadcasts GAME_INIT
+- ack(matchId, userId) -> transitions INITIALIZING->ACTIVE when both ack
+- submitAnswer(matchId, userId, idx, selected, clientMsgId) -> ANSWER_ACK and maybe advance
+- resync(matchId, userId) -> MATCH_STATE
+- markDisconnected(matchId, userId)
+- forfeit(matchId, userId)
+
+================================================================================
+3) INVARIANTS (ENFORCE IN CODE EVERY TIME)
+
+Implement assertInvariants(match) called before/after every state change:
+
+Invariant A (deck):
+If status in ('INITIALIZING','ACTIVE','FINISHED'):
+  count(match_questions) MUST equal questions_total
+Else: deck may be 0
+
+Invariant B (index):
+0 <= current_index <= questions_total always
+
+Invariant C (finish condition):
+status == 'FINISHED' ONLY if:
+  current_index >= questions_total AND end_reason == 'completed'
+
+Invariant D (cancel condition):
+status == 'CANCELLED' ONLY if end_reason in allowed cancel reasons
+
+Invariant E (no mid-game ack cancel):
+If started_at is not null OR status == 'ACTIVE', you may NOT cancel due to ack/no_ack.
+
+If any invariant fails:
+- write match_events type='ERROR' with payload
+- set match status CANCELLED end_reason='server_error'
+- broadcast MATCH_END with reason server_error (never silently “ended”)
+
+================================================================================
+4) INITIALIZATION FLOW (ATOMIC, TRANSACTIONAL)
+
+initMatch(matchId):
+- Begin transaction
+- Load match, ensure status LOBBY
+- Validate card_set has >= questions_total cards
+- Build deterministic deck of 10 questions
+- Insert match_questions idx 0..9
+- Upsert match_participants for host+guest, acked_at = null
+- Update matches:
+    status='INITIALIZING'
+    current_index=0
+    started_at=null
+    finished_at=null
+    end_reason=null
+- Insert match_events INIT with counts and card_set_id
+- Commit transaction
+
+Broadcast to both via WS:
+- GAME_INIT { matchId, questionsTotal:10, currentIndex:0, question: idx0 payload, serverStatus:'INITIALIZING' }
+
+Start ACK window timer (10s) BUT it only applies while status=='INITIALIZING' AND started_at is null.
+If timer fires:
+- cancel with end_reason='no_ack' ONLY if still INITIALIZING.
+
+================================================================================
+5) ACK + START (DO NOT START TWICE)
+
+ack(matchId,userId):
+- transaction:
+  - mark participant acked_at=now
+  - if both acked AND match.status == 'INITIALIZING':
+      set matches.status='ACTIVE', started_at=now
+      event: ACK (both) + START
+- broadcast MATCH_ACTIVE + QUESTION idx0 (or rely on GAME_INIT payload)
+
+IMPORTANT: If match already ACTIVE, treat ACK as idempotent.
+
+================================================================================
+6) SUBMIT ANSWER (IDEMPOTENT + CORRECT REASONS)
+
+submitAnswer(matchId,userId,idx,selected,clientMsgId):
+- transaction:
+  - load match FOR UPDATE
+  - authorize participant (host/guest)
+  - if match.status == 'CANCELLED' -> reject reason 'match_cancelled' + include end_reason
+  - if match.status == 'FINISHED'  -> reject reason 'match_finished'
+  - if match.status == 'INITIALIZING':
+       allow ONLY if idx == match.current_index (0) AND deck exists; else reject 'match_initializing'
+  - if match.status == 'ACTIVE':
+       if idx != match.current_index -> reject 'stale_index' with serverIndex
+  - upsert answer:
+       if existing (match_id,user_id,idx) -> return ACCEPTED idempotently
+       else insert match_answers (enforce PK)
+  - write match_events SUBMIT
+- send ANSWER_ACK { ACCEPTED } to submitter
+
+Advance rule (after accepting):
+- If answers count for (match_id, idx) == 2 (both players), then:
+   newIndex = idx + 1
+   update matches.current_index = newIndex
+   write match_events ADVANCE {from:idx,to:newIndex}
+   if newIndex >= questions_total:
+       set matches.status='FINISHED', finished_at=now, end_reason='completed'
+       event END {completed}
+       broadcast MATCH_END {completed, scores}
+   else:
+       load question newIndex
+       broadcast QUESTION {idx:newIndex, question}
+
+CRITICAL: There is NO path that sets FINISHED when newIndex < questions_total.
+
+================================================================================
+7) DISCONNECTS (STOP PREMATURE ENDING)
+
+Implement WS presence:
+
+On WS connect:
+- mark match_participants.connected=true, last_seen_at=now
+
+On WS heartbeat (every 10s):
+- update last_seen_at
+
+On WS close:
+- mark connected=false and last_seen_at=now
+
+Cancellation for disconnect:
+- ONLY if match.status == 'ACTIVE'
+- start a 60s grace timer per participant
+- if participant still disconnected after 60s AND match still ACTIVE:
+   cancel match with end_reason='disconnect_timeout'
+- broadcast MATCH_END with end_reason='disconnect_timeout'
+- DO NOT cancel immediately, and NEVER label it as FINISHED.
+
+================================================================================
+8) RESYNC (CLIENT MUST NEVER GUESS)
+
+WS: MATCH_RESYNC {matchId}
+Server response to that client:
+MATCH_STATE {
+  matchId,
+  status,
+  currentIndex,
+  questionsTotal,
+  endReason,
+  question: (if status in INITIALIZING/ACTIVE and currentIndex < questionsTotal) current question payload
+}
+
+Client behavior:
+- If receives stale_index / match_initializing, automatically call RESYNC once
+- Only show “Match ended” when:
+    status in (FINISHED,CANCELLED) and you have end_reason
+
+IMPORTANT: Replace generic UI copy:
+- CANCELLED -> “Match cancelled: <end_reason>”
+- FINISHED -> “Match complete”
+
+================================================================================
+9) FRONTEND: NEVER SHOW “MATCH ENDED” ON ANY ERROR
+
+Map errors:
+- stale_index -> “Out of sync. Resyncing…”
+- match_initializing -> “Match is starting…”
+- match_cancelled -> show cancelled with end_reason
+- match_finished -> show complete
+- network/ws down -> show “Connection lost. Tap Resync.”
+
+Only transition to results screen on MATCH_END event or MATCH_STATE status FINISHED/CANCELLED.
+
+================================================================================
+10) STOP USING IN-MEMORY MATCH OBJECTS (IF ANY)
+
+Search for:
+- Map<matchId, ...> in server runtime holding match state or questions
+- any timers that call endMatch without checking DB status
+
+Replace with DB reads + match_events logs. Timers must re-check DB state before canceling.
+
+================================================================================
+11) DEBUGGING OUTPUT (REQUIRED TEMP)
+
+When a match ends early, we need proof.
+Add endpoint (admin/dev only):
+GET /api/debug/matches/:matchId/events
+Returns last 200 match_events ordered by ts asc.
+
+Lock this behind admin role or a REPLIT_DEV_SECRET header.
+
+================================================================================
+DELIVERABLES (WHAT YOU MUST BUILD)
+- Drizzle migrations for match_participants, match_questions, match_answers, match_events, and matches fields
+- src/services/matches/engine.ts implementing state machine + invariants + events
+- WS handlers that call engine functions (INIT/ACK/SUBMIT/RESYNC)
+- Disconnect grace cancel (60s) that cancels only if still ACTIVE
+- Client error mapping + resync usage + only show ended when server says FINISHED/CANCELLED
+- Debug endpoint to inspect match_events (admin/dev protected)
+- DO NOT run tests; user will test manually
+
+END RESULT
+After this change, a match cannot “end at 1/10” unless:
+- it is explicitly CANCELLED with a visible end_reason (disconnect_timeout, forfeit, no_ack, server_error),
+OR it legitimately FINISHES at 10/10 completed.
