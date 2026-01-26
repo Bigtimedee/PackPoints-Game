@@ -3,15 +3,18 @@ import { db } from "../db";
 import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
+import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
-export type AnswerAckReason = "bad_payload" | "match_not_found" | "match_not_active" | "stale_index" | "not_participant" | "already_answered";
+export type AnswerAckReason = GuardRejectionReason | "already_answered";
 
 export interface SubmitAnswerResult {
   ack: {
     status: AnswerAckStatus;
     reason?: AnswerAckReason;
     clientMsgId?: string;
+    serverIndex?: number;
+    serverStatus?: string;
   };
   correct?: boolean;
   correctAnswer?: string;
@@ -402,23 +405,23 @@ class MatchService {
 
   async submitAnswer(matchId: string, userId: string, questionIndex: number, selectedAnswer: string, clientMsgId?: string): Promise<SubmitAnswerResult> {
     const matchState = await this.getMatchStateWithFallback(matchId);
-    if (!matchState) {
-      console.error(`[MatchService] submitAnswer: match ${matchId} not found`);
-      return { ack: { status: "REJECTED", reason: "match_not_found", clientMsgId } };
+    
+    const guardResult = guardCanSubmit(matchState, userId, questionIndex);
+    
+    if (!guardResult.allowed || !matchState) {
+      console.log(`[MatchService] submitAnswer REJECTED: matchId=${matchId}, userId=${userId}, idx=${questionIndex}, reason=${guardResult.reason}, serverIdx=${guardResult.serverIndex}, serverStatus=${guardResult.serverStatus}`);
+      return { 
+        ack: { 
+          status: "REJECTED", 
+          reason: guardResult.reason || "match_not_found", 
+          clientMsgId,
+          serverIndex: guardResult.serverIndex,
+          serverStatus: guardResult.serverStatus,
+        }
+      };
     }
     
-    if (matchState.status !== MatchStatus.ACTIVE) {
-      return { ack: { status: "REJECTED", reason: "match_not_active", clientMsgId } };
-    }
-    
-    const participant = matchState.participants.find(p => p.userId === userId);
-    if (!participant) {
-      return { ack: { status: "REJECTED", reason: "not_participant", clientMsgId } };
-    }
-    
-    if (questionIndex !== matchState.currentQuestionIndex) {
-      return { ack: { status: "REJECTED", reason: "stale_index", clientMsgId } };
-    }
+    const participant = matchState.participants.find(p => p.userId === userId)!;
     
     const [existingAnswer] = await db
       .select()

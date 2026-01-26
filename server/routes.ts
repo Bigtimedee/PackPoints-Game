@@ -8381,7 +8381,13 @@ export async function registerRoutes(
       const result = await matchService.submitAnswer(matchId, userId, idx, selected, clientMsgId);
       
       if (result.ack.status === "REJECTED") {
-        return res.json({ ok: false, reason: result.ack.reason });
+        const statusCode = result.ack.reason === "stale_index" || result.ack.reason === "match_initializing" ? 409 : 400;
+        return res.status(statusCode).json({ 
+          ok: false, 
+          reason: result.ack.reason,
+          serverIndex: result.ack.serverIndex,
+          serverStatus: result.ack.serverStatus,
+        });
       }
       
       return res.json({ 
@@ -8392,6 +8398,50 @@ export async function registerRoutes(
       });
     } catch (error: unknown) {
       console.error("Error submitting answer via REST:", error);
+      res.status(500).json({ ok: false, reason: "server_error" });
+    }
+  });
+
+  // GET /api/matches/:matchId/state - REST fallback for match state resync
+  app.get("/api/matches/:matchId/state", isAuthenticated, async (req: any, res) => {
+    try {
+      const { matchId } = req.params;
+      const userId = req.user.id;
+      
+      const matchState = await matchService.getMatchStateWithFallback(matchId);
+      
+      if (!matchState) {
+        return res.status(404).json({ ok: false, reason: "match_not_found" });
+      }
+      
+      const isParticipant = matchState.participants.some(p => p.userId === userId);
+      if (!isParticipant) {
+        return res.status(403).json({ ok: false, reason: "not_participant" });
+      }
+      
+      const currentQuestion = matchState.questions[matchState.currentQuestionIndex];
+      
+      return res.json({
+        ok: true,
+        matchId: matchState.matchId,
+        status: matchState.status,
+        currentIndex: matchState.currentQuestionIndex,
+        totalQuestions: matchState.totalQuestions,
+        question: currentQuestion ? {
+          card: currentQuestion.card,
+          options: currentQuestion.options,
+          pointValue: currentQuestion.pointValue,
+        } : null,
+        participants: matchState.participants.map(p => ({
+          userId: p.userId,
+          username: p.username,
+          score: p.score,
+          correctAnswers: p.correctAnswers,
+          hasAnsweredCurrent: p.hasAnsweredCurrent,
+        })),
+      });
+    } catch (error: unknown) {
+      console.error("Error getting match state via REST:", error);
       res.status(500).json({ ok: false, reason: "server_error" });
     }
   });

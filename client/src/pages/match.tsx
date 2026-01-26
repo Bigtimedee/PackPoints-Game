@@ -130,16 +130,29 @@ export default function Match() {
             lockedInRef.current = false;
             setPendingClientMsgId(null);
             pendingClientMsgIdRef.current = null;
+            
+            const { reason, serverStatus } = message.payload;
+            
+            if (reason === "match_cancelled" || reason === "match_finished" || 
+                serverStatus === "CANCELLED" || serverStatus === "FINISHED") {
+              setSubmitError("Match has ended");
+              return;
+            }
+            
+            if (reason === "stale_index" || reason === "match_initializing" || reason === "match_not_started") {
+              setSubmitError("Out of sync. Tap Resync.");
+              return;
+            }
+            
             const errorMessages: Record<string, string> = {
               match_not_found: "Match not found",
-              match_not_active: "Match is no longer active",
-              stale_index: "Question has changed, please try again",
               not_participant: "You are not a participant in this match",
               unauthorized: "Session expired. Please refresh the page.",
               missing_session: "Session expired. Please refresh and try again.",
               not_in_match: "You are not in this match",
+              bad_payload: "Invalid submission. Please try again.",
             };
-            setSubmitError(errorMessages[message.payload.reason] || message.payload.reason || "Failed to submit");
+            setSubmitError(errorMessages[reason] || reason || "Failed to submit");
           }
         }
         break;
