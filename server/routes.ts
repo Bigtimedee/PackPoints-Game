@@ -46,6 +46,7 @@ import { collectGeo } from "./middleware/geoMiddleware";
 import { geoService } from "./services/geoService";
 import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
+import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
 import * as matchEngine from "./services/matches/engine";
 
@@ -236,6 +237,22 @@ export async function registerRoutes(
       res.json(progress);
     } catch (error) {
       console.error("Error getting rewards daily progress:", error);
+      res.status(500).json({ error: "Failed to get daily progress" });
+    }
+  });
+
+  // GET /api/progress/daily - Get match-based daily progress (cards answered today)
+  app.get("/api/progress/daily", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const progress = await getMatchDailyProgress(userId);
+      res.json(progress);
+    } catch (error) {
+      console.error("Error getting match daily progress:", error);
       res.status(500).json({ error: "Failed to get daily progress" });
     }
   });
