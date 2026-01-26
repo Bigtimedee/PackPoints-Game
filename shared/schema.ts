@@ -2971,12 +2971,15 @@ export const matchmakingTickets = pgTable("matchmaking_tickets", {
   mode: matchmakingModeEnum("mode").notNull(),
   bucket: varchar("bucket").notNull(),
   status: ticketStatusEnum("status").notNull().default("WAITING"),
+  socketId: varchar("socket_id"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_matchmaking_tickets_user").on(table.userId),
   index("idx_matchmaking_tickets_status").on(table.status),
   index("idx_matchmaking_tickets_bucket").on(table.bucket),
+  index("idx_matchmaking_tickets_mode_bucket_status_created").on(table.mode, table.bucket, table.status, table.createdAt),
   uniqueIndex("idx_matchmaking_tickets_active_unique")
     .on(table.userId, table.mode)
     .where(sql`status IN ('WAITING', 'MATCHED')`),
