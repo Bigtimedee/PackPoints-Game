@@ -388,23 +388,44 @@ async function maybeAdvance(
   currentIdx: number,
   questions: GameQuestion[],
   participants: MatchParticipant[]
-): Promise<AdvanceResult> {
+): Promise<AdvanceResult | undefined> {
   const newIndex = currentIdx + 1;
   const totalQuestions = questions.length;
 
-  await db.update(matches).set({ currentQuestionIndex: newIndex }).where(eq(matches.id, matchId));
+  const updateResult = await db.update(matches)
+    .set({ currentQuestionIndex: newIndex })
+    .where(and(eq(matches.id, matchId), eq(matches.currentQuestionIndex, currentIdx)));
+
+  const rowsAffected = (updateResult as any).rowCount ?? (updateResult as any).changes ?? 0;
+  if (rowsAffected === 0) {
+    await logEvent(matchId, "ADVANCE_SKIPPED", { 
+      reason: "concurrent_advance", 
+      expectedIdx: currentIdx, 
+      attemptedNewIdx: newIndex 
+    });
+    return undefined;
+  }
+
   await logEvent(matchId, "ADVANCE", { from: currentIdx, to: newIndex });
 
   if (newIndex >= totalQuestions) {
+    const finishResult = await db.update(matches)
+      .set({
+        status: MatchStatus.FINISHED,
+        finishedAt: new Date(),
+        endReason: "completed",
+      })
+      .where(and(eq(matches.id, matchId), eq(matches.status, MatchStatus.ACTIVE)));
+
+    const finishRowsAffected = (finishResult as any).rowCount ?? (finishResult as any).changes ?? 0;
+    if (finishRowsAffected === 0) {
+      await logEvent(matchId, "FINISH_SKIPPED", { reason: "already_finished", newIndex });
+      return undefined;
+    }
+
     const updatedParticipants = await getParticipants(matchId);
     const sorted = [...updatedParticipants].sort((a, b) => (b.score || 0) - (a.score || 0));
     const winner = sorted.length >= 2 && sorted[0].score !== sorted[1].score ? sorted[0].username : undefined;
-
-    await db.update(matches).set({
-      status: MatchStatus.FINISHED,
-      finishedAt: new Date(),
-      endReason: "completed",
-    }).where(eq(matches.id, matchId));
 
     await logEvent(matchId, "END", { reason: "completed", winner });
 
