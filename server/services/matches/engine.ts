@@ -12,14 +12,20 @@ import {
   type MatchState,
   type GameQuestion,
   type MatchStatusType,
+  type MatchResultType,
 } from "@shared/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
+import { computeAndPersistMatchResult, setForfeitResult, setDisconnectResult, type ComputedResult } from "./computeResult";
 
 export interface MatchEndResult {
   matchId: string;
   reason: string;
   status: MatchStatusType;
   winner?: string;
+  winnerUserId?: string;
+  result?: MatchResultType;
+  hostCorrect?: number;
+  guestCorrect?: number;
   participants: {
     userId: string;
     username: string;
@@ -423,17 +429,31 @@ async function maybeAdvance(
       return undefined;
     }
 
+    const computed = await computeAndPersistMatchResult(matchId);
     const updatedParticipants = await getParticipants(matchId);
-    const sorted = [...updatedParticipants].sort((a, b) => (b.score || 0) - (a.score || 0));
-    const winner = sorted.length >= 2 && sorted[0].score !== sorted[1].score ? sorted[0].username : undefined;
+    
+    const winnerParticipant = computed?.winnerUserId 
+      ? updatedParticipants.find(p => p.userId === computed.winnerUserId)
+      : undefined;
+    const winner = winnerParticipant?.username;
 
-    await logEvent(matchId, "END", { reason: "completed", winner });
+    await logEvent(matchId, "END", { 
+      reason: "completed", 
+      winner,
+      result: computed?.result,
+      hostCorrect: computed?.hostCorrect,
+      guestCorrect: computed?.guestCorrect,
+    });
 
     const matchEnd: MatchEndResult = {
       matchId,
       reason: "completed",
       status: MatchStatus.FINISHED,
       winner,
+      winnerUserId: computed?.winnerUserId ?? undefined,
+      result: computed?.result,
+      hostCorrect: computed?.hostCorrect,
+      guestCorrect: computed?.guestCorrect,
       participants: updatedParticipants.map(p => ({
         userId: p.userId,
         username: p.username,
@@ -513,13 +533,26 @@ export async function forfeitMatch(matchId: string, forfeitingUserId: string): P
     endDetail: { forfeitedBy: forfeitingUserId },
   }).where(eq(matches.id, matchId));
 
-  await logEvent(matchId, "END", { reason: "forfeit", forfeitedBy: forfeitingUserId, winner: winner?.username }, forfeitingUserId);
+  const computed = await setForfeitResult(matchId, forfeitingUserId);
+
+  await logEvent(matchId, "END", { 
+    reason: "forfeit", 
+    forfeitedBy: forfeitingUserId, 
+    winner: winner?.username,
+    result: computed?.result,
+    hostCorrect: computed?.hostCorrect,
+    guestCorrect: computed?.guestCorrect,
+  }, forfeitingUserId);
 
   return {
     matchId,
     reason: "forfeit",
     status: MatchStatus.FINISHED,
     winner: winner?.username,
+    winnerUserId: computed?.winnerUserId ?? undefined,
+    result: computed?.result,
+    hostCorrect: computed?.hostCorrect,
+    guestCorrect: computed?.guestCorrect,
     participants: participants.map(p => ({
       userId: p.userId,
       username: p.username,
@@ -547,13 +580,26 @@ export async function cancelMatchForDisconnect(matchId: string, disconnectedUser
     endDetail: { disconnectedUserId },
   }).where(eq(matches.id, matchId));
 
-  await logEvent(matchId, "END", { reason: "disconnect_timeout", disconnectedUserId, winner: winner?.username });
+  const computed = await setDisconnectResult(matchId, disconnectedUserId);
+
+  await logEvent(matchId, "END", { 
+    reason: "disconnect_timeout", 
+    disconnectedUserId, 
+    winner: winner?.username,
+    result: computed?.result,
+    hostCorrect: computed?.hostCorrect,
+    guestCorrect: computed?.guestCorrect,
+  });
 
   return {
     matchId,
     reason: "disconnect_timeout",
     status: MatchStatus.CANCELLED,
     winner: winner?.username,
+    winnerUserId: computed?.winnerUserId ?? undefined,
+    result: computed?.result,
+    hostCorrect: computed?.hostCorrect,
+    guestCorrect: computed?.guestCorrect,
     participants: participants.map(p => ({
       userId: p.userId,
       username: p.username,
