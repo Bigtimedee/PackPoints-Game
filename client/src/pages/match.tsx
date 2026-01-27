@@ -67,6 +67,13 @@ interface MatchEndEvent {
   }[];
 }
 
+interface AnswerStatus {
+  matchId: string;
+  idx: number;
+  answeredCount: number;
+  required: number;
+}
+
 export default function Match() {
   const [, navigate] = useLocation();
   const [, params] = useRoute("/match/:matchId");
@@ -82,9 +89,11 @@ export default function Match() {
   const [pendingClientMsgId, setPendingClientMsgId] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [matchEnded, setMatchEnded] = useState<MatchEndEvent | null>(null);
+  const [answerStatus, setAnswerStatus] = useState<AnswerStatus | null>(null);
   const { toast } = useToast();
   
   const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const resyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const submittingRef = useRef(false);
   const lockedInRef = useRef(false);
   const pendingClientMsgIdRef = useRef<string | null>(null);
@@ -98,6 +107,7 @@ export default function Match() {
       case "match_started":
       case "match_state":
       case "next_question":
+        // Clear waiting state - server says we're moving to next question
         setMatchState(message.payload);
         setSelectedChoice(null);
         setSubmitting(false);
@@ -109,10 +119,20 @@ export default function Match() {
         setPendingClientMsgId(null);
         pendingClientMsgIdRef.current = null;
         setImageError(false);
+        setAnswerStatus(null); // Clear answer status for new question
         if (fallbackTimeoutRef.current) {
           clearTimeout(fallbackTimeoutRef.current);
           fallbackTimeoutRef.current = null;
         }
+        if (resyncTimeoutRef.current) {
+          clearTimeout(resyncTimeoutRef.current);
+          resyncTimeoutRef.current = null;
+        }
+        break;
+      case "answer_status":
+        // Server tells us how many have answered for this idx
+        // Update answer status to derive waiting state from server
+        setAnswerStatus(message.payload);
         break;
       case "answer_ack":
         if (message.payload.clientMsgId === pendingClientMsgIdRef.current) {
@@ -244,6 +264,33 @@ export default function Match() {
       return () => clearTimeout(resyncTimeout);
     }
   }, [isConnected, matchId, matchState, matchEnded, send]);
+
+  // Auto-resync fallback: if stuck waiting for opponent for 8 seconds, trigger resync
+  // This is placed after the opponent variable is declared
+  const opponentHasAnswered = matchState?.participants.find((p) => p.userId !== userId)?.hasAnsweredCurrent;
+  
+  useEffect(() => {
+    if (!isConnected || !matchId || matchEnded) return;
+    
+    // We're waiting if: lockedIn with answerResult, but answerStatus shows 1/2 or no next_question received
+    const isWaiting = lockedIn && answerResult && 
+      (answerStatus?.answeredCount === 1 || (!answerStatus && !opponentHasAnswered));
+    
+    if (isWaiting) {
+      console.log("[Match] Auto-resync: starting 8s timer for stuck waiting state");
+      resyncTimeoutRef.current = setTimeout(() => {
+        console.log("[Match] Auto-resync: 8s elapsed, sending resync");
+        send("match_resync", { matchId });
+      }, 8000);
+      
+      return () => {
+        if (resyncTimeoutRef.current) {
+          clearTimeout(resyncTimeoutRef.current);
+          resyncTimeoutRef.current = null;
+        }
+      };
+    }
+  }, [isConnected, matchId, matchEnded, lockedIn, answerResult, answerStatus, opponentHasAnswered, send]);
 
   const handleSelectChoice = (choice: string) => {
     if (lockedIn || submitting || answerResult) return;
@@ -579,13 +626,19 @@ export default function Match() {
                 Answer locked in! Waiting for result...
               </div>
             )}
-            {answerResult && !opponent?.hasAnsweredCurrent && (
+            {answerResult && answerStatus && answerStatus.answeredCount < answerStatus.required && (
+              <div className="text-center text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                Waiting for opponent... ({answerStatus.answeredCount}/{answerStatus.required})
+              </div>
+            )}
+            {answerResult && (!answerStatus || answerStatus.answeredCount >= answerStatus.required) && !opponent?.hasAnsweredCurrent && (
               <div className="text-center text-muted-foreground py-2">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                 Waiting for opponent...
               </div>
             )}
-            {answerResult && opponent?.hasAnsweredCurrent && (
+            {answerResult && (answerStatus?.answeredCount === answerStatus?.required || opponent?.hasAnsweredCurrent) && (
               <div className="text-center text-muted-foreground py-2">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                 Loading next question...

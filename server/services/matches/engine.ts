@@ -258,245 +258,267 @@ export async function ackMatch(matchId: string, userId: string): Promise<{ succe
   return { success: true, bothAcked: false };
 }
 
+export interface AnswerStatusInfo {
+  answeredCount: number;
+  required: number;
+}
+
 export async function submitAnswer(
   matchId: string,
   userId: string,
   idx: number,
   selected: string,
   clientMsgId?: string
-): Promise<SubmitResult> {
-  const match = await getMatchFromDb(matchId);
-  if (!match) {
-    return { status: "REJECTED", reason: "match_not_found" };
-  }
-
-  const status = match.status as MatchStatusType;
-  const currentIdx = match.currentQuestionIndex;
-
-  if (status === MatchStatus.CANCELLED) {
-    return { status: "REJECTED", reason: "match_cancelled", serverIndex: currentIdx, serverStatus: status };
-  }
-  if (status === MatchStatus.FINISHED) {
-    return { status: "REJECTED", reason: "match_finished", serverIndex: currentIdx, serverStatus: status };
-  }
-  if (status === MatchStatus.LOBBY) {
-    return { status: "REJECTED", reason: "match_not_started", serverIndex: currentIdx, serverStatus: status };
-  }
-
-  if (status === MatchStatus.INITIALIZING) {
-    if (idx !== 0 || currentIdx !== 0) {
-      return { status: "REJECTED", reason: "match_initializing", serverIndex: currentIdx, serverStatus: status };
+): Promise<SubmitResult & { answerStatus?: AnswerStatusInfo }> {
+  // Use a transaction with FOR UPDATE to prevent race conditions
+  return await db.transaction(async (tx) => {
+    // 1) Load match with FOR UPDATE lock
+    const [match] = await tx
+      .select()
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .for("update")
+      .limit(1);
+    
+    if (!match) {
+      return { status: "REJECTED" as const, reason: "match_not_found" };
     }
-  }
 
-  if (status === MatchStatus.ACTIVE || status === MatchStatus.INITIALIZING) {
-    if (idx !== currentIdx) {
-      return { status: "REJECTED", reason: "stale_index", serverIndex: currentIdx, serverStatus: status };
+    const status = match.status as MatchStatusType;
+    const currentIdx = match.currentQuestionIndex;
+
+    // 2) Validate match status
+    if (status === MatchStatus.CANCELLED) {
+      return { status: "REJECTED" as const, reason: "match_cancelled", serverIndex: currentIdx, serverStatus: status };
     }
-  }
+    if (status === MatchStatus.FINISHED) {
+      return { status: "REJECTED" as const, reason: "match_finished", serverIndex: currentIdx, serverStatus: status };
+    }
+    if (status === MatchStatus.LOBBY) {
+      return { status: "REJECTED" as const, reason: "match_not_started", serverIndex: currentIdx, serverStatus: status };
+    }
 
-  const participants = await getParticipants(matchId);
-  const participant = participants.find(p => p.userId === userId);
-  if (!participant) {
-    return { status: "REJECTED", reason: "not_participant" };
-  }
+    if (status === MatchStatus.INITIALIZING) {
+      if (idx !== 0 || currentIdx !== 0) {
+        return { status: "REJECTED" as const, reason: "match_initializing", serverIndex: currentIdx, serverStatus: status };
+      }
+    }
 
-  let questions: GameQuestion[] = [];
-  try {
-    questions = JSON.parse(match.questionsData);
-  } catch (e) {
-    await cancelMatchWithError(matchId, "server_error", { reason: "invalid_questions_data" });
-    return { status: "REJECTED", reason: "server_error" };
-  }
+    // 3) Validate idx matches current question
+    if (status === MatchStatus.ACTIVE || status === MatchStatus.INITIALIZING) {
+      if (idx !== currentIdx) {
+        return { status: "REJECTED" as const, reason: "stale_index", serverIndex: currentIdx, serverStatus: status };
+      }
+    }
 
-  if (idx >= questions.length) {
-    return { status: "REJECTED", reason: "invalid_question_index", serverIndex: currentIdx, serverStatus: status };
-  }
+    // 4) Authorize participant
+    const participants = await tx.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId));
+    const participant = participants.find(p => p.userId === userId);
+    if (!participant) {
+      return { status: "REJECTED" as const, reason: "not_participant" };
+    }
 
-  const question = questions[idx];
-  const isCorrect = selected === question.correctAnswer;
-  const pointsEarned = isCorrect ? question.pointValue : 0;
+    // 5) Parse questions
+    let questions: GameQuestion[] = [];
+    try {
+      questions = JSON.parse(match.questionsData);
+    } catch (e) {
+      await tx.update(matches).set({
+        status: MatchStatus.CANCELLED,
+        finishedAt: new Date(),
+        endReason: "server_error",
+        endDetail: { reason: "invalid_questions_data" },
+      }).where(eq(matches.id, matchId));
+      return { status: "REJECTED" as const, reason: "server_error" };
+    }
 
-  const [existingAnswer] = await db.select().from(matchAnswers).where(
-    and(
-      eq(matchAnswers.matchId, matchId),
-      eq(matchAnswers.userId, userId),
-      eq(matchAnswers.idx, idx)
-    )
-  );
+    if (idx >= questions.length) {
+      return { status: "REJECTED" as const, reason: "invalid_question_index", serverIndex: currentIdx, serverStatus: status };
+    }
 
-  if (existingAnswer) {
-    await logEvent(matchId, "SUBMIT", { userId, idx, idempotent: true }, userId);
-    const answers = await db.select().from(matchAnswers).where(
+    const question = questions[idx];
+    const isCorrect = selected === question.correctAnswer;
+    const pointsEarned = isCorrect ? question.pointValue : 0;
+
+    // 6) Idempotent upsert - check for existing answer first
+    const [existingAnswer] = await tx.select().from(matchAnswers).where(
+      and(
+        eq(matchAnswers.matchId, matchId),
+        eq(matchAnswers.userId, userId),
+        eq(matchAnswers.idx, idx)
+      )
+    );
+
+    let isIdempotent = false;
+    let actualIsCorrect = isCorrect;
+    let actualPointsEarned = pointsEarned;
+
+    if (existingAnswer) {
+      // Already answered - this is idempotent success
+      isIdempotent = true;
+      actualIsCorrect = existingAnswer.isCorrect;
+      actualPointsEarned = existingAnswer.pointsEarned;
+    } else {
+      // Try to insert - handle unique constraint violation gracefully
+      try {
+        await tx.insert(matchAnswers).values({
+          matchId,
+          userId,
+          idx,
+          selected,
+          isCorrect,
+          pointsEarned,
+          clientMsgId: clientMsgId || null,
+        });
+
+        // Update participant score
+        await tx.update(matchParticipants).set({
+          score: sql`${matchParticipants.score} + ${pointsEarned}`,
+          correctAnswers: isCorrect ? sql`${matchParticipants.correctAnswers} + 1` : matchParticipants.correctAnswers,
+          currentQuestionIndex: idx,
+        }).where(
+          and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.userId, userId))
+        );
+      } catch (error: any) {
+        if (error.code === "23505") {
+          // Unique constraint violation - treat as idempotent success
+          isIdempotent = true;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    // 7) Count answers for this idx (within transaction)
+    const allAnswers = await tx.select().from(matchAnswers).where(
       and(eq(matchAnswers.matchId, matchId), eq(matchAnswers.idx, idx))
     );
-    const bothAnswered = answers.length >= 2;
+    const answeredCount = allAnswers.length;
+    const required = participants.length;
+    const bothAnswered = answeredCount >= required;
 
+    // Log the submit event
+    await tx.insert(matchEvents).values({
+      matchId,
+      type: "SUBMIT",
+      payload: { userId, idx, selected, isCorrect: actualIsCorrect, pointsEarned: actualPointsEarned, idempotent: isIdempotent, answeredCount },
+      actorUserId: userId,
+    });
+
+    // 8) If both answered, attempt advance (atomic compare-and-swap)
     let advance: AdvanceResult | undefined;
     if (bothAnswered) {
-      advance = await maybeAdvance(matchId, idx, questions, participants);
+      // Atomic advance: only succeed if currentQuestionIndex still equals idx
+      const newIndex = idx + 1;
+      const totalQuestions = questions.length;
+
+      const updateResult = await tx.update(matches)
+        .set({ currentQuestionIndex: newIndex })
+        .where(and(eq(matches.id, matchId), eq(matches.currentQuestionIndex, idx)));
+
+      const rowsAffected = (updateResult as any).rowCount ?? (updateResult as any).changes ?? 0;
+      
+      if (rowsAffected > 0) {
+        // We are the advancer!
+        await tx.insert(matchEvents).values({
+          matchId,
+          type: "ADVANCE",
+          payload: { from: idx, to: newIndex, advancedBy: userId },
+          actorUserId: userId,
+        });
+
+        if (newIndex >= totalQuestions) {
+          // Match finished - update status
+          await tx.update(matches).set({
+            status: MatchStatus.FINISHED,
+            finishedAt: new Date(),
+            endReason: "completed",
+          }).where(eq(matches.id, matchId));
+
+          // Compute result will be done after transaction commits
+          advance = { newIndex, finished: true, matchEnd: undefined };
+        } else {
+          // Next question
+          const nextQuestion = questions[newIndex];
+          advance = {
+            newIndex,
+            finished: false,
+            nextQuestion: {
+              idx: newIndex,
+              card: nextQuestion.card,
+              choices: nextQuestion.options,
+              pointValue: nextQuestion.pointValue,
+            },
+          };
+        }
+      } else {
+        // Someone else already advanced - this is fine, just return status
+        await tx.insert(matchEvents).values({
+          matchId,
+          type: "ADVANCE_SKIPPED",
+          payload: { reason: "concurrent_advance", expectedIdx: idx, userId },
+          actorUserId: userId,
+        });
+      }
     }
 
     return {
-      status: "ACCEPTED",
-      idempotent: true,
-      correct: existingAnswer.isCorrect,
+      status: "ACCEPTED" as const,
+      idempotent: isIdempotent,
+      correct: actualIsCorrect,
       correctAnswer: question.correctAnswer,
-      pointsEarned: existingAnswer.pointsEarned,
+      pointsEarned: actualPointsEarned,
       advance,
+      answerStatus: { answeredCount, required },
     };
-  }
-
-  try {
-    await db.insert(matchAnswers).values({
-      matchId,
-      userId,
-      idx,
-      selected,
-      isCorrect,
-      pointsEarned,
-      clientMsgId: clientMsgId || null,
-    });
-  } catch (error: any) {
-    if (error.code === "23505") {
-      return {
-        status: "ACCEPTED",
-        idempotent: true,
-        correct: isCorrect,
-        correctAnswer: question.correctAnswer,
-        pointsEarned,
-      };
-    }
-    throw error;
-  }
-
-  await db.update(matchParticipants).set({
-    score: sql`${matchParticipants.score} + ${pointsEarned}`,
-    correctAnswers: isCorrect ? sql`${matchParticipants.correctAnswers} + 1` : matchParticipants.correctAnswers,
-    currentQuestionIndex: idx,
-  }).where(
-    and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.userId, userId))
-  );
-
-  await logEvent(matchId, "SUBMIT", { userId, idx, selected, isCorrect, pointsEarned }, userId);
-
-  const allAnswers = await db.select().from(matchAnswers).where(
-    and(eq(matchAnswers.matchId, matchId), eq(matchAnswers.idx, idx))
-  );
-  const bothAnswered = allAnswers.length >= participants.length;
-
-  let advance: AdvanceResult | undefined;
-  if (bothAnswered) {
-    advance = await maybeAdvance(matchId, idx, questions, participants);
-  }
-
-  return {
-    status: "ACCEPTED",
-    correct: isCorrect,
-    correctAnswer: question.correctAnswer,
-    pointsEarned,
-    advance,
-  };
+  });
 }
 
-async function maybeAdvance(
-  matchId: string,
-  currentIdx: number,
-  questions: GameQuestion[],
-  participants: MatchParticipant[]
-): Promise<AdvanceResult | undefined> {
-  const newIndex = currentIdx + 1;
-  const totalQuestions = questions.length;
-
-  const updateResult = await db.update(matches)
-    .set({ currentQuestionIndex: newIndex })
-    .where(and(eq(matches.id, matchId), eq(matches.currentQuestionIndex, currentIdx)));
-
-  const rowsAffected = (updateResult as any).rowCount ?? (updateResult as any).changes ?? 0;
-  if (rowsAffected === 0) {
-    await logEvent(matchId, "ADVANCE_SKIPPED", { 
-      reason: "concurrent_advance", 
-      expectedIdx: currentIdx, 
-      attemptedNewIdx: newIndex 
-    });
-    return undefined;
-  }
-
-  await logEvent(matchId, "ADVANCE", { from: currentIdx, to: newIndex });
-
-  if (newIndex >= totalQuestions) {
-    const finishResult = await db.update(matches)
-      .set({
-        status: MatchStatus.FINISHED,
-        finishedAt: new Date(),
-        endReason: "completed",
-      })
-      .where(and(eq(matches.id, matchId), eq(matches.status, MatchStatus.ACTIVE)));
-
-    const finishRowsAffected = (finishResult as any).rowCount ?? (finishResult as any).changes ?? 0;
-    if (finishRowsAffected === 0) {
-      await logEvent(matchId, "FINISH_SKIPPED", { reason: "already_finished", newIndex });
-      return undefined;
-    }
-
-    const computed = await computeAndPersistMatchResult(matchId);
-    const updatedParticipants = await getParticipants(matchId);
-    
-    const hostParticipant = updatedParticipants.find(p => p.role === "HOST");
-    const guestParticipant = updatedParticipants.find(p => p.role === "GUEST");
-    
-    if (hostParticipant && guestParticipant) {
-      await applyProgressForMatchIfNeeded({
-        matchId,
-        hostUserId: hostParticipant.userId,
-        guestUserId: guestParticipant.userId,
-        totalQuestions,
-      });
-    }
-    
-    const winnerParticipant = computed?.winnerUserId 
-      ? updatedParticipants.find(p => p.userId === computed.winnerUserId)
-      : undefined;
-    const winner = winnerParticipant?.username;
-
-    await logEvent(matchId, "END", { 
-      reason: "completed", 
-      winner,
-      result: computed?.result,
-      hostCorrect: computed?.hostCorrect,
-      guestCorrect: computed?.guestCorrect,
-    });
-
-    const matchEnd: MatchEndResult = {
+// Post-transaction completion handler for match finish
+export async function completeMatchFinish(matchId: string, participants: MatchParticipant[], totalQuestions: number): Promise<MatchEndResult | undefined> {
+  const computed = await computeAndPersistMatchResult(matchId);
+  const updatedParticipants = await getParticipants(matchId);
+  
+  const hostParticipant = updatedParticipants.find(p => p.role === "HOST");
+  const guestParticipant = updatedParticipants.find(p => p.role === "GUEST");
+  
+  if (hostParticipant && guestParticipant) {
+    await applyProgressForMatchIfNeeded({
       matchId,
-      reason: "completed",
-      status: MatchStatus.FINISHED,
-      winner,
-      winnerUserId: computed?.winnerUserId ?? undefined,
-      result: computed?.result,
-      hostCorrect: computed?.hostCorrect,
-      guestCorrect: computed?.guestCorrect,
-      participants: updatedParticipants.map(p => ({
-        userId: p.userId,
-        username: p.username,
-        score: p.score || 0,
-        correctAnswers: p.correctAnswers || 0,
-      })),
-    };
-
-    return { newIndex, finished: true, matchEnd };
+      hostUserId: hostParticipant.userId,
+      guestUserId: guestParticipant.userId,
+      totalQuestions,
+    });
   }
+  
+  const winnerParticipant = computed?.winnerUserId 
+    ? updatedParticipants.find(p => p.userId === computed.winnerUserId)
+    : undefined;
+  const winner = winnerParticipant?.username;
 
-  const nextQuestion = questions[newIndex];
+  await logEvent(matchId, "END", { 
+    reason: "completed", 
+    winner,
+    result: computed?.result,
+    hostCorrect: computed?.hostCorrect,
+    guestCorrect: computed?.guestCorrect,
+  });
+
   return {
-    newIndex,
-    finished: false,
-    nextQuestion: {
-      idx: newIndex,
-      card: nextQuestion.card,
-      choices: nextQuestion.options,
-      pointValue: nextQuestion.pointValue,
-    },
+    matchId,
+    reason: "completed",
+    status: MatchStatus.FINISHED,
+    winner,
+    winnerUserId: computed?.winnerUserId ?? undefined,
+    result: computed?.result,
+    hostCorrect: computed?.hostCorrect,
+    guestCorrect: computed?.guestCorrect,
+    participants: updatedParticipants.map(p => ({
+      userId: p.userId,
+      username: p.username,
+      score: p.score || 0,
+      correctAnswers: p.correctAnswers || 0,
+    })),
   };
 }
 

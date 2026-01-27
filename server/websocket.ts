@@ -524,6 +524,7 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
   
   const result = await matchEngine.submitAnswer(matchId, serverUserId, questionIndex, selectedAnswer, clientMsgId);
   
+  // Send ACK to submitter with answer status
   ws.send(JSON.stringify({
     type: "answer_ack",
     payload: {
@@ -534,6 +535,8 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
       reason: result.status === "REJECTED" ? result.reason : undefined,
       serverIndex: result.status === "REJECTED" ? result.serverIndex : undefined,
       serverStatus: result.status === "REJECTED" ? result.serverStatus : undefined,
+      answeredCount: result.answerStatus?.answeredCount,
+      required: result.answerStatus?.required,
     },
   }));
   
@@ -542,6 +545,7 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     return;
   }
   
+  // Send answer result to submitter
   ws.send(JSON.stringify({
     type: "answer_result",
     payload: {
@@ -551,6 +555,22 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     },
   }));
   
+  // CRITICAL: Broadcast ANSWER_STATUS to BOTH players
+  // This ensures both clients know how many answers have been submitted
+  if (result.answerStatus) {
+    log(`[SubmitAnswer] Broadcasting answer_status to match ${matchId}: ${result.answerStatus.answeredCount}/${result.answerStatus.required} for idx=${questionIndex}`, "ws");
+    broadcastToMatch(matchId, {
+      type: "answer_status",
+      payload: {
+        matchId,
+        idx: questionIndex,
+        answeredCount: result.answerStatus.answeredCount,
+        required: result.answerStatus.required,
+      },
+    });
+  }
+  
+  // Also broadcast participant_answered for UI updates
   const updatedState = await matchEngine.buildMatchState(matchId);
   if (updatedState) {
     broadcastToMatch(matchId, {
@@ -568,27 +588,40 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     });
   }
   
+  // Handle advance if both answered
   if (result.advance) {
-    if (result.advance.finished && result.advance.matchEnd) {
-      for (const participant of result.advance.matchEnd.participants) {
-        try {
-          const streakResult = await streakService.processMatchCompletion(participant.userId, matchId);
-          if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
-            log(`[Streak] User ${participant.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`, "ws");
+    if (result.advance.finished) {
+      // Match completed - compute results and broadcast
+      const participants = await matchEngine.getParticipants(matchId);
+      const match = await matchEngine.getMatchFromDb(matchId);
+      const totalQuestions = match?.totalQuestions || 10;
+      
+      const matchEnd = await matchEngine.completeMatchFinish(matchId, participants, totalQuestions);
+      
+      if (matchEnd) {
+        for (const participant of matchEnd.participants) {
+          try {
+            const streakResult = await streakService.processMatchCompletion(participant.userId, matchId);
+            if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
+              log(`[Streak] User ${participant.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`, "ws");
+            }
+          } catch (streakError) {
+            console.error("Failed to process streak for participant:", streakError);
           }
-        } catch (streakError) {
-          console.error("Failed to process streak for participant:", streakError);
         }
-      }
 
-      broadcastToMatch(matchId, {
-        type: "match_end",
-        payload: result.advance.matchEnd,
-      });
+        log(`[SubmitAnswer] Broadcasting match_end to match ${matchId}`, "ws");
+        broadcastToMatch(matchId, {
+          type: "match_end",
+          payload: matchEnd,
+        });
+      }
     } else if (result.advance.nextQuestion) {
+      // Advance to next question - broadcast to BOTH players
       const advancedState = await matchEngine.buildMatchState(matchId);
       if (advancedState) {
         const clientMatchState = sanitizeMatchStateForClient(advancedState);
+        log(`[SubmitAnswer] Broadcasting next_question to match ${matchId}: idx=${result.advance.newIndex}`, "ws");
         broadcastToMatch(matchId, {
           type: "next_question",
           payload: clientMatchState,
@@ -661,12 +694,28 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
   }
   
   const clientMatchState = sanitizeMatchStateForClient(matchState);
+  
+  // Calculate current answer count for the idx
+  const answeredCount = matchState.participants.filter(p => p.hasAnsweredCurrent).length;
+  const required = matchState.participants.length;
+  
   ws.send(JSON.stringify({
     type: "match_state",
     payload: clientMatchState,
   }));
   
-  log(`[MatchResync] Sent resync for match ${matchId}, status=${matchState.status}, questionIndex=${matchState.currentQuestionIndex}`, "ws");
+  // Also send answer status so client knows current state
+  ws.send(JSON.stringify({
+    type: "answer_status",
+    payload: {
+      matchId,
+      idx: matchState.currentQuestionIndex,
+      answeredCount,
+      required,
+    },
+  }));
+  
+  log(`[MatchResync] Sent resync for match ${matchId}, status=${matchState.status}, questionIndex=${matchState.currentQuestionIndex}, answeredCount=${answeredCount}/${required}`, "ws");
 }
 
 async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret?: string }) {
