@@ -97,6 +97,18 @@ Enforces invariants to prevent matches from ending prematurely (e.g., 0/10 quest
   - `setDisconnectResult()`: Sets winner as non-disconnecting player
 - **Match Result Schema**: Matches table includes `result` enum (PENDING, HOST_WIN, GUEST_WIN, TIE), `winnerUserId`, `hostCorrect`, `guestCorrect` columns
 
+### Transactional Answer Submission System
+Ensures synchronized state between both players during 1v1 matches:
+- **FOR UPDATE Lock**: Each submitAnswer call locks the match row with `SELECT ... FOR UPDATE` to prevent race conditions
+- **Idempotent Insert**: Checks for existing answer before insert; duplicate submissions treated as no-op success
+- **Atomic Advance**: Compare-and-swap on `current_question_index` within same transaction prevents double-increment
+- **ANSWER_STATUS Event**: Server broadcasts `{ matchId, idx, answeredCount, required }` to both players after transaction commits
+- **Client State Derivation**: Client derives waiting state from server events (`answer_status`, `next_question`) rather than local calculation
+- **Auto-Resync Fallback**: 8-second stuck-waiting timer triggers `MATCH_RESYNC` request for recovery
+- **MATCH_RESYNC Handler**: Returns both `match_state` and `answer_status` events for complete recovery
+- **Room-Based Broadcasting**: `matchConnections` map maintains WebSocket rooms per match; all events broadcast to all room members
+- **Implementation**: `server/services/matches/engine.ts` for transactional logic, `server/websocket.ts` for broadcasting
+
 ## External Dependencies
 
 ### Database
