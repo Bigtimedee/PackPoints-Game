@@ -1,0 +1,149 @@
+MISSION-CRITICAL SYNC BUG: In a live 1v match (Friends or Random), BOTH users submit answers for the same question, but the UI gets stuck on “Waiting for opponent…”. This means the server is not reliably (a) recording both answers, (b) detecting “2 of 2 submitted for idx”, and/or (c) broadcasting the ADVANCE/QUESTION_NEXT event to BOTH clients. Fix by making answer submission idempotent + transactional, emitting a single authoritative “advance” event, and having clients update state ONLY from server events (not local assumptions).
+
+ABSOLUTE INSTRUCTION
+After implementing, DO NOT test. User will test manually.
+
+STACK
+React 18 + Vite + TS + Tailwind + shadcn/ui + TanStack Query
+Backend: Express + TS + ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+========================================================
+ROOT CAUSES (MOST LIKELY)
+1) One player’s submit is not being persisted (WS auth/session lost, duplicate key error swallowed, or race condition).
+2) “both answered” check is done in-memory or non-transactionally, so two submits race and no one triggers advance.
+3) Advance event is only sent to one socket (submitter), not both participants.
+4) Client is waiting for an event that server never sends (or sends with wrong matchId/idx).
+5) Duplicate submit or retry is treated as error, preventing the “both answered” transition.
+6) Server uses “connected sockets” map incorrectly; one socket not in room/broadcast list.
+
+========================================================
+GOAL
+- For each (matchId, idx), when both participants have an answer recorded in DB, the server advances exactly once and broadcasts QUESTION_NEXT to BOTH users.
+- Client displays “Waiting for opponent…” only when server says only 1/2 answers are present for idx.
+- This must work for both 1vFriends and 1vRandom.
+
+========================================================
+A) DB GUARANTEES (REQUIRED)
+
+Ensure match_answers table has:
+Primary key (match_id, user_id, idx)
+Unique (match_id, user_id, client_msg_id)
+
+This guarantees 1 answer per player per question and enables idempotent retries.
+
+========================================================
+B) SERVER: MAKE SUBMIT ANSWER TRANSACTIONAL + IDEMPOTENT
+
+In WS handler ANSWER_SUBMIT (and REST fallback), implement:
+
+submitAnswer(matchId, userId, idx, selected, clientMsgId):
+
+BEGIN TRANSACTION
+1) Load match FOR UPDATE
+2) Authorize participant (host/guest). Reject if not participant.
+3) Validate idx == match.current_index (else reject stale_index with serverIndex)
+4) Upsert answer idempotently:
+   - Try INSERT into match_answers(match_id,user_id,idx,selected,is_correct,client_msg_id)
+   - If conflict on (match_id,user_id,idx):
+       - If existing client_msg_id == client_msg_id: treat as idempotent success
+       - Else: treat as already_submitted (success) and return existing
+   - NEVER throw an error that aborts the rest of the flow for duplicates.
+
+5) Count answers for this idx:
+   answeredCount = SELECT COUNT(*) FROM match_answers WHERE match_id=$1 AND idx=$2
+
+6) Write a match_events row for SUBMIT (optional but recommended)
+
+7) If answeredCount == 1:
+   - COMMIT
+   - Broadcast to BOTH players: ANSWER_STATUS { matchId, idx, answeredCount:1, required:2 }
+   - Return ACK to submitter: ANSWER_ACK { accepted:true, answeredCount:1 }
+
+8) If answeredCount == 2:
+   - Advance exactly once using a DB “advance lock”:
+     Option 1 (recommended): store per-question advanced marker:
+       match_question_state(match_id, idx, advanced boolean default false) PK(match_id, idx)
+       or store in match_events with unique constraint.
+     Minimal option: use match.current_index as lock:
+       - Only the transaction that still sees match.current_index == idx is allowed to advance.
+       - Update matches.current_index = idx + 1 WHERE id=matchId AND current_index=idx
+       - Check rowsAffected == 1 => you are the advancer.
+       - If rowsAffected == 0 => someone else advanced already; just resync state.
+
+   - If you advanced:
+       if newIndex >= questions_total:
+          set match status FINISHED and compute result
+          COMMIT
+          broadcast MATCH_END to BOTH
+       else:
+          load question payload for newIndex
+          COMMIT
+          broadcast QUESTION_NEXT to BOTH:
+            { type:"QUESTION_NEXT", matchId, idx:newIndex, question, answeredCount:0, required:2 }
+   - If you did NOT advance (rowsAffected==0):
+       COMMIT
+       broadcast MATCH_STATE (resync) to submitter (and optionally both)
+
+END TRANSACTION
+
+CRITICAL: The ADVANCE decision and current_index update MUST occur in the same transaction as the second answer insert, so race conditions cannot strand the match.
+
+========================================================
+C) SERVER: BROADCAST MUST HIT BOTH PLAYERS (ROOMS)
+
+Implement a match “room” mapping:
+- roomKey = `match:${matchId}`
+- On WS join/enter match, add ws connection to that room.
+- Maintain:
+  rooms: Map<roomKey, Set<WebSocket>>
+- On QUESTION_NEXT / MATCH_END / ANSWER_STATUS, broadcast to every socket in the room.
+- Do NOT broadcast only to the submitter.
+
+When a socket closes, remove it from all rooms (or track currentRoom on ws and remove).
+
+Also: Each connection must have ws.userId set during upgrade auth, and joining a room must validate they are match participant.
+
+========================================================
+D) CLIENT: STOP LOCAL “WAITING” STATE FROM GETTING STUCK
+
+Client must derive “waiting for opponent” from server events, not assumptions.
+
+Rules:
+- After user hits Submit:
+  - Optimistically disable answer buttons, show “Submitted” state.
+  - Show “Waiting for opponent…” ONLY if server responds ANSWER_ACK/ANSWER_STATUS with answeredCount < 2.
+- When QUESTION_NEXT arrives:
+  - Clear waiting state and render next question immediately.
+- If no QUESTION_NEXT arrives within N seconds (e.g., 8s):
+  - automatically send MATCH_RESYNC
+  - show “Resyncing…” not “waiting”.
+
+Implement handlers:
+- on WS message ANSWER_STATUS => update answeredCount for current idx
+- on WS message QUESTION_NEXT => set currentIndex, replace question, clear waiting, clear selected
+- on WS message MATCH_STATE => reconcile
+
+========================================================
+E) ADD A MINIMAL SERVER RESYNC ENDPOINT/EVENT (SAFETY NET)
+
+WS: MATCH_RESYNC {matchId}
+Server returns:
+MATCH_STATE { matchId, status, currentIndex, questionPayloadForCurrentIndex, answersCountForCurrentIndex }
+
+This ensures any missed broadcast doesn’t strand users.
+
+========================================================
+F) ACCEPTANCE CRITERIA (USER WILL TEST)
+- Two players submit answers for idx=0
+- Server records both answers
+- Server advances exactly once to idx=1
+- BOTH clients receive QUESTION_NEXT and proceed automatically
+- “Waiting for opponent…” appears only when only 1/2 answers exist, and disappears immediately when 2/2 is reached.
+
+DELIVERABLES
+1) Transactional submitAnswer with idempotent insert and atomic advance (rowsAffected guard)
+2) Room-based broadcast to BOTH match participants
+3) Client uses server events to clear waiting state; includes auto-resync fallback
+4) Do NOT test; user will test manually
