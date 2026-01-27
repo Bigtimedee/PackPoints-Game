@@ -330,16 +330,37 @@ export const matchQuestions = pgTable("match_questions", {
   correctAnswer: text("correct_answer").notNull(),
   choices: text("choices").notNull(),
   pointValue: integer("point_value").notNull().default(100),
+  seedVersion: integer("seed_version").notNull().default(1),
+  replacedCount: integer("replaced_count").notNull().default(0),
+  assignedAt: timestamp("assigned_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  unique("match_questions_match_idx_unique").on(table.matchId, table.idx),
+]);
 
 export const insertMatchQuestionSchema = createInsertSchema(matchQuestions).omit({
   id: true,
   createdAt: true,
+  assignedAt: true,
 });
 
 export type InsertMatchQuestion = z.infer<typeof insertMatchQuestionSchema>;
 export type MatchQuestion = typeof matchQuestions.$inferSelect;
+
+export const matchUsedCards = pgTable("match_used_cards", {
+  matchId: varchar("match_id").notNull(),
+  cardId: varchar("card_id").notNull(),
+  addedAt: timestamp("added_at").defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.matchId, table.cardId] }),
+]);
+
+export const insertMatchUsedCardSchema = createInsertSchema(matchUsedCards).omit({
+  addedAt: true,
+});
+
+export type InsertMatchUsedCard = z.infer<typeof insertMatchUsedCardSchema>;
+export type MatchUsedCard = typeof matchUsedCards.$inferSelect;
 
 export const matchAnswers = pgTable("match_answers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

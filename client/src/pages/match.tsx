@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, User, Check, X, Loader2, Home, RotateCcw } from "lucide-react";
+import { Trophy, User, Check, X, Loader2, Home, RotateCcw, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
@@ -90,6 +90,10 @@ export default function Match() {
   const [imageError, setImageError] = useState(false);
   const [matchEnded, setMatchEnded] = useState<MatchEndEvent | null>(null);
   const [answerStatus, setAnswerStatus] = useState<AnswerStatus | null>(null);
+  const [seedVersion, setSeedVersion] = useState(1);
+  const [imageRetryCount, setImageRetryCount] = useState(0);
+  const [replacementPending, setReplacementPending] = useState(false);
+  const [showReplaceButton, setShowReplaceButton] = useState(false);
   const { toast } = useToast();
   
   const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -119,6 +123,15 @@ export default function Match() {
         setPendingClientMsgId(null);
         pendingClientMsgIdRef.current = null;
         setImageError(false);
+        setImageRetryCount(0);
+        setShowReplaceButton(false);
+        setReplacementPending(false);
+        // Extract seedVersion from currentQuestion if available, default to 1
+        if (message.payload.currentQuestion?.seedVersion) {
+          setSeedVersion(message.payload.currentQuestion.seedVersion);
+        } else {
+          setSeedVersion(1);
+        }
         // Use server-provided answerStatus from next_question payload (always includes answeredCount:0, required:2)
         if (message.payload.answerStatus) {
           setAnswerStatus(message.payload.answerStatus);
@@ -139,6 +152,41 @@ export default function Match() {
           clearTimeout(resyncTimeoutRef.current);
           resyncTimeoutRef.current = null;
         }
+        break;
+      case "question_replaced":
+        // Card was replaced - update current question WITHOUT changing idx
+        console.log("[Match] question_replaced received:", message.payload);
+        setReplacementPending(false);
+        setImageError(false);
+        setImageRetryCount(0);
+        setShowReplaceButton(false);
+        setSeedVersion(message.payload.seedVersion);
+        // Update matchState with new question
+        setMatchState((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            currentQuestion: {
+              card: message.payload.card,
+              options: message.payload.choices,
+              pointValue: message.payload.pointValue,
+            },
+          };
+        });
+        toast({
+          title: "Card replaced",
+          description: "A new card has been loaded for this question.",
+        });
+        break;
+      case "question_replace_error":
+        console.log("[Match] question_replace_error:", message.payload);
+        setReplacementPending(false);
+        setShowReplaceButton(true);
+        toast({
+          title: "Unable to replace card",
+          description: message.payload.error || "Please try again.",
+          variant: "destructive",
+        });
         break;
       case "answer_status":
         // Server tells us how many have answered for this idx
@@ -552,19 +600,54 @@ export default function Match() {
                 <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/60 z-10" />
                 {!imageError ? (
                   <img
-                    src={currentQuestion.card.imageUrl}
+                    src={`${currentQuestion.card.imageUrl}${currentQuestion.card.imageUrl.includes('?') ? '&' : '?'}t=${seedVersion}-${imageRetryCount}-${matchState.currentQuestionIndex}`}
                     alt="Baseball card"
                     className="w-full h-full object-cover"
-                    onError={() => setImageError(true)}
+                    onError={() => {
+                      if (imageRetryCount < 2) {
+                        console.log(`[Match] Image load failed, retry ${imageRetryCount + 1}/2`);
+                        setImageRetryCount(prev => prev + 1);
+                      } else {
+                        console.log(`[Match] Image load failed after 2 retries, showing replace button`);
+                        setImageError(true);
+                        setShowReplaceButton(true);
+                      }
+                    }}
                     data-testid="img-card"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-amber-800">1987 TOPPS</p>
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200">
+                    <div className="text-center mb-4">
+                      <p className="text-2xl font-bold text-amber-800">Image Failed to Load</p>
                       <p className="text-lg text-amber-700">#{currentQuestion.card.cardNumber}</p>
                       <p className="text-sm text-amber-600 mt-2">{currentQuestion.card.team}</p>
                     </div>
+                    {showReplaceButton && !replacementPending && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          console.log(`[Match] Requesting card replacement: matchId=${matchId}, idx=${matchState.currentQuestionIndex}, seedVersion=${seedVersion}`);
+                          setReplacementPending(true);
+                          send("question_replace_request", {
+                            matchId,
+                            idx: matchState.currentQuestionIndex,
+                            seedVersion,
+                            reason: "image_load_failed",
+                          });
+                        }}
+                        className="gap-2"
+                        data-testid="button-try-another-card"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Try Another Card
+                      </Button>
+                    )}
+                    {replacementPending && (
+                      <div className="flex items-center gap-2 text-amber-700">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Fetching another card...</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

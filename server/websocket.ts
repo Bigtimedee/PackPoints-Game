@@ -6,12 +6,15 @@ import { presenceService } from "./services/presenceService";
 import { streakService } from "./services/streakService";
 import { friendMatchInviteService } from "./services/friends/friendMatchInviteService";
 import { log } from "./index";
-import { MatchStatus, type MatchState } from "@shared/schema";
+import { MatchStatus, type MatchState, matchQuestions } from "@shared/schema";
 import { getSession } from "./replit_integrations/auth/replitAuth";
 import { isMatchParticipantByState, isMatchParticipant } from "./services/auth/isMatchParticipant";
 import { validateActiveUser } from "./services/auth/validateActiveUser";
 import passport from "passport";
 import * as matchEngine from "./services/matches/engine";
+import { replaceMatchQuestion } from "./services/matches/replaceQuestion";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
 let inviteExpirationInterval: NodeJS.Timeout | null = null;
@@ -286,6 +289,9 @@ async function handleMessage(ws: WebSocket, message: any) {
     case "match_resync":
       await handleMatchResync(ws, payload);
       break;
+    case "question_replace_request":
+      await handleQuestionReplaceRequest(ws, payload);
+      break;
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
   }
@@ -484,7 +490,8 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
   const matchClientCount = matchConnections.get(matchState.matchId)?.size || 0;
   log(`[StartMatch] Match now has ${matchClientCount} connected clients`, "ws");
   
-  const clientMatchState = sanitizeMatchStateForClient(matchState);
+  const seedVersion = await getSeedVersionForQuestion(matchState.matchId, matchState.currentQuestionIndex);
+  const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
   
   log(`[StartMatch] Broadcasting match_started to ${matchClientCount} clients, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
   
@@ -621,8 +628,9 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
       // Advance to next question - broadcast to BOTH players
       const advancedState = await matchEngine.buildMatchState(matchId);
       if (advancedState) {
-        const clientMatchState = sanitizeMatchStateForClient(advancedState);
         const newIdx = result.advance.newIndex;
+        const seedVer = await getSeedVersionForQuestion(matchId, newIdx);
+        const clientMatchState = sanitizeMatchStateForClient(advancedState, seedVer);
         
         log(`[SubmitAnswer] Broadcasting next_question to match ${matchId}: idx=${newIdx}`, "ws");
         broadcastToMatch(matchId, {
@@ -647,7 +655,8 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
   const matchState = await matchService.getMatchStateWithFallback(matchId);
   
   if (matchState) {
-    const clientMatchState = sanitizeMatchStateForClient(matchState);
+    const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
+    const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
     ws.send(JSON.stringify({
       type: "match_state",
       payload: clientMatchState,
@@ -704,7 +713,8 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
     return;
   }
   
-  const clientMatchState = sanitizeMatchStateForClient(matchState);
+  const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
+  const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
   
   // Calculate current answer count for the idx
   const answeredCount = matchState.participants.filter(p => p.hasAnsweredCurrent).length;
@@ -726,7 +736,63 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
     },
   }));
   
-  log(`[MatchResync] Sent resync for match ${matchId}, status=${matchState.status}, questionIndex=${matchState.currentQuestionIndex}, answeredCount=${answeredCount}/${required}`, "ws");
+  log(`[MatchResync] Sent resync for match ${matchId}, status=${matchState.status}, questionIndex=${matchState.currentQuestionIndex}, answeredCount=${answeredCount}/${required}, seedVersion=${seedVersion}`, "ws");
+}
+
+async function handleQuestionReplaceRequest(ws: WebSocket, payload: { matchId: string; idx: number; seedVersion: number; reason?: string }) {
+  const { matchId, idx, seedVersion, reason } = payload;
+  const extWs = ws as ExtendedWebSocket;
+  const client = clients.get(ws);
+  const userId = client?.userId || extWs.sessionUserId;
+
+  log(`[QuestionReplace] Request: matchId=${matchId}, userId=${userId}, idx=${idx}, seedVersion=${seedVersion}`, "ws");
+
+  if (!userId) {
+    ws.send(JSON.stringify({
+      type: "question_replace_error",
+      payload: { matchId, idx, error: "Not authenticated", errorCode: "NOT_AUTHENTICATED" },
+    }));
+    return;
+  }
+
+  const result = await replaceMatchQuestion(matchId, userId, idx, seedVersion, reason || "image_load_failed");
+
+  if (!result.success) {
+    log(`[QuestionReplace] Failed: ${result.errorCode} - ${result.error}`, "ws");
+    ws.send(JSON.stringify({
+      type: "question_replace_error",
+      payload: { matchId, idx, error: result.error, errorCode: result.errorCode },
+    }));
+
+    // If stale seed version, also send current match state to resync
+    if (result.errorCode === "STALE_SEED_VERSION" || result.errorCode === "STALE_INDEX") {
+      const matchState = await matchEngine.buildMatchState(matchId);
+      if (matchState) {
+        const currentSeedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
+        const clientMatchState = sanitizeMatchStateForClient(matchState, currentSeedVersion);
+        ws.send(JSON.stringify({
+          type: "match_state",
+          payload: clientMatchState,
+        }));
+      }
+    }
+    return;
+  }
+
+  log(`[QuestionReplace] Success: matchId=${matchId}, idx=${idx}, newSeedVersion=${result.newQuestion?.seedVersion}`, "ws");
+
+  // Broadcast QUESTION_REPLACED to ALL players in the match (both 1vFriends and 1vRandom)
+  broadcastToMatch(matchId, {
+    type: "question_replaced",
+    payload: {
+      matchId,
+      idx: result.newQuestion!.idx,
+      seedVersion: result.newQuestion!.seedVersion,
+      card: result.newQuestion!.card,
+      choices: result.newQuestion!.choices,
+      pointValue: result.newQuestion!.pointValue,
+    },
+  });
 }
 
 async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId: string; username: string; membershipSecret?: string }) {
@@ -806,7 +872,8 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
   cancelDisconnectTimer(matchId, userId);
   await matchEngine.markConnected(matchId, userId);
   
-  const clientMatchState = sanitizeMatchStateForClient(matchState);
+  const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
+  const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
   
   log(`[JoinMatch] Sending match_started to ${username}, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
   
@@ -818,7 +885,20 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
   log(`${username} joined match ${matchId}`, "ws");
 }
 
-function sanitizeMatchStateForClient(matchState: MatchState): any {
+async function getSeedVersionForQuestion(matchId: string, idx: number): Promise<number> {
+  const question = await db
+    .select({ seedVersion: matchQuestions.seedVersion })
+    .from(matchQuestions)
+    .where(and(
+      eq(matchQuestions.matchId, matchId),
+      eq(matchQuestions.idx, idx)
+    ))
+    .limit(1);
+  
+  return question.length > 0 && question[0].seedVersion ? question[0].seedVersion : 1;
+}
+
+function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number = 1): any {
   const currentQuestion = matchState.questions[matchState.currentQuestionIndex];
   
   return {
@@ -838,6 +918,7 @@ function sanitizeMatchStateForClient(matchState: MatchState): any {
       },
       options: currentQuestion.options,
       pointValue: currentQuestion.pointValue,
+      seedVersion,
     } : null,
     participants: matchState.participants.map(p => ({
       userId: p.userId,
