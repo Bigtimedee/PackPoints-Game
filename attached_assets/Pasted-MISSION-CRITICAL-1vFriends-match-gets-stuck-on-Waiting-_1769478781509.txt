@@ -1,0 +1,176 @@
+MISSION-CRITICAL: 1vFriends match gets stuck on “Waiting for opponent… (0/2)” even though BOTH players already submitted answers for the current card (e.g., card #2). Neither player can advance to next card. Fix by making the server the ONLY authority for (a) whether an answer is recorded, (b) answeredCount for an idx, and (c) advancing the match. Also fix the client so “(0/2)” is sourced from server events/state (not local counters that can reset).
+
+ABSOLUTE INSTRUCTION
+After implementing, DO NOT test. User will test manually.
+
+STACK
+React 18 + Vite + TS + Tailwind + shadcn/ui + TanStack Query
+Backend: Express + TS + ws
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+========================================================
+WHY THIS IS STILL HAPPENING (MOST LIKELY)
+One (or more) of these is true right now:
+1) Client is displaying “(0/2)” from a LOCAL variable that resets on re-render, route change, or state update.
+2) Server is not emitting ANSWER_STATUS/QUESTION_NEXT to BOTH players after each submit.
+3) Server emits the event, but client is filtering it out because matchId/idx mismatch (stale matchId, idx off by one).
+4) Second answer insert succeeds, but the “both answered” count query is wrong (counting by user_id+idx incorrectly, or querying wrong idx).
+5) The ADVANCE update occurs, but QUESTION_NEXT broadcast fails or targets only the submitter.
+6) Duplicate submit returns error, and you never run the “count + advance” branch.
+7) You rely on in-memory “room” membership, but one/both sockets aren’t in the match room.
+
+We will fix ALL of these with a hardened protocol + DB-truth.
+
+========================================================
+REQUIRED BEHAVIOR
+- After any ANSWER_SUBMIT, server replies to submitter with ANSWER_ACK and broadcasts ANSWER_STATUS to BOTH users:
+  answeredCount is 0/1/2 for the CURRENT idx.
+- When answeredCount reaches 2, server advances exactly once (atomic) and broadcasts QUESTION_NEXT to BOTH users.
+- Client renders “Waiting for opponent… (X/2)” ONLY from server-provided answeredCount, never from local guesses.
+- Client can always recover via MATCH_RESYNC.
+
+========================================================
+A) SERVER: AUTHORITATIVE ANSWER STATUS (ADD/ENSURE EVENTS)
+
+1) Standardize message types:
+
+Client -> Server
+- ANSWER_SUBMIT { matchId, idx, selected, clientMsgId }
+- MATCH_RESYNC  { matchId }
+
+Server -> Client
+- ANSWER_ACK    { matchId, idx, accepted:true, serverIndex, answeredCount, required:2 }
+- ANSWER_STATUS { matchId, idx, answeredCount, required:2 }          // broadcast to both
+- QUESTION_NEXT { matchId, idx:newIndex, question, answeredCount:0, required:2 } // broadcast to both
+- MATCH_STATE   { matchId, status, currentIndex, question, answeredCount, required:2 }
+- MATCH_END     { ... }
+
+2) Implement “getAnsweredCount(matchId, idx)” using ONLY DB:
+SELECT COUNT(*) FROM match_answers WHERE match_id=$1 AND idx=$2
+
+3) After every submit (even idempotent duplicates), server must:
+- compute answeredCount for idx
+- send ANSWER_ACK to submitter containing answeredCount
+- broadcast ANSWER_STATUS to BOTH containing answeredCount
+
+========================================================
+B) SERVER: TRANSACTIONAL SUBMIT + ATOMIC ADVANCE (NON-NEGOTIABLE)
+
+In submitAnswer(matchId,userId,idx,selected,clientMsgId):
+
+BEGIN TX
+- Lock match row: SELECT * FROM matches WHERE id=$1 FOR UPDATE
+- Validate participant
+- Validate idx == matches.current_index else reject stale_index (include serverIndex)
+- Upsert/Insert answer idempotently:
+    INSERT match_answers(...)
+    ON CONFLICT (match_id, user_id, idx) DO UPDATE SET
+      selected = EXCLUDED.selected, is_correct = EXCLUDED.is_correct
+    BUT ONLY if you want last-write-wins. Prefer:
+      DO NOTHING and treat as already submitted (idempotent).
+  IMPORTANT: Never throw away the request without continuing.
+
+- answeredCount := COUNT(*) WHERE match_id=$1 AND idx=$2
+
+- Attempt advance if answeredCount == 2:
+    rows = UPDATE matches
+           SET current_index = current_index + 1
+           WHERE id=$1 AND current_index = $2 AND status IN ('INITIALIZING','ACTIVE')
+    if rows == 1:
+       newIndex = idx + 1
+       if newIndex >= questions_total:
+          set status FINISHED, end_reason='completed', finished_at=now
+       else:
+          load question payload for newIndex
+
+COMMIT
+
+POST-COMMIT BROADCASTS (IMPORTANT: after commit)
+- Always:
+   send ANSWER_ACK to submitter (answeredCount)
+   broadcast ANSWER_STATUS to BOTH (answeredCount)
+- If rows==1 and newIndex < questions_total:
+   broadcast QUESTION_NEXT to BOTH (newIndex question)
+- If FINISHED:
+   broadcast MATCH_END
+
+Why post-commit: both clients must see DB-consistent reality.
+
+========================================================
+C) SERVER: REAL ROOM BROADCAST TO BOTH PLAYERS
+
+Implement a match room keyed by matchId:
+roomKey = `match:${matchId}`
+
+- On entering match UI (or on WS connect), client sends JOIN_MATCH {matchId}
+- Server validates user is participant then adds ws to rooms[roomKey]
+- All ANSWER_STATUS / QUESTION_NEXT / MATCH_END must broadcast to rooms[roomKey]
+- If a player has multiple tabs, all sockets receive events (fine).
+
+If you don’t have JOIN_MATCH yet, add it now; do NOT rely on “who submitted” to find opponent sockets.
+
+========================================================
+D) CLIENT: FIX “(0/2)” BEING LOCAL/RESETTING
+
+1) Replace any local “answeredCount” state that starts at 0 on each render.
+Instead store server-derived state:
+
+type MatchSync = {
+  matchId: string
+  idx: number
+  answeredCount: number
+  required: 2
+  status: 'INITIALIZING'|'ACTIVE'|'FINISHED'|'CANCELLED'
+}
+
+- Update MatchSync ONLY when receiving:
+  ANSWER_ACK / ANSWER_STATUS / QUESTION_NEXT / MATCH_STATE
+
+2) Rendering logic:
+- If idx == currentIndex AND answeredCount < 2:
+    show “Waiting for opponent… (${answeredCount}/2)”
+- If answeredCount == 2: hide waiting immediately (QUESTION_NEXT should arrive next)
+- Never show (0/2) unless server says answeredCount==0
+
+3) On submit:
+- send ANSWER_SUBMIT
+- disable buttons
+- DO NOT increment answeredCount locally
+- wait for ANSWER_ACK then render based on server answeredCount
+
+4) Safety: if user sees waiting for > 6 seconds:
+- auto send MATCH_RESYNC once
+- show “Resyncing…” during resync
+
+========================================================
+E) MATCH_RESYNC MUST RETURN ANSWEREDCOUNT FOR CURRENT IDX
+
+Server MATCH_STATE payload MUST include answeredCount for currentIndex:
+answeredCount = COUNT(*) WHERE match_id=$1 AND idx=current_index
+
+Client sets local MatchSync from MATCH_STATE.
+
+========================================================
+F) ADD DEBUGGING (ADMIN/DEV) TO PROVE THE FIX
+
+Add dev-only endpoint:
+GET /api/debug/matches/:matchId/answers?idx=2
+returns:
+{ idx, rows:[{userId, selected, isCorrect, createdAt}], answeredCount }
+
+Also log on server when answeredCount==2 but rows!=1 advance:
+console.warn("advance-skip", {matchId, idx, currentIndex, answeredCount})
+
+========================================================
+ACCEPTANCE CRITERIA (USER WILL TEST)
+- On card #2, both users submit.
+- Within 1 second, BOTH clients show waiting (1/2) after first submit, then (2/2) after second submit (or waiting disappears).
+- Immediately after (2/2), BOTH clients receive QUESTION_NEXT and move to card #3.
+- No client remains stuck on “(0/2)” unless neither answer is in DB.
+
+DELIVERABLES
+- WS JOIN_MATCH + room broadcast
+- Transactional submitAnswer with answeredCount broadcast + atomic advance
+- Client uses server answeredCount only; adds resync fallback
+- Do NOT test after implementation
