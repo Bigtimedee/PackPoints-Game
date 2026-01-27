@@ -10,6 +10,7 @@ import {
   notifyFriendMatchInviteExpired,
   notifyFriendMatchAccepted,
 } from "../../websocket";
+import { validateActiveUser } from "../auth/validateActiveUser";
 
 const INVITE_EXPIRY_MINUTES = 5;
 const MAX_INVITES_PER_HOUR = 10;
@@ -45,6 +46,28 @@ export async function createFriendMatchInvite(
 ): Promise<InviteResult> {
   if (fromUserId === toUserId) {
     return { success: false, error: "Cannot invite yourself" };
+  }
+
+  const fromUserValidation = await validateActiveUser(fromUserId);
+  if (!fromUserValidation.valid) {
+    return { 
+      success: false, 
+      error: fromUserValidation.reason === "BANNED" 
+        ? "Your account has been suspended" 
+        : "Your account is not active"
+    };
+  }
+
+  const toUserValidation = await validateActiveUser(toUserId);
+  if (!toUserValidation.valid) {
+    return { 
+      success: false, 
+      error: toUserValidation.reason === "BANNED" 
+        ? "This user's account has been suspended" 
+        : toUserValidation.reason === "NOT_FOUND"
+        ? "User not found"
+        : "This user's account is not active"
+    };
   }
 
   const areFriends = await isAcceptedFriend(fromUserId, toUserId);
@@ -187,6 +210,28 @@ export async function respondToFriendMatchInvite(
       .set({ status: "DECLINED" })
       .where(eq(friendMatchInvites.id, inviteId));
     return { success: true };
+  }
+
+  const responderValidation = await validateActiveUser(userId);
+  if (!responderValidation.valid) {
+    return { 
+      success: false, 
+      error: responderValidation.reason === "BANNED" 
+        ? "Your account has been suspended" 
+        : "Your account is not active"
+    };
+  }
+
+  const inviterValidation = await validateActiveUser(invite.fromUserId);
+  if (!inviterValidation.valid) {
+    await db
+      .update(friendMatchInvites)
+      .set({ status: "CANCELLED" })
+      .where(eq(friendMatchInvites.id, inviteId));
+    return { 
+      success: false, 
+      error: "The inviter's account is no longer active"
+    };
   }
 
   const [fromUser] = await db

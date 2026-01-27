@@ -9,6 +9,7 @@ import { log } from "./index";
 import { MatchStatus, type MatchState } from "@shared/schema";
 import { getSession } from "./replit_integrations/auth/replitAuth";
 import { isMatchParticipantByState, isMatchParticipant } from "./services/auth/isMatchParticipant";
+import { validateActiveUser } from "./services/auth/validateActiveUser";
 import passport from "passport";
 import * as matchEngine from "./services/matches/engine";
 
@@ -746,6 +747,19 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
     return;
   }
   
+  const userValidation = await validateActiveUser(userId);
+  if (!userValidation.valid) {
+    log(`[JoinMatch] REJECTED: User ${userId} not active - ${userValidation.reason}`, "ws");
+    ws.send(JSON.stringify({ 
+      type: "error", 
+      code: userValidation.reason === "BANNED" ? "USER_BANNED" : "NOT_AUTHORIZED",
+      message: userValidation.reason === "BANNED" 
+        ? "Your account has been suspended" 
+        : "Your account is not active"
+    }));
+    return;
+  }
+  
   const existingClient = clients.get(ws);
   if (existingClient && existingClient.userId && existingClient.userId !== userId) {
     ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
@@ -862,6 +876,26 @@ function broadcastToMatch(matchId: string, message: any) {
 
 async function handleJoinQueue(ws: WebSocket, payload: { userId: string; username: string; totalQuestions?: number; gameSetId?: string | null }) {
   const { userId, username, totalQuestions = 10, gameSetId = null } = payload;
+  
+  if (!userId) {
+    ws.send(JSON.stringify({ type: "error", code: "NOT_AUTHENTICATED", message: "Authentication required to join queue" }));
+    return;
+  }
+  
+  const userValidation = await validateActiveUser(userId);
+  if (!userValidation.valid) {
+    log(`[JoinQueue] User ${userId} rejected: ${userValidation.reason}`, "ws");
+    ws.send(JSON.stringify({ 
+      type: "error", 
+      code: userValidation.reason === "BANNED" ? "USER_BANNED" : "NOT_AUTHORIZED",
+      message: userValidation.reason === "BANNED" 
+        ? "Your account has been suspended" 
+        : userValidation.reason === "NOT_FOUND"
+        ? "User account not found"
+        : "Your account is not active"
+    }));
+    return;
+  }
   
   const existingClient = clients.get(ws);
   
