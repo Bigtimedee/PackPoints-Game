@@ -8500,5 +8500,33 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/debug/matches/:matchId/answers - Admin debug endpoint for match answers
+  app.get("/api/debug/matches/:matchId/answers", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { matchId } = req.params;
+      const idx = req.query.idx !== undefined ? parseInt(req.query.idx) : undefined;
+      
+      const answers = await matchEngine.getMatchAnswers(matchId, idx);
+      const answeredCount = answers.length;
+      
+      return res.json({
+        ok: true,
+        matchId,
+        idx: idx ?? "all",
+        answeredCount,
+        rows: answers.map((a: any) => ({
+          userId: a.userId,
+          idx: a.idx,
+          selected: a.selected,
+          isCorrect: a.isCorrect,
+          answeredAt: a.answeredAt,
+        })),
+      });
+    } catch (error: unknown) {
+      console.error("Error getting match answers:", error);
+      res.status(500).json({ ok: false, error: "Failed to get match answers" });
+    }
+  });
+
   return httpServer;
 }

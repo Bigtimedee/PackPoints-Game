@@ -621,10 +621,20 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
       const advancedState = await matchEngine.buildMatchState(matchId);
       if (advancedState) {
         const clientMatchState = sanitizeMatchStateForClient(advancedState);
-        log(`[SubmitAnswer] Broadcasting next_question to match ${matchId}: idx=${result.advance.newIndex}`, "ws");
+        const newIdx = result.advance.newIndex;
+        
+        log(`[SubmitAnswer] Broadcasting next_question to match ${matchId}: idx=${newIdx}`, "ws");
         broadcastToMatch(matchId, {
           type: "next_question",
-          payload: clientMatchState,
+          payload: {
+            ...clientMatchState,
+            // Include answer status for the new question (always 0/2 since it's a fresh question)
+            answerStatus: {
+              idx: newIdx,
+              answeredCount: 0,
+              required: 2,
+            },
+          },
         });
       }
     }

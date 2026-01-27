@@ -690,3 +690,12 @@ export async function cancelMatchForNoAck(matchId: string): Promise<MatchEndResu
 export async function getMatchEvents(matchId: string, limit: number = 200): Promise<any[]> {
   return await db.select().from(matchEvents).where(eq(matchEvents.matchId, matchId)).orderBy(matchEvents.ts).limit(limit);
 }
+
+export async function getMatchAnswers(matchId: string, idx?: number): Promise<any[]> {
+  if (idx !== undefined) {
+    return await db.select().from(matchAnswers).where(
+      and(eq(matchAnswers.matchId, matchId), eq(matchAnswers.idx, idx))
+    ).orderBy(matchAnswers.answeredAt);
+  }
+  return await db.select().from(matchAnswers).where(eq(matchAnswers.matchId, matchId)).orderBy(matchAnswers.idx, matchAnswers.answeredAt);
+}

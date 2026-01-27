@@ -119,7 +119,18 @@ export default function Match() {
         setPendingClientMsgId(null);
         pendingClientMsgIdRef.current = null;
         setImageError(false);
-        setAnswerStatus(null); // Clear answer status for new question
+        // Use server-provided answerStatus from next_question payload (always includes answeredCount:0, required:2)
+        if (message.payload.answerStatus) {
+          setAnswerStatus(message.payload.answerStatus);
+        } else {
+          // Fallback: set to 0/2 for the new question index
+          setAnswerStatus({
+            matchId: message.payload.matchId || matchId || '',
+            idx: message.payload.currentQuestionIndex ?? 0,
+            answeredCount: 0,
+            required: 2,
+          });
+        }
         if (fallbackTimeoutRef.current) {
           clearTimeout(fallbackTimeoutRef.current);
           fallbackTimeoutRef.current = null;
@@ -627,21 +638,21 @@ export default function Match() {
               </div>
             )}
             {answerResult && answerStatus && answerStatus.answeredCount < answerStatus.required && (
-              <div className="text-center text-muted-foreground py-2">
+              <div className="text-center text-muted-foreground py-2" data-testid="text-waiting-opponent">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                 Waiting for opponent... ({answerStatus.answeredCount}/{answerStatus.required})
               </div>
             )}
-            {answerResult && (!answerStatus || answerStatus.answeredCount >= answerStatus.required) && !opponent?.hasAnsweredCurrent && (
-              <div className="text-center text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-                Waiting for opponent...
-              </div>
-            )}
-            {answerResult && (answerStatus?.answeredCount === answerStatus?.required || opponent?.hasAnsweredCurrent) && (
-              <div className="text-center text-muted-foreground py-2">
+            {answerResult && answerStatus && answerStatus.answeredCount >= answerStatus.required && (
+              <div className="text-center text-muted-foreground py-2" data-testid="text-loading-next">
                 <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                 Loading next question...
+              </div>
+            )}
+            {answerResult && !answerStatus && (
+              <div className="text-center text-muted-foreground py-2" data-testid="text-waiting-sync">
+                <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                Syncing with server...
               </div>
             )}
             {submitError && (
