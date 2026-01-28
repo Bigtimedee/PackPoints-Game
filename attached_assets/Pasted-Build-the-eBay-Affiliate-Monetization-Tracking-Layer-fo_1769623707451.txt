@@ -1,0 +1,173 @@
+Build the eBay Affiliate Monetization Tracking Layer for PackPTS using eBay Partner Network (EPN). This includes:
+1) A server-side outbound redirect proxy (/out/ebay/:itemId) that appends EPN tracking params (campid + customid + optional mkcid/mksid if provided)
+2) Click logging in Postgres for attribution + analytics
+3) A lightweight admin/reporting API to view clicks by day/source
+4) Frontend integration so ALL “Buy on eBay” actions route through the proxy (never direct-link to ebay.com)
+
+STACK (do not change)
+Frontend: React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack Query
+Backend: Express.js + TypeScript
+DB: Postgres (Neon) + Drizzle ORM
+Auth: Passport + express-session
+
+IMPORTANT
+- Assume I have an approved EPN account and will provide my EPN Campaign ID (campid).
+- Do NOT hardcode secrets. Use Replit Secrets (env vars).
+- Ensure compliance: do not auto-redirect without user click; do not incentivize clicks.
+
+========================================================
+A) ENV VARS (Replit Secrets)
+
+Add these env vars:
+- EPN_CAMPID="YOUR_EPN_CAMPAIGN_ID"
+- EPN_CUSTOMID_PREFIX="packpts"              // e.g. "packpts"
+Optional if you use them:
+- EPN_MKCID="1"                              // optional
+- EPN_MKSID="..."                            // optional
+- APP_BASE_URL="https://packpts.com"         // for building canonical urls
+
+========================================================
+B) DATABASE TABLES (DRIZZLE MIGRATIONS)
+
+Create table: affiliate_clicks
+Columns:
+- id uuid PK default gen_random_uuid()
+- created_at timestamp not null default now()
+- user_id uuid null                          // nullable if not logged in (but in PackPTS should exist)
+- session_id text null                       // from express-session ID if available
+- source text not null                       // 'ebay'
+- marketplace text not null default 'ebay'
+- item_id text not null                      // eBay itemId
+- listing_url text not null                  // original eBay URL used
+- outbound_url text not null                 // final affiliate URL (with params)
+- custom_id text not null                    // e.g. "packpts:u_<userId>:ts_<...>"
+- user_agent text null
+- ip_hash text null                          // hash IP (do NOT store raw IP)
+- referrer text null
+- page_path text null                        // where click happened (e.g. /marketplace)
+- card_set_id uuid null                      // optional: to correlate to played vintage
+- card_id uuid null                          // optional: to correlate to card
+Indexes:
+- (created_at)
+- (source, created_at)
+- (user_id, created_at)
+- (item_id)
+
+NOTE: Add a simple SHA-256 hash for IP if desired.
+
+========================================================
+C) SERVER: AFFILIATE LINK BUILDER (SINGLE SOURCE OF TRUTH)
+
+Create: src/services/affiliate/epn.ts
+
+export function buildEpnEbayUrl(opts: {
+  baseEbayUrl: string;       // "https://www.ebay.com/itm/123..."
+  campid: string;
+  customid: string;
+  mkcid?: string;
+  mksid?: string;
+}) {
+  // Append EPN params safely.
+  // If baseEbayUrl already has query params, preserve them.
+  // Return final URL string.
+}
+
+Also create: normalizeEbayUrl(itemIdOrUrl)
+- If given itemId (digits), produce canonical:
+  https://www.ebay.com/itm/${itemId}
+- If given URL, keep it.
+
+========================================================
+D) SERVER: OUTBOUND REDIRECT ROUTE (THE MONEY ROUTE)
+
+Add Express route:
+
+GET /out/ebay/:itemId
+- REQUIRE a user click (this route is only used by clicking buttons/links)
+
+Behavior:
+1) Parse itemId from params
+2) Determine original listing URL:
+   - allow optional query param "u" (encoded original url), else canonical ebay /itm/:itemId
+3) Build custom_id:
+   customId = `${EPN_CUSTOMID_PREFIX}:u_${userId || 'anon'}:i_${itemId}:t_${Date.now()}`
+4) Build outbound affiliate URL using buildEpnEbayUrl:
+   outboundUrl = buildEpnEbayUrl({ baseEbayUrl, campid:process.env.EPN_CAMPID, customid:customId, mkcid,mksid })
+5) Log click in DB affiliate_clicks:
+   - user_id from req.user?.id (should exist)
+   - session_id from req.sessionID
+   - item_id, listing_url, outbound_url, custom_id
+   - user_agent = req.headers['user-agent']
+   - referrer = req.headers['referer'] || null
+   - page_path = req.query.page || null
+   - ip_hash = sha256(req.ip + SALT) (store only hash)
+   - card_set_id/card_id from optional query params if present
+6) Redirect (302) to outboundUrl
+
+Security:
+- Validate itemId is safe (digits only) OR if you accept url param, whitelist domain contains "ebay."
+- Do not allow open redirect to non-ebay domains.
+
+========================================================
+E) SERVER: OPTIONAL “CLICK REGISTER” API (FOR SPA ANALYTICS)
+(Optional, only if you want to record click before opening new tab.)
+POST /api/affiliate/click
+Body: { source:'ebay', itemId, listingUrl, pagePath, cardId?, cardSetId? }
+Returns: { outUrl: `/out/ebay/${itemId}?page=...` }
+
+But simplest is direct linking to /out/ebay/:itemId from the button.
+
+========================================================
+F) ADMIN REPORTING (MINIMAL)
+
+Add:
+GET /api/admin/affiliate/summary?days=7
+Auth: requireAdmin middleware (use your Admin user-type)
+Return:
+- clicksByDay (date, count)
+- topItems (itemId, count)
+- topPages (page_path, count)
+
+SQL:
+SELECT date_trunc('day', created_at) as day, count(*) ...
+etc.
+
+========================================================
+G) FRONTEND: ROUTE ALL EBAY BUTTONS THROUGH /out/ebay
+
+Wherever you render “Buy on eBay” / eBay listing cards:
+- Do NOT link directly to listing_url.
+- Use:
+  const href = `/out/ebay/${itemId}?page=${encodeURIComponent(location.pathname)}&cardId=${cardId ?? ''}&cardSetId=${cardSetId ?? ''}`
+
+Render as:
+<a href={href} target="_blank" rel="noopener noreferrer">Buy on eBay</a>
+
+If you open with window.open, still use the proxy URL.
+
+Make sure itemId is available:
+- If your eBay feed returns itemId, use it.
+- If only full URL is available, parse itemId OR pass encoded URL as query param `u=...` but still validate domain server-side.
+
+========================================================
+H) COMPLIANCE GUARDRAILS
+
+- Never auto-redirect users without a click.
+- Never award PackPTS for clicking.
+- Clearly label outbound links “View on eBay” / “Buy on eBay”.
+- Store only hashed IPs; do not store raw IP.
+
+========================================================
+I) QA CHECKLIST (DO NOT RUN TESTS)
+Do NOT test after implementation. User will manually verify.
+
+But implement simple logging:
+- On /out/ebay/:itemId, console.log("EPN redirect", { userId, itemId, outboundUrlShort })
+
+========================================================
+DELIVERABLES
+1) Drizzle migration for affiliate_clicks
+2) buildEpnEbayUrl helper
+3) GET /out/ebay/:itemId redirect route with logging + open-redirect protection
+4) Admin summary endpoint (optional but recommended)
+5) Frontend updated so ALL eBay outbound actions route via /out/ebay/:itemId
