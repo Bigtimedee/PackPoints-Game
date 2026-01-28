@@ -15,7 +15,12 @@ The frontend uses React 18, TypeScript, Vite, Wouter for routing, Tailwind CSS, 
 The backend is built with Node.js, Express, and TypeScript, providing RESTful JSON endpoints. It uses esbuild for bundling and Drizzle ORM with PostgreSQL for data persistence, validated by Zod schemas. Key features include user authentication, game session management, point calculation, and admin tooling. WebSockets are used for real-time 1v1 game modes, including lobbies, matchmaking, and secure game logic.
 
 ### Card Image System
-Baseball card images are primarily sourced from the Card Hedge API, with player names masked during gameplay. Admin tools support card data synchronization. A user reporting and admin review workflow addresses Card Hedge API data quality issues.
+Baseball card images are primarily sourced from the Card Hedge API, with player names masked during gameplay using a shared GameCard component (`client/src/components/GameCard.tsx`). This component provides consistent masking overlays across solo and 1v1 game modes:
+- **Top mask (18%)**: Covers PSA slab label where player name appears
+- **Bottom mask (20%)**: Covers nameplate area at bottom of card
+- Masks are only shown when image is loaded and answer not yet revealed
+- Image validation includes aspect ratio, size, and blank image detection
+Admin tools support card data synchronization. A user reporting and admin review workflow addresses Card Hedge API data quality issues.
 
 ### Monetization & Wallet
 The platform features a ledger-first wallet for user points (PackPTS) with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) offers feature access and point multipliers. A bucket-based expiration system manages point lifecycles.
