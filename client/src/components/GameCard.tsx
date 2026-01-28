@@ -1,6 +1,13 @@
 import { useState } from "react";
-import { Loader2, SkipForward, RefreshCw } from "lucide-react";
+import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 function isBlankImage(img: HTMLImageElement): boolean {
   try {
@@ -61,6 +68,13 @@ function isBlankImage(img: HTMLImageElement): boolean {
   }
 }
 
+const REPORT_REASONS = [
+  { value: "multi_player", label: "Multiple Players", icon: Users, description: "Card shows more than one player" },
+  { value: "bad_image", label: "Bad Image", icon: ImageOff, description: "Image is blurry, cropped, or unreadable" },
+  { value: "upside_down", label: "Upside Down", icon: RotateCw, description: "Card image is rotated incorrectly" },
+  { value: "other", label: "Other Issue", icon: HelpCircle, description: "Another problem with this card" },
+] as const;
+
 interface GameCardProps {
   imageUrl: string;
   isRevealed: boolean;
@@ -75,6 +89,9 @@ interface GameCardProps {
   onReplace?: () => void;
   cardNumber?: string;
   team?: string;
+  cardId?: string;
+  sessionId?: string;
+  onReportSubmitted?: () => void;
 }
 
 export function GameCard({ 
@@ -90,10 +107,17 @@ export function GameCard({
   replacePending = false,
   onReplace,
   cardNumber,
-  team
+  team,
+  cardId,
+  sessionId,
+  onReportSubmitted
 }: GameCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportPending, setReportPending] = useState(false);
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+  const { toast } = useToast();
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -125,6 +149,41 @@ export function GameCard({
   const handleError = () => {
     setImageError(true);
     onImageError?.();
+  };
+
+  const handleReport = async (reason: string) => {
+    if (!cardId) {
+      toast({
+        title: "Unable to report",
+        description: "Card information not available",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setReportPending(true);
+    try {
+      await apiRequest("POST", `/api/cards/${cardId}/report`, { reason, sessionId });
+      
+      setReportSubmitted(true);
+      setReportOpen(false);
+      toast({
+        title: "Report submitted",
+        description: reason === "multi_player" 
+          ? "Thanks! This card will be reviewed and removed if it has multiple players."
+          : "Thanks for helping improve the game!",
+      });
+      onReportSubmitted?.();
+    } catch (error) {
+      console.error("[GameCard] Error submitting report:", error);
+      toast({
+        title: "Report failed",
+        description: "Unable to submit report. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setReportPending(false);
+    }
   };
 
   return (
@@ -221,6 +280,51 @@ export function GameCard({
           <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
             <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
           </div>
+        </div>
+      )}
+      
+      {cardId && imageLoaded && !imageError && (
+        <div className="absolute top-2 right-2 z-10">
+          <Popover open={reportOpen} onOpenChange={setReportOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-8 w-8 bg-black/50 hover:bg-black/70 ${reportSubmitted ? 'text-green-400' : 'text-white/70 hover:text-white'}`}
+                disabled={reportSubmitted || reportPending}
+                data-testid="button-report-card"
+              >
+                {reportSubmitted ? (
+                  <Check className="h-4 w-4" />
+                ) : reportPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Flag className="h-4 w-4" />
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-2" align="end">
+              <div className="space-y-1">
+                <p className="text-sm font-medium px-2 py-1">Report this card</p>
+                {REPORT_REASONS.map((reason) => (
+                  <Button
+                    key={reason.value}
+                    variant="ghost"
+                    className="w-full justify-start gap-2 h-auto py-2"
+                    onClick={() => handleReport(reason.value)}
+                    disabled={reportPending}
+                    data-testid={`button-report-${reason.value}`}
+                  >
+                    <reason.icon className="h-4 w-4 shrink-0" />
+                    <div className="text-left">
+                      <div className="text-sm font-medium">{reason.label}</div>
+                      <div className="text-xs text-muted-foreground">{reason.description}</div>
+                    </div>
+                  </Button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       )}
     </div>

@@ -682,6 +682,8 @@ export default function Match() {
               }}
               cardNumber={currentQuestion.card.cardNumber}
               team={currentQuestion.card.team}
+              cardId={(currentQuestion.card as any).playableCardId || currentQuestion.card.id}
+              sessionId={matchId}
             />
             
             <div className="flex items-center justify-between">

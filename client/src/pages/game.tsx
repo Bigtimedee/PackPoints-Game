@@ -879,6 +879,8 @@ export default function Game() {
                   handleCardImageError(failedCardId);
                 }
               }}
+              cardId={currentQuestion.card.playableCardId || currentQuestion.card.id}
+              sessionId={session?.id}
             />
             <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
           </div>

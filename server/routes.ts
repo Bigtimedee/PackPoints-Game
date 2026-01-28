@@ -6146,29 +6146,72 @@ export async function registerRoutes(
   // ============================================
 
   // User: Report a card with a wrong/mismatched image (allows anonymous reports)
+  // Supports both playableCards (solo mode) and baseballCards (1v1 mode)
   app.post("/api/cards/:cardId/report", async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      const { createCardImageReportSchema, cardImageReports } = await import("@shared/schema");
+      const { createCardImageReportSchema, cardImageReports, baseballCards } = await import("@shared/schema");
       
       const parsed = createCardImageReportSchema.safeParse({ cardId, ...req.body });
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid report data", details: parsed.error.flatten() });
       }
       
-      const [card] = await db
+      // First try playableCards (solo mode - Card Hedge imported cards)
+      let [card] = await db
         .select()
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
       
+      let isLegacyCard = false;
+      
+      // If not found in playableCards, check baseballCards (1v1 mode - legacy cards)
       if (!card) {
-        return res.status(404).json({ error: "Card not found" });
+        const [legacyCard] = await db
+          .select()
+          .from(baseballCards)
+          .where(eq(baseballCards.id, cardId))
+          .limit(1);
+        
+        if (legacyCard) {
+          isLegacyCard = true;
+          console.log(`[Card Report] Card ${cardId} is from legacy baseballCards table`);
+        } else {
+          return res.status(404).json({ error: "Card not found" });
+        }
       }
       
       // Get user ID if authenticated, otherwise null for anonymous report
       const reporterId = (req as any).user?.id || null;
       
+      // For legacy cards (1v1 mode), we can't store in cardImageReports (FK constraint)
+      // But we CAN exclude them by setting imageVerified=false (match service filters by this)
+      if (isLegacyCard) {
+        console.log(`[Card Report] LEGACY CARD ${cardId} reported for ${parsed.data.reason} by ${reporterId || "guest"}`);
+        
+        // For multi_player reports on legacy cards, immediately exclude by setting imageVerified=false
+        // This prevents them from appearing in future 1v1 matches (match service filters by imageVerified=true)
+        if (parsed.data.reason === "multi_player") {
+          await db
+            .update(baseballCards)
+            .set({ imageVerified: false })
+            .where(eq(baseballCards.id, cardId));
+          
+          console.log(`[Card Report] LEGACY CARD ${cardId} EXCLUDED from 1v1 matches: multi_player report`);
+        }
+        
+        return res.json({ 
+          success: true, 
+          reportId: null, 
+          excluded: parsed.data.reason === "multi_player",
+          message: parsed.data.reason === "multi_player" 
+            ? "Card has been flagged and will be removed from future matches."
+            : "Report logged for legacy card. These cards are from a curated set and will be reviewed." 
+        });
+      }
+      
+      // For playableCards (solo mode), store full report and apply auto-exclusion
       const [report] = await db
         .insert(cardImageReports)
         .values({
@@ -6189,6 +6232,32 @@ export async function registerRoutes(
           updatedAt: new Date(),
         })
         .where(eq(playableCards.id, cardId));
+      
+      // Auto-exclude cards with 2+ multi_player reports
+      if (parsed.data.reason === "multi_player") {
+        const multiPlayerReportCount = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(cardImageReports)
+          .where(and(
+            eq(cardImageReports.cardId, cardId),
+            eq(cardImageReports.reason, "multi_player")
+          ));
+        
+        const count = multiPlayerReportCount[0]?.count || 0;
+        if (count >= 2) {
+          await db
+            .update(playableCards)
+            .set({
+              isPlayable: false,
+              blockedReason: "multi-player",
+              imageReviewStatus: "excluded",
+              updatedAt: new Date(),
+            })
+            .where(eq(playableCards.id, cardId));
+          
+          console.log(`[Card Report] Card ${cardId} AUTO-EXCLUDED: 2+ multi_player reports (${count} total)`);
+        }
+      }
       
       console.log(`[Card Report] Card ${cardId} reported for ${parsed.data.reason} by ${reporterId || "guest"}`);
       
