@@ -521,8 +521,39 @@ export default function Match() {
   if (matchEnded && matchEnded.status === "FINISHED") {
     const meResult = matchEnded.participants.find((p) => p.userId === userId);
     const opponentResult = matchEnded.participants.find((p) => p.userId !== userId);
-    const iWon = matchEnded.winnerUserId === userId;
-    const isDraw = matchEnded.result === "TIE" || (!matchEnded.winnerUserId && !matchEnded.winner);
+    
+    // Calculate winner from correctAnswers as fallback if result/winnerUserId missing
+    const myCorrect = meResult?.correctAnswers ?? 0;
+    const opponentCorrect = opponentResult?.correctAnswers ?? 0;
+    
+    let iWon: boolean;
+    let isDraw: boolean;
+    let winnerName: string | undefined;
+    
+    // Prefer server-provided result, but calculate from correctAnswers as fallback
+    if (matchEnded.result === "TIE") {
+      iWon = false;
+      isDraw = true;
+    } else if (matchEnded.winnerUserId) {
+      iWon = matchEnded.winnerUserId === userId;
+      isDraw = false;
+      winnerName = matchEnded.winner;
+    } else {
+      // Fallback: calculate from correctAnswers
+      console.log("[Match] Using fallback winner calculation:", { myCorrect, opponentCorrect });
+      if (myCorrect > opponentCorrect) {
+        iWon = true;
+        isDraw = false;
+        winnerName = meResult?.username || "You";
+      } else if (opponentCorrect > myCorrect) {
+        iWon = false;
+        isDraw = false;
+        winnerName = opponentResult?.username || "Opponent";
+      } else {
+        iWon = false;
+        isDraw = true;
+      }
+    }
     
     return (
       <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
@@ -538,7 +569,7 @@ export default function Match() {
                   {iWon ? "You Win!" : isDraw ? "It's a Draw!" : "You Lose"}
                 </h1>
                 <p className="text-muted-foreground">
-                  {isDraw ? "Both players got the same number correct" : `${matchEnded.winner} got more correct!`}
+                  {isDraw ? "Both players got the same number correct" : `${winnerName || matchEnded.winner || "Winner"} got more correct!`}
                 </p>
               </div>
               

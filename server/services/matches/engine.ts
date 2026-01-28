@@ -7,6 +7,7 @@ import {
   matchQuestions,
   baseballCards,
   MatchStatus,
+  MatchResult,
   type Match,
   type MatchParticipant,
   type MatchState,
@@ -482,6 +483,8 @@ export async function completeMatchFinish(matchId: string, participants: MatchPa
   const hostParticipant = updatedParticipants.find(p => p.role === "HOST");
   const guestParticipant = updatedParticipants.find(p => p.role === "GUEST");
   
+  console.log(`[MatchFinish] matchId=${matchId}, computed=${JSON.stringify(computed)}, hostParticipant=${hostParticipant?.userId}, guestParticipant=${guestParticipant?.userId}`);
+  
   if (hostParticipant && guestParticipant) {
     await applyProgressForMatchIfNeeded({
       matchId,
@@ -491,17 +494,50 @@ export async function completeMatchFinish(matchId: string, participants: MatchPa
     });
   }
   
-  const winnerParticipant = computed?.winnerUserId 
-    ? updatedParticipants.find(p => p.userId === computed.winnerUserId)
+  // Use computed result if available, otherwise calculate from participant data as fallback
+  let result = computed?.result;
+  let winnerUserId = computed?.winnerUserId ?? null;
+  let hostCorrect = computed?.hostCorrect ?? (hostParticipant?.correctAnswers || 0);
+  let guestCorrect = computed?.guestCorrect ?? (guestParticipant?.correctAnswers || 0);
+  
+  // Fallback: If computed result is missing, calculate directly from participants
+  if (!result && hostParticipant && guestParticipant) {
+    console.log(`[MatchFinish] Fallback calculation: hostCorrect=${hostCorrect}, guestCorrect=${guestCorrect}`);
+    if (hostCorrect > guestCorrect) {
+      result = MatchResult.HOST_WIN;
+      winnerUserId = hostParticipant.userId;
+    } else if (guestCorrect > hostCorrect) {
+      result = MatchResult.GUEST_WIN;
+      winnerUserId = guestParticipant.userId;
+    } else {
+      result = MatchResult.TIE;
+      winnerUserId = null;
+    }
+    
+    // Persist the fallback result
+    await db.update(matches).set({
+      result,
+      winnerUserId,
+      hostCorrect,
+      guestCorrect,
+    }).where(eq(matches.id, matchId));
+    
+    console.log(`[MatchFinish] Persisted fallback result: result=${result}, winnerUserId=${winnerUserId}`);
+  }
+  
+  const winnerParticipant = winnerUserId 
+    ? updatedParticipants.find(p => p.userId === winnerUserId)
     : undefined;
   const winner = winnerParticipant?.username;
+
+  console.log(`[MatchFinish] Final result: result=${result}, winner=${winner}, winnerUserId=${winnerUserId}`);
 
   await logEvent(matchId, "END", { 
     reason: "completed", 
     winner,
-    result: computed?.result,
-    hostCorrect: computed?.hostCorrect,
-    guestCorrect: computed?.guestCorrect,
+    result,
+    hostCorrect,
+    guestCorrect,
   });
 
   return {
@@ -509,10 +545,10 @@ export async function completeMatchFinish(matchId: string, participants: MatchPa
     reason: "completed",
     status: MatchStatus.FINISHED,
     winner,
-    winnerUserId: computed?.winnerUserId ?? undefined,
-    result: computed?.result,
-    hostCorrect: computed?.hostCorrect,
-    guestCorrect: computed?.guestCorrect,
+    winnerUserId: winnerUserId ?? undefined,
+    result,
+    hostCorrect,
+    guestCorrect,
     participants: updatedParticipants.map(p => ({
       userId: p.userId,
       username: p.username,
