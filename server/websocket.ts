@@ -584,8 +584,10 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     broadcastToMatch(matchId, {
       type: "participant_answered",
       payload: {
+        matchId,
         userId: serverUserId,
         questionIndex,
+        idx: questionIndex,
         participants: updatedState.participants.map(p => ({
           userId: p.userId,
           username: p.username,
@@ -945,14 +947,26 @@ function broadcastToLobby(lobbyId: string, message: any) {
 
 function broadcastToMatch(matchId: string, message: any) {
   const matchClients = matchConnections.get(matchId);
-  if (!matchClients) return;
+  if (!matchClients) {
+    log(`[BroadcastToMatch] No clients found for match ${matchId}, message type: ${message.type}`, "ws");
+    return;
+  }
   
   const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  let closedCount = 0;
   Array.from(matchClients).forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(messageStr);
+      sentCount++;
+    } else {
+      closedCount++;
     }
   });
+  
+  if (message.type === "answer_status" || message.type === "next_question") {
+    log(`[BroadcastToMatch] ${message.type} to ${matchId}: sent=${sentCount}, closed=${closedCount}, total=${matchClients.size}`, "ws");
+  }
 }
 
 async function handleJoinQueue(ws: WebSocket, payload: { userId: string; username: string; totalQuestions?: number; gameSetId?: string | null }) {

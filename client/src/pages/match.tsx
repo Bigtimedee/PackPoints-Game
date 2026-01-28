@@ -208,6 +208,17 @@ export default function Match() {
             setSubmitError(null);
             setPendingClientMsgId(null);
             pendingClientMsgIdRef.current = null;
+            
+            // CRITICAL: Update answerStatus from answer_ack payload
+            // This ensures the client always reflects the server's answer count
+            if (message.payload.answeredCount !== undefined && message.payload.required !== undefined) {
+              setAnswerStatus({
+                matchId: message.payload.matchId || matchId || '',
+                idx: message.payload.idx,
+                answeredCount: message.payload.answeredCount,
+                required: message.payload.required,
+              });
+            }
           } else {
             setSubmitting(false);
             submittingRef.current = false;
@@ -252,6 +263,17 @@ export default function Match() {
             participants: message.payload.participants,
           };
         });
+        // Also update answerStatus from participant_answered as a fallback
+        if (message.payload.participants && message.payload.idx !== undefined) {
+          const answeredCount = message.payload.participants.filter((p: any) => p.hasAnsweredCurrent).length;
+          const required = message.payload.participants.length;
+          setAnswerStatus({
+            matchId: message.payload.matchId || matchId || '',
+            idx: message.payload.idx,
+            answeredCount,
+            required,
+          });
+        }
         break;
       case "match_completed":
       case "match_end":
