@@ -332,6 +332,7 @@ export default function Match() {
           membershipSecret: matchSecret 
         });
       } else {
+        hasJoinedMatchRef.current = true;
         console.log("[Match] No secret, sending ready_next");
         send("ready_next", { matchId });
       }

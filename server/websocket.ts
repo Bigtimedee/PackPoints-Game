@@ -654,23 +654,61 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
 
 async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
   const { matchId } = payload;
+  const extWs = ws as ExtendedWebSocket;
+  const existingClient = clients.get(ws);
+  
+  // Get userId from existing client info or session
+  const userId = existingClient?.userId || extWs.sessionUserId;
+  const username = existingClient?.username || extWs.sessionUsername || "Player";
+  
+  log(`[ReadyNext] matchId=${matchId}, userId=${userId}, hasExistingClient=${!!existingClient}`, "ws");
+  
   const matchState = await matchService.getMatchStateWithFallback(matchId);
   
-  if (matchState) {
-    const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
-    const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
-    ws.send(JSON.stringify({
-      type: "match_state",
-      payload: clientMatchState,
-    }));
+  if (!matchState) {
+    ws.send(JSON.stringify({ type: "error", message: "Match not found" }));
+    return;
   }
+  
+  // If we have a userId and they're a participant, ensure they're registered for this match
+  if (userId && isMatchParticipantByState(matchState, userId)) {
+    // Register this WebSocket for the match if not already registered
+    if (!existingClient?.matchId || existingClient.matchId !== matchId) {
+      log(`[ReadyNext] Registering user ${userId} for match ${matchId}`, "ws");
+      
+      clients.set(ws, { 
+        ...existingClient,
+        userId, 
+        username, 
+        matchId, 
+        isAuthenticated: true,
+        sessionUserId: extWs.sessionUserId
+      });
+      
+      if (!matchConnections.has(matchId)) {
+        matchConnections.set(matchId, new Set());
+      }
+      matchConnections.get(matchId)?.add(ws);
+      
+      cancelDisconnectTimer(matchId, userId);
+      await matchEngine.markConnected(matchId, userId);
+    }
+  }
+  
+  const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
+  const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
+  ws.send(JSON.stringify({
+    type: "match_state",
+    payload: clientMatchState,
+  }));
 }
 
 async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
   const { matchId } = payload;
   const extWs = ws as ExtendedWebSocket;
-  const client = clients.get(ws);
-  const userId = client?.userId || extWs.sessionUserId;
+  const existingClient = clients.get(ws);
+  const userId = existingClient?.userId || extWs.sessionUserId;
+  const username = existingClient?.username || extWs.sessionUsername || "Player";
   
   log(`[MatchResync] Resync requested for match ${matchId}, userId=${userId}`, "ws");
   
@@ -690,6 +728,28 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
       message: "Match not found or you are not a participant",
     }));
     return;
+  }
+  
+  // Ensure the client is properly registered for this match
+  if (!existingClient?.matchId || existingClient.matchId !== matchId) {
+    log(`[MatchResync] Registering user ${userId} for match ${matchId}`, "ws");
+    
+    clients.set(ws, { 
+      ...existingClient,
+      userId, 
+      username, 
+      matchId, 
+      isAuthenticated: true,
+      sessionUserId: extWs.sessionUserId
+    });
+    
+    if (!matchConnections.has(matchId)) {
+      matchConnections.set(matchId, new Set());
+    }
+    matchConnections.get(matchId)?.add(ws);
+    
+    cancelDisconnectTimer(matchId, userId);
+    await matchEngine.markConnected(matchId, userId);
   }
   
   if (matchState.status === MatchStatus.FINISHED || matchState.status === MatchStatus.CANCELLED) {
