@@ -2049,6 +2049,76 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/affiliate/summary - Affiliate click analytics summary
+  app.get("/api/admin/affiliate/summary", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      
+      // Clicks by day
+      const clicksByDay = await db.execute(sql`
+        SELECT 
+          date_trunc('day', created_at)::date as day,
+          COUNT(*) as clicks,
+          COUNT(DISTINCT user_id) as unique_users
+        FROM outbound_clicks
+        WHERE created_at >= ${startDate}
+          AND source = 'ebay'
+        GROUP BY date_trunc('day', created_at)::date
+        ORDER BY day DESC
+      `);
+      
+      // Top items by clicks
+      const topItems = await db.execute(sql`
+        SELECT 
+          listing_id as item_id,
+          COUNT(*) as clicks
+        FROM outbound_clicks
+        WHERE created_at >= ${startDate}
+          AND source = 'ebay'
+        GROUP BY listing_id
+        ORDER BY clicks DESC
+        LIMIT 10
+      `);
+      
+      // Top pages by clicks
+      const topPages = await db.execute(sql`
+        SELECT 
+          COALESCE(page_path, 'unknown') as page_path,
+          COUNT(*) as clicks
+        FROM outbound_clicks
+        WHERE created_at >= ${startDate}
+          AND source = 'ebay'
+        GROUP BY page_path
+        ORDER BY clicks DESC
+        LIMIT 10
+      `);
+      
+      // Total summary
+      const totalSummary = await db.execute(sql`
+        SELECT 
+          COUNT(*) as total_clicks,
+          COUNT(DISTINCT user_id) as unique_users,
+          COUNT(DISTINCT listing_id) as unique_items
+        FROM outbound_clicks
+        WHERE created_at >= ${startDate}
+          AND source = 'ebay'
+      `);
+      
+      res.json({
+        period: { days, startDate: startDate.toISOString() },
+        summary: totalSummary.rows[0] || { total_clicks: 0, unique_users: 0, unique_items: 0 },
+        clicksByDay: clicksByDay.rows,
+        topItems: topItems.rows,
+        topPages: topPages.rows,
+      });
+    } catch (error) {
+      console.error("Error getting affiliate summary:", error);
+      res.status(500).json({ error: "Failed to get affiliate summary" });
+    }
+  });
+
   app.get("/api/admin/users", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const search = (req.query.search as string) || "";
@@ -4534,11 +4604,14 @@ export async function registerRoutes(
     }
   });
 
-  // GET /out/ebay/:listingId - Tracked outbound redirect for eBay
+  // GET /out/ebay/:listingId - Tracked outbound redirect for eBay with EPN affiliate tracking
   app.get("/out/ebay/:listingId", async (req: any, res) => {
     try {
       const { listingId } = req.params;
       const token = req.query.token as string;
+      const pagePath = req.query.page as string || null;
+      const cardSetId = req.query.cardSetId as string || null;
+      const cardId = req.query.cardId as string || null;
 
       if (!token) {
         return res.status(400).json({ error: "Invalid redirect token" });
@@ -4553,18 +4626,38 @@ export async function registerRoutes(
       const sessionId = req.sessionID || null;
       const ip = req.ip || req.headers["x-forwarded-for"] || null;
       const userAgent = req.headers["user-agent"] || null;
+      const referrer = req.headers["referer"] || null;
 
-      await marketplaceService.logOutboundClick(
-        "ebay",
+      // Generate affiliate URL with EPN tracking
+      const finalUrl = marketplaceService.applyEpnTracking(payload.destinationUrl, userId, listingId);
+      
+      // Generate customId for attribution tracking
+      const customId = marketplaceService.generateEpnCustomId(userId, listingId);
+
+      // Log click with full tracking data
+      await marketplaceService.logOutboundClick({
+        source: "ebay",
         listingId,
-        payload.destinationUrl,
+        destinationUrl: payload.destinationUrl,
+        outboundUrl: finalUrl,
+        customId,
         userId,
         sessionId,
         ip,
-        userAgent
-      );
+        userAgent,
+        referrer,
+        pagePath,
+        cardSetId,
+        cardId,
+      });
 
-      const finalUrl = marketplaceService.applyEpnTracking(payload.destinationUrl, userId);
+      // Log for debugging (truncated URL for safety)
+      console.log("[EPN redirect]", { 
+        userId: userId?.substring(0, 8) || "anon", 
+        listingId, 
+        outboundUrlShort: finalUrl.substring(0, 60) + "..." 
+      });
+
       res.redirect(302, finalUrl);
     } catch (error) {
       console.error("Error processing eBay outbound redirect:", error);
@@ -4592,15 +4685,15 @@ export async function registerRoutes(
       const ip = req.ip || req.headers["x-forwarded-for"] || null;
       const userAgent = req.headers["user-agent"] || null;
 
-      await marketplaceService.logOutboundClick(
-        "goldin",
+      await marketplaceService.logOutboundClick({
+        source: "goldin",
         listingId,
-        payload.destinationUrl,
+        destinationUrl: payload.destinationUrl,
         userId,
         sessionId,
         ip,
-        userAgent
-      );
+        userAgent,
+      });
 
       res.redirect(302, payload.destinationUrl);
     } catch (error) {

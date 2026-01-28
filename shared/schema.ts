@@ -1577,15 +1577,23 @@ export const outboundClicks = pgTable("outbound_clicks", {
   source: marketplaceSourceEnum("source").notNull(),
   listingId: text("listing_id").notNull(),
   destinationUrl: text("destination_url").notNull(),
+  outboundUrl: text("outbound_url"),
+  customId: text("custom_id"),
   userId: varchar("user_id").references(() => users.id),
   sessionId: text("session_id"),
   ip: varchar("ip", { length: 45 }),
+  ipHash: varchar("ip_hash", { length: 64 }),
   userAgent: text("user_agent"),
+  referrer: text("referrer"),
+  pagePath: text("page_path"),
+  cardSetId: varchar("card_set_id"),
+  cardId: varchar("card_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_outbound_clicks_source").on(table.source),
   index("idx_outbound_clicks_user").on(table.userId),
   index("idx_outbound_clicks_created").on(table.createdAt),
+  index("idx_outbound_clicks_listing").on(table.listingId),
 ]);
 
 export type InsertOutboundClick = typeof outboundClicks.$inferInsert;

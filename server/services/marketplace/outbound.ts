@@ -53,53 +53,159 @@ export function validateOutboundToken(token: string): OutboundTokenPayload | nul
   }
 }
 
-export async function logOutboundClick(
-  source: MarketplaceSource,
-  listingId: string,
-  destinationUrl: string,
-  userId: string | null,
-  sessionId: string | null,
-  ip: string | null,
-  userAgent: string | null
-): Promise<void> {
+/**
+ * Hash an IP address for privacy-safe storage
+ */
+export function hashIp(ip: string): string {
+  const salt = process.env.OUTBOUND_SECRET || "packpts-salt";
+  return crypto
+    .createHmac("sha256", salt)
+    .update(ip)
+    .digest("hex");
+}
+
+export interface OutboundClickData {
+  source: MarketplaceSource;
+  listingId: string;
+  destinationUrl: string;
+  outboundUrl?: string;
+  customId?: string;
+  userId: string | null;
+  sessionId: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  referrer?: string | null;
+  pagePath?: string | null;
+  cardSetId?: string | null;
+  cardId?: string | null;
+}
+
+export async function logOutboundClick(data: OutboundClickData): Promise<void> {
   try {
     await db.insert(outboundClicks).values({
-      source,
-      listingId,
-      destinationUrl,
-      userId,
-      sessionId,
-      ip,
-      userAgent,
+      source: data.source,
+      listingId: data.listingId,
+      destinationUrl: data.destinationUrl,
+      outboundUrl: data.outboundUrl,
+      customId: data.customId,
+      userId: data.userId,
+      sessionId: data.sessionId,
+      ip: null,
+      ipHash: data.ip ? hashIp(data.ip) : null,
+      userAgent: data.userAgent,
+      referrer: data.referrer,
+      pagePath: data.pagePath,
+      cardSetId: data.cardSetId,
+      cardId: data.cardId,
     });
   } catch (error) {
     console.error("[Outbound] Failed to log click:", error);
   }
 }
 
-export function applyEpnTracking(url: string, userId?: string | null): string {
-  const campaignId = process.env.EBAY_EPN_CAMPAIGN_ID;
-  const trackingId = process.env.EBAY_EPN_TRACKING_ID || "10001";
-  if (!campaignId) return url;
+// EPN Affiliate Config
+const EPN_CONFIG = {
+  get campId() {
+    return process.env.EPN_CAMPID;
+  },
+  get customIdPrefix() {
+    return process.env.EPN_CUSTOMID_PREFIX || "packpts";
+  },
+  get mkcid() {
+    return process.env.EPN_MKCID;
+  },
+  get mksid() {
+    return process.env.EPN_MKSID;
+  },
+};
 
-  const urlObj = new URL(url);
-  urlObj.searchParams.set("campid", campaignId);
-  urlObj.searchParams.set("toolid", trackingId);
+/**
+ * Build a fully-qualified EPN affiliate URL with tracking parameters
+ */
+export function buildEpnEbayUrl(opts: {
+  baseEbayUrl: string;
+  campid: string;
+  customid: string;
+  mkcid?: string;
+  mksid?: string;
+}): string {
+  const urlObj = new URL(opts.baseEbayUrl);
+  urlObj.searchParams.set("campid", opts.campid);
+  urlObj.searchParams.set("toolid", "10001");
+  urlObj.searchParams.set("customid", opts.customid);
+  
+  if (opts.mkcid) {
+    urlObj.searchParams.set("mkcid", opts.mkcid);
+  }
+  if (opts.mksid) {
+    urlObj.searchParams.set("mksid", opts.mksid);
+  }
+  
+  return urlObj.toString();
+}
 
-  if (userId) {
-    try {
-      const customId = crypto
-        .createHmac("sha256", getTokenSecret())
-        .update(userId)
-        .digest("hex")
-        .substring(0, 16);
-      urlObj.searchParams.set("customid", customId);
-    } catch {
-      // If OUTBOUND_SECRET not set, skip custom ID
-    }
+/**
+ * Generate a unique customId for EPN tracking attribution
+ * Format: prefix:u_userId:i_itemId:t_timestamp
+ */
+export function generateEpnCustomId(
+  userId: string | null,
+  itemId: string
+): string {
+  const prefix = EPN_CONFIG.customIdPrefix;
+  const userPart = userId ? `u_${userId.substring(0, 12)}` : "u_anon";
+  const itemPart = `i_${itemId.substring(0, 16)}`;
+  const timePart = `t_${Date.now()}`;
+  return `${prefix}:${userPart}:${itemPart}:${timePart}`;
+}
+
+/**
+ * Normalize an eBay item reference to a canonical URL
+ */
+export function normalizeEbayUrl(itemIdOrUrl: string): string {
+  // If it's just digits, it's an item ID
+  if (/^\d+$/.test(itemIdOrUrl)) {
+    return `https://www.ebay.com/itm/${itemIdOrUrl}`;
+  }
+  // Otherwise treat as URL
+  return itemIdOrUrl;
+}
+
+export function applyEpnTracking(
+  url: string, 
+  userId: string | null = null,
+  itemId?: string
+): string {
+  const campaignId = EPN_CONFIG.campId;
+  if (!campaignId) {
+    console.warn("[EPN] Missing EPN_CAMPID - affiliate tracking disabled");
+    return url;
   }
 
-  return urlObj.toString();
+  // Extract item ID from URL if not provided
+  const extractedItemId = itemId || extractItemIdFromUrl(url) || "unknown";
+  
+  const customId = generateEpnCustomId(userId, extractedItemId);
+  
+  return buildEpnEbayUrl({
+    baseEbayUrl: url,
+    campid: campaignId,
+    customid: customId,
+    mkcid: EPN_CONFIG.mkcid,
+    mksid: EPN_CONFIG.mksid,
+  });
+}
+
+/**
+ * Extract eBay item ID from a URL
+ */
+function extractItemIdFromUrl(url: string): string | null {
+  try {
+    const match = url.match(/\/itm\/(\d+)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
 }
 
 export function generateListingWithOutboundUrl(
