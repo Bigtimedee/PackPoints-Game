@@ -1,0 +1,195 @@
+import { db } from "../db";
+import { playableCards } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
+import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
+
+const FRESHNESS_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+const RATE_LIMIT_DELAY_MS = 1000; // 1 second between requests
+const IMAGE_VALIDATION_TIMEOUT_MS = 5000; // 5 second timeout for image validation
+
+let lastRequestTime = 0;
+
+async function rateLimitedDelay(): Promise<void> {
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < RATE_LIMIT_DELAY_MS) {
+    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS - timeSinceLastRequest));
+  }
+  lastRequestTime = Date.now();
+}
+
+async function validateImageUrl(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), IMAGE_VALIDATION_TIMEOUT_MS);
+    
+    const response = await fetch(url, { 
+      method: "HEAD",
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) return false;
+    
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.startsWith("image/")) return false;
+    
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) < 1000) return false;
+    
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface FreshImageResult {
+  success: boolean;
+  imageUrl: string | null;
+  fromCache: boolean;
+  error?: string;
+}
+
+export async function getFreshImageUrl(
+  cardId: string,
+  cardHedgeId: string | null,
+  currentImageUrl: string | null,
+  lastImageCheck: Date | null
+): Promise<FreshImageResult> {
+  if (!cardHedgeId) {
+    return {
+      success: false,
+      imageUrl: currentImageUrl,
+      fromCache: true,
+      error: "No Card Hedge ID available for this card",
+    };
+  }
+
+  if (!isCardHedgeConfigured()) {
+    return {
+      success: false,
+      imageUrl: currentImageUrl,
+      fromCache: true,
+      error: "Card Hedge API not configured",
+    };
+  }
+
+  const now = new Date();
+  const isStale = !lastImageCheck || (now.getTime() - lastImageCheck.getTime() > FRESHNESS_THRESHOLD_MS);
+
+  if (!isStale && currentImageUrl) {
+    return {
+      success: true,
+      imageUrl: currentImageUrl,
+      fromCache: true,
+    };
+  }
+
+  try {
+    await rateLimitedDelay();
+    
+    const cardDetails = await fetchCardDetailsNormalized(cardHedgeId);
+    
+    if (!cardDetails || !cardDetails.imageUrl) {
+      console.log(`[CardImageRefresh] No image found for card ${cardId} (cardHedgeId: ${cardHedgeId})`);
+      
+      await db.update(playableCards)
+        .set({
+          lastImageCheck: now,
+          imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + 1`,
+          imageLastError: "No image found in Card Hedge response",
+        })
+        .where(eq(playableCards.id, cardId));
+      
+      return {
+        success: false,
+        imageUrl: currentImageUrl,
+        fromCache: true,
+        error: "No image found in Card Hedge response",
+      };
+    }
+
+    const isImageValid = await validateImageUrl(cardDetails.imageUrl);
+    
+    if (!isImageValid) {
+      console.log(`[CardImageRefresh] Image validation failed for card ${cardId}`);
+      
+      await db.update(playableCards)
+        .set({
+          lastImageCheck: now,
+          imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + 1`,
+          imageLastError: "Image validation failed (HEAD check)",
+        })
+        .where(eq(playableCards.id, cardId));
+      
+      return {
+        success: false,
+        imageUrl: currentImageUrl,
+        fromCache: true,
+        error: "Image validation failed",
+      };
+    }
+
+    await db.update(playableCards)
+      .set({
+        imageUrl: cardDetails.imageUrl,
+        lastImageCheck: now,
+        imageFailureCount: 0,
+        imageLastError: null,
+      })
+      .where(eq(playableCards.id, cardId));
+
+    console.log(`[CardImageRefresh] Updated card ${cardId} with validated fresh image URL`);
+    
+    return {
+      success: true,
+      imageUrl: cardDetails.imageUrl,
+      fromCache: false,
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error(`[CardImageRefresh] Error fetching fresh image for card ${cardId}:`, errorMessage);
+    
+    await db.update(playableCards)
+      .set({
+        lastImageCheck: now,
+        imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + 1`,
+        imageLastError: `Refresh error: ${errorMessage}`,
+      })
+      .where(eq(playableCards.id, cardId)).catch(() => {});
+    
+    return {
+      success: false,
+      imageUrl: currentImageUrl,
+      fromCache: true,
+      error: errorMessage,
+    };
+  }
+}
+
+export async function refreshCardImage(cardId: string): Promise<FreshImageResult> {
+  const card = await db.query.playableCards.findFirst({
+    where: eq(playableCards.id, cardId),
+  });
+
+  if (!card) {
+    return {
+      success: false,
+      imageUrl: null,
+      fromCache: false,
+      error: "Card not found",
+    };
+  }
+
+  return getFreshImageUrl(
+    card.id,
+    card.cardhedgeCardId || null,
+    card.imageUrl || null,
+    card.lastImageCheck || null
+  );
+}
+
+export function isImageStale(lastImageCheck: Date | null): boolean {
+  if (!lastImageCheck) return true;
+  return Date.now() - lastImageCheck.getTime() > FRESHNESS_THRESHOLD_MS;
+}

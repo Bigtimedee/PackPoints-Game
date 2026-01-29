@@ -4,6 +4,7 @@ import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
   { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
@@ -536,7 +537,11 @@ export class DatabaseStorage implements IStorage {
       console.log(`[Storage] Filtered ${filteredCount} wrong-sport cards from set ${setId} (expected sport: ${expectedSport})`);
     }
     
-    return validCards.slice(0, count);
+    // Get cards to serve and refresh stale images
+    const cardsToServe = validCards.slice(0, count);
+    const refreshedCards = await this.refreshStaleCardImages(cardsToServe);
+    
+    return refreshedCards;
   }
 
   async getPlayerNamesFromSet(setId: string): Promise<string[]> {
@@ -594,6 +599,44 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     
     return activeSet?.id || null;
+  }
+
+  private async refreshStaleCardImages(cards: PlayableCard[]): Promise<PlayableCard[]> {
+    const refreshedCards: PlayableCard[] = [];
+    
+    for (const card of cards) {
+      if (isImageStale(card.lastImageCheck)) {
+        try {
+          const result = await getFreshImageUrl(
+            card.id,
+            card.cardhedgeCardId || null,
+            card.imageUrl || null,
+            card.lastImageCheck || null
+          );
+          
+          if (result.success && result.imageUrl) {
+            refreshedCards.push({
+              ...card,
+              imageUrl: result.imageUrl,
+              lastImageCheck: new Date(),
+              imageFailureCount: 0,
+            });
+            if (!result.fromCache) {
+              console.log(`[Storage] Refreshed stale image for card ${card.id}`);
+            }
+          } else {
+            refreshedCards.push(card);
+          }
+        } catch (error) {
+          console.error(`[Storage] Error refreshing card ${card.id}:`, error);
+          refreshedCards.push(card);
+        }
+      } else {
+        refreshedCards.push(card);
+      }
+    }
+    
+    return refreshedCards;
   }
 
   private generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): GameQuestion {
@@ -834,12 +877,15 @@ export class DatabaseStorage implements IStorage {
       return null;
     }
 
+    // Refresh the card image if stale before serving
+    const [refreshedCard] = await this.refreshStaleCardImages([replacementCard]);
+
     // Get player names for options
     const additionalNames = await this.getSamplePlayerNamesFromSet(
-      replacementCard.gameSetId || "",
+      refreshedCard.gameSetId || "",
       100
     );
-    const question = this.generateQuestionFromPlayableCard(replacementCard, additionalNames);
+    const question = this.generateQuestionFromPlayableCard(refreshedCard, additionalNames);
 
     return { question, flagged: true };
   }

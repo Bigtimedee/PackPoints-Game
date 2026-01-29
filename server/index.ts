@@ -151,6 +151,26 @@ app.use((req, res, next) => {
     startValidationJob();
   }
 
+  // Start the card pool refresh job (runs every 12 hours to revalidate excluded cards)
+  if (process.env.CARD_POOL_REFRESH_ENABLED !== "false") {
+    const { runCardPoolRefreshJob } = await import("./services/cardPoolRefresh");
+    console.log("[CardPoolRefresh] Starting scheduled refresh job (every 12 hours)");
+    
+    // Run initial refresh after 5 minutes to allow system to stabilize
+    setTimeout(() => {
+      runCardPoolRefreshJob().catch(err => {
+        console.error("[CardPoolRefresh] Initial refresh failed:", err);
+      });
+    }, 5 * 60 * 1000);
+
+    // Run every 12 hours
+    setInterval(() => {
+      runCardPoolRefreshJob().catch(err => {
+        console.error("[CardPoolRefresh] Scheduled refresh failed:", err);
+      });
+    }, 12 * 60 * 60 * 1000);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

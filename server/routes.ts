@@ -2153,6 +2153,42 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/card-pool/stats - Get card pool statistics
+  app.get("/api/admin/card-pool/stats", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getCardPoolStats, isRefreshJobRunning } = await import("./services/cardPoolRefresh");
+      const stats = await getCardPoolStats();
+      res.json({
+        ...stats,
+        refreshJobRunning: isRefreshJobRunning(),
+      });
+    } catch (error) {
+      console.error("Error getting card pool stats:", error);
+      res.status(500).json({ error: "Failed to get card pool stats" });
+    }
+  });
+
+  // POST /api/admin/card-pool/refresh - Trigger card pool refresh job
+  app.post("/api/admin/card-pool/refresh", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { runCardPoolRefreshJob, isRefreshJobRunning } = await import("./services/cardPoolRefresh");
+      
+      if (isRefreshJobRunning()) {
+        return res.status(409).json({ error: "Refresh job already running" });
+      }
+      
+      const result = await runCardPoolRefreshJob();
+      res.json({
+        success: true,
+        result,
+        message: `Processed ${result.cardsProcessed} cards, revalidated ${result.cardsRevalidated}, failed ${result.cardsFailed}`
+      });
+    } catch (error) {
+      console.error("Error running card pool refresh:", error);
+      res.status(500).json({ error: "Failed to run card pool refresh" });
+    }
+  });
+
   // POST /api/admin/image-validation/revalidate/:cardId - Revalidate single card
   app.post("/api/admin/image-validation/revalidate/:cardId", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
