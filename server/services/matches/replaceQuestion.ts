@@ -10,6 +10,7 @@ import {
   type GameQuestion,
 } from "@shared/schema";
 import { eq, and, sql, notInArray } from "drizzle-orm";
+import { quarantineCard, cardHasRealImage, getQuarantinedCardIds } from "../cards/imageQuality";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -184,7 +185,17 @@ export async function replaceMatchQuestion(
       }
     }
 
-    // 9) Get all used card IDs for this match
+    // 9) Quarantine the old card that failed to load
+    const oldCardId = currentQuestion.cardId;
+    if (oldCardId) {
+      // Fire-and-forget quarantine (don't block the transaction)
+      quarantineCard(oldCardId, `replaced_in_match:${reason}`, null).catch(e => {
+        console.error(`[ReplaceQuestion] Failed to quarantine card ${oldCardId}:`, e);
+      });
+      console.warn(`[ReplaceQuestion] Quarantined card ${oldCardId}: ${reason}`);
+    }
+
+    // 10) Get all used card IDs for this match
     const usedCards = await tx
       .select({ cardId: matchUsedCards.cardId })
       .from(matchUsedCards)
@@ -192,17 +203,28 @@ export async function replaceMatchQuestion(
     
     const usedCardIds = usedCards.map(c => c.cardId);
 
-    // 10) Select a new verified card not already used
-    let newCardQuery = tx
+    // 11) Get quarantined card IDs
+    const quarantinedIds = await getQuarantinedCardIds();
+
+    // 12) Select a new verified card not already used and not quarantined
+    const potentialCards = await tx
       .select()
       .from(baseballCards)
       .where(eq(baseballCards.imageVerified, true))
       .orderBy(sql`RANDOM()`)
-      .limit(5);
+      .limit(20);
 
-    // Filter out used cards
-    const potentialCards = await newCardQuery;
-    const availableCard = potentialCards.find(c => !usedCardIds.includes(c.id));
+    // Filter out used cards, quarantined cards, and cards without real images
+    const availableCard = potentialCards.find(c => {
+      if (usedCardIds.includes(c.id)) return false;
+      if (quarantinedIds.has(c.id)) return false;
+      if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.playerName })) {
+        // Quarantine detected placeholder
+        quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
+        return false;
+      }
+      return true;
+    });
 
     if (!availableCard) {
       await logEvent(matchId, "REPLACE_DENIED", { userId, idx, reason: "no_cards_available" }, userId);
