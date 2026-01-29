@@ -1,0 +1,182 @@
+MISSION-CRITICAL: CARD LOAD FAILURES ARE TOO FREQUENT (e.g., 7/10 in a match)
+You are performing a comprehensive reliability overhaul of PackPTS’ Card Hedge sourcing and “serve card” pipeline. The goal is to make card delivery resilient, deterministic, and measurable.
+
+Do NOT make small tweaks. Implement the wholesale changes below.
+
+====================================================================
+A) ROOT PROBLEM (LIKELY)
+We are currently “pulling one card at a time” from Card Hedge and trusting:
+- the image URL is valid
+- the image isn’t a placeholder
+- the image is reachable fast enough
+- Card Hedge isn’t rate limiting
+- the client device can fetch from that host
+Result: match progress becomes dependent on fragile network and bad data.
+
+Fix = “pre-validated card pool + server-side validation + caching + retries + fallbacks + metrics”.
+
+====================================================================
+B) NEW ARCHITECTURE (REQUIRED)
+1) Match start MUST prefetch a batch (e.g., 60–120) candidate cards from Card Hedge.
+2) Server MUST validate each candidate card BEFORE it can be served to a match:
+   - image URL present
+   - not placeholder (by URL heuristics + image bytes signature checks)
+   - HEAD/GET to image-proxy returns 200 and content-type is image/*
+   - response size > minimum threshold (e.g., > 10KB)
+3) Only after we have a pool of “known-good” cards do we build the match’s 10 cards.
+4) During gameplay, “next card” MUST come from the prevalidated pool (no live Card Hedge call per question).
+5) If the pool runs low, background refill (server side) without blocking gameplay.
+
+====================================================================
+C) DATABASE CHANGES
+Add tables:
+
+1) card_cache (local canonical cache of Card Hedge cards)
+- card_id TEXT PK
+- set_key TEXT
+- category TEXT
+- description TEXT
+- player TEXT
+- image_url TEXT
+- image_ok BOOLEAN DEFAULT false
+- image_checked_at TIMESTAMP NULL
+- placeholder_reason TEXT NULL
+- last_seen_at TIMESTAMP
+- metadata JSONB
+
+2) match_card_queue (cards reserved for a match)
+- id uuid pk
+- match_id uuid not null
+- card_id text not null
+- idx int not null               // 0..9 for the 10 cards
+- served_at timestamp null
+- answered_at timestamp null
+
+3) telemetry_card_delivery (for metrics)
+- id uuid pk
+- ts timestamp default now()
+- match_id uuid null
+- set_key text
+- stage text                    // "prefetch", "validate", "serve", "image_fail"
+- card_id text null
+- detail jsonb
+
+====================================================================
+D) BACKEND: CARD HEDGE CLIENT (HARDENED)
+Create server module: /server/lib/cardHedgeClient.ts
+
+Requirements:
+- All Card Hedge requests happen server-side only (never from browser).
+- Use timeouts (e.g., 8s) and retries with exponential backoff (e.g., 3 tries: 0.5s, 1.5s, 3s).
+- Add rate-limit protection: concurrency cap (e.g., p-limit 3) + simple in-memory token bucket.
+- Cache responses for 10 minutes keyed by (search, category, set, page, page_size).
+
+Also normalize image URLs:
+- If image starts with “//”, prefix “https:”
+- If empty or missing -> invalid.
+
+====================================================================
+E) BACKEND: IMAGE PROXY + VALIDATION
+Create:
+GET /api/image-proxy?url=...
+- allowlist hosts used by Card Hedge
+- stream bytes
+- return 200 only when image content-type is image/*
+
+Create validator:
+async validateImage(url): {ok:boolean, reason?:string}
+- fetch via image-proxy with HEAD then GET if needed
+- reject if:
+  - status != 200
+  - content-type not image/*
+  - content-length present and < 10KB
+  - bytes match known placeholder signature(s)
+  - url contains “example.jpg”, “placeholder”, “appforest_uf/example.jpg”, etc.
+
+Store results in card_cache.image_ok + image_checked_at + placeholder_reason.
+
+====================================================================
+F) BACKEND: PREFETCH + BUILD MATCH QUEUE (THE KEY FIX)
+At match creation time (solo, 1vRandom, 1vFriend), do:
+
+1) Determine setKey + category
+2) Fetch multiple pages from Card Hedge to assemble candidates:
+   - page_size = 100 (or max allowed)
+   - start at random page (1..pages) to avoid same cards
+   - pull up to N candidates (target 200 raw) using 2–4 requests max
+3) Upsert into card_cache
+4) Validate images server-side until you have at least:
+   - MIN_GOOD_POOL = 40 (hard minimum)
+   - TARGET_GOOD_POOL = 120 (ideal)
+
+If MIN_GOOD_POOL cannot be met:
+- Switch strategy in this order:
+  a) widen search: omit “search” term if using one; use set+category only
+  b) try adjacent pages
+  c) fallback to a different set that is known-good (admin-configured fallback list)
+- Log telemetry stage="prefetch_fail" with details
+
+5) Build the match’s 10-card queue from only image_ok=true cards:
+- Choose 10 unique card_ids
+- Avoid repeats from user’s last X matches (store last_seen by user in a small history table or a JSON array in user profile)
+- Insert into match_card_queue (idx 0..9)
+
+IMPORTANT:
+- From this point, gameplay NEVER calls Card Hedge for “next card”.
+
+====================================================================
+G) FRONTEND: “TRY DIFFERENT CARD” MUST NOT ADVANCE PROGRESS
+The button shown (Try Different Card / Skip) must:
+- Replace the CURRENT question’s card with another UNUSED card from match_card_queue reserve pool
+- If you only queued 10, increase design:
+  - queue 20 cards per match (10 primary + 10 spare)
+  - idx 0..9 are “official” questions
+  - spares are used only for replacement
+- When a replacement occurs:
+  - telemetry stage="replace_card"
+  - the question number (e.g., 2/10) stays the same
+  - the user still must submit 10 answers
+
+Implement API:
+POST /api/match/:id/replace-card
+body: {questionIdx}
+Server:
+- mark current card_id for that questionIdx as “bad_for_match”
+- swap in a spare validated card that hasn’t been used
+- return the new card payload
+
+====================================================================
+H) OBSERVABILITY: YOU MUST MEASURE THIS
+Add a simple admin-only page /admin/telemetry/cards showing:
+- image_ok rate by setKey (last 24h)
+- average validation time
+- % matches that had >=1 replacement
+- top placeholder reasons
+- Card Hedge request error rate
+
+Also log every “Unable to load card image” event with stage="image_fail".
+
+====================================================================
+I) IMPLEMENTATION CHECKLIST (DO THIS IN CODE)
+- [ ] Add DB migrations for the 3 tables
+- [ ] Implement cardHedgeClient with retries/timeouts/caching
+- [ ] Implement image-proxy + validateImage
+- [ ] Implement prefetch pipeline and match_card_queue creation
+- [ ] Update gameplay to read from match_card_queue only
+- [ ] Implement replace-card endpoint + UI wiring for “Try Different Card”
+- [ ] Add telemetry logging everywhere above
+- [ ] Add tests (server unit tests):
+      - validator rejects placeholder URL
+      - match creation builds queue of 10 from image_ok cards
+      - replace-card does not change questionIdx
+
+====================================================================
+J) TEST AFTER IMPLEMENTATION (REQUIRED)
+After implementing:
+1) Run unit tests
+2) Run a local smoke test that starts 10 matches (script) and reports:
+   - % of matches with 10/10 cards successfully served
+   - avg replacements per match
+3) Paste the outputs in the console.
+
+Implement all changes now.
