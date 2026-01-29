@@ -144,6 +144,12 @@ app.use((req, res, next) => {
     const { startRiskJobWorker } = await import("./services/risk/jobQueue");
     startRiskJobWorker();
   }
+  
+  // Start the image validation job (runs every 6 hours)
+  if (process.env.IMAGE_VALIDATION_ENABLED !== "false") {
+    const { startValidationJob } = await import("./services/imageValidation");
+    startValidationJob();
+  }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

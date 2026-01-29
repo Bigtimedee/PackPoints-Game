@@ -2119,6 +2119,65 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/admin/image-validation/status - Get image validation status
+  app.get("/api/admin/image-validation/status", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getValidationStatus } = await import("./services/imageValidation");
+      const status = await getValidationStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Error getting validation status:", error);
+      res.status(500).json({ error: "Failed to get validation status" });
+    }
+  });
+
+  // POST /api/admin/image-validation/run - Trigger image validation
+  app.post("/api/admin/image-validation/run", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { forceRecheck, gameSetId } = req.body || {};
+      const { validatePlayableCardImages, validateBaseballCardImages } = await import("./services/imageValidation");
+      
+      const results = {
+        playableCards: await validatePlayableCardImages(gameSetId, forceRecheck === true),
+        baseballCards: await validateBaseballCardImages(forceRecheck === true)
+      };
+      
+      res.json({
+        success: true,
+        results,
+        message: `Validated ${results.playableCards.totalChecked + results.baseballCards.totalChecked} cards, excluded ${results.playableCards.newlyExcluded + results.baseballCards.newlyExcluded}`
+      });
+    } catch (error) {
+      console.error("Error running validation:", error);
+      res.status(500).json({ error: "Failed to run validation" });
+    }
+  });
+
+  // POST /api/admin/image-validation/revalidate/:cardId - Revalidate single card
+  app.post("/api/admin/image-validation/revalidate/:cardId", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { cardId } = req.params;
+      const { cardType } = req.body || {};
+      
+      if (!cardType || !["playable", "baseball"].includes(cardType)) {
+        return res.status(400).json({ error: "cardType must be 'playable' or 'baseball'" });
+      }
+      
+      const { revalidateCard } = await import("./services/imageValidation");
+      const result = await revalidateCard(cardId, cardType);
+      
+      res.json({
+        cardId,
+        cardType,
+        valid: result.valid,
+        error: result.error
+      });
+    } catch (error) {
+      console.error("Error revalidating card:", error);
+      res.status(500).json({ error: "Failed to revalidate card" });
+    }
+  });
+
   app.get("/api/admin/users", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const search = (req.query.search as string) || "";
