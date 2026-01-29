@@ -7217,6 +7217,83 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // CARD IMAGE PROXY BY CARD ID
+  // ============================================
+  app.get("/api/images/card/:cardId", async (req, res) => {
+    const { cardId } = req.params;
+
+    if (!cardId || cardId.length > 100) {
+      return res.status(400).json({ error: "Invalid card ID" });
+    }
+
+    try {
+      const { getSourceUrlForCard, getCachedImageUrl, getOrValidateCardImage, markImageBad } = await import("./services/images/imageGate");
+      const { normalizeImageUrl } = await import("./services/cards/imageQuality");
+
+      let sourceUrl = await getCachedImageUrl(cardId);
+
+      if (!sourceUrl) {
+        sourceUrl = await getSourceUrlForCard(cardId);
+      }
+
+      if (!sourceUrl) {
+        console.warn(`[ImageProxy] Card ${cardId} has no source URL`);
+        return res.status(404).json({ error: "Card image not found" });
+      }
+
+      const normalized = normalizeImageUrl(sourceUrl);
+      if (!normalized) {
+        return res.status(404).json({ error: "Invalid image URL" });
+      }
+
+      const validation = await getOrValidateCardImage(cardId, normalized);
+      
+      if (validation.status !== "ok") {
+        console.warn(`[ImageProxy] Card ${cardId} failed validation: ${validation.status}`);
+        return res.status(404).json({ error: "Image not available" });
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(normalized, {
+        signal: controller.signal,
+        redirect: "follow",
+        headers: {
+          "User-Agent": "PackPTS/1.0 ImageProxy",
+        },
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        await markImageBad(cardId, `proxy_fetch_failed:${response.status}`);
+        return res.status(502).json({ error: "Failed to fetch image" });
+      }
+
+      const contentType = response.headers.get("content-type") || "image/jpeg";
+      if (!contentType.toLowerCase().startsWith("image/")) {
+        await markImageBad(cardId, `invalid_content_type:${contentType}`);
+        return res.status(502).json({ error: "Invalid content type" });
+      }
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("X-Card-Id", cardId);
+
+      const arrayBuffer = await response.arrayBuffer();
+      return res.send(Buffer.from(arrayBuffer));
+    } catch (error: any) {
+      if (error.name === "AbortError") {
+        console.error(`[ImageProxy] Timeout for card ${cardId}`);
+        return res.status(504).json({ error: "Image fetch timed out" });
+      }
+      console.error(`[ImageProxy] Error for card ${cardId}:`, error);
+      return res.status(500).json({ error: "Failed to proxy image" });
+    }
+  });
+
+  // ============================================
   // PROFIT GUARDRAIL & MARKETPLACE REDEMPTIONS
   // ============================================
 
