@@ -92,6 +92,7 @@ export class CardHedgeProvider implements CatalogProvider {
     const requestBody: Record<string, unknown> = {
       page,
       page_size: pageSize,
+      raw_images_only: true,
     };
 
     if (search) {

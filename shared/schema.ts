@@ -3307,3 +3307,21 @@ export const insertGameplayCardDailyEventSchema = createInsertSchema(gameplayCar
 });
 export type InsertGameplayCardDailyEvent = z.infer<typeof insertGameplayCardDailyEventSchema>;
 export type GameplayCardDailyEvent = typeof gameplayCardDailyEvents.$inferSelect;
+
+// Card Image Quarantine - tracks card_ids with placeholder/bad images
+export const cardImageQuarantine = pgTable("card_image_quarantine", {
+  cardId: varchar("card_id").primaryKey(),
+  reason: text("reason").notNull(),
+  imageUrl: text("image_url"),
+  firstSeenAt: timestamp("first_seen_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  seenCount: integer("seen_count").notNull().default(1),
+});
+
+export const insertCardImageQuarantineSchema = createInsertSchema(cardImageQuarantine).omit({
+  firstSeenAt: true,
+  lastSeenAt: true,
+  seenCount: true,
+});
+export type InsertCardImageQuarantine = z.infer<typeof insertCardImageQuarantineSchema>;
+export type CardImageQuarantine = typeof cardImageQuarantine.$inferSelect;
