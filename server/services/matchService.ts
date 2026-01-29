@@ -5,6 +5,7 @@ import { eq, and, sql, notInArray } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
 import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl } from "./cards/imageQuality";
+import { getOrValidateCardImage } from "./images/imageGate";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -288,6 +289,7 @@ class MatchService {
 
   private async generateQuestions(count: number): Promise<GameQuestion[]> {
     const MAX_RETRY_ATTEMPTS = 3;
+    const VALIDATION_BATCH_SIZE = 30;
     let attempt = 0;
     
     while (attempt < MAX_RETRY_ATTEMPTS) {
@@ -300,7 +302,7 @@ class MatchService {
         .from(baseballCards)
         .where(eq(baseballCards.imageVerified, true));
       
-      const filteredCards = verifiedCards.filter(card => {
+      const preFilteredCards = verifiedCards.filter(card => {
         if (quarantinedIds.has(card.id.toString())) {
           return false;
         }
@@ -317,34 +319,70 @@ class MatchService {
         return true;
       });
       
-      if (filteredCards.length >= count) {
-        const shuffled = [...filteredCards].sort(() => Math.random() - 0.5);
-        const selectedCards = shuffled.slice(0, count);
-        console.info(`[MatchService] Questions built`, { count: selectedCards.length, attempt });
-        return selectedCards.map(card => this.generateQuestion(card));
+      const shuffled = [...preFilteredCards].sort(() => Math.random() - 0.5);
+      const candidateBatch = shuffled.slice(0, VALIDATION_BATCH_SIZE);
+      
+      const validatedCards: BaseballCard[] = [];
+      for (const card of candidateBatch) {
+        if (validatedCards.length >= count) break;
+        
+        try {
+          const sourceUrl = normalizeImageUrl(card.imageUrl);
+          if (!sourceUrl) {
+            await quarantineCard(card.id.toString(), "invalid_url", card.imageUrl);
+            continue;
+          }
+          
+          const validation = await getOrValidateCardImage(card.id.toString(), sourceUrl);
+          
+          if (validation.status === "ok") {
+            validatedCards.push(card);
+          } else {
+            console.warn(`[MatchService] Card ${card.id} failed image validation: ${validation.status}`);
+          }
+        } catch (err) {
+          console.error(`[MatchService] Error validating card ${card.id}:`, err);
+        }
       }
       
-      console.warn(`[MatchService] Not enough cards after filtering (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}). Found ${filteredCards.length}, need ${count}`);
+      if (validatedCards.length >= count) {
+        const selectedCards = validatedCards.slice(0, count);
+        console.info(`[MatchService] Questions built with validation`, { count: selectedCards.length, attempt });
+        return selectedCards.map(card => this.generateQuestionWithProxiedUrl(card));
+      }
+      
+      console.warn(`[MatchService] Not enough validated cards (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}). Found ${validatedCards.length}, need ${count}`);
       
       if (attempt < MAX_RETRY_ATTEMPTS) {
         await new Promise(resolve => setTimeout(resolve, 100 * attempt));
       }
     }
     
-    const quarantinedIds = await getQuarantinedCardIds();
-    const verifiedCards = await db
-      .select()
-      .from(baseballCards)
-      .where(eq(baseballCards.imageVerified, true));
+    console.error(`[MatchService] NO_PLAYABLE_CARDS_AVAILABLE after ${MAX_RETRY_ATTEMPTS} attempts`);
+    throw new Error("NO_PLAYABLE_CARDS_AVAILABLE");
+  }
+
+  private generateQuestionWithProxiedUrl(card: BaseballCard): GameQuestion {
+    const wrongOptions = this.playerNames
+      .filter(name => name !== card.playerName)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
     
-    const filteredCards = verifiedCards.filter(card => 
-      !quarantinedIds.has(card.id.toString())
-    );
+    const options = [card.playerName, ...wrongOptions].sort(() => Math.random() - 0.5);
+    const basePoints = 100;
+    const pointValue = Math.max(50, basePoints + (100 - card.popularity) * 4);
     
-    const shuffled = [...filteredCards].sort(() => Math.random() - 0.5);
-    const selectedCards = shuffled.slice(0, Math.min(count, shuffled.length));
-    console.info(`[MatchService] Questions built (fallback)`, { count: selectedCards.length });
-    return selectedCards.map(card => this.generateQuestion(card));
+    const proxiedCard = {
+      ...card,
+      imageUrl: `/api/images/card/${card.id}`,
+    };
+    
+    return {
+      card: proxiedCard,
+      options,
+      correctAnswer: card.playerName,
+      pointValue,
+    };
   }
 
   private generateQuestion(card: BaseballCard): GameQuestion {

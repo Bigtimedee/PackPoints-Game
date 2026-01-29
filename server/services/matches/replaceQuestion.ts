@@ -278,8 +278,12 @@ export async function replaceMatchQuestion(
     }
 
     if (idx < questions.length) {
+      const proxiedCard = {
+        ...availableCard,
+        imageUrl: `/api/images/card/${availableCard.id}`,
+      };
       questions[idx] = {
-        card: availableCard,
+        card: proxiedCard,
         options: choices,
         correctAnswer: availableCard.playerName,
         pointValue,
@@ -314,7 +318,7 @@ export async function replaceMatchQuestion(
         seedVersion: newSeedVersion,
         card: {
           id: availableCard.id,
-          imageUrl: availableCard.imageUrl,
+          imageUrl: `/api/images/card/${availableCard.id}`,
           team: availableCard.team,
           year: availableCard.year,
           setName: availableCard.setName,
