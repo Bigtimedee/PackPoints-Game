@@ -3325,3 +3325,29 @@ export const insertCardImageQuarantineSchema = createInsertSchema(cardImageQuara
 });
 export type InsertCardImageQuarantine = z.infer<typeof insertCardImageQuarantineSchema>;
 export type CardImageQuarantine = typeof cardImageQuarantine.$inferSelect;
+
+// Image cache status enum
+export const imageCacheStatuses = ["ok", "bad", "pending"] as const;
+export type ImageCacheStatus = typeof imageCacheStatuses[number];
+
+// Card Image Cache - tracks validation status and proxied paths for card images
+export const cardImageCache = pgTable("card_image_cache", {
+  cardId: varchar("card_id").primaryKey(),
+  sourceUrl: text("source_url").notNull(),
+  normalizedUrl: text("normalized_url").notNull(),
+  proxiedPath: text("proxied_path").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  lastHttpStatus: integer("last_http_status"),
+  lastContentType: text("last_content_type"),
+  bytes: integer("bytes"),
+  failCount: integer("fail_count").notNull().default(0),
+  lastCheckedAt: timestamp("last_checked_at").defaultNow(),
+}, (table) => [
+  index("idx_card_image_cache_status").on(table.status),
+]);
+
+export const insertCardImageCacheSchema = createInsertSchema(cardImageCache).omit({
+  lastCheckedAt: true,
+});
+export type InsertCardImageCache = z.infer<typeof insertCardImageCacheSchema>;
+export type CardImageCache = typeof cardImageCache.$inferSelect;
