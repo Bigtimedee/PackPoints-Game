@@ -19,6 +19,7 @@ import { MobileSelect } from "@/components/MobileSelect";
 import { SiX, SiFacebook } from "react-icons/si";
 import type { GameSession, GameQuestion, GameSet, PlayableSet } from "@shared/schema";
 import { GameCard } from "@/components/GameCard";
+import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 
 function AnswerButton({
   option,
@@ -257,7 +258,7 @@ export default function Game() {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
       }
       // Invalidate daily progress to update the header badge
-      queryClient.invalidateQueries({ queryKey: ["/api/user/daily-progress"] });
+      queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
     },
     onError: () => {
       toast({
@@ -494,6 +495,13 @@ export default function Game() {
       return () => clearTimeout(timer);
     }
   }, [isGameOver, isAuthenticated, hasSeenSignupPrompt, session?.score, showSignupModal]);
+
+  // Refresh daily progress tracker when game completes (regardless of score)
+  useEffect(() => {
+    if (isGameOver && isAuthenticated) {
+      queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
+    }
+  }, [isGameOver, isAuthenticated]);
 
   // Update cached user points when game completes to update points display in header
   // Track session ID and score we've added to prevent double-counting
