@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +10,26 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-// Known placeholder URL patterns
+interface MaskRegion {
+  xPct: number;
+  yPct: number;
+  wPct: number;
+  hPct: number;
+  type: "solid" | "blur" | "pixelate";
+  radiusPct?: number;
+}
+
+interface MaskConfig {
+  setKey: string;
+  regions: MaskRegion[];
+  maskVersion: number;
+}
+
+const DEFAULT_MASK_REGIONS: MaskRegion[] = [
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "solid", radiusPct: 0 },
+  { xPct: 0, yPct: 80, wPct: 100, hPct: 20, type: "solid", radiusPct: 0 },
+];
+
 const PLACEHOLDER_URL_PATTERNS = [
   /placeholder/i,
   /no[-_]?image/i,
@@ -33,7 +53,6 @@ function isPlaceholderUrl(url: string): boolean {
   return false;
 }
 
-// Detect placeholder images based on color uniformity and common patterns
 function isPlaceholderImage(img: HTMLImageElement): boolean {
   try {
     const canvas = document.createElement('canvas');
@@ -49,23 +68,18 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
     const pixels = imageData.data;
     
-    // Count unique colors - placeholder images typically have very few colors
     const colorSet = new Set<string>();
     for (let i = 0; i < pixels.length; i += 4) {
-      // Quantize to reduce color variations
       const r = Math.floor(pixels[i] / 32) * 32;
       const g = Math.floor(pixels[i + 1] / 32) * 32;
       const b = Math.floor(pixels[i + 2] / 32) * 32;
       colorSet.add(`${r},${g},${b}`);
     }
     
-    // Real card photos have many colors; placeholders typically have < 10 unique quantized colors
     if (colorSet.size < 8) {
-      console.log(`[GameCard] Detected potential placeholder: only ${colorSet.size} unique colors`);
       return true;
     }
     
-    // Check if image is dominated by a single color (>80% of pixels)
     const colorCounts = new Map<string, number>();
     for (let i = 0; i < pixels.length; i += 4) {
       const r = Math.floor(pixels[i] / 32) * 32;
@@ -79,7 +93,6 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     const counts = Array.from(colorCounts.values());
     for (let i = 0; i < counts.length; i++) {
       if (counts[i] / totalPixels > 0.8) {
-        console.log(`[GameCard] Detected potential placeholder: single color dominates >80%`);
         return true;
       }
     }
@@ -147,7 +160,6 @@ function isBlankImage(img: HTMLImageElement): boolean {
     if (e instanceof DOMException && e.name === 'SecurityError') {
       return false;
     }
-    console.error('[GameCard] Error checking for blank image:', e);
     return false;
   }
 }
@@ -163,6 +175,7 @@ interface GameCardProps {
   imageUrl: string;
   isRevealed: boolean;
   setLabel?: string;
+  setKey?: string;
   onImageError?: () => void;
   imageRotation?: number;
   showSkipButton?: boolean;
@@ -182,7 +195,8 @@ interface GameCardProps {
 export function GameCard({ 
   imageUrl, 
   isRevealed, 
-  setLabel, 
+  setLabel,
+  setKey,
   onImageError, 
   imageRotation = 0,
   showSkipButton = false,
@@ -200,9 +214,7 @@ export function GameCard({
 }: GameCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(() => {
-    // Check URL pattern immediately before loading
     if (imageUrl && isPlaceholderUrl(imageUrl)) {
-      console.log(`[GameCard] Detected placeholder URL pattern: ${imageUrl}`);
       return true;
     }
     return false;
@@ -212,7 +224,40 @@ export function GameCard({
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const { toast } = useToast();
 
-  // Report placeholder URL on mount
+  const { data: maskConfig } = useQuery<MaskConfig>({
+    queryKey: ["/api/card-sets/mask", setKey || setLabel || "__default__"],
+    queryFn: async () => {
+      const key = setKey || setLabel || "";
+      if (!key) {
+        return {
+          setKey: "__default__",
+          regions: DEFAULT_MASK_REGIONS,
+          maskVersion: 1,
+        };
+      }
+      try {
+        const res = await fetch(`/api/card-sets/${encodeURIComponent(key)}/mask`);
+        if (!res.ok) {
+          return {
+            setKey: key,
+            regions: DEFAULT_MASK_REGIONS,
+            maskVersion: 1,
+          };
+        }
+        return res.json();
+      } catch {
+        return {
+          setKey: key,
+          regions: DEFAULT_MASK_REGIONS,
+          maskVersion: 1,
+        };
+      }
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const regions = maskConfig?.regions || DEFAULT_MASK_REGIONS;
+
   useEffect(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl) && cardId) {
       apiRequest("POST", `/api/cards/${cardId}/report`, { 
@@ -220,11 +265,7 @@ export function GameCard({
         sessionId,
         autoDetected: true,
         detectionReason: "placeholder_url_pattern"
-      }).then(() => {
-        console.log(`[GameCard] Auto-reported placeholder URL pattern`);
-      }).catch((e) => {
-        console.error("[GameCard] Failed to auto-report placeholder URL:", e);
-      });
+      }).catch(() => {});
       onImageError?.();
     }
   }, [imageUrl, cardId, sessionId, onImageError]);
@@ -238,17 +279,13 @@ export function GameCard({
         autoDetected: true,
         detectionReason: reason
       });
-      console.log(`[GameCard] Auto-reported placeholder image: ${reason}`);
-    } catch (e) {
-      console.error("[GameCard] Failed to auto-report placeholder:", e);
-    }
+    } catch {}
   };
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const aspectRatio = img.naturalWidth / img.naturalHeight;
     
-    // Check for very small images
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
       setImageError(true);
       onImageError?.();
@@ -256,27 +293,21 @@ export function GameCard({
       return;
     }
     
-    // Check for abnormal aspect ratio (duplicated images)
     if (aspectRatio > 1.3) {
-      console.log(`[GameCard] Detected abnormal aspect ratio ${aspectRatio.toFixed(2)} for image, likely duplicated`);
       setImageError(true);
       onImageError?.();
       autoReportPlaceholder("abnormal_aspect_ratio");
       return;
     }
     
-    // Check for blank/uniform color images
     if (isBlankImage(img)) {
-      console.log(`[GameCard] Detected blank/uniform color image, skipping`);
       setImageError(true);
       onImageError?.();
       autoReportPlaceholder("blank_image");
       return;
     }
     
-    // Check for placeholder images (low color diversity)
     if (isPlaceholderImage(img)) {
-      console.log(`[GameCard] Detected placeholder image, skipping`);
       setImageError(true);
       onImageError?.();
       autoReportPlaceholder("placeholder_image");
@@ -315,7 +346,6 @@ export function GameCard({
       });
       onReportSubmitted?.();
     } catch (error) {
-      console.error("[GameCard] Error submitting report:", error);
       toast({
         title: "Report failed",
         description: "Unable to submit report. Please try again.",
@@ -326,15 +356,35 @@ export function GameCard({
     }
   };
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    return false;
+  }, []);
+
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    return false;
+  }, []);
+
   return (
-    <div className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900">
+    <div 
+      className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900 select-none"
+      onContextMenu={handleContextMenu}
+      style={{
+        touchAction: "manipulation",
+        WebkitTouchCallout: "none",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+      }}
+      data-testid="game-card-wrapper"
+    >
       {!imageLoaded && !imageError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted">
+        <div className="absolute inset-0 flex items-center justify-center bg-muted z-10">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       )}
       {imageError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200 z-30">
           <div className="text-center space-y-3">
             {cardNumber && (
               <div className="mb-4">
@@ -394,40 +444,53 @@ export function GameCard({
       <img
         src={imageUrl}
         alt="Baseball card"
-        className={`absolute inset-0 w-full h-full object-contain ${imageError ? 'pointer-events-none' : ''}`}
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         crossOrigin="anonymous"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
           transform: imageRotation ? `rotate(${imageRotation}deg)` : undefined,
-        }}
+          WebkitUserDrag: "none",
+        } as React.CSSProperties}
         onLoad={handleImageLoad}
         onError={handleError}
+        onDragStart={handleDragStart}
+        draggable={false}
         referrerPolicy="no-referrer"
         data-testid="img-card"
       />
-      {!isRevealed && imageLoaded && !imageError && (
-        <div 
-          className="absolute top-0 left-0 right-0 transition-opacity duration-500"
-          style={{ height: "18%" }}
-        >
-          <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
-            <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
-          </div>
-        </div>
-      )}
-      {!isRevealed && imageLoaded && !imageError && (
-        <div 
-          className="absolute bottom-0 left-0 right-0 transition-opacity duration-500"
-          style={{ height: "20%" }}
-        >
-          <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
-            <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
-          </div>
-        </div>
-      )}
       
-      {cardId && imageLoaded && !imageError && (
-        <div className="absolute top-2 right-2 z-10">
+      {!isRevealed && !imageError && regions.map((region, index) => (
+        <div
+          key={index}
+          className="absolute pointer-events-auto transition-opacity duration-300"
+          style={{
+            left: `${region.xPct}%`,
+            top: `${region.yPct}%`,
+            width: `${region.wPct}%`,
+            height: `${region.hPct}%`,
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "transparent",
+            borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
+            backdropFilter: region.type === "blur" ? "blur(10px)" : undefined,
+            zIndex: 20,
+          }}
+          onContextMenu={handleContextMenu}
+          data-testid={`mask-region-${index}`}
+        >
+          {index === 0 && (
+            <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
+              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
+            </div>
+          )}
+          {index === 1 && (
+            <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
+              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
+            </div>
+          )}
+        </div>
+      ))}
+      
+      {cardId && !imageError && (
+        <div className="absolute top-2 right-2 z-30">
           <Popover open={reportOpen} onOpenChange={setReportOpen}>
             <PopoverTrigger asChild>
               <Button

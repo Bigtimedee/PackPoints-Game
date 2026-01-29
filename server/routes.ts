@@ -7280,6 +7280,8 @@ export async function registerRoutes(
       res.setHeader("Content-Type", contentType);
       res.setHeader("Cache-Control", "public, max-age=86400");
       res.setHeader("X-Card-Id", cardId);
+      res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'");
+      res.setHeader("X-Content-Type-Options", "nosniff");
 
       const arrayBuffer = await response.arrayBuffer();
       return res.send(Buffer.from(arrayBuffer));
@@ -7290,6 +7292,43 @@ export async function registerRoutes(
       }
       console.error(`[ImageProxy] Error for card ${cardId}:`, error);
       return res.status(500).json({ error: "Failed to proxy image" });
+    }
+  });
+
+  // ============================================
+  // CARD SET MASK CONFIGURATION
+  // ============================================
+
+  app.get("/api/card-sets/:setKey/mask", async (req, res) => {
+    try {
+      const { setKey } = req.params;
+      const { getMaskConfig } = await import("./services/maskConfig");
+      
+      const config = await getMaskConfig(setKey || "");
+      
+      res.json(config);
+    } catch (error) {
+      console.error("Error getting mask config:", error);
+      res.status(500).json({ error: "Failed to get mask configuration" });
+    }
+  });
+
+  app.post("/api/admin/card-sets/:setKey/mask", isAdmin, async (req, res) => {
+    try {
+      const { setKey } = req.params;
+      const { regions, providerSetId } = req.body;
+      
+      if (!regions || !Array.isArray(regions)) {
+        return res.status(400).json({ error: "regions array required" });
+      }
+      
+      const { saveMaskConfig } = await import("./services/maskConfig");
+      const config = await saveMaskConfig(setKey, regions, providerSetId);
+      
+      res.json(config);
+    } catch (error) {
+      console.error("Error saving mask config:", error);
+      res.status(500).json({ error: "Failed to save mask configuration" });
     }
   });
 

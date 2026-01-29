@@ -3050,6 +3050,46 @@ export const insertCardSetSchema = createInsertSchema(cardSets).omit({
 export type InsertCardSet = z.infer<typeof insertCardSetSchema>;
 export type CardSet = typeof cardSets.$inferSelect;
 
+// Card Set Masks - Per-set configuration for player name masking during gameplay
+export const cardSetMasks = pgTable("card_set_masks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  setKey: text("set_key").notNull().unique(),
+  providerSetId: text("provider_set_id"),
+  maskVersion: integer("mask_version").default(1).notNull(),
+  regions: jsonb("regions").notNull().$type<MaskRegion[]>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export interface MaskRegion {
+  xPct: number;
+  yPct: number;
+  wPct: number;
+  hPct: number;
+  type: "solid" | "blur" | "pixelate";
+  radiusPct?: number;
+}
+
+export const insertCardSetMaskSchema = createInsertSchema(cardSetMasks).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertCardSetMask = z.infer<typeof insertCardSetMaskSchema>;
+export type CardSetMask = typeof cardSetMasks.$inferSelect;
+
+// Default mask regions for unknown sets (aggressive bottom masking)
+export const DEFAULT_MASK_REGIONS: MaskRegion[] = [
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "solid", radiusPct: 0 },
+  { xPct: 0, yPct: 80, wPct: 100, hPct: 20, type: "solid", radiusPct: 0 },
+];
+
+// Slabbed card variant (name may sit higher)
+export const SLABBED_MASK_REGIONS: MaskRegion[] = [
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "solid", radiusPct: 0 },
+  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "solid", radiusPct: 0 },
+];
+
 // Cards - Local canonical catalog of imported cards
 export const catalogCards = pgTable("catalog_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
