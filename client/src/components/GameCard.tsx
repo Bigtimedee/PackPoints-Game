@@ -27,7 +27,7 @@ interface MaskConfig {
 
 const DEFAULT_MASK_REGIONS: MaskRegion[] = [
   { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "solid", radiusPct: 0 },
-  { xPct: 0, yPct: 80, wPct: 100, hPct: 20, type: "solid", radiusPct: 0 },
+  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "solid", radiusPct: 0 },
 ];
 
 const PLACEHOLDER_URL_PATTERNS = [
@@ -462,7 +462,7 @@ export function GameCard({
       {!isRevealed && !imageError && regions.map((region, index) => (
         <div
           key={index}
-          className="absolute pointer-events-auto transition-opacity duration-300"
+          className="absolute pointer-events-none transition-opacity duration-300"
           style={{
             left: `${region.xPct}%`,
             top: `${region.yPct}%`,
@@ -473,7 +473,6 @@ export function GameCard({
             backdropFilter: region.type === "blur" ? "blur(10px)" : undefined,
             zIndex: 20,
           }}
-          onContextMenu={handleContextMenu}
           data-testid={`mask-region-${index}`}
         >
           {index === 0 && (
