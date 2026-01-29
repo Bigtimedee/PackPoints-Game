@@ -170,6 +170,7 @@ export async function buildMatchState(matchId: string): Promise<MatchState | und
     currentQuestionIndex: currentIdx,
     totalQuestions: match.totalQuestions,
     questions,
+    gameSetId: match.cardSetId || undefined,
     participants: participantStates,
     winner: winnerParticipant?.username,
     endReason: match.endReason || undefined,

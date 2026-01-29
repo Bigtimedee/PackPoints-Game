@@ -7313,7 +7313,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/card-sets/:setKey/mask", isAdmin, async (req, res) => {
+  app.post("/api/admin/card-sets/:setKey/mask", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { setKey } = req.params;
       const { regions, providerSetId } = req.body;

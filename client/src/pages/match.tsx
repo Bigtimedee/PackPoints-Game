@@ -34,6 +34,7 @@ interface MatchState {
   status: "LOBBY" | "INITIALIZING" | "ACTIVE" | "FINISHED" | "CANCELLED";
   currentQuestionIndex: number;
   totalQuestions: number;
+  gameSetId?: string;
   currentQuestion: {
     card: {
       id: string;
@@ -658,6 +659,7 @@ export default function Match() {
               imageUrl={`${currentQuestion.card.imageUrl}${currentQuestion.card.imageUrl.includes('?') ? '&' : '?'}t=${seedVersion}-${imageRetryCount}-${matchState.currentQuestionIndex}`}
               isRevealed={answerResult !== null}
               setLabel="MYSTERY CARD"
+              setKey={matchState.gameSetId}
               onImageError={() => {
                 if (imageRetryCount < 2) {
                   console.log(`[Match] Image load failed, retry ${imageRetryCount + 1}/2`);

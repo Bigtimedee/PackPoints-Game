@@ -916,6 +916,7 @@ export default function Game() {
               imageUrl={currentQuestion.card.imageUrl} 
               isRevealed={isRevealed}
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
+              setKey={currentGameSet?.id}
               imageRotation={currentQuestion.card.imageRotation}
               showSkipButton={showSkipButton}
               skipPending={replaceCardMutation.isPending || nextQuestionMutation.isPending}

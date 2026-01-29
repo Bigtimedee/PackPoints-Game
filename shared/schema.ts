@@ -420,6 +420,7 @@ export interface MatchState {
   currentQuestionIndex: number;
   totalQuestions: number;
   questions: GameQuestion[];
+  gameSetId?: string;
   participants: {
     userId: string;
     username: string;
