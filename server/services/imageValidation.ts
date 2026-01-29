@@ -7,16 +7,62 @@ const MAX_FAILURE_COUNT = 2;
 const VALIDATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = 50;
 const BATCH_DELAY_MS = 1000;
+const MIN_VALID_IMAGE_SIZE = 5000; // Minimum 5KB for a real card image
+
+// Known placeholder URL patterns from Card Hedge and other sources
+const PLACEHOLDER_URL_PATTERNS = [
+  /placeholder/i,
+  /no[-_]?image/i,
+  /default[-_]?image/i,
+  /missing[-_]?image/i,
+  /silhouette/i,
+  /generic[-_]?card/i,
+  /coming[-_]?soon/i,
+  /not[-_]?available/i,
+  /fallback/i,
+  /blank[-_]?card/i,
+  /card[-_]?placeholder/i,
+  /unavailable/i,
+];
+
+// Known placeholder image dimensions (width x height) - common placeholder sizes
+const PLACEHOLDER_DIMENSIONS = new Set([
+  "300x400", // Common placeholder size
+  "200x300",
+  "150x200",
+  "100x150",
+]);
+
+// Check if URL matches known placeholder patterns
+function isPlaceholderUrl(url: string): boolean {
+  const urlLower = url.toLowerCase();
+  for (const pattern of PLACEHOLDER_URL_PATTERNS) {
+    if (pattern.test(urlLower)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 interface ValidationResult {
   valid: boolean;
   error?: string;
   statusCode?: number;
+  isPlaceholder?: boolean;
 }
 
 async function validateImageUrl(url: string): Promise<ValidationResult> {
   if (!url) {
     return { valid: false, error: "No URL provided" };
+  }
+
+  // First check if URL matches known placeholder patterns
+  if (isPlaceholderUrl(url)) {
+    return { 
+      valid: false, 
+      error: "Detected placeholder image URL pattern",
+      isPlaceholder: true
+    };
   }
 
   try {
@@ -49,6 +95,19 @@ async function validateImageUrl(url: string): Promise<ValidationResult> {
       };
     }
 
+    // Check content length - placeholder images are typically small
+    const contentLength = response.headers.get("content-length");
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      if (size < MIN_VALID_IMAGE_SIZE) {
+        return {
+          valid: false,
+          error: `Image too small (${size} bytes) - likely placeholder`,
+          isPlaceholder: true
+        };
+      }
+    }
+
     return { valid: true };
   } catch (error: any) {
     if (error.name === "AbortError") {
@@ -57,6 +116,9 @@ async function validateImageUrl(url: string): Promise<ValidationResult> {
     return { valid: false, error: error.message || "Network error" };
   }
 }
+
+// Export for use in other modules
+export { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE };
 
 export interface ValidationStats {
   totalChecked: number;
@@ -154,6 +216,26 @@ export async function validatePlayableCardImages(
           .where(eq(playableCards.id, card.id));
       } else {
         stats.invalid++;
+        
+        // Placeholder images are immediately excluded (no retry)
+        if (result.isPlaceholder) {
+          await db.update(playableCards)
+            .set({
+              lastImageCheck: new Date(),
+              imageFailureCount: 5, // High failure count prevents re-checking
+              imageLastError: result.error,
+              isPlayable: false,
+              blockedReason: "placeholder_image",
+              updatedAt: new Date(),
+            })
+            .where(eq(playableCards.id, card.id));
+          stats.newlyExcluded++;
+          console.log(`[ImageValidation] PLACEHOLDER excluded: ${card.id} (${card.player}): ${result.error}`);
+          stats.errors.push({ cardId: card.id, player: card.player, error: `PLACEHOLDER: ${result.error}` });
+          return;
+        }
+        
+        // Regular failures use incremental exclusion
         const newFailureCount = (card.imageFailureCount || 0) + 1;
         const shouldExclude = newFailureCount >= MAX_FAILURE_COUNT;
         
@@ -245,6 +327,23 @@ export async function validateBaseballCardImages(
           .where(eq(baseballCards.id, card.id));
       } else {
         stats.invalid++;
+        
+        // Placeholder images are immediately excluded
+        if (result.isPlaceholder) {
+          await db.update(baseballCards)
+            .set({
+              lastImageCheck: new Date(),
+              imageFailureCount: 5, // High failure count prevents re-checking
+              imageLastError: result.error,
+              imageVerified: false,
+            })
+            .where(eq(baseballCards.id, card.id));
+          stats.newlyExcluded++;
+          console.log(`[ImageValidation] PLACEHOLDER excluded baseball card ${card.id} (${card.playerName}): ${result.error}`);
+          stats.errors.push({ cardId: card.id, player: card.playerName, error: `PLACEHOLDER: ${result.error}` });
+          return;
+        }
+        
         const newFailureCount = (card.imageFailureCount || 0) + 1;
         const shouldExclude = newFailureCount >= MAX_FAILURE_COUNT && card.imageVerified;
         

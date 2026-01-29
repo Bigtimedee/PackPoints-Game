@@ -2,6 +2,7 @@ import { db } from "../db";
 import { playableCards } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
+import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
 
 const FRESHNESS_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RATE_LIMIT_DELAY_MS = 1000; // 1 second between requests
@@ -18,7 +19,22 @@ async function rateLimitedDelay(): Promise<void> {
   lastRequestTime = Date.now();
 }
 
-async function validateImageUrl(url: string): Promise<boolean> {
+interface ImageValidationResult {
+  valid: boolean;
+  error?: string;
+  isPlaceholder?: boolean;
+}
+
+async function validateImageUrl(url: string): Promise<ImageValidationResult> {
+  // First check URL patterns for known placeholders
+  if (isPlaceholderUrl(url)) {
+    return { 
+      valid: false, 
+      error: "Detected placeholder image URL pattern",
+      isPlaceholder: true
+    };
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), IMAGE_VALIDATION_TIMEOUT_MS);
@@ -29,17 +45,31 @@ async function validateImageUrl(url: string): Promise<boolean> {
     });
     clearTimeout(timeoutId);
     
-    if (!response.ok) return false;
+    if (!response.ok) {
+      return { valid: false, error: `HTTP ${response.status}` };
+    }
     
     const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.startsWith("image/")) return false;
+    if (!contentType || !contentType.startsWith("image/")) {
+      return { valid: false, error: "Invalid content type" };
+    }
     
+    // Check for placeholder based on file size
     const contentLength = response.headers.get("content-length");
-    if (contentLength && parseInt(contentLength, 10) < 1000) return false;
+    if (contentLength) {
+      const size = parseInt(contentLength, 10);
+      if (size < MIN_VALID_IMAGE_SIZE) {
+        return { 
+          valid: false, 
+          error: `Image too small (${size} bytes) - likely placeholder`,
+          isPlaceholder: true
+        };
+      }
+    }
     
-    return true;
+    return { valid: true };
   } catch {
-    return false;
+    return { valid: false, error: "Network error" };
   }
 }
 
@@ -109,16 +139,24 @@ export async function getFreshImageUrl(
       };
     }
 
-    const isImageValid = await validateImageUrl(cardDetails.imageUrl);
+    const validationResult = await validateImageUrl(cardDetails.imageUrl);
     
-    if (!isImageValid) {
-      console.log(`[CardImageRefresh] Image validation failed for card ${cardId}`);
+    if (!validationResult.valid) {
+      const errorMsg = validationResult.isPlaceholder 
+        ? `Placeholder image detected: ${validationResult.error}`
+        : `Image validation failed: ${validationResult.error}`;
+      console.log(`[CardImageRefresh] ${errorMsg} for card ${cardId}`);
+      
+      // Immediately exclude placeholder cards (set high failure count)
+      const failureIncrement = validationResult.isPlaceholder ? 5 : 1;
       
       await db.update(playableCards)
         .set({
           lastImageCheck: now,
-          imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + 1`,
-          imageLastError: "Image validation failed (HEAD check)",
+          imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + ${failureIncrement}`,
+          imageLastError: errorMsg,
+          isPlayable: validationResult.isPlaceholder ? false : undefined,
+          blockedReason: validationResult.isPlaceholder ? "placeholder_image" : undefined,
         })
         .where(eq(playableCards.id, cardId));
       
@@ -126,7 +164,7 @@ export async function getFreshImageUrl(
         success: false,
         imageUrl: currentImageUrl,
         fromCache: true,
-        error: "Image validation failed",
+        error: errorMsg,
       };
     }
 

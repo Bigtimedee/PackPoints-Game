@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,6 +8,90 @@ import {
 } from "@/components/ui/popover";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+// Known placeholder URL patterns
+const PLACEHOLDER_URL_PATTERNS = [
+  /placeholder/i,
+  /no[-_]?image/i,
+  /default[-_]?image/i,
+  /missing[-_]?image/i,
+  /silhouette/i,
+  /generic[-_]?card/i,
+  /coming[-_]?soon/i,
+  /not[-_]?available/i,
+  /fallback/i,
+  /blank[-_]?card/i,
+  /unavailable/i,
+];
+
+function isPlaceholderUrl(url: string): boolean {
+  for (const pattern of PLACEHOLDER_URL_PATTERNS) {
+    if (pattern.test(url)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Detect placeholder images based on color uniformity and common patterns
+function isPlaceholderImage(img: HTMLImageElement): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    
+    const sampleSize = 100;
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    
+    ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+    
+    const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+    const pixels = imageData.data;
+    
+    // Count unique colors - placeholder images typically have very few colors
+    const colorSet = new Set<string>();
+    for (let i = 0; i < pixels.length; i += 4) {
+      // Quantize to reduce color variations
+      const r = Math.floor(pixels[i] / 32) * 32;
+      const g = Math.floor(pixels[i + 1] / 32) * 32;
+      const b = Math.floor(pixels[i + 2] / 32) * 32;
+      colorSet.add(`${r},${g},${b}`);
+    }
+    
+    // Real card photos have many colors; placeholders typically have < 10 unique quantized colors
+    if (colorSet.size < 8) {
+      console.log(`[GameCard] Detected potential placeholder: only ${colorSet.size} unique colors`);
+      return true;
+    }
+    
+    // Check if image is dominated by a single color (>80% of pixels)
+    const colorCounts = new Map<string, number>();
+    for (let i = 0; i < pixels.length; i += 4) {
+      const r = Math.floor(pixels[i] / 32) * 32;
+      const g = Math.floor(pixels[i + 1] / 32) * 32;
+      const b = Math.floor(pixels[i + 2] / 32) * 32;
+      const key = `${r},${g},${b}`;
+      colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
+    }
+    
+    const totalPixels = (sampleSize * sampleSize);
+    const counts = Array.from(colorCounts.values());
+    for (let i = 0; i < counts.length; i++) {
+      if (counts[i] / totalPixels > 0.8) {
+        console.log(`[GameCard] Detected potential placeholder: single color dominates >80%`);
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'SecurityError') {
+      return false;
+    }
+    return false;
+  }
+}
 
 function isBlankImage(img: HTMLImageElement): boolean {
   try {
@@ -115,33 +199,87 @@ export function GameCard({
   onReportSubmitted
 }: GameCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
+  const [imageError, setImageError] = useState(() => {
+    // Check URL pattern immediately before loading
+    if (imageUrl && isPlaceholderUrl(imageUrl)) {
+      console.log(`[GameCard] Detected placeholder URL pattern: ${imageUrl}`);
+      return true;
+    }
+    return false;
+  });
   const [reportOpen, setReportOpen] = useState(false);
   const [reportPending, setReportPending] = useState(false);
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const { toast } = useToast();
 
+  // Report placeholder URL on mount
+  useEffect(() => {
+    if (imageUrl && isPlaceholderUrl(imageUrl) && cardId) {
+      apiRequest("POST", `/api/cards/${cardId}/report`, { 
+        reason: "bad_image", 
+        sessionId,
+        autoDetected: true,
+        detectionReason: "placeholder_url_pattern"
+      }).then(() => {
+        console.log(`[GameCard] Auto-reported placeholder URL pattern`);
+      }).catch((e) => {
+        console.error("[GameCard] Failed to auto-report placeholder URL:", e);
+      });
+      onImageError?.();
+    }
+  }, [imageUrl, cardId, sessionId, onImageError]);
+
+  const autoReportPlaceholder = async (reason: string) => {
+    if (!cardId) return;
+    try {
+      await apiRequest("POST", `/api/cards/${cardId}/report`, { 
+        reason: "bad_image", 
+        sessionId,
+        autoDetected: true,
+        detectionReason: reason
+      });
+      console.log(`[GameCard] Auto-reported placeholder image: ${reason}`);
+    } catch (e) {
+      console.error("[GameCard] Failed to auto-report placeholder:", e);
+    }
+  };
+
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     const aspectRatio = img.naturalWidth / img.naturalHeight;
     
+    // Check for very small images
     if (img.naturalWidth < 50 || img.naturalHeight < 50) {
       setImageError(true);
       onImageError?.();
+      autoReportPlaceholder("image_too_small");
       return;
     }
     
+    // Check for abnormal aspect ratio (duplicated images)
     if (aspectRatio > 1.3) {
       console.log(`[GameCard] Detected abnormal aspect ratio ${aspectRatio.toFixed(2)} for image, likely duplicated`);
       setImageError(true);
       onImageError?.();
+      autoReportPlaceholder("abnormal_aspect_ratio");
       return;
     }
     
+    // Check for blank/uniform color images
     if (isBlankImage(img)) {
       console.log(`[GameCard] Detected blank/uniform color image, skipping`);
       setImageError(true);
       onImageError?.();
+      autoReportPlaceholder("blank_image");
+      return;
+    }
+    
+    // Check for placeholder images (low color diversity)
+    if (isPlaceholderImage(img)) {
+      console.log(`[GameCard] Detected placeholder image, skipping`);
+      setImageError(true);
+      onImageError?.();
+      autoReportPlaceholder("placeholder_image");
       return;
     }
     
