@@ -18,8 +18,25 @@ The backend is built with Node.js, Express, and TypeScript, providing RESTful JS
 Baseball card images are primarily sourced from the Card Hedge API, with player names masked during gameplay using a shared GameCard component (`client/src/components/GameCard.tsx`). This component provides consistent masking overlays across solo and 1v1 game modes:
 - **Top mask (18%)**: Covers PSA slab label where player name appears
 - **Bottom mask (20%)**: Covers nameplate area at bottom of card
-- Masks are only shown when image is loaded and answer not yet revealed
+- **Masks appear BEFORE image loads** to prevent flash of unmasked content (critical anti-cheat)
+- Masks are removed only when `isRevealed=true` (after user answers)
 - Image validation includes aspect ratio, size, and blank image detection
+
+#### Per-Set Configurable Mask System
+Different card sets have nameplates in different positions. The system supports per-set mask configuration:
+- **Database**: `card_set_masks` table stores set-specific mask regions (JSONB), version tracking
+- **API**: GET `/api/card-sets/:setKey/mask` returns mask config with 10-min in-memory caching
+- **Admin API**: POST `/api/admin/card-sets/:setKey/mask` for updating mask configurations
+- **Mask Regions**: Percentage-based positioning (xPct, yPct, wPct, hPct) with type (solid/blur/pixelate)
+- **Default Fallback**: `DEFAULT_MASK_REGIONS` used when no set-specific config exists
+- **Service**: `server/services/maskConfig.ts` handles caching and fallback logic
+
+#### Anti-Reveal Hardening
+- Context menu prevention on card wrapper
+- Image has `pointer-events: none` and `draggable=false`
+- `touch-action: manipulation` and `-webkit-touch-callout: none`
+- Security headers on image proxy: `Content-Security-Policy: default-src 'none'`, `X-Content-Type-Options: nosniff`
+
 Admin tools support card data synchronization. A user reporting and admin review workflow addresses Card Hedge API data quality issues.
 
 ### Image Validation & Proxy System
