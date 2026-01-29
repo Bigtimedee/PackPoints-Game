@@ -22,6 +22,17 @@ Baseball card images are primarily sourced from the Card Hedge API, with player 
 - Image validation includes aspect ratio, size, and blank image detection
 Admin tools support card data synchronization. A user reporting and admin review workflow addresses Card Hedge API data quality issues.
 
+### Image Validation & Proxy System
+All card images are validated via HTTP before serving and proxied through the PackPTS server:
+- **Database**: `card_image_cache` table tracks validation status (ok/bad/pending), HTTP status, content-type, size, fail count
+- **Validation Service**: `server/services/images/imageGate.ts` with `validateRemoteImage()` performs HTTP GET with Range headers, 6s timeout, content-type and size checks (5KB-10MB)
+- **Placeholder Detection**: `server/services/cards/imageQuality.ts` checks for placeholder URL markers (appforest, silhouette, placeholder, etc.) and maintains allowed host whitelist
+- **Proxy Endpoint**: `GET /api/images/card/:cardId` validates on first request, caches result, streams image with 24h cache headers
+- **Match Build**: Validates 30 candidate cards in batches, only accepts cards with status="ok", uses proxied URLs exclusively
+- **Quarantine System**: Failed validations quarantine cards via `card_image_quarantine` table to prevent re-serving
+- **Test Suite**: `server/tests/card-image-pipeline.test.ts` with 7 tests covering validation, proxy, and match build
+- **Verification**: `scripts/verify-images.ts` validates pipeline with database stats
+
 ### Monetization & Wallet
 The platform features a ledger-first wallet for user points (PackPTS) with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) offers feature access and point multipliers. A bucket-based expiration system manages point lifecycles.
 
