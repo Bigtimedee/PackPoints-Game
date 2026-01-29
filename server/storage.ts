@@ -2,7 +2,7 @@ import { type User, type InsertUser, type BaseballCard, type GameSession, type G
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
-import { eq, sql, desc, and, gte, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
+import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
@@ -492,6 +492,7 @@ export class DatabaseStorage implements IStorage {
     
     // Query playable cards with sport category validation
     // Also filter out flagged/rejected cards (image quality issues)
+    // CRITICAL: Only serve cards with imageFailureCount < 2 (validated images)
     const cards = await db
       .select()
       .from(playableCards)
@@ -510,7 +511,9 @@ export class DatabaseStorage implements IStorage {
           or(
             isNull(playableCards.imageReviewStatus),
             ne(playableCards.imageReviewStatus, 'rejected')
-          )
+          ),
+          // Only serve cards with validated images (failure count < 2)
+          lt(playableCards.imageFailureCount, 2)
         )
       )
       .orderBy(sql`RANDOM()`)
@@ -622,6 +625,9 @@ export class DatabaseStorage implements IStorage {
       position: "",
       imageRotation: card.imageRotation || 0, // Include rotation correction
       playableCardId: card.id, // Track original card id for reporting
+      lastImageCheck: card.lastImageCheck || null,
+      imageFailureCount: card.imageFailureCount || 0,
+      imageLastError: card.imageLastError || null,
     };
     
     return {
@@ -734,7 +740,7 @@ export class DatabaseStorage implements IStorage {
       expectedSport = gameSet?.sport?.toLowerCase() || null;
     }
 
-    // Query for a replacement card
+    // Query for a replacement card - ONLY cards with validated images
     let replacementCard: typeof playableCards.$inferSelect | undefined;
     
     if (targetSetId) {
@@ -748,7 +754,9 @@ export class DatabaseStorage implements IStorage {
             or(
               eq(playableCards.imageReviewStatus, "pending"),
               eq(playableCards.imageReviewStatus, "approved")
-            )
+            ),
+            // Only serve cards with validated images (failure count < 2)
+            lt(playableCards.imageFailureCount, 2)
           )
         )
         .limit(50);
@@ -771,7 +779,7 @@ export class DatabaseStorage implements IStorage {
 
     // If no replacement found from same set, try another active set WITH THE SAME SPORT
     if (!replacementCard && expectedSport) {
-      // Find an active set with the same sport
+      // Find an active set with the same sport and validated images
       const [fallbackSet] = await db
         .select({ id: gameSets.id })
         .from(gameSets)
@@ -781,7 +789,9 @@ export class DatabaseStorage implements IStorage {
             eq(gameSets.isActive, true),
             sql`LOWER(${gameSets.sport}) = ${expectedSport}`,
             eq(playableCards.isPlayable, true),
-            isNotNull(playableCards.imageUrl)
+            isNotNull(playableCards.imageUrl),
+            // Only consider sets with validated cards
+            lt(playableCards.imageFailureCount, 2)
           )
         )
         .groupBy(gameSets.id)
@@ -798,7 +808,9 @@ export class DatabaseStorage implements IStorage {
               or(
                 eq(playableCards.imageReviewStatus, "pending"),
                 eq(playableCards.imageReviewStatus, "approved")
-              )
+              ),
+              // Only serve cards with validated images (failure count < 2)
+              lt(playableCards.imageFailureCount, 2)
             )
           )
           .limit(50);
@@ -834,15 +846,35 @@ export class DatabaseStorage implements IStorage {
 
   async flagCardForImageFailure(cardId: string): Promise<void> {
     try {
-      // Increment report count on the card for admin review
+      // Increment both report count and image failure count
+      // If failure count reaches 2, the card will be excluded from future serving
       await db
         .update(playableCards)
         .set({
           reportCount: sql`COALESCE(${playableCards.reportCount}, 0) + 1`,
+          imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + 1`,
+          imageLastError: 'Client-side image load failure',
+          lastImageCheck: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(playableCards.id, cardId));
-      console.log(`[CardReplacement] Flagged card ${cardId} for image load failure`);
+      
+      // Check if card should now be excluded (2+ failures)
+      const [card] = await db
+        .select({ failureCount: playableCards.imageFailureCount })
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+      
+      if (card && card.failureCount >= 2) {
+        await db
+          .update(playableCards)
+          .set({ isPlayable: false })
+          .where(eq(playableCards.id, cardId));
+        console.log(`[CardReplacement] Card ${cardId} excluded due to 2+ image failures`);
+      } else {
+        console.log(`[CardReplacement] Flagged card ${cardId} for image load failure (count: ${card?.failureCount || 1})`);
+      }
     } catch (error) {
       console.error(`[CardReplacement] Failed to flag card ${cardId}:`, error);
     }
