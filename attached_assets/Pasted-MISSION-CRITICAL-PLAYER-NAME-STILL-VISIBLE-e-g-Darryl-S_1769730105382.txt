@@ -1,0 +1,141 @@
+MISSION-CRITICAL: PLAYER NAME STILL VISIBLE (e.g., “Darryl Strawberry” at TOP of card)
+You are implementing a comprehensive, always-on name-masking system for PackPTS gameplay. The current masking strategy only covers the bottom nameplate, but many sets (including 1987 Topps) print the player name near the TOP. Therefore, PackPTS must support MULTIPLE mask regions per set and must include safe global defaults that mask BOTH top + bottom name zones.
+
+Implement the following NOW.
+
+========================================================
+1) ROOT CAUSE (WHAT’S HAPPENING)
+- Our current “default” mask likely covers only the bottom portion.
+- The 1987 Topps set prints the player name in a top banner inside the image area.
+- So the player name remains visible → gameplay is unplayable.
+
+Fix = multi-region masking + per-set configuration + safe global fallback.
+
+========================================================
+2) DATABASE: STORE MULTIPLE MASK REGIONS PER SET
+Create (or extend) table:
+
+card_set_masks
+- id uuid pk
+- set_key TEXT UNIQUE NOT NULL              // e.g. "1987 Topps Baseball"
+- regions JSONB NOT NULL                    // array of regions in percent coords
+- version INT DEFAULT 1
+- created_at, updated_at
+
+Region shape (all % are 0..100 relative to the displayed image box):
+{ "x": 0, "y": 0, "w": 100, "h": 18, "style": "solid" }
+
+IMPORTANT: regions must support MULTIPLE rectangles for top + bottom.
+
+SEED THESE DEFAULTS:
+A) GLOBAL_FALLBACK regions (used for any set that has no record)
+- TOP STRIP:    {x:0, y:0,  w:100, h:18, style:"solid"}      // masks top name banners like 1987 Topps
+- BOTTOM STRIP: {x:0, y:62, w:100, h:38, style:"solid"}      // masks bottom nameplate sets
+
+B) SET-SPECIFIC for “1987 Topps Baseball” (more precise)
+- TOP STRIP:    {x:0, y:0,  w:100, h:20, style:"solid"}      // slightly larger for safety
+- (Keep bottom strip too, harmless and consistent)
+- BOTTOM STRIP: {x:0, y:62, w:100, h:38, style:"solid"}
+
+Also add seeds for common variants later via Admin UI.
+
+========================================================
+3) BACKEND API: ALWAYS RETURN MASK REGIONS FOR SET
+Add endpoint:
+
+GET /api/masks/by-set?setKey=...
+
+Response:
+{
+  setKey,
+  regions: [ ... ],
+  version
+}
+
+Rules:
+- If setKey exists in card_set_masks => return it
+- Else return GLOBAL_FALLBACK (top+bottom strips)
+- Cache results in-memory for 10 minutes
+
+========================================================
+4) FRONTEND: ALWAYS MASK IN GAMEPLAY BEFORE IMAGE IS VISIBLE
+Create component: src/components/MaskedCardImage.tsx
+
+Requirements:
+- Must render overlays immediately (before image load completes)
+- Must not “flash” unmasked content
+- Must work on iPhone Safari
+- Must support multiple regions
+- Overlays must sit ABOVE the image and intercept touch/long-press
+
+Implementation details:
+- Wrapper: position:relative; overflow:hidden; border-radius consistent with current UI
+- Image: pointer-events:none; user-select:none; -webkit-user-drag:none
+- Overlays: position:absolute; background: rgba(10,14,22,0.98) (nearly solid)
+- Render overlays even if image is loading; image fades in underneath
+
+Add “anti-easy-reveal” hardening:
+- wrapper onContextMenu => preventDefault
+- do NOT expose raw external image URL in the DOM when possible (see proxy below)
+
+========================================================
+5) ENSURE EVERY GAME MODE USES MaskedCardImage
+Replace all direct <img src={card.image}> in gameplay flows with:
+<MaskedCardImage src={proxiedUrl} setKey={currentSetKey} />
+
+Apply to:
+- Solo matches
+- 1vRandom
+- 1vFriend
+- Any match replay screen that shows image before answer
+
+Do NOT apply to marketplace browsing unless you explicitly want to.
+
+========================================================
+6) IMAGE PROXY (HIGHLY RECOMMENDED)
+Even with overlays, users can “open image” or copy URL. Make it harder:
+- Serve images through your own backend proxy route so the client never sees the vendor URL.
+
+Add:
+GET /api/image-proxy?url=...
+
+- Validate url host allowlist (e.g., s3.amazonaws.com/appforest_uf, whatever Card Hedge uses)
+- Stream the image with caching headers
+- Return with:
+  - Cache-Control: public, max-age=3600
+  - X-Content-Type-Options: nosniff
+
+Then use:
+src = `/api/image-proxy?url=${encodeURIComponent(card.image.startsWith('//') ? 'https:' + card.image : card.image)}`
+
+========================================================
+7) ADMIN TOOLING TO TUNE MASK REGIONS (REQUIRED)
+Add Admin page: /admin/masks
+- Search by set key
+- Preview a sample image
+- Drag/resize rectangles
+- Save regions to card_set_masks
+- “Reset to Global Default” button
+- Store as percentages so it works on all devices
+
+This is how you precisely mask sets where name placement differs.
+
+========================================================
+8) AUTOMATED TESTS (REQUIRED) + MANUAL CHECK
+After implementation, RUN tests.
+
+Add:
+- Unit test for MaskedCardImage: when no set record exists, it renders 2 overlays (top+bottom)
+- E2E test (Playwright) for gameplay route: overlay exists and covers top strip area
+
+Finally, manually sanity-check the 1987 Topps example (Darryl Strawberry): the top name must be hidden.
+
+========================================================
+ACCEPTANCE CRITERIA
+- Player name is never visible during gameplay on any device.
+- 1987 Topps top-banner names are masked.
+- No “flash” of unmasked content while images load.
+- Unknown sets still playable because GLOBAL_FALLBACK masks top+bottom.
+- Tests run after implementation and results are reported.
+
+Implement now. After implementing, run the automated tests and paste the output.
