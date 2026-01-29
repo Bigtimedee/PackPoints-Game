@@ -1,11 +1,12 @@
 import { randomUUID } from "crypto";
 import { db } from "../db";
-import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
+import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, matchCardQueue, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
 import { eq, and, sql, notInArray } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
 import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl } from "./cards/imageQuality";
 import { getOrValidateCardImage } from "./images/imageGate";
+import { logCardDelivery } from "./telemetry/cardDelivery";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -186,7 +187,8 @@ class MatchService {
     
     console.log(`[MatchService] Starting match for lobby ${lobbyId}, host=${hostId}, guest=${lobby.guestId}`);
     
-    const questions = await this.generateQuestions(lobby.totalQuestions);
+    const matchId = randomUUID();
+    const questions = await this.generateQuestions(lobby.totalQuestions, matchId);
     
     if (!questions || questions.length === 0) {
       console.error(`[MatchService] startMatch failed: no questions generated for lobby ${lobbyId}. Need verified cards in database.`);
@@ -198,6 +200,7 @@ class MatchService {
     await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
     
     const [match] = await db.insert(matches).values({
+      id: matchId,
       lobbyId,
       status: MatchStatus.ACTIVE,
       totalQuestions: questions.length,
@@ -243,7 +246,8 @@ class MatchService {
     
     console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}`);
     
-    const questions = await this.generateQuestions(lobby.totalQuestions);
+    const matchId = randomUUID();
+    const questions = await this.generateQuestions(lobby.totalQuestions, matchId);
     
     if (!questions || questions.length === 0) {
       console.error(`[MatchService] startMatchForRandom failed: no questions generated for lobby ${lobbyId}. Need verified cards.`);
@@ -255,6 +259,7 @@ class MatchService {
     await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
     
     const [match] = await db.insert(matches).values({
+      id: matchId,
       lobbyId,
       status: MatchStatus.ACTIVE,
       totalQuestions: questions.length,
@@ -287,10 +292,13 @@ class MatchService {
     return { matchState };
   }
 
-  private async generateQuestions(count: number): Promise<GameQuestion[]> {
+  private async generateQuestions(count: number, matchId?: string): Promise<GameQuestion[]> {
     const MAX_RETRY_ATTEMPTS = 3;
-    const VALIDATION_BATCH_SIZE = 30;
+    const VALIDATION_BATCH_SIZE = 60;
+    const SPARE_COUNT = 10;
+    const targetTotal = count + SPARE_COUNT;
     let attempt = 0;
+    const startTime = Date.now();
     
     while (attempt < MAX_RETRY_ATTEMPTS) {
       attempt++;
@@ -323,13 +331,16 @@ class MatchService {
       const candidateBatch = shuffled.slice(0, VALIDATION_BATCH_SIZE);
       
       const validatedCards: BaseballCard[] = [];
+      let invalidCount = 0;
+      
       for (const card of candidateBatch) {
-        if (validatedCards.length >= count) break;
+        if (validatedCards.length >= targetTotal) break;
         
         try {
           const sourceUrl = normalizeImageUrl(card.imageUrl);
           if (!sourceUrl) {
             await quarantineCard(card.id.toString(), "invalid_url", card.imageUrl);
+            invalidCount++;
             continue;
           }
           
@@ -338,17 +349,73 @@ class MatchService {
           if (validation.status === "ok") {
             validatedCards.push(card);
           } else {
+            invalidCount++;
+            await logCardDelivery("validate_fail", {
+              matchId,
+              cardId: card.id.toString(),
+              detail: { reason: validation.status },
+            });
             console.warn(`[MatchService] Card ${card.id} failed image validation: ${validation.status}`);
           }
         } catch (err) {
+          invalidCount++;
           console.error(`[MatchService] Error validating card ${card.id}:`, err);
         }
       }
       
+      await logCardDelivery("validate", {
+        matchId,
+        detail: {
+          validCount: validatedCards.length,
+          invalidCount,
+          duration_ms: Date.now() - startTime,
+          attempt,
+        },
+      });
+      
       if (validatedCards.length >= count) {
-        const selectedCards = validatedCards.slice(0, count);
-        console.info(`[MatchService] Questions built with validation`, { count: selectedCards.length, attempt });
-        return selectedCards.map(card => this.generateQuestionWithProxiedUrl(card));
+        const primaryCards = validatedCards.slice(0, count);
+        const spareCards = validatedCards.slice(count, count + SPARE_COUNT);
+        
+        if (matchId) {
+          const queueEntries = [
+            ...primaryCards.map((card, idx) => ({
+              matchId,
+              cardId: card.id.toString(),
+              idx,
+              isSpare: false,
+              usedAsReplacement: false,
+              markedBad: false,
+            })),
+            ...spareCards.map((card, idx) => ({
+              matchId,
+              cardId: card.id.toString(),
+              idx: count + idx,
+              isSpare: true,
+              usedAsReplacement: false,
+              markedBad: false,
+            })),
+          ];
+          
+          if (queueEntries.length > 0) {
+            await db.insert(matchCardQueue).values(queueEntries);
+            await logCardDelivery("build_queue", {
+              matchId,
+              detail: {
+                primaryCount: primaryCards.length,
+                spareCount: spareCards.length,
+                duration_ms: Date.now() - startTime,
+              },
+            });
+          }
+        }
+        
+        console.info(`[MatchService] Questions built with validation`, { 
+          count: primaryCards.length, 
+          spares: spareCards.length,
+          attempt 
+        });
+        return primaryCards.map(card => this.generateQuestionWithProxiedUrl(card));
       }
       
       console.warn(`[MatchService] Not enough validated cards (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}). Found ${validatedCards.length}, need ${count}`);
@@ -358,8 +425,75 @@ class MatchService {
       }
     }
     
+    await logCardDelivery("prefetch_fail", {
+      matchId,
+      detail: { attempts: MAX_RETRY_ATTEMPTS },
+    });
+    
     console.error(`[MatchService] NO_PLAYABLE_CARDS_AVAILABLE after ${MAX_RETRY_ATTEMPTS} attempts`);
     throw new Error("NO_PLAYABLE_CARDS_AVAILABLE");
+  }
+  
+  async replaceCard(matchId: string, questionIdx: number): Promise<GameQuestion | null> {
+    const queuedCards = await db
+      .select()
+      .from(matchCardQueue)
+      .where(eq(matchCardQueue.matchId, matchId));
+    
+    const currentCard = queuedCards.find(c => c.idx === questionIdx && !c.isSpare);
+    if (!currentCard) {
+      console.error(`[MatchService] No card found at questionIdx ${questionIdx} for match ${matchId}`);
+      return null;
+    }
+    
+    const availableSpare = queuedCards.find(c => c.isSpare && !c.usedAsReplacement && !c.markedBad);
+    if (!availableSpare) {
+      console.warn(`[MatchService] No spare cards available for replacement in match ${matchId}`);
+      return null;
+    }
+    
+    await db.update(matchCardQueue)
+      .set({ markedBad: true })
+      .where(eq(matchCardQueue.id, currentCard.id));
+    
+    await db.update(matchCardQueue)
+      .set({ 
+        usedAsReplacement: true,
+        idx: questionIdx,
+        isSpare: false,
+      })
+      .where(eq(matchCardQueue.id, availableSpare.id));
+    
+    const [replacementDbCard] = await db
+      .select()
+      .from(baseballCards)
+      .where(eq(baseballCards.id, parseInt(availableSpare.cardId)))
+      .limit(1);
+    
+    if (!replacementDbCard) {
+      console.error(`[MatchService] Replacement card ${availableSpare.cardId} not found in database`);
+      return null;
+    }
+    
+    await logCardDelivery("replace_card", {
+      matchId,
+      cardId: availableSpare.cardId,
+      detail: {
+        questionIdx,
+        originalCardId: currentCard.cardId,
+        replacementCardId: availableSpare.cardId,
+      },
+    });
+    
+    const matchState = this.matchStates.get(matchId);
+    if (matchState && matchState.questions[questionIdx]) {
+      const newQuestion = this.generateQuestionWithProxiedUrl(replacementDbCard);
+      matchState.questions[questionIdx] = newQuestion;
+      this.matchStates.set(matchId, matchState);
+      return newQuestion;
+    }
+    
+    return this.generateQuestionWithProxiedUrl(replacementDbCard);
   }
 
   private generateQuestionWithProxiedUrl(card: BaseballCard): GameQuestion {
@@ -661,6 +795,23 @@ class MatchService {
     const oldCardId = oldQuestion.card.id.toString();
 
     await quarantineCard(oldCardId, "client_image_error", oldQuestion.card.imageUrl);
+    
+    await logCardDelivery("image_fail", {
+      matchId,
+      cardId: oldCardId,
+      detail: { questionIdx: idx, reason: "client_image_error" },
+    });
+
+    const replacedQuestion = await this.replaceCard(matchId, idx);
+    if (replacedQuestion) {
+      console.info(`[MatchService] Replaced card from queue at idx ${idx} for match ${matchId}`, {
+        oldCardId,
+        newCardId: replacedQuestion.card.id.toString(),
+      });
+      return { success: true, newQuestion: replacedQuestion };
+    }
+
+    console.warn(`[MatchService] No spare cards in queue, falling back to database fetch for match ${matchId}`);
 
     const quarantinedIds = await getQuarantinedCardIds();
     const usedCardIds = new Set(matchState.questions.map(q => q.card.id.toString()));
@@ -690,11 +841,11 @@ class MatchService {
     }
 
     const newCard = availableCards[Math.floor(Math.random() * availableCards.length)];
-    const newQuestion = this.generateQuestion(newCard);
+    const newQuestion = this.generateQuestionWithProxiedUrl(newCard);
 
     matchState.questions[idx] = newQuestion;
 
-    console.info(`[MatchService] Resynced card at idx ${idx} for match ${matchId}`, {
+    console.info(`[MatchService] Resynced card from database at idx ${idx} for match ${matchId}`, {
       oldCardId,
       newCardId: newCard.id.toString(),
     });

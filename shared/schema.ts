@@ -3392,3 +3392,49 @@ export const insertCardImageCacheSchema = createInsertSchema(cardImageCache).omi
 });
 export type InsertCardImageCache = z.infer<typeof insertCardImageCacheSchema>;
 export type CardImageCache = typeof cardImageCache.$inferSelect;
+
+// Match card queue - cards reserved for a match (10 primary + 10 spare)
+export const matchCardQueue = pgTable("match_card_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  matchId: varchar("match_id").notNull(),
+  cardId: text("card_id").notNull(),
+  idx: integer("idx").notNull(),
+  isSpare: boolean("is_spare").notNull().default(false),
+  usedAsReplacement: boolean("used_as_replacement").notNull().default(false),
+  markedBad: boolean("marked_bad").notNull().default(false),
+  servedAt: timestamp("served_at"),
+  answeredAt: timestamp("answered_at"),
+}, (table) => [
+  index("idx_match_card_queue_match").on(table.matchId),
+  index("idx_match_card_queue_card").on(table.cardId),
+]);
+
+export const insertMatchCardQueueSchema = createInsertSchema(matchCardQueue).omit({
+  id: true,
+  servedAt: true,
+  answeredAt: true,
+});
+export type InsertMatchCardQueue = z.infer<typeof insertMatchCardQueueSchema>;
+export type MatchCardQueue = typeof matchCardQueue.$inferSelect;
+
+// Telemetry for card delivery pipeline
+export const telemetryCardDelivery = pgTable("telemetry_card_delivery", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ts: timestamp("ts").defaultNow().notNull(),
+  matchId: varchar("match_id"),
+  setKey: text("set_key"),
+  stage: text("stage").notNull(),
+  cardId: text("card_id"),
+  detail: jsonb("detail"),
+}, (table) => [
+  index("idx_telemetry_card_delivery_ts").on(table.ts),
+  index("idx_telemetry_card_delivery_stage").on(table.stage),
+  index("idx_telemetry_card_delivery_match").on(table.matchId),
+]);
+
+export const insertTelemetryCardDeliverySchema = createInsertSchema(telemetryCardDelivery).omit({
+  id: true,
+  ts: true,
+});
+export type InsertTelemetryCardDelivery = z.infer<typeof insertTelemetryCardDeliverySchema>;
+export type TelemetryCardDelivery = typeof telemetryCardDelivery.$inferSelect;
