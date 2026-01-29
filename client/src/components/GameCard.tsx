@@ -84,6 +84,7 @@ interface GameCardProps {
   showSkipButton?: boolean;
   skipPending?: boolean;
   onSkip?: () => void;
+  skipButtonMode?: 'replace' | 'skip';
   showReplaceButton?: boolean;
   replacePending?: boolean;
   onReplace?: () => void;
@@ -103,6 +104,7 @@ export function GameCard({
   showSkipButton = false,
   skipPending = false,
   onSkip,
+  skipButtonMode = 'replace',
   showReplaceButton = false,
   replacePending = false,
   onReplace,
@@ -242,7 +244,10 @@ export function GameCard({
                 ) : (
                   <SkipForward className="h-4 w-4 mr-2" />
                 )}
-                {skipPending ? "Skipping..." : "Skip to Next"}
+                {skipPending 
+                  ? (skipButtonMode === 'skip' ? "Skipping..." : "Loading card...") 
+                  : (skipButtonMode === 'skip' ? "Skip to Next" : "Try Different Card")
+                }
               </Button>
             )}
           </div>

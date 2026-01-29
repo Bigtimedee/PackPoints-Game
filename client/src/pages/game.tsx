@@ -194,6 +194,7 @@ export default function Game() {
       // Reset replacement tracking for new session
       setFailedCardIds([]);
       setReplacedQuestionIndices(new Set());
+      setReplacementAttempts(new Map());
       setShowSkipButton(false);
       setReplacementStartTime(null);
     },
@@ -331,6 +332,10 @@ export default function Game() {
   // This prevents auto-skipping when replacement card's image also fails
   const [replacedQuestionIndices, setReplacedQuestionIndices] = useState<Set<number>>(new Set());
   
+  // Track replacement attempt counts per question index
+  // After 2+ failed attempts, allow user to truly skip to next question
+  const [replacementAttempts, setReplacementAttempts] = useState<Map<number, number>>(new Map());
+  
   // Track when to show skip button (after timeout or replacement failure)
   const [showSkipButton, setShowSkipButton] = useState(false);
 
@@ -361,11 +366,17 @@ export default function Game() {
       console.log(`[Game] Card replacement failed:`, error);
       // Mark this question as having had a replacement attempt
       if (session) {
-        setReplacedQuestionIndices(prev => new Set(prev).add(session.currentQuestionIndex));
+        const currentIdx = session.currentQuestionIndex;
+        setReplacedQuestionIndices(prev => new Set(prev).add(currentIdx));
+        // Increment the attempt counter for this question
+        setReplacementAttempts(prev => {
+          const newMap = new Map(prev);
+          newMap.set(currentIdx, (newMap.get(currentIdx) || 0) + 1);
+          return newMap;
+        });
       }
-      // DO NOT auto-skip to next question - the replacement just failed
-      // User should still try to answer the current question if the card is visible
-      // Only skip if explicitly requested by user or if there's truly no card to show
+      // Show the skip button again so user can try again or skip entirely
+      setShowSkipButton(true);
     }
   });
 
@@ -416,11 +427,31 @@ export default function Game() {
     };
   }, [replaceCardMutation.isPending, session?.currentQuestionIndex, replacedQuestionIndices, failedCardIds.length]);
   
-  // Handle manual skip when user clicks "Skip to Next" button
-  // Only allow skip when showSkipButton is true (indicating a card loading issue)
+  // Handle manual skip when user clicks "Try Different Card" button
+  // This requests a replacement card from Card Hedge API, NOT advancing to next question
+  // The user stays on the same question index but gets a different card to identify
+  // After 2+ failed attempts, truly skip to next question as a last resort
   const handleManualSkip = () => {
-    if (showSkipButton && !nextQuestionMutation.isPending) {
+    if (!showSkipButton) return;
+    
+    const currentIdx = session?.currentQuestionIndex ?? -1;
+    const attempts = replacementAttempts.get(currentIdx) || 0;
+    
+    // If we've failed 2+ times to get a replacement, allow true skip to next question
+    if (attempts >= 2 && !nextQuestionMutation.isPending) {
+      console.log(`[Game] Multiple replacement failures, skipping to next question`);
       nextQuestionMutation.mutate();
+      return;
+    }
+    
+    // Otherwise try to get a replacement card
+    if (!replaceCardMutation.isPending) {
+      const currentCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
+      if (currentCardId) {
+        // Reset the skip button state while we try to get a replacement
+        setShowSkipButton(false);
+        replaceCardMutation.mutate(currentCardId);
+      }
     }
   };
 
@@ -429,11 +460,20 @@ export default function Game() {
     // Track this failed card to exclude from future replacements
     setFailedCardIds(prev => [...prev, failedCardId]);
     
-    // Check if we've already attempted a replacement for this question
-    // If so, don't try again - user still has the current card to attempt
     const currentIndex = session?.currentQuestionIndex ?? -1;
+    
+    // Check if we've already attempted a replacement for this question
+    // If so, increment the attempt counter (image failed after replacement succeeded)
+    // and show skip button rather than trying again automatically
     if (replacedQuestionIndices.has(currentIndex)) {
-      console.log(`[Game] Already replaced card at question ${currentIndex + 1}, not replacing again`);
+      console.log(`[Game] Replacement card image also failed at question ${currentIndex + 1}, incrementing attempts`);
+      // Count this as another failed attempt toward the skip threshold
+      setReplacementAttempts(prev => {
+        const newMap = new Map(prev);
+        newMap.set(currentIndex, (newMap.get(currentIndex) || 0) + 1);
+        return newMap;
+      });
+      setShowSkipButton(true);
       return;
     }
     
@@ -507,6 +547,7 @@ export default function Game() {
     // Reset replacement tracking for new game
     setFailedCardIds([]);
     setReplacedQuestionIndices(new Set());
+    setReplacementAttempts(new Map());
     setShowSkipButton(false);
     setReplacementStartTime(null);
   };
@@ -869,8 +910,9 @@ export default function Game() {
               setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
               imageRotation={currentQuestion.card.imageRotation}
               showSkipButton={showSkipButton}
-              skipPending={nextQuestionMutation.isPending}
+              skipPending={replaceCardMutation.isPending || nextQuestionMutation.isPending}
               onSkip={handleManualSkip}
+              skipButtonMode={(replacementAttempts.get(session.currentQuestionIndex) ?? 0) >= 2 ? 'skip' : 'replace'}
               onImageError={() => {
                 // Get the failed card ID (prefer playableCardId for accurate tracking)
                 const failedCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
