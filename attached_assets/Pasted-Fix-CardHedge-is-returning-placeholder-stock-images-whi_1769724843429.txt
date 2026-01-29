@@ -1,0 +1,141 @@
+Fix: CardHedge is returning placeholder / stock images, which breaks PackPTS gameplay. Implement a HARD “real image only” gate end-to-end: (1) detect placeholder images, (2) request CardHedge with raw_images_only=true wherever supported, (3) reject any result with placeholder signals, (4) retry with backoff + different query filters, (5) quarantine bad card_ids so they are not served again, and (6) if a real image still can’t be found, replace the question with a different card (do NOT advance the match index until a real card is loaded).
+
+STACK (do not change)
+Express + TypeScript backend, React 18 + TS frontend, Postgres + Drizzle
+
+========================================================
+A) DEFINE “PLACEHOLDER IMAGE” RULES (SERVER-SIDE SINGLE SOURCE OF TRUTH)
+
+Create src/services/cards/imageQuality.ts with:
+
+1) normalizeImageUrl(url: string): string
+- If url starts with "//" prefix with "https:"
+- If url is relative (no protocol), prefix with "https://"
+
+2) isPlaceholderImage(url: string, meta?: { description?: string; set?: string; player?: string }): boolean
+Return TRUE if any of these are true:
+- url contains known placeholder markers:
+  - "example.jpg"
+  - "placeholder"
+  - "stock"
+  - "appforest"
+  - "default"
+  - "noimage"
+  - "/example"
+- url is missing or too short
+- meta.description contains "example" or "placeholder" (case-insensitive)
+- (optional) url host is not expected for real images (allowlist s3.amazonaws.com, cdn domains you observe)
+
+3) cardHasRealImage(card): boolean
+- card.image exists
+- !isPlaceholderImage(card.image, card)
+- card.raw_image or card.image passes rules (use whichever field exists)
+
+========================================================
+B) REQUEST “RAW IMAGES ONLY” FROM CARDHEDGE (WHERE AVAILABLE)
+
+Update CardHedge API client (src/services/cards/cardhedgeClient.ts):
+
+For search endpoints you use (card-search / card-search-with-sorting / card-details), include:
+- raw_images_only: true   (or raw_images_only = true in body when docs say it exists)
+
+Example body:
+{
+  search: "...",
+  category: "Baseball",
+  set: "...",
+  page: 1,
+  page_size: 50,
+  raw_images_only: true
+}
+
+If a specific endpoint does NOT support it, still enforce filtering after response.
+
+========================================================
+C) SERVER-SIDE FILTER + RETRY + QUARANTINE
+
+Add a DB table to quarantine bad image card_ids so they’re never served again:
+
+Table: card_image_quarantine
+- card_id text pk
+- reason text not null
+- first_seen_at timestamp default now()
+- last_seen_at timestamp default now()
+- seen_count int default 1
+
+On detection of placeholder:
+- Upsert card_id; increment seen_count; set last_seen_at=now()
+
+In your “getNextCardForMatch” / “generateQuestions” logic:
+1) Fetch candidate cards (CardHedge search) with page_size >= 50
+2) Filter out:
+   - cards in card_image_quarantine
+   - cards where !cardHasRealImage(card)
+3) If after filtering you have 0 cards:
+   Retry strategy (max 3 attempts):
+   Attempt 1: same query + raw_images_only=true
+   Attempt 2: add stricter query: set=<selected set>, category=<selected category>, and if you have it, player filter
+   Attempt 3: increase page_size and/or page++ to pull different results
+4) If still 0: return a typed error "NO_REAL_IMAGE_CARDS_AVAILABLE" so frontend can show “Resync / Try Again” WITHOUT counting as a played card.
+
+CRITICAL:
+- Never insert a placeholder card into match_questions.
+- Never advance questionIndex/roundNumber unless a real-image card is locked into the match.
+
+========================================================
+D) LOCK QUESTIONS AT MATCH START (PREVENT MID-MATCH PLACEHOLDERS)
+
+If you currently fetch “next card” on demand, change to:
+- When match starts, server prebuilds the 10 questions (or N) using the above filter.
+- Persist match_questions rows:
+  - match_id
+  - idx (1..N)
+  - card_id
+  - image_url (normalized, real)
+  - correct_answer
+  - options[]
+This ensures both players see consistent, valid images and prevents placeholder mid-stream.
+
+If you already prebuild questions, then apply the filter before writing them.
+
+========================================================
+E) FRONTEND: HANDLE IMAGE LOAD FAILURE WITHOUT ADVANCING THE MATCH
+
+In the Match UI:
+- On <img> error OR if server returns NO_REAL_IMAGE_CARDS_AVAILABLE:
+  Show “Unable to load card image” + button “Try another card”
+- Clicking the button calls:
+  POST /api/matches/:id/resync-card?idx=currentIdx
+Server behavior:
+- Replace ONLY that idx’s card with a new real-image card (do not change idx, do not count it as played)
+- Broadcast update to both players via ws so they stay in sync
+
+Also ensure:
+- “Skip to next” does NOT increment idx; it triggers resync-card for current idx.
+
+========================================================
+F) OBSERVABILITY (NO TESTING)
+
+Add server logs (minimal):
+- When quarantining: console.warn("Placeholder image quarantined", { card_id, image })
+- When generating match questions: console.info("Questions built", { matchId, count })
+
+Do NOT run tests; do NOT attempt to manually verify. Implement only.
+
+========================================================
+G) FILES/CHANGES TO MAKE
+
+1) New: src/services/cards/imageQuality.ts
+2) Update: src/services/cards/cardhedgeClient.ts to send raw_images_only=true
+3) New DB table + Drizzle migration: card_image_quarantine
+4) Update: match question generation (server) to filter + retry + quarantine
+5) Update: frontend Match screen to treat image error as “resync current card” (no idx advance)
+6) New API: POST /api/matches/:id/resync-card (auth required; participant only)
+
+========================================================
+ACCEPTANCE CRITERIA
+
+- PackPTS never serves CardHedge placeholder/stock images into gameplay.
+- If CardHedge returns placeholder results, they are filtered out and quarantined.
+- A match ALWAYS contains N real-image cards (e.g., 10) before play begins.
+- If an image fails to load client-side, user can “Try another card” WITHOUT consuming a question slot or advancing the match.
