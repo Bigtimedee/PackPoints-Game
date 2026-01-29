@@ -38,6 +38,7 @@ const ALLOWED_IMAGE_HOSTS = [
   "ebayimg.com",
   "i.ebayimg.com",
   "images.collector-cdn.com",
+  "cdn.bubble.io",
 ];
 
 export function normalizeImageUrl(url: string | null | undefined): string | null {
