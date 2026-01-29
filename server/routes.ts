@@ -8721,6 +8721,45 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/matches/:matchId/resync-card - Replace a card that failed to load
+  app.post("/api/matches/:matchId/resync-card", isAuthenticated, async (req: any, res) => {
+    try {
+      const { matchId } = req.params;
+      const { idx } = req.body;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+
+      if (!userId) {
+        return res.status(401).json({ ok: false, error: "Authentication required" });
+      }
+
+      if (typeof idx !== "number" || idx < 0) {
+        return res.status(400).json({ ok: false, error: "Invalid question index" });
+      }
+
+      const result = await matchService.resyncCard(matchId, idx, userId);
+
+      if (!result.success) {
+        if (result.error === "NO_REAL_IMAGE_CARDS_AVAILABLE") {
+          return res.status(503).json({ ok: false, error: "NO_REAL_IMAGE_CARDS_AVAILABLE" });
+        }
+        return res.status(400).json({ ok: false, error: result.error });
+      }
+
+      return res.json({
+        ok: true,
+        idx,
+        newQuestion: result.newQuestion ? {
+          card: result.newQuestion.card,
+          options: result.newQuestion.options,
+          pointValue: result.newQuestion.pointValue,
+        } : null,
+      });
+    } catch (error: unknown) {
+      console.error("Error resyncing card:", error);
+      res.status(500).json({ ok: false, error: "Server error" });
+    }
+  });
+
   // GET /api/matchmaking/queue-size - Get queue size (public)
   app.get("/api/matchmaking/queue-size", async (_req, res) => {
     try {

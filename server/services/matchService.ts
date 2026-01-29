@@ -1,9 +1,10 @@
 import { randomUUID } from "crypto";
 import { db } from "../db";
 import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, notInArray } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
+import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl } from "./cards/imageQuality";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -286,14 +287,63 @@ class MatchService {
   }
 
   private async generateQuestions(count: number): Promise<GameQuestion[]> {
+    const MAX_RETRY_ATTEMPTS = 3;
+    let attempt = 0;
+    
+    while (attempt < MAX_RETRY_ATTEMPTS) {
+      attempt++;
+      
+      const quarantinedIds = await getQuarantinedCardIds();
+      
+      const verifiedCards = await db
+        .select()
+        .from(baseballCards)
+        .where(eq(baseballCards.imageVerified, true));
+      
+      const filteredCards = verifiedCards.filter(card => {
+        if (quarantinedIds.has(card.id.toString())) {
+          return false;
+        }
+        
+        if (!cardHasRealImage({
+          cardId: card.id.toString(),
+          imageUrl: card.imageUrl,
+          player: card.playerName,
+        })) {
+          quarantineCard(card.id.toString(), "placeholder_image", card.imageUrl);
+          return false;
+        }
+        
+        return true;
+      });
+      
+      if (filteredCards.length >= count) {
+        const shuffled = [...filteredCards].sort(() => Math.random() - 0.5);
+        const selectedCards = shuffled.slice(0, count);
+        console.info(`[MatchService] Questions built`, { count: selectedCards.length, attempt });
+        return selectedCards.map(card => this.generateQuestion(card));
+      }
+      
+      console.warn(`[MatchService] Not enough cards after filtering (attempt ${attempt}/${MAX_RETRY_ATTEMPTS}). Found ${filteredCards.length}, need ${count}`);
+      
+      if (attempt < MAX_RETRY_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+      }
+    }
+    
+    const quarantinedIds = await getQuarantinedCardIds();
     const verifiedCards = await db
       .select()
       .from(baseballCards)
       .where(eq(baseballCards.imageVerified, true));
     
-    const shuffled = [...verifiedCards].sort(() => Math.random() - 0.5);
-    const selectedCards = shuffled.slice(0, Math.min(count, shuffled.length));
+    const filteredCards = verifiedCards.filter(card => 
+      !quarantinedIds.has(card.id.toString())
+    );
     
+    const shuffled = [...filteredCards].sort(() => Math.random() - 0.5);
+    const selectedCards = shuffled.slice(0, Math.min(count, shuffled.length));
+    console.info(`[MatchService] Questions built (fallback)`, { count: selectedCards.length });
     return selectedCards.map(card => this.generateQuestion(card));
   }
 
@@ -552,6 +602,70 @@ class MatchService {
 
   async getMatchParticipants(matchId: string): Promise<MatchParticipant[]> {
     return await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId));
+  }
+
+  async resyncCard(matchId: string, idx: number, userId: string): Promise<{ success: boolean; newQuestion?: GameQuestion; error?: string }> {
+    const matchState = this.matchStates.get(matchId);
+    if (!matchState) {
+      return { success: false, error: "Match not found" };
+    }
+
+    const isParticipant = matchState.participants.some(p => p.userId === userId);
+    if (!isParticipant) {
+      return { success: false, error: "Not a participant" };
+    }
+
+    if (idx < 0 || idx >= matchState.questions.length) {
+      return { success: false, error: "Invalid question index" };
+    }
+
+    const oldQuestion = matchState.questions[idx];
+    const oldCardId = oldQuestion.card.id.toString();
+
+    await quarantineCard(oldCardId, "client_image_error", oldQuestion.card.imageUrl);
+
+    const quarantinedIds = await getQuarantinedCardIds();
+    const usedCardIds = new Set(matchState.questions.map(q => q.card.id.toString()));
+
+    const verifiedCards = await db
+      .select()
+      .from(baseballCards)
+      .where(eq(baseballCards.imageVerified, true));
+
+    const availableCards = verifiedCards.filter(card => {
+      const cardIdStr = card.id.toString();
+      if (quarantinedIds.has(cardIdStr)) return false;
+      if (usedCardIds.has(cardIdStr)) return false;
+      if (!cardHasRealImage({
+        cardId: cardIdStr,
+        imageUrl: card.imageUrl,
+        player: card.playerName,
+      })) {
+        quarantineCard(cardIdStr, "placeholder_image", card.imageUrl);
+        return false;
+      }
+      return true;
+    });
+
+    if (availableCards.length === 0) {
+      return { success: false, error: "NO_REAL_IMAGE_CARDS_AVAILABLE" };
+    }
+
+    const newCard = availableCards[Math.floor(Math.random() * availableCards.length)];
+    const newQuestion = this.generateQuestion(newCard);
+
+    matchState.questions[idx] = newQuestion;
+
+    console.info(`[MatchService] Resynced card at idx ${idx} for match ${matchId}`, {
+      oldCardId,
+      newCardId: newCard.id.toString(),
+    });
+
+    return { success: true, newQuestion };
+  }
+
+  getMatchStateForBroadcast(matchId: string): MatchState | undefined {
+    return this.matchStates.get(matchId);
   }
 }
 
