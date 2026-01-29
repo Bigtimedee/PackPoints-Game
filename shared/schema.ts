@@ -3079,10 +3079,10 @@ export const insertCardSetMaskSchema = createInsertSchema(cardSetMasks).omit({
 export type InsertCardSetMask = z.infer<typeof insertCardSetMaskSchema>;
 export type CardSetMask = typeof cardSetMasks.$inferSelect;
 
-// Default mask regions for unknown sets (aggressive bottom masking)
+// Default mask regions for unknown sets - covers top 18% AND bottom 38% to hide names in all positions
 export const DEFAULT_MASK_REGIONS: MaskRegion[] = [
   { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "solid", radiusPct: 0 },
-  { xPct: 0, yPct: 80, wPct: 100, hPct: 20, type: "solid", radiusPct: 0 },
+  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "solid", radiusPct: 0 },
 ];
 
 // Slabbed card variant (name may sit higher)
