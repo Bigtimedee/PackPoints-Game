@@ -4,7 +4,7 @@ import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, match
 import { eq, and, sql, notInArray } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
-import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl } from "./cards/imageQuality";
+import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl, analyzeCardImageContent } from "./cards/imageQuality";
 import { getOrValidateCardImage } from "./images/imageGate";
 import { logCardDelivery } from "./telemetry/cardDelivery";
 
@@ -347,6 +347,22 @@ class MatchService {
           const validation = await getOrValidateCardImage(card.id.toString(), sourceUrl);
           
           if (validation.status === "ok") {
+            // Additional content-based analysis to catch silhouettes/placeholders
+            const contentAnalysis = await analyzeCardImageContent(card.id.toString(), sourceUrl);
+            
+            if (contentAnalysis.isPlaceholder && contentAnalysis.confidence >= 60) {
+              // Content analysis detected placeholder - quarantine and skip
+              invalidCount++;
+              await quarantineCard(card.id.toString(), `content_placeholder: ${contentAnalysis.reasons[0] || "detected"}`, sourceUrl);
+              await logCardDelivery("validate_fail", {
+                matchId,
+                cardId: card.id.toString(),
+                detail: { reason: "content_placeholder", confidence: contentAnalysis.confidence, reasons: contentAnalysis.reasons },
+              });
+              console.warn(`[MatchService] Card ${card.id} failed content analysis (${contentAnalysis.confidence}%): ${contentAnalysis.reasons.join("; ")}`);
+              continue;
+            }
+            
             validatedCards.push(card);
           } else {
             invalidCount++;
