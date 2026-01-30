@@ -1,0 +1,132 @@
+You are Replit. This is a mission-critical production bug: Admin shows “Purge & Reimport completed (Purged 133, imported 133)” but the same set row still displays “No cards”. This makes PackPTS unplayable. You must (1) diagnose precisely WHY the UI says 0 cards even though imports occurred, and (2) implement a comprehensive fix that permanently prevents this mismatch.
+
+DO NOT change gameplay, matchmaking, scoring, or UI styling. Focus only on: Admin “Playable Sets” card counts, set→cards linkage, import pipeline correctness, and data consistency.
+
+========================================================
+PRIMARY HYPOTHESIS (you must verify in code + DB)
+This mismatch almost always means ONE of these is true:
+A) Cards ARE being inserted, but NOT linked to the set (set_id null / wrong set_id / wrong tenant_id / wrong environment DB).
+B) Cards ARE inserted, but “cards count” query filters them out (e.g., only counts verified/playable/raw_image cards; importer didn’t set that flag).
+C) The import writes to one table (e.g., imported_cards or staging) while the Admin “cards” count reads from another table.
+D) The set list uses a cached / denormalized count field (sets.card_count) that is never updated after import.
+E) The list count joins on the wrong key (e.g., uses set.slug vs set.id), so join returns 0.
+F) Purge happens in one transaction and import in another, but count is computed before commit or against stale replica/cache.
+
+Your job is to find exactly which of the above is happening and fix it with guardrails so it can’t happen again.
+
+========================================================
+STEP 1 — ADD FORENSIC DIAGNOSTICS (server-side, no secrets)
+1) Locate the Admin “Playable Sets” list API/loader. Identify exactly how it populates the “Cards” column.
+   - Find the query and note what table(s) and filters are used (verified/playable/sport/category/raw_images_only/etc.)
+2) Locate the “Purge & Reimport” action handler:
+   - Identify what tables it deletes from
+   - Identify what tables it inserts into
+   - Identify how it determines “imported N cards”
+3) Add structured logs for one reimport run:
+   - set_id, set_name
+   - tenant/org/user context if applicable
+   - purge deleted row counts per table
+   - insert row counts per table
+   - the exact SQL/ORM “count for admin list” for that set_id with filters, and the result
+   - a sample of 3 inserted rows: { id, set_id, cardhedge_card_id, image_url, verified/playable flags, created_at }
+IMPORTANT: Do not log API keys. Do not log full payloads, only counts and a few sample fields.
+
+========================================================
+STEP 2 — RUN A HARD CONSISTENCY CHECK (create a debug endpoint)
+Create a temporary admin-only endpoint:
+GET /api/admin/debug/set-integrity?setId=...
+Returns JSON:
+- set: { id, name, query, sport/category }
+- counts:
+  - cards_total_by_set_id (no filters)
+  - cards_count_using_admin_list_query (exact same filters used in UI)
+  - cards_in_staging_if_any
+- foreign key sanity:
+  - number of cards with NULL set_id created in last 1 hour
+  - number of cards whose set_id != requested set but were created by this import job (if you track job_id)
+- flags breakdown:
+  - verified true/false counts
+  - playable true/false counts
+  - image_url present/missing
+- last 5 cards inserted for that set_id
+
+Wire the Admin “reimport” flow (server side only) to call this endpoint internally after import and log the summary.
+
+========================================================
+STEP 3 — FIX THE ROOT CAUSE (implement whichever is confirmed)
+Based on your findings, apply the correct fix. The fix MUST be permanent and robust.
+
+CASE A: Cards inserted but not linked to set
+- Fix the importer so every inserted card row includes the correct set_id (the DB primary key of the game set).
+- Add DB constraint: cards.set_id NOT NULL (if feasible) OR at least a migration that backfills nulls and prevents future nulls.
+- Add foreign key constraint cards.set_id -> sets.id (if not already).
+- Add importer unit check: if any inserted row would have null/invalid set_id, fail the import and report error.
+
+CASE B: Admin list counts only “verified/playable” but importer doesn’t set it
+- Decide the canonical meaning of “a card exists in a set” for Admin’s “Cards” column.
+  - REQUIRED: The “Cards” column must reflect “playable cards available for gameplay”.
+- If the UI is supposed to show playable cards:
+  - Ensure importer sets playable=true only when the card has a valid image_url and passes “not placeholder” detection.
+  - Ensure Admin list query counts playable=true.
+- If the UI is supposed to show total imported:
+  - Remove/adjust overly strict filters in the Admin list query and add a separate “Playable” count if needed (but do NOT redesign UI; just fix the count logic).
+- Add a post-import reconciliation step that computes playable status and updates flags consistently.
+
+CASE C: Import writes to staging table but Admin reads from different table
+- Consolidate: Admin list must read from the same canonical table used by gameplay.
+- If staging is required, add a finalize step that copies/moves staged cards into canonical cards table, linked to set_id, within a single transaction.
+- The “imported N cards” toast MUST be derived from canonical inserted rows, not staging.
+
+CASE D: Denormalized sets.card_count not updated
+- Remove denormalization OR enforce it:
+  - Preferred: compute counts via query (COUNT cards where set_id=... AND playable=true)
+  - If you keep sets.card_count:
+    - Update it at the end of import in the same transaction
+    - Add a nightly/triggered job to recompute counts for all sets
+    - Ensure Admin list displays the computed/updated value, not stale cached.
+
+CASE E: Wrong join key
+- Fix the join to use set.id (primary key) consistently everywhere.
+- Add an integration test that reimports a set and then immediately fetches the Admin list and asserts count > 0.
+
+CASE F: Stale cache/replica
+- If you are caching Admin list results, invalidate cache on import completion.
+- If using read replica, ensure Admin list reads from primary right after writes (or implement read-after-write consistency for this route).
+
+========================================================
+STEP 4 — BACKFILL & REPAIR EXISTING BROKEN DATA
+Write a repair script (admin-only or one-time migration) that:
+- Finds sets where Admin shows 0 but imports occurred recently (e.g., last 7 days).
+- For each:
+  - If cards exist in staging: finalize them into canonical cards table
+  - If cards exist with missing/incorrect set_id: fix set_id
+  - If flags are wrong: recompute playable/verified based on image_url validity and placeholder detection
+- Print a summary: repaired sets + before/after counts.
+
+========================================================
+STEP 5 — ADD GUARDRails (prevent recurrence)
+1) Add an “Import Job” record:
+- import_jobs: { id, set_id, started_at, finished_at, purged_count, inserted_count, playable_count, status, error }
+2) The UI “Purge & Reimport completed” toast must be based on the job’s canonical inserted_count and playable_count.
+3) Fail loudly:
+- If inserted_count > 0 but playable_count == 0, mark job status “warning” and surface a clear admin message, not “completed”.
+4) Add logging + alerts (console is fine) when playable_count == 0 after import.
+
+========================================================
+STEP 6 — REQUIRED TESTS (you MUST run them)
+After implementing, run these tests automatically and show results in console output:
+1) Reimport one known set (e.g., 1987 Topps Baseball) via the same code path as Admin.
+2) Immediately fetch Admin sets list and assert that set’s “Cards” count > 0.
+3) Query DB directly (via ORM) for:
+   - total cards by set_id
+   - playable cards by set_id
+They must match what Admin shows.
+4) Confirm no new cards created in the last hour have NULL set_id.
+
+If any test fails, keep iterating until all pass.
+
+========================================================
+DELIVERABLE
+- Implement the diagnostics, the root-cause fix, the repair/backfill, and guardrails.
+- Provide a list of files changed.
+- Provide the console output of the tests showing Admin count now matches actual cards.
