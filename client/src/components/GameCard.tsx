@@ -68,6 +68,7 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
     const pixels = imageData.data;
     
+    // Count unique colors (quantized to 32 levels like server-side)
     const colorSet = new Set<string>();
     for (let i = 0; i < pixels.length; i += 4) {
       const r = Math.floor(pixels[i] / 32) * 32;
@@ -76,10 +77,14 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
       colorSet.add(`${r},${g},${b}`);
     }
     
-    if (colorSet.size < 8) {
+    // Silhouettes typically have < 50 unique colors, but we use 30 as buffer
+    // Real cards have 300-500 unique colors (at this quantization ~40-60)
+    if (colorSet.size < 30) {
+      console.log(`[PlaceholderDetect] Low color diversity: ${colorSet.size} unique colors`);
       return true;
     }
     
+    // Check for dominant color (silhouettes often have >60% single color)
     const colorCounts = new Map<string, number>();
     for (let i = 0; i < pixels.length; i += 4) {
       const r = Math.floor(pixels[i] / 32) * 32;
@@ -90,11 +95,13 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     }
     
     const totalPixels = (sampleSize * sampleSize);
-    const counts = Array.from(colorCounts.values());
-    for (let i = 0; i < counts.length; i++) {
-      if (counts[i] / totalPixels > 0.8) {
-        return true;
-      }
+    const maxCount = Math.max(...Array.from(colorCounts.values()));
+    const dominantPercent = (maxCount / totalPixels) * 100;
+    
+    // Real cards have <10% dominant color, silhouettes have >50%
+    if (dominantPercent > 50) {
+      console.log(`[PlaceholderDetect] High dominant color: ${dominantPercent.toFixed(1)}%`);
+      return true;
     }
     
     return false;
