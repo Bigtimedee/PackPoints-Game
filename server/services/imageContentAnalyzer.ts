@@ -108,6 +108,7 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
   silhouetteScore: number;
   warmBackgroundPercent: number;
   darkPixelPercent: number;
+  coolGradientPercent: number;
 }> {
   const image = sharp(buffer);
   const metadata = await image.metadata();
@@ -130,6 +131,9 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
   let warmPixels = 0;
   let darkPixels = 0;
   let orangeTanPixels = 0;
+  let purplePixels = 0;
+  let bluePixels = 0;
+  let coolGradientPixels = 0;
 
   for (let i = 0; i < data.length; i += channels) {
     const r = data[i];
@@ -151,6 +155,22 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
     
     if (r < 60 && g < 60 && b < 60) {
       darkPixels++;
+    }
+    
+    // Purple detection: high red, high blue, low-medium green
+    if (r > 80 && b > 120 && g < 100 && b > g) {
+      purplePixels++;
+    }
+    
+    // Blue detection: high blue, low red
+    if (b > 150 && r < 120 && g < 180) {
+      bluePixels++;
+    }
+    
+    // Cool gradient pixels: purple-blue spectrum (like basketball silhouettes)
+    if ((r > 60 && b > 100 && b > r * 0.8 && g < Math.max(r, b)) || 
+        (b > 120 && r > 50 && g < 120)) {
+      coolGradientPixels++;
     }
   }
 
@@ -184,16 +204,22 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
   const warmBackgroundPercent = (warmPixels / pixelCount) * 100;
   const darkPixelPercent = (darkPixels / pixelCount) * 100;
   const orangeTanPercent = (orangeTanPixels / pixelCount) * 100;
+  const purplePercent = (purplePixels / pixelCount) * 100;
+  const bluePercent = (bluePixels / pixelCount) * 100;
+  const coolGradientPercent = (coolGradientPixels / pixelCount) * 100;
   
   let silhouetteScore = 0;
   // Silhouette detection requires MULTIPLE conditions to avoid false positives
-  // Real cards with warm backgrounds will have high color diversity and detailed edges
+  // Real cards have high color diversity and detailed edges
   const hasLowColorDiversity = uniqueColors < 100;
+  const hasVeryLowColorDiversity = uniqueColors < 60;
   const hasWarmBackground = warmBackgroundPercent > 35 || orangeTanPercent > 25;
+  const hasCoolBackground = coolGradientPercent > 30 || purplePercent > 20 || bluePercent > 25;
   const hasDarkSilhouetteShape = darkPixelPercent > 10 && darkPixelPercent < 50;
   const lacksDetailedEdges = !hasDetailedEdges;
   
-  // Strong silhouette signal: warm background + dark shape + low colors + no edges
+  // === WARM COLOR SILHOUETTES (orange/tan backgrounds) ===
+  // Strong signal: warm background + dark shape + low colors + no edges
   if (hasWarmBackground && hasDarkSilhouetteShape && hasLowColorDiversity && lacksDetailedEdges) {
     silhouetteScore += 50; // High confidence silhouette
   }
@@ -204,6 +230,20 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
   // Weak signal: just warm background with dark pixels (but not enough on its own)
   else if (warmBackgroundPercent > 50 && darkPixelPercent > 20 && uniqueColors < 60) {
     silhouetteScore += 25;
+  }
+  
+  // === COOL COLOR SILHOUETTES (purple/blue gradient backgrounds) ===
+  // Strong signal: cool gradient + dark shape + low colors + no edges
+  if (hasCoolBackground && hasDarkSilhouetteShape && hasLowColorDiversity && lacksDetailedEdges) {
+    silhouetteScore += 50; // High confidence purple/blue silhouette
+  }
+  // Medium signal: significant purple or blue + dark shape + very low colors
+  else if ((purplePercent > 15 || bluePercent > 20) && darkPixelPercent > 10 && hasVeryLowColorDiversity) {
+    silhouetteScore += 40;
+  }
+  // Cool gradient with silhouette shape
+  else if (coolGradientPercent > 40 && darkPixelPercent > 15 && uniqueColors < 80) {
+    silhouetteScore += 35;
   }
 
   return {
@@ -216,7 +256,8 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
     hasDetailedEdges,
     silhouetteScore,
     warmBackgroundPercent,
-    darkPixelPercent
+    darkPixelPercent,
+    coolGradientPercent
   };
 }
 
@@ -272,10 +313,10 @@ export async function analyzeImageContent(url: string): Promise<ImageAnalysisRes
     }
 
     if (stats.silhouetteScore >= 40) {
-      reasons.push(`Basketball/sport silhouette pattern detected (warm=${stats.warmBackgroundPercent.toFixed(1)}%, dark=${stats.darkPixelPercent.toFixed(1)}%)`);
+      reasons.push(`Sport silhouette pattern detected (warm=${stats.warmBackgroundPercent.toFixed(1)}%, cool=${stats.coolGradientPercent.toFixed(1)}%, dark=${stats.darkPixelPercent.toFixed(1)}%)`);
       placeholderScore += stats.silhouetteScore;
     } else if (stats.silhouetteScore >= 20) {
-      reasons.push(`Possible silhouette pattern (warm=${stats.warmBackgroundPercent.toFixed(1)}%, dark=${stats.darkPixelPercent.toFixed(1)}%)`);
+      reasons.push(`Possible silhouette pattern (warm=${stats.warmBackgroundPercent.toFixed(1)}%, cool=${stats.coolGradientPercent.toFixed(1)}%, dark=${stats.darkPixelPercent.toFixed(1)}%)`);
       placeholderScore += stats.silhouetteScore;
     }
 
