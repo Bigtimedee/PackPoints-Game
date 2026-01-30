@@ -22,13 +22,25 @@ A sophisticated system manages baseball card images, primarily sourced from the 
 All card images undergo HTTP validation and are proxied through the PackPoints server. This system checks image integrity, content type, and size, quarantining problematic images.
 
 ### Content-Based Placeholder Detection
-A pixel-level image analysis system (`server/services/imageContentAnalyzer.ts`) prevents placeholder/silhouette images from reaching gameplay:
+A multi-layer defense system prevents placeholder/silhouette images from reaching gameplay:
+
+**Layer 1 - Database Filtering**:
+- `playable_cards.content_verified` boolean column (indexed) gates all card queries
+- `getRandomCardsFromSet()` and `getRandomCards()` in storage.ts ONLY return cards where `content_verified=true`
+- Batch verification script (`server/scripts/verifyAllCards.ts`) pre-scans all cards on import
+- Current stats: ~5900 verified authentic cards, ~1900 silhouettes blocked at database level
+
+**Layer 2 - Server-Side Image Analysis** (`server/services/imageContentAnalyzer.ts`):
 - **Multi-Signal Analysis**: Uses `sharp` to analyze entropy, color diversity (quantized to 32 levels), dominant color percentage, and edge detection
 - **Scoring System**: Low unique colors (<50: 40pts), low entropy (<4.0: 40pts), high dominant color (>60%: 30pts), no edges (25pts)
 - **Quarantine Threshold**: Cards with ≥60% placeholder confidence are automatically quarantined
 - **Real Card Characteristics**: Authentic cards show 300-500 unique colors, 7.5+ entropy, <10% dominant color
-- **Integration**: Applied in matchService.ts after HTTP validation, before cards reach gameplay
 - **Caching**: Results cached in-memory for 24 hours per image URL (1000 entry limit)
+
+**Layer 3 - Frontend Detection** (`client/src/components/GameCard.tsx`):
+- Canvas-based analysis on image load as final safety net
+- Detection thresholds: <30 unique colors OR >50% dominant color triggers placeholder detection
+- Auto-reports detected placeholders and triggers replacement flow
 
 ### CardHedge Integration Layer
 A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
