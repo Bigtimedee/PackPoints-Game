@@ -222,9 +222,13 @@ export default function AdminPlayableSets() {
       return res.json();
     },
     onSuccess: (data) => {
+      const playable = data.playableCount ?? data.cardsImported;
+      const title = playable === 0 ? "Import Warning" : "Import completed";
+      const variant = playable === 0 ? "destructive" : undefined;
       toast({ 
-        title: "Import completed", 
-        description: `Imported ${data.cardsImported} cards from ${data.pagesFetched} pages` 
+        title,
+        description: `Imported ${playable} playable cards (${data.cardsImported} fetched)`,
+        variant,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
       setSelectedSetForImport(null);
@@ -246,9 +250,13 @@ export default function AdminPlayableSets() {
       return res.json();
     },
     onSuccess: (data) => {
+      const playable = data.playableCount ?? data.cardsImported;
+      const title = playable === 0 ? "Reimport Warning" : "Purge & Reimport completed";
+      const variant = playable === 0 ? "destructive" : undefined;
       toast({ 
-        title: "Purge & Reimport completed", 
-        description: `Purged ${data.cardsPurged} cards, imported ${data.cardsImported} cards (${data.wrongSportSkipped} wrong-sport skipped)` 
+        title,
+        description: `Imported ${playable} playable cards (${data.cardsImported} fetched, ${data.cardsPurged} purged)`,
+        variant,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
       setShowPurgeConfirm(false);

@@ -5156,6 +5156,145 @@ export async function registerRoutes(
     }
   });
 
+  // Alias: /api/admin/debug/set-integrity (matches spec document)
+  app.get("/api/admin/debug/set-integrity", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { setId } = req.query;
+      if (!setId || typeof setId !== 'string') {
+        return res.status(400).json({ error: "setId query parameter required" });
+      }
+      
+      // Forward to diagnose endpoint logic
+      const [gameSet] = await db
+        .select()
+        .from(gameSets)
+        .where(eq(gameSets.id, setId))
+        .limit(1);
+      
+      if (!gameSet) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      // Get detailed card counts (same logic as diagnose)
+      const [counts] = await db
+        .select({
+          totalCards: sql<number>`COUNT(*)`.as('total_cards'),
+          playableTrue: sql<number>`SUM(CASE WHEN is_playable = true THEN 1 ELSE 0 END)`.as('playable_true'),
+          contentVerifiedTrue: sql<number>`SUM(CASE WHEN content_verified = true THEN 1 ELSE 0 END)`.as('content_verified_true'),
+          contentVerifiedNull: sql<number>`SUM(CASE WHEN content_verified IS NULL THEN 1 ELSE 0 END)`.as('content_verified_null'),
+          contentVerifiedFalse: sql<number>`SUM(CASE WHEN content_verified = false THEN 1 ELSE 0 END)`.as('content_verified_false'),
+          hasValidImage: sql<number>`SUM(CASE WHEN image_url IS NOT NULL AND image_url != '' AND image_url LIKE 'https://%' THEN 1 ELSE 0 END)`.as('has_valid_image'),
+          hasPlayer: sql<number>`SUM(CASE WHEN player IS NOT NULL AND player != '' THEN 1 ELSE 0 END)`.as('has_player'),
+          imageFailureLow: sql<number>`SUM(CASE WHEN image_failure_count < 2 THEN 1 ELSE 0 END)`.as('image_failure_low'),
+          notRejected: sql<number>`SUM(CASE WHEN image_review_status IS NULL OR image_review_status != 'rejected' THEN 1 ELSE 0 END)`.as('not_rejected'),
+          matchingSport: sql<number>`SUM(CASE WHEN LOWER(category) = LOWER(${gameSet.sport}) THEN 1 ELSE 0 END)`.as('matching_sport'),
+        })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, setId));
+      
+      // Get fully playable count (all conditions met)
+      const [fullyPlayable] = await db
+        .select({
+          count: sql<number>`COUNT(*)`.as('count'),
+        })
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.gameSetId, setId),
+            eq(playableCards.isPlayable, true),
+            or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
+            isNotNull(playableCards.imageUrl),
+            ne(playableCards.imageUrl, ''),
+            like(playableCards.imageUrl, 'https://%'),
+            isNotNull(playableCards.player),
+            ne(playableCards.player, ''),
+            or(
+              isNull(playableCards.imageReviewStatus),
+              ne(playableCards.imageReviewStatus, 'rejected')
+            ),
+            lt(playableCards.imageFailureCount, 2),
+            sql`LOWER(${playableCards.category}) = LOWER(${gameSet.sport})`
+          )
+        );
+      
+      // Last 5 inserted cards
+      const last5Cards = await db
+        .select({
+          id: playableCards.id,
+          gameSetId: playableCards.gameSetId,
+          cardhedgeCardId: playableCards.cardhedgeCardId,
+          player: playableCards.player,
+          imageUrl: playableCards.imageUrl,
+          category: playableCards.category,
+          isPlayable: playableCards.isPlayable,
+          contentVerified: playableCards.contentVerified,
+          imageFailureCount: playableCards.imageFailureCount,
+          createdAt: playableCards.createdAt,
+        })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, setId))
+        .orderBy(desc(playableCards.createdAt))
+        .limit(5);
+      
+      // Cards with NULL set_id in last 2 hours (per spec)
+      const [nullSetIdCards] = await db
+        .select({ count: sql<number>`COUNT(*)`.as('count') })
+        .from(playableCards)
+        .where(
+          and(
+            isNull(playableCards.gameSetId),
+            gte(playableCards.createdAt, sql`NOW() - INTERVAL '2 hours'`)
+          )
+        );
+      
+      const totalCards = Number(counts.totalCards) || 0;
+      const playable_count = Number(fullyPlayable.count) || 0;
+      
+      res.json({
+        setInfo: {
+          id: gameSet.id,
+          setName: gameSet.setName,
+          sport: gameSet.sport,
+          year: gameSet.year,
+          isActive: gameSet.isActive,
+          cardhedgeSetQuery: gameSet.cardhedgeSetQuery,
+          lastImportAt: gameSet.lastImportAt,
+        },
+        counts: {
+          canonical_cards_total: totalCards,
+          canonical_cards_playable: playable_count,
+          admin_list_count: playable_count, // Same as gameplay query
+          staging_count: 0, // No staging table in this codebase
+        },
+        flagsBreakdown: {
+          isPlayable: { true: Number(counts.playableTrue) || 0, false: totalCards - (Number(counts.playableTrue) || 0) },
+          contentVerified: {
+            true: Number(counts.contentVerifiedTrue) || 0,
+            null: Number(counts.contentVerifiedNull) || 0,
+            false: Number(counts.contentVerifiedFalse) || 0,
+          },
+          hasValidImage: Number(counts.hasValidImage) || 0,
+          hasPlayer: Number(counts.hasPlayer) || 0,
+          imageFailureCountLow: Number(counts.imageFailureLow) || 0,
+          matchingSport: Number(counts.matchingSport) || 0,
+        },
+        last5InsertedCards: last5Cards.map(c => ({
+          id: c.id,
+          set_id: c.gameSetId,
+          cardhedge_card_id: c.cardhedgeCardId,
+          player: c.player,
+          image_url: c.imageUrl,
+          playable: c.isPlayable,
+          verified: c.contentVerified,
+        })),
+        cardsWithNullSetIdLast2Hours: Number(nullSetIdCards?.count) || 0,
+      });
+    } catch (error) {
+      console.error("Error in set-integrity check:", error);
+      res.status(500).json({ error: "Failed to check set integrity" });
+    }
+  });
+
   // Admin: Get all game sets
   app.get("/api/admin/game-sets", isAuthenticated, requireAdmin, async (req, res) => {
     try {
@@ -6583,6 +6722,13 @@ export async function registerRoutes(
         }
         
         console.log(`[Purge & Reimport] Completed: ${cardsPurged} purged, ${totalCardsImported} imported, ${playableCount} playable, ${wrongSportSkipped} wrong-sport skipped`);
+        
+        // Log set-integrity summary (per spec Part B.3)
+        console.log(`[Purge & Reimport] SET-INTEGRITY SUMMARY for ${id}:`);
+        console.log(`  canonical_cards_total: ${forensicCounts.totalInserted}`);
+        console.log(`  canonical_cards_playable: ${playableCount}`);
+        console.log(`  admin_list_count: ${playableCount}`);
+        console.log(`  flags_breakdown: is_playable=${forensicCounts.isPlayableTrue}, content_verified=(true=${forensicCounts.contentVerifiedTrue}, null=${forensicCounts.contentVerifiedNull}, false=${forensicCounts.contentVerifiedFalse}), has_valid_image=${forensicCounts.hasValidImage}`);
         
         res.json({
           success: true,
