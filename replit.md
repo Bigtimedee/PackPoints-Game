@@ -21,6 +21,15 @@ A sophisticated system manages baseball card images, primarily sourced from the 
 ### Image Validation & Proxy
 All card images undergo HTTP validation and are proxied through the PackPoints server. This system checks image integrity, content type, and size, quarantining problematic images.
 
+### CardHedge Integration Layer
+A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
+- **Server-Side API Endpoints**: `/api/cardhedge/search`, `/api/cardhedge/search-sorted`, `/api/cardhedge/card-details`, `/api/cardhedge/image-search` - all server-side to protect API key
+- **Caching Strategy**: TTL-based LRU cache with 60s for searches, 5min for card details, no cache for image search
+- **Image Search**: 85% similarity threshold for best match detection, supports URL or base64 input
+- **Placeholder Detection**: Pattern-based filtering to reject stock/placeholder images
+- **React Query Hooks**: `useCardSearch`, `useCardSearchSorted`, `useCardDetails`, `useImageSearch` for admin workflows
+- **Files**: `server/services/cardhedge/client.ts`, `server/routes/cardhedge.routes.ts`, `client/src/hooks/use-cardhedge.ts`, `shared/cardhedge/types.ts`
+
 ### Monetization & Wallet
 The platform features a ledger-first wallet for "PackPTS," a point system with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) offers access and multipliers. A bucket-based system manages point expiration.
 
