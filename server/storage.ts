@@ -493,7 +493,7 @@ export class DatabaseStorage implements IStorage {
     
     // Query playable cards with sport category validation
     // Also filter out flagged/rejected cards (image quality issues)
-    // CRITICAL: Only serve cards with imageFailureCount < 2 (validated images)
+    // CRITICAL: Only serve cards that pass content verification (no silhouettes/placeholders)
     const cards = await db
       .select()
       .from(playableCards)
@@ -501,6 +501,7 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(playableCards.gameSetId, setId),
           eq(playableCards.isPlayable, true),
+          eq(playableCards.contentVerified, true), // CRITICAL: Only content-verified cards
           isNotNull(playableCards.imageUrl),
           ne(playableCards.imageUrl, ''),
           not(like(playableCards.imageUrl, '%null%')),

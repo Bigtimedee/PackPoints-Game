@@ -1901,6 +1901,8 @@ export const playableCards = pgTable("playable_cards", {
   lastImageCheck: timestamp("last_image_check"),
   imageFailureCount: integer("image_failure_count").notNull().default(0),
   imageLastError: text("image_last_error"),
+  contentVerified: boolean("content_verified").notNull().default(false), // Pixel-level content analysis passed
+  contentVerifiedAt: timestamp("content_verified_at"), // When content was last verified
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1911,6 +1913,7 @@ export const playableCards = pgTable("playable_cards", {
   index("idx_playable_cards_is_playable").on(table.isPlayable),
   index("idx_playable_cards_image_review").on(table.imageReviewStatus),
   index("idx_playable_cards_last_check").on(table.lastImageCheck),
+  index("idx_playable_cards_content_verified").on(table.contentVerified),
 ]);
 
 export const insertPlayableCardSchema = createInsertSchema(playableCards).omit({
