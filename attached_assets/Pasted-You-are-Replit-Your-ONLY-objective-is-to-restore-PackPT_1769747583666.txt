@@ -1,0 +1,190 @@
+You are Replit. Your ONLY objective is to restore PackPTS’s ability to reliably query and serve cards from CardHedge across ANY/ALL sets (including the Admin Portal). PackPTS previously worked, but recent changes broke card sourcing and set counts.
+
+DO NOT touch multiplayer, scoring, points, daily caps, or any other features. Focus only on CardHedge integration, set counts, and serving playable card images.
+
+========================================================
+GOAL
+1) Admin Portal must again be able to query any/all card sets and display accurate totals.
+2) Gameplay card retrieval must return a PLAYABLE card nearly 100% of the time (no placeholder/blank images).
+3) Set counts must be correct (e.g., if CardHedge returns count metadata, use it; do NOT infer from page results).
+4) “No Cards Available” must only appear if CardHedge truly has zero matching results AFTER correct pagination + correct filters + correct set resolution.
+
+========================================================
+STEP 1 — FIND WHAT BROKE (instrument first)
+A) Locate every code path that calls CardHedge:
+- search for: "api.cardhedger.com", "cardhedge", "card-search", "search-cards-wsort", "card-details", "X-API-Key"
+- identify ALL env var usage for the API key, and confirm the server is actually receiving it.
+- add server logs (no secrets) for:
+  - endpoint path
+  - request payload (redact key)
+  - status code
+  - response count/pages where available
+  - first 1-2 cards image URLs returned
+
+B) Confirm CardHedge calls are executed SERVER-SIDE (not client-side), to avoid CORS and key leakage.
+- If any CardHedge call is happening in the browser, move it server-side behind /api/cardhedge/* endpoints.
+
+C) Create a single “CardHedgeClient” wrapper and route all calls through it.
+
+========================================================
+STEP 2 — REBUILD A ROBUST CARDHEDGE CLIENT (single source of truth)
+Create: /server/integrations/cardhedge/client.ts (or equivalent)
+- function post(path: string, body: object)
+  - base URL: https://api.cardhedger.com
+  - headers:
+    - Content-Type: application/json
+    - X-API-Key: process.env.CARDHEDGE_API_KEY (or the existing key var used in the project)
+  - timeout: 10s
+  - retries: on 502/503/504 and network errors (3 attempts, exponential backoff)
+  - normalize image URLs:
+    - if image starts with "//" => prefix with "https:"
+  - return parsed JSON, plus structured error on non-200:
+    - { ok:false, status, path, message, bodySnippet }
+
+Add a minimal health check endpoint:
+GET /api/cardhedge/health
+- calls POST /v1/cards/card-search with a known-safe query:
+  { "search":"Topps", "page":1, "page_size":1 }
+- returns ok + status + whether cards[] present + any error summary
+This must be callable from both Admin Portal and server logs.
+
+========================================================
+STEP 3 — FIX “SET COUNTS” (stop lying about totals)
+Root cause candidates (you MUST verify which is true in this codebase):
+- Counting by results length instead of response.count
+- page_size hard-capped to 300 and treated as total
+- wrong endpoint or wrong filter combination returning partial dataset
+- set name mismatch (exact match required)
+- accidental filtering to “verified” or “raw_images_only” that reduces set count
+- accidental category mismatch (Baseball vs Sports Cards group)
+- pagination not implemented (only page 1 ever used)
+
+REQUIRED BEHAVIOR:
+A) When listing a set in Admin Portal, count MUST come from CardHedge response metadata:
+- card-search returns: { pages, count, cards }
+- Use count as total count. Use pages for pagination UI.
+- NEVER set “total cards” = cards.length, and NEVER cap at 300 unless CardHedge itself does.
+
+B) Implement a unified search function:
+searchCards({ search?, set?, category?, player?, rookie?, raw_images_only?, page, page_size })
+- uses POST /v1/cards/card-search primarily
+- if that endpoint errors, fallback to /v1/cards/search-cards-wsort
+- IMPORTANT: CardHedge docs indicate at least one filter (search/set/category/player) required; enforce this validation server-side with clear errors.
+
+C) Ensure Admin Portal pagination works:
+- page_size should default 50 (or existing value) and allow up to 100
+- page increments must request the correct page param
+- UI must display total pages and total count from API
+
+========================================================
+STEP 4 — FIX “NO CARDS AVAILABLE” FALSE POSITIVES
+A) Replace current “No Cards Available” logic with:
+- Only show “No Cards Available” if:
+  1) request to CardHedge succeeded (200)
+  2) response.count === 0
+  3) AND you have verified the filters are not over-restrictive
+If CardHedge errors, show “Card service unavailable, try again” (NOT “No cards available”).
+
+B) Add diagnostics returned to Admin Portal when count==0:
+- resolved_set
+- category used
+- raw_images_only used
+- endpoint used
+- request payload
+This will allow you (developer) to see WHY it is zero.
+
+========================================================
+STEP 5 — SET NAME RESOLUTION (critical for “1987 Topps Baseball”)
+CardHedge set filter is likely exact-match. If PackPTS uses friendly labels, it will miss.
+
+Implement a set resolver layer:
+Create: /server/integrations/cardhedge/setResolver.ts
+- Input: (displaySetName, category)
+- Output: resolvedSetName (exact string that CardHedge expects)
+
+Algorithm:
+1) Try exact match using:
+   POST /v1/cards/card-search with { set: displaySetName, category, page:1, page_size:1 }
+   - if count > 0 => resolvedSetName = displaySetName
+2) If count == 0:
+   - Run a fuzzy “search” using keywords from displaySetName:
+     { search: displaySetName, category, page:1, page_size:50 }
+   - From results, compute best candidate set string:
+     - choose the most frequent `set` among results
+     - prefer sets whose name contains the year and brand tokens (e.g., “1987”, “Topps”, “Baseball”)
+   - Re-test that candidate via exact set query; if count > 0 use it.
+3) Cache mapping in DB table:
+   set_aliases(display_name, category, resolved_set, last_verified_at, count_snapshot)
+4) On subsequent calls, use cached resolved_set, but re-verify weekly or if count suddenly drops to 0.
+
+This is how you prevent “1987 Topps baseball (300 cards)” when reality is much higher.
+
+========================================================
+STEP 6 — SERVE “PLAYABLE” CARDS (stop placeholder/blank images)
+Problem: CardHedge sometimes returns placeholder images or images that won’t load (CORS/404/broken).
+We must only serve cards that pass validation.
+
+Create: /server/integrations/cardhedge/playableCard.ts
+Function: getPlayableCard({ resolved_set, category })
+- Fetch candidate cards via paginated search:
+  - First call: page=rand(1..min(pages, 20)) page_size=50 raw_images_only=false
+  - If pages unknown, start at 1 and sample next pages.
+- Validate each candidate card:
+  - must have image URL
+  - normalize "//" -> "https:"
+  - reject if image URL matches known placeholder patterns (you MUST implement pattern list):
+    - contains "example.jpg"
+    - contains "placeholder"
+    - contains "silhouette"
+    - or if the image is the same known generic “WHO IS THIS PLAYER?” asset
+- HEAD/GET validate the image server-side (fast):
+  - do a HEAD request; accept only 200 with image content-type
+  - if HEAD fails, do a small GET with range bytes=0-2048
+- If not found:
+  - retry up to 8 times across different random pages
+  - on retries 5-8, toggle raw_images_only=true (but do not use it for count metrics)
+- If still nothing playable:
+  - return structured error “NO_PLAYABLE_CARDS” with diagnostics:
+    - endpoint used, pages sampled, counts, last errors
+
+IMPORTANT:
+- This “playable card” logic must be used by gameplay AND can optionally power “verify set” in Admin Portal.
+
+========================================================
+STEP 7 — RESTORE ADMIN PORTAL BEHAVIOR (it used to work)
+A) Find what changed recently that broke Admin Portal querying:
+- any new “verified only” filter
+- any new constraint like “raw_images_only” forced true
+- any new assumption that set size <= 300
+- any hard-coded page_size or capped pages
+Revert these regressions.
+
+B) Admin Portal “Add set” flow must:
+- resolve set name via resolver
+- store resolved_set in DB (not the display label alone)
+- store count_snapshot using response.count from CardHedge
+- allow browsing cards via server API that proxies CardHedge calls
+
+========================================================
+STEP 8 — REQUIRED TESTS (DO THIS AFTER IMPLEMENTATION)
+You MUST implement and run tests that prove card retrieval works.
+
+Create a script: scripts/testCardHedge.ts (or jest tests)
+Tests:
+1) Health:
+- /api/cardhedge/health returns ok=true
+2) Set resolution:
+- resolveSet("1987 Topps baseball", "Baseball") returns non-empty resolved_set
+3) Count correctness:
+- query exact resolved_set and assert count > 300 (or if it truly is <=300, print the actual count and explain why)
+4) Playable card:
+- getPlayableCard returns card_id and imageUrl that passes server validation (200 image)
+Run this script and print results in console output.
+
+========================================================
+DELIVERABLE
+- Implement the client wrapper, set resolver, correct count handling, playable card retrieval, Admin Portal fixes.
+- Ensure PackPTS can again query cards across all sets.
+- Ensure set counts are accurate and not capped at 300 due to bugs.
+- Ensure gameplay card retrieval uses only playable images and rarely fails.
+- Provide the file list changed and confirm tests ran with output.
