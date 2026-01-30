@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { db } from "../db";
-import { cardImageMaskCache, baseballCards } from "@shared/schema";
+import { cardImageMaskCache, baseballCards, playableCards } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 
@@ -59,13 +59,35 @@ export async function getMaskedImagePath(cardId: string): Promise<string | null>
 async function generateMaskedImage(cardId: string): Promise<string | null> {
   await ensureDirectory();
 
-  const [card] = await db
+  let imageUrl: string | null = null;
+  let playerName: string | null = null;
+  let setName: string | null = null;
+
+  const [baseballCard] = await db
     .select()
     .from(baseballCards)
     .where(eq(baseballCards.id, cardId))
     .limit(1);
 
-  if (!card || !card.imageUrl) {
+  if (baseballCard?.imageUrl) {
+    imageUrl = baseballCard.imageUrl;
+    playerName = baseballCard.playerName;
+    setName = baseballCard.set;
+  } else {
+    const [playableCard] = await db
+      .select()
+      .from(playableCards)
+      .where(eq(playableCards.id, cardId))
+      .limit(1);
+
+    if (playableCard?.imageUrl) {
+      imageUrl = playableCard.imageUrl;
+      playerName = playableCard.player;
+      setName = playableCard.set;
+    }
+  }
+
+  if (!imageUrl) {
     console.error(`[MaskingService] Card not found or no image: ${cardId}`);
     return null;
   }
@@ -78,7 +100,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
 
   if (
     cached &&
-    cached.rawImageUrl === card.imageUrl &&
+    cached.rawImageUrl === imageUrl &&
     cached.maskVersion === CURRENT_MASK_VERSION
   ) {
     try {
@@ -95,15 +117,15 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
   activeMaskingJobs++;
 
   try {
-    const imageBuffer = await downloadImage(card.imageUrl);
+    const imageBuffer = await downloadImage(imageUrl);
     if (!imageBuffer) {
       return null;
     }
 
     const result = await maskCardImage(
       imageBuffer,
-      card.playerName || "",
-      card.setName || null
+      playerName || "",
+      setName || null
     );
 
     const filename = `${cardId}_${CURRENT_MASK_VERSION}.jpg`;
@@ -115,14 +137,14 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       .insert(cardImageMaskCache)
       .values({
         cardId,
-        rawImageUrl: card.imageUrl,
+        rawImageUrl: imageUrl,
         maskedImagePath: filename,
         maskVersion: CURRENT_MASK_VERSION,
       })
       .onConflictDoUpdate({
         target: cardImageMaskCache.cardId,
         set: {
-          rawImageUrl: card.imageUrl,
+          rawImageUrl: imageUrl,
           maskedImagePath: filename,
           maskVersion: CURRENT_MASK_VERSION,
           updatedAt: new Date(),
