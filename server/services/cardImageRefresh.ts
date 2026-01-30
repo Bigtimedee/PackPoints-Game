@@ -78,13 +78,37 @@ export interface FreshImageResult {
   imageUrl: string | null;
   fromCache: boolean;
   error?: string;
+  playerMismatch?: boolean;
+}
+
+// Normalize player names for comparison (case-insensitive, trim whitespace, handle common variations)
+function normalizePlayerName(name: string | null | undefined): string {
+  if (!name) return "";
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Check if two player names match (allowing for minor variations)
+function playerNamesMatch(storedPlayer: string | null, apiPlayer: string | null): boolean {
+  const normalized1 = normalizePlayerName(storedPlayer);
+  const normalized2 = normalizePlayerName(apiPlayer);
+  
+  if (!normalized1 || !normalized2) return false;
+  
+  // Exact match
+  if (normalized1 === normalized2) return true;
+  
+  // Check if one contains the other (handles "Jr." vs no suffix, middle names, etc.)
+  if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) return true;
+  
+  return false;
 }
 
 export async function getFreshImageUrl(
   cardId: string,
   cardHedgeId: string | null,
   currentImageUrl: string | null,
-  lastImageCheck: Date | null
+  lastImageCheck: Date | null,
+  expectedPlayerName?: string | null
 ): Promise<FreshImageResult> {
   if (!cardHedgeId) {
     return {
@@ -137,6 +161,34 @@ export async function getFreshImageUrl(
         fromCache: true,
         error: "No image found in Card Hedge response",
       };
+    }
+
+    // CRITICAL: Verify player name matches before accepting new image URL
+    // This prevents data corruption where Card Hedge returns wrong player's image
+    if (expectedPlayerName && cardDetails.player) {
+      if (!playerNamesMatch(expectedPlayerName, cardDetails.player)) {
+        const errorMsg = `Player mismatch: stored="${expectedPlayerName}" vs API="${cardDetails.player}"`;
+        console.warn(`[CardImageRefresh] ${errorMsg} for card ${cardId} - REJECTING image update`);
+        
+        // Mark the card as having a player mismatch issue but don't exclude it yet
+        // Just prevent updating the image with wrong data
+        await db.update(playableCards)
+          .set({
+            lastImageCheck: now,
+            imageLastError: errorMsg,
+            blockedReason: "player_mismatch",
+            isPlayable: false,
+          })
+          .where(eq(playableCards.id, cardId));
+        
+        return {
+          success: false,
+          imageUrl: currentImageUrl,
+          fromCache: true,
+          error: errorMsg,
+          playerMismatch: true,
+        };
+      }
     }
 
     const validationResult = await validateImageUrl(cardDetails.imageUrl);
@@ -219,11 +271,13 @@ export async function refreshCardImage(cardId: string): Promise<FreshImageResult
     };
   }
 
+  // Pass expected player name to verify Card Hedge returns matching player
   return getFreshImageUrl(
     card.id,
     card.cardhedgeCardId || null,
     card.imageUrl || null,
-    card.lastImageCheck || null
+    card.lastImageCheck || null,
+    card.player // Expected player name for verification
   );
 }
 

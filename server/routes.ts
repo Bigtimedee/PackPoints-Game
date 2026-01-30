@@ -5804,6 +5804,166 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Detect player name mismatches between stored data and Card Hedge API
+  // Set autoQuarantine=true to automatically disable mismatched cards
+  app.post("/api/admin/game-sets/:id/detect-player-mismatches", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { limit = 50, autoQuarantine = false } = req.body;
+      
+      console.log(`[PlayerMismatch] Starting player mismatch scan for game set ${id}...`);
+      
+      const gameSet = await db.select().from(gameSets).where(eq(gameSets.id, id)).limit(1);
+      if (!gameSet.length) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      const cards = await db
+        .select({
+          id: playableCards.id,
+          cardhedgeCardId: playableCards.cardhedgeCardId,
+          player: playableCards.player,
+          imageUrl: playableCards.imageUrl,
+          isPlayable: playableCards.isPlayable,
+          blockedReason: playableCards.blockedReason,
+        })
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.gameSetId, id),
+            isNotNull(playableCards.cardhedgeCardId)
+          )
+        )
+        .limit(parseInt(String(limit), 10));
+      
+      console.log(`[PlayerMismatch] Checking ${cards.length} cards for player mismatches...`);
+      
+      const mismatches: Array<{
+        cardId: string;
+        storedPlayer: string | null;
+        apiPlayer: string | null;
+        cardHedgeId: string | null;
+        imageUrl: string | null;
+      }> = [];
+      
+      let checked = 0;
+      let errors = 0;
+      
+      for (const card of cards) {
+        if (!card.cardhedgeCardId) continue;
+        
+        try {
+          const cardDetails = await fetchCardDetailsNormalized(card.cardhedgeCardId);
+          checked++;
+          
+          if (cardDetails && cardDetails.player) {
+            const storedNormalized = (card.player || "").trim().toLowerCase();
+            const apiNormalized = (cardDetails.player || "").trim().toLowerCase();
+            
+            if (storedNormalized !== apiNormalized) {
+              const oneContainsOther = storedNormalized.includes(apiNormalized) || apiNormalized.includes(storedNormalized);
+              
+              if (!oneContainsOther) {
+                mismatches.push({
+                  cardId: card.id,
+                  storedPlayer: card.player,
+                  apiPlayer: cardDetails.player,
+                  cardHedgeId: card.cardhedgeCardId,
+                  imageUrl: card.imageUrl,
+                });
+                
+                console.log(`[PlayerMismatch] MISMATCH: "${card.player}" vs API "${cardDetails.player}" (${card.id.slice(0, 8)})`);
+                
+                // Auto-quarantine if requested
+                if (autoQuarantine) {
+                  await db
+                    .update(playableCards)
+                    .set({
+                      isPlayable: false,
+                      blockedReason: "player_mismatch",
+                      imageReviewStatus: "excluded",
+                      imageLastError: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
+                      updatedAt: new Date(),
+                    })
+                    .where(eq(playableCards.id, card.id));
+                  console.log(`[PlayerMismatch] AUTO-QUARANTINED: ${card.id.slice(0, 8)}`);
+                }
+              }
+            }
+          }
+          
+          await new Promise(r => setTimeout(r, 200));
+        } catch (err: any) {
+          errors++;
+          console.error(`[PlayerMismatch] Error checking ${card.id.slice(0, 8)}: ${err.message?.slice(0, 50)}`);
+        }
+      }
+      
+      console.log(`[PlayerMismatch] Complete. Checked: ${checked}, Mismatches: ${mismatches.length}, Errors: ${errors}`);
+      
+      res.json({
+        setId: id,
+        setName: gameSet[0].setName,
+        checked,
+        mismatches: mismatches.length,
+        quarantined: autoQuarantine ? mismatches.length : 0,
+        errors,
+        mismatchedCards: mismatches,
+        message: mismatches.length > 0 
+          ? autoQuarantine 
+            ? `Found and quarantined ${mismatches.length} player name mismatches`
+            : `Found ${mismatches.length} player name mismatches (use autoQuarantine=true to disable them)`
+          : "No player name mismatches detected"
+      });
+    } catch (error) {
+      console.error("[PlayerMismatch] Error:", error);
+      res.status(500).json({ error: "Failed to detect player mismatches" });
+    }
+  });
+
+  // Admin: Quarantine specific cards with player mismatches
+  app.post("/api/admin/cards/quarantine-mismatches", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { cardIds } = req.body;
+      
+      if (!cardIds || !Array.isArray(cardIds) || cardIds.length === 0) {
+        return res.status(400).json({ error: "cardIds array is required" });
+      }
+      
+      console.log(`[PlayerMismatch] Quarantining ${cardIds.length} cards for player mismatch...`);
+      
+      let quarantined = 0;
+      
+      for (const cardId of cardIds) {
+        try {
+          await db
+            .update(playableCards)
+            .set({
+              isPlayable: false,
+              blockedReason: "player_mismatch",
+              imageReviewStatus: "excluded",
+              updatedAt: new Date(),
+            })
+            .where(eq(playableCards.id, cardId));
+          quarantined++;
+        } catch (err: any) {
+          console.error(`[PlayerMismatch] Failed to quarantine ${cardId}: ${err.message}`);
+        }
+      }
+      
+      console.log(`[PlayerMismatch] Quarantined ${quarantined}/${cardIds.length} cards`);
+      
+      res.json({
+        quarantined,
+        total: cardIds.length,
+        message: `Quarantined ${quarantined} cards for player mismatch`
+      });
+    } catch (error) {
+      console.error("[PlayerMismatch] Quarantine error:", error);
+      res.status(500).json({ error: "Failed to quarantine cards" });
+    }
+  });
+
   // Admin: Create/Update Goldin curated listing
   app.post("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
@@ -7396,22 +7556,23 @@ export async function registerRoutes(
       if (isLegacyCard) {
         console.log(`[Card Report] LEGACY CARD ${cardId} reported for ${parsed.data.reason} by ${reporterId || "guest"}`);
         
-        // For multi_player reports on legacy cards, immediately exclude by setting imageVerified=false
+        // For multi_player or wrong_player reports on legacy cards, immediately exclude by setting imageVerified=false
         // This prevents them from appearing in future 1v1 matches (match service filters by imageVerified=true)
-        if (parsed.data.reason === "multi_player") {
+        const shouldExclude = parsed.data.reason === "multi_player" || parsed.data.reason === "wrong_player";
+        if (shouldExclude) {
           await db
             .update(baseballCards)
             .set({ imageVerified: false })
             .where(eq(baseballCards.id, cardId));
           
-          console.log(`[Card Report] LEGACY CARD ${cardId} EXCLUDED from 1v1 matches: multi_player report`);
+          console.log(`[Card Report] LEGACY CARD ${cardId} EXCLUDED from 1v1 matches: ${parsed.data.reason} report`);
         }
         
         return res.json({ 
           success: true, 
           reportId: null, 
-          excluded: parsed.data.reason === "multi_player",
-          message: parsed.data.reason === "multi_player" 
+          excluded: shouldExclude,
+          message: shouldExclude
             ? "Card has been flagged and will be removed from future matches."
             : "Report logged for legacy card. These cards are from a curated set and will be reviewed." 
         });
@@ -7462,6 +7623,34 @@ export async function registerRoutes(
             .where(eq(playableCards.id, cardId));
           
           console.log(`[Card Report] Card ${cardId} AUTO-EXCLUDED: 2+ multi_player reports (${count} total)`);
+        }
+      }
+      
+      // CRITICAL: Auto-exclude cards with wrong_player reports immediately
+      // This is a data integrity issue - the image doesn't match the player name
+      if (parsed.data.reason === "wrong_player") {
+        const wrongPlayerReportCount = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(cardImageReports)
+          .where(and(
+            eq(cardImageReports.cardId, cardId),
+            eq(cardImageReports.reason, "wrong_player")
+          ));
+        
+        const count = wrongPlayerReportCount[0]?.count || 0;
+        // Exclude after just 1 report - this is a critical issue
+        if (count >= 1) {
+          await db
+            .update(playableCards)
+            .set({
+              isPlayable: false,
+              blockedReason: "player_mismatch",
+              imageReviewStatus: "excluded",
+              updatedAt: new Date(),
+            })
+            .where(eq(playableCards.id, cardId));
+          
+          console.log(`[Card Report] Card ${cardId} AUTO-EXCLUDED: wrong_player report (player/image mismatch)`);
         }
       }
       

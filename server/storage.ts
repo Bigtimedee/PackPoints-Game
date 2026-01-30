@@ -677,11 +677,13 @@ export class DatabaseStorage implements IStorage {
     for (const card of cards) {
       if (isImageStale(card.lastImageCheck)) {
         try {
+          // CRITICAL: Pass expected player name to prevent accepting wrong player's image
           const result = await getFreshImageUrl(
             card.id,
             card.cardhedgeCardId || null,
             card.imageUrl || null,
-            card.lastImageCheck || null
+            card.lastImageCheck || null,
+            card.player // Pass expected player name for verification
           );
           
           if (result.success && result.imageUrl) {
@@ -694,6 +696,10 @@ export class DatabaseStorage implements IStorage {
             if (!result.fromCache) {
               console.log(`[Storage] Refreshed stale image for card ${card.id}`);
             }
+          } else if (result.playerMismatch) {
+            // Card has player mismatch - don't serve it, it was already marked as not playable
+            console.warn(`[Storage] Excluding card ${card.id} due to player mismatch`);
+            // Don't add to refreshedCards - effectively filtering it out
           } else {
             refreshedCards.push(card);
           }
