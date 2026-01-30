@@ -25,7 +25,10 @@ All card images undergo HTTP validation and are proxied through the PackPoints s
 A multi-layer defense system prevents placeholder/silhouette images from reaching gameplay:
 
 **Layer 1 - Database Filtering**:
-- `playable_cards.content_verified` boolean column (indexed) gates all card queries
+- `playable_cards.content_verified` nullable boolean column (indexed) gates all card queries
+  - `NULL` = pending verification (newly imported cards, allowed in gameplay)
+  - `true` = verified authentic card (allowed in gameplay)
+  - `false` = verified placeholder/silhouette (blocked from gameplay)
 - `getRandomCardsFromSet()` and `getRandomCards()` in storage.ts return cards where `content_verified IS NULL OR content_verified = true` (allows newly imported cards)
 - Batch verification script (`server/scripts/verifyAllCards.ts`) pre-scans all cards on import
 - Current stats: ~5900 verified authentic cards, ~1900 silhouettes blocked at database level

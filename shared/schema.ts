@@ -1901,7 +1901,7 @@ export const playableCards = pgTable("playable_cards", {
   lastImageCheck: timestamp("last_image_check"),
   imageFailureCount: integer("image_failure_count").notNull().default(0),
   imageLastError: text("image_last_error"),
-  contentVerified: boolean("content_verified").notNull().default(false), // Pixel-level content analysis passed
+  contentVerified: boolean("content_verified"), // Pixel-level content analysis passed (NULL=pending, true=passed, false=failed)
   contentVerifiedAt: timestamp("content_verified_at"), // When content was last verified
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

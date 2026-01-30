@@ -5,8 +5,24 @@ export function normalizeImageUrl(url: string | null | undefined): string {
   
   let normalized = url.trim();
   
+  // Reject obviously invalid URLs like "null", "undefined", etc.
+  if (normalized === "null" || normalized === "undefined" || normalized.length < 10) {
+    return "";
+  }
+  
+  // Handle protocol-relative URLs
   if (normalized.startsWith("//")) {
     normalized = "https:" + normalized;
+  }
+  
+  // Upgrade http:// to https:// for better security and consistency
+  if (normalized.startsWith("http://")) {
+    normalized = "https://" + normalized.slice(7);
+  }
+  
+  // Final validation: must be a proper https:// URL
+  if (!normalized.startsWith("https://") || normalized === "https://null" || normalized === "https:null") {
+    return "";
   }
   
   return normalized;

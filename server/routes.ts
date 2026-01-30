@@ -6575,13 +6575,13 @@ export async function registerRoutes(
             continue;
           }
           
-          // Check image URL
+          // Check image URL - must be https:// (normalizeImageUrl upgrades http:// to https://)
           const imageUrl = normalizeImageUrl(card.image);
           if (!imageUrl) {
             rejectReasons.MISSING_IMAGE++;
             continue;
           }
-          if (!imageUrl.startsWith('https://') && !imageUrl.startsWith('http://')) {
+          if (!imageUrl.startsWith('https://')) {
             rejectReasons.BAD_URL++;
             continue;
           }
@@ -6717,6 +6717,8 @@ export async function registerRoutes(
               rookie: card.rookie,
               isPlayable: card.isPlayable,
               blockedReason: card.blockedReason,
+              contentVerified: null, // New imports pending verification (NULL passes playable check)
+              imageFailureCount: 0,
             })
             .onConflictDoUpdate({
               target: playableCards.cardhedgeCardId,
@@ -6732,6 +6734,8 @@ export async function registerRoutes(
                 rookie: card.rookie,
                 isPlayable: card.isPlayable,
                 blockedReason: card.blockedReason,
+                contentVerified: null, // Re-import resets to pending
+                imageFailureCount: 0, // Reset failure count on reimport
               },
             });
           
