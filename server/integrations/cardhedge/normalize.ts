@@ -80,6 +80,11 @@ const PLACEHOLDER_PATTERNS = [
   /fallback/i,
   /blank[-_]?card/i,
   /unavailable/i,
+  // Generic sport placeholders from Card Hedge
+  /\d{2}-Baseball\.jpg$/i,
+  /\d{2}-Football\.jpg$/i,
+  /\d{2}-Basketball\.jpg$/i,
+  /\d{2}-Hockey\.jpg$/i,
 ];
 
 export function isLikelyPlaceholderImage(card: CardSearchCard): boolean {
