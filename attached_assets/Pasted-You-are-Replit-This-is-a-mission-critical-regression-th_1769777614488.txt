@@ -1,0 +1,155 @@
+You are Replit. This is a mission-critical regression: the Admin UI shows “Import completed (Imported 495 cards from 5 pages)” but the same set row displays “No cards / Zero cards”, and gameplay cannot serve any cards. PackPTS USED to work (Admin could query Card Hedge and users could play), so we must restore the prior working behavior.
+
+Your mission:
+1) Diagnose why import claims success while Admin “Cards” count remains 0.
+2) Fix the import→storage→counting→gameplay pipeline so:
+   - Admin shows accurate card counts per set immediately after import
+   - Users can start a game and reliably receive cards
+3) Add guardrails so this never regresses again.
+
+DO NOT redesign UI. DO NOT change pricing logic. DO NOT change auth flows except where a bug prevents reads/writes. Focus only on Card Hedge querying, importing, set linkage, card persistence, and the Admin counts.
+
+========================================================
+PART A — IDENTIFY THE EXACT FAILURE MODE (must be verified in code)
+This “imported N but count=0” mismatch is only possible if at least one of these is true:
+
+(1) Import writes to a different table/environment than the Admin list reads
+    - e.g., importer inserts into a staging table or different schema/DB, but Admin counts from canonical cards table
+(2) Cards are inserted but not linked to the set
+    - set_id is null or wrong, or join key mismatch (slug/name vs id)
+(3) Admin “Cards” column applies filters that exclude imported rows
+    - e.g., Admin counts only playable=true or verified=true, but importer doesn’t set those flags
+(4) Admin uses a cached/denormalized count field (sets.card_count) that is not updated on import
+(5) Transaction/cache consistency bug
+    - import commits but list is served from stale cache or replica; or the API returns stale data
+
+You must locate the exact cause in THIS codebase and fix it (no guessing).
+
+========================================================
+PART B — IMMEDIATE INSTRUMENTATION (server + DB)
+1) Find these code paths:
+   A) Admin “Playable Sets” list endpoint/loader that supplies the “Cards” value
+   B) Admin “Import set” action endpoint (Card Hedge fetch + import loop)
+   C) Gameplay “get next card for set/match” endpoint (the one that serves cards to players)
+
+2) Add structured logs (no secrets) for a single import run:
+   - set_id, set_name, cardhedge_query params
+   - page count fetched, number of cards received, number attempted inserts
+   - number successfully inserted into CANONICAL gameplay table
+   - number linked to set_id
+   - the exact count query used for the Admin “Cards” column and its result
+   - sample 3 inserted rows: {id, set_id, cardhedge_card_id, image_url, playable, verified}
+
+3) Create a TEMP admin-only debug endpoint:
+   GET /api/admin/debug/set-integrity?setId=...
+   Returns JSON:
+   - set info
+   - counts:
+     - canonical_cards_total (COUNT * WHERE set_id=...)
+     - canonical_cards_playable (COUNT WHERE set_id=... AND playable=true)
+     - admin_list_count (the EXACT same query/filters the Admin table uses)
+     - staging_count (if staging exists)
+   - flags breakdown (playable/verified/image_url present)
+   - last 5 inserted cards for that set
+   - any cards created in last 2 hours with NULL set_id
+
+Wire the import handler to call this function internally after import and log the returned summary.
+
+========================================================
+PART C — RESTORE CANONICAL DATA MODEL (single source of truth)
+We need one canonical table that BOTH Admin counts AND gameplay reads from. Identify which table gameplay used when PackPTS previously worked.
+
+Requirements:
+- Every imported card row must store:
+  - id (pk)
+  - set_id (FK to sets table) — REQUIRED
+  - cardhedge_card_id (unique per set or globally)
+  - description/player/set/number/variant/category (as previously used)
+  - image_url (must be usable)
+  - playable boolean (true if safe to use in game)
+  - created_at
+- Enforce constraints:
+  - set_id NOT NULL (or at minimum fail import if any would be null)
+  - FK cards.set_id -> sets.id
+  - Unique constraint to prevent duplicates (suggest: UNIQUE(set_id, cardhedge_card_id))
+
+If the current code writes to staging tables, implement a finalize step that moves rows into canonical table within the same transaction and deletes staging rows.
+
+========================================================
+PART D — FIX ADMIN “CARDS” COUNT TO MATCH GAMEPLAY REALITY
+Decide what “Cards” means in the Admin table. It MUST represent “playable cards available for gameplay”.
+
+Implement:
+- Admin “Cards” column = COUNT(canonical_cards WHERE set_id=? AND playable=true)
+- If you also need total imported, keep it internal or in the debug endpoint, but DO NOT change UI layout.
+
+At the end of import:
+- Recompute playable_count for that set and persist (optional)
+- Invalidate any cache for Admin list
+
+If the Admin uses sets.card_count, either:
+- Remove reliance on it (compute via COUNT query), OR
+- Ensure importer updates sets.card_count = playable_count in the same transaction.
+
+========================================================
+PART E — FIX IMPORTER SO “IMPORTED N” MEANS “N CANONICAL PLAYABLE INSERTS”
+Right now, the toast “Imported 495 cards” is misleading. Fix it:
+- The number shown must reflect the number of canonical inserts that are linked to set_id.
+- Additionally compute playable_count; if playable_count==0 then the import MUST be marked “failed” or “warning” (not “completed”).
+
+Importer logic:
+1) Fetch Card Hedge pages
+2) Normalize each card into internal schema
+3) Validate:
+   - has image_url
+   - not placeholder/stock image (use Card Hedge raw_images_only=true when supported)
+4) Insert/upsert into canonical table with set_id
+5) Set playable=true only if validations passed
+6) After import, compute playable_count and return it
+
+If Card Hedge supports raw_images_only:
+- Always pass raw_images_only=true for gameplay sets.
+- If some sets truly have no verified/raw images, show a clear admin error: “No playable cards returned from Card Hedge for this query (raw_images_only).”
+
+========================================================
+PART F — DATA REPAIR / BACKFILL (fix existing broken sets)
+Write a repair script (admin-only button or one-time migration):
+- For each set shown in Admin:
+  - If Admin shows 0 but there are staging/import rows, finalize them into canonical table
+  - If there are canonical rows with null/incorrect set_id, fix linkage
+  - If playable flags are missing/false incorrectly, recompute playable based on image_url + placeholder detection
+- After repair, recompute counts and persist them (if denormalized)
+
+========================================================
+PART G — GUARDRails (prevent future regressions)
+Add an import_jobs table (or similar) to track:
+- id, set_id, started_at, finished_at
+- fetched_count, inserted_count, playable_count
+- status: success/warning/failure
+- error message
+
+Update Admin toast to reflect:
+- “Imported X playable cards (Y fetched)”
+If X==0: show failure with reason.
+
+Also:
+- Add a test that reimports a set and immediately fetches Admin list and asserts Cards > 0.
+
+========================================================
+PART H — REQUIRED AUTOMATED TESTING (you must run and report results)
+After implementation, run these checks locally in Replit:
+1) Trigger import for one known set (e.g., “1987 Topps Baseball”) via the same API path used by Admin.
+2) Call /api/admin/debug/set-integrity?setId=... and confirm:
+   - canonical_cards_total > 0
+   - canonical_cards_playable > 0
+   - admin_list_count == canonical_cards_playable
+3) Load Admin “Playable Sets” list and confirm the row no longer shows “No cards”.
+4) Start a game as a user and confirm gameplay endpoint returns a card payload from the canonical table.
+
+If any step fails, continue iterating until all pass.
+
+========================================================
+DELIVERABLES
+- Implement the full diagnosis + fix + repair + guardrails.
+- List files changed.
+- Print console output for the test run and the debug endpoint results for one set.
