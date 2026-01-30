@@ -703,8 +703,34 @@ export default function Game() {
     );
   }
 
-  const currentQuestion = session.questions[session.currentQuestionIndex];
+  const currentQuestion = session.questions?.[session.currentQuestionIndex];
   const progress = ((session.currentQuestionIndex + (isRevealed ? 1 : 0)) / session.totalQuestions) * 100;
+
+  // Defensive check for missing question data
+  if (!currentQuestion || !currentQuestion.card) {
+    return (
+      <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="p-6 text-center space-y-4">
+            <X className="h-12 w-12 text-destructive mx-auto" />
+            <h2 className="text-xl font-bold">Game Error</h2>
+            <p className="text-muted-foreground">Unable to load the current card. Please try again.</p>
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => startGameMutation.mutate(parseInt(selectedCardCount))} data-testid="button-retry-game">
+                Start New Game
+              </Button>
+              <Link href="/">
+                <Button variant="outline" className="w-full" data-testid="button-go-home">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Go Home
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (isGameOver) {
     const accuracy = session.totalQuestions > 0 
