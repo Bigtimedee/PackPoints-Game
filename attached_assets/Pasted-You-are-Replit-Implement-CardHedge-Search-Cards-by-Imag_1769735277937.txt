@@ -1,0 +1,159 @@
+You are Replit. Implement CardHedge “Search Cards by Image” for PackPTS as a complete, production-ready feature. Make all necessary code changes across backend + frontend, add tests, and verify tests pass.
+
+GOAL
+Add an Image Search workflow that lets PackPTS submit either an image_url or image_base64 to CardHedge and receive visually similar card matches. This will be used to (a) recover when a card image fails to load, (b) validate that an image is a real card image (not placeholder), and (c) allow “Try Different Card” to fetch a replacement card WITHOUT advancing match progress.
+
+CARDHEDGE ENDPOINT
+POST https://api.cardhedger.com/v1/cards/image-search
+Headers:
+- Content-Type: application/json
+- X-API-Key: <secret>
+
+Body (application/json):
+- image_base64 (optional) Base64 encoded image (with or without data URI prefix)
+- image_url (optional) Public URL to card image
+- k (optional) int 1..50 default 10
+
+Expected success response example:
+{
+  "success": true,
+  "results": [
+    {
+      "similarity": "95.23",
+      "distance": 0.0477,
+      "ximilar_id": "xim_abc123",
+      "product_id": "1587446850514x224832321163624450",
+      "card_data": {
+        "card_id": "1587446850514x224832321163624450",
+        "description": "Ken Griffey Jr. 1989 Upper Deck Baseball",
+        "player": "Ken Griffey Jr.",
+        "set": "1989 Upper Deck Baseball",
+        "number": "1"
+      }
+    }
+  ],
+  "total_results": 5,
+  "query_id": "query_abc123",
+  "has_cardhedge_matches": true
+}
+
+ERRORS TO HANDLE
+- 400: missing image input
+- 413: image too large (max 10MB)
+- 422: validation error
+- 502: external api error
+- 503: service not configured/unavailable
+
+SECURITY / CONFIG
+1) Add env var: CARDHEDGE_API_KEY (do NOT hardcode).
+2) Ensure backend never exposes the API key to the client.
+3) Add rate limiting for this endpoint (basic in-memory ok) and request timeout.
+
+BACKEND WORK
+A) Create a server-side service module:
+- File: /server/services/cardhedgeImageSearch.ts (or the closest equivalent structure)
+- Export:
+  - normalizeBase64(input: string) -> string (strip data URI prefix if present)
+  - approxBytesFromBase64(b64: string) -> number
+  - imageSearch(params: { imageUrl?: string; imageBase64?: string; k?: number }) -> Promise<CardHedgeImageSearchResponse>
+
+Rules:
+- Must require at least one of imageUrl or imageBase64.
+- k default 10, clamp to 1..50.
+- If imageBase64 provided: reject >10MB BEFORE calling upstream.
+- Use fetch with AbortController timeout (e.g., 8 seconds).
+- On non-2xx: parse response safely and throw typed error with status + message.
+
+B) Add an API route the frontend can call:
+- Route: POST /api/cardhedge/image-search
+Request body:
+{
+  "image_url"?: string,
+  "image_base64"?: string,
+  "k"?: number
+}
+Response:
+- Pass through sanitized CardHedge response but NEVER include secrets.
+- Add your own fields:
+  - ok: boolean
+  - error?: { code: string; message: string; status?: number }
+  - data?: CardHedgeImageSearchResponse
+
+C) Add a second API route for “Try Different Card” replacement logic:
+- Route: POST /api/game/replace-card
+Request body:
+{
+  "matchId": string,
+  "reason": "image_failed" | "user_requested",
+  "currentCardId"?: string,
+  "currentImageUrl"?: string
+}
+Rules (CRITICAL):
+- This route must NOT advance match progress (question index / card number).
+- It must return a new card object that is valid for gameplay (real image).
+- It must also log an event for observability: card_replaced with reason.
+
+Replacement strategy:
+1) If currentImageUrl exists, first call CardHedge image-search with image_url and k=10.
+2) If has_cardhedge_matches true and results length > 0:
+   - choose best candidate (highest similarity numeric).
+   - require similarity >= 85.
+   - candidate.card_data.card_id must exist.
+   - then fetch full details (use your existing CardHedge card-details endpoint integration if present; if not, implement minimal fetch by ID using POST /v1/cards/card-details with raw_images_only true).
+3) If step 2 fails, fallback to your existing “get next random card” logic, but enforce “no placeholder” rules (see below).
+4) Persist the replacement in match state so both players (in 1vFriend/1vRandom) see the same replacement card for the same question index.
+
+D) Add server-side “no placeholder” enforcement (global helper):
+Create helper isLikelyPlaceholderImage(url: string, description?: string) -> boolean
+Heuristics:
+- Reject if url empty
+- Reject if url contains “example”, “placeholder”, “appforest_uf/example”
+- Reject if image is a known generic asset or returns non-image content type
+- For CardHedge: if raw_images_only is available, always request it in search/details calls
+
+Ensure all card retrieval for gameplay uses this validator and retries up to 3 times (with exponential backoff 250ms, 500ms, 1000ms) before failing.
+
+FRONTEND WORK
+E) Update the gameplay card component:
+- If image fails to load (onError), show the existing “Try Different Card” (or “Skip to Next”) UI, BUT it must call /api/game/replace-card and re-render the current question with a new card WITHOUT incrementing progress.
+- Rename button label everywhere to “Try Different Card” (NOT “Skip to Next”) to avoid implying progress advancement.
+- While replacement is happening, disable answer choices and show loading state.
+- After replacement, restore answer choices for the same question number.
+
+F) Add an image upload utility for optional future use:
+- Create a small component (not necessarily visible in UI) that can take an uploaded image and convert to base64 and call /api/cardhedge/image-search.
+- Keep it behind a feature flag constant (e.g., FEATURE_IMAGE_SEARCH_UPLOAD = false).
+
+MULTIPLAYER SYNC (IMPORTANT)
+G) If match type is 1vFriend or 1vRandom:
+- Replacement must be authoritative on the server.
+- When the host triggers replacement, server updates match.currentQuestion.cardId + imageUrl + metadata.
+- Notify both clients via your existing realtime layer (Socket.IO/Supabase realtime/etc).
+- Ensure the opponent receives the updated card and re-renders WITHOUT advancing.
+
+OBSERVABILITY
+H) Add structured logs:
+- image_search_called, image_search_failed
+- card_replaced (reason, matchId, oldCardId, newCardId)
+- placeholder_rejected (url, cardId)
+Include timestamps and userId (if authenticated).
+
+TESTING (MANDATORY)
+I) Add automated tests:
+Backend tests (Jest/Vitest):
+1) Missing image_url + image_base64 => 400 with code MISSING_IMAGE_INPUT
+2) Oversized base64 => 413 with code IMAGE_TOO_LARGE
+3) Upstream 503 => ok=false and error code UPSTREAM_UNAVAILABLE
+4) replace-card does NOT increment match question index
+5) placeholder images are rejected and trigger retry
+
+Frontend tests (React Testing Library):
+6) Image onError triggers “Try Different Card” flow and does not increment progress display
+7) During replacement loading, submit disabled
+
+After tests pass, run them and confirm green.
+
+DO NOT REMOVE EXISTING FEATURES.
+Make minimal invasive changes, but prioritize correctness and reliability.
+
+Finally: Summarize what you changed, list new files, and show how to configure CARDHEDGE_API_KEY in Replit Secrets.

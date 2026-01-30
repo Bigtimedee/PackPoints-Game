@@ -1,0 +1,190 @@
+Implement CardHedge Image Search Integration for PackPTS
+
+Objective:
+Add support for searching trading cards using image input (URL or Base64) via CardHedge’s /v1/cards/image-search endpoint. This feature will be used for card recovery, fallback matching, and image validation workflows.
+
+Environment Setup:
+- Store CardHedge API key in environment variable:
+  CARDHEDGE_API_KEY
+
+API Endpoint:
+POST https://api.cardhedger.com/v1/cards/image-search
+
+Headers:
+Content-Type: application/json
+X-API-Key: process.env.CARDHEDGE_API_KEY
+
+--------------------------------
+BACKEND IMPLEMENTATION
+--------------------------------
+
+Create API utility function:
+
+File: services/cardHedgeImageSearch.ts
+
+Function Requirements:
+- Accept either:
+  - image_url (string)
+  - OR image_base64 (string)
+- Optional parameter:
+  - k (default = 10, max = 50)
+- Reject requests missing both image_url and image_base64
+- Reject images larger than 10MB (Base64 size validation)
+- Gracefully handle all CardHedge error responses
+
+Example Implementation:
+
+async function searchCardsByImage({ imageUrl, imageBase64, k = 10 }) {
+  if (!imageUrl && !imageBase64) {
+    throw new Error("Image input required");
+  }
+
+  const payload = {
+    k: Math.min(k, 50)
+  };
+
+  if (imageUrl) payload.image_url = imageUrl;
+  if (imageBase64) payload.image_base64 = imageBase64;
+
+  const response = await fetch("https://api.cardhedger.com/v1/cards/image-search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": process.env.CARDHEDGE_API_KEY
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`CardHedge Image Search Error: ${err}`);
+  }
+
+  return await response.json();
+}
+
+--------------------------------
+VALIDATION RULES
+--------------------------------
+
+Before calling API:
+
+1. Enforce at least one input:
+   - image_url OR image_base64 must exist
+
+2. If using Base64:
+   - Reject payloads larger than 10MB
+   - Strip data:image prefix if present
+
+3. Clamp k parameter:
+   - Minimum: 1
+   - Maximum: 50
+   - Default: 10
+
+--------------------------------
+RESPONSE HANDLING
+--------------------------------
+
+Expected Success Response Structure:
+
+{
+  success: true,
+  results: [
+    {
+      similarity: "95.23",
+      distance: 0.0477,
+      product_id: "...",
+      card_data: {
+        card_id,
+        description,
+        player,
+        set,
+        number
+      }
+    }
+  ],
+  total_results,
+  query_id,
+  has_cardhedge_matches
+}
+
+Implementation Rules:
+
+- Only accept matches where:
+  similarity >= 85
+- If has_cardhedge_matches === false:
+  - Trigger fallback card fetch logic
+- Sort results descending by similarity
+- Use highest similarity card as primary match
+
+--------------------------------
+GAMEPLAY SAFETY RULES
+--------------------------------
+
+PackPTS must NOT:
+
+- Advance game state if image search fails
+- Count failed image matches as a played card
+- Display placeholder cards
+
+If image search fails:
+
+- Retry once automatically
+- If still failing:
+  - Request a new card from CardHedge search endpoint
+  - Do NOT advance question counter
+
+--------------------------------
+ERROR HANDLING
+--------------------------------
+
+Handle these explicitly:
+
+400 — Missing image input  
+413 — Image too large  
+422 — Validation error  
+502 — External API error  
+503 — Service unavailable  
+
+Behavior:
+
+- Log errors
+- Display "Unable to identify card — retrying" message
+- Attempt automatic recovery
+
+--------------------------------
+FRONTEND INTEGRATION
+--------------------------------
+
+When user taps "Try Different Card":
+
+1. Capture current card image URL
+2. Send to image-search endpoint
+3. Replace current card ONLY if valid result returned
+4. Do NOT increment match progress
+
+--------------------------------
+TESTING REQUIREMENTS (MANDATORY)
+--------------------------------
+
+After implementation:
+
+1. Test with image_url input
+2. Test with Base64 upload
+3. Test missing image error handling
+4. Test oversized image rejection
+5. Test no-match fallback behavior
+6. Verify gameplay counter does NOT advance on failure
+
+--------------------------------
+DELIVERABLES
+--------------------------------
+
+Output:
+
+- services/cardHedgeImageSearch.ts
+- API route wrapper (if using NextJS/Express)
+- Frontend handler for retry button
+- Console logging enabled for debugging
+
+Do not deploy until tests pass.
