@@ -661,7 +661,7 @@ export class DatabaseStorage implements IStorage {
       team: card.set || "",
       year: 0,
       cardNumber: card.number || "",
-      imageUrl: card.imageUrl || "",
+      imageUrl: `/api/cards/${card.id}/masked-image`,
       popularity: 50,
       imageVerified: true,
       setName: card.set || "",
@@ -692,8 +692,13 @@ export class DatabaseStorage implements IStorage {
     const basePoints = 100;
     const pointValue = Math.max(50, basePoints + (100 - card.popularity) * 4);
     
+    const maskedCard = {
+      ...card,
+      imageUrl: `/api/cards/${card.id}/masked-image`,
+    };
+    
     return {
-      card,
+      card: maskedCard,
       options,
       correctAnswer: card.playerName,
       pointValue,

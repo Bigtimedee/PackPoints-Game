@@ -508,7 +508,7 @@ class MatchService {
     
     const proxiedCard = {
       ...card,
-      imageUrl: `/api/images/card/${card.id}`,
+      imageUrl: `/api/cards/${card.id}/masked-image`,
     };
     
     return {
@@ -529,8 +529,13 @@ class MatchService {
     const basePoints = 100;
     const pointValue = Math.max(50, basePoints + (100 - card.popularity) * 4);
     
+    const maskedCard = {
+      ...card,
+      imageUrl: `/api/cards/${card.id}/masked-image`,
+    };
+    
     return {
-      card,
+      card: maskedCard,
       options,
       correctAnswer: card.playerName,
       pointValue,
