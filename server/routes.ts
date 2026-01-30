@@ -6404,7 +6404,8 @@ export async function registerRoutes(
       
       // Log warning if duplicates were found
       if (duplicatesFound.length > 0) {
-        console.warn(`[GameSets] Duplicate active sets detected and deduplicated: ${[...new Set(duplicatesFound)].join(', ')}. Run /api/admin/game-sets/duplicates to review.`);
+        const uniqueDuplicates = Array.from(new Set(duplicatesFound));
+        console.warn(`[GameSets] Duplicate active sets detected and deduplicated: ${uniqueDuplicates.join(', ')}. Run /api/admin/game-sets/duplicates to review.`);
       }
       
       // Convert map back to array and use actualPlayableCards for display
