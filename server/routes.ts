@@ -5054,6 +5054,61 @@ export async function registerRoutes(
           )
         );
       
+      // Get last 5 inserted cards for this set
+      const last5Cards = await db
+        .select({
+          id: playableCards.id,
+          gameSetId: playableCards.gameSetId,
+          cardhedgeCardId: playableCards.cardhedgeCardId,
+          player: playableCards.player,
+          imageUrl: playableCards.imageUrl,
+          category: playableCards.category,
+          isPlayable: playableCards.isPlayable,
+          contentVerified: playableCards.contentVerified,
+          imageFailureCount: playableCards.imageFailureCount,
+          imageReviewStatus: playableCards.imageReviewStatus,
+          createdAt: playableCards.createdAt,
+        })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, id))
+        .orderBy(desc(playableCards.createdAt))
+        .limit(5);
+      
+      // Check for null set_id cards in last hour (foreign key sanity)
+      const [nullSetIdCards] = await db
+        .select({ count: sql<number>`COUNT(*)`.as('count') })
+        .from(playableCards)
+        .where(
+          and(
+            isNull(playableCards.gameSetId),
+            gte(playableCards.createdAt, sql`NOW() - INTERVAL '1 hour'`)
+          )
+        );
+      
+      const totalCards = Number(counts.totalCards) || 0;
+      const playableCards_count = Number(fullyPlayable.count) || 0;
+      
+      // Diagnose the issue
+      let diagnosis = "";
+      if (playableCards_count > 0) {
+        diagnosis = "Cards are queryable for gameplay";
+      } else if (totalCards === 0) {
+        diagnosis = "No cards exist in this set - import required";
+      } else {
+        // Identify the bottleneck
+        const issues: string[] = [];
+        if (Number(counts.playableTrue) === 0) issues.push("is_playable=false on all cards");
+        if (Number(counts.hasValidImage) < totalCards * 0.5) issues.push("many cards missing valid images");
+        if (Number(counts.matchingSport) === 0) issues.push(`no cards have category matching sport '${gameSet.sport}'`);
+        if (Number(counts.imageFailureLow) === 0) issues.push("all cards have high image failure counts");
+        if (Number(counts.contentVerifiedFalse) > 0 && Number(counts.contentVerifiedTrue) === 0 && Number(counts.contentVerifiedNull) === 0) {
+          issues.push("all cards have content_verified=false (silhouettes)");
+        }
+        diagnosis = issues.length > 0 
+          ? `Issues detected: ${issues.join('; ')}`
+          : "No cards meet all playability criteria - review counts above";
+      }
+      
       res.json({
         gameSet: {
           id: gameSet.id,
@@ -5062,9 +5117,11 @@ export async function registerRoutes(
           year: gameSet.year,
           isActive: gameSet.isActive,
           cardsImportedCount: gameSet.cardsImportedCount,
+          cardhedgeSetQuery: gameSet.cardhedgeSetQuery,
+          lastImportAt: gameSet.lastImportAt,
         },
         cardCounts: {
-          totalCards: Number(counts.totalCards) || 0,
+          totalCards,
           isPlayableTrue: Number(counts.playableTrue) || 0,
           contentVerified: {
             true: Number(counts.contentVerifiedTrue) || 0,
@@ -5077,10 +5134,21 @@ export async function registerRoutes(
           notRejected: Number(counts.notRejected) || 0,
           matchingSport: Number(counts.matchingSport) || 0,
         },
-        fullyPlayableCards: Number(fullyPlayable.count) || 0,
-        diagnosis: Number(fullyPlayable.count) > 0 
-          ? "Cards are queryable" 
-          : "No cards meet all playability criteria - check counts above to identify the issue",
+        fullyPlayableCards: playableCards_count,
+        foreignKeySanity: {
+          nullSetIdCardsInLastHour: Number(nullSetIdCards?.count) || 0,
+        },
+        last5InsertedCards: last5Cards.map(c => ({
+          id: c.id,
+          player: c.player,
+          imageUrl: c.imageUrl ? (c.imageUrl.slice(0, 50) + '...') : null,
+          category: c.category,
+          isPlayable: c.isPlayable,
+          contentVerified: c.contentVerified,
+          imageFailureCount: c.imageFailureCount,
+          createdAt: c.createdAt,
+        })),
+        diagnosis,
       });
     } catch (error) {
       console.error("Error diagnosing game set:", error);
@@ -5103,12 +5171,19 @@ export async function registerRoutes(
           isActive: gameSets.isActive,
           cardhedgeSetQuery: gameSets.cardhedgeSetQuery,
           cardhedgeCategory: gameSets.cardhedgeCategory,
-          // Return actual playable count (content_verified=true, is_playable=true)
+          // Return actual playable count matching gameplay query logic
+          // Allow NULL or true for content_verified (same as getRandomCardsFromSet)
           cardsImportedCount: sql<number>`(
             SELECT COUNT(*) FROM playable_cards pc 
             WHERE pc.game_set_id = game_sets.id 
             AND pc.is_playable = true 
-            AND pc.content_verified = true
+            AND (pc.content_verified IS NULL OR pc.content_verified = true)
+            AND pc.image_url IS NOT NULL
+            AND pc.image_url LIKE 'https://%'
+            AND pc.player IS NOT NULL
+            AND pc.player != ''
+            AND pc.image_failure_count < 2
+            AND LOWER(pc.category) = LOWER(game_sets.sport)
           )`.as('cards_imported_count'),
           lastImportAt: gameSets.lastImportAt,
           marketplaceKeywords: gameSets.marketplaceKeywords,
@@ -5343,6 +5418,97 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error cleaning up duplicate game sets:", error);
       res.status(500).json({ error: "Failed to cleanup duplicate game sets" });
+    }
+  });
+
+  // Admin: Repair sets - recalculate playable counts and fix stale metadata
+  app.post("/api/admin/game-sets/repair", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      console.log("[Repair] Starting set repair job...");
+      
+      // Get all sets with their actual vs reported counts
+      const allSets = await db
+        .select({
+          id: gameSets.id,
+          setName: gameSets.setName,
+          sport: gameSets.sport,
+          cardsImportedCount: gameSets.cardsImportedCount,
+          lastImportAt: gameSets.lastImportAt,
+          isActive: gameSets.isActive,
+          actualPlayableCards: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id 
+            AND pc.is_playable = true 
+            AND (pc.content_verified IS NULL OR pc.content_verified = true)
+            AND pc.image_url IS NOT NULL
+            AND pc.image_url LIKE 'https://%'
+            AND pc.player IS NOT NULL
+            AND pc.player != ''
+            AND pc.image_failure_count < 2
+            AND LOWER(pc.category) = LOWER(game_sets.sport)
+          )`.as('actual_playable_cards'),
+          totalCards: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id
+          )`.as('total_cards'),
+        })
+        .from(gameSets)
+        .orderBy(gameSets.year);
+      
+      const repairs: Array<{
+        id: string;
+        setName: string;
+        oldCount: number;
+        newCount: number;
+        totalCards: number;
+        issue: string;
+      }> = [];
+      
+      for (const set of allSets) {
+        const reportedCount = Number(set.cardsImportedCount) || 0;
+        const actualCount = Number(set.actualPlayableCards) || 0;
+        const totalCards = Number(set.totalCards) || 0;
+        
+        // Check for mismatches
+        if (reportedCount !== actualCount || (totalCards > 0 && actualCount === 0)) {
+          let issue = "";
+          if (totalCards > 0 && actualCount === 0) {
+            issue = `${totalCards} cards exist but 0 are playable - check filters`;
+          } else if (reportedCount > actualCount) {
+            issue = `Reported ${reportedCount} but only ${actualCount} playable`;
+          } else if (reportedCount < actualCount) {
+            issue = `Reported ${reportedCount} but ${actualCount} are actually playable`;
+          }
+          
+          // Update the cardsImportedCount to match actual (though admin panel now uses computed counts)
+          await db
+            .update(gameSets)
+            .set({ cardsImportedCount: totalCards })
+            .where(eq(gameSets.id, set.id));
+          
+          repairs.push({
+            id: set.id,
+            setName: set.setName || 'Unknown',
+            oldCount: reportedCount,
+            newCount: actualCount,
+            totalCards,
+            issue,
+          });
+          
+          console.log(`[Repair] Fixed set "${set.setName}": ${issue}`);
+        }
+      }
+      
+      console.log(`[Repair] Completed - repaired ${repairs.length} sets`);
+      
+      res.json({
+        success: true,
+        repairedCount: repairs.length,
+        repairs,
+      });
+    } catch (error) {
+      console.error("Error repairing game sets:", error);
+      res.status(500).json({ error: "Failed to repair game sets" });
     }
   });
 
@@ -6325,7 +6491,7 @@ export async function registerRoutes(
         // Update final counts
         await db
           .update(gameSets)
-          .set({ cardsImportedCount: totalCardsImported })
+          .set({ cardsImportedCount: totalCardsImported, lastImportAt: new Date() })
           .where(eq(gameSets.id, id));
         
         await db
@@ -6338,15 +6504,107 @@ export async function registerRoutes(
           })
           .where(eq(cardhedgeImportRuns.id, importRun.id));
         
-        console.log(`[Purge & Reimport] Completed: ${cardsPurged} purged, ${totalCardsImported} imported, ${wrongSportSkipped} wrong-sport skipped`);
+        // FORENSIC DIAGNOSTICS: Compute actual playable card counts after import
+        const [forensicCounts] = await db
+          .select({
+            totalInserted: sql<number>`COUNT(*)`.as('total_inserted'),
+            isPlayableTrue: sql<number>`SUM(CASE WHEN is_playable = true THEN 1 ELSE 0 END)`.as('is_playable_true'),
+            contentVerifiedTrue: sql<number>`SUM(CASE WHEN content_verified = true THEN 1 ELSE 0 END)`.as('content_verified_true'),
+            contentVerifiedNull: sql<number>`SUM(CASE WHEN content_verified IS NULL THEN 1 ELSE 0 END)`.as('content_verified_null'),
+            contentVerifiedFalse: sql<number>`SUM(CASE WHEN content_verified = false THEN 1 ELSE 0 END)`.as('content_verified_false'),
+            hasValidImage: sql<number>`SUM(CASE WHEN image_url IS NOT NULL AND image_url LIKE 'https://%' THEN 1 ELSE 0 END)`.as('has_valid_image'),
+            matchingSport: sql<number>`SUM(CASE WHEN LOWER(category) = LOWER(${gameSet.sport}) THEN 1 ELSE 0 END)`.as('matching_sport'),
+          })
+          .from(playableCards)
+          .where(eq(playableCards.gameSetId, id));
+        
+        // Get actual playable count using the same logic as admin list (for gameplay)
+        const [actualPlayable] = await db
+          .select({ count: sql<number>`COUNT(*)`.as('count') })
+          .from(playableCards)
+          .where(
+            and(
+              eq(playableCards.gameSetId, id),
+              eq(playableCards.isPlayable, true),
+              // Allow NULL or true for content_verified (same as getRandomCardsFromSet)
+              or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
+              isNotNull(playableCards.imageUrl),
+              like(playableCards.imageUrl, 'https://%'),
+              isNotNull(playableCards.player),
+              ne(playableCards.player, ''),
+              lt(playableCards.imageFailureCount, 2),
+              sql`LOWER(${playableCards.category}) = LOWER(${gameSet.sport})`
+            )
+          );
+        
+        const playableCount = Number(actualPlayable?.count) || 0;
+        
+        // Log forensic diagnostics
+        console.log(`[Purge & Reimport] FORENSIC DIAGNOSTICS for set "${gameSet.setName}" (${id}):`);
+        console.log(`  Total inserted: ${forensicCounts.totalInserted}`);
+        console.log(`  is_playable=true: ${forensicCounts.isPlayableTrue}`);
+        console.log(`  content_verified=true: ${forensicCounts.contentVerifiedTrue}, null: ${forensicCounts.contentVerifiedNull}, false: ${forensicCounts.contentVerifiedFalse}`);
+        console.log(`  has_valid_image: ${forensicCounts.hasValidImage}`);
+        console.log(`  matching_sport (${gameSet.sport}): ${forensicCounts.matchingSport}`);
+        console.log(`  ACTUAL PLAYABLE for gameplay: ${playableCount}`);
+        
+        // Sample 3 inserted rows for debugging
+        const sampleCards = await db
+          .select({
+            id: playableCards.id,
+            gameSetId: playableCards.gameSetId,
+            cardhedgeCardId: playableCards.cardhedgeCardId,
+            player: playableCards.player,
+            imageUrl: playableCards.imageUrl,
+            isPlayable: playableCards.isPlayable,
+            contentVerified: playableCards.contentVerified,
+            category: playableCards.category,
+            createdAt: playableCards.createdAt,
+          })
+          .from(playableCards)
+          .where(eq(playableCards.gameSetId, id))
+          .limit(3);
+        
+        console.log(`  Sample inserted cards:`, sampleCards.map(c => ({
+          id: c.id.slice(0, 8) + '...',
+          player: c.player,
+          isPlayable: c.isPlayable,
+          contentVerified: c.contentVerified,
+          category: c.category,
+        })));
+        
+        // WARNING if imported > 0 but playable = 0
+        let status = "completed";
+        let warning: string | undefined;
+        if (totalCardsImported > 0 && playableCount === 0) {
+          status = "warning";
+          warning = `CRITICAL: Imported ${totalCardsImported} cards but 0 are playable. Check content_verified flags or category matching.`;
+          console.warn(`[Purge & Reimport] ${warning}`);
+        }
+        
+        console.log(`[Purge & Reimport] Completed: ${cardsPurged} purged, ${totalCardsImported} imported, ${playableCount} playable, ${wrongSportSkipped} wrong-sport skipped`);
         
         res.json({
           success: true,
           cardsPurged,
           cardsImported: totalCardsImported,
+          playableCount,
           wrongSportSkipped,
           pagesFetched,
           importRunId: importRun.id,
+          status,
+          warning,
+          forensics: {
+            totalInserted: Number(forensicCounts.totalInserted) || 0,
+            isPlayableTrue: Number(forensicCounts.isPlayableTrue) || 0,
+            contentVerified: {
+              true: Number(forensicCounts.contentVerifiedTrue) || 0,
+              null: Number(forensicCounts.contentVerifiedNull) || 0,
+              false: Number(forensicCounts.contentVerifiedFalse) || 0,
+            },
+            hasValidImage: Number(forensicCounts.hasValidImage) || 0,
+            matchingSport: Number(forensicCounts.matchingSport) || 0,
+          },
         });
       } catch (importError: any) {
         await db
@@ -6483,6 +6741,7 @@ export async function registerRoutes(
           cardsImportedCount: gameSets.cardsImportedCount,
           lastImportAt: gameSets.lastImportAt,
           // Get actual verified playable card count using correlated subquery
+          // Must match getRandomCardsFromSet() logic exactly
           actualPlayableCards: sql<number>`(
             SELECT COUNT(*) FROM playable_cards pc 
             WHERE pc.game_set_id = game_sets.id 
@@ -6493,6 +6752,8 @@ export async function registerRoutes(
             AND pc.image_url LIKE 'https://%'
             AND pc.player IS NOT NULL 
             AND pc.player != ''
+            AND pc.image_failure_count < 2
+            AND LOWER(pc.category) = LOWER(game_sets.sport)
           )`.as('actual_playable_cards'),
         })
         .from(gameSets)
