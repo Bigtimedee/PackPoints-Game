@@ -36,6 +36,7 @@ import AdminCardSearch from "@/pages/admin/card-search";
 import AdminCardReports from "@/pages/admin/card-reports";
 import AdminPackageGuardrails from "@/pages/admin/package-guardrails";
 import AdminCardSets from "@/pages/admin/card-sets";
+import AdminCardTelemetry from "@/pages/admin/card-telemetry";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -182,6 +183,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminCardReports />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/card-telemetry">
+        {() => (
+          <AdminLayout>
+            <AdminCardTelemetry />
           </AdminLayout>
         )}
       </Route>

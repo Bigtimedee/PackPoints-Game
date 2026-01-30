@@ -1,5 +1,6 @@
 import { db } from "../../db";
 import { telemetryCardDelivery } from "@shared/schema";
+import { sql } from "drizzle-orm";
 
 export type CardDeliveryStage = 
   | "prefetch" 
@@ -102,5 +103,3 @@ export async function getCardDeliveryStats(hours: number = 24): Promise<{
     },
   };
 }
-
-import { sql } from "drizzle-orm";

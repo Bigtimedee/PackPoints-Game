@@ -3234,6 +3234,18 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Get card delivery telemetry stats
+  app.get("/api/admin/telemetry/cards", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getCardDeliveryStats } = await import("./services/telemetry/cardDelivery");
+      const stats = await getCardDeliveryStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error getting card telemetry:", error);
+      res.status(500).json({ error: "Failed to get card delivery stats" });
+    }
+  });
+
   // ============================================
   // ADMIN STREAK ENDPOINTS
   // ============================================
