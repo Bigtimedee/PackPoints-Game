@@ -37,7 +37,7 @@ import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, and, or, gte, inArray } from "drizzle-orm";
+import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -4996,10 +4996,126 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Diagnose game set health - shows why cards may not be queryable
+  app.get("/api/admin/game-sets/:id/diagnose", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get the game set
+      const [gameSet] = await db
+        .select()
+        .from(gameSets)
+        .where(eq(gameSets.id, id))
+        .limit(1);
+      
+      if (!gameSet) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      // Get detailed card counts
+      const [counts] = await db
+        .select({
+          totalCards: sql<number>`COUNT(*)`.as('total_cards'),
+          playableTrue: sql<number>`SUM(CASE WHEN is_playable = true THEN 1 ELSE 0 END)`.as('playable_true'),
+          contentVerifiedTrue: sql<number>`SUM(CASE WHEN content_verified = true THEN 1 ELSE 0 END)`.as('content_verified_true'),
+          contentVerifiedNull: sql<number>`SUM(CASE WHEN content_verified IS NULL THEN 1 ELSE 0 END)`.as('content_verified_null'),
+          contentVerifiedFalse: sql<number>`SUM(CASE WHEN content_verified = false THEN 1 ELSE 0 END)`.as('content_verified_false'),
+          hasValidImage: sql<number>`SUM(CASE WHEN image_url IS NOT NULL AND image_url != '' AND image_url LIKE 'https://%' THEN 1 ELSE 0 END)`.as('has_valid_image'),
+          hasPlayer: sql<number>`SUM(CASE WHEN player IS NOT NULL AND player != '' THEN 1 ELSE 0 END)`.as('has_player'),
+          imageFailureLow: sql<number>`SUM(CASE WHEN image_failure_count < 2 THEN 1 ELSE 0 END)`.as('image_failure_low'),
+          notRejected: sql<number>`SUM(CASE WHEN image_review_status IS NULL OR image_review_status != 'rejected' THEN 1 ELSE 0 END)`.as('not_rejected'),
+          matchingSport: sql<number>`SUM(CASE WHEN LOWER(category) = LOWER(${gameSet.sport}) THEN 1 ELSE 0 END)`.as('matching_sport'),
+        })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, id));
+      
+      // Get fully playable count (all conditions met)
+      const [fullyPlayable] = await db
+        .select({
+          count: sql<number>`COUNT(*)`.as('count'),
+        })
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.gameSetId, id),
+            eq(playableCards.isPlayable, true),
+            or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
+            isNotNull(playableCards.imageUrl),
+            ne(playableCards.imageUrl, ''),
+            like(playableCards.imageUrl, 'https://%'),
+            isNotNull(playableCards.player),
+            ne(playableCards.player, ''),
+            or(
+              isNull(playableCards.imageReviewStatus),
+              ne(playableCards.imageReviewStatus, 'rejected')
+            ),
+            lt(playableCards.imageFailureCount, 2),
+            sql`LOWER(${playableCards.category}) = LOWER(${gameSet.sport})`
+          )
+        );
+      
+      res.json({
+        gameSet: {
+          id: gameSet.id,
+          setName: gameSet.setName,
+          sport: gameSet.sport,
+          year: gameSet.year,
+          isActive: gameSet.isActive,
+          cardsImportedCount: gameSet.cardsImportedCount,
+        },
+        cardCounts: {
+          totalCards: Number(counts.totalCards) || 0,
+          isPlayableTrue: Number(counts.playableTrue) || 0,
+          contentVerified: {
+            true: Number(counts.contentVerifiedTrue) || 0,
+            null: Number(counts.contentVerifiedNull) || 0,
+            false: Number(counts.contentVerifiedFalse) || 0,
+          },
+          hasValidImage: Number(counts.hasValidImage) || 0,
+          hasPlayer: Number(counts.hasPlayer) || 0,
+          imageFailureCountLow: Number(counts.imageFailureLow) || 0,
+          notRejected: Number(counts.notRejected) || 0,
+          matchingSport: Number(counts.matchingSport) || 0,
+        },
+        fullyPlayableCards: Number(fullyPlayable.count) || 0,
+        diagnosis: Number(fullyPlayable.count) > 0 
+          ? "Cards are queryable" 
+          : "No cards meet all playability criteria - check counts above to identify the issue",
+      });
+    } catch (error) {
+      console.error("Error diagnosing game set:", error);
+      res.status(500).json({ error: "Failed to diagnose game set" });
+    }
+  });
+
   // Admin: Get all game sets
   app.get("/api/admin/game-sets", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const sets = await db.select().from(gameSets).orderBy(gameSets.year);
+      // Get game sets with ACTUAL playable card counts (not stale cardsImportedCount)
+      const sets = await db
+        .select({
+          id: gameSets.id,
+          sport: gameSets.sport,
+          brand: gameSets.brand,
+          year: gameSets.year,
+          setName: gameSets.setName,
+          league: gameSets.league,
+          isActive: gameSets.isActive,
+          cardhedgeSetQuery: gameSets.cardhedgeSetQuery,
+          cardhedgeCategory: gameSets.cardhedgeCategory,
+          // Return actual playable count (content_verified=true, is_playable=true)
+          cardsImportedCount: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id 
+            AND pc.is_playable = true 
+            AND pc.content_verified = true
+          )`.as('cards_imported_count'),
+          lastImportAt: gameSets.lastImportAt,
+          marketplaceKeywords: gameSets.marketplaceKeywords,
+          createdAt: gameSets.createdAt,
+        })
+        .from(gameSets)
+        .orderBy(gameSets.year);
       res.json(sets);
     } catch (error) {
       console.error("Error getting game sets:", error);
