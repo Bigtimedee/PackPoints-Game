@@ -66,6 +66,12 @@ function parseNumber(val: unknown): number | undefined {
   return isNaN(num) ? undefined : num;
 }
 
+const KNOWN_SILHOUETTE_URLS = [
+  "s3.amazonaws.com/appforest_uf/f1598844013957x762581963247106700/05-Baseball.jpg",
+  "s3.amazonaws.com/appforest_uf/f1598843999608x665677636464784800/05-Football.jpg",
+  "s3.amazonaws.com/appforest_uf/f1598843985116x489100344198574160/05-Basketball.jpg",
+];
+
 const PLACEHOLDER_PATTERNS = [
   /placeholder/i,
   /example/i,
@@ -82,11 +88,11 @@ const PLACEHOLDER_PATTERNS = [
   /unavailable/i,
   /stock[-_]?photo/i,
   /template/i,
-  // Generic sport placeholders from Card Hedge
-  /\d{2}-Baseball\.jpg$/i,
-  /\d{2}-Football\.jpg$/i,
-  /\d{2}-Basketball\.jpg$/i,
-  /\d{2}-Hockey\.jpg$/i,
+  // Generic sport placeholders from Card Hedge (matches 05-Baseball.jpg, 01-Football.jpg, etc.)
+  /\/\d{2}-Baseball\.jpg$/i,
+  /\/\d{2}-Football\.jpg$/i,
+  /\/\d{2}-Basketball\.jpg$/i,
+  /\/\d{2}-Hockey\.jpg$/i,
   // Sport silhouette images (common Card Hedge patterns)
   /basketball[-_]?silhouette/i,
   /football[-_]?silhouette/i,
@@ -105,6 +111,14 @@ export function isLikelyPlaceholderImage(card: CardSearchCard): boolean {
     return true;
   }
 
+  // Check for exact known silhouette URLs (highest priority)
+  for (const knownUrl of KNOWN_SILHOUETTE_URLS) {
+    if (card.image.includes(knownUrl)) {
+      return true;
+    }
+  }
+
+  // Check pattern-based detection
   for (const pattern of PLACEHOLDER_PATTERNS) {
     if (pattern.test(card.image)) {
       return true;
@@ -115,6 +129,26 @@ export function isLikelyPlaceholderImage(card: CardSearchCard): boolean {
     return true;
   }
 
+  return false;
+}
+
+export function isKnownSilhouetteUrl(imageUrl: string): boolean {
+  if (!imageUrl) return false;
+  
+  // Check exact known URLs
+  for (const knownUrl of KNOWN_SILHOUETTE_URLS) {
+    if (imageUrl.includes(knownUrl)) {
+      return true;
+    }
+  }
+  
+  // Check patterns
+  for (const pattern of PLACEHOLDER_PATTERNS) {
+    if (pattern.test(imageUrl)) {
+      return true;
+    }
+  }
+  
   return false;
 }
 
