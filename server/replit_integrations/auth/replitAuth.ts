@@ -27,6 +27,10 @@ export function getSession() {
     return sessionMiddlewareInstance;
   }
   
+  console.log("[Session] Initializing session store...");
+  console.log("[Session] DATABASE_URL configured:", !!process.env.DATABASE_URL);
+  console.log("[Session] SESSION_SECRET configured:", !!process.env.SESSION_SECRET);
+  
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
@@ -34,7 +38,17 @@ export function getSession() {
     createTableIfMissing: false,
     ttl: sessionTtl,
     tableName: "sessions",
+    errorLog: (error: Error) => {
+      console.error("[Session] PostgreSQL session store error:", error.message);
+      console.error("[Session] Error stack:", error.stack);
+    },
   });
+  
+  // Listen for session store errors
+  sessionStore.on('error', (error: Error) => {
+    console.error("[Session] Session store connection error:", error.message);
+  });
+  
   sessionMiddlewareInstance = session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -47,6 +61,8 @@ export function getSession() {
       maxAge: sessionTtl,
     },
   });
+  
+  console.log("[Session] Session middleware initialized successfully");
   return sessionMiddlewareInstance;
 }
 
