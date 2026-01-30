@@ -5095,6 +5095,141 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Get duplicate game sets for cleanup
+  app.get("/api/admin/game-sets/duplicates", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      // Get all game sets with actual playable card counts
+      const allSets = await db
+        .select({
+          id: gameSets.id,
+          setName: gameSets.setName,
+          year: gameSets.year,
+          sport: gameSets.sport,
+          brand: gameSets.brand,
+          isActive: gameSets.isActive,
+          cardsImportedCount: gameSets.cardsImportedCount,
+          lastImportAt: gameSets.lastImportAt,
+          actualPlayableCards: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id 
+            AND pc.is_playable = true
+          )`.as('actual_playable_cards'),
+          verifiedCards: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id 
+            AND pc.is_playable = true 
+            AND pc.content_verified = true
+          )`.as('verified_cards'),
+        })
+        .from(gameSets)
+        .orderBy(gameSets.setName, gameSets.year);
+
+      // Group by set name to find duplicates
+      const setGroups = new Map<string, typeof allSets>();
+      for (const set of allSets) {
+        const key = `${set.setName}-${set.year}-${set.sport}`;
+        const group = setGroups.get(key) || [];
+        group.push(set);
+        setGroups.set(key, group);
+      }
+
+      // Filter to only groups with duplicates
+      type SetWithCount = typeof allSets[0];
+      const duplicates: { 
+        key: string; 
+        sets: SetWithCount[];
+        recommended: string;
+      }[] = [];
+      
+      Array.from(setGroups.entries()).forEach(([key, sets]) => {
+        if (sets.length > 1) {
+          // Recommend keeping the one with the most playable cards
+          const recommended = sets.reduce((best: SetWithCount, current: SetWithCount) => 
+            (current.actualPlayableCards || 0) > (best.actualPlayableCards || 0) ? current : best
+          );
+          duplicates.push({
+            key,
+            sets,
+            recommended: recommended.id,
+          });
+        }
+      });
+
+      res.json({
+        duplicateGroups: duplicates.length,
+        totalDuplicateSets: duplicates.reduce((sum, d) => sum + d.sets.length, 0),
+        duplicates,
+      });
+    } catch (error) {
+      console.error("Error getting duplicate game sets:", error);
+      res.status(500).json({ error: "Failed to get duplicate game sets" });
+    }
+  });
+
+  // Admin: Cleanup duplicate game sets (deactivate all but the recommended one)
+  app.post("/api/admin/game-sets/cleanup-duplicates", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      // Get all game sets with actual playable card counts
+      const allSets = await db
+        .select({
+          id: gameSets.id,
+          setName: gameSets.setName,
+          year: gameSets.year,
+          sport: gameSets.sport,
+          isActive: gameSets.isActive,
+          actualPlayableCards: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id 
+            AND pc.is_playable = true
+          )`.as('actual_playable_cards'),
+        })
+        .from(gameSets)
+        .where(eq(gameSets.isActive, true));
+
+      // Group by set name to find duplicates
+      const setGroups = new Map<string, typeof allSets>();
+      for (const set of allSets) {
+        const key = `${set.setName}-${set.year}-${set.sport}`;
+        const group = setGroups.get(key) || [];
+        group.push(set);
+        setGroups.set(key, group);
+      }
+
+      // Deactivate duplicates (keep the one with most cards)
+      type CleanupSet = typeof allSets[0];
+      const deactivated: string[] = [];
+      const entries = Array.from(setGroups.entries());
+      
+      for (let i = 0; i < entries.length; i++) {
+        const [_key, sets] = entries[i];
+        if (sets.length > 1) {
+          // Sort by playable cards descending - keep first, deactivate rest
+          sets.sort((a: CleanupSet, b: CleanupSet) => (b.actualPlayableCards || 0) - (a.actualPlayableCards || 0));
+          const toDeactivate = sets.slice(1);
+          
+          for (let j = 0; j < toDeactivate.length; j++) {
+            const set = toDeactivate[j];
+            await db
+              .update(gameSets)
+              .set({ isActive: false })
+              .where(eq(gameSets.id, set.id));
+            deactivated.push(set.id);
+            console.log(`[GameSets] Deactivated duplicate set: ${set.setName} (${set.id}) with ${set.actualPlayableCards} cards`);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        deactivatedCount: deactivated.length,
+        deactivatedIds: deactivated,
+      });
+    } catch (error) {
+      console.error("Error cleaning up duplicate game sets:", error);
+      res.status(500).json({ error: "Failed to cleanup duplicate game sets" });
+    }
+  });
+
   // Admin: Create/Update Goldin curated listing
   app.post("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
@@ -6217,9 +6352,11 @@ export async function registerRoutes(
   });
 
   // Public: Get active playable sets with card counts
+  // Deduplicates sets with the same name, returning only the one with the most playable cards
   app.get("/api/playable-sets", async (_req, res) => {
     try {
-      const sets = await db
+      // Get all active sets with actual playable card counts
+      const setsWithCounts = await db
         .select({
           id: gameSets.id,
           sport: gameSets.sport,
@@ -6229,12 +6366,61 @@ export async function registerRoutes(
           league: gameSets.league,
           cardsImportedCount: gameSets.cardsImportedCount,
           lastImportAt: gameSets.lastImportAt,
+          // Get actual verified playable card count using correlated subquery
+          actualPlayableCards: sql<number>`(
+            SELECT COUNT(*) FROM playable_cards pc 
+            WHERE pc.game_set_id = game_sets.id 
+            AND pc.is_playable = true 
+            AND (pc.content_verified IS NULL OR pc.content_verified = true)
+            AND pc.image_url IS NOT NULL 
+            AND pc.image_url != ''
+            AND pc.image_url LIKE 'https://%'
+            AND pc.player IS NOT NULL 
+            AND pc.player != ''
+          )`.as('actual_playable_cards'),
         })
         .from(gameSets)
         .where(eq(gameSets.isActive, true))
         .orderBy(gameSets.year, gameSets.setName);
       
-      res.json(sets);
+      // Deduplicate: keep only the set with the most actual playable cards for each setName
+      const deduplicatedMap = new Map<string, typeof setsWithCounts[0]>();
+      const duplicatesFound: string[] = [];
+      
+      for (const set of setsWithCounts) {
+        const key = `${set.setName}-${set.year}-${set.sport}`;
+        const existing = deduplicatedMap.get(key);
+        
+        if (existing) {
+          // Duplicate found - keep the one with more playable cards
+          duplicatesFound.push(set.setName || 'Unknown');
+          if ((set.actualPlayableCards || 0) > (existing.actualPlayableCards || 0)) {
+            deduplicatedMap.set(key, set);
+          }
+        } else {
+          deduplicatedMap.set(key, set);
+        }
+      }
+      
+      // Log warning if duplicates were found
+      if (duplicatesFound.length > 0) {
+        console.warn(`[GameSets] Duplicate active sets detected and deduplicated: ${[...new Set(duplicatesFound)].join(', ')}. Run /api/admin/game-sets/duplicates to review.`);
+      }
+      
+      // Convert map back to array and use actualPlayableCards for display
+      const deduplicated = Array.from(deduplicatedMap.values()).map(set => ({
+        id: set.id,
+        sport: set.sport,
+        brand: set.brand,
+        year: set.year,
+        setName: set.setName,
+        league: set.league,
+        // Use actual playable card count instead of stale cardsImportedCount
+        cardsImportedCount: set.actualPlayableCards || set.cardsImportedCount,
+        lastImportAt: set.lastImportAt,
+      }));
+      
+      res.json(deduplicated);
     } catch (error) {
       console.error("Error getting playable sets:", error);
       res.status(500).json({ error: "Failed to get playable sets" });
