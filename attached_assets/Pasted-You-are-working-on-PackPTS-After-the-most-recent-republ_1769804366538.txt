@@ -1,0 +1,174 @@
+You are working on PackPTS. After the most recent republish, gameplay now serves ONLY silhouette/placeholder images. This is a P0, the app is unplayable.
+
+Objective: PackPTS must NEVER display a silhouette/placeholder image to a user. Any silhouette/placeholder must be rejected at import-time and at serve-time.
+
+This is an exhaustive forensic task. Do NOT guess. You must reverse engineer exactly what changed that caused the system to now return only silhouettes.
+
+Part A — Forensic “Deep Research” (Required)
+
+Search the entire repo for all references to:
+
+silhouette, placeholder, raw_images_only, stock, fallback, mask, redact, censor, obscure, blur, canvas, overlay, defaultImage, imageError, noImage
+Identify where silhouette images are:
+
+Generated (masking pipeline / canvas / image processing)
+
+Selected (client render fallback)
+
+Filtered (import pipeline / DB insertion / “playable” filter)
+
+Git history forensic: identify the last commit/tag where PackPTS correctly showed real card images (non-silhouette).
+
+Use git log --oneline --decorate -n 50
+
+Use git diff <last_good_commit>..HEAD focusing on:
+
+set importer / CardHedge client code
+
+“playable card” filtering
+
+masking/redaction image pipeline
+
+any UI fallback image logic
+
+Locate the specific change that caused silhouettes to become the primary/only served image.
+
+Determine WHICH of these root causes is occurring (could be more than one):
+
+Inverted filter predicate: e.g., code meant to exclude silhouettes is now selecting ONLY silhouettes
+
+Masking pipeline regression: masking step returns silhouette fallback when it fails and that fallback is being saved/served as canonical image
+
+CardHedge query regression: importer now requests only non-raw images or gets only placeholder images (wrong endpoint or missing raw_images_only)
+
+UI rendering overlay bug: CSS/overlay hides the real image and shows a silhouette component instead
+
+You must write a short internal note in code comments describing the confirmed cause and the specific code locations.
+
+Part B — Implement a Comprehensive Fix (Required)
+
+Implement a “two-layer guarantee”:
+
+Layer 1: Import-Time (DB) — Never store silhouettes as playable
+
+Add a shared function isInvalidCardImage(imageUrl: string): boolean that returns true if the URL is missing OR matches known placeholder/silhouette patterns. Include checks for:
+
+empty/null
+
+“silhouette”, “placeholder”, “noimage”, “default”, “stock”, “coming-soon” substrings
+
+known placeholder hostnames/paths if present in our data
+
+Add a stronger check isVisuallyPlaceholder(imageUrl) by doing a lightweight server-side HEAD/GET validation in the importer (no huge downloads):
+
+Verify content-type is image/*
+
+Reject if content-length is below a small threshold (ex: < 5KB), which often indicates placeholder
+
+Optionally compute a small hash of first N bytes to match known placeholder signatures if we have them
+
+Update set importer(s) so that:
+
+It always uses CardHedge endpoints with raw_images_only: true when building playable sets
+
+It filters out any card where isInvalidCardImage is true
+
+It does NOT save any masked/silhouette fallback image as the card’s canonical image
+
+Add DB fields if needed:
+
+cards.is_playable boolean default true
+
+cards.unplayable_reason text
+
+cards.image_status enum: raw_ok | placeholder | missing | mask_failed | unknown
+
+Create a safe admin utility: “Recompute Playability” that rescans existing cards and marks invalid ones as unplayable (no deletes).
+
+Layer 2: Serve-Time (Gameplay) — Never render silhouettes, always replace
+
+In the gameplay card-fetch logic (server endpoint that returns next card OR client fetcher):
+
+If returned card image fails isInvalidCardImage OR the masking pipeline outputs a silhouette/placeholder → discard and fetch another card.
+
+Guarantee the player still answers exactly N cards (10/10 etc). Replacement attempts must not reduce remaining cards.
+
+Implement retry logic with backoff:
+
+Try up to 10 replacements per card
+
+If still failing, show a hard error: “We can’t load a playable card right now. Please try again.”
+
+Do NOT show any silhouette.
+
+Add logging/telemetry:
+
+log event card_rejected_unplayable with setId, cardId, reason
+
+log event mask_failed with cardId and which step failed
+
+create admin report for rejection rate by set
+
+Part C — Fix the Masking System Without Ever Substituting a Silhouette
+
+The “masking” requirement is to hide player names on-card while still showing the real card image.
+
+Ensure the masking pipeline always starts from the real card image and returns a masked version of that same image.
+
+Remove any fallback behavior that substitutes an entire silhouette image if masking fails. If masking fails, we must:
+
+discard this card (treat as unplayable) and fetch another
+
+Implement masking as:
+
+Detect likely name regions (top banner / bottom nameplate) using heuristics based on card layout and bounding boxes
+
+Draw opaque rectangles over those regions
+
+Do NOT cover the entire image, and do NOT replace with silhouette
+
+Add tests that assert: masking output is NOT the silhouette asset and NOT a blank placeholder.
+
+Part D — Data Repair (Required)
+
+After code fix:
+
+Run a repair script/migration:
+
+mark all existing silhouette/placeholder cards as is_playable=false
+
+reimport sets using raw_images_only: true
+
+verify each active set has > 0 playable cards
+
+Update /admin/playable-sets so “Cards” count displays playable card count (not total imported).
+
+Part E — Testing (Required)
+
+After implementation, you MUST run and report:
+
+Import a known set (ex: 1987 Topps Baseball) and confirm playable_count > 0
+
+Start a solo game and confirm:
+
+No silhouettes ever appear
+
+If a card fails to load, system replaces it without decrementing remaining cards
+
+Add automated tests for:
+
+isInvalidCardImage
+
+serve-time replacement logic
+
+masking pipeline returns masked original, never silhouette
+
+Deliverables:
+
+Code changes implementing the above
+
+A short summary of the confirmed root cause and the exact fix
+
+Evidence from test runs (console output) showing success
+
+Proceed now.
