@@ -49,6 +49,18 @@ export class ErrorBoundary extends Component<Props, State> {
               <p className="text-muted-foreground text-center text-sm">
                 We're sorry, but something unexpected happened. Please try refreshing the page.
               </p>
+              {this.state.error && (
+                <div className="bg-muted p-3 rounded-md text-xs font-mono overflow-auto max-h-32">
+                  <p className="text-destructive font-semibold" data-testid="text-error-message">
+                    {this.state.error.message || "Unknown error"}
+                  </p>
+                  {this.state.error.stack && (
+                    <p className="text-muted-foreground mt-2 whitespace-pre-wrap break-all">
+                      {this.state.error.stack.split('\n').slice(0, 5).join('\n')}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex flex-col gap-2">
                 <Button onClick={this.handleReload} className="gap-2" data-testid="button-reload">
                   <RefreshCw className="h-4 w-4" />
