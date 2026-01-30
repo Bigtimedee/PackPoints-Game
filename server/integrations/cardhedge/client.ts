@@ -100,7 +100,10 @@ async function postCardHedge<T>(
       const data = await response.json();
       const latency = Date.now() - startTime;
       
-      console.log(`[CardHedge] ${path} completed in ${latency}ms`);
+      const sanitizedBody = { ...body };
+      delete sanitizedBody.api_key;
+      const cardsCount = Array.isArray((data as any)?.cards) ? (data as any).cards.length : 'N/A';
+      console.log(`[CardHedge] ${path} completed in ${latency}ms | status: ${response.status} | cards: ${cardsCount} | filters: ${JSON.stringify(sanitizedBody).slice(0, 200)}`);
       
       return data as T;
     } catch (error) {

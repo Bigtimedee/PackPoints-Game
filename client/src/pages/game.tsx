@@ -219,7 +219,7 @@ export default function Game() {
       let toastTitle: string;
       
       if (isNoCards) {
-        displayMessage = "This card set has no verified cards available. Please try a different set.";
+        displayMessage = "This card set has no cards available. Please try a different set.";
         toastTitle = "No Cards Available";
       } else if (isRateLimit) {
         displayMessage = "You've reached your match limit. Please wait before playing again.";

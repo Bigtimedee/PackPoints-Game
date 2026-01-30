@@ -768,7 +768,7 @@ export async function registerRoutes(
           return res.status(503).json({ 
             error: "No cards available",
             code: "NO_CARDS_AVAILABLE",
-            message: "This card set has no verified cards available for gameplay. Please try a different set.",
+            message: "This card set has no cards available for gameplay. Please try a different set.",
           });
         }
         throw createError;
