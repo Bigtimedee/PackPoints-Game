@@ -26,9 +26,15 @@ A multi-layer defense system prevents placeholder/silhouette images from reachin
 
 **Layer 1 - Database Filtering**:
 - `playable_cards.content_verified` boolean column (indexed) gates all card queries
-- `getRandomCardsFromSet()` and `getRandomCards()` in storage.ts ONLY return cards where `content_verified=true`
+- `getRandomCardsFromSet()` and `getRandomCards()` in storage.ts return cards where `content_verified IS NULL OR content_verified = true` (allows newly imported cards)
 - Batch verification script (`server/scripts/verifyAllCards.ts`) pre-scans all cards on import
 - Current stats: ~5900 verified authentic cards, ~1900 silhouettes blocked at database level
+- Admin panel uses IDENTICAL query logic as gameplay to prevent count mismatches
+
+**Admin Diagnostic Tools**:
+- `/api/admin/game-sets/:id/diagnose` - Comprehensive card count breakdown, last 5 inserted cards, foreign key sanity checks, intelligent issue diagnosis
+- `/api/admin/game-sets/repair` - Finds and fixes sets with stale counts, reports before/after with specific issues
+- Purge/reimport logging: Logs total inserted, playable counts, content_verified breakdown, sample cards, and warns if imported > 0 but playable = 0
 
 **Layer 2 - Server-Side Image Analysis** (`server/services/imageContentAnalyzer.ts`):
 - **Multi-Signal Analysis**: Uses `sharp` to analyze entropy, color diversity (quantized to 32 levels), dominant color percentage, and edge detection
