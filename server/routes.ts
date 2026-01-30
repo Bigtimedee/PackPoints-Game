@@ -48,6 +48,7 @@ import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
 import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
+import cardhedgeRouter from "./routes/cardhedge.routes";
 import * as matchEngine from "./services/matches/engine";
 
 // Middleware to require admin role
@@ -100,6 +101,9 @@ export async function registerRoutes(
   
   // Friends and match invite routes
   app.use(friendsRouter);
+  
+  // CardHedge API routes (server-side only, never expose API key to client)
+  app.use("/api/cardhedge", cardhedgeRouter);
   
   // Health check endpoint for monitoring
   app.get("/health", async (req, res) => {

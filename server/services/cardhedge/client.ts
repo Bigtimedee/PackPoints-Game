@@ -459,3 +459,127 @@ export async function getPlayableCardSearchResults(
     count: filteredCards.length,
   };
 }
+
+export const ImageSearchRequestSchema = z.object({
+  image_url: z.string().nullable().optional(),
+  image_base64: z.string().nullable().optional(),
+  k: z.number().int().min(1).max(50).default(10),
+}).refine(
+  (data) => data.image_url || data.image_base64,
+  { message: "Either image_url or image_base64 is required" }
+);
+
+export type ImageSearchRequest = z.infer<typeof ImageSearchRequestSchema>;
+
+export interface ImageSearchCardData {
+  card_id: string;
+  description?: string;
+  player?: string;
+  set?: string;
+  number?: string;
+}
+
+export interface ImageSearchResultItem {
+  similarity: string;
+  distance: number;
+  ximilar_id?: string;
+  product_id?: string | null;
+  card_data?: ImageSearchCardData | null;
+}
+
+export interface ImageSearchResponse {
+  success: boolean;
+  results: ImageSearchResultItem[];
+  total_results: number;
+  query_id: string;
+  has_cardhedge_matches: boolean;
+  message?: string | null;
+}
+
+const MAX_BASE64_SIZE = 10 * 1024 * 1024;
+
+function normalizeBase64(input: string): string {
+  if (!input) return "";
+  const prefixMatch = input.match(/^data:image\/[^;]+;base64,/);
+  if (prefixMatch) {
+    return input.slice(prefixMatch[0].length);
+  }
+  return input;
+}
+
+function approxBytesFromBase64(b64: string): number {
+  const normalized = normalizeBase64(b64);
+  const padding = (normalized.match(/=+$/) || [""])[0].length;
+  return Math.floor((normalized.length * 3) / 4) - padding;
+}
+
+export async function imageSearch(params: ImageSearchRequest): Promise<ImageSearchResponse> {
+  const body: Record<string, unknown> = {
+    k: Math.min(Math.max(params.k || 10, 1), 50),
+  };
+
+  if (params.image_url) {
+    body.image_url = params.image_url;
+  }
+
+  if (params.image_base64) {
+    const normalized = normalizeBase64(params.image_base64);
+    const size = approxBytesFromBase64(normalized);
+    
+    if (size > MAX_BASE64_SIZE) {
+      throw new CardHedgeError(
+        `Image too large: ${Math.round(size / 1024 / 1024)}MB exceeds 10MB limit`,
+        413,
+        false
+      );
+    }
+    
+    body.image_base64 = normalized;
+  }
+
+  if (!body.image_url && !body.image_base64) {
+    throw new CardHedgeError(
+      "Either image_url or image_base64 is required",
+      400,
+      false
+    );
+  }
+
+  const raw = await cardHedgeFetch<ImageSearchResponse>(
+    "/v1/cards/image-search",
+    "POST",
+    body,
+    { useCache: false }
+  );
+  
+  console.log(`[CardHedge] Image search: ${raw.total_results} results, has_matches=${raw.has_cardhedge_matches}`);
+  
+  return raw;
+}
+
+export interface ImageSearchWithBestMatch extends ImageSearchResponse {
+  best_match?: { card_id: string; similarity: number };
+}
+
+export async function imageSearchWithBestMatch(params: ImageSearchRequest): Promise<ImageSearchWithBestMatch> {
+  const result = await imageSearch(params);
+  const response: ImageSearchWithBestMatch = { ...result };
+
+  if (result.results && result.results.length > 0) {
+    const sorted = [...result.results].sort((a, b) => 
+      parseFloat(b.similarity) - parseFloat(a.similarity)
+    );
+    
+    const best = sorted[0];
+    const similarity = parseFloat(best.similarity);
+    
+    if (similarity >= 85 && best.card_data?.card_id) {
+      response.best_match = {
+        card_id: best.card_data.card_id,
+        similarity,
+      };
+    }
+  }
+
+  return response;
+}
