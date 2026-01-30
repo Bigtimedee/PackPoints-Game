@@ -169,12 +169,64 @@ router.post("/fetch-enough", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/health", async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  try {
+    const result = await cardSearch(
+      { search: "Topps", page: 1, page_size: 1 },
+      { rawImagesOnly: false, filterPlaceholders: false }
+    );
+    
+    const latency = Date.now() - startTime;
+    const hasCards = result.cards && result.cards.length > 0;
+    const sampleCard = hasCards ? {
+      card_id: result.cards[0].card_id,
+      hasImage: !!result.cards[0].image,
+    } : null;
+    
+    sendSuccess(res, {
+      ok: true,
+      latency_ms: latency,
+      api_responsive: true,
+      cards_returned: result.cards?.length || 0,
+      total_count: result.count,
+      sample_card: sampleCard,
+      api_key_configured: !!process.env.CARDHEDGE_API_KEY,
+    });
+  } catch (error) {
+    const latency = Date.now() - startTime;
+    const errorInfo = error instanceof CardHedgeError ? {
+      code: error.code,
+      status: error.status,
+      message: error.message,
+    } : {
+      code: "UNKNOWN",
+      message: error instanceof Error ? error.message : "Unknown error",
+    };
+    
+    res.status(200).json({
+      ok: true,
+      data: {
+        ok: false,
+        latency_ms: latency,
+        api_responsive: false,
+        error: errorInfo,
+        api_key_configured: !!process.env.CARDHEDGE_API_KEY,
+      }
+    });
+  }
+});
+
 function handleCardHedgeError(res: Response, error: unknown): void {
   if (error instanceof CardHedgeError) {
-    sendError(res, error.code, error.message, error.status);
+    const isServiceError = error.status >= 500 || error.code === "TIMEOUT" || error.code === "RATE_LIMITED";
+    const userMessage = isServiceError 
+      ? "Card service temporarily unavailable. Please try again."
+      : error.message;
+    sendError(res, error.code, userMessage, error.status);
   } else if (error instanceof Error) {
     console.error("[CardHedge Route] Error:", error);
-    sendError(res, "INTERNAL_ERROR", error.message, 500);
+    sendError(res, "INTERNAL_ERROR", "Card service temporarily unavailable. Please try again.", 500);
   } else {
     console.error("[CardHedge Route] Unknown error:", error);
     sendError(res, "INTERNAL_ERROR", "An unexpected error occurred", 500);
