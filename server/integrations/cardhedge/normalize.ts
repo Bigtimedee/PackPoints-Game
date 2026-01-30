@@ -5,8 +5,8 @@ export function normalizeImageUrl(url: string | null | undefined): string {
   
   let normalized = url.trim();
   
-  // Reject obviously invalid URLs like "null", "undefined", etc.
-  if (normalized === "null" || normalized === "undefined" || normalized.length < 10) {
+  // Reject obviously invalid URL strings
+  if (normalized === "null" || normalized === "undefined" || normalized === "") {
     return "";
   }
   
@@ -20,8 +20,14 @@ export function normalizeImageUrl(url: string | null | undefined): string {
     normalized = "https://" + normalized.slice(7);
   }
   
-  // Final validation: must be a proper https:// URL
-  if (!normalized.startsWith("https://") || normalized === "https://null" || normalized === "https:null") {
+  // Must start with https:// and have a valid host (more than just the protocol)
+  if (!normalized.startsWith("https://")) {
+    return "";
+  }
+  
+  // Reject malformed URLs like "https:null", "https://null", "https://"
+  const afterProtocol = normalized.slice(8); // Remove "https://"
+  if (!afterProtocol || afterProtocol === "null" || afterProtocol.length === 0) {
     return "";
   }
   
