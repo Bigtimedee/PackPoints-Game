@@ -51,6 +51,24 @@ A multi-layer defense system prevents placeholder/silhouette images from reachin
 - Detection thresholds: <30 unique colors OR >50% dominant color triggers placeholder detection
 - Auto-reports detected placeholders and triggers replacement flow
 
+### Player/Image Mismatch Prevention
+A defense-in-depth system prevents cards with wrong player/image associations from reaching gameplay:
+
+**Prevention Layer - Image Refresh Verification**:
+- `getFreshImageUrl()` in `cardImageRefresh.ts` verifies player names match before updating images
+- If Card Hedge returns a different player name, the card is marked `isPlayable: false, blockedReason: 'player_mismatch'`
+- All card selection queries filter `isPlayable = true`, automatically excluding mismatched cards
+
+**Detection Layer - Admin Tools**:
+- `/api/admin/game-sets/:id/detect-player-mismatches` - Scans cards and compares stored player vs Card Hedge player
+- Supports `autoQuarantine: true` to automatically disable mismatched cards during scan
+- `/api/admin/cards/quarantine-mismatches` - Bulk quarantine endpoint for detected mismatches
+
+**Correction Layer - User Reports**:
+- Users can report "Wrong Player" in GameCard UI
+- `wrong_player` reports automatically set `isPlayable: false, blockedReason: 'player_mismatch'`
+- Reported cards are immediately excluded from gameplay
+
 ### CardHedge Integration Layer
 A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
 - **Server-Side API Endpoints**: `/api/cardhedge/search`, `/api/cardhedge/search-sorted`, `/api/cardhedge/card-details`, `/api/cardhedge/image-search` - all server-side to protect API key
