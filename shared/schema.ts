@@ -3438,3 +3438,15 @@ export const insertTelemetryCardDeliverySchema = createInsertSchema(telemetryCar
 });
 export type InsertTelemetryCardDelivery = z.infer<typeof insertTelemetryCardDeliverySchema>;
 export type TelemetryCardDelivery = typeof telemetryCardDelivery.$inferSelect;
+
+export const cardImageMaskCache = pgTable("card_image_mask_cache", {
+  cardId: text("card_id").primaryKey(),
+  rawImageUrl: text("raw_image_url").notNull(),
+  maskedImagePath: text("masked_image_path").notNull(),
+  maskVersion: text("mask_version").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_card_mask_cache_version").on(table.maskVersion),
+]);
+
+export type CardImageMaskCache = typeof cardImageMaskCache.$inferSelect;

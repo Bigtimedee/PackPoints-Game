@@ -7229,6 +7229,46 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // MASKED CARD IMAGE ENDPOINT
+  // ============================================
+  app.get("/api/cards/:cardId/masked-image", async (req, res) => {
+    const { cardId } = req.params;
+
+    if (!cardId || cardId.length > 100) {
+      return res.status(400).json({ error: "Invalid card ID" });
+    }
+
+    try {
+      const { getMaskedImagePath } = await import("./masking/maskingService");
+      const path = await import("path");
+      const fs = await import("fs");
+
+      const maskedPath = await getMaskedImagePath(cardId);
+      
+      if (!maskedPath) {
+        return res.status(404).json({ error: "Unable to generate masked image" });
+      }
+
+      const filePath = path.join(process.cwd(), "data", "masked-cards", maskedPath);
+      
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Masked image not found" });
+      }
+
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("Content-Security-Policy", "default-src 'none'");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+    } catch (error) {
+      console.error("[MaskedImage] Error serving masked image:", error);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  // ============================================
   // CARD IMAGE PROXY BY CARD ID
   // ============================================
   app.get("/api/images/card/:cardId", async (req, res) => {
