@@ -80,11 +80,24 @@ const PLACEHOLDER_PATTERNS = [
   /fallback/i,
   /blank[-_]?card/i,
   /unavailable/i,
+  /stock[-_]?photo/i,
+  /template/i,
   // Generic sport placeholders from Card Hedge
   /\d{2}-Baseball\.jpg$/i,
   /\d{2}-Football\.jpg$/i,
   /\d{2}-Basketball\.jpg$/i,
   /\d{2}-Hockey\.jpg$/i,
+  // Sport silhouette images (common Card Hedge patterns)
+  /basketball[-_]?silhouette/i,
+  /football[-_]?silhouette/i,
+  /baseball[-_]?silhouette/i,
+  /player[-_]?silhouette/i,
+  /generic[-_]?player/i,
+  /default[-_]?card/i,
+  // Card Hedge specific patterns for missing images
+  /appforest_uf.*silhouette/i,
+  /appforest_uf.*default/i,
+  /appforest_uf.*placeholder/i,
 ];
 
 export function isLikelyPlaceholderImage(card: CardSearchCard): boolean {

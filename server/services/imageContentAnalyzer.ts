@@ -105,6 +105,9 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
   entropy: number;
   dominantColorPercent: number;
   hasDetailedEdges: boolean;
+  silhouetteScore: number;
+  warmBackgroundPercent: number;
+  darkPixelPercent: number;
 }> {
   const image = sharp(buffer);
   const metadata = await image.metadata();
@@ -123,6 +126,10 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
 
   const colorMap = new Map<string, number>();
   const histogram = new Array(256).fill(0);
+  
+  let warmPixels = 0;
+  let darkPixels = 0;
+  let orangeTanPixels = 0;
 
   for (let i = 0; i < data.length; i += channels) {
     const r = data[i];
@@ -134,6 +141,17 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
     
     const gray = Math.floor((r * 0.299 + g * 0.587 + b * 0.114));
     histogram[gray]++;
+    
+    if (r > 150 && g > 80 && g < 180 && b < 100) {
+      warmPixels++;
+      if (r > 180 && g > 100 && g < 160 && b < 80) {
+        orangeTanPixels++;
+      }
+    }
+    
+    if (r < 60 && g < 60 && b < 60) {
+      darkPixels++;
+    }
   }
 
   const uniqueColors = colorMap.size;
@@ -163,6 +181,31 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
   const avgEdgeValue = edgeSum / edgeBuffer.length;
   const hasDetailedEdges = avgEdgeValue > 15;
 
+  const warmBackgroundPercent = (warmPixels / pixelCount) * 100;
+  const darkPixelPercent = (darkPixels / pixelCount) * 100;
+  const orangeTanPercent = (orangeTanPixels / pixelCount) * 100;
+  
+  let silhouetteScore = 0;
+  // Silhouette detection requires MULTIPLE conditions to avoid false positives
+  // Real cards with warm backgrounds will have high color diversity and detailed edges
+  const hasLowColorDiversity = uniqueColors < 100;
+  const hasWarmBackground = warmBackgroundPercent > 35 || orangeTanPercent > 25;
+  const hasDarkSilhouetteShape = darkPixelPercent > 10 && darkPixelPercent < 50;
+  const lacksDetailedEdges = !hasDetailedEdges;
+  
+  // Strong silhouette signal: warm background + dark shape + low colors + no edges
+  if (hasWarmBackground && hasDarkSilhouetteShape && hasLowColorDiversity && lacksDetailedEdges) {
+    silhouetteScore += 50; // High confidence silhouette
+  }
+  // Medium signal: orange/tan specifically + dark shape + low colors
+  else if (orangeTanPercent > 30 && darkPixelPercent > 15 && uniqueColors < 80) {
+    silhouetteScore += 35;
+  }
+  // Weak signal: just warm background with dark pixels (but not enough on its own)
+  else if (warmBackgroundPercent > 50 && darkPixelPercent > 20 && uniqueColors < 60) {
+    silhouetteScore += 25;
+  }
+
   return {
     width,
     height,
@@ -170,7 +213,10 @@ async function analyzeImageBuffer(buffer: Buffer): Promise<{
     uniqueColors,
     entropy,
     dominantColorPercent,
-    hasDetailedEdges
+    hasDetailedEdges,
+    silhouetteScore,
+    warmBackgroundPercent,
+    darkPixelPercent
   };
 }
 
@@ -223,6 +269,14 @@ export async function analyzeImageContent(url: string): Promise<ImageAnalysisRes
     if (!stats.hasDetailedEdges) {
       reasons.push("Lacks detailed edges/text typical of real cards");
       placeholderScore += 25;
+    }
+
+    if (stats.silhouetteScore >= 40) {
+      reasons.push(`Basketball/sport silhouette pattern detected (warm=${stats.warmBackgroundPercent.toFixed(1)}%, dark=${stats.darkPixelPercent.toFixed(1)}%)`);
+      placeholderScore += stats.silhouetteScore;
+    } else if (stats.silhouetteScore >= 20) {
+      reasons.push(`Possible silhouette pattern (warm=${stats.warmBackgroundPercent.toFixed(1)}%, dark=${stats.darkPixelPercent.toFixed(1)}%)`);
+      placeholderScore += stats.silhouetteScore;
     }
 
     const knownPlaceholderDimensions = [

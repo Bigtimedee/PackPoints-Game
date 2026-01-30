@@ -5651,6 +5651,108 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Force re-scan cards in a game set for silhouettes
+  app.post("/api/admin/game-sets/:id/rescan-silhouettes", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { analyzeImageContent } = await import("./services/imageContentAnalyzer");
+      
+      console.log(`[RescanSilhouettes] Starting silhouette scan for game set ${id}...`);
+      
+      // Get the game set
+      const gameSet = await db.select().from(gameSets).where(eq(gameSets.id, id)).limit(1);
+      if (!gameSet.length) {
+        return res.status(404).json({ error: "Game set not found" });
+      }
+      
+      // Get all cards in this set (even those already verified)
+      const cards = await db
+        .select({
+          id: playableCards.id,
+          imageUrl: playableCards.imageUrl,
+          player: playableCards.player,
+          contentVerified: playableCards.contentVerified,
+        })
+        .from(playableCards)
+        .where(eq(playableCards.gameSetId, id));
+      
+      console.log(`[RescanSilhouettes] Found ${cards.length} cards to scan`);
+      
+      let scanned = 0;
+      let silhouettesFound = 0;
+      let errors = 0;
+      const BATCH_SIZE = 20;
+      const PLACEHOLDER_THRESHOLD = 50;
+      
+      for (let i = 0; i < cards.length; i += BATCH_SIZE) {
+        const batch = cards.slice(i, i + BATCH_SIZE);
+        
+        await Promise.all(batch.map(async (card) => {
+          if (!card.imageUrl) {
+            return;
+          }
+          
+          try {
+            const analysis = await analyzeImageContent(card.imageUrl);
+            scanned++;
+            
+            if (analysis.isPlaceholder && analysis.confidence >= PLACEHOLDER_THRESHOLD) {
+              silhouettesFound++;
+              console.log(`[RescanSilhouettes] SILHOUETTE: ${card.player?.slice(0, 25)} (${analysis.confidence}%): ${analysis.reasons[0]}`);
+              
+              // Mark as NOT verified (will be excluded from gameplay)
+              await db
+                .update(playableCards)
+                .set({
+                  contentVerified: false,
+                  contentVerifiedAt: new Date(),
+                })
+                .where(eq(playableCards.id, card.id));
+            } else if (card.contentVerified === null) {
+              // Only mark good cards as verified if they were previously NULL (pending)
+              // Don't override existing false values from other detection methods
+              await db
+                .update(playableCards)
+                .set({
+                  contentVerified: true,
+                  contentVerifiedAt: new Date(),
+                })
+                .where(eq(playableCards.id, card.id));
+            }
+          } catch (err: any) {
+            errors++;
+            console.error(`[RescanSilhouettes] Error scanning ${card.id.slice(0, 8)}: ${err.message?.slice(0, 50)}`);
+          }
+        }));
+        
+        // Log progress every 100 cards
+        if ((i + BATCH_SIZE) % 100 === 0 || i + BATCH_SIZE >= cards.length) {
+          console.log(`[RescanSilhouettes] Progress: ${Math.min(i + BATCH_SIZE, cards.length)}/${cards.length} scanned, ${silhouettesFound} silhouettes found`);
+        }
+        
+        // Small delay between batches
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      console.log(`[RescanSilhouettes] Complete. Scanned: ${scanned}, Silhouettes: ${silhouettesFound}, Errors: ${errors}`);
+      
+      res.json({
+        success: true,
+        setName: gameSet[0].setName,
+        totalCards: cards.length,
+        scanned,
+        silhouettesFound,
+        errors,
+        message: silhouettesFound > 0 
+          ? `Found and blocked ${silhouettesFound} silhouette images`
+          : "No silhouettes detected"
+      });
+    } catch (error) {
+      console.error("[RescanSilhouettes] Error:", error);
+      res.status(500).json({ error: "Failed to scan for silhouettes" });
+    }
+  });
+
   // Admin: Create/Update Goldin curated listing
   app.post("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
