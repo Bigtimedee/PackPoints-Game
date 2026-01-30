@@ -6541,7 +6541,8 @@ export async function registerRoutes(
       let hasMorePages = true;
       
       while (hasMorePages) {
-        const result = await cardSearchSorted({
+        // Use cardSearch instead of cardSearchSorted - the sorted endpoint returns many cards with empty images
+        const result = await cardSearch({
           set: gameSet.cardhedgeSetQuery,
           category: gameSet.cardhedgeCategory || undefined,
           page,
