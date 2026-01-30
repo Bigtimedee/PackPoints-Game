@@ -41,7 +41,8 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  ScanSearch
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -241,6 +242,7 @@ export default function AdminPlayableSets() {
 
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [purgeTargetSet, setPurgeTargetSet] = useState<GameSet | null>(null);
+  const [rescanningSetId, setRescanningSetId] = useState<string | null>(null);
 
   const purgeReimportMutation = useMutation({
     mutationFn: async (setId: string) => {
@@ -268,6 +270,33 @@ export default function AdminPlayableSets() {
       setPurgeTargetSet(null);
     },
   });
+
+  const rescanSilhouettesMutation = useMutation({
+    mutationFn: async (setId: string) => {
+      setRescanningSetId(setId);
+      const res = await apiRequest("POST", `/api/admin/game-sets/${setId}/rescan-silhouettes`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const silhouettes = data.silhouettesFound || 0;
+      const scanned = data.scanned || 0;
+      toast({ 
+        title: "Silhouette Scan Complete",
+        description: `Scanned ${scanned} cards, found and blocked ${silhouettes} silhouettes`,
+        variant: silhouettes > 0 ? "default" : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
+      setRescanningSetId(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Rescan failed", description: error.message, variant: "destructive" });
+      setRescanningSetId(null);
+    },
+  });
+
+  const handleRescanSilhouettes = (set: GameSet) => {
+    rescanSilhouettesMutation.mutate(set.id);
+  };
 
   const handlePurgeReimport = (set: GameSet) => {
     setPurgeTargetSet(set);
@@ -470,6 +499,21 @@ export default function AdminPlayableSets() {
                           {purgeReimportMutation.isPending && purgeTargetSet?.id === set.id 
                             ? <Loader2 className="h-4 w-4 animate-spin" />
                             : <RefreshCw className="h-4 w-4" />
+                          }
+                        </Button>
+                      )}
+                      {set.cardsImportedCount > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleRescanSilhouettes(set)}
+                          disabled={rescanningSetId === set.id}
+                          data-testid={`button-rescan-silhouettes-${set.id}`}
+                          title="Rescan for silhouette placeholders"
+                        >
+                          {rescanningSetId === set.id 
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <ScanSearch className="h-4 w-4" />
                           }
                         </Button>
                       )}
