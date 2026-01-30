@@ -21,6 +21,15 @@ A sophisticated system manages baseball card images, primarily sourced from the 
 ### Image Validation & Proxy
 All card images undergo HTTP validation and are proxied through the PackPoints server. This system checks image integrity, content type, and size, quarantining problematic images.
 
+### Content-Based Placeholder Detection
+A pixel-level image analysis system (`server/services/imageContentAnalyzer.ts`) prevents placeholder/silhouette images from reaching gameplay:
+- **Multi-Signal Analysis**: Uses `sharp` to analyze entropy, color diversity (quantized to 32 levels), dominant color percentage, and edge detection
+- **Scoring System**: Low unique colors (<50: 40pts), low entropy (<4.0: 40pts), high dominant color (>60%: 30pts), no edges (25pts)
+- **Quarantine Threshold**: Cards with ≥60% placeholder confidence are automatically quarantined
+- **Real Card Characteristics**: Authentic cards show 300-500 unique colors, 7.5+ entropy, <10% dominant color
+- **Integration**: Applied in matchService.ts after HTTP validation, before cards reach gameplay
+- **Caching**: Results cached in-memory for 24 hours per image URL (1000 entry limit)
+
 ### CardHedge Integration Layer
 A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
 - **Server-Side API Endpoints**: `/api/cardhedge/search`, `/api/cardhedge/search-sorted`, `/api/cardhedge/card-details`, `/api/cardhedge/image-search` - all server-side to protect API key
