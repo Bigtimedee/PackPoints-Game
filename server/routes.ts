@@ -1401,59 +1401,98 @@ export async function registerRoutes(
 
   app.post("/api/auth/local-login", async (req: any, res) => {
     try {
+      console.log("[Login] Starting login attempt");
+      
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
+        console.log("[Login] Validation failed:", parsed.error.errors);
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
       
       const { usernameOrEmail, password } = parsed.data;
+      console.log("[Login] Validating credentials for:", usernameOrEmail);
       
-      const user = await storage.validateLocalCredentials(usernameOrEmail, password);
+      let user;
+      try {
+        user = await storage.validateLocalCredentials(usernameOrEmail, password);
+      } catch (credError) {
+        console.error("[Login] Error validating credentials:", credError);
+        throw credError;
+      }
+      
       if (!user) {
-        const { logAuthEvent } = await import("./services/risk/events");
-        await logAuthEvent("LOGIN_FAIL", { req });
+        console.log("[Login] Invalid credentials for:", usernameOrEmail);
+        try {
+          const { logAuthEvent } = await import("./services/risk/events");
+          await logAuthEvent("LOGIN_FAIL", { req });
+        } catch (logError) {
+          console.error("[Login] Error logging failed auth event:", logError);
+        }
         return res.status(401).json({ error: "Invalid username or password" });
       }
       
-      const { logAuthEvent, logDeviceSeen, getRiskContext } = await import("./services/risk/events");
-      const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
-      const riskCtx = getRiskContext(req);
-      await logAuthEvent("LOGIN_SUCCESS", { userId: user.id, req });
-      if (riskCtx.deviceId) {
-        await logDeviceSeen({ userId: user.id, deviceId: riskCtx.deviceId, req });
+      console.log("[Login] Credentials valid for user:", user.id);
+      
+      try {
+        const { logAuthEvent, logDeviceSeen, getRiskContext } = await import("./services/risk/events");
+        const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
+        const riskCtx = getRiskContext(req);
+        await logAuthEvent("LOGIN_SUCCESS", { userId: user.id, req });
+        if (riskCtx.deviceId) {
+          await logDeviceSeen({ userId: user.id, deviceId: riskCtx.deviceId, req });
+        }
+        enqueueRiskRecalc(user.id, riskCtx.deviceId || undefined, riskCtx.ipHash || undefined);
+      } catch (riskError) {
+        console.error("[Login] Error in risk pipeline (non-fatal):", riskError);
+        // Don't throw - risk pipeline errors shouldn't block login
       }
-      enqueueRiskRecalc(user.id, riskCtx.deviceId || undefined, riskCtx.ipHash || undefined);
       
       // Transfer any pending guest points to the logged-in user's account
       if (req.session.pendingPoints) {
-        const pending = req.session.pendingPoints;
-        await storage.updateUserStats(user.id, {
-          pointsEarned: pending.score,
-          correctAnswers: pending.correctAnswers,
-          totalAnswers: pending.totalAnswers,
-        });
-        
-        for (let i = 1; i < pending.gamesPlayed; i++) {
-          await db.update(users).set({
-            gamesPlayed: sql`${users.gamesPlayed} + 1`
-          }).where(eq(users.id, user.id));
+        console.log("[Login] Transferring pending guest points");
+        try {
+          const pending = req.session.pendingPoints;
+          await storage.updateUserStats(user.id, {
+            pointsEarned: pending.score,
+            correctAnswers: pending.correctAnswers,
+            totalAnswers: pending.totalAnswers,
+          });
+          
+          for (let i = 1; i < pending.gamesPlayed; i++) {
+            await db.update(users).set({
+              gamesPlayed: sql`${users.gamesPlayed} + 1`
+            }).where(eq(users.id, user.id));
+          }
+          
+          delete req.session.pendingPoints;
+          delete req.session.guestId;
+        } catch (pointsError) {
+          console.error("[Login] Error transferring guest points (non-fatal):", pointsError);
+          // Don't throw - point transfer errors shouldn't block login
         }
-        
-        delete req.session.pendingPoints;
-        delete req.session.guestId;
       }
       
       req.session.localUserId = user.id;
+      console.log("[Login] Session localUserId set:", user.id);
       
       // Get updated user stats after transferring points
-      const updatedUser = await storage.getUser(user.id);
+      let updatedUser;
+      try {
+        updatedUser = await storage.getUser(user.id);
+      } catch (getUserError) {
+        console.error("[Login] Error getting updated user:", getUserError);
+        // Fall back to original user if getUser fails
+        updatedUser = user;
+      }
       
       // Explicitly save session to ensure it's persisted before response
+      console.log("[Login] Saving session...");
       req.session.save((err: any) => {
         if (err) {
-          console.error("Error saving session:", err);
+          console.error("[Login] Error saving session:", err);
           return res.status(500).json({ error: "Failed to save session" });
         }
+        console.log("[Login] Session saved successfully, returning response");
         res.json({ 
           success: true, 
           user: {
@@ -1465,7 +1504,7 @@ export async function registerRoutes(
         });
       });
     } catch (error) {
-      console.error("Error logging in:", error);
+      console.error("[Login] Unhandled error:", error);
       res.status(500).json({ error: "Failed to login" });
     }
   });
