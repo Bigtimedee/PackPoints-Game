@@ -594,18 +594,29 @@ export class DatabaseStorage implements IStorage {
 
   async getDefaultPlayableSetId(): Promise<string | null> {
     // Get active set that actually has imported playable cards
+    // Require at least 10 playable cards to prevent empty/placeholder sets from being selected
     const [activeSet] = await db
-      .select({ id: gameSets.id })
+      .select({ 
+        id: gameSets.id,
+        cardCount: sql<number>`COUNT(${playableCards.id})`.as('card_count')
+      })
       .from(gameSets)
       .innerJoin(playableCards, eq(playableCards.gameSetId, gameSets.id))
       .where(
         and(
           eq(gameSets.isActive, true),
           eq(playableCards.isPlayable, true),
-          isNotNull(playableCards.imageUrl)
+          isNotNull(playableCards.imageUrl),
+          ne(playableCards.imageUrl, ''),
+          isNotNull(playableCards.player),
+          ne(playableCards.player, ''),
+          // Only include cards that aren't confirmed silhouettes
+          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true))
         )
       )
       .groupBy(gameSets.id)
+      .having(sql`COUNT(${playableCards.id}) >= 10`)
+      .orderBy(sql`COUNT(${playableCards.id}) DESC`)
       .limit(1);
     
     return activeSet?.id || null;
