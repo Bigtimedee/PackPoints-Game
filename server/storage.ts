@@ -6,6 +6,36 @@ import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } fro
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 
+// Known silhouette/placeholder URL patterns that should NEVER be served
+// These are stock images from Card Hedge that indicate missing card scans
+const KNOWN_SILHOUETTE_PATTERNS = [
+  // appforest_uf silhouette images
+  /s3\.amazonaws\.com\/appforest_uf.*05-Baseball/i,
+  /s3\.amazonaws\.com\/appforest_uf.*05-Football/i,
+  /s3\.amazonaws\.com\/appforest_uf.*05-Basketball/i,
+  // Generic placeholder patterns
+  /placeholder/i,
+  /silhouette/i,
+  /noimage/i,
+  /coming-soon/i,
+  /stock-photo/i,
+];
+
+/**
+ * Checks if a URL matches known silhouette/placeholder image patterns
+ * This is a critical safety check - silhouettes should NEVER be served to users
+ */
+export function isKnownSilhouetteUrl(url: string | null | undefined): boolean {
+  if (!url) return true; // Treat missing URLs as silhouettes
+  
+  for (const pattern of KNOWN_SILHOUETTE_PATTERNS) {
+    if (pattern.test(url)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
   { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
   { id: "2", title: "$10 eBay Gift Card", description: "Use on any eBay sports card purchase", pointsCost: 10000, usdValue: 10, platform: "ebay", imageUrl: "" },
@@ -495,6 +525,7 @@ export class DatabaseStorage implements IStorage {
     // Also filter out flagged/rejected cards (image quality issues)
     // Allow cards where contentVerified is NULL (not yet verified) OR true (verified good)
     // Only reject cards explicitly marked as contentVerified = false (confirmed silhouettes)
+    // CRITICAL: Also exclude known silhouette URL patterns at the SQL level
     const cards = await db
       .select()
       .from(playableCards)
@@ -508,6 +539,10 @@ export class DatabaseStorage implements IStorage {
           ne(playableCards.imageUrl, ''),
           not(like(playableCards.imageUrl, '%null%')),
           like(playableCards.imageUrl, 'https://%'),
+          // CRITICAL: Exclude known silhouette URL patterns at DB level
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%')),
           isNotNull(playableCards.player),
           ne(playableCards.player, ''),
           // Exclude only rejected cards (admin has confirmed bad image)
@@ -521,22 +556,31 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(sql`RANDOM()`)
-      .limit(count * 3); // Fetch more to filter wrong-sport cards
+      .limit(count * 5); // Fetch more to allow for silhouette filtering
+    
+    // LAYER 2: Post-query filter for silhouette URLs (defense in depth)
+    // This catches any silhouettes that slip through the SQL filter
+    const nonSilhouetteCards = cards.filter(card => !isKnownSilhouetteUrl(card.imageUrl));
+    
+    if (nonSilhouetteCards.length < cards.length) {
+      const silhouetteCount = cards.length - nonSilhouetteCards.length;
+      console.log(`[Storage] BLOCKED ${silhouetteCount} silhouette cards from set ${setId}`);
+    }
     
     // Filter cards whose category matches the game set's sport (case-insensitive)
     // This is a strict safety check - only allow cards with matching category
     const validCards = expectedSport 
-      ? cards.filter(card => {
+      ? nonSilhouetteCards.filter(card => {
           const cardCategory = (card.category || "").toLowerCase();
           // Require category to exist AND match the expected sport - no empty categories allowed
           // This prevents wrong-sport cards from slipping through if Card Hedge omits category
           return cardCategory && cardCategory === expectedSport;
         })
-      : cards;
+      : nonSilhouetteCards;
     
     // If we filtered out too many cards, log a warning
-    if (validCards.length < cards.length) {
-      const filteredCount = cards.length - validCards.length;
+    if (validCards.length < nonSilhouetteCards.length) {
+      const filteredCount = nonSilhouetteCards.length - validCards.length;
       console.log(`[Storage] Filtered ${filteredCount} wrong-sport cards from set ${setId} (expected sport: ${expectedSport})`);
     }
     
@@ -595,6 +639,7 @@ export class DatabaseStorage implements IStorage {
   async getDefaultPlayableSetId(): Promise<string | null> {
     // Get active set that actually has imported playable cards
     // Require at least 10 playable cards to prevent empty/placeholder sets from being selected
+    // CRITICAL: Exclude known silhouette URL patterns to prevent serving placeholders
     const [activeSet] = await db
       .select({ 
         id: gameSets.id,
@@ -611,7 +656,11 @@ export class DatabaseStorage implements IStorage {
           isNotNull(playableCards.player),
           ne(playableCards.player, ''),
           // Only include cards that aren't confirmed silhouettes
-          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true))
+          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
+          // CRITICAL: Exclude known silhouette URL patterns
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
         )
       )
       .groupBy(gameSets.id)
@@ -824,6 +873,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     // Query for a replacement card - ONLY cards with validated images
+    // CRITICAL: Also exclude known silhouette URL patterns
     let replacementCard: typeof playableCards.$inferSelect | undefined;
     
     if (targetSetId) {
@@ -839,13 +889,17 @@ export class DatabaseStorage implements IStorage {
               eq(playableCards.imageReviewStatus, "approved")
             ),
             // Only serve cards with validated images (failure count < 2)
-            lt(playableCards.imageFailureCount, 2)
+            lt(playableCards.imageFailureCount, 2),
+            // CRITICAL: Exclude known silhouette URL patterns
+            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
+            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
+            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
           )
         )
         .limit(50);
       
-      // Filter out used cards and filter by sport category
-      let available = candidates.filter(c => !usedCardIds.has(c.id));
+      // Filter out used cards, silhouettes, and filter by sport category
+      let available = candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl));
       
       // Also filter by sport category for additional safety
       if (expectedSport) {
@@ -861,6 +915,7 @@ export class DatabaseStorage implements IStorage {
     }
 
     // If no replacement found from same set, try another active set WITH THE SAME SPORT
+    // CRITICAL: Also exclude known silhouette URL patterns
     if (!replacementCard && expectedSport) {
       // Find an active set with the same sport and validated images
       const [fallbackSet] = await db
@@ -874,7 +929,11 @@ export class DatabaseStorage implements IStorage {
             eq(playableCards.isPlayable, true),
             isNotNull(playableCards.imageUrl),
             // Only consider sets with validated cards
-            lt(playableCards.imageFailureCount, 2)
+            lt(playableCards.imageFailureCount, 2),
+            // CRITICAL: Exclude known silhouette URL patterns
+            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
+            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
+            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
           )
         )
         .groupBy(gameSets.id)
@@ -893,13 +952,17 @@ export class DatabaseStorage implements IStorage {
                 eq(playableCards.imageReviewStatus, "approved")
               ),
               // Only serve cards with validated images (failure count < 2)
-              lt(playableCards.imageFailureCount, 2)
+              lt(playableCards.imageFailureCount, 2),
+              // CRITICAL: Exclude known silhouette URL patterns
+              not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
+              not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
+              not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
             )
           )
           .limit(50);
         
-        // Filter by sport category for extra safety
-        let available = candidates.filter(c => !usedCardIds.has(c.id));
+        // Filter by sport category and silhouettes for extra safety
+        let available = candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl));
         available = available.filter(c => {
           const cardCategory = (c.category || "").toLowerCase();
           return cardCategory === expectedSport;
