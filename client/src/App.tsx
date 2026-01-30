@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Header } from "@/components/header";
 import { MobileNav } from "@/components/mobile-nav";
 import Home from "@/pages/home";
@@ -217,20 +218,22 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="dark" storageKey="packpoints-theme">
-        <TooltipProvider>
-          <div className="min-h-screen flex flex-col bg-background text-foreground">
-            <Header />
-            <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
-              <Router />
-            </main>
-            <MobileNav />
-          </div>
-          <Toaster />
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider defaultTheme="dark" storageKey="packpoints-theme">
+          <TooltipProvider>
+            <div className="min-h-screen flex flex-col bg-background text-foreground">
+              <Header />
+              <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+                <Router />
+              </main>
+              <MobileNav />
+            </div>
+            <Toaster />
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 
