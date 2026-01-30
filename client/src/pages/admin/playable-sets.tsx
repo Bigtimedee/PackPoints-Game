@@ -42,7 +42,8 @@ import {
   XCircle,
   Clock,
   AlertCircle,
-  ScanSearch
+  ScanSearch,
+  UserX
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -243,6 +244,7 @@ export default function AdminPlayableSets() {
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [purgeTargetSet, setPurgeTargetSet] = useState<GameSet | null>(null);
   const [rescanningSetId, setRescanningSetId] = useState<string | null>(null);
+  const [scanningMismatchesSetId, setScanningMismatchesSetId] = useState<string | null>(null);
 
   const purgeReimportMutation = useMutation({
     mutationFn: async (setId: string) => {
@@ -296,6 +298,39 @@ export default function AdminPlayableSets() {
 
   const handleRescanSilhouettes = (set: GameSet) => {
     rescanSilhouettesMutation.mutate(set.id);
+  };
+
+  const scanMismatchesMutation = useMutation({
+    mutationFn: async (setId: string) => {
+      setScanningMismatchesSetId(setId);
+      const res = await apiRequest("POST", `/api/admin/game-sets/${setId}/detect-player-mismatches`, {
+        limit: 100,
+        autoQuarantine: true,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const mismatches = data.mismatches || 0;
+      const checked = data.checked || 0;
+      const quarantined = data.quarantined || 0;
+      toast({ 
+        title: "Player Mismatch Scan Complete",
+        description: mismatches > 0 
+          ? `Scanned ${checked} cards, found and quarantined ${quarantined} mismatches`
+          : `Scanned ${checked} cards, no mismatches found`,
+        variant: mismatches > 0 ? "default" : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
+      setScanningMismatchesSetId(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Mismatch scan failed", description: error.message, variant: "destructive" });
+      setScanningMismatchesSetId(null);
+    },
+  });
+
+  const handleScanMismatches = (set: GameSet) => {
+    scanMismatchesMutation.mutate(set.id);
   };
 
   const handlePurgeReimport = (set: GameSet) => {
@@ -514,6 +549,21 @@ export default function AdminPlayableSets() {
                           {rescanningSetId === set.id 
                             ? <Loader2 className="h-4 w-4 animate-spin" />
                             : <ScanSearch className="h-4 w-4" />
+                          }
+                        </Button>
+                      )}
+                      {set.cardsImportedCount > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleScanMismatches(set)}
+                          disabled={scanningMismatchesSetId === set.id}
+                          data-testid={`button-scan-mismatches-${set.id}`}
+                          title="Scan for player/image mismatches"
+                        >
+                          {scanningMismatchesSetId === set.id 
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <UserX className="h-4 w-4" />
                           }
                         </Button>
                       )}
