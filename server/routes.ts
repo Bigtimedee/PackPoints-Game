@@ -988,21 +988,20 @@ export async function registerRoutes(
         if (userId) {
           const { logGameplayEvent } = await import("./services/risk/events");
           // Use shownAt timestamp if available for accurate response time measurement
-          // Fallback to session creation time if shownAt not set (legacy sessions)
+          // Fallback to session start time if shownAt not set (legacy sessions)
           let shownAt = (currentQuestion as any).shownAt;
           if (!shownAt) {
             // Set shownAt now for future reference and use session start as fallback
-            shownAt = session.createdAt;
+            shownAt = session.startedAt;
             (currentQuestion as any).shownAt = new Date().toISOString();
           }
           const responseTimeMs = shownAt ? Date.now() - new Date(shownAt).getTime() : null;
-          await logGameplayEvent({
+          await logGameplayEvent("ANSWER_SUBMITTED", {
             userId,
-            sessionId,
-            questionIndex,
-            responseTimeMs,
-            isCorrect,
-            pointsAwarded: pointsEarned,
+            matchId: sessionId,
+            cardId: currentQuestion.card?.id,
+            answerCorrect: isCorrect,
+            responseTimeMs: responseTimeMs ?? undefined,
           });
         }
       } catch (riskError) {
@@ -3431,12 +3430,10 @@ export async function registerRoutes(
       try {
         const { logRedemptionEvent } = await import("./services/risk/events");
         const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
-        await logRedemptionEvent({
+        await logRedemptionEvent("APPLY", {
           userId,
-          redemptionId: result.redemption?.id,
-          packptsSpent: parseResult.data.packptsAmount,
-          usdValue: result.redemption?.usdValue || 0,
-          destination: "EXTERNAL",
+          purchaseIntentId: result.redemption?.id,
+          ptsRequested: parseResult.data.packptsAmount,
         });
         enqueueRiskRecalc(userId);
       } catch (riskError) {

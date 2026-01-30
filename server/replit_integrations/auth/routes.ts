@@ -19,6 +19,17 @@ export function registerAuthRoutes(app: Express): void {
   // Get current authenticated user (checks both Replit Auth and local auth)
   app.get("/api/auth/user", collectGeo, async (req: any, res) => {
     try {
+      // Debug logging for auth issues
+      console.log("[Auth Debug] /api/auth/user called", {
+        isAuthenticated: req.isAuthenticated?.() ?? false,
+        hasUser: !!req.user,
+        hasSession: !!req.session,
+        sessionId: req.sessionID?.substring(0, 8) + "...",
+        localUserId: req.session?.localUserId ? "set" : "not set",
+        workosUserId: req.session?.workosUserId ? "set" : "not set",
+        userClaims: req.user?.claims?.sub ? "present" : "missing",
+      });
+      
       // First check for Replit Auth user
       if (req.isAuthenticated() && req.user?.claims?.sub) {
         const user = req.user;

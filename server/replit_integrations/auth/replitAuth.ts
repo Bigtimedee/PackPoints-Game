@@ -300,6 +300,17 @@ export async function setupAuth(app: Express) {
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
   // Check for local auth session first
   const session = req.session as any;
+  
+  // Debug logging for auth issues
+  console.log("[Auth Debug] isAuthenticated middleware", {
+    path: req.path,
+    hasSession: !!session,
+    localUserId: session?.localUserId ? "set" : "not set",
+    isAuthenticated: req.isAuthenticated?.() ?? false,
+    hasUser: !!req.user,
+    expiresAt: (req.user as any)?.expires_at ? "set" : "not set",
+  });
+  
   if (session?.localUserId) {
     return next();
   }
@@ -308,6 +319,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   const user = req.user as any;
 
   if (!req.isAuthenticated() || !user?.expires_at) {
+    console.log("[Auth Debug] Returning 401 - isAuthenticated:", req.isAuthenticated?.(), "expires_at:", user?.expires_at);
     return res.status(401).json({ message: "Unauthorized" });
   }
 
