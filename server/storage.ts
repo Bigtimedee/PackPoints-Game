@@ -493,7 +493,8 @@ export class DatabaseStorage implements IStorage {
     
     // Query playable cards with sport category validation
     // Also filter out flagged/rejected cards (image quality issues)
-    // CRITICAL: Only serve cards that pass content verification (no silhouettes/placeholders)
+    // Allow cards where contentVerified is NULL (not yet verified) OR true (verified good)
+    // Only reject cards explicitly marked as contentVerified = false (confirmed silhouettes)
     const cards = await db
       .select()
       .from(playableCards)
@@ -501,7 +502,8 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(playableCards.gameSetId, setId),
           eq(playableCards.isPlayable, true),
-          eq(playableCards.contentVerified, true), // CRITICAL: Only content-verified cards
+          // Allow NULL (not verified yet) or true (verified good), reject only explicit false
+          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
           isNotNull(playableCards.imageUrl),
           ne(playableCards.imageUrl, ''),
           not(like(playableCards.imageUrl, '%null%')),
@@ -540,6 +542,13 @@ export class DatabaseStorage implements IStorage {
     
     // Get cards to serve and refresh stale images
     const cardsToServe = validCards.slice(0, count);
+    
+    // Log if serving unverified cards (contentVerified is null)
+    const unverifiedCount = cardsToServe.filter(c => c.contentVerified === null).length;
+    if (unverifiedCount > 0) {
+      console.log(`[Storage] Serving ${unverifiedCount}/${cardsToServe.length} unverified cards from set ${setId} - run verification to fix`);
+    }
+    
     const refreshedCards = await this.refreshStaleCardImages(cardsToServe);
     
     return refreshedCards;
