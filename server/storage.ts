@@ -715,7 +715,12 @@ export class DatabaseStorage implements IStorage {
       const playableSetCards = await this.getRandomCardsFromSet(effectiveSetId, totalQuestions);
       
       if (playableSetCards.length === 0) {
+        // Try fallback to legacy cards
         const cards = await this.getRandomCards(totalQuestions);
+        if (cards.length === 0) {
+          // No cards available at all - throw error
+          throw new Error("NO_CARDS_AVAILABLE");
+        }
         questions = cards.map(card => this.generateQuestion(card));
       } else {
         const playerNames = playableSetCards.map(c => c.player).filter((p): p is string => !!p);
@@ -726,7 +731,16 @@ export class DatabaseStorage implements IStorage {
       }
     } else {
       const cards = await this.getRandomCards(totalQuestions);
+      if (cards.length === 0) {
+        // No cards available at all - throw error
+        throw new Error("NO_CARDS_AVAILABLE");
+      }
       questions = cards.map(card => this.generateQuestion(card));
+    }
+    
+    // Final safety check - ensure we have questions
+    if (questions.length === 0) {
+      throw new Error("NO_CARDS_AVAILABLE");
     }
     
     const session: GameSession = {

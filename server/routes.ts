@@ -760,7 +760,19 @@ export async function registerRoutes(
         guestSessionId = req.session.guestId;
       }
       
-      const session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId, setId);
+      let session;
+      try {
+        session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId, setId);
+      } catch (createError: any) {
+        if (createError?.message === "NO_CARDS_AVAILABLE") {
+          return res.status(503).json({ 
+            error: "No cards available",
+            code: "NO_CARDS_AVAILABLE",
+            message: "This card set has no verified cards available for gameplay. Please try a different set.",
+          });
+        }
+        throw createError;
+      }
       
       const maxPoints = session.questions.reduce((sum, q) => sum + q.pointValue, 0);
       

@@ -209,14 +209,31 @@ export default function Game() {
         lowerMessage.includes("quota") ||
         lowerMessage.includes("limit reached") ||
         lowerMessage.includes("maximum");
-      const displayMessage = isRateLimit 
-        ? "You've reached your match limit. Please wait before playing again."
-        : "Failed to start game. Please try again.";
+      
+      // Check for no cards available error
+      const isNoCards = errorMessage.includes("503") || 
+        lowerMessage.includes("no cards available") ||
+        lowerMessage.includes("no_cards_available");
+      
+      let displayMessage: string;
+      let toastTitle: string;
+      
+      if (isNoCards) {
+        displayMessage = "This card set has no verified cards available. Please try a different set.";
+        toastTitle = "No Cards Available";
+      } else if (isRateLimit) {
+        displayMessage = "You've reached your match limit. Please wait before playing again.";
+        toastTitle = "Match Limit Reached";
+      } else {
+        displayMessage = "Failed to start game. Please try again.";
+        toastTitle = "Error";
+      }
+      
       // Reset hasStartedGame so user can return to card count selection
       setHasStartedGame(false);
-      setStartError({ isRateLimit, message: displayMessage });
+      setStartError({ isRateLimit: isRateLimit || isNoCards, message: displayMessage });
       toast({
-        title: isRateLimit ? "Match Limit Reached" : "Error",
+        title: toastTitle,
         description: displayMessage,
         variant: "destructive",
       });
