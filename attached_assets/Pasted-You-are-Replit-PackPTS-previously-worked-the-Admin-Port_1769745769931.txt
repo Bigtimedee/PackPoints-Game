@@ -1,0 +1,138 @@
+You are Replit. PackPTS previously worked: the Admin Portal could query CardHedge and populate ANY/ALL card sets with playable cards. After recent agent changes, PackPTS now shows “No Cards Available / no verified cards,” and cannot query CardHedge across any sets. This is a mission-critical regression.
+
+GOAL
+Restore the prior working behavior (Admin Portal can query CardHedge for cards in any set) WITHOUT changing gameplay rules. We need the same (or better) reliability as before.
+
+NON-NEGOTIABLES
+- Do NOT remove CardHedge integration.
+- Do NOT introduce new “verified cards” gating that blocks sets globally.
+- Do NOT require manual admin steps to “verify” cards before a set works (unless that existed previously).
+- Keep secrets server-side (never expose CARDHEDGE_API_KEY to browser).
+
+========================================================
+1) FIRST: DIAGNOSE THE REGRESSION (BEFORE CHANGING LOGIC)
+Do all of the following:
+
+A. Identify the exact code path that produces:
+“This card set has no verified cards available. Please try a different set.”
+- Find the component + API call that drives the “Start Game” setup screen and the Admin Portal “set card count” logic.
+- Print the API route(s) it hits and the response it expects.
+
+B. Identify whether the failure is:
+- upstream CardHedge request failing (401/403/422/5xx),
+- request shape invalid (missing required filter; wrong endpoint),
+- normalization filtering ALL cards as “placeholder,”
+- raw_images_only forcing empty results,
+- DB gating: “verified_cards” table/query returning 0 and blocking.
+
+C. Add temporary server logs (do NOT commit secrets):
+For each CardHedge call log:
+- endpoint path
+- sanitized body (redact api key; keep filters)
+- upstream status code
+- upstream response size + first 250 chars of JSON
+- number of cards returned BEFORE filtering
+- number of cards AFTER filtering
+
+========================================================
+2) RESTORE “KNOWN GOOD” ADMIN PORTAL FUNCTIONALITY
+The Admin Portal must be able to fetch cards for a selected set reliably.
+
+A. Implement a “Compatibility Mode” search function that mirrors the old behavior:
+Create /server/integrations/cardhedge/legacySearch.ts with:
+
+async function legacySearchCards({
+  set,
+  category,
+  page_size=50,
+  maxPages=5
+}): Promise<{ cards: CardSearchCard[] }>
+
+Rules:
+- Use CardHedge endpoint that historically worked in this app (search-cards-wsort OR card-search). If unsure, try card-search first, then fallback to search-cards-wsort.
+- REQUIRE at least one filter; for sets we always pass { set } (and optionally category).
+- Default raw_images_only to FALSE initially in legacy mode, because raw-only may be the reason sets return zero. Then:
+  1) Try with raw_images_only:true
+  2) If zero cards, retry with raw_images_only:false
+- DO NOT apply aggressive placeholder filtering. Only exclude cards with:
+  - missing/empty image
+  - clearly broken URL (not starting with http/https or //)
+Everything else is allowed in admin search. (Gameplay can still handle “try another card.”)
+
+B. Remove or bypass any global “verified cards only” gating in Admin Portal and game setup.
+If “verified cards” is a NEW requirement added by the recent agent:
+- Gate it behind a feature flag OFF by default:
+  FEATURE_VERIFIED_CARDS_ONLY=false
+- When false, the app behaves like before: it queries CardHedge directly for playable cards.
+
+C. Fix the UI message logic:
+“No Cards Available / no verified cards” should only show if:
+- we successfully queried CardHedge AND it returned 0 cards after minimal validation,
+OR
+- upstream errors are persistent and we cannot retrieve cards after retries.
+If upstream fails (401/403/422/5xx), show a different error: “Card service unavailable. Please try again.”
+
+========================================================
+3) FIX LIKELY ROOT CAUSES (IMPLEMENT ALL THAT APPLY)
+A. Ensure API key is present and used server-side:
+- Confirm CARDHEDGE_API_KEY exists in environment on server.
+- Ensure every request includes header X-API-Key.
+- If missing, return 500 with actionable message “Missing CARDHEDGE_API_KEY”.
+
+B. Fix request validation:
+If using search-cards-wsort, enforce: at least one of search/set/category/player required.
+For set-based queries, always send { set: "<set name>" }.
+
+C. Fix URL normalization:
+- If image starts with “//” normalize to “https://”.
+- Never reject a valid “https://” image.
+- Do not treat “graded images” as placeholders automatically.
+
+D. Retry + fallback:
+- If upstream returns 422 due to request schema, log it and fallback to the other endpoint with a simpler body { set, page:1, page_size }.
+- If upstream returns 502/503, retry with backoff.
+
+========================================================
+4) INTEGRATE BACK INTO APP
+A. Admin Portal
+- Update Admin Portal card-fetching code to call:
+POST /api/cardhedge/legacy-set-cards (create this route)
+Body: { set: string, category?: string, page_size?: number }
+Response: { ok:true, cards:[...] }
+
+B. Game Setup (Start Game screen)
+- When user chooses a set, do NOT block on “verified cards.”
+- Instead, preflight-check:
+  call /api/cardhedge/legacy-set-cards with page_size=10
+  If >= 1 card returned => allow Start Game
+  Else show “No cards available for this set right now.”
+
+========================================================
+5) ADD SMOKE TESTS (MANDATORY) AND RUN THEM
+Create /server/tests/cardhedge.regression.smoke.ts
+
+Tests:
+1) For a known set name used in PackPTS (e.g., “1987 Topps baseball” or the exact set string stored in your DB):
+- Call /api/cardhedge/legacy-set-cards with that set
+- Assert ok true and cards.length >= 1
+- Assert every card has card_id, description, player, set, image
+
+2) Call the prior admin endpoint (if exists) that populates sets:
+- Assert it no longer returns 0 due to “verified cards.”
+
+Run tests after implementation and print results.
+
+========================================================
+6) DELIVERABLES
+- /server/integrations/cardhedge/legacySearch.ts
+- /server/routes/cardhedge.legacy.routes.ts exposing POST /api/cardhedge/legacy-set-cards
+- Admin Portal updated to use legacy route for set queries
+- Game Setup preflight uses legacy route
+- Feature flag FEATURE_VERIFIED_CARDS_ONLY added and defaulted to false
+- Regression smoke tests added and executed
+
+IMPORTANT
+- Restore the app to the prior working behavior even if that means temporarily relaxing placeholder filtering in Admin.
+- Do not remove the newer endpoints; just add this legacy compatibility layer so PackPTS works again.
+
+Now implement all steps. After implementation, run the regression smoke tests and output the results.
