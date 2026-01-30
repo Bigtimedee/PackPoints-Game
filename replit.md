@@ -57,6 +57,7 @@ A comprehensive server-side integration with the CardHedge API provides card sea
 - **Caching Strategy**: TTL-based LRU cache with 60s for searches, 5min for card details, no cache for image search
 - **Image Search**: 85% similarity threshold for best match detection, supports URL or base64 input
 - **Placeholder Detection**: Pattern-based filtering to reject stock/placeholder images
+- **Import Uses Regular Search**: The import endpoints use `cardSearch` (regular endpoint) instead of `cardSearchSorted` because the sorted API returns many cards with empty image URLs
 - **React Query Hooks**: `useCardSearch`, `useCardSearchSorted`, `useCardDetails`, `useImageSearch` for admin workflows
 - **Files**: `server/services/cardhedge/client.ts`, `server/routes/cardhedge.routes.ts`, `client/src/hooks/use-cardhedge.ts`, `shared/cardhedge/types.ts`
 
