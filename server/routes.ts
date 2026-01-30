@@ -46,7 +46,6 @@ import { collectGeo } from "./middleware/geoMiddleware";
 import { geoService } from "./services/geoService";
 import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
-import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import * as matchEngine from "./services/matches/engine";
@@ -245,7 +244,7 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/progress/daily - Get match-based daily progress (cards answered today)
+  // GET /api/progress/daily - Get correct-card daily progress (tracks earning limit)
   app.get("/api/progress/daily", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
@@ -253,10 +252,24 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const progress = await getMatchDailyProgress(userId);
-      res.json(progress);
+      // Use rewards-based progress (userGameplayDailyCounters) which tracks CORRECT cards
+      const rewardsProgress = await getDailyProgress(userId);
+      
+      // Calculate UTC midnight reset time
+      const now = new Date();
+      const utcTomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0));
+      const resetInMs = utcTomorrow.getTime() - now.getTime();
+      
+      // Transform to match frontend expected format
+      res.json({
+        dayDate: rewardsProgress.dayKey,
+        cardsAnswered: rewardsProgress.cardsCompleted,
+        matchesCompleted: 0, // Not tracked in rewards system, but kept for API compatibility
+        capCards: rewardsProgress.cardsMax,
+        resetInMs,
+      });
     } catch (error) {
-      console.error("Error getting match daily progress:", error);
+      console.error("Error getting daily progress:", error);
       res.status(500).json({ error: "Failed to get daily progress" });
     }
   });
