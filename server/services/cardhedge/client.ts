@@ -368,9 +368,30 @@ export async function fetchCardDetailsNormalized(
   return normalizeCardDetails(response.cards[0]);
 }
 
-export function normalizeImageUrl(url: string | undefined): string | null {
+export function normalizeImageUrl(url: string | undefined | null): string | null {
   if (!url) return null;
-  return url.startsWith("//") ? `https:${url}` : url;
+  
+  // Trim whitespace
+  let normalized = url.trim();
+  if (!normalized) return null;
+  
+  // Handle protocol-relative URLs (//s3.amazonaws.com/...)
+  if (normalized.startsWith("//")) {
+    normalized = `https:${normalized}`;
+  }
+  
+  // Convert http to https for security
+  if (normalized.startsWith("http://")) {
+    normalized = normalized.replace("http://", "https://");
+  }
+  
+  // Validate it's a proper URL
+  if (!normalized.startsWith("https://") && !normalized.startsWith("http://")) {
+    // Not a valid URL scheme
+    return null;
+  }
+  
+  return normalized;
 }
 
 export function isCardHedgeConfigured(): boolean {

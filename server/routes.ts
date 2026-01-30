@@ -6454,7 +6454,19 @@ export async function registerRoutes(
   });
 
   // Admin: Purge all cards from a set and re-import from Card Hedge
+  // SAFE IMPORT: Fetches cards first, computes playable count, only purges if would_import > 0
   app.post("/api/admin/playable-sets/:id/purge-reimport", isAuthenticated, requireAdmin, async (req, res) => {
+    // Reject reason enum for debugging
+    const REJECT_REASONS = {
+      MISSING_IMAGE: 'MISSING_IMAGE',
+      BAD_URL: 'BAD_URL',
+      WRONG_SPORT: 'WRONG_SPORT',
+      NO_PLAYER: 'NO_PLAYER',
+      CLASSIFIER_REJECTED: 'CLASSIFIER_REJECTED',
+      OTHER: 'OTHER',
+    } as const;
+    type RejectReason = typeof REJECT_REASONS[keyof typeof REJECT_REASONS];
+    
     try {
       const { id } = req.params;
       
@@ -6473,48 +6485,183 @@ export async function registerRoutes(
         return res.status(400).json({ error: "This set doesn't have a Card Hedge query configured" });
       }
       
-      // Count existing cards before purge
+      // Count existing cards before any changes
       const [existingCount] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(playableCards)
         .where(eq(playableCards.gameSetId, id));
       
-      const cardsPurged = existingCount?.count || 0;
+      const existingCardCount = existingCount?.count || 0;
       
-      console.log(`[Purge & Reimport] Starting for set "${gameSet.setName}" (${id}) - purging ${cardsPurged} existing cards`);
+      console.log(`[Purge & Reimport] Starting SAFE import for set "${gameSet.setName}" (${id})`);
+      console.log(`[Purge & Reimport] Existing cards: ${existingCardCount}`);
       
-      // First, delete any card_image_reports for cards in this set (to avoid FK constraint)
-      const { cardImageReports } = await import("@shared/schema");
-      const cardIdsInSet = await db
-        .select({ id: playableCards.id })
-        .from(playableCards)
-        .where(eq(playableCards.gameSetId, id));
-      
-      if (cardIdsInSet.length > 0) {
-        const cardIds = cardIdsInSet.map(c => c.id);
-        await db
-          .delete(cardImageReports)
-          .where(inArray(cardImageReports.cardId, cardIds));
-        console.log(`[Purge & Reimport] Deleted card_image_reports for ${cardIds.length} cards`);
-      }
-      
-      // Delete all existing cards for this set
-      await db
-        .delete(playableCards)
-        .where(eq(playableCards.gameSetId, id));
-      
-      // Reset the card count on the set
-      await db
-        .update(gameSets)
-        .set({ cardsImportedCount: 0 })
-        .where(eq(gameSets.id, id));
-      
-      console.log(`[Purge & Reimport] Purged ${cardsPurged} cards, now re-importing...`);
-      
-      // Now do the import (same logic as the import endpoint)
       const MAX_PAGE_SIZE = 100;
       const rawPageSize = parseInt(req.body.page_size || "100", 10);
       const pageSize = Math.min(Math.max(1, rawPageSize), MAX_PAGE_SIZE);
+      
+      const { classifyCard } = await import("./services/cardClassifier");
+      const expectedSport = gameSet.sport.toLowerCase();
+      
+      // ===== PHASE 1: DRY-RUN FETCH =====
+      // Fetch all cards and compute would-be-playable count BEFORE purging
+      interface CardToImport {
+        card_id: string;
+        description: string | null;
+        player: string | null;
+        set: string | null;
+        number: string | null;
+        variant: string | null;
+        imageUrl: string | null;
+        category: string | null;
+        rookie: boolean | null;
+        isPlayable: boolean;
+        blockedReason: string | null;
+      }
+      
+      const cardsToImport: CardToImport[] = [];
+      const rejectReasons: Record<RejectReason, number> = {
+        MISSING_IMAGE: 0,
+        BAD_URL: 0,
+        WRONG_SPORT: 0,
+        NO_PLAYER: 0,
+        CLASSIFIER_REJECTED: 0,
+        OTHER: 0,
+      };
+      let totalFetched = 0;
+      let pagesFetched = 0;
+      
+      // Log first 10 fetched cards for debugging
+      const debugSampleCards: any[] = [];
+      
+      console.log(`[Purge & Reimport] PHASE 1: Dry-run fetch to compute would-be-playable count...`);
+      
+      let page = 1;
+      let hasMorePages = true;
+      
+      while (hasMorePages) {
+        const result = await cardSearchSorted({
+          set: gameSet.cardhedgeSetQuery,
+          category: gameSet.cardhedgeCategory || undefined,
+          page,
+          page_size: pageSize,
+        });
+        
+        pagesFetched++;
+        
+        if (!result.cards || result.cards.length === 0) {
+          hasMorePages = false;
+          break;
+        }
+        
+        for (const card of result.cards) {
+          if (!card.card_id) continue;
+          totalFetched++;
+          
+          // Log first 10 cards for debugging
+          if (debugSampleCards.length < 10) {
+            debugSampleCards.push({
+              card_id: card.card_id,
+              player: card.player,
+              raw_image: card.image,
+              category: card.category,
+            });
+          }
+          
+          // Check sport category
+          const cardCategory = (card.category || "").toLowerCase().trim();
+          if (cardCategory !== expectedSport) {
+            rejectReasons.WRONG_SPORT++;
+            continue;
+          }
+          
+          // Check image URL
+          const imageUrl = normalizeImageUrl(card.image);
+          if (!imageUrl) {
+            rejectReasons.MISSING_IMAGE++;
+            continue;
+          }
+          if (!imageUrl.startsWith('https://') && !imageUrl.startsWith('http://')) {
+            rejectReasons.BAD_URL++;
+            continue;
+          }
+          
+          // Check player field
+          if (!card.player || card.player.trim() === '') {
+            rejectReasons.NO_PLAYER++;
+            continue;
+          }
+          
+          // Run classifier
+          const classification = classifyCard({ player: card.player, description: card.description });
+          if (!classification.isPlayable) {
+            rejectReasons.CLASSIFIER_REJECTED++;
+            // Still add to import list but marked as non-playable
+          }
+          
+          cardsToImport.push({
+            card_id: card.card_id,
+            description: card.description || null,
+            player: card.player || null,
+            set: card.set || null,
+            number: card.number || null,
+            variant: card.variant || null,
+            imageUrl,
+            category: card.category || null,
+            rookie: card.rookie ?? null,
+            isPlayable: classification.isPlayable,
+            blockedReason: classification.blockedReason,
+          });
+        }
+        
+        hasMorePages = result.pages ? page < result.pages : result.cards.length === pageSize;
+        page++;
+        
+        if (page > 50) {
+          console.log(`[Purge & Reimport] Stopping at page 50 safety limit`);
+          break;
+        }
+      }
+      
+      // Compute would-be-playable count
+      const wouldBePlayable = cardsToImport.filter(c => c.isPlayable && c.imageUrl && c.player).length;
+      
+      console.log(`[Purge & Reimport] DRY-RUN RESULTS:`);
+      console.log(`  Total fetched: ${totalFetched}`);
+      console.log(`  Would import: ${cardsToImport.length}`);
+      console.log(`  Would be playable: ${wouldBePlayable}`);
+      console.log(`  Reject reasons: ${JSON.stringify(rejectReasons)}`);
+      console.log(`  Sample cards (first 10):`, debugSampleCards);
+      
+      // ===== SAFE PURGE CHECK =====
+      // If would_import_playable_count == 0, do NOT purge
+      if (wouldBePlayable === 0) {
+        console.warn(`[Purge & Reimport] ABORTING: Would import 0 playable cards. Keeping existing ${existingCardCount} cards.`);
+        
+        // Find top reject reason
+        const topRejectReason = Object.entries(rejectReasons)
+          .filter(([_, count]) => count > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([reason, count]) => `${reason}=${count}`)
+          .slice(0, 3)
+          .join(', ');
+        
+        return res.json({
+          success: false,
+          status: "aborted",
+          cardsPurged: 0,
+          cardsImported: 0,
+          playableCount: 0,
+          totalFetched,
+          existingCardsKept: existingCardCount,
+          warning: `Import aborted: 0 playable cards. Kept existing ${existingCardCount} cards. Top reject reasons: ${topRejectReason || 'none'}`,
+          rejectReasons,
+          debugSampleCards: debugSampleCards.slice(0, 5),
+        });
+      }
+      
+      // ===== PHASE 2: ACTUAL PURGE & IMPORT =====
+      console.log(`[Purge & Reimport] PHASE 2: Proceeding with purge and import (${wouldBePlayable} playable cards)...`);
       
       // Create import run record
       const [importRun] = await db
@@ -6523,109 +6670,82 @@ export async function registerRoutes(
           gameSetId: id,
           status: "running",
           pageSize,
-          pagesFetched: 0,
+          pagesFetched,
           cardsImported: 0,
         })
         .returning();
       
-      let totalCardsImported = 0;
-      let pagesFetched = 0;
-      let wrongSportSkipped = 0;
-      
       try {
-        const { classifyCard } = await import("./services/cardClassifier");
+        // First, delete any card_image_reports for cards in this set (to avoid FK constraint)
+        const { cardImageReports } = await import("@shared/schema");
+        const cardIdsInSet = await db
+          .select({ id: playableCards.id })
+          .from(playableCards)
+          .where(eq(playableCards.gameSetId, id));
         
-        let page = 1;
-        let hasMorePages = true;
-        const expectedSport = gameSet.sport.toLowerCase();
+        if (cardIdsInSet.length > 0) {
+          const cardIds = cardIdsInSet.map(c => c.id);
+          await db
+            .delete(cardImageReports)
+            .where(inArray(cardImageReports.cardId, cardIds));
+          console.log(`[Purge & Reimport] Deleted card_image_reports for ${cardIds.length} cards`);
+        }
         
-        while (hasMorePages) {
-          const result = await cardSearchSorted({
-            set: gameSet.cardhedgeSetQuery,
-            category: gameSet.cardhedgeCategory || undefined,
-            page,
-            page_size: pageSize,
-          });
-          
-          pagesFetched++;
-          
-          if (!result.cards || result.cards.length === 0) {
-            hasMorePages = false;
-            break;
-          }
-          
-          for (const card of result.cards) {
-            if (!card.card_id) continue;
-            
-            // Validate sport category positively matches
-            const cardCategory = (card.category || "").toLowerCase().trim();
-            if (cardCategory !== expectedSport) {
-              const reason = cardCategory 
-                ? `category "${card.category}" does not match set sport "${gameSet.sport}"`
-                : `missing category field, expected sport "${gameSet.sport}"`;
-              console.log(`[Purge & Reimport] SKIPPING wrong-sport card: ${card.card_id} - ${reason} - ${card.player || card.description}`);
-              wrongSportSkipped++;
-              continue;
-            }
-            
-            const classification = classifyCard({ player: card.player, description: card.description });
-            const { isPlayable, blockedReason } = classification;
-            
-            const imageUrl = normalizeImageUrl(card.image);
-            
-            await db
-              .insert(playableCards)
-              .values({
+        // Delete all existing cards for this set
+        await db
+          .delete(playableCards)
+          .where(eq(playableCards.gameSetId, id));
+        
+        const cardsPurged = existingCardCount;
+        console.log(`[Purge & Reimport] Purged ${cardsPurged} cards, now inserting ${cardsToImport.length}...`);
+        
+        // Insert all cards from dry-run
+        let totalCardsImported = 0;
+        for (const card of cardsToImport) {
+          await db
+            .insert(playableCards)
+            .values({
+              gameSetId: id,
+              cardhedgeCardId: card.card_id,
+              description: card.description,
+              player: card.player,
+              set: card.set,
+              number: card.number,
+              variant: card.variant,
+              imageUrl: card.imageUrl,
+              category: card.category,
+              rookie: card.rookie,
+              isPlayable: card.isPlayable,
+              blockedReason: card.blockedReason,
+            })
+            .onConflictDoUpdate({
+              target: playableCards.cardhedgeCardId,
+              set: {
                 gameSetId: id,
-                cardhedgeCardId: card.card_id,
                 description: card.description,
                 player: card.player,
                 set: card.set,
                 number: card.number,
                 variant: card.variant,
-                imageUrl,
+                imageUrl: card.imageUrl,
                 category: card.category,
                 rookie: card.rookie,
-                isPlayable,
-                blockedReason,
-              })
-              .onConflictDoUpdate({
-                target: playableCards.cardhedgeCardId,
-                set: {
-                  gameSetId: id,
-                  description: card.description,
-                  player: card.player,
-                  set: card.set,
-                  number: card.number,
-                  variant: card.variant,
-                  imageUrl,
-                  category: card.category,
-                  rookie: card.rookie,
-                  isPlayable,
-                  blockedReason,
-                },
-              });
-            
-            totalCardsImported++;
-          }
+                isPlayable: card.isPlayable,
+                blockedReason: card.blockedReason,
+              },
+            });
           
-          // Update progress
-          await db
-            .update(cardhedgeImportRuns)
-            .set({
-              pagesFetched,
-              cardsImported: totalCardsImported,
-            })
-            .where(eq(cardhedgeImportRuns.id, importRun.id));
-          
-          hasMorePages = result.pages ? page < result.pages : result.cards.length === pageSize;
-          page++;
-          
-          if (page > 50) {
-            console.log(`[Purge & Reimport] Stopping at page 50 safety limit`);
-            break;
-          }
+          totalCardsImported++;
         }
+        
+        // Update progress
+        await db
+          .update(cardhedgeImportRuns)
+          .set({
+            pagesFetched,
+            cardsImported: totalCardsImported,
+          })
+          .where(eq(cardhedgeImportRuns.id, importRun.id));
         
         // Update final counts
         await db
@@ -6721,7 +6841,7 @@ export async function registerRoutes(
           console.warn(`[Purge & Reimport] ${warning}`);
         }
         
-        console.log(`[Purge & Reimport] Completed: ${cardsPurged} purged, ${totalCardsImported} imported, ${playableCount} playable, ${wrongSportSkipped} wrong-sport skipped`);
+        console.log(`[Purge & Reimport] Completed: ${cardsPurged} purged, ${totalCardsImported} imported, ${playableCount} playable, ${rejectReasons.WRONG_SPORT} wrong-sport skipped`);
         
         // Log set-integrity summary (per spec Part B.3)
         console.log(`[Purge & Reimport] SET-INTEGRITY SUMMARY for ${id}:`);
@@ -6735,8 +6855,9 @@ export async function registerRoutes(
           cardsPurged,
           cardsImported: totalCardsImported,
           playableCount,
-          wrongSportSkipped,
+          totalFetched,
           pagesFetched,
+          rejectReasons,
           importRunId: importRun.id,
           status,
           warning,
