@@ -259,6 +259,10 @@ export default function Match() {
         break;
       case "answer_result":
         setAnswerResult(message.payload);
+        // Refetch daily progress to update the header badge (1v1 correct answers now count)
+        if (message.payload.correct) {
+          queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
+        }
         break;
       case "participant_answered":
         setMatchState((prev) => {

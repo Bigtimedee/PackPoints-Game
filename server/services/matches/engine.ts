@@ -18,6 +18,7 @@ import {
 import { eq, and, sql, desc } from "drizzle-orm";
 import { computeAndPersistMatchResult, setForfeitResult, setDisconnectResult, type ComputedResult } from "./computeResult";
 import { applyProgressForMatchIfNeeded } from "../progress/dailyProgress";
+import { awardDailyBaseForCorrectCard } from "../rewards/dailyGameplayBase";
 
 export interface MatchEndResult {
   matchId: string;
@@ -381,6 +382,22 @@ export async function submitAnswer(
         }).where(
           and(eq(matchParticipants.matchId, matchId), eq(matchParticipants.userId, userId))
         );
+        
+        // Award daily base points for correct answers (same as solo games)
+        // This ensures 1v1 matches count toward the daily 200 card limit
+        if (isCorrect) {
+          const cardId = question.card?.id || `${matchId}:q${idx}`;
+          try {
+            await awardDailyBaseForCorrectCard({
+              userId,
+              matchId,
+              cardId,
+            });
+          } catch (rewardError: any) {
+            console.error(`[Match] Failed to award daily base for ${userId}: ${rewardError.message}`);
+            // Non-blocking - gameplay should continue even if reward fails
+          }
+        }
       } catch (error: any) {
         if (error.code === "23505") {
           // Unique constraint violation - treat as idempotent success
