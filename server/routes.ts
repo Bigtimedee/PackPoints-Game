@@ -699,6 +699,23 @@ export async function registerRoutes(
       const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const isGuest = !userId;
       
+      // Debug logging for mobile auth issues
+      const userAgent = req.headers['user-agent'] || '';
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+      if (isMobile) {
+        console.log("[Game Start] Mobile request debug", {
+          userAgent: userAgent.substring(0, 100),
+          hasSession: !!req.session,
+          sessionId: req.sessionID ? req.sessionID.substring(0, 8) + '...' : 'none',
+          localUserId: req.session?.localUserId ? 'set' : 'not set',
+          hasUser: !!req.user,
+          userClaims: req.user?.claims ? 'present' : 'missing',
+          userId,
+          isGuest,
+          mode,
+        });
+      }
+      
       if (mode !== "solo" && isGuest) {
         return res.status(401).json({ error: "Authentication required for this game mode" });
       }

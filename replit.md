@@ -85,6 +85,12 @@ The platform features a ledger-first wallet for "PackPTS," a point system with v
 ### Authentication & Access Control
 Multi-provider authentication (Replit Auth, WorkOS, local) supports secure identity linking and magic-link verification for high-value actions. An access control system manages user caps, waitlists, and invite codes, alongside a referral system.
 
+**Session Cookie Configuration**:
+- `httpOnly: true` - Prevents XSS attacks from accessing cookies
+- `secure: true` - Requires HTTPS for cookie transmission
+- `sameSite: "none"` - Required for mobile browser compatibility (especially Android). Some mobile browsers enforce stricter cookie policies with "lax" mode, preventing session cookies from being sent with POST requests. The "none" + "secure" combination is safe for HTTPS-only sites.
+- Sessions stored in PostgreSQL via connect-pg-simple
+
 ### Admin Tools & Redemption
 Comprehensive admin tools manage users, wallets, entitlements, feature flags, and provide metrics. A closed-loop redemption system converts PackPTS into store credit, with admin approval for high-value redemptions.
 
