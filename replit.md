@@ -69,6 +69,34 @@ A defense-in-depth system prevents cards with wrong player/image associations fr
 - `wrong_player` reports automatically set `isPlayable: false, blockedReason: 'player_mismatch'`
 - Reported cards are immediately excluded from gameplay
 
+### Anti-Pruning System (Card Protection)
+A comprehensive system prevents background jobs from automatically removing cards from gameplay without admin approval.
+
+**Mutation Guard** (`server/services/mutationGuard.ts`):
+- Three operation sources: `ADMIN_MANUAL`, `SYSTEM_NON_DESTRUCTIVE`, `CARDHEDGE_CONFIRMED`
+- Only `ADMIN_MANUAL` can set `isPlayable=false` (destructive action)
+- Background jobs are `SYSTEM_NON_DESTRUCTIVE` - can only update quarantine fields
+- Kill switch: `DISABLE_AUTOMATED_SET_MUTATIONS=true` env var blocks all automated mutations
+
+**Quarantine Flow**:
+- Cards progress through: `OK` → `SUSPECT_TRANSIENT` → `SUSPECT_PERSISTENT` → `QUARANTINED_ADMIN_REVIEW`
+- 5-failures-over-24-hours rule before proposing removal
+- `proposedUnplayable=true` flags cards awaiting admin approval
+- Cards remain playable until admin approves removal
+
+**Audit Logging** (`set_audit_log` table):
+- Tracks all card/set mutations with before/after counts
+- Records operation source, actor, and evidence
+- Enables rollback and forensic analysis
+
+**Admin Endpoints**:
+- `/api/admin/playable-sets/:id/quarantine-status` - View quarantine breakdown
+- `/api/admin/playable-sets/:id/apply-proposed` - Apply proposed unplayable changes
+- `/api/admin/playable-sets/:id/audit-log` - View set-specific audit log
+- `/api/admin/audit-log` - View global audit log
+
+**Files**: `server/services/mutationGuard.ts`, `server/services/imageValidation.ts`, `server/tests/antiPruning.test.ts`
+
 ### CardHedge Integration Layer
 A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
 - **Server-Side API Endpoints**: `/api/cardhedge/search`, `/api/cardhedge/search-sorted`, `/api/cardhedge/card-details`, `/api/cardhedge/image-search` - all server-side to protect API key
