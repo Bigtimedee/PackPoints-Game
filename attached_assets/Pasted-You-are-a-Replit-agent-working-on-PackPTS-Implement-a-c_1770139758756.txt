@@ -1,0 +1,144 @@
+You are a Replit agent working on PackPTS. Implement a comprehensive fix to STOP “autonomous pruning” of CardHedge sets/cards (sets shrinking without any Admin action, e.g., 1987 Topps Baseball dropping from ~700 to ~440). This is mission critical.
+
+GOAL
+- PackPTS must NEVER delete cards or reduce playable counts automatically.
+- Pruning (delete, marking unplayable, reducing playable counts) is ONLY allowed when:
+  (A) An Admin explicitly triggers it from the Admin UI, OR
+  (B) CardHedge itself has verifiably removed/invalidated the card AND we have stable evidence (not transient errors) AND the system only PROPOSES a removal until Admin approves.
+
+Deliver a complete implementation: code changes + tests + short explanation in comments of root cause(s) found.
+
+────────────────────────────────────────────────────────────
+PART 1 — FORENSIC DISCOVERY (REQUIRED)
+1) Search the repo for ANY scheduled/background process or code path that mutates sets/cards. Look for:
+   - cron, schedule, worker, queue, bull, agenda, vercel cron, supabase cron, background, job
+   - reimport, revalidate, purge, cleanup, dedupe, sync, refresh
+   - invalidate, is_playable, playable_count, delete, deleted_at
+   - prisma.*delete, drizzle delete, SQL DELETE, “UPDATE cards SET is_playable”
+2) Identify EVERY path that can:
+   - delete cards (hard or soft)
+   - mark cards unplayable
+   - recompute or overwrite set counts
+3) Add a brief code comment (in a clear place like /server/README_DEBUG.md or top of the main import module) listing:
+   - file paths + functions + how invoked (auto vs admin)
+   - which one is causing the “autonomous pruning” and why
+
+────────────────────────────────────────────────────────────
+PART 2 — ADD HARD “OPERATION SOURCE” GATING FOR ALL MUTATIONS
+Implement a mandatory mutation context field called: operation_source
+
+Allowed values:
+- ADMIN_MANUAL
+- SYSTEM_NON_DESTRUCTIVE
+- CARDHEDGE_CONFIRMED
+
+Rules:
+- There must be NO DEFAULT. Any mutation must explicitly pass operation_source.
+- Enforce at the server layer (API/service layer), not just client.
+
+Enforcement:
+- If operation_source !== ADMIN_MANUAL:
+  - NEVER delete any card rows (no hard deletes, no soft deletes)
+  - NEVER set cards.is_playable = false
+  - NEVER decrement/overwrite playable counts downward
+  - You MAY ONLY write non-destructive fields (see Part 3)
+
+Implementation details:
+- Create a shared guard function: assertMutationAllowed({operation_source, action})
+- Apply it to ALL endpoints/services that change cards/sets:
+  - set import/reimport
+  - purge/revalidate
+  - dedupe/cleanup
+  - any validator or “image health” checks
+  - any endpoint that touches counts or is_playable/deleted_at
+
+────────────────────────────────────────────────────────────
+PART 3 — CONVERT DESTRUCTIVE “AUTO” BEHAVIOR INTO QUARANTINE (NON-DESTRUCTIVE)
+Add fields to cards (migration required):
+- quarantine_status: enum('OK','SUSPECT_TRANSIENT','SUSPECT_PERSISTENT','QUARANTINED_ADMIN_REVIEW') default 'OK'
+- proposed_unplayable: boolean default false
+- validation_fail_count: int default 0
+- last_validation_reason: text nullable
+- last_validation_http_status: int nullable
+- last_validation_content_type: text nullable
+- last_validation_checked_at: timestamp nullable
+
+Automatic processes (SYSTEM_NON_DESTRUCTIVE) may ONLY:
+- increment validation_fail_count
+- update last_validation_* fields
+- set quarantine_status to SUSPECT_TRANSIENT or SUSPECT_PERSISTENT
+- set proposed_unplayable=true ONLY when CARDHEDGE_CONFIRMED criteria are met (Part 4)
+But they still must NOT change is_playable or delete.
+
+CRITICAL:
+- Any existing “cleanup” logic must be changed so it does not remove cards from gameplay automatically.
+- Gameplay queries should still prefer is_playable=true, but do not flip it automatically; only quarantine/propose.
+
+────────────────────────────────────────────────────────────
+PART 4 — CARDHEDGE CONFIRMATION RULE (PROPOSE ONLY; ADMIN APPROVES)
+Implement “CardHedge confirmed” rules for when a card can be proposed for removal:
+
+A card can be proposed_unplayable=true only if:
+1) CardHedge card-details endpoint for that card_id returns a definitive “not found/gone” (e.g., 404) OR
+2) CardHedge returns a definitive placeholder/silhouette/invalid image signal consistently, and NOT due to transient errors:
+   - Must fail at least N times over M hours (choose: N=5, M=24) AND
+   - Failures must be non-transient (no timeouts, no 429, no 5xx)
+   - Log evidence metadata each time
+
+Even when confirmed:
+- Do NOT set is_playable=false automatically
+- Do NOT delete automatically
+- Set:
+  - quarantine_status = QUARANTINED_ADMIN_REVIEW
+  - proposed_unplayable = true
+- Add an Admin button: “Apply Proposed Changes” to actually set is_playable=false (or soft-delete) ONLY with ADMIN_MANUAL operation_source.
+
+────────────────────────────────────────────────────────────
+PART 5 — AUDIT LOGGING (MANDATORY)
+Create a table set_audit_log with:
+- id, set_id, created_at
+- action_type (IMPORT, REIMPORT, VALIDATE, DEDUPE, APPLY_PROPOSED, DELETE_SET, etc.)
+- operation_source (ADMIN_MANUAL / SYSTEM_NON_DESTRUCTIVE / CARDHEDGE_CONFIRMED)
+- actor_user_id nullable
+- before_total_cards, after_total_cards
+- before_playable_cards, after_playable_cards
+- delta_total, delta_playable
+- reason text
+- evidence_json jsonb (store CardHedge response metadata when relevant)
+
+Every operation that changes counts OR flags must write an audit log row.
+
+────────────────────────────────────────────────────────────
+PART 6 — FIX ADMIN UI COUNTING (STOP “GHOST SHRINKING”)
+On /admin/playable-sets show THREE numbers:
+- Total imported cards (total rows for set, excluding deleted_at if you use soft delete)
+- Playable cards (is_playable=true)
+- Quarantined/proposed (quarantine_status != OK OR proposed_unplayable=true)
+
+Ensure the “Cards” badge currently showing “No cards” is not reading a stale cached field.
+- If you store cached counts on the sets table, ensure they are updated only inside Admin-triggered transactions.
+- Otherwise compute counts live via query.
+
+────────────────────────────────────────────────────────────
+PART 7 — DISABLE AUTONOMOUS DESTRUCTIVE ROUTINES IMMEDIATELY + KILL SWITCH
+1) Any cron/worker that currently prunes or marks unplayable must be changed to SYSTEM_NON_DESTRUCTIVE mode.
+2) Add env var kill switch:
+   - DISABLE_AUTOMATED_SET_MUTATIONS=true
+When true:
+- background tasks must not mutate ANY cards/sets (even quarantine). They can only log warnings and write audit entries indicating “skipped due to kill switch”.
+
+────────────────────────────────────────────────────────────
+PART 8 — TESTING (REQUIRED) + SHOW OUTPUT
+After implementing, run tests and provide output. Add/extend tests to prove:
+1) A background validation run does NOT delete or set is_playable=false.
+2) It only updates quarantine fields and logs audit rows.
+3) Admin-triggered “Apply Proposed Changes” DOES set is_playable=false (or soft-delete) and logs audit with actor_user_id.
+4) Import/reimport updates counts correctly and Admin UI shows consistent totals.
+
+DO NOT ship without tests passing.
+
+────────────────────────────────────────────────────────────
+DELIVERABLES
+- Implement all migrations, service-layer guards, audit logging, and Admin UI changes.
+- Add a short explanation comment summarizing what caused the autonomous pruning and where it was fixed.
+- Run tests and paste the test output in the Replit Agent response.
