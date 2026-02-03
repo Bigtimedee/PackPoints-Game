@@ -7334,22 +7334,17 @@ export async function registerRoutes(
       const { limit: limitParam = "100", operationSource } = req.query;
       const limitNum = Math.min(parseInt(String(limitParam), 10) || 100, 500);
       
-      let query = db
+      const whereCondition = operationSource && typeof operationSource === 'string' 
+        ? eq(setAuditLog.operationSource, operationSource) 
+        : undefined;
+      
+      const logs = await db
         .select()
         .from(setAuditLog)
+        .where(whereCondition)
         .orderBy(desc(setAuditLog.createdAt))
         .limit(limitNum);
       
-      if (operationSource && typeof operationSource === 'string') {
-        query = db
-          .select()
-          .from(setAuditLog)
-          .where(eq(setAuditLog.operationSource, operationSource))
-          .orderBy(desc(setAuditLog.createdAt))
-          .limit(limitNum);
-      }
-      
-      const logs = await query;
       res.json(logs);
     } catch (error) {
       console.error("Error getting global audit log:", error);
@@ -8092,6 +8087,100 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error unflagging cards:", error);
       res.status(500).json({ error: "Failed to unflag cards" });
+    }
+  });
+
+  // ============================================
+  // CARD ADMIN ACTIONS (Exclude/Restore)
+  // ============================================
+
+  // Manually exclude a card from gameplay (admin action)
+  app.post("/api/admin/cards/:cardId/exclude", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { cardId } = req.params;
+      const { reason } = req.body;
+      const { assertMutationAllowed } = await import("./services/mutationGuard");
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+      
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      if (!card.isPlayable) {
+        return res.status(400).json({ error: "Card is already excluded", blockedReason: card.blockedReason });
+      }
+      
+      // Use mutation guard to ensure this is allowed (ADMIN_MANUAL can always SET_UNPLAYABLE)
+      assertMutationAllowed({
+        operationSource: "ADMIN_MANUAL",
+        action: "SET_UNPLAYABLE",
+        actorUserId: req.user.id,
+        reason: reason || "Manual admin exclusion",
+      });
+      
+      await db
+        .update(playableCards)
+        .set({
+          isPlayable: false,
+          blockedReason: reason || "admin_manual_exclusion",
+          imageReviewStatus: "excluded",
+          quarantineStatus: "REMOVED_BY_ADMIN",
+          updatedAt: new Date(),
+        })
+        .where(eq(playableCards.id, cardId));
+      
+      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${req.user.id}: ${reason || "no reason"}`);
+      
+      res.json({ success: true, cardId, excluded: true });
+    } catch (error) {
+      console.error("Error excluding card:", error);
+      res.status(500).json({ error: "Failed to exclude card" });
+    }
+  });
+
+  // Restore an excluded card to gameplay (admin action)
+  app.post("/api/admin/cards/:cardId/restore", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { cardId } = req.params;
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+      
+      if (!card) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+      
+      if (card.isPlayable) {
+        return res.status(400).json({ error: "Card is already playable" });
+      }
+      
+      await db
+        .update(playableCards)
+        .set({
+          isPlayable: true,
+          blockedReason: null,
+          imageReviewStatus: "approved",
+          quarantineStatus: "OK",
+          proposedUnplayable: false,
+          validationFailCount: 0,
+          updatedAt: new Date(),
+        })
+        .where(eq(playableCards.id, cardId));
+      
+      console.log(`[Card Restore] Card ${cardId} restored to gameplay by admin ${req.user.id}`);
+      
+      res.json({ success: true, cardId, restored: true });
+    } catch (error) {
+      console.error("Error restoring card:", error);
+      res.status(500).json({ error: "Failed to restore card" });
     }
   });
 
