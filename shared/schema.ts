@@ -1880,6 +1880,9 @@ export type GeoRollupsDaily = typeof geoRollupsDaily.$inferSelect;
 export const imageReviewStatuses = ["unreviewed", "reported", "approved", "rejected"] as const;
 export type ImageReviewStatus = typeof imageReviewStatuses[number];
 
+export const quarantineStatuses = ["OK", "SUSPECT_TRANSIENT", "SUSPECT_PERSISTENT", "QUARANTINED_ADMIN_REVIEW"] as const;
+export type QuarantineStatus = typeof quarantineStatuses[number];
+
 export const playableCards = pgTable("playable_cards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   gameSetId: varchar("game_set_id").notNull().references(() => gameSets.id),
@@ -1903,6 +1906,14 @@ export const playableCards = pgTable("playable_cards", {
   imageLastError: text("image_last_error"),
   contentVerified: boolean("content_verified"), // Pixel-level content analysis passed (NULL=pending, true=passed, false=failed)
   contentVerifiedAt: timestamp("content_verified_at"), // When content was last verified
+  quarantineStatus: varchar("quarantine_status", { length: 30 }).notNull().default("OK"), // OK, SUSPECT_TRANSIENT, SUSPECT_PERSISTENT, QUARANTINED_ADMIN_REVIEW
+  proposedUnplayable: boolean("proposed_unplayable").notNull().default(false), // True when CardHedge confirms removal, awaiting admin approval
+  validationFailCount: integer("validation_fail_count").notNull().default(0), // Cumulative validation failures
+  lastValidationReason: text("last_validation_reason"), // Reason for last validation failure
+  lastValidationHttpStatus: integer("last_validation_http_status"), // HTTP status from last validation
+  lastValidationContentType: text("last_validation_content_type"), // Content-Type from last validation
+  lastValidationCheckedAt: timestamp("last_validation_checked_at"), // When last validation occurred
+  firstValidationFailAt: timestamp("first_validation_fail_at"), // When validation first started failing (for 24h rule)
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -1914,6 +1925,8 @@ export const playableCards = pgTable("playable_cards", {
   index("idx_playable_cards_image_review").on(table.imageReviewStatus),
   index("idx_playable_cards_last_check").on(table.lastImageCheck),
   index("idx_playable_cards_content_verified").on(table.contentVerified),
+  index("idx_playable_cards_quarantine").on(table.quarantineStatus),
+  index("idx_playable_cards_proposed_unplayable").on(table.proposedUnplayable),
 ]);
 
 export const insertPlayableCardSchema = createInsertSchema(playableCards).omit({
@@ -3453,3 +3466,35 @@ export const cardImageMaskCache = pgTable("card_image_mask_cache", {
 ]);
 
 export type CardImageMaskCache = typeof cardImageMaskCache.$inferSelect;
+
+export const operationSources = ["ADMIN_MANUAL", "SYSTEM_NON_DESTRUCTIVE", "CARDHEDGE_CONFIRMED"] as const;
+export type OperationSource = typeof operationSources[number];
+
+export const setAuditLog = pgTable("set_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  setId: varchar("set_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  actionType: varchar("action_type", { length: 50 }).notNull(),
+  operationSource: varchar("operation_source", { length: 30 }).notNull(),
+  actorUserId: varchar("actor_user_id"),
+  beforeTotalCards: integer("before_total_cards").notNull().default(0),
+  afterTotalCards: integer("after_total_cards").notNull().default(0),
+  beforePlayableCards: integer("before_playable_cards").notNull().default(0),
+  afterPlayableCards: integer("after_playable_cards").notNull().default(0),
+  deltaTotalCards: integer("delta_total_cards").notNull().default(0),
+  deltaPlayableCards: integer("delta_playable_cards").notNull().default(0),
+  reason: text("reason"),
+  evidenceJson: jsonb("evidence_json"),
+}, (table) => [
+  index("idx_set_audit_log_set").on(table.setId),
+  index("idx_set_audit_log_created").on(table.createdAt),
+  index("idx_set_audit_log_action").on(table.actionType),
+  index("idx_set_audit_log_source").on(table.operationSource),
+]);
+
+export const insertSetAuditLogSchema = createInsertSchema(setAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSetAuditLog = z.infer<typeof insertSetAuditLogSchema>;
+export type SetAuditLog = typeof setAuditLog.$inferSelect;
