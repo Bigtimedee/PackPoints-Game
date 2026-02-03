@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -7243,6 +7243,117 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting import runs:", error);
       res.status(500).json({ error: "Failed to get import runs" });
+    }
+  });
+
+  // Admin: Get quarantine status for a set (shows Total, Playable, Quarantined counts)
+  app.get("/api/admin/playable-sets/:id/quarantine-status", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const [counts] = await db.select({
+        totalCards: sql<number>`count(*)`,
+        playableCards: sql<number>`count(*) filter (where ${playableCards.isPlayable} = true)`,
+        excludedCards: sql<number>`count(*) filter (where ${playableCards.isPlayable} = false)`,
+        quarantinedCards: sql<number>`count(*) filter (where ${playableCards.quarantineStatus} != 'OK')`,
+        proposedUnplayable: sql<number>`count(*) filter (where ${playableCards.proposedUnplayable} = true)`,
+        suspectTransient: sql<number>`count(*) filter (where ${playableCards.quarantineStatus} = 'SUSPECT_TRANSIENT')`,
+        suspectPersistent: sql<number>`count(*) filter (where ${playableCards.quarantineStatus} = 'SUSPECT_PERSISTENT')`,
+        awaitingAdminReview: sql<number>`count(*) filter (where ${playableCards.quarantineStatus} = 'QUARANTINED_ADMIN_REVIEW')`,
+      })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, id));
+      
+      res.json({
+        setId: id,
+        totalCards: Number(counts.totalCards) || 0,
+        playableCards: Number(counts.playableCards) || 0,
+        excludedCards: Number(counts.excludedCards) || 0,
+        quarantinedCards: Number(counts.quarantinedCards) || 0,
+        proposedUnplayable: Number(counts.proposedUnplayable) || 0,
+        breakdown: {
+          suspectTransient: Number(counts.suspectTransient) || 0,
+          suspectPersistent: Number(counts.suspectPersistent) || 0,
+          awaitingAdminReview: Number(counts.awaitingAdminReview) || 0,
+        }
+      });
+    } catch (error) {
+      console.error("Error getting quarantine status:", error);
+      res.status(500).json({ error: "Failed to get quarantine status" });
+    }
+  });
+
+  // Admin: Apply proposed unplayable changes for a set (ADMIN_MANUAL operation)
+  app.post("/api/admin/playable-sets/:id/apply-proposed", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const user = req.user as User;
+      
+      const { applyProposedChanges } = await import("./services/imageValidation");
+      const result = await applyProposedChanges(id, user.id);
+      
+      if (result.errors.length > 0) {
+        return res.status(400).json({ error: result.errors[0], applied: result.applied });
+      }
+      
+      res.json({
+        success: true,
+        applied: result.applied,
+        message: `Applied ${result.applied} proposed changes. Cards are now marked unplayable.`
+      });
+    } catch (error) {
+      console.error("Error applying proposed changes:", error);
+      res.status(500).json({ error: "Failed to apply proposed changes" });
+    }
+  });
+
+  // Admin: Get audit log for a set
+  app.get("/api/admin/playable-sets/:id/audit-log", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { limit: limitParam = "50" } = req.query;
+      const limitNum = Math.min(parseInt(String(limitParam), 10) || 50, 200);
+      
+      const logs = await db
+        .select()
+        .from(setAuditLog)
+        .where(eq(setAuditLog.setId, id))
+        .orderBy(desc(setAuditLog.createdAt))
+        .limit(limitNum);
+      
+      res.json(logs);
+    } catch (error) {
+      console.error("Error getting audit log:", error);
+      res.status(500).json({ error: "Failed to get audit log" });
+    }
+  });
+
+  // Admin: Get global audit log (all sets)
+  app.get("/api/admin/audit-log", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { limit: limitParam = "100", operationSource } = req.query;
+      const limitNum = Math.min(parseInt(String(limitParam), 10) || 100, 500);
+      
+      let query = db
+        .select()
+        .from(setAuditLog)
+        .orderBy(desc(setAuditLog.createdAt))
+        .limit(limitNum);
+      
+      if (operationSource && typeof operationSource === 'string') {
+        query = db
+          .select()
+          .from(setAuditLog)
+          .where(eq(setAuditLog.operationSource, operationSource))
+          .orderBy(desc(setAuditLog.createdAt))
+          .limit(limitNum);
+      }
+      
+      const logs = await query;
+      res.json(logs);
+    } catch (error) {
+      console.error("Error getting global audit log:", error);
+      res.status(500).json({ error: "Failed to get audit log" });
     }
   });
 
