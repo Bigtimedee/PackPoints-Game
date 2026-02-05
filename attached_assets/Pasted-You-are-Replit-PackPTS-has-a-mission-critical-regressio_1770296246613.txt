@@ -1,0 +1,132 @@
+You are Replit. PackPTS has a mission-critical regression: the number of PLAYABLE cards in already-imported sets shrinks daily without any Admin action (e.g., 1987 Topps Baseball decreasing over time). This must STOP. A set’s playable count may only decrease if (a) an Admin explicitly initiates a destructive action, OR (b) CardHedge itself has verifiably removed/invalidated cards and we have stable evidence. Otherwise, the system must not reduce playable counts.
+
+Your task:
+1) Diagnose exactly HOW the shrinkage is occurring in this codebase.
+2) Implement hard guardrails to prevent any autonomous pruning/shrinkage.
+3) Add auditing so any future change has a clear cause.
+
+DO NOT change gameplay rules, UI styling, payments, or matchmaking. Only touch: background jobs, import/validation pipelines, card playability flags, counts, and admin APIs.
+
+────────────────────────────────────────────────────────────
+PART 1 — DIAGNOSE THE ROOT CAUSE (REQUIRED, NO GUESSING)
+A) Find every code path that can reduce playable cards:
+- Search repo for keywords:
+  "is_playable", "playable", "unplayable", "quarantine", "invalid", "silhouette", "placeholder",
+  "cleanup", "dedupe", "purge", "refresh", "sync", "reimport", "revalidate", "validate", "health",
+  "delete", "deleted_at", "soft delete", "drizzle.delete", "DELETE FROM", "UPDATE cards SET is_playable"
+B) Find every scheduled/background execution:
+- Search for: "cron", "schedule", "worker", "queue", "bull", "agenda", "node-cron", "setInterval", "setTimeout"
+C) Confirm whether the shrinkage is caused by:
+1) A scheduled revalidate job flipping is_playable=false when image checks fail (timeouts/429/5xx mistaken as invalid)
+2) A dedupe/cleanup job deleting rows using a bad uniqueness key (e.g., description/player/number)
+3) A caching/denormalized count field being recomputed incorrectly
+4) A masking/image proxy pipeline overwriting canonical image_url with a silhouette fallback (then marking unplayable)
+5) A “raw_images_only” rule being enforced after import and quarantining most cards
+D) Add logs to the offending job/path:
+- For each card that becomes unplayable/deleted, log:
+  set_id, card_id, previous is_playable, new is_playable, reason, operation_source, HTTP status, content-type
+E) Write a short comment in code (e.g., /server/README_DEBUG.md) naming:
+- the exact file/function causing shrinkage and the evidence (logs)
+
+────────────────────────────────────────────────────────────
+PART 2 — IMPLEMENT HARD “NO AUTONOMOUS SHRINKAGE” GUARDRails
+Introduce a mandatory mutation context for ANY operation that can reduce playable cards:
+
+operation_source enum:
+- ADMIN_MANUAL
+- SYSTEM_NON_DESTRUCTIVE
+- CARDHEDGE_CONFIRMED
+
+Rules:
+- There is NO DEFAULT. Any mutation must explicitly declare operation_source.
+- If operation_source != ADMIN_MANUAL:
+  - NEVER set is_playable=false
+  - NEVER delete/soft-delete cards
+  - NEVER reduce playable_count (directly or indirectly)
+  - Only allowed: write non-destructive diagnostic fields (see Part 3)
+
+Apply this guard in the service layer (not the UI):
+- Wrap all mutations to cards/sets (imports, validators, cleanup, dedupe, refresh) with:
+  assertCanReducePlayableCards(operation_source)
+- Throw an error and log if a background process attempts destructive changes.
+
+Add a kill switch:
+- env DISABLE_AUTOMATED_SET_MUTATIONS=true
+When true, any background job touching sets/cards must skip mutations entirely and only log.
+
+────────────────────────────────────────────────────────────
+PART 3 — CHANGE AUTOMATED VALIDATION TO “QUARANTINE ONLY” (NON-DESTRUCTIVE)
+Add/ensure these columns on cards (migration):
+- quarantine_status: 'OK' | 'SUSPECT_TRANSIENT' | 'SUSPECT_PERSISTENT' | 'QUARANTINED_ADMIN_REVIEW' (default OK)
+- proposed_unplayable: boolean default false
+- validation_fail_count: int default 0
+- last_validation_reason: text
+- last_validation_http_status: int
+- last_validation_content_type: text
+- last_validation_checked_at: timestamp
+
+Update any automated “image validation” to:
+- NEVER flip is_playable=false
+- NEVER delete
+- Only update quarantine_status and last_validation_* fields
+
+Transient failure policy:
+- Treat timeouts, 429, and any 5xx as TRANSIENT.
+- Only mark SUSPECT_PERSISTENT after N non-transient failures (e.g., 4xx not found) across time.
+
+────────────────────────────────────────────────────────────
+PART 4 — ALLOW DECREASE ONLY WITH VERIFIED CARDHEDGE EVIDENCE (PROPOSE → ADMIN APPLIES)
+If you want to reflect CardHedge changes:
+- Implement CARDHEDGE_CONFIRMED checks:
+  A card may be marked proposed_unplayable=true only if:
+  - CardHedge card-details returns 404 consistently (e.g., 3 times over 12 hours), OR
+  - CardHedge returns definitive placeholder/invalid image consistently with non-transient status codes
+Even then:
+- DO NOT change is_playable automatically.
+- Set quarantine_status=QUARANTINED_ADMIN_REVIEW and proposed_unplayable=true.
+- Provide an Admin UI action “Apply Proposed Changes” that is the ONLY way to set is_playable=false (operation_source=ADMIN_MANUAL).
+
+────────────────────────────────────────────────────────────
+PART 5 — AUDIT LOGS + VISIBILITY (MANDATORY)
+Create table set_audit_log:
+- id, set_id, created_at
+- action_type (IMPORT, REIMPORT, VALIDATE, CLEANUP, APPLY_PROPOSED, etc.)
+- operation_source
+- actor_user_id nullable
+- before_playable, after_playable, delta_playable
+- before_total, after_total, delta_total
+- reason text
+- evidence_json (store CardHedge response metadata)
+
+Any operation that changes any card flags or counts must write an audit log row.
+Also add an admin debug endpoint:
+GET /api/admin/debug/set-integrity?setId=...
+Returns:
+- total cards, playable cards, quarantined/proposed counts
+- last 20 cards with changed status and why
+
+────────────────────────────────────────────────────────────
+PART 6 — FIX COUNTING SO IT DOESN’T “LOOK” SHRUNK DUE TO A BUG
+Ensure /admin/playable-sets displays:
+- playable_count computed as COUNT(cards WHERE set_id=? AND is_playable=true AND deleted_at is null)
+- total_count computed as COUNT(cards WHERE set_id=? AND deleted_at is null)
+Do NOT display a cached stale count unless it’s updated only in Admin-triggered transactions.
+Invalidate caches on admin import/reimport.
+
+────────────────────────────────────────────────────────────
+PART 7 — TESTING (REQUIRED) + SHOW OUTPUT
+Add and run tests:
+1) Simulate background validator run:
+- Assert no cards change is_playable from true->false
+- Assert no deletes occur
+2) Simulate admin “Apply Proposed Changes”:
+- Assert is_playable changes only when operation_source=ADMIN_MANUAL
+3) Verify playable_count for a set is stable across repeated background runs.
+
+Print test output and list changed files.
+
+Deliverables:
+- Root cause summary naming the exact job/path causing shrinkage
+- Guardrails implemented
+- Tests passing with output
+Proceed now.
