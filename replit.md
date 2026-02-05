@@ -94,8 +94,17 @@ A comprehensive system prevents background jobs from automatically removing card
 - `/api/admin/playable-sets/:id/apply-proposed` - Apply proposed unplayable changes
 - `/api/admin/playable-sets/:id/audit-log` - View set-specific audit log
 - `/api/admin/audit-log` - View global audit log
+- `POST /api/admin/cards/:cardId/exclude` - Manually exclude a card from gameplay (ADMIN_MANUAL only)
+- `POST /api/admin/cards/:cardId/restore` - Restore an excluded card to playable status
 
-**Files**: `server/services/mutationGuard.ts`, `server/services/imageValidation.ts`, `server/tests/antiPruning.test.ts`
+**Root Cause Analysis** (documented in `server/README_DEBUG.md`):
+- **Primary Culprit**: `imageValidation.ts` - was setting `isPlayable=false` every 6 hours for placeholder/failed images
+- **Secondary Culprit**: `cardPoolRefresh.ts` - was incrementing failure counts preventing recovery
+- **Fix**: Background jobs now only update quarantine fields, never `isPlayable`
+
+**Live Counts**: The `/api/admin/game-sets` endpoint uses a live COUNT query matching gameplay logic exactly (lines 5383-5394 in routes.ts), preventing stale cached counts.
+
+**Files**: `server/services/mutationGuard.ts`, `server/services/imageValidation.ts`, `server/services/cardPoolRefresh.ts`, `server/tests/antiPruning.test.ts`, `server/README_DEBUG.md`
 
 ### CardHedge Integration Layer
 A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
