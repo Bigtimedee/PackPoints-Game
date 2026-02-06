@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 
 let connectionSettings: any;
 let cachedStripeConfigured: boolean | null = null;
+let credentialSource: string = 'none';
 
 async function fetchConnectorCredentials(environment: string): Promise<{ publishableKey: string; secretKey: string } | null> {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
@@ -11,7 +12,10 @@ async function fetchConnectorCredentials(environment: string): Promise<{ publish
       ? 'depl ' + process.env.WEB_REPL_RENEWAL
       : null;
 
+  console.log(`[Stripe] Attempting connector (${environment}): hostname=${hostname ? 'set' : 'unset'}, token=${xReplitToken ? xReplitToken.substring(0, 8) + '...' : 'unset'}, REPL_IDENTITY=${process.env.REPL_IDENTITY ? 'set' : 'unset'}, WEB_REPL_RENEWAL=${process.env.WEB_REPL_RENEWAL ? 'set' : 'unset'}, REPLIT_DEPLOYMENT=${process.env.REPLIT_DEPLOYMENT || 'unset'}`);
+
   if (!xReplitToken || !hostname) {
+    console.log(`[Stripe] Skipping connector (${environment}): missing ${!xReplitToken ? 'token' : 'hostname'}`);
     return null;
   }
 
@@ -29,15 +33,21 @@ async function fetchConnectorCredentials(environment: string): Promise<{ publish
     });
 
     const data = await response.json();
+    console.log(`[Stripe] Connector response (${environment}): status=${response.status}, items=${data.items?.length || 0}`);
+    
     const settings = data.items?.[0];
 
     if (settings?.settings?.publishable && settings?.settings?.secret) {
-      console.log(`[Stripe] Found credentials via connector (${environment})`);
+      const keyPrefix = settings.settings.secret.substring(0, 7);
+      console.log(`[Stripe] Found credentials via connector (${environment}), key prefix: ${keyPrefix}...`);
       connectionSettings = settings;
+      credentialSource = `connector-${environment}`;
       return {
         publishableKey: settings.settings.publishable,
         secretKey: settings.settings.secret,
       };
+    } else {
+      console.log(`[Stripe] Connector (${environment}) returned item but missing keys. Has publishable: ${!!settings?.settings?.publishable}, Has secret: ${!!settings?.settings?.secret}`);
     }
   } catch (err) {
     console.log(`[Stripe] Connector fetch failed for ${environment}:`, (err as Error).message);
@@ -59,7 +69,39 @@ async function getCredentials() {
     if (creds) return creds;
   }
 
-  throw new Error(`Stripe connection not found (tried ${isProduction ? 'production, development' : 'development'})`);
+  const envSecret = process.env.STRIPE_SECRET_KEY;
+  const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+  if (envSecret && envPublishable) {
+    console.log(`[Stripe] Found credentials via environment variables, key prefix: ${envSecret.substring(0, 7)}...`);
+    credentialSource = 'env-vars';
+    return { publishableKey: envPublishable, secretKey: envSecret };
+  }
+
+  if (envSecret) {
+    console.log(`[Stripe] Found STRIPE_SECRET_KEY but missing STRIPE_PUBLISHABLE_KEY`);
+  }
+  if (envPublishable) {
+    console.log(`[Stripe] Found STRIPE_PUBLISHABLE_KEY but missing STRIPE_SECRET_KEY`);
+  }
+
+  throw new Error(`Stripe connection not found (tried: connector ${isProduction ? 'production+development' : 'development'}, env vars). REPLIT_DEPLOYMENT=${process.env.REPLIT_DEPLOYMENT}, CONNECTORS_HOSTNAME=${process.env.REPLIT_CONNECTORS_HOSTNAME ? 'set' : 'unset'}`);
+}
+
+export function getStripeCredentialSource(): string {
+  return credentialSource;
+}
+
+export function getStripeDiagnostics(): Record<string, any> {
+  return {
+    configured: cachedStripeConfigured,
+    credentialSource,
+    isProduction: process.env.REPLIT_DEPLOYMENT === '1',
+    hasConnectorHostname: !!process.env.REPLIT_CONNECTORS_HOSTNAME,
+    hasReplIdentity: !!process.env.REPL_IDENTITY,
+    hasWebReplRenewal: !!process.env.WEB_REPL_RENEWAL,
+    hasEnvSecretKey: !!process.env.STRIPE_SECRET_KEY,
+    hasEnvPublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
+  };
 }
 
 export async function getStripeClient(): Promise<Stripe> {

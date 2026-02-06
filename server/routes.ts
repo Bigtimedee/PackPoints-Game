@@ -19,6 +19,7 @@ import {
 } from "./services/cardhedge/client";
 import { stripePurchaseService, isStripeConfigured, checkStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
+import { getStripeDiagnostics } from "./stripeClient";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
@@ -2560,6 +2561,12 @@ export async function registerRoutes(
     res.json({
       stripeConfigured: configured,
     });
+  });
+
+  app.get("/api/admin/stripe-diagnostics", requireAdmin, async (_req, res) => {
+    const diag = getStripeDiagnostics();
+    const configured = await checkStripeConfigured();
+    res.json({ ...diag, configuredNow: configured });
   });
 
   // ============================================
