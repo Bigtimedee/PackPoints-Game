@@ -60,6 +60,21 @@ async function getCredentials() {
   const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
   const primaryEnv = isProduction ? 'production' : 'development';
 
+  const envSecret = process.env.STRIPE_SECRET_KEY;
+  const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
+  if (envSecret && envPublishable) {
+    console.log(`[Stripe] Found credentials via environment variables (priority), key prefix: ${envSecret.substring(0, 7)}...`);
+    credentialSource = 'env-vars';
+    return { publishableKey: envPublishable, secretKey: envSecret };
+  }
+
+  if (envSecret) {
+    console.log(`[Stripe] Found STRIPE_SECRET_KEY but missing STRIPE_PUBLISHABLE_KEY, trying connector`);
+  }
+  if (envPublishable) {
+    console.log(`[Stripe] Found STRIPE_PUBLISHABLE_KEY but missing STRIPE_SECRET_KEY, trying connector`);
+  }
+
   let creds = await fetchConnectorCredentials(primaryEnv);
   if (creds) return creds;
 
@@ -69,22 +84,7 @@ async function getCredentials() {
     if (creds) return creds;
   }
 
-  const envSecret = process.env.STRIPE_SECRET_KEY;
-  const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
-  if (envSecret && envPublishable) {
-    console.log(`[Stripe] Found credentials via environment variables, key prefix: ${envSecret.substring(0, 7)}...`);
-    credentialSource = 'env-vars';
-    return { publishableKey: envPublishable, secretKey: envSecret };
-  }
-
-  if (envSecret) {
-    console.log(`[Stripe] Found STRIPE_SECRET_KEY but missing STRIPE_PUBLISHABLE_KEY`);
-  }
-  if (envPublishable) {
-    console.log(`[Stripe] Found STRIPE_PUBLISHABLE_KEY but missing STRIPE_SECRET_KEY`);
-  }
-
-  throw new Error(`Stripe connection not found (tried: connector ${isProduction ? 'production+development' : 'development'}, env vars). REPLIT_DEPLOYMENT=${process.env.REPLIT_DEPLOYMENT}, CONNECTORS_HOSTNAME=${process.env.REPLIT_CONNECTORS_HOSTNAME ? 'set' : 'unset'}`);
+  throw new Error(`Stripe connection not found (tried: env vars, connector ${isProduction ? 'production+development' : 'development'}). REPLIT_DEPLOYMENT=${process.env.REPLIT_DEPLOYMENT}, CONNECTORS_HOSTNAME=${process.env.REPLIT_CONNECTORS_HOSTNAME ? 'set' : 'unset'}`);
 }
 
 export function getStripeCredentialSource(): string {
