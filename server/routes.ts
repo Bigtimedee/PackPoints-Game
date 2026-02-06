@@ -9815,6 +9815,185 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // BUNDLE BUILDER ENDPOINTS (v2)
+  // ============================================
+
+  app.post("/api/admin/store/bundles/preview", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const previewSchema = z.object({
+        channel: z.enum(["web_stripe", "ios_iap", "android_iap"]).optional(),
+        usdPriceCents: z.number().int().positive().optional(),
+        packptsAmount: z.number().int().positive().optional(),
+        driver: z.enum(["USD", "PACKPTS"]).optional(),
+        ratioMode: z.enum(["AUTO", "OVERRIDE"]).optional(),
+        overrideRatioUsdPerPackptMicro: z.number().int().positive().optional(),
+      });
+
+      const parsed = previewSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const result = await packageGuardrailService.previewBundle(parsed.data);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error previewing bundle:", error);
+      res.status(500).json({ error: error.message || "Failed to preview bundle" });
+    }
+  });
+
+  app.post("/api/admin/store/bundles", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService, BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+
+      const createSchema = z.object({
+        sku: z.string().min(1),
+        name: z.string().min(1),
+        channel: z.enum(["web_stripe", "ios_iap", "android_iap"]),
+        usdPriceCents: z.number().int().positive(),
+        packptsAmount: z.number().int().positive(),
+        ratioMode: z.enum(["AUTO", "OVERRIDE"]).default("AUTO"),
+        overrideRatioUsdPerPackptMicro: z.number().int().positive().optional(),
+        overrideReason: z.string().optional(),
+        overrideGuardrails: z.boolean().optional(),
+        overrideGuardrailsReason: z.string().optional(),
+        confirm: z.boolean().optional(),
+      });
+
+      const parsed = createSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const result = await packageGuardrailService.createBundle({
+        ...parsed.data,
+        adminUserId,
+      });
+
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      const { BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+
+      if (error instanceof BlockedPackageError) {
+        return res.status(422).json({
+          error: "PACKAGE_BLOCKED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+
+      if (error instanceof WarnPackageError) {
+        return res.status(409).json({
+          error: "CONFIRMATION_REQUIRED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+
+      console.error("Error creating bundle:", error);
+      res.status(500).json({ error: error.message || "Failed to create bundle" });
+    }
+  });
+
+  app.put("/api/admin/store/bundles/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService, BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+
+      const updateSchema = z.object({
+        sku: z.string().min(1).optional(),
+        name: z.string().min(1).optional(),
+        channel: z.enum(["web_stripe", "ios_iap", "android_iap"]).optional(),
+        usdPriceCents: z.number().int().positive().optional(),
+        packptsAmount: z.number().int().positive().optional(),
+        ratioMode: z.enum(["AUTO", "OVERRIDE"]).optional(),
+        overrideRatioUsdPerPackptMicro: z.number().int().positive().optional(),
+        overrideReason: z.string().optional(),
+        overrideGuardrails: z.boolean().optional(),
+        overrideGuardrailsReason: z.string().optional(),
+        confirm: z.boolean().optional(),
+      });
+
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const result = await packageGuardrailService.updateBundle({
+        productId: req.params.id,
+        ...parsed.data,
+        adminUserId,
+      });
+
+      res.json({ success: true, productId: req.params.id, ...result });
+    } catch (error: any) {
+      const { BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
+
+      if (error instanceof BlockedPackageError) {
+        return res.status(422).json({
+          error: "PACKAGE_BLOCKED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+
+      if (error instanceof WarnPackageError) {
+        return res.status(409).json({
+          error: "CONFIRMATION_REQUIRED",
+          message: error.message,
+          evaluation: error.evaluation,
+        });
+      }
+
+      console.error("Error updating bundle:", error);
+      res.status(500).json({ error: error.message || "Failed to update bundle" });
+    }
+  });
+
+  app.get("/api/admin/store/bundles", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const channel = req.query.channel as string | undefined;
+      const status = req.query.status as string | undefined;
+
+      const bundles = await packageGuardrailService.listBundles({
+        channel: channel as any,
+        status,
+      });
+
+      res.json({ bundles });
+    } catch (error: any) {
+      console.error("Error listing bundles:", error);
+      res.status(500).json({ error: error.message || "Failed to list bundles" });
+    }
+  });
+
+  app.get("/api/admin/store/bundles/:id/audit-log", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+
+      const logs = await packageGuardrailService.getBundleAuditLog(req.params.id);
+
+      res.json({ logs });
+    } catch (error: any) {
+      console.error("Error getting bundle audit log:", error);
+      res.status(500).json({ error: error.message || "Failed to get bundle audit log" });
+    }
+  });
+
+  // ============================================
   // FRAUD SCORING PIPELINE & RISK API ENDPOINTS
   // ============================================
 

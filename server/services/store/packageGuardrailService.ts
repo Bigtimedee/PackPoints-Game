@@ -4,15 +4,34 @@ import {
   storePackagePolicy, 
   storePackageValidations,
   products,
+  adminBundleAuditLog,
   type StoreFeeProfile,
   type StorePackagePolicy,
   type InsertStorePackageValidation
 } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 
 export type SalesChannel = "web_stripe" | "ios_iap" | "android_iap";
 
 export type PackageDecision = "PASS" | "WARN" | "BLOCK" | "OVERRIDE";
+
+export type DriverMode = "USD" | "PACKPTS";
+export type RatioMode = "AUTO" | "OVERRIDE";
+
+export interface BundleRatios {
+  usdPerPackptMicro: number;
+  packptPerUsdMicro: number;
+}
+
+export interface BundlePreviewResult {
+  resolved: {
+    usdPriceCents: number;
+    packptsAmount: number;
+    ratios: BundleRatios;
+    ratioMode: RatioMode;
+  };
+  guardrails: EvaluationResult;
+}
 
 export interface ComputedPackageMetrics {
   priceCents: number;
@@ -470,6 +489,331 @@ class PackageGuardrailService {
     }
 
     return updatedProfile;
+  }
+
+  computeRatios(usdPriceCents: number, packptsAmount: number): BundleRatios {
+    if (packptsAmount <= 0 || usdPriceCents <= 0) {
+      return { usdPerPackptMicro: 0, packptPerUsdMicro: 0 };
+    }
+    const usdPerPackptMicro = Math.round((usdPriceCents * 10000) / packptsAmount);
+    const packptPerUsdMicro = Math.round((packptsAmount * 1000000) / (usdPriceCents / 100));
+    return { usdPerPackptMicro, packptPerUsdMicro };
+  }
+
+  autoCalculateFromDriver(
+    driver: DriverMode,
+    usdPriceCents: number | undefined,
+    packptsAmount: number | undefined,
+    defaultRatioMicro: number,
+    overrideRatioMicro?: number
+  ): { usdPriceCents: number; packptsAmount: number } {
+    const ratioMicro = overrideRatioMicro || defaultRatioMicro;
+
+    if (driver === "USD") {
+      const price = usdPriceCents ?? 0;
+      if (price <= 0 || ratioMicro <= 0) return { usdPriceCents: price, packptsAmount: packptsAmount ?? 0 };
+      const computed = Math.floor((price * 10000) / ratioMicro);
+      return { usdPriceCents: price, packptsAmount: Math.max(1, computed) };
+    } else {
+      const pts = packptsAmount ?? 0;
+      if (pts <= 0 || ratioMicro <= 0) return { usdPriceCents: usdPriceCents ?? 0, packptsAmount: pts };
+      const computed = Math.ceil((pts * ratioMicro) / 10000);
+      return { usdPriceCents: Math.max(1, computed), packptsAmount: pts };
+    }
+  }
+
+  async previewBundle(params: {
+    channel?: SalesChannel;
+    usdPriceCents?: number;
+    packptsAmount?: number;
+    driver?: DriverMode;
+    ratioMode?: RatioMode;
+    overrideRatioUsdPerPackptMicro?: number;
+  }): Promise<BundlePreviewResult> {
+    const policy = await this.getActivePolicy();
+    if (!policy) throw new Error("No active store package policy configured");
+
+    const channel = params.channel || "web_stripe";
+    const driver = params.driver || "USD";
+    const ratioMode = params.ratioMode || "AUTO";
+    const defaultRatio = policy.maxValuePerPtMicrousd;
+
+    const { usdPriceCents, packptsAmount } = this.autoCalculateFromDriver(
+      driver,
+      params.usdPriceCents,
+      params.packptsAmount,
+      defaultRatio,
+      ratioMode === "OVERRIDE" ? params.overrideRatioUsdPerPackptMicro : undefined
+    );
+
+    const ratios = this.computeRatios(usdPriceCents, packptsAmount);
+    const guardrails = await this.evaluatePackage(usdPriceCents, packptsAmount, channel);
+
+    return {
+      resolved: {
+        usdPriceCents,
+        packptsAmount,
+        ratios,
+        ratioMode,
+      },
+      guardrails,
+    };
+  }
+
+  async createBundle(params: {
+    sku: string;
+    name: string;
+    channel: SalesChannel;
+    usdPriceCents: number;
+    packptsAmount: number;
+    ratioMode: RatioMode;
+    overrideRatioUsdPerPackptMicro?: number;
+    overrideReason?: string;
+    overrideGuardrails?: boolean;
+    overrideGuardrailsReason?: string;
+    confirm?: boolean;
+    adminUserId: string;
+  }): Promise<{ productId: string; validationId: string; evaluation: EvaluationResult }> {
+    if (params.ratioMode === "OVERRIDE" && (!params.overrideReason || params.overrideReason.length < 10)) {
+      throw new Error("Override reason must be at least 10 characters when using OVERRIDE ratio mode");
+    }
+
+    const evaluation = await this.evaluatePackage(
+      params.usdPriceCents, params.packptsAmount, params.channel
+    );
+
+    if (evaluation.decision === "BLOCK") {
+      if (!params.overrideGuardrails) {
+        throw new BlockedPackageError(evaluation);
+      }
+      if (!params.overrideGuardrailsReason || params.overrideGuardrailsReason.length < 10) {
+        throw new Error("Override guardrails reason must be at least 10 characters");
+      }
+    }
+
+    if (evaluation.decision === "WARN" && !params.confirm) {
+      throw new WarnPackageError(evaluation);
+    }
+
+    const ratios = this.computeRatios(params.usdPriceCents, params.packptsAmount);
+
+    const guardrailsStatus = params.overrideGuardrails && evaluation.decision === "BLOCK"
+      ? "OVERRIDE"
+      : evaluation.decision;
+
+    const [product] = await db
+      .insert(products)
+      .values({
+        sku: params.sku,
+        name: params.name,
+        type: "CONSUMABLE",
+        packptsGrant: params.packptsAmount,
+        priceUsd: params.usdPriceCents,
+        isActive: true,
+        metadata: { channel: params.channel },
+        ratioUsdPerPackptMicro: ratios.usdPerPackptMicro,
+        ratioPackptPerUsdMicro: ratios.packptPerUsdMicro,
+        ratioMode: params.ratioMode,
+        overrideReason: params.overrideReason || null,
+        guardrailsStatus,
+        guardrailsJson: evaluation as any,
+        createdByUserId: params.adminUserId,
+      })
+      .returning({ id: products.id });
+
+    const overrideNote = params.overrideGuardrails
+      ? `Guardrails override: ${params.overrideGuardrailsReason}`
+      : params.ratioMode === "OVERRIDE"
+        ? `Ratio override: ${params.overrideReason}`
+        : undefined;
+
+    const validationId = await this.recordValidation(
+      evaluation, product.id, params.adminUserId, overrideNote
+    );
+
+    await db.insert(adminBundleAuditLog).values({
+      bundleId: product.id,
+      actorUserId: params.adminUserId,
+      action: "CREATE",
+      afterJson: {
+        sku: params.sku,
+        name: params.name,
+        usdPriceCents: params.usdPriceCents,
+        packptsAmount: params.packptsAmount,
+        channel: params.channel,
+        ratioMode: params.ratioMode,
+        ratios,
+        guardrailsStatus,
+        overrideReason: params.overrideReason,
+        overrideGuardrailsReason: params.overrideGuardrailsReason,
+      },
+      reason: overrideNote || `Created bundle: ${params.sku}`,
+    });
+
+    return { productId: product.id, validationId, evaluation };
+  }
+
+  async updateBundle(params: {
+    productId: string;
+    sku?: string;
+    name?: string;
+    channel?: SalesChannel;
+    usdPriceCents?: number;
+    packptsAmount?: number;
+    ratioMode?: RatioMode;
+    overrideRatioUsdPerPackptMicro?: number;
+    overrideReason?: string;
+    overrideGuardrails?: boolean;
+    overrideGuardrailsReason?: string;
+    confirm?: boolean;
+    adminUserId: string;
+  }): Promise<{ validationId: string; evaluation: EvaluationResult }> {
+    const [existing] = await db
+      .select()
+      .from(products)
+      .where(eq(products.id, params.productId))
+      .limit(1);
+
+    if (!existing) throw new Error("Product not found");
+
+    const metadata = existing.metadata as { channel?: SalesChannel } | null;
+    const channel = params.channel || metadata?.channel || "web_stripe";
+    const priceCents = params.usdPriceCents ?? existing.priceUsd ?? 0;
+    const ptsGrant = params.packptsAmount ?? existing.packptsGrant ?? 0;
+    const ratioMode = params.ratioMode ?? (existing.ratioMode as RatioMode) ?? "AUTO";
+
+    if (ratioMode === "OVERRIDE" && (!params.overrideReason || params.overrideReason.length < 10)) {
+      throw new Error("Override reason must be at least 10 characters when using OVERRIDE ratio mode");
+    }
+
+    const evaluation = await this.evaluatePackage(priceCents, ptsGrant, channel);
+
+    if (evaluation.decision === "BLOCK" && !params.overrideGuardrails) {
+      throw new BlockedPackageError(evaluation);
+    }
+
+    if (evaluation.decision === "BLOCK" && params.overrideGuardrails) {
+      if (!params.overrideGuardrailsReason || params.overrideGuardrailsReason.length < 10) {
+        throw new Error("Override guardrails reason must be at least 10 characters");
+      }
+    }
+
+    if (evaluation.decision === "WARN" && !params.confirm) {
+      throw new WarnPackageError(evaluation);
+    }
+
+    const ratios = this.computeRatios(priceCents, ptsGrant);
+    const guardrailsStatus = params.overrideGuardrails && evaluation.decision === "BLOCK"
+      ? "OVERRIDE"
+      : evaluation.decision;
+
+    const beforeSnapshot = {
+      sku: existing.sku,
+      name: existing.name,
+      usdPriceCents: existing.priceUsd,
+      packptsAmount: existing.packptsGrant,
+      channel: metadata?.channel,
+      ratioMode: existing.ratioMode,
+      guardrailsStatus: existing.guardrailsStatus,
+    };
+
+    await db
+      .update(products)
+      .set({
+        sku: params.sku ?? existing.sku,
+        name: params.name ?? existing.name,
+        priceUsd: priceCents,
+        packptsGrant: ptsGrant,
+        metadata: { ...metadata, channel },
+        ratioUsdPerPackptMicro: ratios.usdPerPackptMicro,
+        ratioPackptPerUsdMicro: ratios.packptPerUsdMicro,
+        ratioMode,
+        overrideReason: params.overrideReason ?? existing.overrideReason,
+        guardrailsStatus,
+        guardrailsJson: evaluation as any,
+        updatedAt: new Date(),
+      })
+      .where(eq(products.id, params.productId));
+
+    const overrideNote = params.overrideGuardrails
+      ? `Guardrails override: ${params.overrideGuardrailsReason}`
+      : ratioMode === "OVERRIDE"
+        ? `Ratio override: ${params.overrideReason}`
+        : undefined;
+
+    const validationId = await this.recordValidation(
+      evaluation, params.productId, params.adminUserId, overrideNote
+    );
+
+    const afterSnapshot = {
+      sku: params.sku ?? existing.sku,
+      name: params.name ?? existing.name,
+      usdPriceCents: priceCents,
+      packptsAmount: ptsGrant,
+      channel,
+      ratioMode,
+      ratios,
+      guardrailsStatus,
+      overrideReason: params.overrideReason,
+      overrideGuardrailsReason: params.overrideGuardrailsReason,
+    };
+
+    await db.insert(adminBundleAuditLog).values({
+      bundleId: params.productId,
+      actorUserId: params.adminUserId,
+      action: ratioMode === "OVERRIDE" ? "OVERRIDE_RATIO" : "UPDATE",
+      beforeJson: beforeSnapshot,
+      afterJson: afterSnapshot,
+      reason: overrideNote || `Updated bundle: ${params.sku ?? existing.sku}`,
+    });
+
+    return { validationId, evaluation };
+  }
+
+  async listBundles(filters?: { channel?: SalesChannel; status?: string }): Promise<any[]> {
+    let query = db
+      .select()
+      .from(products)
+      .where(eq(products.type, "CONSUMABLE"))
+      .orderBy(desc(products.createdAt));
+
+    const results = await query;
+
+    return results
+      .filter(p => {
+        if (filters?.channel) {
+          const meta = p.metadata as { channel?: string } | null;
+          if (meta?.channel !== filters.channel) return false;
+        }
+        if (filters?.status && p.guardrailsStatus !== filters.status) return false;
+        return true;
+      })
+      .map(p => {
+        const meta = p.metadata as { channel?: string } | null;
+        return {
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          usdPriceCents: p.priceUsd,
+          packptsAmount: p.packptsGrant,
+          channel: meta?.channel || "web_stripe",
+          ratioUsdPerPackptMicro: p.ratioUsdPerPackptMicro,
+          ratioPackptPerUsdMicro: p.ratioPackptPerUsdMicro,
+          ratioMode: p.ratioMode || "AUTO",
+          guardrailsStatus: p.guardrailsStatus || "PASS",
+          isActive: p.isActive,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        };
+      });
+  }
+
+  async getBundleAuditLog(bundleId: string) {
+    return db
+      .select()
+      .from(adminBundleAuditLog)
+      .where(eq(adminBundleAuditLog.bundleId, bundleId))
+      .orderBy(desc(adminBundleAuditLog.createdAt));
   }
 }
 

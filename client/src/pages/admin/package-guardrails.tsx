@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -43,13 +43,19 @@ import {
   DollarSign,
   TrendingUp,
   Percent,
-  RefreshCw
+  RefreshCw,
+  Package,
+  ArrowRightLeft,
+  Pencil
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 
 type SalesChannel = "web_stripe" | "ios_iap" | "android_iap";
 type PackageDecision = "PASS" | "WARN" | "BLOCK" | "OVERRIDE";
+type DriverMode = "USD" | "PACKPTS";
+type RatioMode = "AUTO" | "OVERRIDE";
 
 interface ComputedMetrics {
   priceCents: number;
@@ -117,6 +123,46 @@ interface PackageFormData {
   channel: SalesChannel;
 }
 
+interface BundleFormData {
+  sku: string;
+  name: string;
+  usdPriceCents: number;
+  packptsAmount: number;
+  channel: SalesChannel;
+  driver: DriverMode;
+  ratioMode: RatioMode;
+  overrideRatioUsdPerPackptMicro: number;
+  overrideReason: string;
+  overrideGuardrails: boolean;
+  overrideGuardrailsReason: string;
+}
+
+interface BundlePreviewResult {
+  resolved: {
+    usdPriceCents: number;
+    packptsAmount: number;
+    ratios: { usdPerPackptMicro: number; packptPerUsdMicro: number };
+    ratioMode: RatioMode;
+  };
+  guardrails: EvaluationResult;
+}
+
+interface BundleListItem {
+  id: string;
+  sku: string;
+  name: string;
+  usdPriceCents: number;
+  packptsAmount: number;
+  channel: string;
+  ratioUsdPerPackptMicro: number;
+  ratioPackptPerUsdMicro: number;
+  ratioMode: string;
+  guardrailsStatus: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const channelLabels: Record<SalesChannel, string> = {
   web_stripe: "Web (Stripe)",
   ios_iap: "iOS In-App Purchase",
@@ -150,12 +196,22 @@ function formatMicrousd(microusd: number): string {
   return `$${(microusd / 1000000).toFixed(6)}`;
 }
 
+function formatRatioUsdPerPt(microusd: number): string {
+  return `$${(microusd / 1000000).toFixed(4)}/pt`;
+}
+
+function formatRatioPtsPerUsd(microusd: number): string {
+  const ptsPerDollar = microusd / 1000000;
+  return `${ptsPerDollar.toFixed(0)} pts/$1`;
+}
+
 export default function AdminPackageGuardrails() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("calculator");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingEvaluation, setPendingEvaluation] = useState<EvaluationResult | null>(null);
+  const [editingBundleId, setEditingBundleId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<PackageFormData>({
     sku: "",
@@ -163,6 +219,20 @@ export default function AdminPackageGuardrails() {
     priceCents: 999,
     ptsGrant: 6000,
     channel: "web_stripe",
+  });
+
+  const [bundleForm, setBundleForm] = useState<BundleFormData>({
+    sku: "",
+    name: "",
+    usdPriceCents: 999,
+    packptsAmount: 6000,
+    channel: "web_stripe",
+    driver: "USD",
+    ratioMode: "AUTO",
+    overrideRatioUsdPerPackptMicro: 2000,
+    overrideReason: "",
+    overrideGuardrails: false,
+    overrideGuardrailsReason: "",
   });
 
   const [calcPriceCents, setCalcPriceCents] = useState(999);
@@ -178,9 +248,26 @@ export default function AdminPackageGuardrails() {
     },
   });
 
+  const { data: bundlesList, isLoading: bundlesLoading } = useQuery<BundleListItem[]>({
+    queryKey: ["/api/admin/store/bundles"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/store/bundles", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch bundles");
+      const data = await res.json();
+      return data.bundles || [];
+    },
+  });
+
   const previewMutation = useMutation({
     mutationFn: async (data: { priceCents: number; ptsGrant: number; channel: SalesChannel }) => {
       const res = await apiRequest("POST", "/api/admin/store/packages/preview", data);
+      return res.json();
+    },
+  });
+
+  const bundlePreviewMutation = useMutation({
+    mutationFn: async (data: { channel: SalesChannel; usdPriceCents: number; packptsAmount: number; driver: DriverMode; ratioMode: RatioMode; overrideRatioUsdPerPackptMicro: number }) => {
+      const res = await apiRequest("POST", "/api/admin/store/bundles/preview", data);
       return res.json();
     },
   });
@@ -219,6 +306,84 @@ export default function AdminPackageGuardrails() {
         toast({ title: "Error", description: "Failed to create package", variant: "destructive" });
       }
     },
+  });
+
+  const resetBundleForm = () => {
+    setBundleForm({
+      sku: "",
+      name: "",
+      usdPriceCents: 999,
+      packptsAmount: 6000,
+      channel: "web_stripe",
+      driver: "USD",
+      ratioMode: "AUTO",
+      overrideRatioUsdPerPackptMicro: 2000,
+      overrideReason: "",
+      overrideGuardrails: false,
+      overrideGuardrailsReason: "",
+    });
+  };
+
+  const handleBundleMutationError = (error: any) => {
+    const msg = error?.message || "";
+    const colonIdx = msg.indexOf(": ");
+    if (colonIdx > 0) {
+      try {
+        const jsonStr = msg.substring(colonIdx + 2);
+        const parsed = JSON.parse(jsonStr);
+        if (parsed.error === "CONFIRMATION_REQUIRED") {
+          setPendingEvaluation(parsed.evaluation);
+          setShowConfirmDialog(true);
+          return;
+        }
+        if (parsed.error === "PACKAGE_BLOCKED") {
+          setPendingEvaluation(parsed.evaluation);
+          toast({
+            title: "Bundle Blocked",
+            description: parsed.message || "This bundle is blocked by guardrails. Enable override in the form to proceed.",
+            variant: "destructive",
+          });
+          return;
+        }
+        toast({ title: "Error", description: parsed.message || parsed.error || "Failed to save bundle", variant: "destructive" });
+        return;
+      } catch {}
+    }
+    toast({ title: "Error", description: "Failed to save bundle", variant: "destructive" });
+  };
+
+  const createBundleMutation = useMutation({
+    mutationFn: async (data: BundleFormData & { confirm?: boolean }) => {
+      const res = await apiRequest("POST", "/api/admin/store/bundles", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Bundle created", description: "The PackPTS bundle has been created successfully." });
+      setShowCreateDialog(false);
+      setShowConfirmDialog(false);
+      setPendingEvaluation(null);
+      setEditingBundleId(null);
+      resetBundleForm();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/store/bundles"] });
+    },
+    onError: handleBundleMutationError,
+  });
+
+  const updateBundleMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: BundleFormData & { confirm?: boolean } }) => {
+      const res = await apiRequest("PUT", `/api/admin/store/bundles/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Bundle updated", description: "The PackPTS bundle has been updated successfully." });
+      setShowCreateDialog(false);
+      setShowConfirmDialog(false);
+      setPendingEvaluation(null);
+      setEditingBundleId(null);
+      resetBundleForm();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/store/bundles"] });
+    },
+    onError: handleBundleMutationError,
   });
 
   const updatePolicyMutation = useMutation({
@@ -264,12 +429,94 @@ export default function AdminPackageGuardrails() {
     return () => clearTimeout(timeoutId);
   }, [calcPriceCents, calcPtsGrant, calcChannel]);
 
+  const lastPreviewRef = useRef<string>("");
+  useEffect(() => {
+    if (!showCreateDialog) return;
+    const driverValue = bundleForm.driver === "USD" ? bundleForm.usdPriceCents : bundleForm.packptsAmount;
+    if (driverValue <= 0) return;
+    const key = `${bundleForm.channel}-${bundleForm.usdPriceCents}-${bundleForm.packptsAmount}-${bundleForm.driver}-${bundleForm.ratioMode}-${bundleForm.overrideRatioUsdPerPackptMicro}`;
+    if (key === lastPreviewRef.current) return;
+    const timeoutId = setTimeout(() => {
+      lastPreviewRef.current = key;
+      bundlePreviewMutation.mutate({
+        channel: bundleForm.channel,
+        usdPriceCents: bundleForm.usdPriceCents,
+        packptsAmount: bundleForm.packptsAmount,
+        driver: bundleForm.driver,
+        ratioMode: bundleForm.ratioMode,
+        overrideRatioUsdPerPackptMicro: bundleForm.overrideRatioUsdPerPackptMicro,
+      }, {
+        onSuccess: (result: BundlePreviewResult) => {
+          if (result.resolved) {
+            setBundleForm(prev => ({
+              ...prev,
+              usdPriceCents: result.resolved.usdPriceCents,
+              packptsAmount: result.resolved.packptsAmount,
+            }));
+          }
+        },
+      });
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [showCreateDialog, bundleForm.channel, bundleForm.usdPriceCents, bundleForm.packptsAmount, bundleForm.driver, bundleForm.ratioMode, bundleForm.overrideRatioUsdPerPackptMicro]);
+
   const handleCreateSubmit = () => {
     createMutation.mutate(formData);
   };
 
   const handleConfirmSubmit = () => {
     createMutation.mutate({ ...formData, confirm: true });
+  };
+
+  const handleBundleSubmit = () => {
+    if (editingBundleId) {
+      updateBundleMutation.mutate({ id: editingBundleId, data: bundleForm });
+    } else {
+      createBundleMutation.mutate(bundleForm);
+    }
+  };
+
+  const handleBundleConfirmSubmit = () => {
+    if (editingBundleId) {
+      updateBundleMutation.mutate({ id: editingBundleId, data: { ...bundleForm, confirm: true } });
+    } else {
+      createBundleMutation.mutate({ ...bundleForm, confirm: true });
+    }
+  };
+
+  const openBundleEditor = (bundle?: BundleListItem) => {
+    if (bundle) {
+      setEditingBundleId(bundle.id);
+      setBundleForm({
+        sku: bundle.sku,
+        name: bundle.name,
+        usdPriceCents: bundle.usdPriceCents,
+        packptsAmount: bundle.packptsAmount,
+        channel: bundle.channel as SalesChannel,
+        driver: "USD",
+        ratioMode: bundle.ratioMode as RatioMode,
+        overrideRatioUsdPerPackptMicro: bundle.ratioUsdPerPackptMicro,
+        overrideReason: "",
+        overrideGuardrails: false,
+        overrideGuardrailsReason: "",
+      });
+    } else {
+      setEditingBundleId(null);
+      setBundleForm({
+        sku: "",
+        name: "",
+        usdPriceCents: 999,
+        packptsAmount: 6000,
+        channel: "web_stripe",
+        driver: "USD",
+        ratioMode: "AUTO",
+        overrideRatioUsdPerPackptMicro: 2000,
+        overrideReason: "",
+        overrideGuardrails: false,
+        overrideGuardrailsReason: "",
+      });
+    }
+    setShowCreateDialog(true);
   };
 
   if (configLoading) {
@@ -281,17 +528,18 @@ export default function AdminPackageGuardrails() {
   }
 
   const evaluation = previewMutation.data as EvaluationResult | undefined;
+  const bundlePreview = bundlePreviewMutation.data as BundlePreviewResult | undefined;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">PackPTS Package Guardrails</h1>
           <p className="text-muted-foreground">Validate package profitability before creation</p>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)} data-testid="button-create-package">
+        <Button onClick={() => openBundleEditor()} data-testid="button-create-package">
           <Plus className="w-4 h-4 mr-2" />
-          Create Package
+          Create Bundle
         </Button>
       </div>
 
@@ -308,6 +556,10 @@ export default function AdminPackageGuardrails() {
           <TabsTrigger value="fees" data-testid="tab-fees">
             <DollarSign className="w-4 h-4 mr-2" />
             Fee Profiles
+          </TabsTrigger>
+          <TabsTrigger value="bundles" data-testid="tab-bundles">
+            <Package className="w-4 h-4 mr-2" />
+            Bundles
           </TabsTrigger>
         </TabsList>
 
@@ -372,7 +624,7 @@ export default function AdminPackageGuardrails() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex items-center justify-between flex-wrap gap-2">
                   Profit Analysis
                   {evaluation && <DecisionBadge decision={evaluation.decision} />}
                 </CardTitle>
@@ -513,63 +765,180 @@ export default function AdminPackageGuardrails() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="bundles" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+                Bundles
+                <Button onClick={() => openBundleEditor()} data-testid="button-create-bundle-tab">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Bundle
+                </Button>
+              </CardTitle>
+              <CardDescription>Manage PackPTS bundles with guardrails validation</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {bundlesLoading ? (
+                <div className="flex items-center justify-center h-40">
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                </div>
+              ) : bundlesList && bundlesList.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>PackPTS</TableHead>
+                      <TableHead>Ratio</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Channel</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bundlesList.map((bundle) => (
+                      <TableRow key={bundle.id} data-testid={`row-bundle-${bundle.id}`}>
+                        <TableCell className="font-mono text-sm" data-testid={`text-bundle-sku-${bundle.id}`}>{bundle.sku}</TableCell>
+                        <TableCell data-testid={`text-bundle-name-${bundle.id}`}>{bundle.name}</TableCell>
+                        <TableCell data-testid={`text-bundle-price-${bundle.id}`}>{formatCents(bundle.usdPriceCents)}</TableCell>
+                        <TableCell data-testid={`text-bundle-packpts-${bundle.id}`}>{bundle.packptsAmount.toLocaleString()}</TableCell>
+                        <TableCell data-testid={`text-bundle-ratio-${bundle.id}`}>
+                          USD/PT: {formatRatioUsdPerPt(bundle.ratioUsdPerPackptMicro)}
+                        </TableCell>
+                        <TableCell>
+                          <DecisionBadge decision={bundle.guardrailsStatus as PackageDecision} />
+                        </TableCell>
+                        <TableCell>{channelLabels[bundle.channel as SalesChannel] || bundle.channel}</TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {new Date(bundle.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openBundleEditor(bundle)}
+                            data-testid={`button-edit-bundle-${bundle.id}`}
+                          >
+                            <Pencil className="w-3 h-3 mr-1" />
+                            Edit
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="flex items-center justify-center h-40 text-muted-foreground">
+                  No bundles created yet
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-w-lg">
+      <Dialog open={showCreateDialog} onOpenChange={(open) => {
+        setShowCreateDialog(open);
+        if (!open) {
+          setEditingBundleId(null);
+        }
+      }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create PackPTS Package</DialogTitle>
+            <DialogTitle>{editingBundleId ? "Edit Bundle" : "Create PackPTS Bundle"}</DialogTitle>
             <DialogDescription>
-              Create a new package with automatic profit validation
+              {editingBundleId ? "Update bundle configuration with guardrails validation" : "Create a new bundle with automatic profit validation"}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>SKU</Label>
-              <Input
-                value={formData.sku}
-                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                placeholder="PACKPTS_10000"
-                data-testid="input-create-sku"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Name</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="10,000 PackPTS"
-                data-testid="input-create-name"
-              />
-            </div>
+          <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Price (USD)</Label>
-                <div className="flex items-center gap-2">
+                <Label>SKU</Label>
+                <Input
+                  value={bundleForm.sku}
+                  onChange={(e) => setBundleForm({ ...bundleForm, sku: e.target.value })}
+                  placeholder="PACKPTS_10000"
+                  data-testid="input-bundle-sku"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Name</Label>
+                <Input
+                  value={bundleForm.name}
+                  onChange={(e) => setBundleForm({ ...bundleForm, name: e.target.value })}
+                  placeholder="10,000 PackPTS"
+                  data-testid="input-bundle-name"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Driver Mode</Label>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant={bundleForm.driver === "USD" ? "default" : "outline"}
+                  onClick={() => setBundleForm({ ...bundleForm, driver: "USD" })}
+                  data-testid="button-driver-usd"
+                  className="toggle-elevate"
+                >
+                  <DollarSign className="w-4 h-4 mr-1" />
+                  USD
+                </Button>
+                <ArrowRightLeft className="w-4 h-4 self-center text-muted-foreground" />
+                <Button
+                  variant={bundleForm.driver === "PACKPTS" ? "default" : "outline"}
+                  onClick={() => setBundleForm({ ...bundleForm, driver: "PACKPTS" })}
+                  data-testid="button-driver-packpts"
+                  className="toggle-elevate"
+                >
+                  <Package className="w-4 h-4 mr-1" />
+                  PACKPTS
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>USD Price</Label>
+                <div className={`flex items-center gap-2 ${bundleForm.driver !== "USD" ? "rounded-md bg-muted p-1" : ""}`}>
                   <span className="text-muted-foreground">$</span>
                   <Input
                     type="number"
                     step="0.01"
-                    value={(formData.priceCents / 100).toFixed(2)}
-                    onChange={(e) => setFormData({ ...formData, priceCents: Math.round(parseFloat(e.target.value || "0") * 100) })}
-                    data-testid="input-create-price"
+                    value={(bundleForm.usdPriceCents / 100).toFixed(2)}
+                    onChange={(e) => setBundleForm({ ...bundleForm, usdPriceCents: Math.round(parseFloat(e.target.value || "0") * 100) })}
+                    disabled={bundleForm.driver !== "USD"}
+                    data-testid="input-bundle-usd-price"
                   />
                 </div>
+                {bundleForm.driver !== "USD" && bundlePreview && (
+                  <p className="text-xs text-muted-foreground">Computed: {formatCents(bundlePreview.resolved.usdPriceCents)}</p>
+                )}
               </div>
               <div className="space-y-2">
-                <Label>PackPTS</Label>
-                <Input
-                  type="number"
-                  value={formData.ptsGrant}
-                  onChange={(e) => setFormData({ ...formData, ptsGrant: parseInt(e.target.value) || 0 })}
-                  data-testid="input-create-pts"
-                />
+                <Label>PackPTS Amount</Label>
+                <div className={`${bundleForm.driver !== "PACKPTS" ? "rounded-md bg-muted p-1" : ""}`}>
+                  <Input
+                    type="number"
+                    value={bundleForm.packptsAmount}
+                    onChange={(e) => setBundleForm({ ...bundleForm, packptsAmount: parseInt(e.target.value) || 0 })}
+                    disabled={bundleForm.driver !== "PACKPTS"}
+                    data-testid="input-bundle-packpts"
+                  />
+                </div>
+                {bundleForm.driver !== "PACKPTS" && bundlePreview && (
+                  <p className="text-xs text-muted-foreground">Computed: {bundlePreview.resolved.packptsAmount.toLocaleString()} pts</p>
+                )}
               </div>
             </div>
+
             <div className="space-y-2">
               <Label>Sales Channel</Label>
-              <Select value={formData.channel} onValueChange={(v) => setFormData({ ...formData, channel: v as SalesChannel })}>
-                <SelectTrigger data-testid="select-create-channel">
+              <Select value={bundleForm.channel} onValueChange={(v) => setBundleForm({ ...bundleForm, channel: v as SalesChannel })}>
+                <SelectTrigger data-testid="select-bundle-channel">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -579,16 +948,154 @@ export default function AdminPackageGuardrails() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-3 p-4 border rounded-lg">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <Label className="text-base font-semibold">Ratio Mode</Label>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant={bundleForm.ratioMode === "AUTO" ? "default" : "outline"}
+                    onClick={() => setBundleForm({ ...bundleForm, ratioMode: "AUTO" })}
+                    data-testid="button-ratio-auto"
+                  >
+                    AUTO
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={bundleForm.ratioMode === "OVERRIDE" ? "default" : "outline"}
+                    onClick={() => setBundleForm({ ...bundleForm, ratioMode: "OVERRIDE" })}
+                    data-testid="button-ratio-override"
+                  >
+                    OVERRIDE
+                  </Button>
+                </div>
+              </div>
+              {bundleForm.ratioMode === "AUTO" && config?.policy && (
+                <div className="text-sm text-muted-foreground p-3 bg-muted rounded-md">
+                  Using policy default ratio. Max value per pt: {formatMicrousd(config.policy.maxValuePerPtMicrousd)}
+                </div>
+              )}
+              {bundleForm.ratioMode === "OVERRIDE" && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Custom Ratio (micro-USD per PackPTS)</Label>
+                    <Input
+                      type="number"
+                      value={bundleForm.overrideRatioUsdPerPackptMicro}
+                      onChange={(e) => setBundleForm({ ...bundleForm, overrideRatioUsdPerPackptMicro: parseInt(e.target.value) || 0 })}
+                      data-testid="input-bundle-override-ratio"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      = {formatRatioUsdPerPt(bundleForm.overrideRatioUsdPerPackptMicro)}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Override Reason (min 10 characters)</Label>
+                    <Textarea
+                      value={bundleForm.overrideReason}
+                      onChange={(e) => setBundleForm({ ...bundleForm, overrideReason: e.target.value })}
+                      placeholder="Explain why a custom ratio is needed..."
+                      data-testid="input-bundle-override-reason"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {bundlePreviewMutation.isPending ? (
+              <div className="flex items-center justify-center h-24 border rounded-lg">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                <span className="text-sm text-muted-foreground">Computing preview...</span>
+              </div>
+            ) : bundlePreview ? (
+              <div className="space-y-3 p-4 border rounded-lg">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <Label className="text-base font-semibold">Live Preview</Label>
+                  <DecisionBadge decision={bundlePreview.guardrails.decision} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-muted rounded-md">
+                    <div className="text-xs text-muted-foreground">USD per PackPTS</div>
+                    <div className="font-semibold" data-testid="text-preview-usd-per-pt">
+                      {formatRatioUsdPerPt(bundlePreview.resolved.ratios.usdPerPackptMicro)}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-md">
+                    <div className="text-xs text-muted-foreground">PackPTS per $1</div>
+                    <div className="font-semibold" data-testid="text-preview-pts-per-usd">
+                      {formatRatioPtsPerUsd(bundlePreview.resolved.ratios.packptPerUsdMicro)}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-md">
+                    <div className="text-xs text-muted-foreground">Gross Margin</div>
+                    <div className={`font-semibold ${bundlePreview.guardrails.computed.grossMarginRate >= (bundlePreview.guardrails.policy?.minMarginRate || 0) ? "text-green-600" : "text-red-600"}`} data-testid="text-preview-margin">
+                      {formatPercent(bundlePreview.guardrails.computed.grossMarginRate)}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted rounded-md">
+                    <div className="text-xs text-muted-foreground">Net Revenue</div>
+                    <div className="font-semibold text-green-600" data-testid="text-preview-net-revenue">
+                      {formatCents(bundlePreview.guardrails.computed.netRevenueCents)}
+                    </div>
+                  </div>
+                </div>
+
+                {bundlePreview.guardrails.reasons.length > 0 && (
+                  <div className="text-sm space-y-1">
+                    {bundlePreview.guardrails.reasons.map((reason, i) => (
+                      <div key={i} className="text-muted-foreground">{reason}</div>
+                    ))}
+                  </div>
+                )}
+
+                {bundlePreview.guardrails.decision === "BLOCK" && (
+                  <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg space-y-3">
+                    <div className="flex items-center gap-2 text-red-600 font-semibold text-sm">
+                      <XCircle className="w-4 h-4" />
+                      Bundle blocked by guardrails
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        checked={bundleForm.overrideGuardrails}
+                        onCheckedChange={(checked) => setBundleForm({ ...bundleForm, overrideGuardrails: checked === true })}
+                        data-testid="checkbox-override-guardrails"
+                      />
+                      <Label className="text-sm cursor-pointer">Override guardrails block</Label>
+                    </div>
+                    {bundleForm.overrideGuardrails && (
+                      <div className="space-y-2">
+                        <Label className="text-sm">Override Reason (required)</Label>
+                        <Textarea
+                          value={bundleForm.overrideGuardrailsReason}
+                          onChange={(e) => setBundleForm({ ...bundleForm, overrideGuardrailsReason: e.target.value })}
+                          placeholder="Explain why this override is justified..."
+                          data-testid="input-bundle-guardrails-reason"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
-            <Button 
-              onClick={handleCreateSubmit} 
-              disabled={createMutation.isPending || !formData.sku || !formData.name}
-              data-testid="button-submit-create"
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)} data-testid="button-bundle-cancel">Cancel</Button>
+            <Button
+              onClick={handleBundleSubmit}
+              disabled={
+                createBundleMutation.isPending ||
+                updateBundleMutation.isPending ||
+                !bundleForm.sku ||
+                !bundleForm.name ||
+                (bundleForm.ratioMode === "OVERRIDE" && bundleForm.overrideReason.length < 10) ||
+                (bundlePreview?.guardrails.decision === "BLOCK" && bundleForm.overrideGuardrails && bundleForm.overrideGuardrailsReason.length < 10)
+              }
+              data-testid="button-submit-bundle"
             >
-              {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Create Package
+              {(createBundleMutation.isPending || updateBundleMutation.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {editingBundleId ? "Update Bundle" : "Create Bundle"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -629,13 +1136,13 @@ export default function AdminPackageGuardrails() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>Cancel</Button>
             <Button 
-              onClick={handleConfirmSubmit} 
-              disabled={createMutation.isPending}
-              className="bg-yellow-600 hover:bg-yellow-700"
+              onClick={handleBundleConfirmSubmit} 
+              disabled={createBundleMutation.isPending || updateBundleMutation.isPending}
+              className="bg-yellow-600"
               data-testid="button-confirm-create"
             >
-              {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Confirm & Create
+              {(createBundleMutation.isPending || updateBundleMutation.isPending) && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {editingBundleId ? "Confirm & Update" : "Confirm & Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -716,7 +1223,7 @@ function PolicyEditor({
           <p className="text-xs text-muted-foreground">% of net revenue to margin pool</p>
         </div>
       </div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Switch 
             checked={allowOverride} 
@@ -800,7 +1307,7 @@ function FeeProfileRow({
       </TableCell>
       <TableCell>
         {isEditing ? (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button size="sm" onClick={handleSave} disabled={isPending}>Save</Button>
             <Button size="sm" variant="outline" onClick={() => setIsEditing(false)}>Cancel</Button>
           </div>

@@ -116,6 +116,16 @@ A comprehensive server-side integration with the CardHedge API provides card sea
 - **React Query Hooks**: `useCardSearch`, `useCardSearchSorted`, `useCardDetails`, `useImageSearch` for admin workflows
 - **Files**: `server/services/cardhedge/client.ts`, `server/routes/cardhedge.routes.ts`, `client/src/hooks/use-cardhedge.ts`, `shared/cardhedge/types.ts`
 
+### Bundle Builder System
+A comprehensive admin tool for creating and managing PackPTS bundles with financial guardrails:
+- **Bidirectional USD/PackPTS Conversion**: Driver mode (USD or PACKPTS) determines which value is fixed; the other is auto-computed using the active ratio
+- **Ratio System**: Ratios stored in micro-units (1 USD = 1,000,000 micro). AUTO mode uses policy's maxValuePerPtMicrousd; OVERRIDE mode allows custom ratios with mandatory 10+ char reason
+- **Guardrails Validation**: Every bundle is evaluated against margin policy (PASS/WARN/BLOCK). BLOCK can be overridden with separate 10+ char reason and audit trail
+- **Audit Logging**: `admin_bundle_audit_log` table tracks CREATE, UPDATE, OVERRIDE_RATIO actions with before/after JSON snapshots
+- **API Endpoints**: `/api/admin/store/bundles/preview`, `/api/admin/store/bundles` (POST/GET), `/api/admin/store/bundles/:id` (PUT), `/api/admin/store/bundles/:id/audit-log`
+- **Frontend**: Bundle builder dialog with driver toggle, live preview, ratio mode panel, BLOCK override flow; bundles list tab with status badges and edit actions
+- **Files**: `server/services/store/packageGuardrailService.ts`, `client/src/pages/admin/package-guardrails.tsx`, `shared/schema.ts` (products table extensions + adminBundleAuditLog table)
+
 ### Monetization & Wallet
 The platform features a ledger-first wallet for "PackPTS," a point system with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) offers access and multipliers. A bucket-based system manages point expiration.
 

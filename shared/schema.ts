@@ -620,7 +620,15 @@ export const products = pgTable("products", {
   priceUsd: integer("price_usd"), // price in cents
   isActive: boolean("is_active").notNull().default(true),
   metadata: jsonb("metadata"),
+  ratioUsdPerPackptMicro: integer("ratio_usd_per_packpt_micro"), // USD per PackPTS in micro-dollars (1 USD = 1,000,000 micro)
+  ratioPackptPerUsdMicro: integer("ratio_packpt_per_usd_micro"), // PackPTS per USD in micro-packpts
+  ratioMode: varchar("ratio_mode", { length: 20 }).default("AUTO"), // AUTO or OVERRIDE
+  overrideReason: text("override_reason"),
+  guardrailsStatus: varchar("guardrails_status", { length: 20 }), // PASS, WARN, BLOCK, OVERRIDE
+  guardrailsJson: jsonb("guardrails_json"), // full evaluation snapshot
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_products_sku").on(table.sku),
   index("idx_products_active").on(table.isActive),
@@ -3498,3 +3506,58 @@ export const insertSetAuditLogSchema = createInsertSchema(setAuditLog).omit({
 });
 export type InsertSetAuditLog = z.infer<typeof insertSetAuditLogSchema>;
 export type SetAuditLog = typeof setAuditLog.$inferSelect;
+
+// Admin Bundle Audit Log - tracks all bundle/package mutations
+export const adminBundleAuditLog = pgTable("admin_bundle_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  bundleId: varchar("bundle_id").notNull().references(() => products.id),
+  actorUserId: varchar("actor_user_id").references(() => users.id),
+  action: varchar("action", { length: 50 }).notNull(), // CREATE, UPDATE, OVERRIDE_RATIO, OVERRIDE_GUARDRAILS
+  beforeJson: jsonb("before_json"),
+  afterJson: jsonb("after_json"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_bundle_audit_bundle").on(table.bundleId),
+  index("idx_bundle_audit_actor").on(table.actorUserId),
+  index("idx_bundle_audit_created").on(table.createdAt),
+]);
+
+export const insertBundleAuditLogSchema = createInsertSchema(adminBundleAuditLog).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBundleAuditLog = z.infer<typeof insertBundleAuditLogSchema>;
+export type BundleAuditLog = typeof adminBundleAuditLog.$inferSelect;
+
+// Bundle preview request schema - supports bidirectional USD <-> PackPTS
+export const bundlePreviewSchema = z.object({
+  sku: z.string().min(1).max(100).optional(),
+  name: z.string().min(1).max(200).optional(),
+  channel: z.enum(["web_stripe", "ios_iap", "android_iap"]).default("web_stripe"),
+  usdPriceCents: z.number().int().min(0).optional(),
+  packptsAmount: z.number().int().min(0).optional(),
+  driver: z.enum(["USD", "PACKPTS"]).default("USD"),
+  ratioMode: z.enum(["AUTO", "OVERRIDE"]).default("AUTO"),
+  overrideRatioUsdPerPackptMicro: z.number().int().positive().optional(),
+  overrideReason: z.string().min(10).max(500).optional(),
+});
+
+export type BundlePreviewRequest = z.infer<typeof bundlePreviewSchema>;
+
+// Bundle create request schema
+export const bundleCreateSchema = z.object({
+  sku: z.string().min(1).max(100),
+  name: z.string().min(1).max(200),
+  channel: z.enum(["web_stripe", "ios_iap", "android_iap"]).default("web_stripe"),
+  usdPriceCents: z.number().int().positive(),
+  packptsAmount: z.number().int().positive(),
+  ratioMode: z.enum(["AUTO", "OVERRIDE"]).default("AUTO"),
+  overrideRatioUsdPerPackptMicro: z.number().int().positive().optional(),
+  overrideReason: z.string().min(10).max(500).optional(),
+  overrideGuardrails: z.boolean().optional(),
+  overrideGuardrailsReason: z.string().min(10).max(500).optional(),
+  confirm: z.boolean().optional(),
+});
+
+export type BundleCreateRequest = z.infer<typeof bundleCreateSchema>;
