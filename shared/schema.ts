@@ -626,6 +626,11 @@ export const products = pgTable("products", {
   overrideReason: text("override_reason"),
   guardrailsStatus: varchar("guardrails_status", { length: 20 }), // PASS, WARN, BLOCK, OVERRIDE
   guardrailsJson: jsonb("guardrails_json"), // full evaluation snapshot
+  stripePriceId: varchar("stripe_price_id", { length: 200 }),
+  sortOrder: integer("sort_order").default(0),
+  description: text("description"),
+  imageUrl: text("image_url"),
+  isBestValue: boolean("is_best_value").default(false),
   createdByUserId: varchar("created_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

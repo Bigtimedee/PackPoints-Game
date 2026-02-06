@@ -1,7 +1,7 @@
 # PackPoints
 
 ## Overview
-PackPoints is a card-collecting gaming platform focused on baseball card recognition. Users identify players from card images to earn points, which can be redeemed for credits on platforms like Goldin Auctions and eBay. The platform supports solo, 1v1, and tournament game modes, features a global leaderboard, and includes a marketplace for card listings. Its core purpose is to create an engaging experience for baseball card enthusiasts while offering robust monetization and retention strategies.
+PackPoints is a card-collecting gaming platform centered on baseball card recognition. It allows users to identify players from card images to earn points, which can be redeemed for credits on platforms like Goldin Auctions and eBay. The platform offers solo, 1v1, and tournament game modes, a global leaderboard, and a marketplace for card listings. Its primary goal is to engage baseball card enthusiasts while implementing robust monetization and retention strategies.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,164 +9,55 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Core Technologies
-The frontend is built with React 18, TypeScript, Vite, Wouter for routing, Tailwind CSS, and shadcn/ui, using TanStack React Query for state management. The backend utilizes Node.js, Express, and TypeScript, employing Drizzle ORM with PostgreSQL for data persistence and Zod for validation. esbuild is used for backend bundling. Real-time features, such as 1v1 game modes, are powered by WebSockets.
+The frontend uses React 18, TypeScript, Vite, Wouter for routing, Tailwind CSS, and shadcn/ui, with TanStack React Query for state management. The backend is built with Node.js, Express, and TypeScript, utilizing Drizzle ORM with PostgreSQL and Zod for validation. esbuild handles backend bundling, and WebSockets power real-time features.
 
 ### Card Image System
-A sophisticated system manages baseball card images, primarily sourced from the Card Hedge API, ensuring player names are masked during gameplay. This involves:
-- **Server-Side Image Masking**: Pre-processing images to obscure player names using `sharp` for template masks and `tesseract.js` for OCR-based text detection. Masked images are cached and served via a dedicated API endpoint.
-- **CSS Overlay Masks**: Frontend-applied CSS masks provide an additional layer of defense against accidental reveals.
-- **Per-Set Configurable Masks**: Masking profiles are dynamically configured per card set to adapt to varying nameplate positions.
-- **Anti-Reveal Hardening**: Measures like context menu prevention and `pointer-events: none` are implemented to prevent circumvention.
+A system sourced from the Card Hedge API manages baseball card images, masking player names during gameplay. This involves server-side image masking using `sharp` and `tesseract.js`, CSS overlay masks, and per-set configurable masks. Images are validated, proxied, and undergo multi-layer content-based placeholder detection via database filtering, server-side image analysis (`sharp` for entropy, color diversity, edge detection), and frontend canvas-based analysis. Player/image mismatch prevention is enforced through image refresh verification, admin tools for detection, and user reporting.
 
-### Image Validation & Proxy
-All card images undergo HTTP validation and are proxied through the PackPoints server. This system checks image integrity, content type, and size, quarantining problematic images.
-
-### Content-Based Placeholder Detection
-A multi-layer defense system prevents placeholder/silhouette images from reaching gameplay:
-
-**Layer 1 - Database Filtering**:
-- `playable_cards.content_verified` nullable boolean column (indexed) gates all card queries
-  - `NULL` = pending verification (newly imported cards, allowed in gameplay)
-  - `true` = verified authentic card (allowed in gameplay)
-  - `false` = verified placeholder/silhouette (blocked from gameplay)
-- `getRandomCardsFromSet()` and `getRandomCards()` in storage.ts return cards where `content_verified IS NULL OR content_verified = true` (allows newly imported cards)
-- Batch verification script (`server/scripts/verifyAllCards.ts`) pre-scans all cards on import
-- Current stats: ~5900 verified authentic cards, ~1900 silhouettes blocked at database level
-- Admin panel uses IDENTICAL query logic as gameplay to prevent count mismatches
-
-**Admin Diagnostic Tools**:
-- `/api/admin/game-sets/:id/diagnose` - Comprehensive card count breakdown, last 5 inserted cards, foreign key sanity checks, intelligent issue diagnosis
-- `/api/admin/game-sets/repair` - Finds and fixes sets with stale counts, reports before/after with specific issues
-- Purge/reimport logging: Logs total inserted, playable counts, content_verified breakdown, sample cards, and warns if imported > 0 but playable = 0
-
-**Layer 2 - Server-Side Image Analysis** (`server/services/imageContentAnalyzer.ts`):
-- **Multi-Signal Analysis**: Uses `sharp` to analyze entropy, color diversity (quantized to 32 levels), dominant color percentage, and edge detection
-- **Scoring System**: Low unique colors (<50: 40pts), low entropy (<4.0: 40pts), high dominant color (>60%: 30pts), no edges (25pts)
-- **Quarantine Threshold**: Cards with ≥60% placeholder confidence are automatically quarantined
-- **Real Card Characteristics**: Authentic cards show 300-500 unique colors, 7.5+ entropy, <10% dominant color
-- **Caching**: Results cached in-memory for 24 hours per image URL (1000 entry limit)
-
-**Layer 3 - Frontend Detection** (`client/src/components/GameCard.tsx`):
-- Canvas-based analysis on image load as final safety net
-- Detection thresholds: <30 unique colors OR >50% dominant color triggers placeholder detection
-- Auto-reports detected placeholders and triggers replacement flow
-
-### Player/Image Mismatch Prevention
-A defense-in-depth system prevents cards with wrong player/image associations from reaching gameplay:
-
-**Prevention Layer - Image Refresh Verification**:
-- `getFreshImageUrl()` in `cardImageRefresh.ts` verifies player names match before updating images
-- If Card Hedge returns a different player name, the card is marked `isPlayable: false, blockedReason: 'player_mismatch'`
-- All card selection queries filter `isPlayable = true`, automatically excluding mismatched cards
-
-**Detection Layer - Admin Tools**:
-- `/api/admin/game-sets/:id/detect-player-mismatches` - Scans cards and compares stored player vs Card Hedge player
-- Supports `autoQuarantine: true` to automatically disable mismatched cards during scan
-- `/api/admin/cards/quarantine-mismatches` - Bulk quarantine endpoint for detected mismatches
-
-**Correction Layer - User Reports**:
-- Users can report "Wrong Player" in GameCard UI
-- `wrong_player` reports automatically set `isPlayable: false, blockedReason: 'player_mismatch'`
-- Reported cards are immediately excluded from gameplay
-
-### Anti-Pruning System (Card Protection)
-A comprehensive system prevents background jobs from automatically removing cards from gameplay without admin approval.
-
-**Mutation Guard** (`server/services/mutationGuard.ts`):
-- Three operation sources: `ADMIN_MANUAL`, `SYSTEM_NON_DESTRUCTIVE`, `CARDHEDGE_CONFIRMED`
-- Only `ADMIN_MANUAL` can set `isPlayable=false` (destructive action)
-- Background jobs are `SYSTEM_NON_DESTRUCTIVE` - can only update quarantine fields
-- Kill switch: `DISABLE_AUTOMATED_SET_MUTATIONS=true` env var blocks all automated mutations
-
-**Quarantine Flow**:
-- Cards progress through: `OK` → `SUSPECT_TRANSIENT` → `SUSPECT_PERSISTENT` → `QUARANTINED_ADMIN_REVIEW`
-- 5-failures-over-24-hours rule before proposing removal
-- `proposedUnplayable=true` flags cards awaiting admin approval
-- Cards remain playable until admin approves removal
-
-**Audit Logging** (`set_audit_log` table):
-- Tracks all card/set mutations with before/after counts
-- Records operation source, actor, and evidence
-- Enables rollback and forensic analysis
-
-**Admin Endpoints**:
-- `/api/admin/playable-sets/:id/quarantine-status` - View quarantine breakdown
-- `/api/admin/playable-sets/:id/apply-proposed` - Apply proposed unplayable changes
-- `/api/admin/playable-sets/:id/audit-log` - View set-specific audit log
-- `/api/admin/audit-log` - View global audit log
-- `POST /api/admin/cards/:cardId/exclude` - Manually exclude a card from gameplay (ADMIN_MANUAL only)
-- `POST /api/admin/cards/:cardId/restore` - Restore an excluded card to playable status
-
-**Root Cause Analysis** (documented in `server/README_DEBUG.md`):
-- **Primary Culprit**: `imageValidation.ts` - was setting `isPlayable=false` every 6 hours for placeholder/failed images
-- **Secondary Culprit**: `cardPoolRefresh.ts` - was incrementing failure counts preventing recovery
-- **Fix**: Background jobs now only update quarantine fields, never `isPlayable`
-
-**Live Counts**: The `/api/admin/game-sets` endpoint uses a live COUNT query matching gameplay logic exactly (lines 5383-5394 in routes.ts), preventing stale cached counts.
-
-**Files**: `server/services/mutationGuard.ts`, `server/services/imageValidation.ts`, `server/services/cardPoolRefresh.ts`, `server/tests/antiPruning.test.ts`, `server/README_DEBUG.md`
+### Anti-Pruning System
+This system prevents automated background jobs from unilaterally removing cards from gameplay. It uses a mutation guard with defined operation sources (ADMIN_MANUAL, SYSTEM_NON_DESTRUCTIVE, CARDHEDGE_CONFIRMED), a quarantine flow for suspect cards requiring admin approval, and comprehensive audit logging for all card/set mutations.
 
 ### CardHedge Integration Layer
-A comprehensive server-side integration with the CardHedge API provides card search, sorting, details lookup, and visual image search:
-- **Server-Side API Endpoints**: `/api/cardhedge/search`, `/api/cardhedge/search-sorted`, `/api/cardhedge/card-details`, `/api/cardhedge/image-search` - all server-side to protect API key
-- **Caching Strategy**: TTL-based LRU cache with 60s for searches, 5min for card details, no cache for image search
-- **Image Search**: 85% similarity threshold for best match detection, supports URL or base64 input
-- **Placeholder Detection**: Pattern-based filtering to reject stock/placeholder images
-- **Import Uses Regular Search**: The import endpoints use `cardSearch` (regular endpoint) instead of `cardSearchSorted` because the sorted API returns many cards with empty image URLs
-- **React Query Hooks**: `useCardSearch`, `useCardSearchSorted`, `useCardDetails`, `useImageSearch` for admin workflows
-- **Files**: `server/services/cardhedge/client.ts`, `server/routes/cardhedge.routes.ts`, `client/src/hooks/use-cardhedge.ts`, `shared/cardhedge/types.ts`
+A server-side integration provides API endpoints for card search, details lookup, and visual image search, protecting the API key. It employs a TTL-based LRU cache and includes placeholder detection for image searches.
 
 ### Bundle Builder System
-A comprehensive admin tool for creating and managing PackPTS bundles with financial guardrails:
-- **Bidirectional USD/PackPTS Conversion**: Driver mode (USD or PACKPTS) determines which value is fixed; the other is auto-computed using the active ratio
-- **Ratio System**: Ratios stored in micro-units (1 USD = 1,000,000 micro). AUTO mode uses policy's maxValuePerPtMicrousd; OVERRIDE mode allows custom ratios with mandatory 10+ char reason
-- **Guardrails Validation**: Every bundle is evaluated against margin policy (PASS/WARN/BLOCK). BLOCK can be overridden with separate 10+ char reason and audit trail
-- **Audit Logging**: `admin_bundle_audit_log` table tracks CREATE, UPDATE, OVERRIDE_RATIO actions with before/after JSON snapshots
-- **API Endpoints**: `/api/admin/store/bundles/preview`, `/api/admin/store/bundles` (POST/GET), `/api/admin/store/bundles/:id` (PUT), `/api/admin/store/bundles/:id/audit-log`
-- **Frontend**: Bundle builder dialog with driver toggle, live preview, ratio mode panel, BLOCK override flow; bundles list tab with status badges and edit actions
-- **Files**: `server/services/store/packageGuardrailService.ts`, `client/src/pages/admin/package-guardrails.tsx`, `shared/schema.ts` (products table extensions + adminBundleAuditLog table)
+An admin tool for creating and managing PackPTS bundles with financial guardrails. It supports bidirectional USD/PackPTS conversion, a ratio system with override capabilities, and robust validation against margin policies. All actions are tracked via audit logging.
 
 ### Monetization & Wallet
-The platform features a ledger-first wallet for "PackPTS," a point system with various transaction types. A product catalog defines purchasable items. A tiered membership system (Free, Pro, Legend) offers access and multipliers. A bucket-based system manages point expiration.
+Features a ledger-first wallet for "PackPTS" with various transaction types, a product catalog, a tiered membership system (Free, Pro, Legend), and a bucket-based point expiration system.
 
 ### Authentication & Access Control
-Multi-provider authentication (Replit Auth, WorkOS, local) supports secure identity linking and magic-link verification for high-value actions. An access control system manages user caps, waitlists, and invite codes, alongside a referral system.
-
-**Session Cookie Configuration**:
-- `httpOnly: true` - Prevents XSS attacks from accessing cookies
-- `secure: true` - Requires HTTPS for cookie transmission
-- `sameSite: "none"` - Required for mobile browser compatibility (especially Android). Some mobile browsers enforce stricter cookie policies with "lax" mode, preventing session cookies from being sent with POST requests. The "none" + "secure" combination is safe for HTTPS-only sites.
-- Sessions stored in PostgreSQL via connect-pg-simple
+Supports multi-provider authentication (Replit Auth, WorkOS, local) with identity linking and magic-link verification. An access control system manages user caps, waitlists, invite codes, and a referral system. Session cookies are configured for security and mobile browser compatibility.
 
 ### Admin Tools & Redemption
-Comprehensive admin tools manage users, wallets, entitlements, feature flags, and provide metrics. A closed-loop redemption system converts PackPTS into store credit, with admin approval for high-value redemptions.
+Comprehensive tools manage users, wallets, entitlements, and feature flags. A closed-loop redemption system converts PackPTS into store credit, requiring admin approval for high-value redemptions.
 
 ### Analytics & Geo Intelligence
-An event tracking system logs key user actions. A privacy-safe geolocation system infers user home states for market analysis.
+An event tracking system records user actions, and a privacy-safe geolocation system infers user home states.
 
 ### Store & PackPTS Purchase
-Integrated with Stripe, this system handles one-time PackPTS bundle purchases and monthly subscriptions.
+Integrated with Stripe for one-time bundle purchases and monthly subscriptions. The store dynamically fetches products from the database, supporting custom pricing, sorting, descriptions, and highlighting.
 
 ### Financial Guardrails
-Systems are in place to ensure profitability for PackPTS packages and redemptions, track margins, and prevent fraud through user risk tracking and pattern-based detection.
+Ensures profitability for PackPTS packages and redemptions, tracks margins, and prevents fraud through user risk tracking.
 
 ### Marketplace
-A unified search aggregates listings from eBay and Goldin Auctions, supporting filtering, affiliate tracking, and outbound click logging.
+Aggregates listings from eBay and Goldin Auctions, supporting filtering, affiliate tracking, and outbound click logging.
 
 ### Non-Linear Reward System
-A fame-based point calculation system rewards users more for identifying obscure players and less for famous ones, incorporating vintage and rarity multipliers, with daily and per-match point caps.
+A fame-based point calculation system rewards users based on player obscurity, vintage, and rarity multipliers, with daily and per-match point caps.
 
 ### Daily Progress Tracking
 Server-authoritative tracking of daily progress, including cards answered and matches completed, synchronized across match modes.
 
 ### 1v1 Matchmaking System
-A real-time, random matchmaking system uses a DB-backed atomic pairing process with presence tracking, a ticket queue, and heartbeats.
+Real-time, random matchmaking using a DB-backed atomic pairing process with presence tracking, a ticket queue, and heartbeats.
 
 ### Match Lifecycle State Machine
-A robust state machine (`LOBBY → INITIALIZING → ACTIVE → FINISHED/CANCELLED`) with database-backed state ensures match integrity and prevents premature endings. It incorporates invariant enforcement, race condition prevention, audit logging, and match recovery mechanisms. Winner determination is based on correct answers.
+A robust, database-backed state machine (LOBBY → INITIALIZING → ACTIVE → FINISHED/CANCELLED) ensures match integrity, prevents race conditions, and includes audit logging and recovery mechanisms.
 
 ### Transactional Answer Submission
-Ensures synchronized state during 1v1 matches through database locking, idempotent inserts, and atomic updates, broadcasting `ANSWER_STATUS` events to both players.
+Ensures synchronized state during 1v1 matches through database locking, idempotent inserts, and atomic updates, broadcasting `ANSWER_STATUS` events.
 
 ## External Dependencies
 

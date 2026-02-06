@@ -2568,7 +2568,7 @@ export async function registerRoutes(
   // Get PackPTS bundles for purchase
   app.get("/api/store/products", async (req: any, res) => {
     try {
-      const bundles = storeCheckoutService.getPackPtsBundles();
+      const bundles = await storeCheckoutService.getPackPtsBundles();
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (userId) {
@@ -3047,6 +3047,9 @@ export async function registerRoutes(
         stripePriceId: z.string().optional().nullable(),
         isActive: z.boolean().default(true),
         metadata: z.record(z.any()).optional().nullable(),
+        description: z.string().optional().nullable(),
+        sortOrder: z.number().int().optional().nullable(),
+        isBestValue: z.boolean().optional(),
       });
 
       const consumableSchema = baseSchema.extend({
@@ -3102,10 +3105,11 @@ export async function registerRoutes(
           durationDays: parsed.data.durationDays || null,
           priceUsd: parsed.data.priceUsd,
           isActive: parsed.data.isActive,
-          metadata: {
-            ...parsed.data.metadata,
-            stripePriceId: parsed.data.stripePriceId,
-          },
+          stripePriceId: parsed.data.stripePriceId || null,
+          description: parsed.data.description || null,
+          sortOrder: parsed.data.sortOrder ?? 0,
+          isBestValue: parsed.data.isBestValue ?? false,
+          metadata: parsed.data.metadata || null,
         })
         .returning();
 
@@ -3147,6 +3151,9 @@ export async function registerRoutes(
         stripePriceId: z.string().optional().nullable(),
         isActive: z.boolean().optional(),
         metadata: z.record(z.any()).optional().nullable(),
+        description: z.string().optional().nullable(),
+        sortOrder: z.number().int().optional().nullable(),
+        isBestValue: z.boolean().optional(),
       });
 
       let updateSchema;
@@ -3175,17 +3182,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const existingMetadata = existingProduct[0].metadata as Record<string, any> || {};
-      const updatedMetadata = {
-        ...existingMetadata,
-        ...(parsed.data.metadata || {}),
-        ...(parsed.data.stripePriceId !== undefined ? { stripePriceId: parsed.data.stripePriceId } : {}),
-      };
-
-      const updateData: Record<string, any> = { metadata: updatedMetadata };
+      const updateData: Record<string, any> = { updatedAt: new Date() };
       if (parsed.data.name) updateData.name = parsed.data.name;
       if (parsed.data.priceUsd !== undefined) updateData.priceUsd = parsed.data.priceUsd;
       if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
+      if (parsed.data.stripePriceId !== undefined) updateData.stripePriceId = parsed.data.stripePriceId || null;
+      if (parsed.data.description !== undefined) updateData.description = parsed.data.description || null;
+      if (parsed.data.sortOrder !== undefined) updateData.sortOrder = parsed.data.sortOrder ?? 0;
+      if (parsed.data.isBestValue !== undefined) updateData.isBestValue = parsed.data.isBestValue;
+      if (parsed.data.metadata !== undefined) updateData.metadata = parsed.data.metadata;
 
       if (productType === "CONSUMABLE" && parsed.data.packptsGrant !== undefined) {
         updateData.packptsGrant = parsed.data.packptsGrant;

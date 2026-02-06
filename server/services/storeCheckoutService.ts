@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { db } from "../db";
-import { stripeCheckoutSessions, subscriptionProducts, type CheckoutSessionStatus as DbCheckoutSessionStatus, type SubscriptionProduct } from "@shared/schema";
+import { stripeCheckoutSessions, subscriptionProducts, products, type CheckoutSessionStatus as DbCheckoutSessionStatus, type SubscriptionProduct } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, PACKPTS_MONTHLY_SKUS, type InternalSku, getSubscriptionProducts } from "./productMap";
 import { analyticsService } from "./analyticsService";
@@ -54,15 +54,13 @@ export interface CheckoutSessionStatusInfo {
 }
 
 class StoreCheckoutService {
-  getPackPtsBundles(): PackPtsBundleProduct[] {
+  private getHardcodedBundles(): PackPtsBundleProduct[] {
     const bundles: PackPtsBundleProduct[] = [];
-    
     for (const sku of PACKPTS_BUNDLE_SKUS) {
       const product = PRODUCT_DEFINITIONS[sku];
       if (product && product.type === "CONSUMABLE" && "packptsGrant" in product) {
         const priceUsd = product.priceUsd / 100;
         const valuePerDollar = product.packptsGrant / priceUsd;
-        
         bundles.push({
           sku,
           name: product.name,
@@ -75,8 +73,43 @@ class StoreCheckoutService {
         });
       }
     }
-    
     return bundles;
+  }
+
+  async getPackPtsBundles(): Promise<PackPtsBundleProduct[]> {
+    try {
+      const dbProducts = await db
+        .select()
+        .from(products)
+        .where(and(
+          eq(products.isActive, true),
+          eq(products.type, "CONSUMABLE")
+        ))
+        .orderBy(products.sortOrder);
+
+      if (dbProducts.length === 0) {
+        return this.getHardcodedBundles();
+      }
+
+      return dbProducts.map(product => {
+        const priceUsd = (product.priceUsd || 0) / 100;
+        const packptsGrant = product.packptsGrant || 0;
+        const valuePerDollar = priceUsd > 0 ? packptsGrant / priceUsd : 0;
+        return {
+          sku: product.sku,
+          name: product.name,
+          packptsGrant,
+          priceUsd: product.priceUsd || 0,
+          description: product.description || "",
+          formattedPrice: `$${priceUsd.toFixed(2)}`,
+          valuePerDollar: Math.round(valuePerDollar),
+          isBestValue: product.isBestValue ?? false,
+        };
+      });
+    } catch (error) {
+      console.error("[StoreCheckout] Error getting bundles from DB:", error);
+      return this.getHardcodedBundles();
+    }
   }
 
   async createCheckoutSession(
@@ -90,37 +123,76 @@ class StoreCheckoutService {
       return { success: false, error: "Stripe is not configured" };
     }
 
-    if (!PACKPTS_BUNDLE_SKUS.includes(sku as any)) {
-      return { success: false, error: "Invalid SKU - only PackPTS bundles can be purchased" };
+    let productName: string;
+    let packptsGrant: number;
+    let priceUsd: number;
+    let description: string;
+    let stripePriceId: string | null = null;
+
+    const dbProduct = await db
+      .select()
+      .from(products)
+      .where(and(
+        eq(products.sku, sku),
+        eq(products.isActive, true),
+        eq(products.type, "CONSUMABLE")
+      ))
+      .limit(1);
+
+    if (dbProduct.length > 0) {
+      const product = dbProduct[0];
+      productName = product.name;
+      packptsGrant = product.packptsGrant || 0;
+      priceUsd = product.priceUsd || 0;
+      description = product.description || `Get ${packptsGrant} PackPTS`;
+      stripePriceId = product.stripePriceId || null;
+    } else if (PACKPTS_BUNDLE_SKUS.includes(sku as any)) {
+      const productDef = PRODUCT_DEFINITIONS[sku as InternalSku];
+      if (!productDef || productDef.type !== "CONSUMABLE") {
+        return { success: false, error: "Product not found or not a consumable" };
+      }
+      productName = productDef.name;
+      packptsGrant = (productDef as { packptsGrant: number }).packptsGrant;
+      priceUsd = productDef.priceUsd;
+      description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS`;
+    } else {
+      return { success: false, error: "Invalid SKU - product not found" };
     }
 
-    const productDef = PRODUCT_DEFINITIONS[sku as InternalSku];
-    if (!productDef || productDef.type !== "CONSUMABLE") {
-      return { success: false, error: "Product not found or not a consumable" };
+    if (!packptsGrant || packptsGrant <= 0) {
+      return { success: false, error: "Invalid product configuration - missing PackPTS grant" };
     }
-    
-    const packptsGrant = (productDef as { packptsGrant: number }).packptsGrant;
-    const description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS`;
+    if (!priceUsd || priceUsd <= 0) {
+      return { success: false, error: "Invalid product configuration - missing price" };
+    }
 
     try {
       const stripeClient = await getStripeClient();
-      
-      const session = await stripeClient.checkout.sessions.create({
-        mode: "payment",
-        payment_method_types: ["card"],
-        line_items: [
+
+      let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
+
+      if (stripePriceId) {
+        lineItems = [{ price: stripePriceId, quantity: 1 }];
+      } else {
+        lineItems = [
           {
             price_data: {
               currency: "usd",
               product_data: {
-                name: productDef.name,
+                name: productName,
                 description,
               },
-              unit_amount: productDef.priceUsd,
+              unit_amount: priceUsd,
             },
             quantity: 1,
           },
-        ],
+        ];
+      }
+
+      const session = await stripeClient.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: lineItems,
         metadata: {
           userId,
           sku,
@@ -137,16 +209,16 @@ class StoreCheckoutService {
         stripeSessionId: session.id,
         status: "CREATED",
         packptsGrant,
-        amountCents: productDef.priceUsd,
+        amountCents: priceUsd,
         currency: "usd",
-        metadata: { productName: productDef.name },
+        metadata: { productName },
       });
 
       await analyticsService.purchaseStarted(userId, {
         sku,
         sessionId: session.id,
         packptsGrant,
-        amountCents: productDef.priceUsd,
+        amountCents: priceUsd,
       });
 
       return {

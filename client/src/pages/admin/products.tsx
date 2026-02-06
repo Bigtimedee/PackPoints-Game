@@ -60,6 +60,10 @@ interface Product {
   durationDays: number | null;
   priceUsd: number | null;
   isActive: boolean;
+  stripePriceId: string | null;
+  description: string | null;
+  sortOrder: number | null;
+  isBestValue: boolean | null;
   metadata: {
     stripePriceId?: string;
     [key: string]: any;
@@ -76,6 +80,9 @@ interface ProductFormData {
   durationDays: number | null;
   priceUsd: number;
   stripePriceId: string;
+  description: string;
+  sortOrder: number;
+  isBestValue: boolean;
   isActive: boolean;
 }
 
@@ -113,6 +120,9 @@ const defaultFormData: ProductFormData = {
   durationDays: null,
   priceUsd: 0,
   stripePriceId: "",
+  description: "",
+  sortOrder: 0,
+  isBestValue: false,
   isActive: true,
 };
 
@@ -339,7 +349,10 @@ export default function AdminProducts() {
       entitlementKey: product.entitlementKey,
       durationDays: product.durationDays,
       priceUsd: product.priceUsd || 0,
-      stripePriceId: product.metadata?.stripePriceId || "",
+      stripePriceId: product.stripePriceId || product.metadata?.stripePriceId || "",
+      description: product.description || "",
+      sortOrder: product.sortOrder ?? 0,
+      isBestValue: product.isBestValue ?? false,
       isActive: product.isActive,
     });
     setDriver("PACKPTS");
@@ -535,7 +548,7 @@ export default function AdminProducts() {
                       </TableCell>
                       <TableCell>
                         <span className="font-mono text-xs text-muted-foreground">
-                          {product.metadata?.stripePriceId || "-"}
+                          {product.stripePriceId || product.metadata?.stripePriceId || "-"}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -944,7 +957,29 @@ export default function AdminProducts() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="description">Store Description</Label>
+              <Input
+                id="description"
+                placeholder="Short description shown in store"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                data-testid="input-description"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="sortOrder">Sort Order</Label>
+                <Input
+                  id="sortOrder"
+                  type="number"
+                  placeholder="0"
+                  value={formData.sortOrder}
+                  onChange={(e) => setFormData({ ...formData, sortOrder: parseInt(e.target.value) || 0 })}
+                  data-testid="input-sort-order"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="stripePriceId">Stripe Price ID</Label>
                 <Input
@@ -955,17 +990,22 @@ export default function AdminProducts() {
                   data-testid="input-stripe-price-id"
                 />
               </div>
-              <div className="flex items-end">
-                <div className="flex items-center justify-between w-full gap-2">
-                  <div className="space-y-0.5">
-                    <Label>Active</Label>
-                    <p className="text-xs text-muted-foreground">Visible in store</p>
-                  </div>
+              <div className="flex items-end gap-4">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={formData.isBestValue}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isBestValue: checked })}
+                    data-testid="switch-best-value"
+                  />
+                  <Label className="text-xs">Best Value</Label>
+                </div>
+                <div className="flex items-center gap-2">
                   <Switch
                     checked={formData.isActive}
                     onCheckedChange={(checked) => setFormData({ ...formData, isActive: checked })}
                     data-testid="switch-active"
                   />
+                  <Label className="text-xs">Active</Label>
                 </div>
               </div>
             </div>
