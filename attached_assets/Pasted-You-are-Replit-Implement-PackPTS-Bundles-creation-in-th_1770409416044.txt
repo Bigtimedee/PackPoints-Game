@@ -1,0 +1,203 @@
+You are Replit. Implement “PackPTS Bundles” creation in the PackPTS Admin portal with bidirectional USD ↔ PackPTS inputs, automatic ratio calculation, guardrails validation, and an Admin “approve/override” flow.
+
+Context from screenshot:
+- Admin modal exists: “Create PackPTS Package”
+- Fields shown: SKU, Name, Price (USD), PackPTS, Sales Channel, Create button
+- There are existing “Package Guardrails” and “Profit Calculator / Policy Settings / Fees” concepts on the page.
+Your job is to extend/complete this into a robust bundle builder that:
+1) Lets Admin enter either USD or PackPTS (one can be the “driver”).
+2) Auto-calculates the implied USD-per-PackPTS and PackPTS-per-USD ratios.
+3) Displays whether the package adheres to guardrails (PASS/WARN/BLOCK + reasons).
+4) Allows Admin to “Approve” the computed ratio OR “Override” it (with required reason + audit log).
+5) Saves the bundle and its validation result to the database and exposes it in Admin list views.
+
+Do NOT change consumer gameplay. Only Admin portal + server APIs + DB.
+
+────────────────────────────────────────────────────────────
+A) DATA MODEL (DB + TYPES)
+1) Add/confirm a “bundles/packages” table that stores:
+- id (uuid)
+- sku (string, unique)
+- name (string)
+- sales_channel (enum/string)  // e.g., “Web (Stripe)”
+- currency (string default “USD”)
+- usd_price_cents (int)        // store cents (avoid floats)
+- packpts_amount (int)         // integer points granted
+- ratio_usd_per_packpt_micro (int) 
+    - store USD per PackPTS in MICRO-dollars (1 USD = 1,000,000 micro)
+    - ratio = (usd_price_cents * 10,000) / packpts_amount  (since 1 cent = 10,000 micro)
+- ratio_packpt_per_usd_micro (int)
+    - packpts per USD in micro-packpts (or store as decimal string)
+- ratio_mode (enum: “AUTO” | “OVERRIDE”)
+- override_reason (text nullable)
+- guardrails_status (enum: “PASS” | “WARN” | “BLOCK”)
+- guardrails_json (jsonb) // detail: computed fees, margin, limits hit, etc.
+- created_by_user_id (uuid)
+- created_at, updated_at
+
+2) Add an audit log table:
+admin_bundle_audit_log:
+- id, bundle_id, actor_user_id, created_at
+- action (CREATE, UPDATE, OVERRIDE_RATIO)
+- before_json, after_json (jsonb)
+- reason (text nullable)
+
+3) Update/define shared TS types for:
+- BundleDraftInput
+- BundlePreviewResponse
+- GuardrailsResult { status, reasons[], metrics{} }
+
+────────────────────────────────────────────────────────────
+B) GUARDRAILS ENGINE (REUSE EXISTING LOGIC)
+Goal: “Show whether the proposed package adheres to the application’s guardrails.”
+
+1) Find existing guardrails / profitability calculator logic in Admin (page says “Validate package profitability before creation”).
+- Extract the core computations into a single server-side function:
+  evaluateBundleGuardrails({usd_price_cents, packpts_amount, sales_channel}) -> GuardrailsResult
+It should return:
+- status: PASS/WARN/BLOCK
+- reasons: human-readable list (e.g., “Gross margin below minimum 30%”)
+- metrics: { fees_total_cents, net_revenue_cents, implied_value_per_packpt_micro, gross_margin_pct, min_margin_pct, max_value_per_packpt_micro, etc. }
+
+2) IMPORTANT: Do the guardrails validation on the server (source of truth).
+Frontend can display it, but cannot decide it.
+
+────────────────────────────────────────────────────────────
+C) SERVER APIs (ADMIN ONLY)
+Implement Admin-authenticated endpoints (ensure only Admin user-type can call them):
+
+1) POST /api/admin/bundles/preview
+Body: { sku, name, sales_channel, usd_price_cents?, packpts_amount?, driver: “USD”|“PACKPTS”, ratio_mode: “AUTO”|“OVERRIDE”, override_ratio_usd_per_packpt_micro?, override_reason? }
+Rules:
+- Exactly one of usd_price_cents or packpts_amount can be empty at input time.
+- If driver=USD and usd_price_cents provided:
+    - compute packpts_amount using current default ratio OR based on existing policy rules (see Section D).
+- If driver=PACKPTS and packpts_amount provided:
+    - compute usd_price_cents using current default ratio OR policy rules.
+- Always compute implied ratios from resulting pair.
+- Run evaluateBundleGuardrails(...) and return:
+  {
+    resolved: { usd_price_cents, packpts_amount, ratios... },
+    guardrails: GuardrailsResult
+  }
+
+2) POST /api/admin/bundles
+Creates bundle. Body includes final resolved values + ratio_mode + override info.
+Enforce:
+- If ratio_mode=OVERRIDE:
+   - override_reason REQUIRED (min 10 chars)
+- If guardrails_status=BLOCK:
+   - default behavior: prevent creation
+   - BUT allow creation ONLY if Admin checks an explicit “Override Guardrails” toggle AND provides reason
+   - store guardrails_status=BLOCK and persist override reason + audit log
+
+3) GET /api/admin/bundles
+Lists bundles, supports filtering by sales_channel/status.
+
+4) PUT /api/admin/bundles/:id
+Allows edit of name/price/packpts with the same preview + validation + override rules.
+
+Security:
+- Ensure these endpoints require Admin session.
+- Return 401/403 for non-admin.
+
+────────────────────────────────────────────────────────────
+D) DEFAULT USD↔PACKPTS RATIO SOURCE OF TRUTH
+We need a consistent “automatic” ratio. Implement a single source of truth used by preview:
+
+1) Create a “PackPTS economics policy” record (if not already existing) that defines:
+- default_value_usd_per_packpt_micro (int)
+- min_margin_pct
+- fee schedule per sales_channel (Stripe fee, platform fee, etc.)
+- max_value_usd_per_packpt_micro (cap)
+- other existing guardrail params you already have
+
+2) If policy already exists in DB, use it.
+If it exists only in frontend constants, move it to DB and load it server-side.
+
+3) Auto-calculation behavior:
+- If Admin enters USD only:
+    packpts_amount = floor( (usd_price_cents * 10,000) / default_value_usd_per_packpt_micro )
+    enforce minimum 1, integer
+- If Admin enters PackPTS only:
+    usd_price_cents = ceil( (packpts_amount * default_value_usd_per_packpt_micro) / 10,000 )
+
+Then recompute implied ratios based on the final integer values.
+
+4) Display BOTH ratios in UI:
+- “USD per PackPTS” (format to $0.000000)
+- “PackPTS per $1.00” (integer + decimals)
+
+────────────────────────────────────────────────────────────
+E) ADMIN UI (MODAL) — BIDIRECTIONAL INPUT + PREVIEW + OVERRIDE
+Update “Create PackPTS Package” modal into “Create PackPTS Bundle” with:
+
+Fields:
+- SKU (required)
+- Name (required)
+- Sales Channel (required)
+- USD Price input (supports $0.00 to large)
+- PackPTS Amount input (integer)
+- Driver toggle: “USD drives PackPTS” vs “PackPTS drives USD”
+- Ratio section (read-only by default):
+   - Show computed USD/PackPTS + PackPTS/USD
+   - Buttons: [Approve Auto Ratio] (default selected) and [Override Ratio]
+   - If Override selected:
+       - allow editing either:
+         a) override USD/PackPTS value, OR
+         b) override PackPTS/USD value
+       - keep both in sync
+       - require Override Reason textarea
+
+Guardrails panel:
+- Status badge: PASS (green), WARN (amber), BLOCK (red)
+- List the reasons
+- Show key metrics (fees, net revenue, gross margin %)
+- If BLOCK:
+   - disable “Create Bundle” by default
+   - allow “Override Guardrails” checkbox + reason, then enable create
+
+Live preview behavior:
+- On any input change (debounced 250–400ms), call /api/admin/bundles/preview
+- Show a loading state and last good preview (don’t blank UI)
+- Handle errors (validation + auth) with toast + inline error
+
+Create flow:
+- On “Create Bundle”:
+   - call POST /api/admin/bundles with the resolved payload shown in preview
+   - show toast success
+   - close modal
+   - refresh bundles table
+
+Also update Admin list page to show:
+- SKU, Name, USD, PackPTS, USD/PackPTS, Status (PASS/WARN/BLOCK), Sales Channel, Updated, Actions (Edit)
+
+────────────────────────────────────────────────────────────
+F) VALIDATION + EDGE CASES (MUST DO)
+- No floats for money/ratios in DB. Use cents + micro.
+- packpts_amount must be > 0, integer
+- usd_price_cents must be >= 0
+- If usd_price_cents = 0 and packpts_amount > 0, guardrails should likely BLOCK (free value leakage) unless you have a promo policy; implement a clear rule and show it.
+- SKU unique check (server)
+- Debounce preview and cancel stale requests (AbortController)
+- Ensure ratio displayed matches stored ratio after creation
+
+────────────────────────────────────────────────────────────
+G) TESTS (REQUIRED)
+Add server tests for:
+1) preview: USD driver produces deterministic packpts and ratios from policy
+2) preview: PACKPTS driver produces deterministic USD and ratios
+3) create: BLOCK without override is rejected
+4) create: BLOCK with override + reason succeeds and logs audit
+5) override ratio requires reason
+
+Show test output.
+
+────────────────────────────────────────────────────────────
+H) DELIVERABLES
+1) List of files changed
+2) кратко explain how the ratio is computed (formula) and where stored
+3) Confirm guardrails are server-enforced and UI reflects the server response
+4) Run tests and paste results
+
+Proceed now.
