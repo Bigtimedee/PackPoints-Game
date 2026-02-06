@@ -5116,7 +5116,6 @@ export async function registerRoutes(
               isNull(playableCards.imageReviewStatus),
               ne(playableCards.imageReviewStatus, 'rejected')
             ),
-            lt(playableCards.imageFailureCount, 2),
             sql`LOWER(${playableCards.category}) = LOWER(${gameSet.sport})`
           )
         );
@@ -5280,7 +5279,6 @@ export async function registerRoutes(
               isNull(playableCards.imageReviewStatus),
               ne(playableCards.imageReviewStatus, 'rejected')
             ),
-            lt(playableCards.imageFailureCount, 2),
             sql`LOWER(${playableCards.category}) = LOWER(${gameSet.sport})`
           )
         );
@@ -5389,7 +5387,6 @@ export async function registerRoutes(
             AND pc.image_url LIKE 'https://%'
             AND pc.player IS NOT NULL
             AND pc.player != ''
-            AND pc.image_failure_count < 2
             AND LOWER(pc.category) = LOWER(game_sets.sport)
           )`.as('cards_imported_count'),
           lastImportAt: gameSets.lastImportAt,
@@ -5651,7 +5648,6 @@ export async function registerRoutes(
             AND pc.image_url LIKE 'https://%'
             AND pc.player IS NOT NULL
             AND pc.player != ''
-            AND pc.image_failure_count < 2
             AND LOWER(pc.category) = LOWER(game_sets.sport)
           )`.as('actual_playable_cards'),
           totalCards: sql<number>`(
@@ -5891,8 +5887,14 @@ export async function registerRoutes(
                 
                 console.log(`[PlayerMismatch] MISMATCH: "${card.player}" vs API "${cardDetails.player}" (${card.id.slice(0, 8)})`);
                 
-                // Auto-quarantine if requested
+                // Auto-quarantine if requested (admin-initiated, uses mutation guard)
                 if (autoQuarantine) {
+                  assertMutationAllowed({
+                    operationSource: "ADMIN_MANUAL",
+                    action: "SET_UNPLAYABLE",
+                    actorUserId: req.user?.id,
+                    reason: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
+                  });
                   await db
                     .update(playableCards)
                     .set({
@@ -5900,10 +5902,11 @@ export async function registerRoutes(
                       blockedReason: "player_mismatch",
                       imageReviewStatus: "excluded",
                       imageLastError: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
+                      quarantineStatus: "REMOVED_BY_ADMIN",
                       updatedAt: new Date(),
                     })
                     .where(eq(playableCards.id, card.id));
-                  console.log(`[PlayerMismatch] AUTO-QUARANTINED: ${card.id.slice(0, 8)}`);
+                  console.log(`[PlayerMismatch] AUTO-QUARANTINED by admin: ${card.id.slice(0, 8)}`);
                 }
               }
             }
@@ -5951,6 +5954,13 @@ export async function registerRoutes(
       
       let quarantined = 0;
       
+      assertMutationAllowed({
+        operationSource: "ADMIN_MANUAL",
+        action: "SET_UNPLAYABLE",
+        actorUserId: req.user?.id,
+        reason: `Bulk quarantine ${cardIds.length} cards for player mismatch`,
+      });
+      
       for (const cardId of cardIds) {
         try {
           await db
@@ -5959,6 +5969,7 @@ export async function registerRoutes(
               isPlayable: false,
               blockedReason: "player_mismatch",
               imageReviewStatus: "excluded",
+              quarantineStatus: "REMOVED_BY_ADMIN",
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
@@ -7127,7 +7138,6 @@ export async function registerRoutes(
               like(playableCards.imageUrl, 'https://%'),
               isNotNull(playableCards.player),
               ne(playableCards.player, ''),
-              lt(playableCards.imageFailureCount, 2),
               sql`LOWER(${playableCards.category}) = LOWER(${gameSet.sport})`
             )
           );
@@ -7461,7 +7471,6 @@ export async function registerRoutes(
             AND pc.image_url LIKE 'https://%'
             AND pc.player IS NOT NULL 
             AND pc.player != ''
-            AND pc.image_failure_count < 2
             AND LOWER(pc.category) = LOWER(game_sets.sport)
           )`.as('actual_playable_cards'),
         })
@@ -7735,22 +7744,24 @@ export async function registerRoutes(
         
         const count = multiPlayerReportCount[0]?.count || 0;
         if (count >= 2) {
+          // ANTI-PRUNING: Do NOT auto-exclude. Flag for admin review instead.
           await db
             .update(playableCards)
             .set({
-              isPlayable: false,
-              blockedReason: "multi-player",
-              imageReviewStatus: "excluded",
+              quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+              proposedUnplayable: true,
+              lastValidationReason: `${count} multi_player reports from users`,
+              imageReviewStatus: "pending",
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
           
-          console.log(`[Card Report] Card ${cardId} AUTO-EXCLUDED: 2+ multi_player reports (${count} total)`);
+          console.log(`[Card Report] Card ${cardId} FLAGGED FOR ADMIN REVIEW: 2+ multi_player reports (${count} total)`);
         }
       }
       
-      // CRITICAL: Auto-exclude cards with wrong_player reports immediately
-      // This is a data integrity issue - the image doesn't match the player name
+      // Flag wrong_player reports for admin review
+      // Card remains playable until admin approves exclusion
       if (parsed.data.reason === "wrong_player") {
         const wrongPlayerReportCount = await db
           .select({ count: sql<number>`count(*)::int` })
@@ -7761,19 +7772,20 @@ export async function registerRoutes(
           ));
         
         const count = wrongPlayerReportCount[0]?.count || 0;
-        // Exclude after just 1 report - this is a critical issue
         if (count >= 1) {
+          // ANTI-PRUNING: Do NOT auto-exclude. Flag for admin review instead.
           await db
             .update(playableCards)
             .set({
-              isPlayable: false,
-              blockedReason: "player_mismatch",
-              imageReviewStatus: "excluded",
+              quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+              proposedUnplayable: true,
+              lastValidationReason: `${count} wrong_player report(s) - possible player/image mismatch`,
+              imageReviewStatus: "pending",
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
           
-          console.log(`[Card Report] Card ${cardId} AUTO-EXCLUDED: wrong_player report (player/image mismatch)`);
+          console.log(`[Card Report] Card ${cardId} FLAGGED FOR ADMIN REVIEW: wrong_player report (player/image mismatch)`);
         }
       }
       
@@ -7933,12 +7945,19 @@ export async function registerRoutes(
           })
           .where(eq(playableCards.id, report.cardId));
       } else if (action === "reject") {
+        assertMutationAllowed({
+          operationSource: "ADMIN_MANUAL",
+          action: "SET_UNPLAYABLE",
+          actorUserId: req.user.id,
+          reason: `Report ${reportId} rejected - image mismatch confirmed`,
+        });
         await db
           .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: "Image mismatch confirmed via report",
+            quarantineStatus: "REMOVED_BY_ADMIN",
             updatedAt: new Date(),
           })
           .where(eq(playableCards.id, report.cardId));
@@ -8001,12 +8020,19 @@ export async function registerRoutes(
           .set(updateData)
           .where(eq(playableCards.id, cardId));
       } else if (action === "reject") {
+        assertMutationAllowed({
+          operationSource: "ADMIN_MANUAL",
+          action: "SET_UNPLAYABLE",
+          actorUserId: req.user.id,
+          reason: resolution || "Image mismatch confirmed via admin review",
+        });
         await db
           .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: resolution || "Image mismatch confirmed via admin review",
+            quarantineStatus: "REMOVED_BY_ADMIN",
             updatedAt: new Date(),
           })
           .where(eq(playableCards.id, cardId));
@@ -8035,11 +8061,19 @@ export async function registerRoutes(
       }
       const { cardIds } = parsed.data;
       
+      assertMutationAllowed({
+        operationSource: "ADMIN_MANUAL",
+        action: "SET_UNPLAYABLE",
+        actorUserId: req.user.id,
+        reason: `Bulk flag ${cardIds.length} cards as multi-player`,
+      });
+      
       const results = await db
         .update(playableCards)
         .set({
           isPlayable: false,
           blockedReason: "multi-player",
+          quarantineStatus: "REMOVED_BY_ADMIN",
           updatedAt: new Date(),
         })
         .where(inArray(playableCards.id, cardIds))
@@ -8181,6 +8215,116 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error restoring card:", error);
       res.status(500).json({ error: "Failed to restore card" });
+    }
+  });
+
+  // Admin: Bulk restore cards that were auto-excluded by background validation
+  app.post("/api/admin/cards/bulk-restore", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { setId, dryRun = true } = req.body;
+      const { writeAuditLog } = await import("./services/mutationGuard");
+      
+      const conditions = [
+        sql`is_playable = false`,
+        sql`image_url IS NOT NULL`,
+        sql`image_url LIKE 'https://%'`,
+        sql`player IS NOT NULL`,
+        sql`player != ''`,
+        sql`(content_verified IS NULL OR content_verified = true)`,
+        sql`(blocked_reason = 'image_validation_failed' OR blocked_reason = 'missing_image' OR blocked_reason = 'placeholder_image')`,
+      ];
+      
+      if (setId) {
+        conditions.push(sql`game_set_id = ${setId}`);
+      }
+      
+      const whereClause = sql.join(conditions, sql` AND `);
+      
+      const countResult = await db.execute(
+        sql`SELECT COUNT(*) as cnt FROM playable_cards WHERE ${whereClause}`
+      );
+      const restorableCount = parseInt(String(countResult.rows?.[0]?.cnt || "0"), 10);
+      
+      if (dryRun) {
+        const breakdown = await db.execute(
+          sql`SELECT blocked_reason, COUNT(*) as cnt FROM playable_cards WHERE ${whereClause} GROUP BY blocked_reason ORDER BY cnt DESC`
+        );
+        return res.json({ 
+          dryRun: true, 
+          restorableCount,
+          breakdown: breakdown.rows,
+          message: `Would restore ${restorableCount} cards. Set dryRun=false to execute.`
+        });
+      }
+      
+      if (restorableCount === 0) {
+        return res.json({ success: true, restoredCount: 0, message: "No cards eligible for restoration" });
+      }
+      
+      const result = await db.execute(
+        sql`UPDATE playable_cards SET 
+          is_playable = true, 
+          blocked_reason = NULL, 
+          image_failure_count = 0,
+          image_last_error = NULL,
+          quarantine_status = 'OK',
+          proposed_unplayable = false,
+          validation_fail_count = 0,
+          last_validation_reason = NULL,
+          first_validation_fail_at = NULL,
+          updated_at = NOW()
+        WHERE ${whereClause}`
+      );
+      
+      const restoredCount = result.rowCount || 0;
+      
+      await writeAuditLog({
+        setId: setId || undefined,
+        actionType: "BULK_RESTORE",
+        operationSource: "ADMIN_MANUAL",
+        actorUserId: req.user.id,
+        beforePlayableCards: 0,
+        afterPlayableCards: restoredCount,
+        reason: `Bulk restored ${restoredCount} cards auto-excluded by background validation`,
+      });
+      
+      console.log(`[Bulk Restore] Admin ${req.user.id} restored ${restoredCount} cards${setId ? ` in set ${setId}` : ' globally'}`);
+      
+      res.json({ success: true, restoredCount, message: `Restored ${restoredCount} cards to gameplay` });
+    } catch (error) {
+      console.error("Error bulk restoring cards:", error);
+      res.status(500).json({ error: "Failed to bulk restore cards" });
+    }
+  });
+
+  // Admin: Reset image_failure_count for all playable cards (prevent future backdoor pruning)
+  app.post("/api/admin/cards/reset-failure-counts", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { writeAuditLog } = await import("./services/mutationGuard");
+      
+      const result = await db.execute(
+        sql`UPDATE playable_cards SET 
+          image_failure_count = 0,
+          image_last_error = NULL,
+          last_image_check = NULL
+        WHERE image_failure_count > 0`
+      );
+      
+      const resetCount = result.rowCount || 0;
+      
+      await writeAuditLog({
+        actionType: "RESET_FAILURE_COUNTS",
+        operationSource: "ADMIN_MANUAL",
+        actorUserId: req.user.id,
+        reason: `Reset image_failure_count to 0 for ${resetCount} cards to prevent backdoor pruning`,
+      });
+      
+      console.log(`[Reset Failure Counts] Admin ${req.user.id} reset image_failure_count for ${resetCount} cards`);
+      
+      res.json({ success: true, resetCount, message: `Reset failure counts for ${resetCount} cards` });
+    } catch (error) {
+      console.error("Error resetting failure counts:", error);
+      res.status(500).json({ error: "Failed to reset failure counts" });
     }
   });
 

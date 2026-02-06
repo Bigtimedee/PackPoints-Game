@@ -51,7 +51,7 @@ export async function getCardPoolStats(): Promise<{
       COUNT(*) FILTER (WHERE is_playable = true) as playable_cards,
       COUNT(*) FILTER (WHERE is_playable = false) as excluded_cards,
       COUNT(*) FILTER (WHERE is_playable = false AND image_failure_count < ${MAX_FAILURE_COUNT_FOR_REVALIDATION}) as revalidatable_cards,
-      COUNT(*) FILTER (WHERE is_playable = true AND image_failure_count < 2) as validated_cards,
+      COUNT(*) FILTER (WHERE is_playable = true AND (content_verified IS NULL OR content_verified = true)) as validated_cards,
       COUNT(*) FILTER (WHERE quarantine_status != 'OK') as quarantined_cards,
       COUNT(*) FILTER (WHERE proposed_unplayable = true) as proposed_unplayable
     FROM playable_cards

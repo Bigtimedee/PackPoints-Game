@@ -550,9 +550,7 @@ export class DatabaseStorage implements IStorage {
           or(
             isNull(playableCards.imageReviewStatus),
             ne(playableCards.imageReviewStatus, 'rejected')
-          ),
-          // Only serve cards with validated images (failure count < 2)
-          lt(playableCards.imageFailureCount, 2)
+          )
         )
       )
       .orderBy(sql`RANDOM()`)
@@ -894,8 +892,6 @@ export class DatabaseStorage implements IStorage {
               eq(playableCards.imageReviewStatus, "pending"),
               eq(playableCards.imageReviewStatus, "approved")
             ),
-            // Only serve cards with validated images (failure count < 2)
-            lt(playableCards.imageFailureCount, 2),
             // CRITICAL: Exclude known silhouette URL patterns
             not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
             not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
@@ -934,8 +930,6 @@ export class DatabaseStorage implements IStorage {
             sql`LOWER(${gameSets.sport}) = ${expectedSport}`,
             eq(playableCards.isPlayable, true),
             isNotNull(playableCards.imageUrl),
-            // Only consider sets with validated cards
-            lt(playableCards.imageFailureCount, 2),
             // CRITICAL: Exclude known silhouette URL patterns
             not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
             not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
@@ -957,8 +951,6 @@ export class DatabaseStorage implements IStorage {
                 eq(playableCards.imageReviewStatus, "pending"),
                 eq(playableCards.imageReviewStatus, "approved")
               ),
-              // Only serve cards with validated images (failure count < 2)
-              lt(playableCards.imageFailureCount, 2),
               // CRITICAL: Exclude known silhouette URL patterns
               not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
               not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
@@ -1001,8 +993,9 @@ export class DatabaseStorage implements IStorage {
 
   async flagCardForImageFailure(cardId: string): Promise<void> {
     try {
-      // Increment both report count and image failure count
-      // If failure count reaches 2, the card will be excluded from future serving
+      // Increment image failure count for diagnostics only
+      // ANTI-PRUNING: Never set isPlayable=false from client-side image failures
+      // Only update diagnostic/quarantine fields
       await db
         .update(playableCards)
         .set({
@@ -1014,22 +1007,13 @@ export class DatabaseStorage implements IStorage {
         })
         .where(eq(playableCards.id, cardId));
       
-      // Check if card should now be excluded (2+ failures)
       const [card] = await db
         .select({ failureCount: playableCards.imageFailureCount })
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
       
-      if (card && card.failureCount >= 2) {
-        await db
-          .update(playableCards)
-          .set({ isPlayable: false })
-          .where(eq(playableCards.id, cardId));
-        console.log(`[CardReplacement] Card ${cardId} excluded due to 2+ image failures`);
-      } else {
-        console.log(`[CardReplacement] Flagged card ${cardId} for image load failure (count: ${card?.failureCount || 1})`);
-      }
+      console.log(`[CardReplacement] Flagged card ${cardId} for image load failure (count: ${card?.failureCount || 1}) - card remains playable per anti-pruning policy`);
     } catch (error) {
       console.error(`[CardReplacement] Failed to flag card ${cardId}:`, error);
     }

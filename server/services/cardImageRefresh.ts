@@ -170,14 +170,15 @@ export async function getFreshImageUrl(
         const errorMsg = `Player mismatch: stored="${expectedPlayerName}" vs API="${cardDetails.player}"`;
         console.warn(`[CardImageRefresh] ${errorMsg} for card ${cardId} - REJECTING image update`);
         
-        // Mark the card as having a player mismatch issue but don't exclude it yet
-        // Just prevent updating the image with wrong data
+        // ANTI-PRUNING: Only update diagnostic fields, never set isPlayable=false
+        // Card remains playable with existing image; admin must manually exclude if needed
         await db.update(playableCards)
           .set({
             lastImageCheck: now,
             imageLastError: errorMsg,
-            blockedReason: "player_mismatch",
-            isPlayable: false,
+            lastValidationReason: errorMsg,
+            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+            proposedUnplayable: true,
           })
           .where(eq(playableCards.id, cardId));
         
@@ -202,13 +203,19 @@ export async function getFreshImageUrl(
       // Immediately exclude placeholder cards (set high failure count)
       const failureIncrement = validationResult.isPlaceholder ? 5 : 1;
       
+      // ANTI-PRUNING: Never set isPlayable=false in automated refresh
+      // Flag for admin review if placeholder detected
+      const quarantineFields = validationResult.isPlaceholder ? {
+        quarantineStatus: "QUARANTINED_ADMIN_REVIEW" as const,
+        proposedUnplayable: true,
+        lastValidationReason: `Placeholder image detected: ${errorMsg}`,
+      } : {};
+      
       await db.update(playableCards)
         .set({
           lastImageCheck: now,
-          imageFailureCount: sql`COALESCE(${playableCards.imageFailureCount}, 0) + ${failureIncrement}`,
           imageLastError: errorMsg,
-          isPlayable: validationResult.isPlaceholder ? false : undefined,
-          blockedReason: validationResult.isPlaceholder ? "placeholder_image" : undefined,
+          ...quarantineFields,
         })
         .where(eq(playableCards.id, cardId));
       

@@ -33,8 +33,21 @@ The sets shrinking automatically (e.g., 1987 Topps from ~700 to ~440 cards) was 
 | `server/services/imageValidation.ts:331-344` | validateBaseballCardImages | AUTO (6h) | Sets `imageVerified=false` | ✅ |
 | `server/services/imageValidation.ts:461-470` | revalidateCard | ADMIN | Sets `isPlayable` based on result | ✅ |
 | `server/services/cardPoolRefresh.ts:137-144` | runCardPoolRefreshJob | AUTO (12h) | Increments failure count, sets blockedReason | ✅ |
+| `server/storage.ts:flagCardForImageFailure` | flagCardForImageFailure | CLIENT | Was setting `isPlayable=false` after 2 image failures | ✅ (Fixed: now only logs, never excludes) |
+| `server/services/cardImageRefresh.ts:180` | getFreshImageUrl | AUTO | Was setting `isPlayable=false` on player mismatch | ✅ (Fixed: now sets quarantine fields only) |
 | `server/routes.ts:6787` | /api/admin/playable-sets/:id/purge-reimport | ADMIN | Deletes all cards, reimports | ✅ (Admin-only) |
 | `server/scripts/verifyAllCards.ts:97` | verifyAllCards | ADMIN script | Sets `contentVerified` | ✅ (Admin-only) |
+
+### BACKDOOR PRUNE MECHANISM (FIXED)
+
+The `image_failure_count < 2` filter appeared in ALL gameplay and count queries. Even though `isPlayable` was protected by the mutation guard, incrementing `image_failure_count` to 2+ had the same effect of removing cards from gameplay. This filter has been removed from all queries:
+- `server/storage.ts:getRandomCardsFromSet()` - main gameplay query
+- `server/storage.ts` - replacement card queries (same set + fallback set)
+- `server/routes.ts:/api/admin/game-sets` - admin count display
+- `server/routes.ts:/api/playable-sets` - public dropdown count
+- `server/routes.ts:/api/admin/game-sets/:id/diagnose` - diagnostic count
+- `server/routes.ts:/api/admin/game-sets/repair` - repair count
+- `server/routes.ts:purge-reimport` - forensic count
 
 ### NON-DESTRUCTIVE OPERATIONS (allowed for SYSTEM)
 
