@@ -17,7 +17,7 @@ import {
   fetchCardDetailsNormalized,
   normalizeImageUrl,
 } from "./services/cardhedge/client";
-import { stripePurchaseService, isStripeConfigured } from "./services/stripePurchaseService";
+import { stripePurchaseService, isStripeConfigured, checkStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
@@ -2468,7 +2468,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing stripe-signature header" });
       }
 
-      if (!isStripeConfigured()) {
+      if (!(await checkStripeConfigured())) {
         console.error("Stripe is not configured");
         return res.status(503).json({ error: "Payment processing not configured" });
       }
@@ -2508,7 +2508,7 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Not authenticated" });
       }
 
-      if (!isStripeConfigured()) {
+      if (!(await checkStripeConfigured())) {
         return res.status(503).json({ error: "Payment processing not configured" });
       }
 
@@ -2556,8 +2556,9 @@ export async function registerRoutes(
 
   // Stripe configuration status (for frontend)
   app.get("/api/billing/status", async (_req, res) => {
+    const configured = await checkStripeConfigured();
     res.json({
-      stripeConfigured: isStripeConfigured(),
+      stripeConfigured: configured,
     });
   });
 
@@ -2575,9 +2576,10 @@ export async function registerRoutes(
         await analyticsService.storeViewed(userId, { productCount: bundles.length, type: "packpts_bundles" });
       }
       
+      const configured = await checkStripeConfigured();
       res.json({
         products: bundles,
-        stripeConfigured: isStripeConfigured(),
+        stripeConfigured: configured,
       });
     } catch (error) {
       console.error("Error getting store products:", error);
@@ -2598,7 +2600,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "SKU is required" });
       }
 
-      if (!isStripeConfigured()) {
+      if (!(await checkStripeConfigured())) {
         return res.status(503).json({ error: "Payment processing not configured" });
       }
 

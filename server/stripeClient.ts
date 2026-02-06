@@ -64,16 +64,16 @@ export async function getStripeSecretKey(): Promise<string> {
 }
 
 export async function isStripeConfiguredAsync(): Promise<boolean> {
-  if (cachedStripeConfigured !== null) {
-    return cachedStripeConfigured;
+  if (cachedStripeConfigured === true) {
+    return true;
   }
   
   try {
     await getCredentials();
     cachedStripeConfigured = true;
     return true;
-  } catch {
-    cachedStripeConfigured = false;
+  } catch (err) {
+    console.log('[Stripe] Configuration check failed:', (err as Error).message);
     return false;
   }
 }
