@@ -388,14 +388,16 @@ export async function submitAnswer(
         if (isCorrect) {
           const cardId = question.card?.id || `${matchId}:q${idx}`;
           try {
-            await awardDailyBaseForCorrectCard({
+            const rewardResult = await awardDailyBaseForCorrectCard({
               userId,
               matchId,
               cardId,
             });
+            if (rewardResult.frozen) {
+              console.warn(`[Match] Reward skipped — user ${userId} is frozen: ${rewardResult.frozenReason}`);
+            }
           } catch (rewardError: any) {
-            console.error(`[Match] Failed to award daily base for ${userId}: ${rewardError.message}`);
-            // Non-blocking - gameplay should continue even if reward fails
+            console.error(`[Match] REWARD_FAILURE: Failed to award daily base for user=${userId}, match=${matchId}, card=${cardId}, idx=${idx}: ${rewardError.message}`, rewardError.stack);
           }
         }
       } catch (error: any) {

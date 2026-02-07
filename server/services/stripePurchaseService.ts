@@ -377,6 +377,7 @@ class StripePurchaseService {
 
     let totalPackPts = 0;
     const entitlementsGranted: string[] = [];
+    const fulfillmentErrors: string[] = [];
 
     for (const item of lineItems) {
       const priceId = item.price?.id;
@@ -384,13 +385,17 @@ class StripePurchaseService {
 
       const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
       if (!internalSku) {
-        console.warn(`Unknown price ID: ${priceId}`);
+        const msg = `[Stripe] FULFILLMENT_ERROR: Unknown price ID ${priceId} in session ${session.id} for user ${userId} — paid but no PackPTS granted`;
+        console.error(msg);
+        fulfillmentErrors.push(msg);
         continue;
       }
 
       const productDef = PRODUCT_DEFINITIONS[internalSku as InternalSku];
       if (!productDef) {
-        console.warn(`Unknown internal SKU: ${internalSku}`);
+        const msg = `[Stripe] FULFILLMENT_ERROR: Unknown internal SKU ${internalSku} (price ${priceId}) in session ${session.id} for user ${userId} — paid but no PackPTS granted`;
+        console.error(msg);
+        fulfillmentErrors.push(msg);
         continue;
       }
 
@@ -416,7 +421,14 @@ class StripePurchaseService {
           { stripeEventId: event.id, priceId, quantity, sku: internalSku }
         );
 
-        if (result.success && !result.idempotent) {
+        if (!result.success) {
+          const msg = `[Stripe] FULFILLMENT_ERROR: purchaseCredit failed for user ${userId}, session ${session.id}, SKU ${internalSku}, amount ${amount}: ${result.error}`;
+          console.error(msg);
+          fulfillmentErrors.push(msg);
+          continue;
+        }
+
+        if (!result.idempotent) {
           totalPackPts += amount;
           
           const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
@@ -479,6 +491,22 @@ class StripePurchaseService {
       .update(stripeCheckoutSessions)
       .set({ status: "PAID", updatedAt: new Date() })
       .where(eq(stripeCheckoutSessions.stripeSessionId, session.id));
+
+    if (fulfillmentErrors.length > 0 && totalPackPts === 0 && entitlementsGranted.length === 0) {
+      return {
+        status: "failed" as PurchaseEventStatus,
+        error: `All line items failed fulfillment: ${fulfillmentErrors.join('; ')}`,
+        userId,
+      };
+    }
+
+    if (fulfillmentErrors.length > 0) {
+      return {
+        status: "processed" as PurchaseEventStatus,
+        message: `Partially fulfilled: granted ${totalPackPts} PackPTS, ${entitlementsGranted.length} entitlements, but ${fulfillmentErrors.length} item(s) failed: ${fulfillmentErrors.join('; ')}`,
+        userId,
+      };
+    }
 
     return {
       status: "processed",

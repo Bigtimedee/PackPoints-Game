@@ -102,11 +102,14 @@ class BucketService {
     sourceType: BucketSourceType,
     ledgerEntryId: string,
     metadata?: Record<string, unknown>,
-    overrideExpireDays?: number
+    overrideExpireDays?: number,
+    txOrDb?: any
   ): Promise<BucketCreationResult> {
     if (amount <= 0) {
       return { success: false, error: "Amount must be positive" };
     }
+
+    const executor = txOrDb ?? db;
 
     const policy = await this.getCurrentPolicy();
     const earnedAt = new Date();
@@ -121,7 +124,7 @@ class BucketService {
       );
     }
 
-    const [bucket] = await db
+    const [bucket] = await executor
       .insert(packptsBucket)
       .values({
         userId,

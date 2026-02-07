@@ -114,6 +114,16 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - **Auto-submit timeout**: 15-second timer auto-submits wrong answer for disconnected players mid-question. Recursive scheduling for subsequent questions. Cancelled on reconnect. Triple-guarded with DB checks before submitting.
 - **Answer rate limiting**: 3 submissions per 2-second window on both WS and HTTP paths. Periodic cleanup prevents memory leaks. Returns `rate_limited` rejection.
 
+### PackPTS Tracking Hardening (Feb 2026)
+- **Daily gameplay wallet auto-creation**: `awardDailyBaseForCorrectCard` now creates wallets for new users who don't have one yet, preventing silent point loss on first matches.
+- **Bucket creation for daily rewards**: Daily gameplay base rewards now create PackPTS buckets via `bucketService.createBucket(tx)` within the same transaction, ensuring FIFO expiration tracking stays in sync with wallet balances.
+- **Frozen-user enforcement**: Daily gameplay base rewards check `isUserFrozen()` before awarding points, matching the guardrail in `walletService.earn()`.
+- **FOR UPDATE wallet locking**: Daily gameplay base now uses `FOR UPDATE` on wallet select to prevent race conditions during concurrent answer submissions.
+- **Streak earn result checking**: `streakService.claimDailyStreak` now checks `walletService.earn()` result and throws to roll back the entire claim transaction if the wallet credit fails.
+- **Stripe fulfillment error tracking**: Unknown SKUs and `purchaseCredit` failures are now logged as `FULFILLMENT_ERROR` and reflected in the purchase event status (failed/partial).
+- **Redemption reversal/cancel safety**: `reverseRedemption` and `cancelRedemption` now verify `walletService.earn()` succeeded before marking redemption as REVERSED, preventing status updates without actual refunds.
+- **Match engine reward logging**: Improved error context for reward failures including userId, matchId, cardId, and stack traces.
+
 ### Third-party APIs
 - Card Hedge API
 - Zyla API

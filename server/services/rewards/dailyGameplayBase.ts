@@ -7,6 +7,8 @@ import {
 } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { DAILY_GAMEPLAY_BASE } from "../../config/rewards";
+import { isUserFrozen } from "../rewardEngine";
+import { bucketService } from "../bucketService";
 
 export interface DailyBaseAwardResult {
   deltaPts: number;
@@ -14,6 +16,8 @@ export interface DailyBaseAwardResult {
   cardsCompleted: number;
   isDuplicate: boolean;
   isDailyCapped: boolean;
+  frozen?: boolean;
+  frozenReason?: string;
 }
 
 export interface DailyProgressResult {
@@ -35,6 +39,19 @@ export async function awardDailyBaseForCorrectCard(params: {
 }): Promise<DailyBaseAwardResult> {
   const { userId, matchId, cardId } = params;
   const dayKey = DAILY_GAMEPLAY_BASE.dayKeyUTC(params.now ?? new Date());
+
+  const frozenCheck = await isUserFrozen(userId);
+  if (frozenCheck.frozen) {
+    return {
+      deltaPts: 0,
+      newTotalPts: 0,
+      cardsCompleted: 0,
+      isDuplicate: false,
+      isDailyCapped: false,
+      frozen: true,
+      frozenReason: frozenCheck.reason,
+    };
+  }
   
   return await db.transaction(async (tx) => {
     const existingEvent = await tx
@@ -130,40 +147,86 @@ export async function awardDailyBaseForCorrectCard(params: {
       ));
     
     if (delta > 0) {
-      const [wallet] = await tx
+      let [wallet] = await tx
         .select()
         .from(wallets)
         .where(eq(wallets.userId, userId))
+        .for("update")
         .limit(1);
       
-      if (wallet) {
-        const newBalance = wallet.balance + delta;
-        
-        await tx
-          .update(wallets)
-          .set({
-            balance: newBalance,
-            lifetimeEarned: wallet.lifetimeEarned + delta,
-            updatedAt: new Date(),
-          })
-          .where(eq(wallets.userId, userId));
-        
-        await tx.insert(ledgerEntries).values({
-          walletId: wallet.id,
-          entryType: "EARN",
-          amount: delta,
-          balanceAfter: newBalance,
-          reason: "Daily card completion reward",
-          metadata: {
-            source: "EARN_GAMEPLAY_BASE_DAILY",
-            dayKey,
-            cardId,
-            matchId: matchId ?? null,
-            cardsCompleted: newC,
-          },
-          idempotencyKey: `daily_base:${userId}:${dayKey}:${cardId}`,
-        });
+      if (!wallet) {
+        const [newWallet] = await tx.insert(wallets).values({
+          userId,
+          balance: 0,
+          lifetimeEarned: 0,
+          lifetimeSpent: 0,
+          status: "active",
+        }).returning();
+        wallet = newWallet;
       }
+
+      if (wallet.status !== "active") {
+        return {
+          deltaPts: 0,
+          newTotalPts: oldP,
+          cardsCompleted: newC,
+          isDuplicate: false,
+          isDailyCapped,
+        };
+      }
+
+      const idempotencyKey = `daily_base:${userId}:${dayKey}:${cardId}`;
+      const newBalance = wallet.balance + delta;
+      
+      const insertedEntries = await tx.insert(ledgerEntries).values({
+        walletId: wallet.id,
+        entryType: "EARN",
+        amount: delta,
+        balanceAfter: newBalance,
+        reason: "Daily card completion reward",
+        metadata: {
+          source: "EARN_GAMEPLAY_BASE_DAILY",
+          dayKey,
+          cardId,
+          matchId: matchId ?? null,
+          cardsCompleted: newC,
+        },
+        idempotencyKey,
+      }).onConflictDoNothing({ target: ledgerEntries.idempotencyKey }).returning();
+
+      if (insertedEntries.length === 0) {
+        return {
+          deltaPts: 0,
+          newTotalPts: oldP,
+          cardsCompleted: newC,
+          isDuplicate: true,
+          isDailyCapped,
+        };
+      }
+
+      await tx
+        .update(wallets)
+        .set({
+          balance: newBalance,
+          lifetimeEarned: wallet.lifetimeEarned + delta,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.id, wallet.id));
+      
+      await bucketService.createBucket(
+        userId,
+        delta,
+        "EARNED",
+        insertedEntries[0].id,
+        {
+          source: "EARN_GAMEPLAY_BASE_DAILY",
+          dayKey,
+          cardId,
+          matchId: matchId ?? null,
+        },
+        undefined,
+        tx
+      );
     }
     
     return {

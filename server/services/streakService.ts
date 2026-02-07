@@ -389,7 +389,7 @@ class StreakService {
       });
 
       const walletIdempotencyKey = `streak_earn_${userId}_${todayLocal}`;
-      await walletService.earn(
+      const earnResult = await walletService.earn(
         userId,
         totalAwarded,
         `Day ${newStreakDays} streak reward${milestoneBonus > 0 ? ` + ${newStreakDays}-day milestone bonus` : ""}`,
@@ -402,6 +402,11 @@ class StreakService {
           matchId,
         }
       );
+
+      if (!earnResult.success) {
+        console.error(`[Streak] Wallet earn failed for ${userId}: ${earnResult.error}`);
+        throw new Error(`Streak reward wallet credit failed: ${earnResult.error}`);
+      }
 
       if (streakBroken) {
         analyticsService.track(

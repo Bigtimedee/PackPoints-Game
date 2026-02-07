@@ -532,12 +532,17 @@ class ProfitGuardrailService {
 
     // Refund the PackPTS to the user
     const idempotencyKey = `reversal:${redemptionCreditId}`;
-    await walletService.earn(
+    const earnResult = await walletService.earn(
       credit.userId,
       credit.packptsSpent,
       `Redemption reversal: ${reason}`,
       idempotencyKey
     );
+
+    if (!earnResult.success) {
+      console.error(`[Guardrail] Reversal refund failed for credit ${redemptionCreditId}: ${earnResult.error}`);
+      throw new Error(`Reversal refund failed: ${earnResult.error}`);
+    }
 
     await db
       .update(redemptionCredit)
@@ -595,12 +600,17 @@ class ProfitGuardrailService {
 
     // Refund PackPTS
     const idempotencyKey = `cancel:${purchaseIntentId}`;
-    await walletService.earn(
+    const earnResult = await walletService.earn(
       userId,
       credit.packptsSpent,
       `Redemption canceled by user`,
       idempotencyKey
     );
+
+    if (!earnResult.success) {
+      console.error(`[Guardrail] Cancel refund failed for intent ${purchaseIntentId}: ${earnResult.error}`);
+      throw new Error(`Cancel refund failed: ${earnResult.error}`);
+    }
 
     // Update statuses
     await db
