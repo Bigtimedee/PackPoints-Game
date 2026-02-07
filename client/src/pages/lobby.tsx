@@ -59,7 +59,10 @@ export default function Lobby() {
 
   useEffect(() => {
     const cleanup1 = on("lobby_update", (updatedLobby: LobbyState) => {
-      setLobby(updatedLobby);
+      setLobby(prev => ({
+        ...updatedLobby,
+        membershipSecret: updatedLobby.membershipSecret || prev?.membershipSecret,
+      }));
     });
     
     const cleanup2 = on("lobby_closed", () => {
