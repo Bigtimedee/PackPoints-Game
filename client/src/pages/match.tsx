@@ -105,6 +105,7 @@ export default function Match() {
   const lockedInRef = useRef(false);
   const pendingClientMsgIdRef = useRef<string | null>(null);
   const hasJoinedMatchRef = useRef(false);
+  const processedAnswerForIdx = useRef<number>(-1);
   
   const userId = user?.id || "";
   const username = user?.username || user?.firstName || "Player";
@@ -130,6 +131,7 @@ export default function Match() {
         setImageRetryCount(0);
         setShowReplaceButton(false);
         setReplacementPending(false);
+        processedAnswerForIdx.current = -1;
         // Extract seedVersion from currentQuestion if available, default to 1
         if (message.payload.currentQuestion?.seedVersion) {
           setSeedVersion(message.payload.currentQuestion.seedVersion);
@@ -257,13 +259,19 @@ export default function Match() {
           }
         }
         break;
-      case "answer_result":
+      case "answer_result": {
+        const ackIdx = message.payload.idx ?? matchState?.currentQuestionIndex ?? -1;
+        if (processedAnswerForIdx.current === ackIdx) {
+          console.log(`[Match] Ignoring duplicate answer_result for idx=${ackIdx}`);
+          break;
+        }
+        processedAnswerForIdx.current = ackIdx;
         setAnswerResult(message.payload);
-        // Refetch daily progress to update the header badge (1v1 correct answers now count)
         if (message.payload.correct) {
           queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
         }
         break;
+      }
       case "participant_answered":
         setMatchState((prev) => {
           if (!prev) return prev;
@@ -286,6 +294,7 @@ export default function Match() {
         break;
       case "match_completed":
       case "match_end":
+        clearMatchSecret();
         setMatchEnded(message.payload);
         setMatchState((prev) => {
           if (!prev) return prev;
@@ -315,12 +324,27 @@ export default function Match() {
     }
   }, [toast]);
   
-  const { isConnected, connect, send, on } = useWebSocket({ onMessage: handleMessage });
+  const handleWsClose = useCallback(() => {
+    hasJoinedMatchRef.current = false;
+  }, []);
+
+  const { isConnected, connect, send, on } = useWebSocket({ onMessage: handleMessage, onClose: handleWsClose });
 
   useEffect(() => {
     if (!matchId || !userId || authLoading) return;
     connect();
   }, [matchId, userId, authLoading, connect]);
+
+  // Auto-reconnect on connection drop during active match
+  useEffect(() => {
+    if (!isConnected && matchId && userId && !authLoading && !matchEnded) {
+      const reconnectTimer = setTimeout(() => {
+        console.log("[Match] Auto-reconnecting after connection drop");
+        connect();
+      }, 2000);
+      return () => clearTimeout(reconnectTimer);
+    }
+  }, [isConnected, matchId, userId, authLoading, matchEnded, connect]);
 
   useEffect(() => {
     if (isConnected && matchId && userId && !hasJoinedMatchRef.current) {
@@ -328,7 +352,6 @@ export default function Match() {
       console.log("[Match] Attempting join_match:", { matchId, userId, hasSecret: !!matchSecret });
       if (matchSecret) {
         hasJoinedMatchRef.current = true;
-        clearMatchSecret();
         console.log("[Match] Sending join_match with membershipSecret");
         send("join_match", { 
           matchId, 
@@ -418,6 +441,12 @@ export default function Match() {
       
       fallbackTimeoutRef.current = setTimeout(async () => {
         if (submittingRef.current && !lockedInRef.current) {
+          // Skip if WS already processed the answer for this question
+          if (processedAnswerForIdx.current === currentIdx) {
+            console.log(`[Match] HTTP fallback skipped: answer already processed for idx=${currentIdx}`);
+            fallbackTimeoutRef.current = null;
+            return;
+          }
           try {
             const response = await fetch(`/api/matches/${matchId}/answer`, {
               method: "POST",
@@ -430,7 +459,14 @@ export default function Match() {
               }),
             });
             const data = await response.json();
+            // Double-check dedup after async fetch completes
+            if (processedAnswerForIdx.current === currentIdx) {
+              console.log(`[Match] HTTP fallback response ignored: WS processed idx=${currentIdx} during fetch`);
+              fallbackTimeoutRef.current = null;
+              return;
+            }
             if (data.ok) {
+              processedAnswerForIdx.current = currentIdx;
               setLockedIn(true);
               lockedInRef.current = true;
               setSubmitting(false);

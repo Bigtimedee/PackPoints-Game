@@ -105,6 +105,15 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - **Audit trail**: Direct poll fulfillment records a purchaseEvents entry (`poll_fulfill_${sessionId}`) for full auditability.
 - **Subscription safety**: Subscription sessions are marked PAID by direct poll but PackPTS/entitlement grants are deferred to invoice.paid, matching webhook behavior.
 
+### 1v1 Match Resilience Hardening (Feb 2026)
+- **DB-authoritative answer submission**: Both WebSocket and HTTP fallback converge on `matchEngine.submitAnswer()` with DB transactions and FOR UPDATE locking. In-memory state is never authoritative.
+- **DB-sourced broadcasts**: All match broadcasts (`match_state`, `next_question`, `match_started`) call `matchEngine.buildMatchState()` for authoritative data.
+- **Client-side answer deduplication**: `processedAnswerForIdx` ref prevents duplicate UI updates when both WS and HTTP fallback respond.
+- **Persistent membershipSecret**: Secret stored in localStorage, persists across page refreshes during active match, cleared only on match end. Auto-reconnect via `onClose` handler re-sends `join_match`.
+- **Host disconnect grace period**: Host gets 30-second grace period in lobbies (matching guest behavior). Broadcasts `host_disconnected`/`host_reconnected` events to guest with UI indicator.
+- **Auto-submit timeout**: 15-second timer auto-submits wrong answer for disconnected players mid-question. Recursive scheduling for subsequent questions. Cancelled on reconnect. Triple-guarded with DB checks before submitting.
+- **Answer rate limiting**: 3 submissions per 2-second window on both WS and HTTP paths. Periodic cleanup prevents memory leaks. Returns `rate_limited` rejection.
+
 ### Third-party APIs
 - Card Hedge API
 - Zyla API

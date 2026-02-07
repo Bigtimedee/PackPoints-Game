@@ -21,6 +21,11 @@ let inviteExpirationInterval: NodeJS.Timeout | null = null;
 
 const DISCONNECT_GRACE_PERIOD = 60000; // 60 seconds before cancelling match on disconnect
 const disconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // key: matchId-userId
+const AUTO_SUBMIT_TIMEOUT = 15000; // 15 seconds before auto-submitting wrong answer for disconnected player
+const autoSubmitTimers: Map<string, NodeJS.Timeout> = new Map(); // key: matchId-userId
+
+const LOBBY_DISCONNECT_GRACE_PERIOD = 30000; // 30 seconds before closing lobby on host disconnect
+const lobbyDisconnectTimers: Map<string, NodeJS.Timeout> = new Map(); // key: lobbyId-userId
 
 function startInviteExpirationJob() {
   if (inviteExpirationInterval) return;
@@ -386,6 +391,17 @@ async function handleJoinLobbyWs(ws: WebSocket, payload: { userId: string; usern
   }
   lobbyConnections.get(lobbyId)?.add(ws);
   
+  // Cancel any pending host disconnect grace timer on reconnect
+  cancelLobbyDisconnectTimer(lobbyId, userId);
+  
+  // Notify other players that the host has reconnected
+  if (lobby.hostId === userId) {
+    broadcastToLobby(lobbyId, {
+      type: "host_reconnected",
+      payload: { userId, username },
+    });
+  }
+  
   const safeLobby = {
     id: lobby.id,
     joinCode: lobby.joinCode,
@@ -500,16 +516,52 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
   const matchClientCount = matchConnections.get(matchState.matchId)?.size || 0;
   log(`[StartMatch] Match now has ${matchClientCount} connected clients`, "ws");
   
-  const seedVersion = await getSeedVersionForQuestion(matchState.matchId, matchState.currentQuestionIndex);
-  const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
+  // Rebuild match state from DB for authoritative broadcast
+  const dbMatchState = await matchEngine.buildMatchState(matchState.matchId);
+  const broadcastState = dbMatchState || matchState;
+  
+  const seedVersion = await getSeedVersionForQuestion(broadcastState.matchId, broadcastState.currentQuestionIndex);
+  const clientMatchState = sanitizeMatchStateForClient(broadcastState, seedVersion);
   
   log(`[StartMatch] Broadcasting match_started to ${matchClientCount} clients, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
   
-  broadcastToMatch(matchState.matchId, {
+  broadcastToMatch(broadcastState.matchId, {
     type: "match_started",
     payload: clientMatchState,
   });
 }
+
+const ANSWER_RATE_LIMIT_WINDOW = 2000; // 2 seconds
+const ANSWER_RATE_LIMIT_MAX = 3; // max 3 submissions per window
+const answerRateTracker: Map<string, number[]> = new Map(); // key: userId, value: timestamps
+
+const SUSPICIOUSLY_FAST_THRESHOLD = 500; // answers under 500ms are flagged
+
+function checkAnswerRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const timestamps = answerRateTracker.get(userId) || [];
+  const recent = timestamps.filter(t => now - t < ANSWER_RATE_LIMIT_WINDOW);
+  recent.push(now);
+  if (recent.length === 0) {
+    answerRateTracker.delete(userId);
+  } else {
+    answerRateTracker.set(userId, recent);
+  }
+  return recent.length <= ANSWER_RATE_LIMIT_MAX;
+}
+
+// Periodic cleanup of stale rate tracker entries every 60 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, timestamps] of answerRateTracker) {
+    const recent = timestamps.filter(t => now - t < ANSWER_RATE_LIMIT_WINDOW);
+    if (recent.length === 0) {
+      answerRateTracker.delete(userId);
+    } else {
+      answerRateTracker.set(userId, recent);
+    }
+  }
+}, 60000);
 
 async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; userId: string; questionIndex: number; selectedAnswer: string; clientMsgId?: string }) {
   const { matchId, questionIndex, selectedAnswer, clientMsgId } = payload;
@@ -536,6 +588,15 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     ws.send(JSON.stringify({ 
       type: "answer_ack", 
       payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "not_in_match" } 
+    }));
+    return;
+  }
+  
+  if (!checkAnswerRateLimit(serverUserId)) {
+    log(`[SubmitAnswer] RATE_LIMITED: userId=${serverUserId}, matchId=${matchId}`, "ws");
+    ws.send(JSON.stringify({ 
+      type: "answer_ack", 
+      payload: { matchId, idx: questionIndex, clientMsgId, status: "REJECTED", reason: "rate_limited" } 
     }));
     return;
   }
@@ -673,7 +734,7 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
   
   log(`[ReadyNext] matchId=${matchId}, userId=${userId}, hasExistingClient=${!!existingClient}`, "ws");
   
-  const matchState = await matchService.getMatchStateWithFallback(matchId);
+  const matchState = await matchEngine.buildMatchState(matchId);
   
   if (!matchState) {
     ws.send(JSON.stringify({ type: "error", message: "Match not found" }));
@@ -701,6 +762,7 @@ async function handleReadyNext(ws: WebSocket, payload: { matchId: string }) {
       matchConnections.get(matchId)?.add(ws);
       
       cancelDisconnectTimer(matchId, userId);
+      cancelAutoSubmit(matchId, userId);
       await matchEngine.markConnected(matchId, userId);
     }
   }
@@ -759,6 +821,7 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
     matchConnections.get(matchId)?.add(ws);
     
     cancelDisconnectTimer(matchId, userId);
+    cancelAutoSubmit(matchId, userId);
     await matchEngine.markConnected(matchId, userId);
   }
   
@@ -904,9 +967,9 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
     return;
   }
   
-  const matchState = await matchService.getMatchStateWithFallback(matchId);
+  const matchState = await matchEngine.buildMatchState(matchId);
   if (!matchState) {
-    log(`[JoinMatch] Match ${matchId} not found in memory or database`, "ws");
+    log(`[JoinMatch] Match ${matchId} not found in database`, "ws");
     ws.send(JSON.stringify({ type: "error", message: "Match not found or has expired" }));
     return;
   }
@@ -942,6 +1005,7 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
   matchConnections.get(matchId)?.add(ws);
   
   cancelDisconnectTimer(matchId, userId);
+  cancelAutoSubmit(matchId, userId);
   await matchEngine.markConnected(matchId, userId);
   
   const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
@@ -1120,7 +1184,7 @@ async function handleLeaveQueue(ws: WebSocket, payload: { userId: string }) {
 }
 
 async function handleDisconnectFromLobby(ws: WebSocket, client: ClientConnection) {
-  const { lobbyId, userId } = client;
+  const { lobbyId, userId, username } = client;
   if (!lobbyId || !userId) return;
   
   const lobbyClients = lobbyConnections.get(lobbyId);
@@ -1130,13 +1194,51 @@ async function handleDisconnectFromLobby(ws: WebSocket, client: ClientConnection
   if (!lobby) return;
   
   if (lobby.hostId === userId) {
-    await matchService.leaveLobby(lobbyId, userId);
+    // Host gets a grace period to reconnect instead of immediately closing
     broadcastToLobby(lobbyId, {
-      type: "lobby_closed",
-      payload: { reason: "Host disconnected" },
+      type: "host_disconnected",
+      payload: { userId, username, gracePeriodMs: LOBBY_DISCONNECT_GRACE_PERIOD },
     });
-    lobbyConnections.delete(lobbyId);
-    log(`Host ${client.username} disconnected, lobby ${lobbyId} closed`, "ws");
+    log(`Host ${username} disconnected from lobby ${lobbyId}, starting ${LOBBY_DISCONNECT_GRACE_PERIOD / 1000}s grace period`, "ws");
+    
+    const timerKey = `${lobbyId}-${userId}`;
+    if (lobbyDisconnectTimers.has(timerKey)) {
+      clearTimeout(lobbyDisconnectTimers.get(timerKey)!);
+    }
+    
+    const timer = setTimeout(async () => {
+      lobbyDisconnectTimers.delete(timerKey);
+      const currentLobby = await matchService.getLobby(lobbyId);
+      if (!currentLobby) return;
+      
+      // Check if host reconnected by seeing if they have an active WS in the lobby
+      const lobbyWsClients = lobbyConnections.get(lobbyId);
+      let hostReconnected = false;
+      if (lobbyWsClients) {
+        for (const client of lobbyWsClients) {
+          const info = clients.get(client);
+          if (info?.userId === userId) {
+            hostReconnected = true;
+            break;
+          }
+        }
+      }
+      
+      if (hostReconnected) {
+        log(`[LobbyDisconnect] Host ${username} reconnected to lobby ${lobbyId}, skipping close`, "ws");
+        return;
+      }
+      
+      await matchService.leaveLobby(lobbyId, userId);
+      broadcastToLobby(lobbyId, {
+        type: "lobby_closed",
+        payload: { reason: "Host disconnected" },
+      });
+      lobbyConnections.delete(lobbyId);
+      log(`Host ${username} timed out from lobby ${lobbyId} after ${LOBBY_DISCONNECT_GRACE_PERIOD / 1000}s, lobby closed`, "ws");
+    }, LOBBY_DISCONNECT_GRACE_PERIOD);
+    
+    lobbyDisconnectTimers.set(timerKey, timer);
   } else if (lobby.guestId === userId) {
     const updatedLobby = await matchService.leaveLobby(lobbyId, userId);
     if (updatedLobby) {
@@ -1145,7 +1247,17 @@ async function handleDisconnectFromLobby(ws: WebSocket, client: ClientConnection
         payload: updatedLobby,
       });
     }
-    log(`Guest ${client.username} left lobby ${lobbyId}`, "ws");
+    log(`Guest ${username} left lobby ${lobbyId}`, "ws");
+  }
+}
+
+function cancelLobbyDisconnectTimer(lobbyId: string, userId: string) {
+  const timerKey = `${lobbyId}-${userId}`;
+  const timer = lobbyDisconnectTimers.get(timerKey);
+  if (timer) {
+    clearTimeout(timer);
+    lobbyDisconnectTimers.delete(timerKey);
+    log(`[LobbyDisconnect] Cancelled grace timer for ${userId} in lobby ${lobbyId}`, "ws");
   }
 }
 
@@ -1163,6 +1275,9 @@ async function handleDisconnectFromMatch(ws: WebSocket, client: ClientConnection
     payload: { userId, username },
   });
   log(`Player ${username} disconnected from match ${matchId}, starting ${DISCONNECT_GRACE_PERIOD / 1000}s grace period`, "ws");
+  
+  // Auto-submit wrong answer for disconnected player after timeout
+  scheduleAutoSubmit(matchId, userId, username);
   
   const timerKey = `${matchId}-${userId}`;
   
@@ -1214,5 +1329,150 @@ function cancelDisconnectTimer(matchId: string, userId: string) {
     clearTimeout(timer);
     disconnectTimers.delete(timerKey);
     log(`[DisconnectTimer] Cancelled grace timer for ${userId} in match ${matchId}`, "ws");
+  }
+}
+
+async function scheduleAutoSubmit(matchId: string, userId: string, username: string) {
+  const timerKey = `${matchId}-${userId}`;
+  
+  if (autoSubmitTimers.has(timerKey)) {
+    clearTimeout(autoSubmitTimers.get(timerKey)!);
+  }
+  
+  const matchState = await matchEngine.buildMatchState(matchId);
+  if (!matchState || matchState.status !== MatchStatus.ACTIVE) return;
+  
+  const participant = matchState.participants.find(p => p.userId === userId);
+  if (!participant || participant.hasAnsweredCurrent) return;
+  
+  const currentIdx = matchState.currentQuestionIndex;
+  log(`[AutoSubmit] Scheduling auto-submit for ${username} in match ${matchId} at idx=${currentIdx} in ${AUTO_SUBMIT_TIMEOUT / 1000}s`, "ws");
+  
+  const timer = setTimeout(async () => {
+    autoSubmitTimers.delete(timerKey);
+    
+    try {
+      const currentState = await matchEngine.buildMatchState(matchId);
+      if (!currentState || currentState.status !== MatchStatus.ACTIVE) {
+        log(`[AutoSubmit] Match ${matchId} no longer active, skipping auto-submit`, "ws");
+        return;
+      }
+      
+      if (currentState.currentQuestionIndex !== currentIdx) {
+        log(`[AutoSubmit] Match ${matchId} already advanced past idx=${currentIdx}, skipping`, "ws");
+        return;
+      }
+      
+      const p = currentState.participants.find(p => p.userId === userId);
+      if (p?.hasAnsweredCurrent) {
+        log(`[AutoSubmit] Player ${username} already answered idx=${currentIdx}, skipping`, "ws");
+        return;
+      }
+      
+      // Check if player reconnected
+      const participants = await matchEngine.getParticipants(matchId);
+      const dbParticipant = participants.find(pp => pp.userId === userId);
+      if (dbParticipant?.isConnected) {
+        log(`[AutoSubmit] Player ${username} reconnected to match ${matchId}, skipping auto-submit`, "ws");
+        return;
+      }
+      
+      log(`[AutoSubmit] Auto-submitting wrong answer for ${username} in match ${matchId} at idx=${currentIdx}`, "ws");
+      
+      const result = await matchEngine.submitAnswer(matchId, userId, currentIdx, "__auto_timeout__", `auto_submit_${matchId}_${currentIdx}`);
+      
+      if (result.status === "REJECTED") {
+        log(`[AutoSubmit] Auto-submit rejected for ${username}: ${result.reason}`, "ws");
+        return;
+      }
+      
+      // Broadcast answer status
+      if (result.answerStatus) {
+        broadcastToMatch(matchId, {
+          type: "answer_status",
+          payload: {
+            matchId,
+            idx: currentIdx,
+            answeredCount: result.answerStatus.answeredCount,
+            required: result.answerStatus.required,
+          },
+        });
+      }
+      
+      // Broadcast participant_answered
+      const updatedState = await matchEngine.buildMatchState(matchId);
+      if (updatedState) {
+        broadcastToMatch(matchId, {
+          type: "participant_answered",
+          payload: {
+            matchId,
+            userId,
+            questionIndex: currentIdx,
+            idx: currentIdx,
+            autoSubmitted: true,
+            participants: updatedState.participants.map(p => ({
+              userId: p.userId,
+              username: p.username,
+              score: p.score,
+              hasAnsweredCurrent: p.hasAnsweredCurrent,
+            })),
+          },
+        });
+      }
+      
+      // Handle advance if both answered
+      if (result.advance) {
+        if (result.advance.finished) {
+          const allParticipants = await matchEngine.getParticipants(matchId);
+          const match = await matchEngine.getMatchFromDb(matchId);
+          const totalQuestions = match?.totalQuestions || 10;
+          
+          const matchEnd = await matchEngine.completeMatchFinish(matchId, allParticipants, totalQuestions);
+          
+          if (matchEnd) {
+            for (const mp of matchEnd.participants) {
+              try {
+                await streakService.processMatchCompletion(mp.userId, matchId);
+              } catch (e) {
+                console.error("Failed to process streak:", e);
+              }
+            }
+            broadcastToMatch(matchId, { type: "match_end", payload: matchEnd });
+          }
+        } else if (result.advance.nextQuestion) {
+          const advancedState = await matchEngine.buildMatchState(matchId);
+          if (advancedState) {
+            const newIdx = result.advance.newIndex;
+            const seedVer = await getSeedVersionForQuestion(matchId, newIdx);
+            const clientMatchState = sanitizeMatchStateForClient(advancedState, seedVer);
+            
+            broadcastToMatch(matchId, {
+              type: "next_question",
+              payload: {
+                ...clientMatchState,
+                answerStatus: { idx: newIdx, answeredCount: 0, required: 2 },
+              },
+            });
+            
+            // Schedule another auto-submit for the next question if still disconnected
+            scheduleAutoSubmit(matchId, userId, username);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[AutoSubmit] Error auto-submitting for ${username} in match ${matchId}:`, error);
+    }
+  }, AUTO_SUBMIT_TIMEOUT);
+  
+  autoSubmitTimers.set(timerKey, timer);
+}
+
+function cancelAutoSubmit(matchId: string, userId: string) {
+  const timerKey = `${matchId}-${userId}`;
+  const timer = autoSubmitTimers.get(timerKey);
+  if (timer) {
+    clearTimeout(timer);
+    autoSubmitTimers.delete(timerKey);
+    log(`[AutoSubmit] Cancelled auto-submit timer for ${userId} in match ${matchId}`, "ws");
   }
 }

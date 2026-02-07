@@ -38,6 +38,7 @@ export default function Lobby() {
   const [copied, setCopied] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState("10");
   const [matchError, setMatchError] = useState<string | null>(null);
+  const [hostDisconnected, setHostDisconnected] = useState(false);
   const { toast } = useToast();
   const lobbyRef = useRef<LobbyState | null>(null);
   
@@ -95,6 +96,16 @@ export default function Lobby() {
       setMatchError(message);
       standaloneToast({ title: "Match Error", description: message, variant: "destructive" });
     });
+
+    const cleanup6 = on("host_disconnected", () => {
+      setHostDisconnected(true);
+      toast({ title: "Host Disconnected", description: "Waiting for the host to reconnect..." });
+    });
+
+    const cleanup7 = on("host_reconnected", () => {
+      setHostDisconnected(false);
+      toast({ title: "Host Reconnected", description: "The host is back!" });
+    });
     
     return () => {
       cleanup1();
@@ -102,6 +113,8 @@ export default function Lobby() {
       cleanup3();
       cleanup4();
       cleanup5();
+      cleanup6();
+      cleanup7();
     };
   }, [on, toast, navigate]);
 
@@ -366,8 +379,17 @@ export default function Lobby() {
               
               {!isHost && (
                 <div className="text-center text-muted-foreground">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
-                  <p>Waiting for host to start...</p>
+                  {hostDisconnected ? (
+                    <>
+                      <AlertCircle className="h-5 w-5 mx-auto mb-2 text-yellow-500" />
+                      <p className="text-yellow-500">Host disconnected. Waiting for reconnection...</p>
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+                      <p>Waiting for host to start...</p>
+                    </>
+                  )}
                 </div>
               )}
               

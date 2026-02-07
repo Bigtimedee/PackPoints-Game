@@ -10611,25 +10611,46 @@ export async function registerRoutes(
   });
 
   // POST /api/matches/:matchId/answer - REST fallback for answer submission
+  // Uses the same DB-transactional engine path as the WebSocket handler
+  const httpAnswerRateTracker: Map<string, number[]> = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [userId, timestamps] of httpAnswerRateTracker) {
+      const recent = timestamps.filter(t => now - t < 2000);
+      if (recent.length === 0) httpAnswerRateTracker.delete(userId);
+      else httpAnswerRateTracker.set(userId, recent);
+    }
+  }, 60000);
   app.post("/api/matches/:matchId/answer", isAuthenticated, async (req: any, res) => {
     try {
       const { matchId } = req.params;
       const { idx, selected, clientMsgId } = req.body;
       const userId = req.user.id;
       
+      // Rate limit: max 3 submissions per 2 second window
+      const now = Date.now();
+      const timestamps = httpAnswerRateTracker.get(userId) || [];
+      const recent = timestamps.filter(t => now - t < 2000);
+      recent.push(now);
+      if (recent.length === 0) httpAnswerRateTracker.delete(userId);
+      else httpAnswerRateTracker.set(userId, recent);
+      if (recent.length > 3) {
+        return res.status(429).json({ ok: false, reason: "rate_limited" });
+      }
+      
       if (typeof idx !== "number" || typeof selected !== "string" || !selected) {
         return res.status(400).json({ ok: false, reason: "bad_payload" });
       }
       
-      const result = await matchService.submitAnswer(matchId, userId, idx, selected, clientMsgId);
+      const result = await matchEngine.submitAnswer(matchId, userId, idx, selected, clientMsgId);
       
-      if (result.ack.status === "REJECTED") {
-        const statusCode = result.ack.reason === "stale_index" || result.ack.reason === "match_initializing" ? 409 : 400;
+      if (result.status === "REJECTED") {
+        const statusCode = result.reason === "stale_index" || result.reason === "match_initializing" ? 409 : 400;
         return res.status(statusCode).json({ 
           ok: false, 
-          reason: result.ack.reason,
-          serverIndex: result.ack.serverIndex,
-          serverStatus: result.ack.serverStatus,
+          reason: result.reason,
+          serverIndex: result.serverIndex,
+          serverStatus: result.serverStatus,
         });
       }
       
@@ -10646,12 +10667,13 @@ export async function registerRoutes(
   });
 
   // GET /api/matches/:matchId/state - REST fallback for match state resync
+  // Uses DB-sourced buildMatchState for consistency
   app.get("/api/matches/:matchId/state", isAuthenticated, async (req: any, res) => {
     try {
       const { matchId } = req.params;
       const userId = req.user.id;
       
-      const matchState = await matchService.getMatchStateWithFallback(matchId);
+      const matchState = await matchEngine.buildMatchState(matchId);
       
       if (!matchState) {
         return res.status(404).json({ ok: false, reason: "match_not_found" });
