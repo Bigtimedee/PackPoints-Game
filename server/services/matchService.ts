@@ -483,7 +483,7 @@ class MatchService {
     const [replacementDbCard] = await db
       .select()
       .from(baseballCards)
-      .where(eq(baseballCards.id, parseInt(availableSpare.cardId)))
+      .where(eq(baseballCards.id, availableSpare.cardId))
       .limit(1);
     
     if (!replacementDbCard) {

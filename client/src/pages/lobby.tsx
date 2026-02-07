@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2, LogIn } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2, LogIn, AlertCircle } from "lucide-react";
+import { useToast, toast as standaloneToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -33,12 +33,22 @@ export default function Lobby() {
   const codeFromUrl = urlParams.get("code")?.toUpperCase() || "";
   
   const [joinCode, setJoinCode] = useState(codeFromUrl);
-  const [lobby, setLobby] = useState<LobbyState | null>(null);
+  const [lobbyState, setLobbyState] = useState<LobbyState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState("10");
+  const [matchError, setMatchError] = useState<string | null>(null);
   const { toast } = useToast();
   const lobbyRef = useRef<LobbyState | null>(null);
+  
+  const setLobby = (value: LobbyState | null | ((prev: LobbyState | null) => LobbyState | null)) => {
+    setLobbyState(prev => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      lobbyRef.current = next;
+      return next;
+    });
+  };
+  const lobby = lobbyState;
   
   // Use authenticated user data instead of localStorage
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -53,10 +63,6 @@ export default function Lobby() {
       }
     },
   });
-
-  useEffect(() => {
-    lobbyRef.current = lobby;
-  }, [lobby]);
 
   useEffect(() => {
     const cleanup1 = on("lobby_update", (updatedLobby: LobbyState) => {
@@ -84,8 +90,10 @@ export default function Lobby() {
     });
 
     const cleanup5 = on("start_match_error", (data: any) => {
+      console.log("[Lobby] start_match_error received:", data);
       const message = typeof data === "string" ? data : data?.message || "Failed to start match";
-      toast({ title: "Match Error", description: message, variant: "destructive" });
+      setMatchError(message);
+      standaloneToast({ title: "Match Error", description: message, variant: "destructive" });
     });
     
     return () => {
@@ -336,11 +344,18 @@ export default function Lobby() {
                 )}
               </div>
               
+              {matchError && (
+                <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm" data-testid="text-match-error">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{matchError}</span>
+                </div>
+              )}
+              
               {isHost && (
                 <Button 
                   className="w-full gap-2" 
                   size="lg" 
-                  onClick={startMatch} 
+                  onClick={() => { setMatchError(null); startMatch(); }} 
                   disabled={!canStart}
                   data-testid="button-start-match"
                 >

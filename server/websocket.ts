@@ -438,24 +438,34 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
   
   const client = clients.get(ws);
   if (!client || !client.isAuthenticated || client.userId !== hostId) {
-    ws.send(JSON.stringify({ type: "error", message: "Unauthorized: only authenticated host can start the match" }));
+    ws.send(JSON.stringify({ type: "start_match_error", message: "Unauthorized: only authenticated host can start the match" }));
     return;
   }
   
   const lobby = await matchService.getLobby(lobbyId);
   if (!lobby || lobby.hostId !== hostId) {
-    ws.send(JSON.stringify({ type: "error", message: "Unauthorized: you are not the host of this lobby" }));
+    ws.send(JSON.stringify({ type: "start_match_error", message: "Unauthorized: you are not the host of this lobby" }));
     return;
   }
   
   if (!client.membershipSecret || !matchService.verifyMembershipSecret(lobby, hostId, client.membershipSecret)) {
-    ws.send(JSON.stringify({ type: "error", message: "Unauthorized: invalid membership secret" }));
+    ws.send(JSON.stringify({ type: "start_match_error", message: "Unauthorized: invalid membership secret. Please leave and recreate the lobby." }));
     return;
   }
   
   log(`[StartMatch] Starting match for lobby ${lobbyId}, host=${hostId}`, "ws");
   
-  const result = await matchService.startMatch(lobbyId, hostId);
+  let result: { matchState: any; error?: string };
+  try {
+    result = await matchService.startMatch(lobbyId, hostId);
+  } catch (err: any) {
+    const errorMsg = err?.message === "NO_PLAYABLE_CARDS_AVAILABLE"
+      ? "Not enough cards available to start a match right now. Please try again later."
+      : "Something went wrong starting the match. Please try again.";
+    log(`[StartMatch] Exception starting match: ${err?.message}`, "ws");
+    ws.send(JSON.stringify({ type: "start_match_error", message: errorMsg }));
+    return;
+  }
   
   if (!result.matchState) {
     log(`[StartMatch] Failed to start match: ${result.error}`, "ws");
