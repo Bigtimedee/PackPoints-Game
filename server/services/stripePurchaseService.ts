@@ -44,6 +44,174 @@ class StripePurchaseService {
     return event;
   }
 
+  async fulfillCheckoutSession(stripeSessionId: string, host?: string): Promise<void> {
+    const syntheticEventId = `poll_fulfill_${stripeSessionId}`;
+
+    const existingEvent = await db
+      .select()
+      .from(purchaseEvents)
+      .where(eq(purchaseEvents.eventId, syntheticEventId))
+      .limit(1);
+
+    if (existingEvent.length > 0) {
+      console.log(`[Stripe] fulfillCheckoutSession: already processed (idempotent) for session ${stripeSessionId}`);
+      return;
+    }
+
+    try {
+      const stripeClient = await getStripeClient(host);
+      const session = await stripeClient.checkout.sessions.retrieve(stripeSessionId);
+      
+      if (session.payment_status !== "paid" && session.status !== "complete") {
+        console.log(`[Stripe] fulfillCheckoutSession: session ${stripeSessionId} not yet paid/complete, skipping`);
+        return;
+      }
+
+      const userId = session.metadata?.userId || session.client_reference_id;
+      if (!userId) {
+        console.error(`[Stripe] fulfillCheckoutSession: no userId for session ${stripeSessionId}`);
+        return;
+      }
+
+      if (session.customer) {
+        await this.ensureStripeCustomerMapping(
+          userId,
+          typeof session.customer === "string" ? session.customer : session.customer.id
+        );
+      }
+
+      if (session.mode === "subscription") {
+        console.log(`[Stripe] fulfillCheckoutSession: subscription session ${stripeSessionId} - marking PAID, invoice.paid handles grants`);
+        await db.insert(purchaseEvents).values({
+          eventId: syntheticEventId,
+          eventType: "checkout.session.completed",
+          userId,
+          payload: { source: "direct_poll_fulfillment", stripeSessionId, mode: "subscription" } as unknown as Record<string, unknown>,
+          status: "processed",
+          processedAt: new Date(),
+        }).onConflictDoNothing();
+        await db
+          .update(stripeCheckoutSessions)
+          .set({ status: "PAID", updatedAt: new Date() })
+          .where(eq(stripeCheckoutSessions.stripeSessionId, stripeSessionId));
+        return;
+      }
+
+      await db.insert(purchaseEvents).values({
+        eventId: syntheticEventId,
+        eventType: "checkout.session.completed",
+        userId,
+        payload: { source: "direct_poll_fulfillment", stripeSessionId } as unknown as Record<string, unknown>,
+        status: "received",
+      });
+
+      const lineItems = await stripeClient.checkout.sessions.listLineItems(stripeSessionId);
+      if (!lineItems.data || lineItems.data.length === 0) {
+        console.error(`[Stripe] fulfillCheckoutSession: no line items for session ${stripeSessionId}`);
+        await db
+          .update(stripeCheckoutSessions)
+          .set({ status: "PAID", updatedAt: new Date() })
+          .where(eq(stripeCheckoutSessions.stripeSessionId, stripeSessionId));
+        await db.update(purchaseEvents).set({ status: "processed", processedAt: new Date(), updatedAt: new Date() }).where(eq(purchaseEvents.eventId, syntheticEventId));
+        return;
+      }
+
+      let totalPackPts = 0;
+      const entitlementsGranted: string[] = [];
+
+      for (const item of lineItems.data) {
+        const priceId = item.price?.id;
+        if (!priceId) continue;
+
+        const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+        if (!internalSku) continue;
+
+        const productDef = PRODUCT_DEFINITIONS[internalSku as InternalSku];
+        if (!productDef) continue;
+
+        const quantity = item.quantity || 1;
+        if (quantity <= 0) continue;
+
+        const idempotencyKey = `checkout_session_${stripeSessionId}_${priceId}`;
+
+        if (productDef.type === "CONSUMABLE" && "packptsGrant" in productDef) {
+          const amount = productDef.packptsGrant * quantity;
+          if (amount <= 0) continue;
+
+          const result = await walletService.purchaseCredit(
+            userId,
+            amount,
+            `Purchase: ${productDef.name}`,
+            idempotencyKey,
+            { stripeSessionId, priceId, quantity, sku: internalSku }
+          );
+
+          if (result.success && !result.idempotent) {
+            totalPackPts += amount;
+
+            const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
+            if (priceCents > 0) {
+              try {
+                await marginLedgerService.recordPackPtsPurchaseMargin({
+                  stripeEventId: syntheticEventId,
+                  userId,
+                  priceCents,
+                  ptsGrant: amount,
+                  productName: productDef.name,
+                  channel: "web_stripe",
+                });
+              } catch (marginError) {
+                console.error("Failed to record margin contribution:", marginError);
+              }
+            }
+          }
+        } else if (productDef.type === "ENTITLEMENT" && "entitlementKey" in productDef) {
+          await storage.grantEntitlement({
+            userId,
+            entitlementKey: productDef.entitlementKey,
+            source: "purchase",
+            sourceReference: `checkout_session_${stripeSessionId}`,
+            expiresAt: null,
+          });
+          entitlementsGranted.push(productDef.entitlementKey);
+        }
+      }
+
+      await db
+        .update(stripeCheckoutSessions)
+        .set({ status: "PAID", updatedAt: new Date() })
+        .where(eq(stripeCheckoutSessions.stripeSessionId, stripeSessionId));
+
+      await db.update(purchaseEvents).set({
+        status: "processed",
+        processedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(purchaseEvents.eventId, syntheticEventId));
+
+      console.log(`[Stripe] fulfillCheckoutSession: granted ${totalPackPts} PackPTS, ${entitlementsGranted.length} entitlements for session ${stripeSessionId}`);
+
+      if (totalPackPts > 0 || entitlementsGranted.length > 0) {
+        await analyticsService.purchaseCompleted(userId, {
+          sessionId: stripeSessionId,
+          stripeEventId: syntheticEventId,
+          mode: session.mode,
+          packptsGranted: totalPackPts,
+          entitlementsGranted,
+          amountTotal: session.amount_total,
+          currency: session.currency,
+        });
+      }
+    } catch (err) {
+      console.error(`[Stripe] fulfillCheckoutSession failed for ${stripeSessionId}:`, (err as Error).message);
+      await db.update(purchaseEvents).set({
+        status: "failed",
+        errorMessage: (err as Error).message,
+        updatedAt: new Date(),
+      }).where(eq(purchaseEvents.eventId, syntheticEventId));
+      throw err;
+    }
+  }
+
   async processWebhookEvent(event: Stripe.Event): Promise<WebhookProcessResult> {
     const eventId = event.id;
     const eventType = event.type;
@@ -232,7 +400,7 @@ class StripePurchaseService {
         continue;
       }
       
-      const idempotencyKey = `stripe_event_${event.id}_${priceId}`;
+      const idempotencyKey = `checkout_session_${session.id}_${priceId}`;
 
       if (productDef.type === "CONSUMABLE" && "packptsGrant" in productDef) {
         const amount = productDef.packptsGrant * quantity;
@@ -272,7 +440,7 @@ class StripePurchaseService {
           userId,
           entitlementKey: productDef.entitlementKey,
           source: "purchase",
-          sourceReference: event.id,
+          sourceReference: `checkout_session_${session.id}`,
           expiresAt: null,
         });
         entitlementsGranted.push(productDef.entitlementKey);

@@ -236,7 +236,7 @@ class StoreCheckoutService {
     }
   }
 
-  async getCheckoutSessionStatus(stripeSessionId: string): Promise<CheckoutSessionStatusInfo | null> {
+  async getCheckoutSessionStatus(stripeSessionId: string, host?: string): Promise<CheckoutSessionStatusInfo | null> {
     const result = await db
       .select()
       .from(stripeCheckoutSessions)
@@ -248,6 +248,51 @@ class StoreCheckoutService {
     }
 
     const session = result[0];
+
+    if (session.status === "CREATED") {
+      try {
+        const stripeClient = await getStripeClient(host);
+        const stripeSession = await stripeClient.checkout.sessions.retrieve(stripeSessionId);
+        
+        if (stripeSession.payment_status === "paid" || stripeSession.status === "complete") {
+          console.log(`[Stripe] Direct check: session ${stripeSessionId} is complete/paid (webhook may be delayed). Triggering fulfillment.`);
+          
+          const { stripePurchaseService } = await import("./stripePurchaseService");
+          await stripePurchaseService.fulfillCheckoutSession(stripeSessionId, host);
+          
+          const updated = await db
+            .select()
+            .from(stripeCheckoutSessions)
+            .where(eq(stripeCheckoutSessions.stripeSessionId, stripeSessionId))
+            .limit(1);
+          
+          if (updated.length > 0) {
+            const updatedSession = updated[0];
+            return {
+              sessionId: updatedSession.stripeSessionId,
+              userId: updatedSession.userId,
+              sku: updatedSession.sku,
+              status: updatedSession.status,
+              packptsGrant: updatedSession.packptsGrant,
+              amountCents: updatedSession.amountCents,
+            };
+          }
+        } else if (stripeSession.status === "expired") {
+          await this.updateCheckoutSessionStatus(stripeSessionId, "EXPIRED");
+          return {
+            sessionId: session.stripeSessionId,
+            userId: session.userId,
+            sku: session.sku,
+            status: "EXPIRED",
+            packptsGrant: session.packptsGrant,
+            amountCents: session.amountCents,
+          };
+        }
+      } catch (err) {
+        console.error(`[Stripe] Direct session check failed for ${stripeSessionId}:`, (err as Error).message);
+      }
+    }
+
     return {
       sessionId: session.stripeSessionId,
       userId: session.userId,

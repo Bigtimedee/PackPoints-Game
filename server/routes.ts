@@ -2683,13 +2683,13 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Session ID is required" });
       }
 
-      const status = await storeCheckoutService.getCheckoutSessionStatus(sessionId);
+      const host = req.headers.host;
+      const status = await storeCheckoutService.getCheckoutSessionStatus(sessionId, host);
       
       if (!status) {
         return res.status(404).json({ error: "Checkout session not found" });
       }
 
-      // Verify session belongs to the requesting user (security check)
       if (status.userId !== userId) {
         return res.status(403).json({ error: "Access denied" });
       }

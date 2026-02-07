@@ -99,6 +99,12 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - **Smoke tests**: `scripts/stripe-smoke.ts` validates mode selection logic for all host scenarios.
 - **Environment variables**: APP_ENV set to "development" for dev, "production" for production deploys. Production credentials are read from `STRIPE_secret` and `STRIPE_publishable` secrets (matching Replit Secrets tab naming). Fallback to `STRIPE_SECRET_KEY`/`STRIPE_PUBLISHABLE_KEY` or Stripe connector if primary vars are not set.
 
+### Checkout Fulfillment Resilience (Feb 2026)
+- **Direct Stripe API fallback**: When the success page polls for checkout status and the DB still shows CREATED, the server queries Stripe's API directly. If the session is complete/paid, it triggers fulfillment immediately rather than waiting for the webhook.
+- **Shared idempotency keys**: Both webhook and direct-poll fulfillment paths use the same idempotency key format (`checkout_session_${sessionId}_${priceId}` for wallet credits, `checkout_session_${sessionId}` for entitlements), preventing double-grants regardless of which path runs first.
+- **Audit trail**: Direct poll fulfillment records a purchaseEvents entry (`poll_fulfill_${sessionId}`) for full auditability.
+- **Subscription safety**: Subscription sessions are marked PAID by direct poll but PackPTS/entitlement grants are deferred to invoice.paid, matching webhook behavior.
+
 ### Third-party APIs
 - Card Hedge API
 - Zyla API
