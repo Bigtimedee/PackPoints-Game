@@ -6,6 +6,7 @@ import {
   redemptionCredit,
   wallets,
   ledgerEntries,
+  userRiskState,
   type ProfitPolicy,
   type ExternalPurchaseIntent,
   type RedemptionCredit,
@@ -210,15 +211,55 @@ class ProfitGuardrailService {
       throw new Error(`Cannot apply redemption: intent status is ${intent.status}`);
     }
 
+    // Pre-check: frozen user
+    try {
+      const [riskState] = await db
+        .select()
+        .from(userRiskState)
+        .where(eq(userRiskState.userId, userId))
+        .limit(1);
+
+      if (riskState && riskState.status !== "NORMAL") {
+        return {
+          success: false,
+          approvedRedeemPackpts: 0,
+          creditCents: 0,
+          redemptionCreditId: "",
+          message: "Your account is currently restricted from redemptions",
+        };
+      }
+    } catch (e) {
+      // If risk check fails, allow to continue (fail-open for reads)
+    }
+
+    // Pre-check: wallet status
+    const wallet = await walletService.getWallet(userId);
+    if (!wallet) {
+      return {
+        success: false,
+        approvedRedeemPackpts: 0,
+        creditCents: 0,
+        redemptionCreditId: "",
+        message: "Wallet not found",
+      };
+    }
+    if (wallet.status !== "active") {
+      return {
+        success: false,
+        approvedRedeemPackpts: 0,
+        creditCents: 0,
+        redemptionCreditId: "",
+        message: `Your wallet is ${wallet.status}`,
+      };
+    }
+
+    const userBalance = wallet.balance;
+
     const policy = await this.getActivePolicy();
     if (!policy) {
       throw new Error("No active profit policy configured");
     }
 
-    const wallet = await walletService.getWallet(userId);
-    const userBalance = wallet?.balance ?? 0;
-
-    // Use treasury service to compute allowed redemption with margin pool checks
     const allowed = await treasuryService.computeAllowedRedemption(
       userId,
       intent.source as "ebay" | "goldin",
@@ -274,7 +315,7 @@ class ProfitGuardrailService {
       };
     }
 
-    // Check if a redemption credit already exists for this intent (idempotency check)
+    // Idempotency check before entering transaction
     const [existingCredit] = await db
       .select()
       .from(redemptionCredit)
@@ -290,78 +331,81 @@ class ProfitGuardrailService {
       };
     }
 
-    // Step 1: Create margin reservation BEFORE spending PackPTS
-    await treasuryService.createReservation(purchaseIntentId, creditCents);
+    // All mutating steps wrapped in a single transaction so they commit or rollback together
+    return await db.transaction(async (tx) => {
+      // Step 1: Create margin reservation
+      await treasuryService.createReservation(purchaseIntentId, creditCents, tx);
 
-    // Step 2: Spend user PackPTS
-    const idempotencyKey = `redeem:${purchaseIntentId}`;
-    const spendResult = await walletService.spend(
-      userId,
-      approvedRedeemPackpts,
-      `Marketplace redemption: ${intent.source} listing ${intent.listingId}`,
-      idempotencyKey
-    );
-
-    if (!spendResult.success || !spendResult.ledgerEntry) {
-      // Rollback reservation if spend fails
-      await treasuryService.releaseReservation(purchaseIntentId);
-      throw new Error(spendResult.error || "Failed to spend PackPTS");
-    }
-
-    // Step 3: Create redemption credit record
-    const [credit] = await db
-      .insert(redemptionCredit)
-      .values({
-        purchaseIntentId,
+      // Step 2: Spend user PackPTS (using the same tx)
+      const idempotencyKey = `redeem:${purchaseIntentId}`;
+      const spendResult = await walletService.spend(
         userId,
-        packptsSpent: approvedRedeemPackpts,
-        creditCents,
-        status: "PENDING",
-        ledgerSpendEntryId: spendResult.ledgerEntry.id,
-      })
-      .onConflictDoNothing()
-      .returning();
-
-    if (!credit) {
-      const [existingAfterConflict] = await db
-        .select()
-        .from(redemptionCredit)
-        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
-      
-      if (existingAfterConflict) {
-        return {
-          success: true,
-          approvedRedeemPackpts: existingAfterConflict.packptsSpent,
-          creditCents: existingAfterConflict.creditCents,
-          redemptionCreditId: existingAfterConflict.id,
-          message: `Already reserved ${existingAfterConflict.packptsSpent.toLocaleString()} PackPTS`,
-        };
-      }
-      throw new Error("Failed to create redemption credit");
-    }
-
-    // Step 4: Update purchase intent status
-    await db
-      .update(externalPurchaseIntent)
-      .set({
-        status: "APPROVED",
-        requestedRedeemPackpts,
         approvedRedeemPackpts,
-        updatedAt: new Date(),
-      })
-      .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+        `Marketplace redemption: ${intent.source} listing ${intent.listingId}`,
+        idempotencyKey,
+        undefined,
+        tx
+      );
 
-    const clampedMessage = allowed.clamped
-      ? ` (clamped from ${requestedRedeemPackpts.toLocaleString()} due to margin limits)`
-      : "";
+      if (!spendResult.success || !spendResult.ledgerEntry) {
+        throw new Error(spendResult.error || "Failed to spend PackPTS");
+      }
 
-    return {
-      success: true,
-      approvedRedeemPackpts,
-      creditCents,
-      redemptionCreditId: credit.id,
-      message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS for $${(creditCents / 100).toFixed(2)} credit${clampedMessage}`,
-    };
+      // Step 3: Create redemption credit record
+      const [credit] = await tx
+        .insert(redemptionCredit)
+        .values({
+          purchaseIntentId,
+          userId,
+          packptsSpent: approvedRedeemPackpts,
+          creditCents,
+          status: "PENDING",
+          ledgerSpendEntryId: spendResult.ledgerEntry.id,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (!credit) {
+        const [existingAfterConflict] = await tx
+          .select()
+          .from(redemptionCredit)
+          .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+
+        if (existingAfterConflict) {
+          return {
+            success: true,
+            approvedRedeemPackpts: existingAfterConflict.packptsSpent,
+            creditCents: existingAfterConflict.creditCents,
+            redemptionCreditId: existingAfterConflict.id,
+            message: `Already reserved ${existingAfterConflict.packptsSpent.toLocaleString()} PackPTS`,
+          };
+        }
+        throw new Error("Failed to create redemption credit");
+      }
+
+      // Step 4: Update purchase intent status
+      await tx
+        .update(externalPurchaseIntent)
+        .set({
+          status: "APPROVED",
+          requestedRedeemPackpts,
+          approvedRedeemPackpts,
+          updatedAt: new Date(),
+        })
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+
+      const clampedMessage = allowed.clamped
+        ? ` (clamped from ${requestedRedeemPackpts.toLocaleString()} due to margin limits)`
+        : "";
+
+      return {
+        success: true,
+        approvedRedeemPackpts,
+        creditCents,
+        redemptionCreditId: credit.id,
+        message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS for $${(creditCents / 100).toFixed(2)} credit${clampedMessage}`,
+      };
+    });
   }
 
   async confirmPurchase(

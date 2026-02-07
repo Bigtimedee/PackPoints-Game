@@ -124,6 +124,13 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - **Redemption reversal/cancel safety**: `reverseRedemption` and `cancelRedemption` now verify `walletService.earn()` succeeded before marking redemption as REVERSED, preventing status updates without actual refunds.
 - **Match engine reward logging**: Improved error context for reward failures including userId, matchId, cardId, and stack traces.
 
+### Redemption Flow Hardening (Feb 2026)
+- **Frozen-user check on spend()**: `walletService.spend()` now calls `isUserFrozen()` before debiting, matching the existing guard in `earn()`. Frozen users cannot redeem PackPTS through any path.
+- **applyRedemption() pre-checks**: Marketplace redemption now checks user risk state and wallet status before creating margin reservations, preventing reservations for ineligible users.
+- **applyRedemption() transaction atomicity**: All 4 mutating steps (create reservation, spend PackPTS, insert redemption credit, update intent status) are wrapped in a single `db.transaction()`. `walletService.spend()` and `treasuryService.createReservation()` accept optional `txOrDb` parameter to participate in outer transactions.
+- **redemptionService.redeem() transaction fix**: `walletService.spend()` now receives the outer transaction, so wallet debit and redemption record insert commit atomically. Transaction errors are caught and returned as `{ success: false }` to preserve the API contract.
+- **Reservation leak prevention**: Since all steps in `applyRedemption()` are transactional, any failure (including credit insert) automatically rolls back the reservation.
+
 ### Third-party APIs
 - Card Hedge API
 - Zyla API

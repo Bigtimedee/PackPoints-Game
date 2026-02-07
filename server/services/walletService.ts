@@ -193,13 +193,19 @@ class WalletService {
     amount: number,
     reason: string,
     idempotencyKey: string,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    txOrDb?: any
   ): Promise<WalletOperationResult> {
     if (amount <= 0) {
       return { success: false, error: "Amount must be positive" };
     }
 
-    return await db.transaction(async (tx) => {
+    const frozenCheck = await isUserFrozen(userId);
+    if (frozenCheck.frozen) {
+      return { success: false, error: frozenCheck.reason || "Account frozen" };
+    }
+
+    const executeSpend = async (tx: any): Promise<WalletOperationResult> => {
       const existingEntry = await tx
         .select()
         .from(ledgerEntries)
@@ -280,7 +286,12 @@ class WalletService {
 
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeSpent: newLifetimeSpent };
       return { success: true, wallet: updatedWallet, ledgerEntry: insertedEntries[0] };
-    });
+    };
+
+    if (txOrDb) {
+      return executeSpend(txOrDb);
+    }
+    return await db.transaction(async (tx) => executeSpend(tx));
   }
 
   async adjust(

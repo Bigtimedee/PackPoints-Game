@@ -175,8 +175,9 @@ class TreasuryService {
     };
   }
 
-  async createReservation(purchaseIntentId: string, reservedCents: number): Promise<string> {
-    const [reservation] = await db
+  async createReservation(purchaseIntentId: string, reservedCents: number, txOrDb?: any): Promise<string> {
+    const executor = txOrDb ?? db;
+    const [reservation] = await executor
       .insert(redemptionReservations)
       .values({
         purchaseIntentId,
@@ -187,8 +188,7 @@ class TreasuryService {
       .returning();
 
     if (!reservation) {
-      // Check if one already exists
-      const [existing] = await db
+      const [existing] = await executor
         .select()
         .from(redemptionReservations)
         .where(eq(redemptionReservations.purchaseIntentId, purchaseIntentId));
@@ -202,8 +202,9 @@ class TreasuryService {
     return reservation.id;
   }
 
-  async releaseReservation(purchaseIntentId: string): Promise<void> {
-    await db
+  async releaseReservation(purchaseIntentId: string, txOrDb?: any): Promise<void> {
+    const executor = txOrDb ?? db;
+    await executor
       .update(redemptionReservations)
       .set({ 
         status: "RELEASED",

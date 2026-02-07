@@ -123,65 +123,70 @@ class RedemptionService {
       }
     }
 
-    return await db.transaction(async (tx) => {
-      const spendResult = await walletService.spend(
-        userId,
-        packptsAmount,
-        `Discount redeemed: $${(tierCalc.usdValueCents / 100).toFixed(2)} toward a card`,
-        idempotencyKey,
-        {
-          type: "redemption",
-          usdValueCents: tierCalc.usdValueCents,
-          tier: tierCalc.tier.id,
-        }
-      );
-
-      if (!spendResult.success) {
-        return { success: false, error: spendResult.error || "Failed to spend PackPTS" };
-      }
-
-      const initialStatus: RedemptionStatus = requiresReview ? "pending" : "completed";
-
-      const [redemption] = await tx
-        .insert(rewardRedemptions)
-        .values({
+    try {
+      return await db.transaction(async (tx) => {
+        const spendResult = await walletService.spend(
           userId,
-          packptsSpent: packptsAmount,
-          usdValue: tierCalc.usdValueCents,
-          type: "store_credit",
-          status: initialStatus,
-          creditToken: requiresReview ? null : creditToken,
-          ledgerIdempotencyKey: idempotencyKey,
-          metadata: {
-            tierId: tierCalc.tier.id,
-            ratePerThousand: tierCalc.ratePerThousand,
-            calculatedAt: new Date().toISOString(),
+          packptsAmount,
+          `Discount redeemed: $${(tierCalc.usdValueCents / 100).toFixed(2)} toward a card`,
+          idempotencyKey,
+          {
+            type: "redemption",
+            usdValueCents: tierCalc.usdValueCents,
+            tier: tierCalc.tier.id,
           },
-        })
-        .returning();
+          tx
+        );
 
-      analyticsService.redeemStarted(userId, {
-        redemptionId: redemption.id,
-        packptsAmount,
-        usdValueCents: tierCalc.usdValueCents,
-        requiresReview,
-      });
+        if (!spendResult.success) {
+          throw new Error(spendResult.error || "Failed to spend PackPTS");
+        }
 
-      if (!requiresReview) {
-        analyticsService.redeemCompleted(userId, {
+        const initialStatus: RedemptionStatus = requiresReview ? "pending" : "completed";
+
+        const [redemption] = await tx
+          .insert(rewardRedemptions)
+          .values({
+            userId,
+            packptsSpent: packptsAmount,
+            usdValue: tierCalc.usdValueCents,
+            type: "store_credit",
+            status: initialStatus,
+            creditToken: requiresReview ? null : creditToken,
+            ledgerIdempotencyKey: idempotencyKey,
+            metadata: {
+              tierId: tierCalc.tier.id,
+              ratePerThousand: tierCalc.ratePerThousand,
+              calculatedAt: new Date().toISOString(),
+            },
+          })
+          .returning();
+
+        analyticsService.redeemStarted(userId, {
           redemptionId: redemption.id,
           packptsAmount,
           usdValueCents: tierCalc.usdValueCents,
+          requiresReview,
         });
-      }
 
-      return {
-        success: true,
-        redemption,
-        creditToken: requiresReview ? undefined : creditToken,
-        requiresReview,
-      };
-    });
+        if (!requiresReview) {
+          analyticsService.redeemCompleted(userId, {
+            redemptionId: redemption.id,
+            packptsAmount,
+            usdValueCents: tierCalc.usdValueCents,
+          });
+        }
+
+        return {
+          success: true,
+          redemption,
+          creditToken: requiresReview ? undefined : creditToken,
+          requiresReview,
+        };
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message || "Failed to process redemption" };
+    }
   }
 
   async getRedemption(redemptionId: string): Promise<RewardRedemption | null> {
