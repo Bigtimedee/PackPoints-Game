@@ -46,3 +46,9 @@ integrations = ["javascript_database:1.0.0", "javascript_log_in_with_replit:2.0.
 [userenv.shared]
 DEBUG_REGISTRATION = "true"
 EBAY_ENV = "production"
+
+[userenv.development]
+APP_ENV = "development"
+
+[userenv.production]
+APP_ENV = "production"

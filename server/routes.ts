@@ -19,7 +19,7 @@ import {
 } from "./services/cardhedge/client";
 import { stripePurchaseService, isStripeConfigured, checkStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
-import { getStripeDiagnostics } from "./stripeClient";
+import { getStripeDiagnostics, getStripeMode, assertLiveModeForHost, getStripeConfig, isProductionHost } from "./stripeClient";
 import { isAuthenticated } from "./replit_integrations/auth";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
@@ -2455,13 +2455,26 @@ export async function registerRoutes(
   });
 
   // ============================================
-  // STRIPE WEBHOOK & BILLING ENDPOINTS
+  // STRIPE CONFIG & WEBHOOK & BILLING ENDPOINTS
   // ============================================
+
+  app.get("/api/stripe/config", async (req: Request, res: Response) => {
+    try {
+      const host = req.headers.host;
+      const config = await getStripeConfig(host);
+      res.json(config);
+    } catch (error) {
+      console.error("[Stripe] Config endpoint error:", error);
+      res.status(503).json({ error: "Payment configuration unavailable" });
+    }
+  });
 
   // Stripe webhook endpoint - receives raw body for signature verification
   app.post("/webhooks/purchases", 
     express.raw({ type: "application/json" }),
     async (req: Request, res: Response) => {
+      const host = req.headers.host;
+      const mode = getStripeMode(host);
       const signature = req.headers["stripe-signature"];
       
       if (!signature || typeof signature !== "string") {
@@ -2469,15 +2482,23 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing stripe-signature header" });
       }
 
+      if (isProductionHost(host) && mode !== "live") {
+        console.error(`[Stripe] BLOCKED: Webhook on production host "${host}" but mode is "${mode}"`);
+        return res.status(503).json({ error: "Payment processing misconfigured" });
+      }
+
       if (!(await checkStripeConfigured())) {
         console.error("Stripe is not configured");
         return res.status(503).json({ error: "Payment processing not configured" });
       }
 
+      console.log(`[Stripe] Webhook received: host=${host}, mode=${mode}`);
+
       try {
         const event = await stripePurchaseService.verifyAndParseWebhook(
           req.body,
-          signature
+          signature,
+          host
         );
 
         const result = await stripePurchaseService.processWebhookEvent(event);
@@ -2607,19 +2628,34 @@ export async function registerRoutes(
         return res.status(400).json({ error: "SKU is required" });
       }
 
+      const host = req.headers.host;
+      const mode = getStripeMode(host);
+
+      try {
+        assertLiveModeForHost(host);
+      } catch (modeError) {
+        console.error("[Stripe] Checkout blocked:", (modeError as Error).message);
+        return res.status(503).json({ error: "Payments are temporarily unavailable. Please try again later." });
+      }
+
       if (!(await checkStripeConfigured())) {
         return res.status(503).json({ error: "Payment processing not configured" });
       }
 
-      const baseUrl = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+      const baseUrl = isProductionHost(host)
+        ? `https://${host}`
+        : (process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`);
       const successUrl = `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`;
       const cancelUrl = `${baseUrl}/store/cancel`;
+
+      console.log(`[Stripe] checkout_create: { host: "${host}", mode: "${mode}", sku: "${sku}", userId: "${userId}", stripeKeyType: "${mode}" }`);
 
       const result = await storeCheckoutService.createCheckoutSession(
         userId,
         sku,
         successUrl,
-        cancelUrl
+        cancelUrl,
+        host
       );
 
       if (!result.success) {
@@ -2629,7 +2665,7 @@ export async function registerRoutes(
       res.json({ url: result.url, sessionId: result.sessionId });
     } catch (error) {
       console.error("Error creating checkout session:", error);
-      res.status(500).json({ error: "Failed to create checkout session" });
+      res.status(500).json({ error: "Payments are temporarily unavailable. Please try again later." });
     }
   });
 
@@ -2699,18 +2735,33 @@ export async function registerRoutes(
         return res.status(400).json({ error: "SKU is required" });
       }
 
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : `http://localhost:5000`;
+      const host = req.headers.host;
+      const mode = getStripeMode(host);
+
+      try {
+        assertLiveModeForHost(host);
+      } catch (modeError) {
+        console.error("[Stripe] Subscribe blocked:", (modeError as Error).message);
+        return res.status(503).json({ error: "Payments are temporarily unavailable. Please try again later." });
+      }
+
+      const baseUrl = isProductionHost(host)
+        ? `https://${host}`
+        : (process.env.REPLIT_DEV_DOMAIN 
+          ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+          : `http://localhost:5000`);
       
       const successUrl = `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`;
       const cancelUrl = `${baseUrl}/store/cancel`;
+
+      console.log(`[Stripe] subscribe_create: { host: "${host}", mode: "${mode}", sku: "${sku}", userId: "${userId}", stripeKeyType: "${mode}" }`);
 
       const result = await storeCheckoutService.createSubscriptionCheckoutSession(
         userId,
         sku,
         successUrl,
-        cancelUrl
+        cancelUrl,
+        host
       );
 
       if (!result.success) {
@@ -2720,7 +2771,7 @@ export async function registerRoutes(
       res.json({ url: result.url, sessionId: result.sessionId });
     } catch (error) {
       console.error("Error creating subscription checkout session:", error);
-      res.status(500).json({ error: "Failed to create subscription checkout session" });
+      res.status(500).json({ error: "Payments are temporarily unavailable. Please try again later." });
     }
   });
 

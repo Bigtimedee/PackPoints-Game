@@ -36,9 +36,10 @@ export interface SyncResult {
 class StripePurchaseService {
   async verifyAndParseWebhook(
     payload: string | Buffer,
-    signature: string
+    signature: string,
+    host?: string
   ): Promise<Stripe.Event> {
-    const stripeSync = await getStripeSync();
+    const stripeSync = await getStripeSync(host);
     const event = await stripeSync.constructWebhookEvent(payload, signature);
     return event;
   }

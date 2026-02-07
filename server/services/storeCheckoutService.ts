@@ -116,7 +116,8 @@ class StoreCheckoutService {
     userId: string,
     sku: string,
     successUrl: string,
-    cancelUrl: string
+    cancelUrl: string,
+    host?: string
   ): Promise<CheckoutResult> {
     const configured = await isStripeConfiguredAsync();
     if (!configured) {
@@ -167,7 +168,7 @@ class StoreCheckoutService {
     }
 
     try {
-      const stripeClient = await getStripeClient();
+      const stripeClient = await getStripeClient(host);
 
       let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];
 
@@ -321,7 +322,8 @@ class StoreCheckoutService {
     userId: string,
     sku: string,
     successUrl: string,
-    cancelUrl: string
+    cancelUrl: string,
+    host?: string
   ): Promise<CheckoutResult> {
     const configured = await isStripeConfiguredAsync();
     if (!configured) {
@@ -362,7 +364,7 @@ class StoreCheckoutService {
     }
 
     try {
-      const stripeClient = await getStripeClient();
+      const stripeClient = await getStripeClient(host);
       
       // Build checkout session config
       let lineItems: Stripe.Checkout.SessionCreateParams.LineItem[];

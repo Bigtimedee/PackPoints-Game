@@ -83,7 +83,21 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - esbuild
 
 ### Payment & Billing
-- Stripe
+- Stripe (with production/test mode enforcement via host-based detection)
+
+## Recent Changes
+
+### Stripe Production Hardening (Feb 2026)
+- **Host-based mode enforcement**: Production hosts (packpts.com, www.packpts.com) always use LIVE Stripe keys. Test keys are blocked on production.
+- **Removed production→development fallback**: The server no longer silently falls back to test keys when production keys are missing. It fails closed with a clear error.
+- **Key prefix validation**: sk_live_ required for live mode, sk_test_ for test mode. Mismatched keys cause startup failure.
+- **Startup logging**: Server logs clearly show `Stripe mode active: LIVE` or `TEST` and the key prefix on every boot.
+- **Checkout logging**: Every checkout/subscribe call logs host, mode, SKU, and key type.
+- **GET /api/stripe/config**: Returns `{ mode, publishableKey }` for the frontend to dynamically select the correct publishable key.
+- **Fail-closed UI**: If checkout fails due to missing live keys, shows "Payments are temporarily unavailable" instead of falling back to test mode.
+- **Webhook enforcement**: Webhook handler validates mode matches host before processing.
+- **Smoke tests**: `scripts/stripe-smoke.ts` validates mode selection logic for all host scenarios.
+- **Environment variables**: APP_ENV set to "development" for dev, "production" for production deploys. Production requires STRIPE_SECRET_KEY_LIVE or live connector credentials.
 
 ### Third-party APIs
 - Card Hedge API
