@@ -47,8 +47,9 @@ export default function Lobby() {
   
   const { isConnected, connect, send, on } = useWebSocket({
     onOpen: () => {
-      if (lobby) {
-        send("join_lobby", { userId, username, lobbyId: lobby.id });
+      const currentLobby = lobbyRef.current;
+      if (currentLobby && currentLobby.membershipSecret) {
+        send("join_lobby", { userId, username, lobbyId: currentLobby.id, membershipSecret: currentLobby.membershipSecret });
       }
     },
   });
@@ -76,11 +77,23 @@ export default function Lobby() {
       }
       navigate(`/match/${matchState.matchId}`);
     });
+
+    const cleanup4 = on("error", (data: any) => {
+      const message = typeof data === "string" ? data : data?.message || "Something went wrong";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    });
+
+    const cleanup5 = on("start_match_error", (data: any) => {
+      const message = typeof data === "string" ? data : data?.message || "Failed to start match";
+      toast({ title: "Match Error", description: message, variant: "destructive" });
+    });
     
     return () => {
       cleanup1();
       cleanup2();
       cleanup3();
+      cleanup4();
+      cleanup5();
     };
   }, [on, toast, navigate]);
 

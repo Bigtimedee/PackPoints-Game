@@ -46,7 +46,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         
         const handler = handlersRef.current.get(message.type);
         if (handler) {
-          handler(message.payload);
+          handler(message.payload !== undefined ? message.payload : message);
         }
       } catch (error) {
         console.error("WebSocket message parse error:", error);
