@@ -31,7 +31,7 @@ import {
 export function Header() {
   const [location] = useLocation();
   const { user, isLoading, isAuthenticated } = useAuth();
-  const { isRestricted, isFrozen, isUnderReview, restrictedReason } = useWallet();
+  const { isRestricted, isFrozen, isUnderReview, restrictedReason, availablePts } = useWallet();
   const [showLoginWarning, setShowLoginWarning] = useState(false);
 
   const isInEmbeddedWebview = () => {
@@ -126,7 +126,7 @@ export function Header() {
                   <TooltipTrigger asChild>
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-destructive/20 border border-destructive font-mono cursor-help" data-testid="text-points-balance-restricted">
                       <ShieldAlert className="h-4 w-4 text-destructive" />
-                      <span className="font-semibold text-destructive">{(user.points || 0).toLocaleString()}</span>
+                      <span className="font-semibold text-destructive">{availablePts.toLocaleString()}</span>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="max-w-64">
@@ -141,7 +141,7 @@ export function Header() {
               ) : (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/80 font-mono" data-testid="text-points-balance">
                   <Zap className="h-4 w-4 text-secondary-foreground" />
-                  <span className="font-semibold text-secondary-foreground">{(user.points || 0).toLocaleString()}</span>
+                  <span className="font-semibold text-secondary-foreground">{availablePts.toLocaleString()}</span>
                 </div>
               )}
             </>

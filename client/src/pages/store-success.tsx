@@ -41,6 +41,7 @@ export default function StoreSuccess() {
 
   useEffect(() => {
     if (data?.status === "PAID") {
+      queryClient.invalidateQueries({ queryKey: ["/wallet"] });
       queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
     }
