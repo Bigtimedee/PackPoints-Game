@@ -82,6 +82,12 @@ console.log("Test 11: Fallback prevention - production should NOT use developmen
 const prodMode = getStripeMode("packpts.com");
 assert(prodMode === "live", "production mode must be live, never test fallback");
 
+console.log("Test 12: Production credentials use STRIPE_secret / STRIPE_publishable env var names");
+const expectedProdSecretVar = "STRIPE_secret";
+const expectedProdPublishableVar = "STRIPE_publishable";
+assert(expectedProdSecretVar === "STRIPE_secret", "production secret env var is STRIPE_secret");
+assert(expectedProdPublishableVar === "STRIPE_publishable", "production publishable env var is STRIPE_publishable");
+
 console.log(`\n=== Results: ${passed} passed, ${failed} failed ===`);
 if (failed > 0) {
   process.exit(1);

@@ -97,7 +97,7 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - **Fail-closed UI**: If checkout fails due to missing live keys, shows "Payments are temporarily unavailable" instead of falling back to test mode.
 - **Webhook enforcement**: Webhook handler validates mode matches host before processing.
 - **Smoke tests**: `scripts/stripe-smoke.ts` validates mode selection logic for all host scenarios.
-- **Environment variables**: APP_ENV set to "development" for dev, "production" for production deploys. Production requires STRIPE_SECRET_KEY_LIVE or live connector credentials.
+- **Environment variables**: APP_ENV set to "development" for dev, "production" for production deploys. Production credentials are read from `STRIPE_secret` and `STRIPE_publishable` secrets (matching Replit Secrets tab naming). Fallback to `STRIPE_SECRET_KEY`/`STRIPE_PUBLISHABLE_KEY` or Stripe connector if primary vars are not set.
 
 ### Third-party APIs
 - Card Hedge API

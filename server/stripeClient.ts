@@ -89,8 +89,9 @@ async function fetchConnectorCredentials(environment: string): Promise<{ publish
 async function getCredentials(host?: string) {
   const mode = getStripeMode(host);
 
-  const envSecretLive = process.env.STRIPE_SECRET_KEY_LIVE;
-  const envPublishableLive = process.env.STRIPE_PUBLISHABLE_KEY_LIVE;
+  const envSecretProd = process.env.STRIPE_secret;
+  const envPublishableProd = process.env.STRIPE_publishable;
+
   const envSecretTest = process.env.STRIPE_SECRET_KEY_TEST;
   const envPublishableTest = process.env.STRIPE_PUBLISHABLE_KEY_TEST;
 
@@ -98,12 +99,12 @@ async function getCredentials(host?: string) {
   const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
 
   if (mode === "live") {
-    if (envSecretLive && envPublishableLive) {
-      validateKeyPrefix(envSecretLive, "sk_live_", "STRIPE_SECRET_KEY_LIVE");
-      validateKeyPrefix(envPublishableLive, "pk_live_", "STRIPE_PUBLISHABLE_KEY_LIVE");
-      console.log(`[Stripe] Using LIVE env vars, key: ${maskKey(envSecretLive)}`);
+    if (envSecretProd && envPublishableProd) {
+      validateKeyPrefix(envSecretProd, "sk_live_", "STRIPE_secret");
+      validateKeyPrefix(envPublishableProd, "pk_live_", "STRIPE_publishable");
+      console.log(`[Stripe] Using LIVE env vars (STRIPE_secret/STRIPE_publishable), key: ${maskKey(envSecretProd)}`);
       credentialSource = 'env-vars-live';
-      return { publishableKey: envPublishableLive, secretKey: envSecretLive };
+      return { publishableKey: envPublishableProd, secretKey: envSecretProd };
     }
 
     if (envSecret && envPublishable) {
@@ -123,7 +124,7 @@ async function getCredentials(host?: string) {
 
     throw new Error(
       `[Stripe] FATAL: Live mode required but no LIVE Stripe credentials found. ` +
-      `Set STRIPE_SECRET_KEY_LIVE and STRIPE_PUBLISHABLE_KEY_LIVE, or configure the Stripe connector for production. ` +
+      `Set STRIPE_secret and STRIPE_publishable, or configure the Stripe connector for production. ` +
       `Will NOT fall back to test keys in production.`
     );
   }
@@ -192,7 +193,8 @@ export function getStripeDiagnostics(): Record<string, any> {
     hasWebReplRenewal: !!process.env.WEB_REPL_RENEWAL,
     hasEnvSecretKey: !!process.env.STRIPE_SECRET_KEY,
     hasEnvPublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
-    hasEnvSecretKeyLive: !!process.env.STRIPE_SECRET_KEY_LIVE,
+    hasStripeSecret: !!process.env.STRIPE_secret,
+    hasStripePublishable: !!process.env.STRIPE_publishable,
     hasEnvSecretKeyTest: !!process.env.STRIPE_SECRET_KEY_TEST,
   };
 }
