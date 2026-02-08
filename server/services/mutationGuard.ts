@@ -166,10 +166,8 @@ export function determineQuarantineStatus(
 }
 
 export function isTransientError(httpStatus: number | null, errorMessage: string | null): boolean {
-  if (httpStatus === null) return false;
-  
   const transientCodes = [408, 429, 500, 502, 503, 504];
-  if (transientCodes.includes(httpStatus)) return true;
+  if (httpStatus !== null && transientCodes.includes(httpStatus)) return true;
   
   const transientPatterns = [
     /timeout/i,
@@ -177,6 +175,9 @@ export function isTransientError(httpStatus: number | null, errorMessage: string
     /econnreset/i,
     /enotfound/i,
     /rate limit/i,
+    /abort/i,
+    /ETIMEDOUT/i,
+    /ECONNREFUSED/i,
   ];
   
   if (errorMessage) {

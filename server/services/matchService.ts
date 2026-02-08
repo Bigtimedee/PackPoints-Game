@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { db } from "../db";
 import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, playableCards, matchCardQueue, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard, type PlayableCard } from "@shared/schema";
-import { eq, and, sql, notInArray } from "drizzle-orm";
+import { eq, and, sql, notInArray, inArray } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
 import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl, analyzeCardImageContent } from "./cards/imageQuality";
@@ -327,7 +327,7 @@ class MatchService {
       
       const conditions = [
         eq(playableCards.isPlayable, true),
-        eq(playableCards.quarantineStatus, "OK"),
+        inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
       ];
       
       if (gameSetId) {
@@ -887,7 +887,7 @@ class MatchService {
       .where(
         and(
           eq(playableCards.isPlayable, true),
-          eq(playableCards.quarantineStatus, "OK")
+          inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"])
         )
       );
 

@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { playableCards } from "@shared/schema";
-import { eq, and, lt, or } from "drizzle-orm";
+import { eq, and, lt, or, sql } from "drizzle-orm";
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
 import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
 import {
@@ -243,8 +243,34 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
       }
     }
 
+    const timeoutRecovery = await db.update(playableCards)
+      .set({
+        quarantineStatus: "SUSPECT_TRANSIENT",
+        validationFailCount: 1,
+      })
+      .where(
+        and(
+          eq(playableCards.isPlayable, true),
+          or(
+            eq(playableCards.quarantineStatus, "QUARANTINED_ADMIN_REVIEW"),
+            eq(playableCards.quarantineStatus, "SUSPECT_PERSISTENT"),
+          ),
+          sql`LOWER(${playableCards.lastValidationReason}) LIKE '%timeout%'
+            OR LOWER(${playableCards.lastValidationReason}) LIKE '%network error%'
+            OR LOWER(${playableCards.lastValidationReason}) LIKE '%econnreset%'
+            OR LOWER(${playableCards.lastValidationReason}) LIKE '%econnrefused%'
+            OR LOWER(${playableCards.lastValidationReason}) LIKE '%etimedout%'
+            OR LOWER(${playableCards.lastValidationReason}) LIKE '%abort%'`
+        )
+      )
+      .returning({ id: playableCards.id });
+    
+    if (timeoutRecovery.length > 0) {
+      console.log(`[CardPoolRefresh] Auto-recovered ${timeoutRecovery.length} timeout-quarantined cards to SUSPECT_TRANSIENT (now playable in matches)`);
+    }
+
     stats.duration = Date.now() - startTime;
-    console.log(`[CardPoolRefresh] Job completed in ${stats.duration}ms - Revalidated: ${stats.cardsRevalidated}, Failed: ${stats.cardsFailed}, Quarantined: ${stats.cardsQuarantined} (NO cards marked unplayable automatically)`);
+    console.log(`[CardPoolRefresh] Job completed in ${stats.duration}ms - Revalidated: ${stats.cardsRevalidated}, Failed: ${stats.cardsFailed}, Quarantined: ${stats.cardsQuarantined}, Timeout-recovered: ${timeoutRecovery.length}`);
 
     await writeAuditLog({
       actionType: "CARD_POOL_REFRESH",
@@ -303,8 +329,10 @@ async function testImageUrl(url: string): Promise<TestImageResult> {
     }
 
     return { valid: true, contentType };
-  } catch {
-    return { valid: false, error: "Network error" };
+  } catch (err: any) {
+    const errorMsg = err?.message || "Network error";
+    const isTimeout = errorMsg.includes("abort") || errorMsg.includes("timeout");
+    return { valid: false, error: isTimeout ? "Request timeout" : `Network error: ${errorMsg}` };
   }
 }
 

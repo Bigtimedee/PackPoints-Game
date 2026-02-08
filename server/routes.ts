@@ -5783,6 +5783,54 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/game-sets/reset-timeout-quarantine", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      console.log("[QuarantineReset] Resetting cards quarantined solely due to timeouts...");
+      
+      const result = await db.update(playableCards)
+        .set({
+          quarantineStatus: "OK",
+          validationFailCount: 0,
+          imageFailureCount: 0,
+          imageLastError: null,
+          lastValidationReason: null,
+          lastValidationHttpStatus: null,
+          firstValidationFailAt: null,
+          proposedUnplayable: false,
+        })
+        .where(
+          and(
+            eq(playableCards.isPlayable, true),
+            sql`${playableCards.quarantineStatus} != 'OK'`,
+            sql`LOWER(${playableCards.lastValidationReason}) LIKE '%timeout%'
+              OR LOWER(${playableCards.lastValidationReason}) LIKE '%network error%'
+              OR LOWER(${playableCards.lastValidationReason}) LIKE '%econnreset%'
+              OR LOWER(${playableCards.lastValidationReason}) LIKE '%econnrefused%'
+              OR LOWER(${playableCards.lastValidationReason}) LIKE '%etimedout%'
+              OR LOWER(${playableCards.lastValidationReason}) LIKE '%abort%'`
+          )
+        )
+        .returning({ id: playableCards.id, player: playableCards.player, gameSetId: playableCards.gameSetId });
+
+      console.log(`[QuarantineReset] Reset ${result.length} timeout-quarantined cards to OK`);
+
+      const setBreakdown: Record<string, number> = {};
+      for (const card of result) {
+        const key = card.gameSetId || "unknown";
+        setBreakdown[key] = (setBreakdown[key] || 0) + 1;
+      }
+
+      res.json({
+        success: true,
+        resetCount: result.length,
+        setBreakdown,
+      });
+    } catch (error) {
+      console.error("Error resetting timeout quarantine:", error);
+      res.status(500).json({ error: "Failed to reset timeout quarantine" });
+    }
+  });
+
   // Admin: Force re-scan cards in a game set for silhouettes
   app.post("/api/admin/game-sets/:id/rescan-silhouettes", isAuthenticated, requireAdmin, async (req, res) => {
     try {
