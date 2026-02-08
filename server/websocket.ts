@@ -392,10 +392,10 @@ async function handleJoinLobbyWs(ws: WebSocket, payload: { userId: string; usern
   lobbyConnections.get(lobbyId)?.add(ws);
   
   // Cancel any pending host disconnect grace timer on reconnect
-  cancelLobbyDisconnectTimer(lobbyId, userId);
+  const hadDisconnectTimer = cancelLobbyDisconnectTimer(lobbyId, userId);
   
-  // Notify other players that the host has reconnected
-  if (lobby.hostId === userId) {
+  // Only notify other players of host reconnection if a real disconnect happened
+  if (lobby.hostId === userId && hadDisconnectTimer) {
     broadcastToLobby(lobbyId, {
       type: "host_reconnected",
       payload: { userId, username },
@@ -1251,14 +1251,16 @@ async function handleDisconnectFromLobby(ws: WebSocket, client: ClientConnection
   }
 }
 
-function cancelLobbyDisconnectTimer(lobbyId: string, userId: string) {
+function cancelLobbyDisconnectTimer(lobbyId: string, userId: string): boolean {
   const timerKey = `${lobbyId}-${userId}`;
   const timer = lobbyDisconnectTimers.get(timerKey);
   if (timer) {
     clearTimeout(timer);
     lobbyDisconnectTimers.delete(timerKey);
     log(`[LobbyDisconnect] Cancelled grace timer for ${userId} in lobby ${lobbyId}`, "ws");
+    return true;
   }
+  return false;
 }
 
 async function handleDisconnectFromMatch(ws: WebSocket, client: ClientConnection) {

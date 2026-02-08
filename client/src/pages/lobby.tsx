@@ -41,6 +41,7 @@ export default function Lobby() {
   const [hostDisconnected, setHostDisconnected] = useState(false);
   const { toast } = useToast();
   const lobbyRef = useRef<LobbyState | null>(null);
+  const joinedLobbyRef = useRef<string | null>(null);
   
   const setLobby = (value: LobbyState | null | ((prev: LobbyState | null) => LobbyState | null)) => {
     setLobbyState(prev => {
@@ -62,6 +63,9 @@ export default function Lobby() {
       if (currentLobby && currentLobby.membershipSecret) {
         send("join_lobby", { userId, username, lobbyId: currentLobby.id, membershipSecret: currentLobby.membershipSecret });
       }
+    },
+    onClose: () => {
+      joinedLobbyRef.current = null;
     },
   });
 
@@ -126,6 +130,9 @@ export default function Lobby() {
 
   useEffect(() => {
     if (lobby && isConnected && lobby.membershipSecret) {
+      const lobbyKey = `${lobby.id}-${userId}`;
+      if (joinedLobbyRef.current === lobbyKey) return;
+      joinedLobbyRef.current = lobbyKey;
       send("join_lobby", { userId, username, lobbyId: lobby.id, membershipSecret: lobby.membershipSecret });
     }
   }, [lobby, isConnected, send, userId, username]);
