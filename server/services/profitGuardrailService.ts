@@ -413,56 +413,55 @@ class ProfitGuardrailService {
     purchaseIntentId: string,
     evidence?: string
   ): Promise<{ success: boolean; message: string }> {
-    const [intent] = await db
-      .select()
-      .from(externalPurchaseIntent)
-      .where(
-        and(
-          eq(externalPurchaseIntent.id, purchaseIntentId),
-          eq(externalPurchaseIntent.userId, userId)
+    return await db.transaction(async (tx) => {
+      const [intent] = await tx
+        .select()
+        .from(externalPurchaseIntent)
+        .where(
+          and(
+            eq(externalPurchaseIntent.id, purchaseIntentId),
+            eq(externalPurchaseIntent.userId, userId)
+          )
         )
-      );
+        .for("update");
 
-    if (!intent) {
-      throw new Error("Purchase intent not found");
-    }
+      if (!intent) {
+        throw new Error("Purchase intent not found");
+      }
 
-    if (intent.status !== "APPROVED") {
-      throw new Error(`Cannot confirm purchase: intent status is ${intent.status}`);
-    }
+      if (intent.status !== "APPROVED") {
+        throw new Error(`Cannot confirm purchase: intent status is ${intent.status}`);
+      }
 
-    // Get the redemption credit to consume the reservation
-    const [credit] = await db
-      .select()
-      .from(redemptionCredit)
-      .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+      const [credit] = await tx
+        .select()
+        .from(redemptionCredit)
+        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
 
-    if (!credit) {
-      throw new Error("Redemption credit not found for this purchase intent");
-    }
+      if (!credit) {
+        throw new Error("Redemption credit not found for this purchase intent");
+      }
 
-    // Consume the reservation and record margin usage
-    await treasuryService.consumeReservation(purchaseIntentId, credit.id);
+      await treasuryService.consumeReservation(purchaseIntentId, credit.id, tx);
 
-    // Update intent status
-    await db
-      .update(externalPurchaseIntent)
-      .set({
-        status: "CREDIT_GRANTED",
-        updatedAt: new Date(),
-      })
-      .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+      await tx
+        .update(externalPurchaseIntent)
+        .set({
+          status: "CREDIT_GRANTED",
+          updatedAt: new Date(),
+        })
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
 
-    // Grant the credit
-    await db
-      .update(redemptionCredit)
-      .set({ status: "GRANTED" })
-      .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+      await tx
+        .update(redemptionCredit)
+        .set({ status: "GRANTED" })
+        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
 
-    return {
-      success: true,
-      message: "Purchase confirmed. Credit has been granted.",
-    };
+      return {
+        success: true,
+        message: "Purchase confirmed. Credit has been granted.",
+      };
+    });
   }
 
   async getPurchaseIntent(
@@ -558,122 +557,136 @@ class ProfitGuardrailService {
     redemptionCreditId: string,
     reason: string
   ): Promise<{ success: boolean; message: string }> {
-    const [credit] = await db
-      .select()
-      .from(redemptionCredit)
-      .where(eq(redemptionCredit.id, redemptionCreditId));
+    return await db.transaction(async (tx) => {
+      const [credit] = await tx
+        .select()
+        .from(redemptionCredit)
+        .where(eq(redemptionCredit.id, redemptionCreditId))
+        .for("update");
 
-    if (!credit) {
-      throw new Error("Redemption credit not found");
-    }
+      if (!credit) {
+        throw new Error("Redemption credit not found");
+      }
 
-    if (credit.status === "REVERSED") {
-      return { success: false, message: "Redemption already reversed" };
-    }
+      if (credit.status === "REVERSED") {
+        return { success: false, message: "Redemption already reversed" };
+      }
 
-    // Release the margin reservation (if still active)
-    await treasuryService.releaseReservation(credit.purchaseIntentId);
+      const [intent] = await tx
+        .select()
+        .from(externalPurchaseIntent)
+        .where(eq(externalPurchaseIntent.id, credit.purchaseIntentId))
+        .for("update");
 
-    // Refund the PackPTS to the user
-    const idempotencyKey = `reversal:${redemptionCreditId}`;
-    const earnResult = await walletService.earn(
-      credit.userId,
-      credit.packptsSpent,
-      `Redemption reversal: ${reason}`,
-      idempotencyKey
-    );
+      if (intent && intent.status === "CREDIT_GRANTED") {
+        return { success: false, message: "Cannot reverse: purchase already confirmed and credit granted" };
+      }
 
-    if (!earnResult.success) {
-      console.error(`[Guardrail] Reversal refund failed for credit ${redemptionCreditId}: ${earnResult.error}`);
-      throw new Error(`Reversal refund failed: ${earnResult.error}`);
-    }
+      const idempotencyKey = `reversal:${redemptionCreditId}`;
+      const earnResult = await walletService.earn(
+        credit.userId,
+        credit.packptsSpent,
+        `Redemption reversal: ${reason}`,
+        idempotencyKey,
+        undefined,
+        tx
+      );
 
-    await db
-      .update(redemptionCredit)
-      .set({ status: "REVERSED" })
-      .where(eq(redemptionCredit.id, redemptionCreditId));
+      if (!earnResult.success) {
+        console.error(`[Guardrail] Reversal refund failed for credit ${redemptionCreditId}: ${earnResult.error}`);
+        throw new Error(`Reversal refund failed: ${earnResult.error}`);
+      }
 
-    await db
-      .update(externalPurchaseIntent)
-      .set({
-        status: "CANCELED",
-        updatedAt: new Date(),
-      })
-      .where(eq(externalPurchaseIntent.id, credit.purchaseIntentId));
+      await treasuryService.releaseReservation(credit.purchaseIntentId, tx);
 
-    return {
-      success: true,
-      message: `Reversed ${credit.packptsSpent} PackPTS`,
-    };
+      await tx
+        .update(redemptionCredit)
+        .set({ status: "REVERSED" })
+        .where(eq(redemptionCredit.id, redemptionCreditId));
+
+      await tx
+        .update(externalPurchaseIntent)
+        .set({
+          status: "CANCELED",
+          updatedAt: new Date(),
+        })
+        .where(eq(externalPurchaseIntent.id, credit.purchaseIntentId));
+
+      return {
+        success: true,
+        message: `Reversed ${credit.packptsSpent} PackPTS`,
+      };
+    });
   }
 
   async cancelRedemption(
     userId: string,
     purchaseIntentId: string
   ): Promise<{ success: boolean; message: string }> {
-    const [intent] = await db
-      .select()
-      .from(externalPurchaseIntent)
-      .where(
-        and(
-          eq(externalPurchaseIntent.id, purchaseIntentId),
-          eq(externalPurchaseIntent.userId, userId)
+    return await db.transaction(async (tx) => {
+      const [intent] = await tx
+        .select()
+        .from(externalPurchaseIntent)
+        .where(
+          and(
+            eq(externalPurchaseIntent.id, purchaseIntentId),
+            eq(externalPurchaseIntent.userId, userId)
+          )
         )
+        .for("update");
+
+      if (!intent) {
+        throw new Error("Purchase intent not found");
+      }
+
+      if (intent.status !== "APPROVED") {
+        throw new Error(`Cannot cancel: intent status is ${intent.status}`);
+      }
+
+      const [credit] = await tx
+        .select()
+        .from(redemptionCredit)
+        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+
+      if (!credit) {
+        throw new Error("Redemption credit not found");
+      }
+
+      const idempotencyKey = `cancel:${purchaseIntentId}`;
+      const earnResult = await walletService.earn(
+        userId,
+        credit.packptsSpent,
+        `Redemption canceled by user`,
+        idempotencyKey,
+        undefined,
+        tx
       );
 
-    if (!intent) {
-      throw new Error("Purchase intent not found");
-    }
+      if (!earnResult.success) {
+        console.error(`[Guardrail] Cancel refund failed for intent ${purchaseIntentId}: ${earnResult.error}`);
+        throw new Error(`Cancel refund failed: ${earnResult.error}`);
+      }
 
-    if (intent.status !== "APPROVED") {
-      throw new Error(`Cannot cancel: intent status is ${intent.status}`);
-    }
+      await treasuryService.releaseReservation(purchaseIntentId, tx);
 
-    // Get the redemption credit
-    const [credit] = await db
-      .select()
-      .from(redemptionCredit)
-      .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+      await tx
+        .update(redemptionCredit)
+        .set({ status: "REVERSED" })
+        .where(eq(redemptionCredit.id, credit.id));
 
-    if (!credit) {
-      throw new Error("Redemption credit not found");
-    }
+      await tx
+        .update(externalPurchaseIntent)
+        .set({
+          status: "CANCELED",
+          updatedAt: new Date(),
+        })
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
 
-    // Release the margin reservation
-    await treasuryService.releaseReservation(purchaseIntentId);
-
-    // Refund PackPTS
-    const idempotencyKey = `cancel:${purchaseIntentId}`;
-    const earnResult = await walletService.earn(
-      userId,
-      credit.packptsSpent,
-      `Redemption canceled by user`,
-      idempotencyKey
-    );
-
-    if (!earnResult.success) {
-      console.error(`[Guardrail] Cancel refund failed for intent ${purchaseIntentId}: ${earnResult.error}`);
-      throw new Error(`Cancel refund failed: ${earnResult.error}`);
-    }
-
-    // Update statuses
-    await db
-      .update(redemptionCredit)
-      .set({ status: "REVERSED" })
-      .where(eq(redemptionCredit.id, credit.id));
-
-    await db
-      .update(externalPurchaseIntent)
-      .set({
-        status: "CANCELED",
-        updatedAt: new Date(),
-      })
-      .where(eq(externalPurchaseIntent.id, purchaseIntentId));
-
-    return {
-      success: true,
-      message: `Canceled redemption and refunded ${credit.packptsSpent} PackPTS`,
-    };
+      return {
+        success: true,
+        message: `Canceled redemption and refunded ${credit.packptsSpent} PackPTS`,
+      };
+    });
   }
 }
 

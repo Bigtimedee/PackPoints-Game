@@ -171,6 +171,23 @@ app.use((req, res, next) => {
     }, 12 * 60 * 60 * 1000);
   }
 
+  if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
+    const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
+    console.log("[StaleCleanup] Starting scheduled stale redemption cleanup (every 1 hour)");
+
+    setTimeout(() => {
+      runStaleRedemptionCleanup().catch(err => {
+        console.error("[StaleCleanup] Initial cleanup failed:", err);
+      });
+    }, 2 * 60 * 1000);
+
+    setInterval(() => {
+      runStaleRedemptionCleanup().catch(err => {
+        console.error("[StaleCleanup] Scheduled cleanup failed:", err);
+      });
+    }, 60 * 60 * 1000);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

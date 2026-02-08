@@ -216,23 +216,21 @@ class TreasuryService {
       ));
   }
 
-  async consumeReservation(purchaseIntentId: string, redemptionId: string): Promise<void> {
-    // Use transaction for atomicity
-    await db.transaction(async (tx) => {
-      // Get the reservation with FOR UPDATE lock
+  async consumeReservation(purchaseIntentId: string, redemptionId: string, txOrDb?: any): Promise<void> {
+    const executeConsume = async (tx: any) => {
       const [reservation] = await tx
         .select()
         .from(redemptionReservations)
         .where(and(
           eq(redemptionReservations.purchaseIntentId, purchaseIntentId),
           eq(redemptionReservations.status, "ACTIVE")
-        ));
+        ))
+        .for("update");
 
       if (!reservation) {
         throw new Error("No active reservation found for this purchase intent");
       }
 
-      // Mark reservation as consumed
       await tx
         .update(redemptionReservations)
         .set({ 
@@ -241,14 +239,19 @@ class TreasuryService {
         })
         .where(eq(redemptionReservations.id, reservation.id));
 
-      // Record margin usage
       await tx
         .insert(marginUsage)
         .values({
           redemptionId,
           amountCents: reservation.reservedCents,
         });
-    });
+    };
+
+    if (txOrDb) {
+      await executeConsume(txOrDb);
+    } else {
+      await db.transaction(async (tx) => executeConsume(tx));
+    }
   }
 
   async addMarginCredit(data: InsertMarginLedger): Promise<string> {
