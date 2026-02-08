@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { db } from "../db";
-import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, matchCardQueue, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard } from "@shared/schema";
-import { eq, and, sql, notInArray } from "drizzle-orm";
+import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, playableCards, matchCardQueue, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard, type PlayableCard } from "@shared/schema";
+import { eq, and, sql, notInArray, isNull } from "drizzle-orm";
 import { maybeFinish, cancelMatch as stateMachineCancelMatch, type MatchEndResult } from "./matches/stateMachine";
 import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSubmit";
 import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl, analyzeCardImageContent } from "./cards/imageQuality";
@@ -44,14 +44,37 @@ function generateSecret(): string {
   return secret;
 }
 
+function playableCardToBaseballCard(pc: PlayableCard): BaseballCard {
+  return {
+    id: pc.id,
+    playerName: pc.player || "Unknown",
+    team: "Unknown",
+    position: "Unknown",
+    year: 0,
+    setName: pc.set || "Unknown",
+    cardNumber: pc.number || "",
+    imageUrl: pc.imageUrl || "",
+    popularity: 50,
+    imageVerified: pc.isPlayable,
+    lastImageCheck: pc.lastImageCheck,
+    imageFailureCount: pc.imageFailureCount,
+    imageLastError: pc.imageLastError,
+  };
+}
+
 class MatchService {
   private playerNames: string[] = [];
   private matchStates: Map<string, MatchState> = new Map();
   private playerAnswers: Map<string, Map<string, { answer: string; timestamp: number }>> = new Map();
 
   async initialize() {
-    const cards = await db.select().from(baseballCards);
-    this.playerNames = cards.map(c => c.playerName);
+    const cards = await db.select().from(playableCards).where(eq(playableCards.isPlayable, true));
+    this.playerNames = cards.map(c => c.player).filter((p): p is string => !!p);
+    if (this.playerNames.length === 0) {
+      const legacyCards = await db.select().from(baseballCards);
+      this.playerNames = legacyCards.map(c => c.playerName);
+    }
+    console.log(`[MatchService] Loaded ${this.playerNames.length} player names for answer options`);
   }
 
   async createLobby(hostId: string, hostUsername: string, totalQuestions: number = 10): Promise<Lobby> {
@@ -294,38 +317,43 @@ class MatchService {
 
   private async generateQuestions(count: number, matchId?: string): Promise<GameQuestion[]> {
     const MAX_RETRY_ATTEMPTS = 3;
-    const VALIDATION_BATCH_SIZE = 60;
-    const SPARE_COUNT = 10;
-    const targetTotal = count + SPARE_COUNT;
-    let attempt = 0;
+    const VALIDATION_BATCH_SIZE = Math.max(count * 3, 60);
     const startTime = Date.now();
+    let attempt = 0;
     
     while (attempt < MAX_RETRY_ATTEMPTS) {
       attempt++;
       
-      const quarantinedIds = await getQuarantinedCardIds();
-      
-      const verifiedCards = await db
+      const rawPlayable = await db
         .select()
-        .from(baseballCards)
-        .where(eq(baseballCards.imageVerified, true));
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.isPlayable, true),
+            isNull(playableCards.quarantineStatus)
+          )
+        );
       
-      const preFilteredCards = verifiedCards.filter(card => {
-        if (quarantinedIds.has(card.id.toString())) {
-          return false;
-        }
-        
+      console.log(`[MatchService] Card pool: ${rawPlayable.length} playable cards from playable_cards table (attempt ${attempt})`);
+      
+      const preFilteredCards = rawPlayable.filter(card => {
+        if (!card.imageUrl) return false;
+        if (!card.player) return false;
         if (!cardHasRealImage({
           cardId: card.id.toString(),
           imageUrl: card.imageUrl,
-          player: card.playerName,
+          player: card.player,
         })) {
-          quarantineCard(card.id.toString(), "placeholder_image", card.imageUrl);
+          console.warn(`[MatchService] Card ${card.id} (${card.player}) skipped: placeholder image detected`);
           return false;
         }
-        
         return true;
       });
+      
+      console.log(`[MatchService] After pre-filter: ${preFilteredCards.length} cards (removed ${rawPlayable.length - preFilteredCards.length})`);
+      
+      const spareCount = Math.min(10, Math.max(0, preFilteredCards.length - count));
+      const targetTotal = count + spareCount;
       
       const shuffled = [...preFilteredCards].sort(() => Math.random() - 0.5);
       const candidateBatch = shuffled.slice(0, VALIDATION_BATCH_SIZE);
@@ -333,55 +361,54 @@ class MatchService {
       const validatedCards: BaseballCard[] = [];
       let invalidCount = 0;
       
-      for (const card of candidateBatch) {
+      for (const pc of candidateBatch) {
         if (validatedCards.length >= targetTotal) break;
         
         try {
-          const sourceUrl = normalizeImageUrl(card.imageUrl);
+          const sourceUrl = normalizeImageUrl(pc.imageUrl);
           if (!sourceUrl) {
-            await quarantineCard(card.id.toString(), "invalid_url", card.imageUrl);
             invalidCount++;
             continue;
           }
           
-          const validation = await getOrValidateCardImage(card.id.toString(), sourceUrl);
+          const validation = await getOrValidateCardImage(pc.id.toString(), sourceUrl);
           
           if (validation.status === "ok") {
-            // Additional content-based analysis to catch silhouettes/placeholders
-            const contentAnalysis = await analyzeCardImageContent(card.id.toString(), sourceUrl);
+            const contentAnalysis = await analyzeCardImageContent(pc.id.toString(), sourceUrl);
             
             if (contentAnalysis.isPlaceholder && contentAnalysis.confidence >= 60) {
-              // Content analysis detected placeholder - quarantine and skip
               invalidCount++;
-              await quarantineCard(card.id.toString(), `content_placeholder: ${contentAnalysis.reasons[0] || "detected"}`, sourceUrl);
               await logCardDelivery("validate_fail", {
                 matchId,
-                cardId: card.id.toString(),
+                cardId: pc.id.toString(),
                 detail: { reason: "content_placeholder", confidence: contentAnalysis.confidence, reasons: contentAnalysis.reasons },
               });
-              console.warn(`[MatchService] Card ${card.id} failed content analysis (${contentAnalysis.confidence}%): ${contentAnalysis.reasons.join("; ")}`);
+              console.warn(`[MatchService] Card ${pc.id} failed content analysis (${contentAnalysis.confidence}%): ${contentAnalysis.reasons.join("; ")}`);
               continue;
             }
             
-            validatedCards.push(card);
+            validatedCards.push(playableCardToBaseballCard(pc));
           } else {
             invalidCount++;
             await logCardDelivery("validate_fail", {
               matchId,
-              cardId: card.id.toString(),
+              cardId: pc.id.toString(),
               detail: { reason: validation.status },
             });
-            console.warn(`[MatchService] Card ${card.id} failed image validation: ${validation.status}`);
+            console.warn(`[MatchService] Card ${pc.id} failed image validation: ${validation.status}`);
           }
         } catch (err) {
           invalidCount++;
-          console.error(`[MatchService] Error validating card ${card.id}:`, err);
+          console.error(`[MatchService] Error validating card ${pc.id}:`, err);
         }
       }
       
       await logCardDelivery("validate", {
         matchId,
         detail: {
+          source: "playable_cards",
+          poolSize: rawPlayable.length,
+          preFiltered: preFilteredCards.length,
           validCount: validatedCards.length,
           invalidCount,
           duration_ms: Date.now() - startTime,
@@ -391,7 +418,7 @@ class MatchService {
       
       if (validatedCards.length >= count) {
         const primaryCards = validatedCards.slice(0, count);
-        const spareCards = validatedCards.slice(count, count + SPARE_COUNT);
+        const spareCards = validatedCards.slice(count, count + spareCount);
         
         if (matchId) {
           const queueEntries = [
@@ -480,11 +507,24 @@ class MatchService {
       })
       .where(eq(matchCardQueue.id, availableSpare.id));
     
-    const [replacementDbCard] = await db
+    let replacementDbCard: BaseballCard | null = null;
+    
+    const [pcCard] = await db
       .select()
-      .from(baseballCards)
-      .where(eq(baseballCards.id, availableSpare.cardId))
+      .from(playableCards)
+      .where(eq(playableCards.id, availableSpare.cardId))
       .limit(1);
+    
+    if (pcCard) {
+      replacementDbCard = playableCardToBaseballCard(pcCard);
+    } else {
+      const [bcCard] = await db
+        .select()
+        .from(baseballCards)
+        .where(eq(baseballCards.id, availableSpare.cardId))
+        .limit(1);
+      replacementDbCard = bcCard || null;
+    }
     
     if (!replacementDbCard) {
       console.error(`[MatchService] Replacement card ${availableSpare.cardId} not found in database`);
@@ -834,28 +874,31 @@ class MatchService {
 
     console.warn(`[MatchService] No spare cards in queue, falling back to database fetch for match ${matchId}`);
 
-    const quarantinedIds = await getQuarantinedCardIds();
     const usedCardIds = new Set(matchState.questions.map(q => q.card.id.toString()));
 
-    const verifiedCards = await db
+    const fallbackCards = await db
       .select()
-      .from(baseballCards)
-      .where(eq(baseballCards.imageVerified, true));
+      .from(playableCards)
+      .where(
+        and(
+          eq(playableCards.isPlayable, true),
+          isNull(playableCards.quarantineStatus)
+        )
+      );
 
-    const availableCards = verifiedCards.filter(card => {
+    const availableCards = fallbackCards.filter(card => {
       const cardIdStr = card.id.toString();
-      if (quarantinedIds.has(cardIdStr)) return false;
       if (usedCardIds.has(cardIdStr)) return false;
+      if (!card.imageUrl || !card.player) return false;
       if (!cardHasRealImage({
         cardId: cardIdStr,
         imageUrl: card.imageUrl,
-        player: card.playerName,
+        player: card.player,
       })) {
-        quarantineCard(cardIdStr, "placeholder_image", card.imageUrl);
         return false;
       }
       return true;
-    });
+    }).map(playableCardToBaseballCard);
 
     if (availableCards.length === 0) {
       return { success: false, error: "NO_REAL_IMAGE_CARDS_AVAILABLE" };

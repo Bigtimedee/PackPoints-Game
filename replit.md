@@ -131,6 +131,15 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - **redemptionService.redeem() transaction fix**: `walletService.spend()` now receives the outer transaction, so wallet debit and redemption record insert commit atomically. Transaction errors are caught and returned as `{ success: false }` to preserve the API contract.
 - **Reservation leak prevention**: Since all steps in `applyRedemption()` are transactional, any failure (including credit insert) automatically rolls back the reservation.
 
+### Match Engine Card Source Fix (Feb 2026)
+- **Card source switched to playable_cards**: `generateQuestions()` now queries the `playable_cards` table (where `is_playable=true` and `quarantine_status IS NULL`) instead of the legacy `baseball_cards` table. This unlocks all ~7,900+ playable cards across all loaded sets.
+- **Field mapping via playableCardToBaseballCard()**: Helper function converts `PlayableCard` rows to the `BaseballCard` shape expected by the rest of the match engine (question generation, image proxying, answer options).
+- **replaceCard() and resync fallback updated**: Mid-match card replacement now looks up cards from `playable_cards` first, falling back to `baseball_cards` for backward compatibility.
+- **imageGate.getSourceUrlForCard() fallback**: Image URL resolution now checks `playable_cards` if the card isn't found in `baseball_cards`, ensuring masked images work for all card sources.
+- **Dynamic spare count**: Spare cards for matches scale with pool size instead of a fixed 10, preventing impossible demands on small card pools.
+- **No inline quarantining during match start**: Cards that fail pre-filters during question generation are logged but not permanently quarantined, respecting the anti-pruning system.
+- **Diagnostic logging**: Pool sizes logged at each filter stage (raw playable → pre-filtered → validated) for immediate debuggability.
+
 ### Third-party APIs
 - Card Hedge API
 - Zyla API

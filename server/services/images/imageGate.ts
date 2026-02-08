@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { cardImageCache, cardImageQuarantine, baseballCards } from "@shared/schema";
+import { cardImageCache, cardImageQuarantine, baseballCards, playableCards } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { normalizeImageUrl, isPlaceholderImage, quarantineCard } from "../cards/imageQuality";
 
@@ -221,7 +221,17 @@ export async function getSourceUrlForCard(cardId: string): Promise<string | null
     .where(eq(baseballCards.id, cardId))
     .limit(1);
 
-  return card?.imageUrl ? normalizeImageUrl(card.imageUrl) : null;
+  if (card?.imageUrl) {
+    return normalizeImageUrl(card.imageUrl);
+  }
+
+  const [pcCard] = await db
+    .select({ imageUrl: playableCards.imageUrl })
+    .from(playableCards)
+    .where(eq(playableCards.id, cardId))
+    .limit(1);
+
+  return pcCard?.imageUrl ? normalizeImageUrl(pcCard.imageUrl) : null;
 }
 
 export async function markImageBad(cardId: string, reason: string): Promise<void> {
