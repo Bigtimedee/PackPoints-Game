@@ -313,9 +313,14 @@ export default function Lobby() {
               <div className="text-center space-y-4">
                 <p className="text-sm text-muted-foreground mb-2">Join Code</p>
                 <div className="flex items-center justify-center gap-2">
-                  <span className="text-4xl font-mono font-bold tracking-widest" data-testid="text-join-code">
+                  <button 
+                    onClick={copyCode} 
+                    className="text-4xl font-mono font-bold tracking-widest cursor-pointer hover-elevate active-elevate-2 px-4 py-2 rounded-md"
+                    data-testid="text-join-code"
+                    title="Click to copy"
+                  >
                     {lobby.joinCode}
-                  </span>
+                  </button>
                   <Button size="icon" variant="outline" onClick={copyCode} data-testid="button-copy-code">
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>
