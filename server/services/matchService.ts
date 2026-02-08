@@ -77,7 +77,7 @@ class MatchService {
     console.log(`[MatchService] Loaded ${this.playerNames.length} player names for answer options`);
   }
 
-  async createLobby(hostId: string, hostUsername: string, totalQuestions: number = 10): Promise<Lobby> {
+  async createLobby(hostId: string, hostUsername: string, totalQuestions: number = 10, gameSetId: string | null = null): Promise<Lobby> {
     let joinCode = generateJoinCode();
     let attempts = 0;
     
@@ -98,6 +98,7 @@ class MatchService {
       status: "waiting",
       mode: "1v1_friend",
       totalQuestions,
+      gameSetId,
     }).returning();
     
     return lobby;
@@ -211,14 +212,14 @@ class MatchService {
     console.log(`[MatchService] Starting match for lobby ${lobbyId}, host=${hostId}, guest=${lobby.guestId}`);
     
     const matchId = randomUUID();
-    const questions = await this.generateQuestions(lobby.totalQuestions, matchId);
+    const questions = await this.generateQuestions(lobby.totalQuestions, matchId, lobby.gameSetId || undefined);
     
     if (!questions || questions.length === 0) {
       console.error(`[MatchService] startMatch failed: no questions generated for lobby ${lobbyId}. Need verified cards in database.`);
       return { matchState: null, error: "Not enough cards available. Please try again later or contact support." };
     }
     
-    console.log(`[MatchService] Generated ${questions.length} questions for lobby ${lobbyId}`);
+    console.log(`[MatchService] Generated ${questions.length} questions for lobby ${lobbyId} (set: ${lobby.gameSetId || 'all'})`);
     
     await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
     
@@ -267,10 +268,10 @@ class MatchService {
       return { matchState: null, error: "No guest in lobby" };
     }
     
-    console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}`);
+    console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}, set=${lobby.gameSetId || 'all'}`);
     
     const matchId = randomUUID();
-    const questions = await this.generateQuestions(lobby.totalQuestions, matchId);
+    const questions = await this.generateQuestions(lobby.totalQuestions, matchId, lobby.gameSetId || undefined);
     
     if (!questions || questions.length === 0) {
       console.error(`[MatchService] startMatchForRandom failed: no questions generated for lobby ${lobbyId}. Need verified cards.`);
@@ -315,7 +316,7 @@ class MatchService {
     return { matchState };
   }
 
-  private async generateQuestions(count: number, matchId?: string): Promise<GameQuestion[]> {
+  private async generateQuestions(count: number, matchId?: string, gameSetId?: string): Promise<GameQuestion[]> {
     const MAX_RETRY_ATTEMPTS = 3;
     const VALIDATION_BATCH_SIZE = Math.max(count * 3, 60);
     const startTime = Date.now();
@@ -324,17 +325,21 @@ class MatchService {
     while (attempt < MAX_RETRY_ATTEMPTS) {
       attempt++;
       
+      const conditions = [
+        eq(playableCards.isPlayable, true),
+        eq(playableCards.quarantineStatus, "OK"),
+      ];
+      
+      if (gameSetId) {
+        conditions.push(eq(playableCards.gameSetId, gameSetId));
+      }
+      
       const rawPlayable = await db
         .select()
         .from(playableCards)
-        .where(
-          and(
-            eq(playableCards.isPlayable, true),
-            eq(playableCards.quarantineStatus, "OK")
-          )
-        );
+        .where(and(...conditions));
       
-      console.log(`[MatchService] Card pool: ${rawPlayable.length} playable cards from playable_cards table (attempt ${attempt})`);
+      console.log(`[MatchService] Card pool: ${rawPlayable.length} playable cards from playable_cards table (set: ${gameSetId || 'all'}, attempt ${attempt})`);
       
       const preFilteredCards = rawPlayable.filter(card => {
         if (!card.imageUrl) return false;

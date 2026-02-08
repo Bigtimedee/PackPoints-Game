@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,9 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Users, Copy, Check, Loader2, ArrowLeft, Play, UserPlus, Share2, LogIn, AlertCircle } from "lucide-react";
+import { CardSetPicker } from "@/components/CardSetPicker";
 import { useToast, toast as standaloneToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
+import type { PlayableSet } from "@shared/schema";
 
 interface LobbyState {
   id: string;
@@ -20,6 +23,7 @@ interface LobbyState {
   guestUsername: string | null;
   status: string;
   totalQuestions: number;
+  gameSetId: string | null;
   membershipSecret?: string;
 }
 
@@ -32,14 +36,22 @@ export default function Lobby() {
   const urlParams = new URLSearchParams(window.location.search);
   const codeFromUrl = urlParams.get("code")?.toUpperCase() || "";
   
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  
   const [joinCode, setJoinCode] = useState(codeFromUrl);
   const [lobbyState, setLobbyState] = useState<LobbyState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState("10");
+  const [selectedSetId, setSelectedSetId] = useState("");
   const [matchError, setMatchError] = useState<string | null>(null);
   const [hostDisconnected, setHostDisconnected] = useState(false);
   const { toast } = useToast();
+
+  const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
+    queryKey: ["/api/playable-sets"],
+    enabled: isAuthenticated,
+  });
   const lobbyRef = useRef<LobbyState | null>(null);
   const joinedLobbyRef = useRef<string | null>(null);
   
@@ -51,9 +63,6 @@ export default function Lobby() {
     });
   };
   const lobby = lobbyState;
-  
-  // Use authenticated user data instead of localStorage
-  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const userId = user?.id || "";
   const username = user?.username || "";
   
@@ -138,13 +147,20 @@ export default function Lobby() {
   }, [lobby, isConnected, send, userId, username]);
 
   const createLobby = async () => {
+    if (!selectedSetId) {
+      toast({ title: "Select a Card Set", description: "Please choose a card set before creating the lobby", variant: "destructive" });
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await fetch("/api/lobby/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ totalQuestions: parseInt(selectedQuestions) }),
+        body: JSON.stringify({ 
+          totalQuestions: parseInt(selectedQuestions),
+          gameSetId: selectedSetId === "random" ? null : selectedSetId,
+        }),
       });
       
       if (!response.ok) {
@@ -405,6 +421,20 @@ export default function Lobby() {
                 </div>
               )}
               
+              {lobby.gameSetId && (
+                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm" data-testid="text-lobby-set">
+                  <span className="text-muted-foreground">Card Set</span>
+                  <span className="font-medium">
+                    {playableSets?.find(s => s.id === lobby.gameSetId)?.setName || "Selected Set"}
+                  </span>
+                </div>
+              )}
+              {!lobby.gameSetId && (
+                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm" data-testid="text-lobby-set">
+                  <span className="text-muted-foreground">Card Set</span>
+                  <span className="font-medium">Random (All Sets)</span>
+                </div>
+              )}
               <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm">
                 <span className="text-muted-foreground">Questions</span>
                 <span className="font-medium">{lobby.totalQuestions}</span>
@@ -443,6 +473,20 @@ export default function Lobby() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
+                  <Label htmlFor="card-set">Card Set</Label>
+                  <CardSetPicker
+                    sets={playableSets || []}
+                    value={selectedSetId}
+                    onValueChange={setSelectedSetId}
+                    placeholder="Choose a card set"
+                    isLoading={setsLoading}
+                    showRandomOption={true}
+                    randomOptionLabel="Random (All Sets)"
+                    id="card-set"
+                    data-testid="select-card-set"
+                  />
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="card-count">Number of Cards</Label>
                   <Select value={selectedQuestions} onValueChange={setSelectedQuestions}>
                     <SelectTrigger id="card-count" data-testid="select-card-count">
@@ -460,7 +504,7 @@ export default function Lobby() {
                   className="w-full gap-2" 
                   size="lg" 
                   onClick={createLobby}
-                  disabled={isLoading}
+                  disabled={isLoading || !selectedSetId}
                   data-testid="button-create-lobby"
                 >
                   {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Users className="h-5 w-5" />}

@@ -413,6 +413,7 @@ async function handleJoinLobbyWs(ws: WebSocket, payload: { userId: string; usern
     mode: lobby.mode,
     totalQuestions: lobby.totalQuestions,
     createdAt: lobby.createdAt,
+    gameSetId: lobby.gameSetId,
   };
   
   broadcastToLobby(lobbyId, {

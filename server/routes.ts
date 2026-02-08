@@ -1939,8 +1939,11 @@ export async function registerRoutes(
       const requestedQuestions = parseInt(req.body.totalQuestions) || 10;
       const totalQuestions = Math.min(Math.max(requestedQuestions, 5), 20);
       
+      // Validate gameSetId if provided
+      const gameSetId = req.body.gameSetId || null;
+      
       // Use server-derived identity, ignore any client-provided hostId/hostUsername
-      const lobby = await matchService.createLobby(userId, user.username, totalQuestions);
+      const lobby = await matchService.createLobby(userId, user.username, totalQuestions, gameSetId);
       
       const { guestSecret: _, ...lobbyForHost } = lobby;
       res.json({ ...lobbyForHost, membershipSecret: lobby.hostSecret });
