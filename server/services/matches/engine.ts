@@ -503,32 +503,41 @@ export async function completeMatchFinish(matchId: string, participants: MatchPa
   const hostParticipant = updatedParticipants.find(p => p.role === "HOST");
   const guestParticipant = updatedParticipants.find(p => p.role === "GUEST");
   
-  console.log(`[MatchFinish] matchId=${matchId}, computed=${JSON.stringify(computed)}, hostParticipant=${hostParticipant?.userId}, guestParticipant=${guestParticipant?.userId}`);
+  const player1 = hostParticipant ?? updatedParticipants[0];
+  const player2 = guestParticipant ?? updatedParticipants.find(p => p.userId !== player1?.userId);
   
-  if (hostParticipant && guestParticipant) {
-    await applyProgressForMatchIfNeeded({
-      matchId,
-      hostUserId: hostParticipant.userId,
-      guestUserId: guestParticipant.userId,
-      totalQuestions,
-    });
+  console.log(`[MatchFinish] matchId=${matchId}, computed=${JSON.stringify(computed)}, player1=${player1?.userId} (${player1?.role}), player2=${player2?.userId} (${player2?.role})`);
+  
+  if (player1 && player2) {
+    try {
+      await applyProgressForMatchIfNeeded({
+        matchId,
+        hostUserId: player1.userId,
+        guestUserId: player2.userId,
+        totalQuestions,
+      });
+    } catch (progressError: any) {
+      console.error(`[MatchFinish] Failed to apply progress for match ${matchId}: ${progressError.message}`, progressError.stack);
+    }
+  } else {
+    console.warn(`[MatchFinish] Skipping progress: only ${updatedParticipants.length} participant(s) found for match ${matchId}`);
   }
   
   // Use computed result if available, otherwise calculate from participant data as fallback
   let result = computed?.result;
   let winnerUserId = computed?.winnerUserId ?? null;
-  let hostCorrect = computed?.hostCorrect ?? (hostParticipant?.correctAnswers || 0);
-  let guestCorrect = computed?.guestCorrect ?? (guestParticipant?.correctAnswers || 0);
+  let hostCorrect = computed?.hostCorrect ?? (player1?.correctAnswers || 0);
+  let guestCorrect = computed?.guestCorrect ?? (player2?.correctAnswers || 0);
   
   // Fallback: If computed result is missing, calculate directly from participants
-  if (!result && hostParticipant && guestParticipant) {
+  if (!result && player1 && player2) {
     console.log(`[MatchFinish] Fallback calculation: hostCorrect=${hostCorrect}, guestCorrect=${guestCorrect}`);
     if (hostCorrect > guestCorrect) {
       result = MatchResult.HOST_WIN;
-      winnerUserId = hostParticipant.userId;
+      winnerUserId = player1.userId;
     } else if (guestCorrect > hostCorrect) {
       result = MatchResult.GUEST_WIN;
-      winnerUserId = guestParticipant.userId;
+      winnerUserId = player2.userId;
     } else {
       result = MatchResult.TIE;
       winnerUserId = null;

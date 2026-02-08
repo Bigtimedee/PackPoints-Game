@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { userDailyProgress, matches } from "@shared/schema";
+import { userDailyProgress, matches, matchParticipants } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 const DAILY_CARD_CAP = 200;
@@ -117,4 +117,92 @@ export async function getDailyProgress(userId: string): Promise<{
     capCards: DAILY_CARD_CAP,
     resetInMs,
   };
+}
+
+function toChicagoDate(date: Date): string {
+  const chicagoTime = date.toLocaleString("en-US", {
+    timeZone: "America/Chicago",
+  });
+  const chicagoDate = new Date(chicagoTime);
+  const year = chicagoDate.getFullYear();
+  const month = String(chicagoDate.getMonth() + 1).padStart(2, "0");
+  const day = String(chicagoDate.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export async function backfillProgressForFinishedMatches(): Promise<{
+  matchesProcessed: number;
+  matchesSkipped: number;
+  errors: string[];
+}> {
+  const finishedMatches = await db
+    .select({
+      id: matches.id,
+      finishedAt: matches.finishedAt,
+      totalQuestions: matches.totalQuestions,
+      progressApplied: matches.progressApplied,
+    })
+    .from(matches)
+    .where(and(eq(matches.status, "FINISHED"), eq(matches.progressApplied, false)));
+
+  let matchesProcessed = 0;
+  let matchesSkipped = 0;
+  const errors: string[] = [];
+
+  for (const match of finishedMatches) {
+    try {
+      const participants = await db
+        .select({ userId: matchParticipants.userId })
+        .from(matchParticipants)
+        .where(eq(matchParticipants.matchId, match.id));
+
+      if (participants.length < 2) {
+        matchesSkipped++;
+        errors.push(`Match ${match.id}: only ${participants.length} participant(s)`);
+        continue;
+      }
+
+      const dayDate = match.finishedAt
+        ? toChicagoDate(new Date(match.finishedAt))
+        : getChicagoDate();
+
+      await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(matches)
+          .set({ progressApplied: true })
+          .where(and(eq(matches.id, match.id), eq(matches.progressApplied, false)))
+          .returning({ id: matches.id });
+
+        if (!updated) {
+          matchesSkipped++;
+          return;
+        }
+
+        for (const p of participants) {
+          await tx
+            .insert(userDailyProgress)
+            .values({
+              userId: p.userId,
+              dayDate,
+              cardsAnswered: match.totalQuestions,
+              matchesCompleted: 1,
+            })
+            .onConflictDoUpdate({
+              target: [userDailyProgress.userId, userDailyProgress.dayDate],
+              set: {
+                cardsAnswered: sql`${userDailyProgress.cardsAnswered} + ${match.totalQuestions}`,
+                matchesCompleted: sql`${userDailyProgress.matchesCompleted} + 1`,
+                updatedAt: sql`now()`,
+              },
+            });
+        }
+
+        matchesProcessed++;
+      });
+    } catch (err: any) {
+      errors.push(`Match ${match.id}: ${err.message}`);
+    }
+  }
+
+  return { matchesProcessed, matchesSkipped, errors };
 }

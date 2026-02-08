@@ -232,8 +232,8 @@ class MatchService {
     }).returning();
     
     await db.insert(matchParticipants).values([
-      { matchId: match.id, userId: lobby.hostId, username: lobby.hostUsername },
-      { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername },
+      { matchId: match.id, userId: lobby.hostId, username: lobby.hostUsername, role: "HOST" },
+      { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername, role: "GUEST" },
     ]);
     
     console.log(`[MatchService] Match ${match.id} created with ${questions.length} questions`);
@@ -291,8 +291,8 @@ class MatchService {
     }).returning();
     
     await db.insert(matchParticipants).values([
-      { matchId: match.id, userId: lobby.hostId, username: lobby.hostUsername },
-      { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername },
+      { matchId: match.id, userId: lobby.hostId, username: lobby.hostUsername, role: "HOST" },
+      { matchId: match.id, userId: lobby.guestId, username: lobby.guestUsername, role: "GUEST" },
     ]);
     
     console.log(`[MatchService] Random match ${match.id} created with ${questions.length} questions`);
