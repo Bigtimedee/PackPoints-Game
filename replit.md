@@ -48,7 +48,7 @@ Aggregates listings from eBay and Goldin Auctions, supporting filtering, affilia
 A fame-based point calculation system rewards users based on player obscurity, vintage, and rarity multipliers, with daily and per-match point caps.
 
 ### Daily Progress Tracking
-Server-authoritative tracking of daily progress, including cards answered and matches completed, synchronized across match modes.
+Server-authoritative tracking of daily progress, including cards answered and matches completed, synchronized across match modes. Progress is applied atomically when matches finish via `applyProgressForMatchIfNeeded` in `engine.ts`, writing to `user_daily_progress` table. The `/api/progress/daily` endpoint reads from this table using Chicago timezone dates. Match participants are assigned HOST/GUEST roles in `matchService.ts`; the engine has a resilient player1/player2 fallback for legacy data without proper roles. An admin backfill endpoint (`POST /api/admin/progress/backfill`) can retroactively populate progress for finished matches.
 
 ### 1v1 Matchmaking System
 Real-time, random matchmaking using a database-backed atomic pairing process with presence tracking, a ticket queue, and heartbeats.
