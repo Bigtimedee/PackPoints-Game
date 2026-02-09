@@ -5,7 +5,7 @@ import {
   ledgerEntries,
   wallets,
 } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, asc } from "drizzle-orm";
 import { DAILY_GAMEPLAY_BASE } from "../../config/rewards";
 import { isUserFrozen } from "../rewardEngine";
 import { bucketService } from "../bucketService";
@@ -237,6 +237,174 @@ export async function awardDailyBaseForCorrectCard(params: {
       isDailyCapped,
     };
   });
+}
+
+export interface WalletBackfillResult {
+  usersProcessed: number;
+  totalPointsCredited: number;
+  ledgerEntriesCreated: number;
+  bucketsCreated: number;
+  errors: Array<{ userId: string; dayKey: string; error: string }>;
+  details: Array<{ userId: string; dayKey: string; pointsCredited: number; cardsCompleted: number }>;
+}
+
+export async function backfillUncreditedWalletPoints(): Promise<WalletBackfillResult> {
+  const result: WalletBackfillResult = {
+    usersProcessed: 0,
+    totalPointsCredited: 0,
+    ledgerEntriesCreated: 0,
+    bucketsCreated: 0,
+    errors: [],
+    details: [],
+  };
+
+  const counters = await db
+    .select()
+    .from(userGameplayDailyCounters)
+    .where(sql`${userGameplayDailyCounters.basePtsAwarded} > 0`);
+
+  console.log(`[WalletBackfill] Found ${counters.length} counter records with points > 0`);
+
+  for (const counter of counters) {
+    try {
+      const credited = await db.transaction(async (tx) => {
+        let [wallet] = await tx
+          .select()
+          .from(wallets)
+          .where(eq(wallets.userId, counter.userId))
+          .for("update")
+          .limit(1);
+
+        if (!wallet) {
+          const [newWallet] = await tx.insert(wallets).values({
+            userId: counter.userId,
+            balance: 0,
+            lifetimeEarned: 0,
+            lifetimeSpent: 0,
+            status: "active",
+          }).returning();
+          wallet = newWallet;
+          console.log(`[WalletBackfill] Created wallet for user ${counter.userId}`);
+        }
+
+        if (wallet.status !== "active") {
+          console.log(`[WalletBackfill] Skipping user ${counter.userId} — wallet status: ${wallet.status}`);
+          return 0;
+        }
+
+        const events = await tx
+          .select()
+          .from(gameplayCardDailyEvents)
+          .where(and(
+            eq(gameplayCardDailyEvents.userId, counter.userId),
+            eq(gameplayCardDailyEvents.dayKey, counter.dayKey),
+            eq(gameplayCardDailyEvents.isCorrect, true)
+          ))
+          .orderBy(asc(gameplayCardDailyEvents.createdAt), asc(gameplayCardDailyEvents.cardId));
+
+        let dayPointsCredited = 0;
+
+        for (let i = 0; i < events.length; i++) {
+          const event = events[i];
+          const idempotencyKey = `daily_base:${counter.userId}:${counter.dayKey}:${event.cardId}`;
+
+          const existingEntry = await tx
+            .select({ id: ledgerEntries.id })
+            .from(ledgerEntries)
+            .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+            .limit(1);
+
+          if (existingEntry.length > 0) {
+            continue;
+          }
+
+          const cardPosition = i + 1;
+          const prevPts = DAILY_GAMEPLAY_BASE.pointsForCardsCompleted(cardPosition - 1);
+          const currPts = DAILY_GAMEPLAY_BASE.pointsForCardsCompleted(cardPosition);
+          const delta = Math.max(0, currPts - prevPts);
+
+          if (delta <= 0) continue;
+
+          const [freshWallet] = await tx
+            .select()
+            .from(wallets)
+            .where(eq(wallets.id, wallet.id))
+            .for("update")
+            .limit(1);
+
+          const newBalance = freshWallet.balance + delta;
+
+          const [insertedEntry] = await tx.insert(ledgerEntries).values({
+            walletId: wallet.id,
+            entryType: "EARN",
+            amount: delta,
+            balanceAfter: newBalance,
+            reason: "Daily card completion reward (backfill)",
+            metadata: {
+              source: "EARN_GAMEPLAY_BASE_DAILY",
+              dayKey: counter.dayKey,
+              cardId: event.cardId,
+              matchId: event.matchId ?? null,
+              cardsCompleted: cardPosition,
+              backfill: true,
+            },
+            idempotencyKey,
+          }).returning();
+
+          await tx
+            .update(wallets)
+            .set({
+              balance: newBalance,
+              lifetimeEarned: freshWallet.lifetimeEarned + delta,
+              updatedAt: new Date(),
+            })
+            .where(eq(wallets.id, wallet.id));
+
+          await bucketService.createBucket(
+            counter.userId,
+            delta,
+            "EARNED",
+            insertedEntry.id,
+            {
+              source: "EARN_GAMEPLAY_BASE_DAILY",
+              dayKey: counter.dayKey,
+              cardId: event.cardId,
+              backfill: true,
+            },
+            undefined,
+            tx
+          );
+
+          dayPointsCredited += delta;
+          result.ledgerEntriesCreated++;
+          result.bucketsCreated++;
+        }
+
+        return dayPointsCredited;
+      });
+
+      if (credited > 0) {
+        result.totalPointsCredited += credited;
+        result.details.push({
+          userId: counter.userId,
+          dayKey: counter.dayKey,
+          pointsCredited: credited,
+          cardsCompleted: counter.cardsCompleted,
+        });
+      }
+      result.usersProcessed++;
+    } catch (err: any) {
+      console.error(`[WalletBackfill] Error processing user=${counter.userId}, day=${counter.dayKey}: ${err.message}`);
+      result.errors.push({
+        userId: counter.userId,
+        dayKey: counter.dayKey,
+        error: err.message,
+      });
+    }
+  }
+
+  console.log(`[WalletBackfill] Complete: ${result.usersProcessed} users, ${result.totalPointsCredited} pts credited, ${result.ledgerEntriesCreated} ledger entries, ${result.errors.length} errors`);
+  return result;
 }
 
 export async function getDailyProgress(userId: string, now?: Date): Promise<DailyProgressResult> {

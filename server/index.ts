@@ -219,6 +219,28 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      (async () => {
+        try {
+          const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");
+          const result = await backfillProgressForFinishedMatches();
+          if (result.matchesProcessed > 0) {
+            console.log(`[StartupBackfill] Backfilled ${result.matchesProcessed} matches, skipped ${result.matchesSkipped}, errors: ${result.errors.length}`);
+          }
+        } catch (err) {
+          console.error("[StartupBackfill] Progress backfill failed:", err);
+        }
+
+        try {
+          const { backfillUncreditedWalletPoints } = await import("./services/rewards/dailyGameplayBase");
+          const walletResult = await backfillUncreditedWalletPoints();
+          if (walletResult.totalPointsCredited > 0) {
+            console.log(`[StartupBackfill] Wallet backfill: ${walletResult.totalPointsCredited} pts credited to ${walletResult.details.length} user-days, ${walletResult.errors.length} errors`);
+          }
+        } catch (err) {
+          console.error("[StartupBackfill] Wallet backfill failed:", err);
+        }
+      })();
     },
   );
 })();

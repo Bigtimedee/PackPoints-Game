@@ -5831,6 +5831,19 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/wallet/backfill", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { backfillUncreditedWalletPoints } = await import("./services/rewards/dailyGameplayBase");
+      console.log("[WalletBackfill] Starting backfill for uncredited wallet points...");
+      const result = await backfillUncreditedWalletPoints();
+      console.log(`[WalletBackfill] Done: users=${result.usersProcessed}, pts=${result.totalPointsCredited}, ledger=${result.ledgerEntriesCreated}, errors=${result.errors.length}`);
+      res.json(result);
+    } catch (error) {
+      console.error("Error running wallet backfill:", error);
+      res.status(500).json({ error: "Failed to backfill wallet points" });
+    }
+  });
+
   // Admin: Force re-scan cards in a game set for silhouettes
   app.post("/api/admin/game-sets/:id/rescan-silhouettes", isAuthenticated, requireAdmin, async (req, res) => {
     try {
