@@ -679,12 +679,14 @@ export type PurchaseEventStatus = typeof purchaseEventStatuses[number];
 // Purchase events - raw webhook payload log for auditing and retry
 export const purchaseEvents = pgTable("purchase_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  eventId: varchar("event_id", { length: 200 }).notNull().unique(), // Stripe event ID
-  eventType: varchar("event_type", { length: 100 }).notNull(), // checkout.session.completed, invoice.paid, etc.
-  userId: varchar("user_id"), // resolved from metadata, null if unknown
-  payload: jsonb("payload").notNull(), // raw Stripe event payload
-  status: varchar("status", { length: 20 }).notNull().default("received"), // received, processed, failed, ignored
+  eventId: varchar("event_id", { length: 200 }).notNull().unique(),
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  userId: varchar("user_id"),
+  payload: jsonb("payload").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("received"),
   errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  lastRetryAt: timestamp("last_retry_at"),
   processedAt: timestamp("processed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

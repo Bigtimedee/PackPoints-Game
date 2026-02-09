@@ -2,6 +2,14 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
+import {
+  loginLimiter,
+  matchCreateLimiter,
+  answerSubmitLimiter,
+  checkoutLimiter,
+  gameStartLimiter,
+  registrationLimiter,
+} from "./middleware/rateLimiter";
 import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
@@ -51,6 +59,10 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import * as matchEngine from "./services/matches/engine";
+import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
+import { reconcileAllWallets } from "./services/walletReconciliation";
+import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panicService";
+import { isStripeConfiguredSync } from "./stripeClient";
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -106,23 +118,117 @@ export async function registerRoutes(
   // CardHedge API routes (server-side only, never expose API key to client)
   app.use("/api/cardhedge", cardhedgeRouter);
   
-  // Health check endpoint for monitoring
-  app.get("/health", async (req, res) => {
+  // Health check endpoint for monitoring (no auth required)
+  app.get("/api/health", async (req, res) => {
+    let topStatus: "ok" | "degraded" = "ok";
+    const checks: Record<string, any> = {};
+
+    const dbStart = Date.now();
     try {
-      // Check database connection
       await db.execute(sql`SELECT 1`);
-      res.json({
+      checks.database = { status: "ok", latencyMs: Date.now() - dbStart };
+    } catch (err) {
+      topStatus = "degraded";
+      checks.database = { status: "error", message: (err as Error).message, latencyMs: Date.now() - dbStart };
+    }
+
+    try {
+      checks.stripe = {
         status: "ok",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        database: "connected"
-      });
-    } catch (error) {
-      res.status(503).json({
-        status: "error",
-        timestamp: new Date().toISOString(),
-        database: "disconnected"
-      });
+        mode: getStripeMode(),
+        configured: isStripeConfiguredSync(),
+      };
+    } catch (err) {
+      topStatus = "degraded";
+      checks.stripe = { status: "error", message: (err as Error).message };
+    }
+
+    try {
+      const [row] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(playableCards)
+        .where(eq(playableCards.isPlayable, true));
+      checks.playableCards = { status: "ok", count: Number(row?.count ?? 0) };
+    } catch (err) {
+      topStatus = "degraded";
+      checks.playableCards = { status: "error", message: (err as Error).message };
+    }
+
+    res.json({
+      status: topStatus,
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor(process.uptime()),
+      checks,
+    });
+  });
+
+  // Keep legacy /health for backwards compat
+  app.get("/health", async (_req, res) => {
+    try {
+      await db.execute(sql`SELECT 1`);
+      res.json({ status: "ok", timestamp: new Date().toISOString(), uptime: process.uptime(), database: "connected" });
+    } catch {
+      res.status(503).json({ status: "error", timestamp: new Date().toISOString(), database: "disconnected" });
+    }
+  });
+
+  // ============================================
+  // ADMIN PANIC SWITCH ENDPOINTS
+  // ============================================
+
+  app.get("/api/admin/panic/status", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const status = await getPanicStatus();
+      res.json(status);
+    } catch (err) {
+      console.error("[PanicSwitch] Error getting status:", err);
+      res.status(500).json({ error: "Failed to get panic status" });
+    }
+  });
+
+  app.post("/api/admin/panic/purchases", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled (boolean) is required" });
+      }
+      await setPanicSwitch("disable_purchases", enabled, "Blocks all checkout/purchase creation");
+      res.json({ key: "disable_purchases", enabled });
+    } catch (err) {
+      console.error("[PanicSwitch] Error toggling purchases:", err);
+      res.status(500).json({ error: "Failed to toggle panic switch" });
+    }
+  });
+
+  app.post("/api/admin/panic/pvp", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled (boolean) is required" });
+      }
+      await setPanicSwitch("disable_pvp", enabled, "Blocks lobby creation and matchmaking");
+      res.json({ key: "disable_pvp", enabled });
+    } catch (err) {
+      console.error("[PanicSwitch] Error toggling pvp:", err);
+      res.status(500).json({ error: "Failed to toggle panic switch" });
+    }
+  });
+
+  app.post("/api/admin/panic/set", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { setId, enabled } = req.body;
+      if (!setId || typeof setId !== "string") {
+        return res.status(400).json({ error: "setId (string) is required" });
+      }
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "enabled (boolean) is required" });
+      }
+      const key = `disable_set_${setId}`;
+      await setPanicSwitch(key, enabled, `Blocks set ${setId} from being used`);
+      res.json({ key, enabled });
+    } catch (err) {
+      console.error("[PanicSwitch] Error toggling set:", err);
+      res.status(500).json({ error: "Failed to toggle panic switch" });
     }
   });
 
@@ -528,6 +634,24 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/admin/webhooks/retry - Manually trigger webhook retry for failed events
+  app.post("/api/admin/webhooks/retry", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const result = await retryFailedWebhookEvents();
+      res.json({
+        success: true,
+        totalFound: result.totalFound,
+        retried: result.retried,
+        succeeded: result.succeeded,
+        failed: result.failed,
+        results: result.results,
+      });
+    } catch (error) {
+      console.error("Error retrying webhook events:", error);
+      res.status(500).json({ error: "Failed to retry webhook events" });
+    }
+  });
+
   // Admin endpoints for expiration management
   // GET /api/admin/expiration/policy - Get current expiration policy
   app.get("/api/admin/expiration/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
@@ -675,7 +799,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/start", collectGeo, async (req: any, res) => {
+  app.post("/api/game/start", gameStartLimiter, collectGeo, async (req: any, res) => {
     try {
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -683,6 +807,10 @@ export async function registerRoutes(
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
+
+      if (setId && await isPanicEnabled(`disable_set_${setId}`)) {
+        return res.status(503).json({ error: "This card set is temporarily disabled." });
+      }
       
       const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const isGuest = !userId;
@@ -908,7 +1036,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/game/answer", async (req: any, res) => {
+  app.post("/api/game/answer", answerSubmitLimiter, async (req: any, res) => {
     try {
       const parsed = submitAnswerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1248,7 +1376,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/register", async (req: any, res) => {
+  app.post("/api/auth/register", registrationLimiter, async (req: any, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1404,7 +1532,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/local-login", async (req: any, res) => {
+  app.post("/api/auth/local-login", loginLimiter, async (req: any, res) => {
     try {
       console.log("[Login] Starting login attempt");
       
@@ -1909,8 +2037,12 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/lobby/create", isAuthenticated, requireActiveUser, async (req: any, res) => {
+  app.post("/api/lobby/create", isAuthenticated, requireActiveUser, matchCreateLimiter, async (req: any, res) => {
     try {
+      if (await isPanicEnabled("disable_pvp")) {
+        return res.status(503).json({ error: "PVP matches are temporarily disabled." });
+      }
+
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
       const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -2606,8 +2738,12 @@ export async function registerRoutes(
   });
 
   // Create Stripe checkout session for PackPTS purchase
-  app.post("/api/store/checkout", isAuthenticated, requireActiveUser, async (req: any, res) => {
+  app.post("/api/store/checkout", isAuthenticated, requireActiveUser, checkoutLimiter, async (req: any, res) => {
     try {
+      if (await isPanicEnabled("disable_purchases")) {
+        return res.status(503).json({ error: "Purchases are temporarily disabled." });
+      }
+
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
@@ -5828,6 +5964,16 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error running progress backfill:", error);
       res.status(500).json({ error: "Failed to backfill progress" });
+    }
+  });
+
+  app.post("/api/admin/wallet/reconcile", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const result = await reconcileAllWallets();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running wallet reconciliation:", error);
+      res.status(500).json({ error: "Failed to run wallet reconciliation" });
     }
   });
 

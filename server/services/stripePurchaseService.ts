@@ -1263,6 +1263,72 @@ class StripePurchaseService {
       };
     }
   }
+  async retryEvent(eventId: string): Promise<WebhookProcessResult> {
+    const storedEvent = await this.getPurchaseEvent(eventId);
+    if (!storedEvent) {
+      return {
+        success: false,
+        eventId,
+        status: "failed",
+        error: "Event not found",
+      };
+    }
+
+    if (storedEvent.status !== "failed") {
+      return {
+        success: true,
+        eventId,
+        status: storedEvent.status as PurchaseEventStatus,
+        message: `Event is not in failed state (current: ${storedEvent.status})`,
+      };
+    }
+
+    const event = storedEvent.payload as unknown as Stripe.Event;
+
+    try {
+      const result = await this.handleEvent(event);
+
+      await db
+        .update(purchaseEvents)
+        .set({
+          status: result.status,
+          errorMessage: result.error || null,
+          processedAt: result.status === "processed" ? new Date() : undefined,
+          lastRetryAt: new Date(),
+          retryCount: (storedEvent.retryCount || 0) + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseEvents.eventId, eventId));
+
+      return {
+        success: result.status === "processed",
+        eventId,
+        status: result.status,
+        message: result.message,
+        error: result.error,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+      await db
+        .update(purchaseEvents)
+        .set({
+          status: "failed",
+          errorMessage,
+          lastRetryAt: new Date(),
+          retryCount: (storedEvent.retryCount || 0) + 1,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseEvents.eventId, eventId));
+
+      return {
+        success: false,
+        eventId,
+        status: "failed",
+        error: errorMessage,
+      };
+    }
+  }
 }
 
 export const stripePurchaseService = new StripePurchaseService();

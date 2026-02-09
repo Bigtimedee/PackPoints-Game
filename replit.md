@@ -82,3 +82,26 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - ipinfo.io
 - WorkOS
 - Nodemailer
+
+## Launch Hardening (Feb 2026)
+
+### Rate Limiting
+Centralized rate limiter middleware at `server/middleware/rateLimiter.ts` applied to login (10/min/IP), registration (5/5min/IP), game start (15/min), answer submit (15/10sec), checkout (5/min), lobby create (10/min). In-memory store with periodic cleanup.
+
+### Webhook Retry Worker
+`server/services/webhookRetryWorker.ts` scans failed `purchase_events` every 5 minutes, retries with exponential backoff (2^retryCount * 60s), max 5 retries. Admin manual trigger at `POST /api/admin/webhooks/retry`.
+
+### Wallet Reconciliation
+`server/services/walletReconciliation.ts` compares SUM(ledger_entries.amount) against cached wallet.balance. Report-only (no auto-fix). Admin endpoint at `POST /api/admin/wallet/reconcile`.
+
+### Health Endpoint
+`GET /api/health` (no auth) checks DB connectivity, Stripe mode/config, playable card count, uptime. Returns "ok" or "degraded" status.
+
+### Panic Switches
+Admin panic switches via `server/services/panicService.ts` using `feature_flags` table: `disable_purchases`, `disable_pvp`, `disable_set_{id}`. Enforced in checkout and lobby creation routes. 10-second TTL cache. Admin endpoints at `/api/admin/panic/*`.
+
+### Structured Logging
+Request ID middleware (`server/middleware/requestLogger.ts`) assigns UUID to every request. Critical path logging for game/payment/auth/admin routes with structured JSON output.
+
+### Audit Documentation
+Launch readiness audit documented in `docs/LAUNCH_AUDIT.md` with GO/NO-GO checklist.

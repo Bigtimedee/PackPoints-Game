@@ -12,6 +12,7 @@ import { initializeStripeConnection, getStripeSync } from "./stripeClient";
 import { runMigrations } from "stripe-replit-sync";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
 import { seedRewardPolicy } from "./services/rewardEngine";
+import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -32,8 +33,32 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+app.use(requestIdMiddleware);
+app.use(structuredRequestLogger);
+
 // Serve static files from public folder (card images)
 app.use(express.static("public"));
+
+const PII_KEYS = new Set(['email', 'emailAddress', 'password', 'phone', 'phoneNumber', 'ssn', 'address', 'firstName', 'lastName', 'first_name', 'last_name']);
+
+function sanitizeForLog(obj: any, depth = 0): any {
+  if (depth > 5 || obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string') return obj;
+  if (typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    if (obj.length > 5) return `[Array(${obj.length})]`;
+    return obj.map(item => sanitizeForLog(item, depth + 1));
+  }
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (PII_KEYS.has(key)) {
+      result[key] = '[REDACTED]';
+    } else {
+      result[key] = sanitizeForLog(value, depth + 1);
+    }
+  }
+  return result;
+}
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -62,7 +87,8 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const safeBody = sanitizeForLog(capturedJsonResponse);
+        logLine += ` :: ${JSON.stringify(safeBody)}`;
       }
 
       log(logLine);
@@ -239,6 +265,13 @@ app.use((req, res, next) => {
           }
         } catch (err) {
           console.error("[StartupBackfill] Wallet backfill failed:", err);
+        }
+
+        try {
+          const { startWebhookRetryWorker } = await import("./services/webhookRetryWorker");
+          startWebhookRetryWorker();
+        } catch (err) {
+          console.error("[WebhookRetryWorker] Failed to start:", err);
         }
       })();
     },
