@@ -389,19 +389,23 @@ class StreakService {
       });
 
       const walletIdempotencyKey = `streak_earn_${userId}_${todayLocal}`;
-      const earnResult = await walletService.earn(
+      const { applyLedgerEntry } = await import("./packpts/ledgerService");
+      const earnResult = await applyLedgerEntry({
         userId,
-        totalAwarded,
-        `Day ${newStreakDays} streak reward${milestoneBonus > 0 ? ` + ${newStreakDays}-day milestone bonus` : ""}`,
-        walletIdempotencyKey,
-        {
-          source: "streak",
+        direction: "credit",
+        amountPackpts: totalAwarded,
+        source: "streak",
+        eventType: "streak_daily_reward",
+        refType: "match",
+        refId: matchId,
+        idempotencyKey: walletIdempotencyKey,
+        metadata: {
           streakDay: newStreakDays,
           dailyReward,
           milestoneBonus,
           matchId,
-        }
-      );
+        },
+      });
 
       if (!earnResult.success) {
         console.error(`[Streak] Wallet earn failed for ${userId}: ${earnResult.error}`);

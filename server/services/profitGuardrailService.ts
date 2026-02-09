@@ -344,7 +344,8 @@ class ProfitGuardrailService {
         `Marketplace redemption: ${intent.source} listing ${intent.listingId}`,
         idempotencyKey,
         undefined,
-        tx
+        tx,
+        { source: "redemption", eventType: "marketplace_redemption", refType: "purchase_intent", refId: String(purchaseIntentId) }
       );
 
       if (!spendResult.success || !spendResult.ledgerEntry) {
@@ -589,7 +590,8 @@ class ProfitGuardrailService {
         `Redemption reversal: ${reason}`,
         idempotencyKey,
         undefined,
-        tx
+        tx,
+        { source: "admin", eventType: "redemption_reversal", refType: "redemption_credit", refId: String(redemptionCreditId) }
       );
 
       if (!earnResult.success) {
@@ -659,7 +661,8 @@ class ProfitGuardrailService {
         `Redemption canceled by user`,
         idempotencyKey,
         undefined,
-        tx
+        tx,
+        { source: "redemption", eventType: "redemption_canceled", refType: "purchase_intent", refId: String(purchaseIntentId) }
       );
 
       if (!earnResult.success) {

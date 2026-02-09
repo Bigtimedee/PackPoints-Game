@@ -557,13 +557,35 @@ export const ledgerEntries = pgTable("ledger_entries", {
   amount: integer("amount").notNull(), // positive for credits, negative for debits
   balanceAfter: integer("balance_after").notNull(),
   reason: text("reason").notNull(),
+  source: varchar("source", { length: 30 }), // gameplay, purchase, admin, redemption, adjustment, streak
+  eventType: varchar("event_type", { length: 60 }), // match_round_award, stripe_checkout_completed, redeem_request, etc.
+  refType: varchar("ref_type", { length: 40 }), // match, round, stripe_session, bundle, admin_action
+  refId: varchar("ref_id", { length: 255 }), // unique external/internal id
   metadata: jsonb("metadata"), // flexible JSON for additional context
-  idempotencyKey: varchar("idempotency_key", { length: 64 }).unique(), // prevents duplicate transactions
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(), // prevents duplicate transactions
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_ledger_wallet").on(table.walletId),
   index("idx_ledger_created").on(table.createdAt),
   index("idx_ledger_idempotency").on(table.idempotencyKey),
+  index("idx_ledger_source_ref").on(table.source, table.refId),
+  index("idx_ledger_user_source").on(table.walletId, table.source),
+]);
+
+export const packptsEventStatuses = ["received", "processed", "failed"] as const;
+export type PackptsEventStatus = typeof packptsEventStatuses[number];
+
+export const packptsEvents = pgTable("packpts_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: varchar("type", { length: 60 }).notNull(),
+  payload: jsonb("payload"),
+  status: varchar("status", { length: 20 }).notNull().default("received"),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_packpts_events_type").on(table.type),
+  index("idx_packpts_events_status").on(table.status),
+  index("idx_packpts_events_created").on(table.createdAt),
 ]);
 
 export const insertLedgerEntrySchema = createInsertSchema(ledgerEntries).omit({

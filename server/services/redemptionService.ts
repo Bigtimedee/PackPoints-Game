@@ -135,7 +135,8 @@ class RedemptionService {
             usdValueCents: tierCalc.usdValueCents,
             tier: tierCalc.tier.id,
           },
-          tx
+          tx,
+          { source: "redemption", eventType: "redemption_spend", refType: "redemption", refId: idempotencyKey }
         );
 
         if (!spendResult.success) {
@@ -329,7 +330,9 @@ class RedemptionService {
         type: "redemption_refund",
         redemptionId: redemption.id,
         reason,
-      }
+      },
+      undefined,
+      { source: "redemption", eventType: "redemption_rejected_refund", refType: "redemption", refId: String(redemption.id) }
     );
 
     if (!refundResult.success) {
@@ -379,7 +382,9 @@ class RedemptionService {
         originalLedgerKey: redemption.ledgerIdempotencyKey,
         reason,
         reversedBy: adminUserId,
-      }
+      },
+      undefined,
+      { source: "admin", eventType: "fraud_reversal", refType: "redemption", refId: String(redemption.id) }
     );
 
     if (!reversalResult.success) {

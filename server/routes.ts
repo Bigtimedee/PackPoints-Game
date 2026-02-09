@@ -12,6 +12,7 @@ import {
 } from "./middleware/rateLimiter";
 import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
+import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import {
@@ -383,7 +384,9 @@ export async function registerRoutes(
 
       const { amount, reason, idempotencyKey, metadata } = parsed.data;
 
-      const result = await walletService.spend(userId, amount, reason, idempotencyKey, metadata);
+      const result = await walletService.spend(userId, amount, reason, idempotencyKey, metadata, undefined,
+        { source: "redemption", eventType: "wallet_spend", refType: "api", refId: idempotencyKey }
+      );
 
       if (!result.success) {
         if (result.error === "Insufficient balance") {
@@ -451,7 +454,9 @@ export async function registerRoutes(
 
       const { userId, amount, reason, idempotencyKey, metadata } = parsed.data;
 
-      const result = await walletService.earn(userId, amount, reason, idempotencyKey, metadata);
+      const result = await walletService.earn(userId, amount, reason, idempotencyKey, metadata, undefined,
+        { source: "admin", eventType: "internal_earn", refType: "api", refId: idempotencyKey }
+      );
 
       if (!result.success) {
         return res.status(400).json({ error: result.error });
@@ -487,7 +492,9 @@ export async function registerRoutes(
 
       const { userId, amount, reason, idempotencyKey, metadata } = parsed.data;
 
-      const result = await walletService.adjust(userId, amount, reason, idempotencyKey, metadata);
+      const result = await walletService.adjust(userId, amount, reason, idempotencyKey, metadata,
+        { source: "admin", eventType: "internal_adjust", refType: "api", refId: idempotencyKey }
+      );
 
       if (!result.success) {
         return res.status(400).json({ error: result.error });
@@ -649,6 +656,46 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error retrying webhook events:", error);
       res.status(500).json({ error: "Failed to retry webhook events" });
+    }
+  });
+
+  // ── PackPTS Ledger API ──────────────────────────────────────────────
+  app.get("/api/packpts/balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const balance = await getLedgerBalance(userId);
+      res.json({ balance });
+    } catch (error) {
+      console.error("Error fetching PackPTS balance:", error);
+      res.status(500).json({ error: "Failed to fetch balance" });
+    }
+  });
+
+  app.get("/api/packpts/ledger", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
+      const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+      const { entries, hasMore, nextCursor } = await getLedgerHistory(userId, limit, offset);
+      res.json({ entries, hasMore, nextCursor, limit, offset });
+    } catch (error) {
+      console.error("Error fetching PackPTS ledger:", error);
+      res.status(500).json({ error: "Failed to fetch ledger history" });
+    }
+  });
+
+  app.post("/api/admin/packpts/reconcile", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const schema = z.object({ userId: z.string().min(1) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "userId is required and must be a non-empty string" });
+      const report = await reconcileLedgerBalance(parsed.data.userId);
+      res.json(report);
+    } catch (error) {
+      console.error("Error reconciling PackPTS:", error);
+      res.status(500).json({ error: "Failed to reconcile" });
     }
   });
 
@@ -1237,13 +1284,17 @@ export async function registerRoutes(
           });
           
           try {
-            const earnResult = await walletService.earn(
-              session.userId,
-              finalScore,
-              `Game completed: ${session.correctAnswers}/${session.totalQuestions} correct`,
-              `game_${session.id}`,
-              { sessionId: session.id, mode: session.mode, multiplier, tokenValidated }
-            );
+            const earnResult = await applyLedgerEntry({
+              userId: session.userId,
+              direction: "credit",
+              amountPackpts: finalScore,
+              source: "gameplay",
+              eventType: "match_complete_award",
+              refType: "match",
+              refId: session.id,
+              idempotencyKey: `gameplay:match_complete:${session.id}:${session.userId}`,
+              metadata: { sessionId: session.id, mode: session.mode, multiplier, tokenValidated, correctAnswers: session.correctAnswers, totalQuestions: session.totalQuestions },
+            });
             
             if (earnResult.success && !earnResult.idempotent) {
               await analyticsService.ptsEarned(session.userId, finalScore, {

@@ -193,11 +193,14 @@ class AdminService {
     }
 
     try {
+      const adjustKey = `admin_adjust_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       const result = await walletService.adjust(
         ctx.targetUserId,
         amount,
         reason,
-        `admin_adjust_${Date.now()}_${Math.random().toString(36).substring(7)}`
+        adjustKey,
+        undefined,
+        { source: "admin", eventType: "admin_adjustment", refType: "admin_action", refId: adjustKey }
       );
 
       if (!result.success) {

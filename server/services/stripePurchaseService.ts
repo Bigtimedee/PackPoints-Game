@@ -138,13 +138,18 @@ class StripePurchaseService {
           const amount = productDef.packptsGrant * quantity;
           if (amount <= 0) continue;
 
-          const result = await walletService.purchaseCredit(
+          const { applyLedgerEntry } = await import("./packpts/ledgerService");
+          const result = await applyLedgerEntry({
             userId,
-            amount,
-            `Purchase: ${productDef.name}`,
-            idempotencyKey,
-            { stripeSessionId, priceId, quantity, sku: internalSku }
-          );
+            direction: "credit",
+            amountPackpts: amount,
+            source: "purchase",
+            eventType: "stripe_checkout_completed",
+            refType: "stripe_session",
+            refId: stripeSessionId,
+            idempotencyKey: `stripe:${stripeSessionId}:${priceId}`,
+            metadata: { stripeSessionId, priceId, quantity, sku: internalSku, productName: productDef.name },
+          });
 
           if (result.success && !result.idempotent) {
             totalPackPts += amount;
@@ -413,13 +418,18 @@ class StripePurchaseService {
           console.warn(`Invalid amount ${amount} for product: ${productDef.name}`);
           continue;
         }
-        const result = await walletService.purchaseCredit(
+        const { applyLedgerEntry } = await import("./packpts/ledgerService");
+        const result = await applyLedgerEntry({
           userId,
-          amount,
-          `Purchase: ${productDef.name}`,
-          idempotencyKey,
-          { stripeEventId: event.id, priceId, quantity, sku: internalSku }
-        );
+          direction: "credit",
+          amountPackpts: amount,
+          source: "purchase",
+          eventType: "stripe_checkout_completed",
+          refType: "stripe_session",
+          refId: session.id,
+          idempotencyKey: `stripe:${session.id}:${priceId}`,
+          metadata: { stripeEventId: event.id, priceId, quantity, sku: internalSku, productName: productDef.name },
+        });
 
         if (!result.success) {
           const msg = `[Stripe] FULFILLMENT_ERROR: purchaseCredit failed for user ${userId}, session ${session.id}, SKU ${internalSku}, amount ${amount}: ${result.error}`;
@@ -580,15 +590,19 @@ class StripePurchaseService {
 
     // Check if this is a PackPTS subscription (grants points) vs entitlement subscription (grants access)
     if ("packptsGrant" in productDef && productDef.packptsGrant > 0) {
-      // Monthly PackPTS subscription - credit points to user's wallet
-      const idempotencyKey = `stripe_sub_${event.id}_${priceId}`;
-      const result = await walletService.purchaseCredit(
+      const idempotencyKey = `stripe:sub:${event.id}:${priceId}`;
+      const { applyLedgerEntry } = await import("./packpts/ledgerService");
+      const result = await applyLedgerEntry({
         userId,
-        productDef.packptsGrant,
-        `Monthly subscription: ${productDef.name}`,
+        direction: "credit",
+        amountPackpts: productDef.packptsGrant,
+        source: "purchase",
+        eventType: "stripe_subscription_paid",
+        refType: "stripe_subscription",
+        refId: subscriptionId,
         idempotencyKey,
-        { stripeEventId: event.id, subscriptionId, priceId, sku: internalSku }
-      );
+        metadata: { stripeEventId: event.id, subscriptionId, priceId, sku: internalSku, productName: productDef.name },
+      });
 
       if (result.success && !result.idempotent) {
         packptsGranted = productDef.packptsGrant;

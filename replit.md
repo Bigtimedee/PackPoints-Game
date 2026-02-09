@@ -26,6 +26,9 @@ An admin tool for creating and managing PackPTS bundles with financial guardrail
 ### Monetization & Wallet
 Features a ledger-first "PackPTS" wallet with various transaction types, a product catalog, a tiered membership system (Free, Pro, Legend), and a bucket-based point expiration system.
 
+### PackPTS Ledger Service (Feb 2026)
+Centralized ledger entry point at `server/services/packpts/ledgerService.ts`. All PackPTS mutations (gameplay earn, Stripe purchases, subscriptions, streaks, refunds) route through `applyLedgerEntry()` which provides structured classification (`source`, `eventType`, `refType`, `refId`), idempotency keys, and event logging to `packpts_events` table. Extended `ledger_entries` schema with `source`, `event_type`, `ref_type`, `ref_id` columns. API endpoints: `GET /api/packpts/balance`, `GET /api/packpts/ledger?limit=&offset=`, `POST /api/admin/packpts/reconcile`. Transactional wallet operations (profitGuardrailService reversals/cancellations) pass `LedgerClassification` directly to `walletService.earn()` to maintain atomic transaction support.
+
 ### Authentication & Access Control
 Supports multi-provider authentication (Replit Auth, WorkOS, local) with identity linking and magic-link verification. An access control system manages user caps, waitlists, invite codes, and a referral system. Session cookies are configured for security.
 

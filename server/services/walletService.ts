@@ -21,6 +21,13 @@ async function isUserFrozen(userId: string): Promise<{ frozen: boolean; reason?:
   }
 }
 
+export interface LedgerClassification {
+  source?: string;
+  eventType?: string;
+  refType?: string;
+  refId?: string;
+}
+
 export interface WalletOperationResult {
   success: boolean;
   wallet?: Wallet;
@@ -93,7 +100,8 @@ class WalletService {
     reason: string,
     idempotencyKey: string,
     metadata?: Record<string, unknown>,
-    txOrDb?: any
+    txOrDb?: any,
+    classification?: LedgerClassification
   ): Promise<WalletOperationResult> {
     if (amount <= 0) {
       return { success: false, error: "Amount must be positive" };
@@ -155,6 +163,10 @@ class WalletService {
           amount: amount,
           balanceAfter: newBalance,
           reason,
+          source: classification?.source || null,
+          eventType: classification?.eventType || null,
+          refType: classification?.refType || null,
+          refId: classification?.refId || null,
           metadata: metadata || null,
           idempotencyKey,
         })
@@ -199,7 +211,8 @@ class WalletService {
     reason: string,
     idempotencyKey: string,
     metadata?: Record<string, unknown>,
-    txOrDb?: any
+    txOrDb?: any,
+    classification?: LedgerClassification
   ): Promise<WalletOperationResult> {
     if (amount <= 0) {
       return { success: false, error: "Amount must be positive" };
@@ -258,6 +271,10 @@ class WalletService {
           amount: -amount,
           balanceAfter: newBalance,
           reason,
+          source: classification?.source || null,
+          eventType: classification?.eventType || null,
+          refType: classification?.refType || null,
+          refId: classification?.refId || null,
           metadata: metadata || null,
           idempotencyKey,
         })
@@ -304,7 +321,8 @@ class WalletService {
     amount: number,
     reason: string,
     idempotencyKey: string,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    classification?: LedgerClassification
   ): Promise<WalletOperationResult> {
     return await db.transaction(async (tx) => {
       const existingEntry = await tx
@@ -359,6 +377,10 @@ class WalletService {
           amount: amount,
           balanceAfter: newBalance,
           reason,
+          source: classification?.source || "admin",
+          eventType: classification?.eventType || "admin_adjustment",
+          refType: classification?.refType || "admin_action",
+          refId: classification?.refId || null,
           metadata: metadata || null,
           idempotencyKey,
         })
@@ -434,7 +456,8 @@ class WalletService {
     amount: number,
     reason: string,
     idempotencyKey: string,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    classification?: LedgerClassification
   ): Promise<WalletOperationResult> {
     if (amount <= 0) {
       return { success: false, error: "Amount must be positive" };
@@ -491,6 +514,10 @@ class WalletService {
           amount: amount,
           balanceAfter: newBalance,
           reason,
+          source: classification?.source || "purchase",
+          eventType: classification?.eventType || "stripe_checkout_completed",
+          refType: classification?.refType || "stripe_session",
+          refId: classification?.refId || null,
           metadata: metadata || null,
           idempotencyKey,
         })
