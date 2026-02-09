@@ -466,11 +466,12 @@ export async function backfillPointsAwardsToWallet(): Promise<PointsAwardsBackfi
 
         if (wallet.status !== "active") {
           console.log(`[PointsAwardsBackfill] Skipping user ${userAward.userId} — wallet status: ${wallet.status}`);
-          return { pointsCredited: 0, entriesCreated: 0 };
+          return { pointsCredited: 0, entriesCreated: 0, pendingBuckets: [] as Array<{ userId: string; amount: number; ledgerEntryId: string; awardId: string }> };
         }
 
         let pointsCredited = 0;
         let entriesCreated = 0;
+        const pendingBuckets: Array<{ userId: string; amount: number; ledgerEntryId: string; awardId: string }> = [];
 
         for (const award of awards) {
           const idempotencyKey = `points_award_backfill:${award.id}`;
@@ -506,25 +507,34 @@ export async function backfillPointsAwardsToWallet(): Promise<PointsAwardsBackfi
             })
             .where(eq(wallets.id, wallet.id));
 
-          try {
-            await bucketService.createBucket(
-              userAward.userId,
-              award.finalPts,
-              "EARNED",
-              insertedEntry.id,
-              { backfill: true, originalAwardId: award.id },
-            );
-          } catch (bucketErr: any) {
-            console.warn(`[PointsAwardsBackfill] Bucket creation failed for award ${award.id}: ${bucketErr.message}`);
-          }
+          pendingBuckets.push({
+            userId: userAward.userId,
+            amount: award.finalPts,
+            ledgerEntryId: insertedEntry.id,
+            awardId: award.id,
+          });
 
           wallet = { ...wallet, balance: newBalance };
           pointsCredited += award.finalPts;
           entriesCreated++;
         }
 
-        return { pointsCredited, entriesCreated };
+        return { pointsCredited, entriesCreated, pendingBuckets };
       });
+
+      for (const bucket of credited.pendingBuckets) {
+        try {
+          await bucketService.createBucket(
+            bucket.userId,
+            bucket.amount,
+            "EARNED",
+            bucket.ledgerEntryId,
+            { backfill: true, originalAwardId: bucket.awardId },
+          );
+        } catch (bucketErr: any) {
+          console.warn(`[PointsAwardsBackfill] Bucket creation failed for award ${bucket.awardId}: ${bucketErr.message}`);
+        }
+      }
 
       if (credited.pointsCredited > 0) {
         result.usersProcessed++;
