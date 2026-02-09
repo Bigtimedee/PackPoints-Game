@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter, wallets } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -1021,17 +1021,28 @@ export class DatabaseStorage implements IStorage {
 
   async getLeaderboard(limit: number = 10): Promise<LeaderboardEntry[]> {
     const topUsers = await db
-      .select()
+      .select({
+        id: users.id,
+        username: users.username,
+        firstName: users.firstName,
+        email: users.email,
+        gamesPlayed: users.gamesPlayed,
+        correctAnswers: users.correctAnswers,
+        totalAnswers: users.totalAnswers,
+        walletBalance: wallets.balance,
+      })
       .from(users)
-      .orderBy(desc(users.points))
+      .innerJoin(wallets, eq(wallets.userId, users.id))
+      .where(sql`${wallets.balance} > 0`)
+      .orderBy(desc(wallets.balance))
       .limit(limit);
     
-    return topUsers.map((user, index) => ({
+    return topUsers.map((row, index) => ({
       rank: index + 1,
-      username: user.firstName || user.email?.split('@')[0] || `Player${index + 1}`,
-      points: user.points,
-      gamesPlayed: user.gamesPlayed,
-      accuracy: user.totalAnswers > 0 ? Math.round((user.correctAnswers / user.totalAnswers) * 100) : 0,
+      username: row.firstName || row.email?.split('@')[0] || `Player${index + 1}`,
+      points: row.walletBalance,
+      gamesPlayed: row.gamesPlayed,
+      accuracy: row.totalAnswers > 0 ? Math.round((row.correctAnswers / row.totalAnswers) * 100) : 0,
     }));
   }
 

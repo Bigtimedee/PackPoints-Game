@@ -29,6 +29,8 @@ Features a ledger-first "PackPTS" wallet with various transaction types, a produ
 ### PackPTS Ledger Service (Feb 2026)
 Centralized ledger entry point at `server/services/packpts/ledgerService.ts`. All PackPTS mutations (gameplay earn, Stripe purchases, subscriptions, streaks, refunds) route through `applyLedgerEntry()` which provides structured classification (`source`, `eventType`, `refType`, `refId`), idempotency keys, and event logging to `packpts_events` table. Extended `ledger_entries` schema with `source`, `event_type`, `ref_type`, `ref_id` columns. API endpoints: `GET /api/packpts/balance`, `GET /api/packpts/ledger?limit=&offset=`, `POST /api/admin/packpts/reconcile`. Transactional wallet operations (profitGuardrailService reversals/cancellations) pass `LedgerClassification` directly to `walletService.earn()` to maintain atomic transaction support.
 
+**Authoritative Balance Source (Feb 2026):** `wallets.balance` is the single source of truth for PackPTS. The legacy `users.points` field is a cumulative counter that only increments and does NOT reflect spending. The leaderboard (`getLeaderboard` in `storage.ts`) and profile stats (`/api/profile/stats`) now JOIN with the `wallets` table and use `wallets.balance` for ranking, display, and level calculations. The header already reads from the wallet via `/wallet` endpoint. All PackPTS displays must read from the wallet, never from `users.points`.
+
 ### Authentication & Access Control
 Supports multi-provider authentication (Replit Auth, WorkOS, local) with identity linking and magic-link verification. An access control system manages user caps, waitlists, invite codes, and a referral system. Session cookies are configured for security.
 

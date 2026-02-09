@@ -10,7 +10,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
@@ -1387,19 +1387,23 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
-      // Calculate rank from leaderboard
+      // Get wallet balance as authoritative PackPTS source
+      const walletRow = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId)).limit(1);
+      const walletBalance = walletRow[0]?.balance ?? 0;
+
+      // Calculate rank from leaderboard (uses wallet balance)
       const leaderboard = await storage.getLeaderboard(100);
-      const rank = leaderboard.findIndex(e => e.points <= user.points) + 1 || leaderboard.length + 1;
+      const rank = leaderboard.findIndex(e => e.points <= walletBalance) + 1 || leaderboard.length + 1;
       
       // Calculate level (every 1000 points = 1 level)
-      const level = Math.floor(user.points / 1000) + 1;
-      const pointsToNextLevel = 1000 - (user.points % 1000);
-      const levelProgress = Math.round(((user.points % 1000) / 1000) * 100);
+      const level = Math.floor(walletBalance / 1000) + 1;
+      const pointsToNextLevel = 1000 - (walletBalance % 1000);
+      const levelProgress = Math.round(((walletBalance % 1000) / 1000) * 100);
       
       res.json({
         username: user.username,
         email: user.email,
-        points: user.points,
+        points: walletBalance,
         gamesPlayed: user.gamesPlayed,
         correctAnswers: user.correctAnswers,
         totalAnswers: user.totalAnswers,
