@@ -4,6 +4,7 @@ import {
   gameplayCardDailyEvents,
   ledgerEntries,
   wallets,
+  pointsAwards,
 } from "@shared/schema";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { DAILY_GAMEPLAY_BASE } from "../../config/rewards";
@@ -404,6 +405,145 @@ export async function backfillUncreditedWalletPoints(): Promise<WalletBackfillRe
   }
 
   console.log(`[WalletBackfill] Complete: ${result.usersProcessed} users, ${result.totalPointsCredited} pts credited, ${result.ledgerEntriesCreated} ledger entries, ${result.errors.length} errors`);
+  return result;
+}
+
+export interface PointsAwardsBackfillResult {
+  usersProcessed: number;
+  totalPointsCredited: number;
+  ledgerEntriesCreated: number;
+  errors: Array<{ userId: string; error: string }>;
+  details: Array<{ userId: string; pointsCredited: number; awardsProcessed: number }>;
+}
+
+export async function backfillPointsAwardsToWallet(): Promise<PointsAwardsBackfillResult> {
+  const result: PointsAwardsBackfillResult = {
+    usersProcessed: 0,
+    totalPointsCredited: 0,
+    ledgerEntriesCreated: 0,
+    errors: [],
+    details: [],
+  };
+
+  const userAwards = await db
+    .select({
+      userId: pointsAwards.userId,
+      totalPts: sql<number>`SUM(${pointsAwards.finalPts})`.as("total_pts"),
+      awardCount: sql<number>`COUNT(*)`.as("award_count"),
+    })
+    .from(pointsAwards)
+    .groupBy(pointsAwards.userId);
+
+  console.log(`[PointsAwardsBackfill] Found ${userAwards.length} users with points_awards records`);
+
+  for (const userAward of userAwards) {
+    try {
+      const awards = await db
+        .select()
+        .from(pointsAwards)
+        .where(eq(pointsAwards.userId, userAward.userId))
+        .orderBy(asc(pointsAwards.createdAt));
+
+      const credited = await db.transaction(async (tx) => {
+        let [wallet] = await tx
+          .select()
+          .from(wallets)
+          .where(eq(wallets.userId, userAward.userId))
+          .for("update")
+          .limit(1);
+
+        if (!wallet) {
+          const [newWallet] = await tx.insert(wallets).values({
+            userId: userAward.userId,
+            balance: 0,
+            lifetimeEarned: 0,
+            lifetimeSpent: 0,
+            status: "active",
+          }).returning();
+          wallet = newWallet;
+          console.log(`[PointsAwardsBackfill] Created wallet for user ${userAward.userId}`);
+        }
+
+        if (wallet.status !== "active") {
+          console.log(`[PointsAwardsBackfill] Skipping user ${userAward.userId} — wallet status: ${wallet.status}`);
+          return { pointsCredited: 0, entriesCreated: 0 };
+        }
+
+        let pointsCredited = 0;
+        let entriesCreated = 0;
+
+        for (const award of awards) {
+          const idempotencyKey = `points_award_backfill:${award.id}`;
+
+          const existing = await tx
+            .select({ id: ledgerEntries.id })
+            .from(ledgerEntries)
+            .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+            .limit(1);
+
+          if (existing.length > 0) {
+            continue;
+          }
+
+          const newBalance = wallet.balance + award.finalPts;
+
+          const [insertedEntry] = await tx.insert(ledgerEntries).values({
+            walletId: wallet.id,
+            entryType: "EARN",
+            amount: award.finalPts,
+            balanceAfter: newBalance,
+            reason: `Backfill: ${award.reason || "QUIZ_CORRECT"} (match ${award.matchId || "unknown"})`,
+            idempotencyKey,
+            metadata: { backfill: true, originalAwardId: award.id, matchId: award.matchId, cardId: award.cardId },
+          }).returning();
+
+          await tx
+            .update(wallets)
+            .set({
+              balance: newBalance,
+              lifetimeEarned: sql`${wallets.lifetimeEarned} + ${award.finalPts}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(wallets.id, wallet.id));
+
+          try {
+            await bucketService.createBucket(
+              userAward.userId,
+              award.finalPts,
+              "EARNED",
+              insertedEntry.id,
+              { backfill: true, originalAwardId: award.id },
+            );
+          } catch (bucketErr: any) {
+            console.warn(`[PointsAwardsBackfill] Bucket creation failed for award ${award.id}: ${bucketErr.message}`);
+          }
+
+          wallet = { ...wallet, balance: newBalance };
+          pointsCredited += award.finalPts;
+          entriesCreated++;
+        }
+
+        return { pointsCredited, entriesCreated };
+      });
+
+      if (credited.pointsCredited > 0) {
+        result.usersProcessed++;
+        result.totalPointsCredited += credited.pointsCredited;
+        result.ledgerEntriesCreated += credited.entriesCreated;
+        result.details.push({
+          userId: userAward.userId,
+          pointsCredited: credited.pointsCredited,
+          awardsProcessed: credited.entriesCreated,
+        });
+        console.log(`[PointsAwardsBackfill] User ${userAward.userId}: credited ${credited.pointsCredited} pts from ${credited.entriesCreated} awards`);
+      }
+    } catch (err: any) {
+      console.error(`[PointsAwardsBackfill] Error processing user=${userAward.userId}: ${err.message}`);
+      result.errors.push({ userId: userAward.userId, error: err.message });
+    }
+  }
+
+  console.log(`[PointsAwardsBackfill] Complete: ${result.usersProcessed} users, ${result.totalPointsCredited} pts credited, ${result.ledgerEntriesCreated} ledger entries, ${result.errors.length} errors`);
   return result;
 }
 

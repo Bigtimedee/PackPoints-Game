@@ -268,6 +268,16 @@ app.use((req, res, next) => {
         }
 
         try {
+          const { backfillPointsAwardsToWallet } = await import("./services/rewards/dailyGameplayBase");
+          const awardsResult = await backfillPointsAwardsToWallet();
+          if (awardsResult.totalPointsCredited > 0) {
+            console.log(`[StartupBackfill] Points awards backfill: ${awardsResult.totalPointsCredited} pts credited to ${awardsResult.usersProcessed} users, ${awardsResult.errors.length} errors`);
+          }
+        } catch (err) {
+          console.error("[StartupBackfill] Points awards backfill failed:", err);
+        }
+
+        try {
           const { startWebhookRetryWorker } = await import("./services/webhookRetryWorker");
           startWebhookRetryWorker();
         } catch (err) {

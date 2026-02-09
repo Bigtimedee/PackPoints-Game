@@ -1236,28 +1236,26 @@ export async function registerRoutes(
             totalAnswers: session.totalQuestions,
           });
           
-          if (tokenValidated) {
-            try {
-              const earnResult = await walletService.earn(
-                session.userId,
-                finalScore,
-                `Game completed: ${session.correctAnswers}/${session.totalQuestions} correct`,
-                `game_${session.id}`,
-                { sessionId: session.id, mode: session.mode, multiplier }
-              );
-              
-              if (earnResult.success && !earnResult.idempotent) {
-                await analyticsService.ptsEarned(session.userId, finalScore, {
-                  sessionId: session.id,
-                  mode: session.mode,
-                  multiplier,
-                  correctAnswers: session.correctAnswers,
-                  totalQuestions: session.totalQuestions,
-                });
-              }
-            } catch (walletError) {
-              console.error("Failed to credit wallet:", walletError);
+          try {
+            const earnResult = await walletService.earn(
+              session.userId,
+              finalScore,
+              `Game completed: ${session.correctAnswers}/${session.totalQuestions} correct`,
+              `game_${session.id}`,
+              { sessionId: session.id, mode: session.mode, multiplier, tokenValidated }
+            );
+            
+            if (earnResult.success && !earnResult.idempotent) {
+              await analyticsService.ptsEarned(session.userId, finalScore, {
+                sessionId: session.id,
+                mode: session.mode,
+                multiplier,
+                correctAnswers: session.correctAnswers,
+                totalQuestions: session.totalQuestions,
+              });
             }
+          } catch (walletError) {
+            console.error("Failed to credit wallet:", walletError);
           }
           
           await analyticsService.matchCompleted(session.userId, session.id, {
@@ -5970,7 +5968,9 @@ export async function registerRoutes(
   app.post("/api/admin/wallet/reconcile", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
       const result = await reconcileAllWallets();
-      res.json(result);
+      const { reconcileCrossSystem } = await import("./services/walletReconciliation");
+      const crossSystemResult = await reconcileCrossSystem();
+      res.json({ walletLedger: result, crossSystem: crossSystemResult });
     } catch (error) {
       console.error("Error running wallet reconciliation:", error);
       res.status(500).json({ error: "Failed to run wallet reconciliation" });
@@ -5987,6 +5987,19 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error running wallet backfill:", error);
       res.status(500).json({ error: "Failed to backfill wallet points" });
+    }
+  });
+
+  app.post("/api/admin/wallet/backfill-awards", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { backfillPointsAwardsToWallet } = await import("./services/rewards/dailyGameplayBase");
+      console.log("[PointsAwardsBackfill] Starting backfill for uncredited points_awards...");
+      const result = await backfillPointsAwardsToWallet();
+      console.log(`[PointsAwardsBackfill] Done: users=${result.usersProcessed}, pts=${result.totalPointsCredited}, ledger=${result.ledgerEntriesCreated}, errors=${result.errors.length}`);
+      res.json(result);
+    } catch (error) {
+      console.error("Error running points awards backfill:", error);
+      res.status(500).json({ error: "Failed to backfill points awards" });
     }
   });
 
