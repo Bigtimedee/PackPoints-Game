@@ -1,0 +1,246 @@
+You are Replit. We are about to aggressively market PackPTS to the public. A production failure would create immediate reputational damage, chargebacks, platform bans, negative social proof, and potentially consumer-protection exposure. Therefore we will run an EXHAUSTIVE, “launch-readiness” audit and harden the product end-to-end BEFORE GTM spend.
+
+Your job:
+1) Perform a comprehensive audit of PackPTS across product, payments, gameplay, CardHedge integration, security, reliability, analytics, and support readiness.
+2) Implement all critical fixes you find (or clearly isolate as “needs owner decision” when policy/business input required).
+3) Produce a single “GO / NO-GO” checklist and a post-audit report with evidence (screenshots/log excerpts/test results).
+4) Create automated tests + monitoring so these failures cannot regress.
+
+Non-negotiables:
+- Treat this as a real-money consumer product audit. Fail CLOSED on unsafe conditions.
+- Do NOT remove functionality to “avoid errors.” Fix root causes.
+- Ensure production/staging/dev environments are separated. No sandbox leakage.
+- Run tests after implementation (unit + integration + e2e + load where applicable).
+- Add instrumentation and alerting so we see issues before users do.
+
+────────────────────────────────────────────────────────────
+PHASE 0 — BASELINE & INVENTORY (MAP THE SYSTEM)
+A) Identify stack and runtime:
+- Frontend: routes/pages/components for Play, 1vFriend, 1vRandom, Solo, Store, Redeem, Profile, Admin.
+- Backend/API: all /api routes, auth middleware, CardHedge client, Stripe client, match engine, DB access.
+- DB schema: users, matches, match_cards, answers, playable_sets, cards, redemptions, bundles, ledger/transactions.
+- External dependencies: CardHedge, Stripe, Auth provider, image hosting/CDN, email, logging.
+
+B) Create “launch-critical flows” list:
+1) Visitor -> Register/Login -> Start Solo match -> 10 cards load -> submit 10 answers -> results -> daily counter updates.
+2) Start 1vFriend -> both users submit per card -> sync -> progress through all cards -> winner/tie -> match closure.
+3) Start 1vRandom -> matchmaking -> same sync/winner logic.
+4) Store -> purchase PackPTS bundle -> Stripe live checkout -> webhook credit PackPTS -> receipt/confirmation -> ledger.
+5) Redeem -> request redemption -> guardrails -> processing -> ledger.
+6) Admin -> import sets -> card counts correct -> “no cards/silhouettes” prevented -> delete set works -> reports.
+
+Document these flows in /docs/LAUNCH_AUDIT.md with acceptance criteria.
+
+────────────────────────────────────────────────────────────
+PHASE 1 — PAYMENTS & MONEY SAFETY (HIGHEST RISK)
+Goal: Zero chance of charging money without delivering value; zero sandbox leakage; full ledger integrity.
+
+1) Stripe mode enforcement (LIVE on production host only):
+- Ensure server-side Stripe key selection is host-locked (packpts.com => LIVE only).
+- Remove any fallback to test keys; fail closed if live keys missing.
+- Ensure frontend uses publishable key from /api/stripe/config, not embedded secrets.
+
+2) Checkout creation:
+- Validate bundle SKU/price mapping server-side only (never trust client).
+- Validate amount, currency, and metadata (userId, bundleId).
+- Success/cancel URLs must be correct per environment.
+- Ensure idempotency keys used for session creation (prevent double charges).
+
+3) Webhooks:
+- Raw body signature verification.
+- Live webhook secret on prod host.
+- Idempotent processing of payment_intent.succeeded / checkout.session.completed.
+- If webhook fails, queue retry (DB table “webhook_events” with status, attempts, last_error).
+- Never credit PackPTS unless payment is confirmed.
+
+4) PackPTS wallet/ledger:
+- Implement a ledger table (if not present) with immutable entries:
+  - id, user_id, type (credit/debit), source (purchase/gameplay/redemption/admin), ref_id, amount_packpts, created_at
+- Balance is derived (sum credits - sum debits), NOT stored as a single mutable number (or store cached balance with reconciliation job).
+- Add reconciliation job + admin report for mismatches.
+
+5) Guardrails:
+- Enforce min gross margin / max value per PackPTS in Admin package tool.
+- Validate admin overrides logged with who/when/why.
+- Block creation of bundles that violate guardrails unless explicit “override” with audit trail.
+
+6) Fraud/abuse:
+- Rate limit checkout creation per user/IP.
+- Block purchases from unverified/unregistered users (must be registered for bundles crediting PackPTS).
+- Add basic velocity checks.
+
+Deliverable: /docs/PAYMENTS_AUDIT.md with “pass/fail” per item + fixes applied.
+
+────────────────────────────────────────────────────────────
+PHASE 2 — GAMEPLAY RELIABILITY (THE CORE PROMISE)
+Goal: A user must always be able to complete a match as advertised. No missing submit button, no “match ended” at 1/10, no “waiting for opponent” deadlocks, no name leaks, no silhouettes/placeholder images.
+
+1) Card serving contract:
+- Define what “playable card” means:
+  - has image URL that is NOT placeholder/silhouette/stock
+  - image loads within timeout
+  - player name can be reliably masked (top/bottom) OR card is excluded
+- Add server-side “playable filter” gate BEFORE a card enters a set or match.
+
+2) CardHedge integration hardening:
+- Use CardHedge endpoints correctly:
+  - card-search / search-cards-wsort with raw_images_only where available
+  - pagination import correctness (page/page_size)
+- Store CardHedge card_id as the canonical id.
+- Ensure imports do NOT overwrite counts incorrectly (no accidental “purge all then fail insert”).
+- Add transactional import: purge+insert in a DB transaction or staged table + swap.
+- Add retry/backoff and logging for every API call (status code, latency).
+
+3) “Silhouette purge” regression fix:
+- Add deterministic detection rules:
+  - Reject if image matches known placeholder domains/paths
+  - Reject if image’s perceptual hash is near known silhouette hashes (store a small banned phash list)
+  - Reject if CardHedge flags stock/placeholder (use raw_images_only).
+- Ensure the UI never renders silhouettes as gameplay images; instead, request a new card server-side.
+
+4) “Unable to load card image” behavior:
+- Replace “Skip to next” that advances index with “Try different card” which:
+  - requests a replacement card for the SAME slot number (i.e., card 1 remains card 1)
+  - persists replacement on server so both players see the same replacement in PVP.
+- Ensure “10-card match means 10 answers” invariant.
+
+5) Masking (mission critical):
+- Implement robust masking pipeline:
+  - Always apply an overlay mask area at both top and bottom bands (configurable % of height).
+  - Additionally, do client-side “dynamic mask” if OCR detects player name region (optional).
+  - The safest baseline: mask BOTH the typical name locations (top banner + bottom nameplate) for all cards.
+  - Store per-set/per-era mask presets if needed.
+- Add automated visual tests using a sample set of known “name visible” cards.
+
+6) Match state machine (PVP):
+- Implement explicit match lifecycle in DB:
+  - CREATED -> STARTED -> IN_PROGRESS -> COMPLETED -> CLOSED
+- Per card (round) state:
+  - round_index, card_id, answer_user1, answer_user2, locked_at, resolved_at
+- Transition rules:
+  - A user can submit once per round.
+  - Round resolves when both answers present OR timeout triggers.
+  - Only then advance to next round.
+- Remove “waiting for opponent” deadlocks by:
+  - subscribing to realtime updates (websocket/supabase) OR polling with exponential backoff
+  - server authoritative advancement: clients request “next” and server returns current round state.
+
+7) Authorization errors:
+- Ensure all match routes require registered users; show login gate.
+- Ensure API endpoints validate session token and user belongs to match.
+- Fix any 401 causing “Not authorized” post-submit by ensuring auth cookies/headers included and server CORS correct.
+
+Deliverable: /docs/GAMEPLAY_AUDIT.md with each historical bug class and the specific permanent fix.
+
+────────────────────────────────────────────────────────────
+PHASE 3 — DATA INTEGRITY & ADMIN TOOLS
+Goal: Admin portal must accurately reflect reality (no “imported 495” while showing “no cards”).
+
+1) Playable sets admin correctness:
+- Ensure card counts are computed from DB correctly (COUNT(*) where set_id = X AND is_playable = true).
+- Ensure imports update the correct set_id and don’t write to a different environment DB.
+- Add import job table:
+  - id, set_id, status, fetched_count, inserted_count, playable_count, purged_count, started_at, finished_at, error
+- Admin UI must show latest job results per set.
+
+2) Prevent autonomous shrinkage:
+- Find any cron/job that revalidates cards and deletes/marks unplayable.
+- Change behavior:
+  - NEVER delete cards automatically.
+  - If CardHedge changes invalidate cards, mark them “unplayable_reason=…”, keep record.
+  - Only an explicit Admin action (“Revalidate set”) can prune/disable cards.
+- Add admin toggle:
+  - “Auto revalidate” OFF by default.
+- Log all card status changes with actor:
+  - actor_type: admin | system | cardhedge
+  - actor_id
+  - reason
+
+3) Add “Delete Set” feature:
+- Soft delete set + cascade mark associated cards unplayable, or fully delete with confirmation + audit log.
+
+Deliverable: /docs/ADMIN_AUDIT.md + implemented admin improvements.
+
+────────────────────────────────────────────────────────────
+PHASE 4 — SECURITY, PRIVACY, COMPLIANCE (MINIMUM VIABLE)
+1) Auth:
+- Ensure only registered users can play PVP.
+- Ensure admin routes require admin role and are server-checked (not client-only).
+- Session security: httpOnly cookies, secure flag on production, CSRF protection where applicable.
+
+2) Rate limiting:
+- Add per-IP and per-user limits on:
+  - login attempts
+  - match creation
+  - answer submission
+  - checkout creation
+
+3) Data privacy:
+- Don’t log PII or secrets.
+- Mask emails in logs.
+- Ensure Stripe keys are never exposed client-side.
+
+4) Dependency audit:
+- Run npm audit / pnpm audit.
+- Lockfile integrity.
+- Remove unused packages.
+
+Deliverable: /docs/SECURITY_AUDIT.md.
+
+────────────────────────────────────────────────────────────
+PHASE 5 — OBSERVABILITY, SUPPORT & RECOVERY
+1) Logging:
+- Structured JSON logs with request_id.
+- Log critical events: match created, card served, answer submitted, round resolved, payment created, webhook processed, ledger entry created.
+
+2) Monitoring/alerts:
+- Add uptime monitor endpoints:
+  - /api/health (DB, CardHedge ping, Stripe config mode)
+- Alert thresholds:
+  - CardHedge error rate > 2% over 5 min
+  - “no playable cards” for any active set
+  - checkout failures > 1% over 5 min
+  - webhook failures > 0 for 10 min
+
+3) Admin “panic switches”:
+- Disable purchases temporarily.
+- Disable PVP temporarily.
+- Disable a specific set temporarily.
+
+Deliverable: /docs/OPS_RUNBOOK.md with “what to do when…” steps.
+
+────────────────────────────────────────────────────────────
+PHASE 6 — AUTOMATED TESTS (TO PREVENT REGRESSION)
+Add CI test suites:
+1) Unit tests:
+- Stripe mode selector (host->live/test).
+- Match state machine transitions.
+- Card filtering (placeholder/silhouette detection).
+2) Integration tests:
+- Import set flow (mock CardHedge).
+- Create match -> serve cards -> submit answers -> complete match.
+- Create checkout -> simulate webhook -> credit ledger.
+3) E2E (Playwright/Cypress):
+- Solo match completion 10/10.
+- PVP match with two sessions and synchronized advancement.
+- Purchase flow (can run against Stripe test in staging only).
+
+Add “Launch Gate” script that runs all tests and fails build if any critical fails.
+
+Deliverable: /docs/TEST_PLAN.md + test suite configured.
+
+────────────────────────────────────────────────────────────
+OUTPUT REQUIREMENTS (WHAT YOU MUST RETURN)
+After completing audit + fixes, output:
+1) GO/NO-GO decision with explicit reasons.
+2) A checklist with pass/fail for each critical item.
+3) A list of files changed + summary of changes.
+4) Evidence: test results, key logs, and screenshots where relevant.
+
+Start now by:
+- creating the docs folder and the four audit docs,
+- scanning the codebase for Stripe/CardHedge/match engine hotspots,
+- implementing Phase 1 and Phase 2 fixes first (payments + gameplay),
+- then proceeding through remaining phases.
+
+Run the full test suite after implementation.
