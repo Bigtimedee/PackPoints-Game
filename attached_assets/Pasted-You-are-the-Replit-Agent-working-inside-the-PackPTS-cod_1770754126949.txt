@@ -1,0 +1,229 @@
+You are the Replit Agent working inside the PackPTS codebase.
+
+GOAL (MISSION CRITICAL)
+Fix Stripe LIVE webhook failures. Stripe is sending LIVE-mode webhooks to:
+  https://pack-points-game.replit.app/webhooks/purchases
+and the server is returning HTTP 500. We must:
+1) Ensure the endpoint exists and is reachable.
+2) Verify Stripe signatures correctly using the RAW request body (no JSON parsing before verification).
+3) Use ONLY Stripe LIVE keys/secrets in production deployments.
+4) Always return a 2xx status quickly for valid events (and 400 for invalid signatures), never 500.
+5) Make webhook processing idempotent so retries never double-credit PackPTS.
+6) Add admin-safe observability (logs + DB records) without leaking secrets.
+7) After implementation, TEST end-to-end using Stripe CLI (test mode) and a real “live” simulation pattern (signature verification path + event handler). Provide me step-by-step commands and the expected outputs. (Do NOT ask me to do the testing. You run the tests in the repl.)
+
+CONTEXT / CONSTRAINTS
+- PackPTS currently has issues where the app keeps using sandbox keys. This must be eliminated.
+- DO NOT hardcode Stripe keys anywhere.
+- Stripe webhook signature verification MUST use the raw request body.
+- The code must work in production (Replit deploy) and locally in the Replit workspace.
+- If the project is Next.js, follow Next.js webhook raw-body patterns.
+- If the project is Express/Node, follow Express raw middleware patterns.
+- If the project uses both, implement the webhook route in the backend server that actually receives webhooks (single source of truth).
+- Never print full secrets to logs. Only print “mode=live|test” and whether the required env vars are present.
+
+DELIVERABLES
+A) A stable webhook endpoint: POST /webhooks/purchases
+B) Correct Stripe initialization that selects LIVE keys in production and TEST keys only in non-production.
+C) A DB-backed idempotency mechanism keyed on stripe_event_id (unique).
+D) A robust purchase fulfillment flow that credits PackPTS exactly once per successful payment.
+E) Clear error handling: no unhandled throws; always returns 2xx/4xx appropriately.
+F) A short internal “Webhook Health” admin diagnostic (route or logging) that shows recent events + status.
+
+STEP 0 — DETECT STACK AND EXISTING IMPLEMENTATION
+1) Search the repo for:
+   - "webhooks/purchases"
+   - "stripe.webhooks.constructEvent"
+   - "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "sk_test", "sk_live", "whsec"
+   - Any routes like "/api/webhooks", "/webhook", "/webhooks"
+   - Any middleware parsing JSON globally (express.json, bodyParser.json, Next bodyParser)
+2) Determine whether the server is:
+   - Express (or Fastify) Node server
+   - Next.js API routes / Route Handlers
+   - Both (monorepo)
+3) Identify where Stripe Checkout sessions are created and how PackPTS credits are granted today.
+
+STEP 1 — STANDARDIZE ENV VARS AND MODE SELECTION
+Implement strict environment variable naming and enforcement:
+
+Required env vars:
+- STRIPE_MODE            = "live" or "test"
+- STRIPE_SECRET_KEY_LIVE = "sk_live_..."
+- STRIPE_SECRET_KEY_TEST = "sk_test_..."
+- STRIPE_WEBHOOK_SECRET_LIVE = "whsec_..."
+- STRIPE_WEBHOOK_SECRET_TEST = "whsec_..."
+Optional but recommended:
+- STRIPE_PUBLISHABLE_KEY_LIVE
+- STRIPE_PUBLISHABLE_KEY_TEST
+
+Rules:
+- In production deploys, STRIPE_MODE MUST be "live". If not, startup must ERROR loudly (fail fast) to prevent accidental sandbox usage.
+- In non-production, default to "test" if STRIPE_MODE is missing.
+- Stripe client initialization must choose keys ONLY based on STRIPE_MODE.
+- Never fall back to test keys if live keys are missing in production; instead fail fast with a clear error.
+
+Create a single module: src/lib/stripe.ts (or equivalent) exporting:
+- stripe (initialized Stripe client)
+- stripeMode ("live"|"test")
+- webhookSecret (selected whsec)
+- assertStripeEnv() to run at server startup
+
+Add safe logs at startup:
+- "Stripe mode: live|test"
+- "Has live secret key: true|false"
+- "Has live webhook secret: true|false"
+No secrets printed.
+
+STEP 2 — WEBHOOK HANDLER WITH RAW BODY (NO 500s)
+Implement the webhook endpoint in the server that actually receives external HTTP traffic.
+Endpoint: POST /webhooks/purchases
+
+Must do:
+- Read raw body as Buffer
+- Get "stripe-signature" header
+- Verify event using stripe.webhooks.constructEvent(rawBody, signatureHeader, webhookSecret)
+- If verification fails: respond 400 with message "Invalid signature"
+- If verification passes: immediately proceed
+
+CRITICAL: Ensure global JSON body parsing does NOT run on this route.
+- Express: use express.raw({ type: 'application/json' }) for this route BEFORE express.json()
+- Next.js:
+  - If using Pages API route: export const config = { api: { bodyParser: false } }
+  - If using App Router route handlers: use request.arrayBuffer() and Buffer.from()
+
+Return 200 quickly and do not throw. Wrap everything in try/catch.
+
+Also:
+- Handle duplicate deliveries: idempotency check on event.id
+- Log event.type + event.id + created timestamp + processing outcome
+- Store raw event metadata (not full payload) for debugging: event.id, type, livemode, created, request id if present
+
+STEP 3 — IDEMPOTENCY + DATA MODEL
+Create a DB table/collection:
+Table: stripe_webhook_events
+Columns:
+- id (uuid)
+- stripe_event_id (string, UNIQUE)
+- type (string)
+- livemode (boolean)
+- created_at (timestamp)
+- received_at (timestamp default now)
+- processed_at (timestamp nullable)
+- status ("received"|"processed"|"ignored"|"failed")
+- error_message (text nullable)
+- related_user_id (nullable)
+- related_purchase_id (nullable)
+- related_session_id (nullable)
+
+Add a UNIQUE constraint/index on stripe_event_id.
+
+Also create / ensure a user ledger model:
+Table: packpts_ledger
+Columns:
+- id (uuid)
+- user_id
+- source_type ("match"|"purchase"|"admin_adjustment" etc.)
+- source_id (string) (e.g., stripe_session_id or match_id)
+- delta_packpts (integer)
+- created_at
+UNIQUE constraint on (source_type, source_id) to prevent double-credit.
+
+Ensure the user’s current PackPTS is derived either:
+- by summing ledger entries (preferred), OR
+- by storing a cached balance updated transactionally
+But DO NOT allow double-credit.
+
+STEP 4 — PURCHASE FULFILLMENT (CHECKOUT SESSION COMPLETED)
+In the webhook handler, support at minimum:
+- checkout.session.completed
+- checkout.session.async_payment_succeeded (if used)
+- payment_intent.succeeded (optional, if your flow relies on it)
+
+Primary method:
+Use checkout.session.completed where:
+- session.mode == "payment"
+- session.payment_status == "paid" (or verify session.payment_intent)
+- session.metadata includes user_id and package_id (or sku) and packpts_granted
+
+If metadata is missing, implement a lookup:
+- Find internal purchase record by session.id
+- Or map Stripe Price ID to package in your DB
+
+Implementation details:
+1) On event receipt:
+   - Upsert stripe_webhook_events row with status=received
+2) For checkout.session.completed:
+   - Extract session.id
+   - Identify user_id (from session.metadata.user_id)
+   - Identify packpts amount (from session.metadata.packpts OR by querying your packages table by package_id/price_id)
+   - Write to packpts_ledger with (source_type="purchase", source_id=session.id, delta_packpts=packpts)
+   - Update user cached balance if applicable in the same DB transaction
+   - Mark stripe_webhook_events processed with related ids
+3) If ledger entry already exists for that source_id, treat as duplicate and mark event ignored but still return 200.
+
+STEP 5 — STOP “SANDBOX KEY” BLEEDING INTO PRODUCTION
+Find and remove any code that:
+- uses STRIPE_SECRET_KEY without distinguishing environment
+- defaults to sk_test if env var missing
+- uses NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY incorrectly in server code
+- mixes test and live price IDs
+
+Add a guard:
+- If stripeMode==="live" then reject any Stripe object/session showing livemode=false and log an error.
+- If stripeMode==="test" and livemode=true, also log.
+
+STEP 6 — UPDATE STRIPE WEBHOOK PATH CONSISTENCY
+Ensure the app uses ONE canonical webhook endpoint path:
+- /webhooks/purchases
+If the code currently exposes /api/webhooks/purchases or similar, add a redirect or alias route so both paths work, but Stripe dashboard should point to /webhooks/purchases.
+
+STEP 7 — ADMIN DIAGNOSTICS (NON-SENSITIVE)
+Add an admin-only page or endpoint (requires admin auth):
+- GET /admin/stripe-webhooks
+Shows last 50 webhook events:
+- stripe_event_id, type, livemode, received_at, status, error_message (truncated), related_user_id, related_session_id
+
+Also add a simple “health” endpoint:
+- GET /webhooks/health -> returns 200 JSON { ok:true, stripeMode, hasWebhookSecret:true/false }
+NO secrets.
+
+STEP 8 — TESTING (YOU RUN IT)
+After implementation:
+1) Use Stripe CLI (test mode) to forward webhooks to the running repl:
+   - stripe login (if needed)
+   - stripe listen --forward-to https://<your-repl-public-url>/webhooks/purchases
+2) Trigger a test event:
+   - stripe trigger checkout.session.completed
+3) Confirm:
+   - Server returns 200
+   - stripe_webhook_events row created and marked processed
+   - packpts_ledger row inserted once
+   - User balance updated or ledger sums correctly
+4) Add unit/integration tests:
+   - A test for signature verification failure returns 400 (not 500)
+   - A test for duplicate event id returns 200 and does not double-credit
+   - A test for missing metadata handles gracefully (status=failed but 200 or 400 depending on verification; never 500)
+
+IMPORTANT: You cannot fully simulate LIVE webhooks without live keys, but you MUST validate:
+- correct raw body verification path
+- mode selection logic
+- idempotency
+- no unhandled exceptions
+
+STEP 9 — FINAL CHECKLIST
+Before finishing, confirm:
+- No keys are hardcoded.
+- Production mode fails fast if live secrets missing.
+- Webhook route uses raw body and never hits JSON parser before verification.
+- Webhook always responds 2xx for verified events even if internal processing fails (store failure + alert), except signature failure (400).
+- Event processing is idempotent.
+- Admin diagnostics exist and are protected.
+
+NOW IMPLEMENT
+Proceed to implement all changes in the existing PackPTS repo. Update files as needed. If you must create new files, do so. If you must create migrations, do so and run them in the repl.
+
+When done:
+- Provide a concise summary of what changed (files touched)
+- Provide the exact URL path Stripe should use in LIVE mode
+- Provide the Stripe Dashboard configuration guidance (events to subscribe to)
+- Show me the commands you ran to test, and the outputs that prove success.
