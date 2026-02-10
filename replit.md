@@ -93,6 +93,9 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 ### Rate Limiting
 Centralized rate limiter middleware at `server/middleware/rateLimiter.ts` applied to login (10/min/IP), registration (5/5min/IP), game start (15/min), answer submit (15/10sec), checkout (5/min), lobby create (10/min). In-memory store with periodic cleanup.
 
+### Stripe Webhook System (Feb 2026)
+Webhook endpoint: `POST /webhooks/purchases`. Signature verification uses direct `stripe.webhooks.constructEvent()` with env var secrets (`STRIPE_WEBHOOK_SECRET_LIVE` / `STRIPE_WEBHOOK_SECRET_TEST`), falling back to stripeSync managed secret, then Stripe API re-fetch as last resort. Global `express.json()` skips `/webhooks/` routes to preserve raw body for signature verification. Error handling: invalid signature = 400, verified events always return 200 (even if internal processing fails). Livemode guard rejects events where `event.livemode` doesn't match the server's Stripe mode. Health endpoint at `GET /webhooks/health` (no auth, no secrets). Admin diagnostics at `GET /api/admin/stripe-diagnostics` includes last 50 webhook events.
+
 ### Webhook Retry Worker
 `server/services/webhookRetryWorker.ts` scans failed `purchase_events` every 5 minutes, retries with exponential backoff (2^retryCount * 60s), max 5 retries. Admin manual trigger at `POST /api/admin/webhooks/retry`.
 
