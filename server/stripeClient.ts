@@ -181,11 +181,26 @@ export function getStripeCredentialSource(): string {
   return credentialSource;
 }
 
+export function getWebhookSecret(host?: string): string | null {
+  const mode = getStripeMode(host);
+
+  if (mode === "live") {
+    const secret = process.env.STRIPE_WEBHOOK_SECRET_LIVE || process.env.STRIPE_WEBHOOK_SECRET;
+    if (secret && secret.startsWith("whsec_")) return secret;
+    return null;
+  }
+
+  const secret = process.env.STRIPE_WEBHOOK_SECRET_TEST || process.env.STRIPE_WEBHOOK_SECRET;
+  if (secret && secret.startsWith("whsec_")) return secret;
+  return null;
+}
+
 export function getStripeDiagnostics(): Record<string, any> {
+  const mode = cachedStripeMode || getStripeMode();
   return {
     configured: cachedStripeConfigured,
     credentialSource,
-    mode: cachedStripeMode || getStripeMode(),
+    mode,
     isProduction: process.env.REPLIT_DEPLOYMENT === '1',
     appEnv: process.env.APP_ENV || 'not set',
     hasConnectorHostname: !!process.env.REPLIT_CONNECTORS_HOSTNAME,
@@ -196,6 +211,10 @@ export function getStripeDiagnostics(): Record<string, any> {
     hasStripeSecret: !!process.env.STRIPE_secret,
     hasStripePublishable: !!process.env.STRIPE_publishable,
     hasEnvSecretKeyTest: !!process.env.STRIPE_SECRET_KEY_TEST,
+    hasWebhookSecretLive: !!process.env.STRIPE_WEBHOOK_SECRET_LIVE,
+    hasWebhookSecretTest: !!process.env.STRIPE_WEBHOOK_SECRET_TEST,
+    hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
+    webhookVerificationMethod: getWebhookSecret() ? "direct" : "stripeSync",
   };
 }
 
@@ -252,8 +271,14 @@ export async function initializeStripeConnection(): Promise<boolean> {
     cachedCredentials = creds;
     console.log(`[Stripe] Connection verified - Mode: ${mode.toUpperCase()}, Key prefix: ${maskKey(creds.secretKey)}, Source: ${credentialSource}`);
     
+    const whSecret = getWebhookSecret();
+    console.log(`[Stripe] Webhook secret: ${whSecret ? "configured (direct verification)" : "NOT SET (using stripeSync fallback)"}`);
+    
     if (mode === "live") {
       console.log(`[Stripe] LIVE STRIPE ENABLED - Production payments active`);
+      if (!whSecret) {
+        console.warn(`[Stripe] WARNING: No STRIPE_WEBHOOK_SECRET_LIVE set. Webhook verification will use stripeSync managed secret. Set STRIPE_WEBHOOK_SECRET_LIVE for direct Stripe Dashboard webhooks.`);
+      }
     } else {
       console.log(`[Stripe] TEST STRIPE ENABLED - Sandbox/test mode active`);
     }
