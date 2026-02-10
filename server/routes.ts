@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
@@ -10,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
@@ -2645,6 +2646,7 @@ export async function registerRoutes(
   });
 
   // Stripe webhook endpoint - receives raw body for signature verification
+  // Global JSON parser skips /webhooks/ routes (see server/index.ts), so express.raw() gets the raw Buffer
   app.post("/webhooks/purchases", 
     express.raw({ type: "application/json" }),
     async (req: Request, res: Response) => {
@@ -2653,7 +2655,7 @@ export async function registerRoutes(
       const signature = req.headers["stripe-signature"];
       
       if (!signature || typeof signature !== "string") {
-        console.error("Missing stripe-signature header");
+        console.error("[Stripe] Webhook rejected: missing stripe-signature header");
         return res.status(400).json({ error: "Missing stripe-signature header" });
       }
 
@@ -2663,39 +2665,64 @@ export async function registerRoutes(
       }
 
       if (!(await checkStripeConfigured())) {
-        console.error("Stripe is not configured");
+        console.error("[Stripe] Webhook rejected: Stripe is not configured");
         return res.status(503).json({ error: "Payment processing not configured" });
       }
 
-      console.log(`[Stripe] Webhook received: host=${host}, mode=${mode}`);
+      console.log(`[Stripe] Webhook received: host=${host}, mode=${mode}, bodyType=${Buffer.isBuffer(req.body) ? 'Buffer' : typeof req.body}, bodyLen=${Buffer.isBuffer(req.body) ? req.body.length : JSON.stringify(req.body)?.length || 0}`);
 
+      let event: Stripe.Event;
       try {
-        const event = await stripePurchaseService.verifyAndParseWebhook(
+        event = await stripePurchaseService.verifyAndParseWebhook(
           req.body,
           signature,
           host
         );
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown verification error";
+        console.error(`[Stripe] Webhook signature verification FAILED: ${msg}`);
+        return res.status(400).json({ error: "Invalid signature" });
+      }
 
+      // Livemode guard: reject events that don't match the server's expected mode
+      const expectedLivemode = mode === "live";
+      if (event.livemode !== expectedLivemode) {
+        console.error(`[Stripe] Webhook livemode MISMATCH: event.livemode=${event.livemode}, expected=${expectedLivemode} (mode=${mode})`);
+        return res.status(200).json({ received: true, ignored: true, reason: "livemode mismatch" });
+      }
+
+      try {
         const result = await stripePurchaseService.processWebhookEvent(event);
         
-        console.log(`Webhook processed: ${result.eventId} - ${result.status}${result.message ? ` - ${result.message}` : ""}`);
+        console.log(`[Stripe] Webhook processed: eventId=${result.eventId}, type=${event.type}, status=${result.status}${result.message ? `, msg=${result.message}` : ""}`);
         
-        res.json({
+        return res.status(200).json({
           received: true,
           eventId: result.eventId,
           status: result.status,
         });
       } catch (error) {
-        console.error("Webhook error:", error);
-        
-        if (error instanceof Error && error.message.includes("signature")) {
-          return res.status(400).json({ error: "Invalid signature" });
-        }
-        
-        return res.status(500).json({ error: "Webhook processing failed" });
+        const msg = error instanceof Error ? error.message : "Unknown processing error";
+        console.error(`[Stripe] Webhook processing error (returning 200 to prevent retries): eventId=${event.id}, type=${event.type}, error=${msg}`);
+        return res.status(200).json({ received: true, error: "Internal processing error" });
       }
     }
   );
+
+  // Webhook health endpoint - no auth required, no secrets exposed
+  app.get("/webhooks/health", async (_req: Request, res: Response) => {
+    const mode = getStripeMode();
+    const configured = await checkStripeConfigured();
+    const { getWebhookSecret: getWhs } = await import("./stripeClient");
+    const hasWebhookSecret = !!getWhs();
+    
+    res.status(200).json({
+      ok: configured,
+      stripeMode: mode,
+      hasWebhookSecret,
+      webhookPath: "/webhooks/purchases",
+    });
+  });
 
   // Billing sync endpoint - reconciles user's purchases with Stripe
   app.post("/billing/sync", isAuthenticated, async (req: any, res) => {
@@ -2762,7 +2789,27 @@ export async function registerRoutes(
   app.get("/api/admin/stripe-diagnostics", requireAdmin, async (_req, res) => {
     const diag = getStripeDiagnostics();
     const configured = await checkStripeConfigured();
-    res.json({ ...diag, configuredNow: configured });
+    
+    const recentEvents = await db
+      .select({
+        eventId: purchaseEvents.eventId,
+        eventType: purchaseEvents.eventType,
+        userId: purchaseEvents.userId,
+        status: purchaseEvents.status,
+        errorMessage: purchaseEvents.errorMessage,
+        retryCount: purchaseEvents.retryCount,
+        createdAt: purchaseEvents.createdAt,
+        processedAt: purchaseEvents.processedAt,
+      })
+      .from(purchaseEvents)
+      .orderBy(desc(purchaseEvents.createdAt))
+      .limit(50);
+
+    res.json({ 
+      ...diag, 
+      configuredNow: configured,
+      recentWebhookEvents: recentEvents,
+    });
   });
 
   // ============================================

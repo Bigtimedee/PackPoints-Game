@@ -6,7 +6,7 @@ import { walletService } from "./walletService";
 import { storage } from "../storage";
 import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku, isPackPtsSubscription } from "./productMap";
 import { analyticsService } from "./analyticsService";
-import { getStripeClient, getStripeSync, isStripeConfiguredSync, isStripeConfiguredAsync } from "../stripeClient";
+import { getStripeClient, getStripeSync, isStripeConfiguredSync, isStripeConfiguredAsync, getWebhookSecret, getStripeMode } from "../stripeClient";
 import { marginLedgerService } from "./marginLedgerService";
 
 export function isStripeConfigured(): boolean {
@@ -39,8 +39,43 @@ class StripePurchaseService {
     signature: string,
     host?: string
   ): Promise<Stripe.Event> {
-    const stripeSync = await getStripeSync(host);
-    const event = await stripeSync.constructWebhookEvent(payload, signature);
+    const webhookSecret = getWebhookSecret(host);
+    const mode = getStripeMode(host);
+
+    if (webhookSecret) {
+      const stripe = await getStripeClient(host);
+      const event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+      console.log(`[Stripe] Webhook verified via direct secret (mode=${mode})`);
+      return event;
+    }
+
+    try {
+      const stripeSync = await getStripeSync(host);
+      if (typeof stripeSync.constructWebhookEvent === 'function') {
+        const event = await stripeSync.constructWebhookEvent(payload, signature);
+        console.log(`[Stripe] Webhook verified via stripeSync managed secret (mode=${mode})`);
+        return event;
+      }
+    } catch (syncErr) {
+      console.warn(`[Stripe] stripeSync webhook verification failed: ${(syncErr as Error).message}`);
+    }
+
+    const stripe = await getStripeClient(host);
+    const payloadStr = Buffer.isBuffer(payload) ? payload.toString('utf8') : payload;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(payloadStr);
+    } catch {
+      throw new Error("Webhook signature verification failed: no webhook secret configured and payload is not valid JSON");
+    }
+
+    if (!parsed.id || !parsed.type) {
+      throw new Error("Webhook signature verification failed: no webhook secret configured and event structure invalid");
+    }
+
+    console.warn(`[Stripe] WARNING: No webhook secret configured. Falling back to unverified event parsing (mode=${mode}). Set STRIPE_WEBHOOK_SECRET_LIVE or STRIPE_WEBHOOK_SECRET_TEST for proper verification.`);
+    const event = await stripe.events.retrieve(parsed.id);
+    console.log(`[Stripe] Webhook event verified by re-fetching from Stripe API: ${event.id} (mode=${mode})`);
     return event;
   }
 
