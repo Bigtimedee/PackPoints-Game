@@ -157,15 +157,6 @@ export default function Game() {
     enabled: !!sessionId,
   });
 
-  const isActiveGameplay = !!session && session.status !== "completed";
-  useEffect(() => {
-    if (isActiveGameplay) {
-      document.body.classList.add("game-no-scroll");
-    }
-    return () => {
-      document.body.classList.remove("game-no-scroll");
-    };
-  }, [isActiveGameplay]);
   
   const { data: playableSets, isLoading: setsLoading, error: setsError, refetch: refetchSets } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
@@ -969,10 +960,10 @@ export default function Game() {
   }
 
   return (
-    <div className="game-viewport flex flex-col" data-testid="game-active-viewport">
-      <div className="flex flex-col h-full max-w-2xl mx-auto w-full px-3 sm:px-4">
-        {/* Zone 1: Header - fixed height */}
-        <div className="shrink-0 pt-2 pb-1">
+    <div data-testid="game-active-viewport">
+      <div className="max-w-2xl mx-auto w-full px-3 sm:px-4">
+        {/* Zone 1: Header */}
+        <div className="pt-2 pb-1">
           <div className="flex items-center justify-between gap-4 mb-2">
             <Link href="/">
               <Button variant="ghost" size="icon" data-testid="button-back">
@@ -993,9 +984,9 @@ export default function Game() {
           <Progress value={progress} className="h-1.5" data-testid="progress-game" />
         </div>
 
-        {/* Zone 2: Card - flexes to fill available space, card scales down */}
-        <div className="flex-1 min-h-0 flex items-center justify-center py-1 relative overflow-hidden">
-          <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px] max-h-full">
+        {/* Zone 2: Card */}
+        <div className="flex items-center justify-center py-1 relative">
+          <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
               <GameCard 
                 key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}`}
                 imageUrl={currentQuestion.card.imageUrl} 
@@ -1020,9 +1011,9 @@ export default function Game() {
           <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
         </div>
 
-        {/* Zone 3: Answers - shrinks to fit, scrolls internally on small screens */}
+        {/* Zone 3: Answers */}
         {currentQuestion && (
-          <div className="shrink min-h-0 pb-2 overflow-y-auto answers-scroll">
+          <div className="pb-4">
             <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
               <p className="text-xs sm:text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
               <Badge variant="outline" className="font-mono text-xs" data-testid="badge-point-value">

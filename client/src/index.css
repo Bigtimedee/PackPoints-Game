@@ -295,37 +295,7 @@
   }
 }
 
-/* Game viewport: prevents page scroll on game routes, uses dynamic viewport height */
-:root {
-  --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-.game-viewport {
-  height: 100dvh;
-  max-height: 100dvh;
-  overflow: hidden;
-  padding-bottom: var(--safe-bottom);
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  background: hsl(var(--background));
-}
-
-body.game-no-scroll {
-  overflow: hidden !important;
-}
-
-body.game-no-scroll nav.fixed.bottom-0 {
-  display: none !important;
-}
-
-.answers-scroll {
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-}
+/* Game viewport: natural scrollable layout */
 
 /* Touch device detection utilities */
 /* Show only on touch/mobile devices (coarse pointer like finger) */
