@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { WalletExpirationCard } from "@/components/wallet-expiration-card";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 import packStarterImg from "@/assets/pack-starter.png";
 import packProImg from "@/assets/pack-pro.png";
 import packLegendImg from "@/assets/pack-legend.png";
@@ -231,6 +232,7 @@ function StoreSkeleton() {
 
 export default function Store() {
   const { toast } = useToast();
+  const { isAuthenticated } = useAuth();
 
   const { data, isLoading } = useQuery<StoreProductsResponse>({
     queryKey: ["/api/store/products"],
@@ -279,6 +281,10 @@ export default function Store() {
   });
 
   const handlePurchase = (sku: string) => {
+    if (!isAuthenticated) {
+      window.location.href = "/api/login";
+      return;
+    }
     if (!data?.stripeConfigured) {
       toast({
         variant: "destructive",
@@ -291,6 +297,10 @@ export default function Store() {
   };
 
   const handleSubscribe = (sku: string) => {
+    if (!isAuthenticated) {
+      window.location.href = "/api/login";
+      return;
+    }
     if (!data?.stripeConfigured) {
       toast({
         variant: "destructive",
