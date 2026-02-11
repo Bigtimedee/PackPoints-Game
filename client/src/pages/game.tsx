@@ -1020,17 +1020,17 @@ export default function Game() {
           <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
         </div>
 
-        {/* Zone 3: Answers - shrinks with internal scroll if needed */}
+        {/* Zone 3: Answers - scrollable when content exceeds available space */}
         {currentQuestion && (
-          <div className="shrink min-h-0 pb-2 flex flex-col">
-            <div className="shrink-0 flex items-center justify-between gap-2 flex-wrap mb-1.5">
+          <div className="shrink min-h-0 pb-2 overflow-y-auto answers-scroll">
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
               <p className="text-xs sm:text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
               <Badge variant="outline" className="font-mono text-xs" data-testid="badge-point-value">
                 Worth {currentQuestion.pointValue} pts
               </Badge>
             </div>
 
-            <div className="answers-scroll overflow-y-auto min-h-0 flex-1">
+            <div>
               <div className="space-y-1.5">
                 {currentQuestion.options.map((option) => (
                   <AnswerButton
