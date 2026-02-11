@@ -302,27 +302,19 @@
 }
 
 .game-viewport {
-  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
   overflow: hidden;
   padding-bottom: var(--safe-bottom);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: hsl(var(--background));
 }
 
 body.game-no-scroll {
-  overflow: hidden !important;
-}
-
-body.game-no-scroll #root {
-  height: 100dvh;
-  overflow: hidden;
-}
-
-body.game-no-scroll #root > div {
-  height: 100dvh;
-  max-height: 100dvh;
-}
-
-body.game-no-scroll main {
-  padding-bottom: 0 !important;
   overflow: hidden !important;
 }
 

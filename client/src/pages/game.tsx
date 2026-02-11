@@ -970,7 +970,7 @@ export default function Game() {
 
   return (
     <div className="game-viewport flex flex-col" data-testid="game-active-viewport">
-      <div className="flex flex-col flex-1 min-h-0 max-w-2xl mx-auto w-full px-3 sm:px-4">
+      <div className="flex flex-col h-full max-w-2xl mx-auto w-full px-3 sm:px-4">
         {/* Zone 1: Header - fixed height */}
         <div className="shrink-0 pt-2 pb-1">
           <div className="flex items-center justify-between gap-4 mb-2">
@@ -1020,7 +1020,7 @@ export default function Game() {
           <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
         </div>
 
-        {/* Zone 3: Answers - scrollable when content exceeds available space */}
+        {/* Zone 3: Answers - shrinks to fit, scrolls internally on small screens */}
         {currentQuestion && (
           <div className="shrink min-h-0 pb-2 overflow-y-auto answers-scroll">
             <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
