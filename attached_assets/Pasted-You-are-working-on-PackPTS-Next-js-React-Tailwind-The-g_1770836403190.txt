@@ -1,0 +1,82 @@
+You are working on PackPTS (Next.js/React + Tailwind). The game screen on mobile currently requires page scrolling to see the card + answer options. This is unacceptable. Implement a responsive, safe-area-aware “no page scroll” layout so the entire gameplay experience fits within the visible viewport on any mobile device.
+
+GOALS
+1) The page itself must NEVER scroll on /game/* routes (solo, head-to-head, etc.).
+2) The gameplay area must fit in the viewport using modern viewport units (dvh) and iOS safe-area insets.
+3) The card image must auto-scale down on smaller screens to preserve visibility of the answer choices.
+4) If space is too tight, ONLY the answers list may become an internal scroll container (not the page).
+5) Keep existing UI/branding, just fix layout sizing/positioning.
+
+IMPLEMENTATION PLAN
+
+A) Add global mobile viewport + safe area CSS
+- In app/global CSS (or equivalent), add a class for game pages:
+
+:root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
+
+.game-viewport {
+  height: 100dvh;            /* dynamic viewport height */
+  max-height: 100dvh;
+  overflow: hidden;          /* prevent page scroll */
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+- Also ensure the html/body do not allow bouncing scroll on game pages:
+html, body { height: 100%; }
+body.game-no-scroll { overflow: hidden; position: fixed; width: 100%; }
+
+B) Apply these only on game routes
+- In the game page/layout component (e.g., app/game/layout.tsx or the /game page wrapper), add logic:
+  - On mount: add `game-no-scroll` to document.body
+  - On unmount: remove it
+  - Wrap the page content in a top-level div with className="game-viewport"
+
+C) Build a 3-zone layout that always fits
+Inside the wrapper create:
+1) Header zone (progress bar, points, back button) – fixed height
+2) Card zone – flex-grow, centers card, card scales to fit
+3) Answers zone – fixed max height; internal scroll if needed
+
+Use Tailwind:
+- Outer wrapper: `flex flex-col h-[100dvh] overflow-hidden`
+- Header: `shrink-0`
+- Card zone: `flex-1 min-h-0 flex items-center justify-center`
+- Answers zone: `shrink-0 min-h-0`
+
+D) Make the card responsive with an aspect-ratio + max-height clamp
+- Wrap the card in a container that respects available height.
+- For example:
+  - Card wrapper: `w-full max-w-[420px] px-3`
+  - Card container: `aspect-[2/3]` (or whatever matches your card art)
+  - Use max-height tied to viewport:
+    - `max-h-[52dvh] sm:max-h-[58dvh]`
+  - Ensure the image uses `object-contain` and fills the container.
+
+E) Make answers non-scroll by default, but safe on small devices
+- Answers list container:
+  - `max-h-[28dvh] overflow-y-auto overscroll-contain`
+- On larger phones, it will show all answers without scrolling; on smaller phones, only the answers list scrolls internally.
+
+F) Ensure no “rubber band” scroll on iOS inside answer list
+- Add CSS:
+.answers-scroll { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+G) Add a layout debug helper (temporary)
+- Add a dev-only overlay (only in development) showing viewport height and the computed heights of header/card/answers so we can verify it fits without page scroll.
+
+FILES TO TOUCH (typical)
+- app/game/layout.tsx (or page wrapper)
+- app/globals.css (or styles/globals.css)
+- components/GamePlayScreen.tsx (or the component that renders the game UI)
+- Tailwind classes on the containers for card + answers
+
+ACCEPTANCE TESTS
+1) iPhone SE / small height: Page does not scroll. Card visible. Answers visible. If needed, only answers container scrolls.
+2) iPhone 14/15 Pro: No scroll anywhere; all answers visible.
+3) Android Chrome: Same behavior; no body scroll.
+4) Rotation (portrait/landscape): still no page scroll; card scales down.
+5) Safari address bar expanding/collapsing does not break layout (use 100dvh not 100vh).
+
+IMPORTANT: Do not change gameplay logic. Only layout/sizing.
+Implement and then report back exactly what components/classes were changed and where.
