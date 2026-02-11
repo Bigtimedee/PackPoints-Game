@@ -277,7 +277,18 @@ export default function Game() {
       // Invalidate daily progress to update the header badge
       queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
+      if (isSessionExpired) {
+        toast({
+          title: "Session Expired",
+          description: "Your game session has ended. Starting a new game...",
+          variant: "destructive",
+        });
+        setHasStartedGame(false);
+        setSessionId(null);
+        return;
+      }
       toast({
         title: "Error",
         description: "Failed to submit answer. Please try again.",
@@ -297,6 +308,24 @@ export default function Game() {
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
+    },
+    onError: (error: Error) => {
+      const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
+      if (isSessionExpired) {
+        toast({
+          title: "Session Expired",
+          description: "Your game session has ended. Starting a new game...",
+          variant: "destructive",
+        });
+        setHasStartedGame(false);
+        setSessionId(null);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to load next question. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 

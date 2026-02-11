@@ -163,6 +163,25 @@ export interface GameSession {
   completedAt?: string;
 }
 
+export const gameSessionsTable = pgTable("game_sessions", {
+  id: varchar("id").primaryKey(),
+  mode: varchar("mode", { length: 20 }).notNull(),
+  userId: varchar("user_id"),
+  guestSessionId: varchar("guest_session_id"),
+  questions: jsonb("questions").notNull(),
+  currentQuestionIndex: integer("current_question_index").notNull().default(0),
+  score: integer("score").notNull().default(0),
+  correctAnswers: integer("correct_answers").notNull().default(0),
+  totalQuestions: integer("total_questions").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  startedAt: varchar("started_at").notNull(),
+  completedAt: varchar("completed_at"),
+  matchPointsAwarded: integer("match_points_awarded").default(0),
+}, (table) => [
+  index("idx_game_sessions_user_id").on(table.userId),
+  index("idx_game_sessions_status").on(table.status),
+]);
+
 export interface LeaderboardEntry {
   rank: number;
   username: string;

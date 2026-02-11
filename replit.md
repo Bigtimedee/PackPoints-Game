@@ -52,6 +52,9 @@ Aggregates listings from eBay and Goldin Auctions, supporting filtering, affilia
 ### Non-Linear Reward System
 A fame-based point calculation system rewards users based on player obscurity, vintage, and rarity multipliers, with daily and per-match point caps.
 
+### Game Session Persistence (Feb 2026)
+Solo game sessions are persisted to PostgreSQL via the `game_sessions` table (previously in-memory). Sessions survive server restarts and deployments. Table stores questions as JSONB, with indexes on `user_id` and `status`. Frontend handles expired/missing sessions gracefully by redirecting users to start a new game instead of showing cryptic errors.
+
 ### Daily Progress Tracking
 Server-authoritative tracking of daily progress, including cards answered and matches completed, synchronized across match modes. Progress is applied atomically when matches finish via `applyProgressForMatchIfNeeded` in `engine.ts`, writing to `user_daily_progress` table. The `/api/progress/daily` endpoint reads from this table using Chicago timezone dates. Match participants are assigned HOST/GUEST roles in `matchService.ts`; the engine has a resilient player1/player2 fallback for legacy data without proper roles. An admin backfill endpoint (`POST /api/admin/progress/backfill`) can retroactively populate progress for finished matches.
 

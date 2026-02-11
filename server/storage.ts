@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter, wallets } from "@shared/schema";
+import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter, wallets, gameSessionsTable } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
@@ -98,12 +98,10 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  private gameSessions: Map<string, GameSession>;
   private initialized: boolean = false;
   private playerNames: string[] = [];
 
   constructor() {
-    this.gameSessions = new Map();
   }
 
   private async ensureAuthTablesExist(): Promise<void> {
@@ -196,6 +194,46 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  private async ensureGameSessionsTableExists(): Promise<void> {
+    try {
+      const result = await db.execute(sql`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'game_sessions'
+        ) as exists
+      `);
+      
+      const tableExists = (result.rows[0] as any)?.exists === true;
+      
+      if (!tableExists) {
+        console.log('[GameSessions] Creating game_sessions table...');
+        await db.execute(sql`
+          CREATE TABLE game_sessions (
+            id VARCHAR PRIMARY KEY,
+            mode VARCHAR(20) NOT NULL,
+            user_id VARCHAR,
+            guest_session_id VARCHAR,
+            questions JSONB NOT NULL,
+            current_question_index INTEGER NOT NULL DEFAULT 0,
+            score INTEGER NOT NULL DEFAULT 0,
+            correct_answers INTEGER NOT NULL DEFAULT 0,
+            total_questions INTEGER NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            started_at VARCHAR NOT NULL,
+            completed_at VARCHAR,
+            match_points_awarded INTEGER DEFAULT 0
+          )
+        `);
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_game_sessions_user_id ON game_sessions (user_id)`);
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_game_sessions_status ON game_sessions (status)`);
+        console.log('[GameSessions] game_sessions table created');
+      }
+    } catch (error) {
+      console.error('[GameSessions] Error ensuring game_sessions table exists:', error);
+    }
+  }
+
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
@@ -206,6 +244,9 @@ export class DatabaseStorage implements IStorage {
     
     // Ensure access counter row exists (required for registration)
     await this.ensureAccessCounterExists();
+    
+    // Ensure game sessions table exists (for persistence across deploys)
+    await this.ensureGameSessionsTableExists();
     
     console.log("Initializing card data from PriceCharting/COMC...");
     
@@ -830,16 +871,62 @@ export class DatabaseStorage implements IStorage {
       startedAt: new Date().toISOString(),
     };
     
-    this.gameSessions.set(session.id, session);
+    await db.insert(gameSessionsTable).values({
+      id: session.id,
+      mode: session.mode,
+      userId: session.userId,
+      guestSessionId: session.guestSessionId,
+      questions: session.questions as any,
+      currentQuestionIndex: session.currentQuestionIndex,
+      score: session.score,
+      correctAnswers: session.correctAnswers,
+      totalQuestions: session.totalQuestions,
+      status: session.status,
+      startedAt: session.startedAt,
+    });
+    
     return session;
   }
 
   async getGameSession(id: string): Promise<GameSession | undefined> {
-    return this.gameSessions.get(id);
+    const [row] = await db
+      .select()
+      .from(gameSessionsTable)
+      .where(eq(gameSessionsTable.id, id))
+      .limit(1);
+    
+    if (!row) return undefined;
+    
+    const session: GameSession = {
+      id: row.id,
+      mode: row.mode as GameSession["mode"],
+      userId: row.userId,
+      guestSessionId: row.guestSessionId ?? undefined,
+      questions: row.questions as GameQuestion[],
+      currentQuestionIndex: row.currentQuestionIndex,
+      score: row.score,
+      correctAnswers: row.correctAnswers,
+      totalQuestions: row.totalQuestions,
+      status: row.status as GameSession["status"],
+      startedAt: row.startedAt,
+      completedAt: row.completedAt ?? undefined,
+    };
+    (session as any).matchPointsAwarded = row.matchPointsAwarded ?? 0;
+    return session;
   }
 
   async updateGameSession(session: GameSession): Promise<GameSession> {
-    this.gameSessions.set(session.id, session);
+    await db.update(gameSessionsTable)
+      .set({
+        questions: session.questions as any,
+        currentQuestionIndex: session.currentQuestionIndex,
+        score: session.score,
+        correctAnswers: session.correctAnswers,
+        status: session.status,
+        completedAt: session.completedAt,
+        matchPointsAwarded: (session as any).matchPointsAwarded ?? 0,
+      })
+      .where(eq(gameSessionsTable.id, session.id));
     return session;
   }
 
