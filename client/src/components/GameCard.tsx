@@ -375,7 +375,7 @@ export function GameCard({
 
   return (
     <div 
-      className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900 select-none"
+      className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900 select-none max-h-full"
       onContextMenu={handleContextMenu}
       style={{
         touchAction: "manipulation",

@@ -37,7 +37,7 @@ function AnswerButton({
   disabled: boolean;
 }) {
   let variant: "default" | "outline" | "secondary" | "destructive" = "outline";
-  let className = "w-full justify-start gap-3 text-left h-auto py-4 px-5 text-base";
+  let className = "w-full justify-start gap-3 text-left h-auto py-2.5 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
 
   if (isRevealed) {
     if (isCorrect) {
@@ -156,6 +156,16 @@ export default function Game() {
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
   });
+
+  const isActiveGameplay = !!session && session.status !== "completed";
+  useEffect(() => {
+    if (isActiveGameplay) {
+      document.body.classList.add("game-no-scroll");
+    }
+    return () => {
+      document.body.classList.remove("game-no-scroll");
+    };
+  }, [isActiveGameplay]);
   
   const { data: playableSets, isLoading: setsLoading, error: setsError, refetch: refetchSets } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
@@ -959,65 +969,69 @@ export default function Game() {
   }
 
   return (
-    <div className="min-h-screen pb-20 md:pb-8">
-      <div className="container mx-auto px-4 py-6 max-w-2xl">
-        <div className="flex items-center justify-between gap-4 mb-6">
-          <Link href="/">
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Badge variant="outline" className="gap-1.5 font-mono" data-testid="badge-question-count">
-              <Clock className="h-3 w-3" />
-              {session.currentQuestionIndex + 1} / {session.totalQuestions}
-            </Badge>
-            <Badge variant="secondary" className="gap-1.5 font-mono" data-testid="badge-score">
-              <Zap className="h-3 w-3" />
-              {session.score} pts
-            </Badge>
+    <div className="game-viewport flex flex-col" data-testid="game-active-viewport">
+      <div className="flex flex-col flex-1 min-h-0 max-w-2xl mx-auto w-full px-3 sm:px-4">
+        {/* Zone 1: Header - fixed height */}
+        <div className="shrink-0 pt-2 pb-1">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <Link href="/">
+              <Button variant="ghost" size="icon" data-testid="button-back">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="gap-1.5 font-mono" data-testid="badge-question-count">
+                <Clock className="h-3 w-3" />
+                {session.currentQuestionIndex + 1} / {session.totalQuestions}
+              </Badge>
+              <Badge variant="secondary" className="gap-1.5 font-mono" data-testid="badge-score">
+                <Zap className="h-3 w-3" />
+                {session.score} pts
+              </Badge>
+            </div>
           </div>
+          <Progress value={progress} className="h-1.5" data-testid="progress-game" />
         </div>
 
-        <Progress value={progress} className="h-2 mb-8" data-testid="progress-game" />
-
-        <div className="space-y-8">
-          <div className="relative">
-            <GameCard 
-              key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}`}
-              imageUrl={currentQuestion.card.imageUrl} 
-              isRevealed={isRevealed}
-              setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
-              setKey={currentGameSet?.id}
-              imageRotation={currentQuestion.card.imageRotation}
-              showSkipButton={showSkipButton}
-              skipPending={replaceCardMutation.isPending || nextQuestionMutation.isPending}
-              onSkip={handleManualSkip}
-              skipButtonMode={(replacementAttempts.get(session.currentQuestionIndex) ?? 0) >= 2 ? 'skip' : 'replace'}
-              onImageError={() => {
-                // Get the failed card ID (prefer playableCardId for accurate tracking)
-                const failedCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
-                if (failedCardId) {
-                  // Try to replace with a new card instead of skipping
-                  handleCardImageError(failedCardId);
-                }
-              }}
-              cardId={currentQuestion.card.playableCardId || currentQuestion.card.id}
-              sessionId={session?.id}
-            />
-            <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
+        {/* Zone 2: Card - flexes to fill available space, card scales down */}
+        <div className="flex-1 min-h-0 flex items-center justify-center py-1 relative overflow-hidden">
+          <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px] max-h-full">
+              <GameCard 
+                key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}`}
+                imageUrl={currentQuestion.card.imageUrl} 
+                isRevealed={isRevealed}
+                setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
+                setKey={currentGameSet?.id}
+                imageRotation={currentQuestion.card.imageRotation}
+                showSkipButton={showSkipButton}
+                skipPending={replaceCardMutation.isPending || nextQuestionMutation.isPending}
+                onSkip={handleManualSkip}
+                skipButtonMode={(replacementAttempts.get(session.currentQuestionIndex) ?? 0) >= 2 ? 'skip' : 'replace'}
+                onImageError={() => {
+                  const failedCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
+                  if (failedCardId) {
+                    handleCardImageError(failedCardId);
+                  }
+                }}
+                cardId={currentQuestion.card.playableCardId || currentQuestion.card.id}
+                sessionId={session?.id}
+              />
           </div>
+          <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
+        </div>
 
-          {currentQuestion && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
-                <Badge variant="outline" className="font-mono" data-testid="badge-point-value">
-                  Worth {currentQuestion.pointValue} pts
-                </Badge>
-              </div>
+        {/* Zone 3: Answers - shrinks with internal scroll if needed */}
+        {currentQuestion && (
+          <div className="shrink min-h-0 pb-2 flex flex-col">
+            <div className="shrink-0 flex items-center justify-between gap-2 flex-wrap mb-1.5">
+              <p className="text-xs sm:text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
+              <Badge variant="outline" className="font-mono text-xs" data-testid="badge-point-value">
+                Worth {currentQuestion.pointValue} pts
+              </Badge>
+            </div>
 
-              <div className="space-y-3">
+            <div className="answers-scroll overflow-y-auto min-h-0 flex-1">
+              <div className="space-y-1.5">
                 {currentQuestion.options.map((option) => (
                   <AnswerButton
                     key={option}
@@ -1031,13 +1045,12 @@ export default function Game() {
                 ))}
               </div>
 
-              <div className="pt-4">
+              <div className="pt-2">
                 {!isRevealed ? (
                   <Button
                     onClick={handleSubmit}
                     disabled={!selectedAnswer || submitAnswerMutation.isPending}
                     className="w-full gap-2"
-                    size="lg"
                     data-testid="button-submit-answer"
                   >
                     {submitAnswerMutation.isPending ? (
@@ -1048,12 +1061,11 @@ export default function Game() {
                     Submit Answer
                   </Button>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     <Button
                       onClick={handleNextQuestion}
                       disabled={nextQuestionMutation.isPending}
                       className="w-full gap-2"
-                      size="lg"
                       data-testid="button-next-question"
                     >
                       {nextQuestionMutation.isPending ? (
@@ -1154,8 +1166,8 @@ export default function Game() {
                 )}
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
