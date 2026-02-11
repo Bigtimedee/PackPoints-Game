@@ -6279,6 +6279,7 @@ export async function registerRoutes(
                 
                 // Auto-quarantine if requested (admin-initiated, uses mutation guard)
                 if (autoQuarantine) {
+                  const { assertMutationAllowed } = await import("./services/mutationGuard");
                   assertMutationAllowed({
                     operationSource: "ADMIN_MANUAL",
                     action: "SET_UNPLAYABLE",
@@ -6344,6 +6345,7 @@ export async function registerRoutes(
       
       let quarantined = 0;
       
+      const { assertMutationAllowed } = await import("./services/mutationGuard");
       assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
@@ -8335,6 +8337,7 @@ export async function registerRoutes(
           })
           .where(eq(playableCards.id, report.cardId));
       } else if (action === "reject") {
+        const { assertMutationAllowed } = await import("./services/mutationGuard");
         assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
@@ -8410,6 +8413,7 @@ export async function registerRoutes(
           .set(updateData)
           .where(eq(playableCards.id, cardId));
       } else if (action === "reject") {
+        const { assertMutationAllowed } = await import("./services/mutationGuard");
         assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
@@ -8451,6 +8455,7 @@ export async function registerRoutes(
       }
       const { cardIds } = parsed.data;
       
+      const { assertMutationAllowed } = await import("./services/mutationGuard");
       assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
