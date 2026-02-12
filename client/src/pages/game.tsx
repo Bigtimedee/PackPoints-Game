@@ -578,6 +578,16 @@ export default function Game() {
     }
   }, [isGameOver, isAuthenticated, session?.id, session?.score, pointsUpdatedForSession]);
 
+  const nextQuestionImageUrl = session?.questions?.[
+    (session?.currentQuestionIndex ?? -1) + 1
+  ]?.card?.imageUrl;
+  useEffect(() => {
+    if (nextQuestionImageUrl) {
+      const img = new window.Image();
+      img.src = nextQuestionImageUrl;
+    }
+  }, [nextQuestionImageUrl]);
+
   const handleSelectAnswer = (answer: string) => {
     if (isRevealed) return;
     setSelectedAnswer(answer);

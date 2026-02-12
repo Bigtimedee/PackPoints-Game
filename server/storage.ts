@@ -100,6 +100,8 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   private initialized: boolean = false;
   private playerNames: string[] = [];
+  private playerNameCache: Map<string, { names: string[]; fetchedAt: number }> = new Map();
+  private readonly PLAYER_NAME_CACHE_TTL = 10 * 60 * 1000;
 
   constructor() {
   }
@@ -656,23 +658,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSamplePlayerNamesFromSet(setId: string, sampleSize: number): Promise<string[]> {
-    const cards = await db
-      .select({ player: playableCards.player })
-      .from(playableCards)
-      .where(
-        and(
-          eq(playableCards.gameSetId, setId),
-          eq(playableCards.isPlayable, true),
-          isNotNull(playableCards.player),
-          ne(playableCards.player, '')
-        )
-      )
-      .orderBy(sql`RANDOM()`)
-      .limit(sampleSize);
-    
-    return cards
-      .map(c => c.player)
-      .filter((name): name is string => !!name);
+    const cached = this.playerNameCache.get(setId);
+    let allNames: string[];
+
+    if (cached && (Date.now() - cached.fetchedAt) < this.PLAYER_NAME_CACHE_TTL) {
+      allNames = cached.names;
+    } else {
+      const cards = await db
+        .select({ player: playableCards.player })
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.gameSetId, setId),
+            eq(playableCards.isPlayable, true),
+            isNotNull(playableCards.player),
+            ne(playableCards.player, '')
+          )
+        );
+
+      allNames = cards
+        .map(c => c.player)
+        .filter((name): name is string => !!name);
+      this.playerNameCache.set(setId, { names: allNames, fetchedAt: Date.now() });
+    }
+
+    const shuffled = [...allNames].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, Math.min(sampleSize, shuffled.length));
   }
 
   async getDefaultPlayableSetId(): Promise<string | null> {

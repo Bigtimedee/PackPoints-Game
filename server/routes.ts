@@ -9207,7 +9207,7 @@ export async function registerRoutes(
       }
 
       res.setHeader("Content-Type", "image/jpeg");
-      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
       res.setHeader("Content-Security-Policy", "default-src 'none'");
       res.setHeader("X-Content-Type-Options", "nosniff");
       
