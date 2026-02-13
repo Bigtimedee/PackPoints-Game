@@ -6245,7 +6245,7 @@ export async function registerRoutes(
                   assertMutationAllowed({
                     operationSource: "ADMIN_MANUAL",
                     action: "SET_UNPLAYABLE",
-                    actorUserId: req.user?.id,
+                    actorUserId: (req as any).user?.id,
                     reason: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
                   });
                   await db
@@ -6311,7 +6311,7 @@ export async function registerRoutes(
       assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
-        actorUserId: req.user?.id,
+        actorUserId: (req as any).user?.id,
         reason: `Bulk quarantine ${cardIds.length} cards for player mismatch`,
       });
       
@@ -10907,8 +10907,8 @@ export async function registerRoutes(
   const httpAnswerRateTracker: Map<string, number[]> = new Map();
   setInterval(() => {
     const now = Date.now();
-    for (const [userId, timestamps] of httpAnswerRateTracker) {
-      const recent = timestamps.filter(t => now - t < 2000);
+    for (const [userId, timestamps] of Array.from(httpAnswerRateTracker.entries())) {
+      const recent = timestamps.filter((t: number) => now - t < 2000);
       if (recent.length === 0) httpAnswerRateTracker.delete(userId);
       else httpAnswerRateTracker.set(userId, recent);
     }
