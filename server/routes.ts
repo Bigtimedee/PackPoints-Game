@@ -14,7 +14,6 @@ import {
 import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
-import { fetchAdditionalCards, VERIFIED_1987_TOPPS_IMAGES } from "./services/priceCharting";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
 import {
   CardSearchRequestSchema,
@@ -2208,43 +2207,6 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/admin/fetch-cards", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const limit = Math.min(parseInt(req.body.limit) || 5, 10);
-      
-      const existingCards = await storage.getCards();
-      const existingNames = new Set(existingCards.map(c => c.playerName));
-      
-      const newCards = await fetchAdditionalCards(limit);
-      
-      const uniqueNewCards = newCards.filter(c => !existingNames.has(c.playerName));
-      
-      let added = 0;
-      for (const card of uniqueNewCards) {
-        await storage.addCard({
-          playerName: card.playerName,
-          team: card.team || "Unknown",
-          position: "Unknown",
-          year: 1987,
-          setName: "Topps",
-          cardNumber: card.cardNumber,
-          imageUrl: card.imageUrl,
-          popularity: card.popularity,
-          imageVerified: true,
-        });
-        added++;
-      }
-      
-      res.json({ 
-        message: `Added ${added} new cards to database`,
-        added,
-        total: existingCards.length + added
-      });
-    } catch (error) {
-      console.error("Error fetching additional cards:", error);
-      res.status(500).json({ error: "Failed to fetch cards" });
-    }
-  });
 
   app.get("/api/cards/stats", async (_req, res) => {
     try {

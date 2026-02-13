@@ -84,7 +84,6 @@ Ensures synchronized state during 1v1 matches through database locking, idempote
 - esbuild
 - Stripe
 - Card Hedge API
-- Zyla API
 - eBay Browse API
 - Goldin Auctions
 - ipinfo.io

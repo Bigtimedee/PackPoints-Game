@@ -21,95 +21,6 @@ export const VERIFIED_1987_TOPPS_IMAGES: Record<string, string> = {
   "Darryl Strawberry": "https://s3.amazonaws.com/appforest_uf/f1635617599853x915699631198391200/Darryl-Strawberry-1987-Topps-460.jpg",
 };
 
-const ZYLA_BASE_URL = "https://zylalabs.com/api/2511/sports+card+and+trading+card+api/2494/card+search";
-
-interface ZylaCardResponse {
-  description?: string;
-  player?: string;
-  set?: string;
-  number?: string;
-  variant?: string;
-  card_id?: string;
-  image?: string;
-  category?: string;
-  category_group?: string;
-  set_type?: string;
-}
-
-let cachedZylaCards: Map<string, string> = new Map();
-
-async function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function fetchZylaCardImage(playerName: string, cardNumber: string): Promise<string | null> {
-  if (VERIFIED_1987_TOPPS_IMAGES[playerName]) {
-    return VERIFIED_1987_TOPPS_IMAGES[playerName];
-  }
-  
-  const apiKey = process.env.ZYLA_API_KEY;
-  
-  if (!apiKey) {
-    return null;
-  }
-  
-  const cacheKey = `${playerName}-${cardNumber}`;
-  if (cachedZylaCards.has(cacheKey)) {
-    return cachedZylaCards.get(cacheKey) || null;
-  }
-  
-  try {
-    await sleep(500);
-    
-    const searchQuery = encodeURIComponent(`1987 Topps ${playerName}`);
-    const response = await fetch(
-      `${ZYLA_BASE_URL}?search=${searchQuery}`,
-      {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Accept": "application/json",
-        },
-      }
-    );
-    
-    if (!response.ok) {
-      if (response.status === 429) {
-        console.log(`Zyla API rate limited for ${playerName}, using placeholder`);
-      } else {
-        console.error(`Zyla API error for ${playerName}:`, response.status);
-      }
-      return null;
-    }
-    
-    const data: ZylaCardResponse[] = await response.json();
-    
-    if (Array.isArray(data) && data.length > 0) {
-      for (const card of data) {
-        if (card.image && card.set?.includes("1987") && card.set?.includes("Topps")) {
-          const imageUrl = card.image.startsWith("//") 
-            ? `https:${card.image}` 
-            : card.image;
-          cachedZylaCards.set(cacheKey, imageUrl);
-          return imageUrl;
-        }
-      }
-      if (data[0].image) {
-        const imageUrl = data[0].image.startsWith("//") 
-          ? `https:${data[0].image}` 
-          : data[0].image;
-        cachedZylaCards.set(cacheKey, imageUrl);
-        return imageUrl;
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    console.error(`Error fetching Zyla image for ${playerName}:`, error);
-    return null;
-  }
-}
-
 export async function fetch1987ToppsCards(): Promise<CardData[]> {
   const cards1987Topps = [
     { cardNumber: "320", playerName: "Barry Bonds", team: "Pirates", popularity: 95 },
@@ -163,120 +74,19 @@ export async function fetch1987ToppsCards(): Promise<CardData[]> {
     { cardNumber: "99", playerName: "Kevin Bass", team: "Astros", popularity: 45 },
     { cardNumber: "163", playerName: "Bobby Bonilla", team: "Pirates", popularity: 55 },
   ];
-  
-  console.log("Loading 1987 Topps cards with cached and API images...");
-  
-  const cardsWithImages: CardData[] = [];
-  let realImageCount = 0;
-  
-  for (const card of cards1987Topps) {
-    const imageUrl = await fetchZylaCardImage(card.playerName, card.cardNumber);
-    
-    if (imageUrl) {
-      realImageCount++;
-      cardsWithImages.push({
-        ...card,
-        imageUrl,
-      });
-    } else {
-      cardsWithImages.push({
-        ...card,
-        imageUrl: `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
-      });
-    }
-  }
-  
-  console.log(`Loaded ${cardsWithImages.length} cards, ${realImageCount} with real images`);
-  
+
+  console.log("Loading 1987 Topps cards with verified images...");
+
+  const cardsWithImages: CardData[] = cards1987Topps.map((card) => {
+    const verifiedUrl = VERIFIED_1987_TOPPS_IMAGES[card.playerName];
+    return {
+      ...card,
+      imageUrl: verifiedUrl || `https://placehold.co/300x420/d4a574/333333?text=1987+Topps%0A%23${card.cardNumber}`,
+    };
+  });
+
+  const realImageCount = cardsWithImages.filter((c) => VERIFIED_1987_TOPPS_IMAGES[c.playerName]).length;
+  console.log(`Loaded ${cardsWithImages.length} cards, ${realImageCount} with verified images`);
+
   return cardsWithImages;
-}
-
-const ADDITIONAL_1987_TOPPS_PLAYERS = [
-  { cardNumber: "1", playerName: "Roger Clemens", team: "Red Sox", popularity: 85 },
-  { cardNumber: "2", playerName: "Lee Smith", team: "Cubs", popularity: 50 },
-  { cardNumber: "3", playerName: "Jamie Moyer", team: "Cubs", popularity: 45 },
-  { cardNumber: "5", playerName: "Dennis Rasmussen", team: "Yankees", popularity: 35 },
-  { cardNumber: "6", playerName: "Ruben Sierra", team: "Rangers", popularity: 55 },
-  { cardNumber: "7", playerName: "Tony Fernandez", team: "Blue Jays", popularity: 52 },
-  { cardNumber: "8", playerName: "Terry Kennedy", team: "Orioles", popularity: 40 },
-  { cardNumber: "10", playerName: "Cecil Cooper", team: "Brewers", popularity: 48 },
-  { cardNumber: "11", playerName: "Indians Leaders", team: "Indians", popularity: 30 },
-  { cardNumber: "15", playerName: "Claudell Washington", team: "Braves", popularity: 38 },
-  { cardNumber: "25", playerName: "Bert Blyleven", team: "Twins", popularity: 56 },
-  { cardNumber: "50", playerName: "Dave Smith", team: "Astros", popularity: 42 },
-  { cardNumber: "60", playerName: "Tony Pena", team: "Pirates", popularity: 46 },
-  { cardNumber: "70", playerName: "Charlie Hough", team: "Rangers", popularity: 44 },
-  { cardNumber: "80", playerName: "Wally Joyner", team: "Angels", popularity: 58 },
-  { cardNumber: "90", playerName: "Dave Stieb", team: "Blue Jays", popularity: 54 },
-  { cardNumber: "100", playerName: "Steve Garvey", team: "Padres", popularity: 60 },
-  { cardNumber: "110", playerName: "John Tudor", team: "Cardinals", popularity: 49 },
-  { cardNumber: "200", playerName: "Pete Rose", team: "Reds", popularity: 70 },
-  { cardNumber: "225", playerName: "Mike Boddicker", team: "Orioles", popularity: 43 },
-];
-
-export async function fetchAdditionalCards(limit: number = 5): Promise<CardData[]> {
-  const apiKey = process.env.ZYLA_API_KEY;
-  
-  if (!apiKey) {
-    console.log("ZYLA_API_KEY not set, cannot fetch additional cards");
-    return [];
-  }
-  
-  console.log(`Fetching up to ${limit} additional cards from Zyla API...`);
-  
-  const newCards: CardData[] = [];
-  let fetched = 0;
-  
-  for (const card of ADDITIONAL_1987_TOPPS_PLAYERS) {
-    if (fetched >= limit) break;
-    
-    if (VERIFIED_1987_TOPPS_IMAGES[card.playerName]) {
-      continue;
-    }
-    
-    try {
-      await sleep(1000);
-      
-      const searchQuery = encodeURIComponent(`1987 Topps ${card.playerName}`);
-      const response = await fetch(
-        `${ZYLA_BASE_URL}?search=${searchQuery}`,
-        {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Accept": "application/json",
-          },
-        }
-      );
-      
-      if (!response.ok) {
-        if (response.status === 429) {
-          console.log("Rate limited, stopping fetch");
-          break;
-        }
-        continue;
-      }
-      
-      const data: ZylaCardResponse[] = await response.json();
-      
-      if (Array.isArray(data) && data.length > 0 && data[0].image) {
-        const imageUrl = data[0].image.startsWith("//") 
-          ? `https:${data[0].image}` 
-          : data[0].image;
-        
-        newCards.push({
-          ...card,
-          imageUrl,
-        });
-        
-        fetched++;
-        console.log(`Fetched image for ${card.playerName}`);
-      }
-    } catch (error) {
-      console.error(`Error fetching ${card.playerName}:`, error);
-    }
-  }
-  
-  console.log(`Fetched ${newCards.length} new cards`);
-  return newCards;
 }
