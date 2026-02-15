@@ -158,7 +158,7 @@ export interface GameSession {
   score: number;
   correctAnswers: number;
   totalQuestions: number;
-  status: "active" | "completed";
+  status: "active" | "completed" | "expired";
   startedAt: string;
   completedAt?: string;
 }

@@ -535,7 +535,7 @@ export default function Game() {
 
   // Show signup modal after game completion for unauthenticated users with points
   // Only show once per session - track with hasSeenSignupPrompt
-  const isGameOver = session?.status === "completed";
+  const isGameOver = session?.status === "completed" || session?.status === "expired";
   useEffect(() => {
     if (isGameOver && !isAuthenticated && !hasSeenSignupPrompt && session && session.score > 0 && !showSignupModal) {
       const timer = setTimeout(() => setShowSignupModal(true), 500);

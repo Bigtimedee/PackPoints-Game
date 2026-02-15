@@ -200,6 +200,21 @@ app.use((req, res, next) => {
     }, 12 * 60 * 60 * 1000);
   }
 
+  {
+    const { cleanupStaleGameSessions } = await import("./services/staleGameSessionCleanup");
+    console.log("[GameSessionCleanup] Starting scheduled stale game session cleanup (every 1 hour)");
+    setTimeout(() => {
+      cleanupStaleGameSessions().catch(err => {
+        console.error("[GameSessionCleanup] Initial cleanup failed:", err);
+      });
+    }, 30 * 1000);
+    setInterval(() => {
+      cleanupStaleGameSessions().catch(err => {
+        console.error("[GameSessionCleanup] Scheduled cleanup failed:", err);
+      });
+    }, 60 * 60 * 1000);
+  }
+
   if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
     const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
     console.log("[StaleCleanup] Starting scheduled stale redemption cleanup (every 1 hour)");

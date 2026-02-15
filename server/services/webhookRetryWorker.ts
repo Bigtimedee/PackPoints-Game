@@ -22,8 +22,6 @@ export interface RetryResult {
 }
 
 export async function retryFailedWebhookEvents(): Promise<RetryResult> {
-  const now = new Date();
-
   const failedEvents = await db
     .select()
     .from(purchaseEvents)
@@ -33,7 +31,7 @@ export async function retryFailedWebhookEvents(): Promise<RetryResult> {
         lt(purchaseEvents.retryCount, MAX_RETRY_COUNT),
         or(
           isNull(purchaseEvents.lastRetryAt),
-          sql`${purchaseEvents.lastRetryAt} < ${now} - (power(2, ${purchaseEvents.retryCount}) * interval '60 seconds')`
+          sql`${purchaseEvents.lastRetryAt} < NOW() - (power(2, ${purchaseEvents.retryCount}) * interval '60 seconds')`
         )
       )
     );

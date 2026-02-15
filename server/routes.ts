@@ -1094,14 +1094,28 @@ export async function registerRoutes(
       const session = await storage.getGameSession(sessionId);
       
       if (!session) {
+        console.warn("[Game Answer] Session not found", { sessionId, questionIndex });
         return res.status(404).json({ error: "Session not found" });
       }
       
-      if (session.status === "completed") {
+      const userId = session.userId || req.session?.localUserId;
+      if (userId) {
+        console.log("[Game Answer] Authenticated submission", {
+          sessionId: sessionId.substring(0, 8),
+          userId: userId.substring(0, 8),
+          questionIndex,
+          totalQuestions: session.totalQuestions,
+          currentIndex: session.currentQuestionIndex,
+          status: session.status,
+        });
+      }
+      
+      if (session.status === "completed" || session.status === "expired") {
         return res.status(400).json({ error: "Game already completed" });
       }
       
       if (questionIndex !== session.currentQuestionIndex) {
+        console.warn("[Game Answer] Index mismatch", { questionIndex, currentIndex: session.currentQuestionIndex, sessionId: sessionId.substring(0, 8) });
         return res.status(400).json({ error: "Invalid question index" });
       }
       
@@ -1241,8 +1255,19 @@ export async function registerRoutes(
       const session = await storage.getGameSession(sessionId);
       
       if (!session) {
+        console.warn("[Game Next] Session not found", { sessionId });
         return res.status(404).json({ error: "Session not found" });
       }
+      
+      const nextUserId = session.userId || req.session?.localUserId;
+      console.log("[Game Next] Advancing", {
+        sessionId: sessionId.substring(0, 8),
+        userId: nextUserId ? nextUserId.substring(0, 8) : "guest",
+        currentIndex: session.currentQuestionIndex,
+        totalQuestions: session.totalQuestions,
+        isLastQuestion: session.currentQuestionIndex >= session.totalQuestions - 1,
+        status: session.status,
+      });
       
       if (session.currentQuestionIndex >= session.totalQuestions - 1) {
         session.status = "completed";
@@ -1349,8 +1374,12 @@ export async function registerRoutes(
       await storage.updateGameSession(session);
       
       res.json(session);
-    } catch (error) {
-      console.error("Error moving to next question:", error);
+    } catch (error: any) {
+      console.error("[Game Next] Error moving to next question:", {
+        sessionId: req.body?.sessionId?.substring(0, 8),
+        error: error?.message,
+        stack: error?.stack?.split('\n').slice(0, 3).join(' | '),
+      });
       res.status(500).json({ error: "Failed to move to next question" });
     }
   });
