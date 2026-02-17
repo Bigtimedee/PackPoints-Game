@@ -1,0 +1,329 @@
+YOU ARE THE REPLIT AGENT WORKING INSIDE THE EXISTING PackPTS REPO.
+GOAL: implement a production-grade “PackPTS Growth Agent” (24/7 content + community growth engine) and a “Daily 5 Challenge” system inside the PackPTS app.
+
+NON-NEGOTIABLES
+- Do NOT break existing game functionality.
+- Do NOT remove existing endpoints; extend safely.
+- Add thorough logging + admin visibility.
+- For social networks with restricted posting APIs (TikTok/Instagram/YouTube Shorts), the system must still run 24/7 by generating content, storing it, and pushing “ready-to-post” packages into an Admin “Publishing Queue” with one-click copy/download and a “posted” toggle. For networks with available APIs (Discord, Reddit, optional Bluesky/Mastodon), implement auto-posting.
+- Everything must be idempotent and safe: no duplicated posts, no “runaway loops”, no silent failures.
+- Use environment variables for all keys. Never hardcode secrets.
+
+========================================================
+PART A — 24/7 PACKPTS GROWTH AGENT ARCHITECTURE
+========================================================
+
+A1) Create a new backend module: /server/growthAgent
+This module is a worker + scheduler that:
+- Generates a daily content plan
+- Produces short-form content assets (scripts, captions, hashtags, image prompts)
+- Produces “Daily 5 Challenge” announcement posts + leaderboard recap posts
+- Posts automatically where allowed (Discord + Reddit; optional Bluesky/Mastodon if keys exist)
+- Otherwise creates “Publishing Queue” items for manual posting
+- Tracks all activity + errors in DB and exposes an Admin UI
+
+A2) Introduce a Job Queue (recommended):
+- Use BullMQ + Redis (Upstash Redis recommended) OR a DB-backed queue if Redis isn’t available.
+- If Redis is not configured, implement a DB-backed queue table that supports: PENDING, RUNNING, SUCCEEDED, FAILED, RETRY_AT, ATTEMPTS, LAST_ERROR.
+- Provide a single interface so we can swap queue providers.
+
+A3) Add a scheduler:
+- If the repo already has a cron/scheduler mechanism, use it.
+- Otherwise implement a simple internal scheduler using node-cron that runs in the “worker” process.
+- Provide two run modes:
+  - API server mode (normal app)
+  - Worker mode (growth agent)
+- Add scripts:
+  - "start:server"
+  - "start:worker"
+- Ensure Replit deployment can run worker separately (or as a second deployment).
+If Replit cannot run multiple processes easily, provide a toggle env var RUN_GROWTH_AGENT=true that starts scheduler inside the primary server in a safe way.
+
+A4) Database schema additions (create migrations)
+Create tables:
+
+1) growth_content_plans
+- id (uuid)
+- date (YYYY-MM-DD, unique)
+- theme (text) e.g., “1987 Topps nostalgia”
+- target_platforms (json)
+- status (enum: DRAFT, APPROVED, ACTIVE, ARCHIVED)
+- created_at, updated_at
+
+2) growth_content_items
+- id (uuid)
+- plan_id (fk)
+- type (enum: SHORT_VIDEO_SCRIPT, X_THREAD, REDDIT_POST, DISCORD_POST, DAILY5_ANNOUNCEMENT, DAILY5_RECAP, LEADERBOARD_SPOTLIGHT)
+- platform (enum/text)
+- title (text)
+- body (text)  // final copy
+- metadata (json) // hashtags, CTA, image prompts, file pointers, etc.
+- posting_mode (enum: AUTO, MANUAL_QUEUE)
+- scheduled_for (timestamp)
+- posted_at (timestamp nullable)
+- status (enum: QUEUED, READY, POSTED, FAILED)
+- external_post_id (text nullable)
+- error (text nullable)
+- created_at, updated_at
+
+3) growth_job_runs
+- id (uuid)
+- job_name (text)
+- status (enum: STARTED, SUCCEEDED, FAILED)
+- started_at, ended_at
+- details (json)
+- error (text nullable)
+
+4) publishing_queue (can be merged w/ growth_content_items but keep separate if easier)
+- id (uuid)
+- content_item_id (fk)
+- platform (text)
+- assets (json) // downloadable assets or references
+- copy_text (text)
+- status (enum: READY, POSTED)
+- posted_by (user id nullable)
+- posted_at timestamp nullable
+- notes text nullable
+
+A5) Integrations
+Implement adapters:
+
+- OpenAI adapter (required): /server/growthAgent/llm/openai.ts
+  - Uses OPENAI_API_KEY
+  - Has a standard callLLM({system, user, schema}) with strict JSON output validation.
+
+- Discord adapter (optional auto-post):
+  - Uses DISCORD_WEBHOOK_URL for a channel OR bot token.
+  - Minimal: webhook posts.
+
+- Reddit adapter (optional auto-post):
+  - Use Reddit API with script app creds:
+    REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD, REDDIT_USER_AGENT
+  - Post to specific subreddits configured in env:
+    REDDIT_TARGET_SUBREDDITS="baseballcards,sportscollecting,..." 
+  - Must rate-limit and avoid spam (max 1 post per subreddit per day).
+
+- “Manual platforms” (TikTok/IG/YouTube Shorts/X):
+  - Do not attempt to auto-post unless API keys exist.
+  - Always generate a “Publishing Package”:
+    - title
+    - script
+    - caption
+    - hashtags
+    - CTA
+    - thumbnail suggestion
+    - optional image prompt for background
+  - Admin can copy/download and toggle “Posted”.
+
+A6) Admin UI
+Add /admin/growth
+- Tabs:
+  1) Overview (today’s plan, next scheduled jobs, last run status)
+  2) Content Plans (create/approve)
+  3) Content Items (filter by platform/status; preview; edit; mark posted)
+  4) Publishing Queue (the manual posting list + copy buttons)
+  5) Logs (growth_job_runs + error detail)
+- Add RBAC: only Admin user-type.
+
+A7) Observability + safety
+- Every job writes a row in growth_job_runs.
+- Add exponential backoff retries for transient failures.
+- Add a global circuit breaker:
+  - If 5 consecutive failures in a 30-min window, pause auto-posting and alert admin via UI banner + Discord webhook if available.
+- Add idempotency keys:
+  - For daily content plan: unique by date
+  - For each platform post: unique by (date, type, platform)
+
+A8) Growth Agent job schedule (default)
+All schedules are configurable via env.
+
+- 06:00 local: generate daily plan (or refresh if not approved)
+- 06:10: generate content items for the day
+- 08:00: post “Daily 5 announcement” to Discord + create manual queue items for other platforms
+- 20:05: post “Daily 5 recap/leaderboard spotlight” (uses Daily 5 system data)
+- Hourly: respond/engage job (optional): generate 10 comment replies templates for human use; do NOT auto-reply unless APIs are safely available.
+
+Implement these as job functions in /server/growthAgent/jobs/*.
+
+========================================================
+PART B — AI PROMPT STACK FOR AUTONOMOUS CONTENT SYSTEM
+========================================================
+
+B1) Create /server/growthAgent/prompts with the following prompt templates:
+- system.packpts_brand.txt
+- planner.daily_plan.txt
+- generator.short_video_script.txt
+- generator.reddit_post.txt
+- generator.discord_post.txt
+- generator.leaderboard_spotlight.txt
+- generator.daily5_announcement.txt
+- generator.daily5_recap.txt
+- validator.compliance.txt
+
+Brand constraints:
+- Voice: confident, witty, nostalgic, competitive, never cringe.
+- Always ends with a challenge CTA to PackPTS.com.
+- No gambling phrasing; do not imply guaranteed prizes.
+- Do not mention “AI generated”.
+- Keep claims truthful and verifiable.
+
+B2) Output format must be strict JSON for all generators.
+Define TypeScript zod schemas for each output in /server/growthAgent/prompts/schemas.ts and validate before saving.
+
+B3) Implement “Prompt Orchestrator”
+/server/growthAgent/promptOrchestrator.ts:
+- buildContext(date, sportFocus, setFocus, inAppEvents)
+- call generator with (system + user prompt)
+- run compliance validator prompt
+- if validator flags issues, auto-rewrite once
+- store final result
+
+B4) Implement a “content diversity” rule:
+- No duplicate hooks two days in a row
+- No repeating the same player names within 72 hours (use a simple recent_terms table or metadata scan)
+- Mix difficulty and eras
+
+B5) Seeds and inputs:
+- “setFocus” comes from playable sets already in PackPTS (prefer sets with good image reliability)
+- “inAppEvents” includes:
+  - Daily 5 start time
+  - Yesterday’s winners
+  - Today’s card set theme
+  - Seasonal sports moments and anniversaries (provide a small internal list; no web scraping required)
+
+========================================================
+PART C — DAILY 5 CHALLENGE SYSTEM (IN-APP)
+========================================================
+
+C1) Create a new game mode: DAILY5
+Rules:
+- Once per day per user.
+- All users get the same 5 cards for that day (per sport/category).
+- Start time: default 8:00 PM Eastern, configurable.
+- The “Daily 5” uses a deterministic seed so the card selection is reproducible and can be audited.
+- Score: total correct + time bonus (optional).
+- Leaderboard: daily reset. Show top 100.
+
+C2) Database tables
+1) daily_challenges
+- id (uuid)
+- date (YYYY-MM-DD unique)
+- mode (text default 'DAILY5')
+- set_id (fk to playable set) OR query definition snapshot
+- seed (text)
+- starts_at (timestamp)
+- ends_at (timestamp)
+- status (enum: SCHEDULED, ACTIVE, CLOSED)
+- created_at
+
+2) daily_challenge_cards
+- id (uuid)
+- daily_challenge_id (fk)
+- position (int 1-5)
+- card_id (fk to cards table)
+- created_at
+
+3) daily_challenge_entries
+- id (uuid)
+- daily_challenge_id (fk)
+- user_id (fk)
+- started_at
+- completed_at
+- score (int)
+- correct_count (int)
+- time_ms (int)
+- answers (json) // store user answers, card positions
+- created_at
+Unique constraint: (daily_challenge_id, user_id)
+
+C3) APIs
+- GET /api/daily5/status
+  returns today’s challenge status, start/end times, and whether user has played.
+
+- POST /api/daily5/start
+  creates entry, returns card payloads (masked details as required by PackPTS game design)
+
+- POST /api/daily5/answer
+  records answer for a card position; server validates; returns correctness.
+
+- POST /api/daily5/finish
+  finalizes score; returns summary + rank (approx).
+
+- GET /api/daily5/leaderboard?date=YYYY-MM-DD
+  returns top entries for date; default today.
+
+C4) Selection logic
+- When the challenge is created (scheduled job):
+  - Pull candidate cards from the chosen playable set where:
+    - image is not silhouette/placeholder
+    - has required fields
+  - Randomize deterministically using seed: hash(date + set_id + SECRET_SALT)
+  - Take first 5 cards
+  - Save to daily_challenge_cards
+This prevents “autonomous shrinkage” from affecting historical Daily 5 cards because they’re snapshotted.
+
+C5) UI
+- Add a “Daily 5” entry point in Play:
+  - If before start time: show countdown + notify option
+  - If active and not played: Start button
+  - If played: show score + rank + leaderboard
+
+- Add Daily 5 leaderboard page with shareable “I ranked #X” card.
+
+C6) Growth agent integration
+- The Growth Agent reads:
+  - Today’s challenge theme + start time for announcement posts
+  - Yesterday’s winners + top scores for recap posts
+- Auto-generates:
+  - Discord announcement at start
+  - Discord recap after close
+  - Manual Publishing Queue items for other platforms
+
+========================================================
+PART D — IMPLEMENTATION ORDER (DO THIS EXACTLY)
+========================================================
+
+1) Add DB migrations + types
+2) Add worker entrypoint and scheduler + job framework
+3) Implement OpenAI adapter + prompt orchestrator + schemas
+4) Build Admin UI for Growth (read-only first)
+5) Implement Daily 5 backend + DB + basic UI
+6) Wire Growth Agent jobs to create Daily 5 announcement/recap content
+7) Add Discord auto-post + publishing queue for manual platforms
+8) Add safety: idempotency, retries, circuit breaker, audit logs
+9) Add documentation: /docs/GROWTH_AGENT.md explaining env vars and how to run
+
+========================================================
+PART E — REQUIRED ENV VARS
+========================================================
+
+OPENAI_API_KEY=...
+GROWTH_AGENT_ENABLED=true/false
+GROWTH_AGENT_TIMEZONE=America/Chicago (or configurable)
+GROWTH_AGENT_DAILY5_TZ=America/New_York
+GROWTH_AGENT_DAILY5_START_HOUR=20
+GROWTH_AGENT_DAILY5_START_MINUTE=0
+GROWTH_AGENT_SECRET_SALT=long_random_string
+
+Optional:
+DISCORD_WEBHOOK_URL=...
+REDDIT_CLIENT_ID=...
+REDDIT_CLIENT_SECRET=...
+REDDIT_USERNAME=...
+REDDIT_PASSWORD=...
+REDDIT_USER_AGENT=...
+REDDIT_TARGET_SUBREDDITS=baseballcards,sportscollecting
+
+Optional queue:
+REDIS_URL=...
+
+========================================================
+DELIVERABLES
+========================================================
+- Working Growth Agent worker + scheduled jobs
+- Admin portal pages for /admin/growth
+- Daily 5 mode working end-to-end
+- Prompt stack implemented with schemas and compliance validator
+- Publishing Queue for manual posting platforms
+- Clear logs and safe retries
+- No regressions to existing PackPTS functionality
