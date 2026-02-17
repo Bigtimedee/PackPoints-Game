@@ -126,8 +126,10 @@ AI-powered content generation and social media automation system. Controlled by 
 - **Circuit Breaker** (`circuitBreaker.ts`): 5 failures in 30 min pauses auto-posting for 30 min cooldown.
 - **OpenAI Adapter** (`openaiAdapter.ts`): GPT-4o-mini integration with structured JSON output parsing.
 - **Content Jobs** (`contentJobs.ts`): Daily plan generation, content item generation, Daily 5 announcement/recap.
-- **Platform Adapters** (`platformAdapters.ts`): Discord webhook auto-post. Other platforms (X, TikTok, IG, Reddit, YouTube) use manual publishing queue.
-- **Auto Poster** (`autoPoster.ts`): Processes READY items with AUTO posting mode.
+- **Platform Adapters** (`platformAdapters.ts`): Auto-posting to Discord (webhook), X/Twitter (`twitter-api-v2` with OAuth 1.0a), and Instagram (Facebook Graph API container→publish flow). Other platforms (TikTok, Reddit, YouTube) use manual publishing queue.
+- **Auto Poster** (`autoPoster.ts`): Processes READY items with AUTO posting mode across all configured platforms.
+- **X/Twitter secrets**: `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`. Supports single tweets and threaded posts (`tweetThread`).
+- **Instagram secrets**: `INSTAGRAM_BUSINESS_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`. Uses Graph API v21.0 two-step container→publish. Falls back to PackPTS logo if no image URL in metadata. Caption limit: 2200 chars.
 DB tables: `growth_content_plans`, `growth_content_items`, `growth_job_runs`, `publishing_queue`.
-Admin UI at `/admin/growth` with Overview, Content, Queue (copy/mark-posted), and Job Logs tabs.
+Admin UI at `/admin/growth` with Overview (includes platform connectivity status), Content, Queue (copy/mark-posted), and Job Logs tabs.
 Admin API: `GET /api/admin/growth/overview`, `GET /api/admin/growth/plans`, `GET /api/admin/growth/items`, `GET /api/admin/growth/queue`, `POST /api/admin/growth/queue/:id/posted`, `GET /api/admin/growth/runs`, `POST /api/admin/growth/run-job`, `POST /api/admin/growth/circuit-breaker/reset`.

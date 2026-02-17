@@ -37,6 +37,12 @@ export const X_THREAD_PROMPT = (theme: string) =>
 Each tweet should be under 280 chars. Make it informative and engaging for baseball card collectors.
 Return JSON: { "title": "thread topic", "body": "Tweet 1\\n---\\nTweet 2\\n---\\nTweet 3", "hashtags": ["tag1"] }`;
 
+export const INSTAGRAM_POST_PROMPT = (theme: string) =>
+  `Create an Instagram post caption about: ${theme}.
+Make it engaging for baseball card collectors. Use line breaks for readability.
+Include a strong call-to-action and relevant hashtags. Keep caption under 1000 chars.
+Return JSON: { "title": "short headline", "body": "caption text", "hashtags": ["tag1", "tag2", "tag3"] }`;
+
 export const SHORT_VIDEO_SCRIPT_PROMPT = (theme: string) =>
   `Write a 30-60 second video script for TikTok/Instagram Reels about: ${theme}.
 Include hook, body, and call-to-action. Format for someone recording a talking-head video.
@@ -52,7 +58,7 @@ Return JSON: {
     { "type": "DISCORD_POST"|"REDDIT_POST"|"X_THREAD"|"SHORT_VIDEO_SCRIPT", "platform": "discord"|"reddit"|"x"|"tiktok"|"instagram"|"youtube", "brief": "one-line description", "postingMode": "AUTO"|"MANUAL_QUEUE" }
   ]
 }
-Auto-post only to Discord. All other platforms should be MANUAL_QUEUE.`;
+Auto-post to Discord, X/Twitter, and Instagram. Other platforms (Reddit, TikTok, YouTube) should be MANUAL_QUEUE.`;
 
 export const CONTENT_THEMES = [
   "Top rookie cards from the 1987 Topps set",

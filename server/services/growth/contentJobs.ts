@@ -85,9 +85,14 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       case "x":
         promptFn = prompts.X_THREAD_PROMPT;
         type = "X_THREAD";
+        postingMode = "AUTO";
+        break;
+      case "instagram":
+        promptFn = prompts.INSTAGRAM_POST_PROMPT;
+        type = "INSTAGRAM_POST";
+        postingMode = "AUTO";
         break;
       case "tiktok":
-      case "instagram":
       case "youtube":
         promptFn = prompts.SHORT_VIDEO_SCRIPT_PROMPT;
         type = "SHORT_VIDEO_SCRIPT";
@@ -95,6 +100,8 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       default:
         continue;
     }
+
+    if (!promptFn) continue;
 
     try {
       const { parsed } = await generateStructuredContent<ContentPiece>({
@@ -158,19 +165,24 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const [item] = await db.insert(growthContentItems).values({
-    planId: plan?.id || null,
-    type: "DAILY5_ANNOUNCEMENT",
-    platform: "discord",
-    title: parsed.title,
-    body: parsed.body,
-    metadata: { hashtags: parsed.hashtags },
-    postingMode: "AUTO",
-    status: "READY",
-    idempotencyKey: idempKey,
-  }).returning();
+  const autoPostPlatforms = ["discord", "x", "instagram"];
+  const items: string[] = [];
+  for (const platform of autoPostPlatforms) {
+    const [item] = await db.insert(growthContentItems).values({
+      planId: plan?.id || null,
+      type: "DAILY5_ANNOUNCEMENT",
+      platform,
+      title: parsed.title,
+      body: parsed.body,
+      metadata: { hashtags: parsed.hashtags },
+      postingMode: "AUTO",
+      status: "READY",
+      idempotencyKey: `${idempKey}_${platform}`,
+    }).returning();
+    items.push(`${platform}:${item.id}`);
+  }
 
-  return { itemId: item.id };
+  return { items };
 });
 
 registerJob("generate_daily5_recap", async (ctx: JobContext) => {
@@ -215,9 +227,9 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const platforms = ["discord", "x"];
+  const autoPostPlatforms = ["discord", "x", "instagram"];
   const items: string[] = [];
-  for (const platform of platforms) {
+  for (const platform of autoPostPlatforms) {
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
       type: "DAILY5_RECAP",
@@ -225,20 +237,11 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
       title: parsed.title,
       body: parsed.body,
       metadata: { hashtags: parsed.hashtags, topPlayers },
-      postingMode: platform === "discord" ? "AUTO" : "MANUAL_QUEUE",
-      status: platform === "discord" ? "READY" : "QUEUED",
+      postingMode: "AUTO",
+      status: "READY",
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
 
-    if (platform !== "discord") {
-      await db.insert(publishingQueue).values({
-        contentItemId: item.id,
-        platform,
-        copyText: parsed.body,
-        assets: { hashtags: parsed.hashtags, title: parsed.title },
-        status: "READY",
-      });
-    }
     items.push(`${platform}:${item.id}`);
   }
 

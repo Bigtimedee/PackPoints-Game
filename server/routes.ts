@@ -11230,6 +11230,11 @@ export async function registerRoutes(
       const plans = await db.select().from(growthContentPlans).orderBy(desc(growthContentPlans.date)).limit(7);
       const recentRuns = await db.select().from(growthJobRuns).orderBy(desc(growthJobRuns.startedAt)).limit(20);
       const queueCount = await db.select({ count: sql<number>`count(*)` }).from(publishingQueue).where(eq(publishingQueue.status, "READY"));
+      const platformStatus = {
+        discord: !!process.env.DISCORD_WEBHOOK_URL,
+        x: !!(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET),
+        instagram: !!(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID && process.env.INSTAGRAM_ACCESS_TOKEN),
+      };
       res.json({
         enabled: process.env.GROWTH_AGENT_ENABLED === "true",
         circuitBreaker: getCircuitBreakerStatus(),
@@ -11238,6 +11243,7 @@ export async function registerRoutes(
         recentPlans: plans,
         recentRuns,
         pendingQueueCount: Number(queueCount[0]?.count || 0),
+        platformStatus,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });

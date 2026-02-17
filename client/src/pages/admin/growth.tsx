@@ -19,6 +19,7 @@ interface Overview {
   recentPlans: any[];
   recentRuns: any[];
   pendingQueueCount: number;
+  platformStatus?: { discord: boolean; x: boolean; instagram: boolean };
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -114,6 +115,27 @@ function OverviewTab() {
           </CardContent>
         </Card>
       </div>
+
+      {data.platformStatus && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Send className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">Platform Connections</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(data.platformStatus).map(([platform, connected]) => (
+                <Badge key={platform} variant={connected ? "default" : "secondary"}
+                  data-testid={`badge-platform-${platform}`}>
+                  {connected ? <Check className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
+                  {platform === "x" ? "X / Twitter" : platform.charAt(0).toUpperCase() + platform.slice(1)}
+                  {connected ? "" : " (not configured)"}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
