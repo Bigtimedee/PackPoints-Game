@@ -301,6 +301,13 @@ app.use((req, res, next) => {
         } catch (err) {
           console.error("[WebhookRetryWorker] Failed to start:", err);
         }
+
+        try {
+          const { initGrowthAgent } = await import("./services/growth");
+          initGrowthAgent();
+        } catch (err) {
+          console.error("[GrowthAgent] Failed to initialize:", err);
+        }
       })();
     },
   );

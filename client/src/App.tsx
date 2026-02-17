@@ -38,6 +38,7 @@ import AdminCardReports from "@/pages/admin/card-reports";
 import AdminPackageGuardrails from "@/pages/admin/package-guardrails";
 import AdminCardSets from "@/pages/admin/card-sets";
 import AdminCardTelemetry from "@/pages/admin/card-telemetry";
+import AdminGrowth from "@/pages/admin/growth";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -49,6 +50,7 @@ import Waitlist from "@/pages/waitlist";
 import Invite from "@/pages/invite";
 import Redeem from "@/pages/redeem";
 import Friends from "@/pages/friends";
+import Daily5 from "@/pages/daily5";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -67,6 +69,7 @@ function Router() {
       <Route path="/store/cancel" component={StoreCancel} />
       <Route path="/profile" component={Profile} />
       <Route path="/friends" component={Friends} />
+      <Route path="/daily5" component={Daily5} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard">
         {() => (
@@ -135,6 +138,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminStreaks />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/growth">
+        {() => (
+          <AdminLayout>
+            <AdminGrowth />
           </AdminLayout>
         )}
       </Route>

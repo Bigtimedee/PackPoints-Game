@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, growthContentPlans, growthContentItems, growthJobRuns, publishingQueue, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -44,7 +44,8 @@ import { expirationEngine } from "./services/expirationEngine";
 import { identityService } from "./services/identityService";
 import * as accessService from "./services/accessService";
 import * as foundersPassService from "./services/foundersPassService";
-import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD } from "@shared/schema";
+import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
+import { daily5Service } from "./services/daily5Service";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
@@ -1390,6 +1391,90 @@ export async function registerRoutes(
       res.json(leaderboard);
     } catch (error) {
       console.error("Error getting leaderboard:", error);
+      res.status(500).json({ error: "Failed to get leaderboard" });
+    }
+  });
+
+  // ============================================
+  // DAILY 5 CHALLENGE ROUTES
+  // ============================================
+
+  app.get("/api/daily5/status", async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const status = await daily5Service.getStatus(userId || undefined);
+      res.json(status);
+    } catch (error) {
+      console.error("[Daily5] Error getting status:", error);
+      res.status(500).json({ error: "Failed to get Daily 5 status" });
+    }
+  });
+
+  app.post("/api/daily5/start", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const result = await daily5Service.startChallenge(userId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Daily5] Error starting challenge:", error);
+      if (error.message?.includes("already completed")) {
+        return res.status(409).json({ error: error.message });
+      }
+      if (error.message?.includes("not active") || error.message?.includes("SCHEDULED") || error.message?.includes("CLOSED")) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to start Daily 5" });
+    }
+  });
+
+  app.post("/api/daily5/answer", isAuthenticated, answerSubmitLimiter, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      
+      const parsed = daily5AnswerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+      
+      const { challengeId, position, selectedAnswer } = parsed.data;
+      const result = await daily5Service.submitAnswer(userId, challengeId, position, selectedAnswer);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Daily5] Error submitting answer:", error);
+      if (error.message?.includes("already answered") || error.message?.includes("already completed")) {
+        return res.status(409).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to submit answer" });
+    }
+  });
+
+  app.post("/api/daily5/finish", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      
+      const parsed = daily5FinishSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request" });
+      }
+      
+      const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Daily5] Error finishing challenge:", error);
+      res.status(500).json({ error: "Failed to finish Daily 5" });
+    }
+  });
+
+  app.get("/api/daily5/leaderboard", async (req, res) => {
+    try {
+      const date = req.query.date as string | undefined;
+      const result = await daily5Service.getLeaderboard(date);
+      res.json(result);
+    } catch (error) {
+      console.error("[Daily5] Error getting leaderboard:", error);
       res.status(500).json({ error: "Failed to get leaderboard" });
     }
   });
@@ -11132,6 +11217,114 @@ export async function registerRoutes(
     } catch (error: unknown) {
       console.error("Error getting match answers:", error);
       res.status(500).json({ ok: false, error: "Failed to get match answers" });
+    }
+  });
+
+  // ==========================================
+  // GROWTH AGENT ADMIN API
+  // ==========================================
+
+  app.get("/api/admin/growth/overview", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getRegisteredJobs, getSchedule, getCircuitBreakerStatus } = await import("./services/growth");
+      const plans = await db.select().from(growthContentPlans).orderBy(desc(growthContentPlans.date)).limit(7);
+      const recentRuns = await db.select().from(growthJobRuns).orderBy(desc(growthJobRuns.startedAt)).limit(20);
+      const queueCount = await db.select({ count: sql<number>`count(*)` }).from(publishingQueue).where(eq(publishingQueue.status, "READY"));
+      res.json({
+        enabled: process.env.GROWTH_AGENT_ENABLED === "true",
+        circuitBreaker: getCircuitBreakerStatus(),
+        registeredJobs: getRegisteredJobs(),
+        schedule: getSchedule(),
+        recentPlans: plans,
+        recentRuns,
+        pendingQueueCount: Number(queueCount[0]?.count || 0),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/plans", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 30, 100);
+      const plans = await db.select().from(growthContentPlans).orderBy(desc(growthContentPlans.date)).limit(limit);
+      res.json({ plans });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/items", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const platform = req.query.platform as string | undefined;
+      const status = req.query.status as string | undefined;
+      let query = db.select().from(growthContentItems).orderBy(desc(growthContentItems.createdAt)).limit(limit);
+      if (platform) query = query.where(eq(growthContentItems.platform, platform)) as any;
+      if (status) query = query.where(eq(growthContentItems.status, status)) as any;
+      const items = await query;
+      res.json({ items });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/queue", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const status = req.query.status as string | undefined;
+      let query = db.select().from(publishingQueue).orderBy(desc(publishingQueue.createdAt)).limit(limit);
+      if (status) query = query.where(eq(publishingQueue.status, status)) as any;
+      const items = await query;
+      res.json({ items });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/queue/:id/posted", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await db.update(publishingQueue).set({
+        status: "POSTED",
+        postedBy: req.user?.id || null,
+        postedAt: new Date(),
+      }).where(eq(publishingQueue.id, id));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/runs", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const runs = await db.select().from(growthJobRuns).orderBy(desc(growthJobRuns.startedAt)).limit(limit);
+      res.json({ runs });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/run-job", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { jobName } = req.body;
+      if (!jobName) return res.status(400).json({ error: "jobName required" });
+      const { executeJob } = await import("./services/growth");
+      const result = await executeJob(jobName, { skipCircuitBreaker: true });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/circuit-breaker/reset", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { resetCircuitBreaker } = await import("./services/growth");
+      resetCircuitBreaker();
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
     }
   });
 

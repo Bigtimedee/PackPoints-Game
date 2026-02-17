@@ -115,3 +115,19 @@ Request ID middleware (`server/middleware/requestLogger.ts`) assigns UUID to eve
 
 ### Audit Documentation
 Launch readiness audit documented in `docs/LAUNCH_AUDIT.md` with GO/NO-GO checklist.
+
+### Daily 5 Challenge (Feb 2026)
+Daily challenge where all users play the same 5 cards. Uses SHA-256 seeded deterministic card selection with `SECRET_SALT` env var. Challenge auto-creates at 8 PM ET daily (01:00 UTC), 24-hour play window. DB tables: `daily_challenges`, `daily_challenge_cards`, `daily_challenge_entries`. Service at `server/services/daily5Service.ts`. API endpoints: `GET /api/daily5/status`, `POST /api/daily5/start`, `POST /api/daily5/answer`, `POST /api/daily5/finish`, `GET /api/daily5/leaderboard`. Frontend at `/daily5` with countdown, game flow, results, and daily leaderboard. Entry point on home page game modes grid.
+
+### Growth Agent System (Feb 2026)
+AI-powered content generation and social media automation system. Controlled by `GROWTH_AGENT_ENABLED` env var (default: false). Core files in `server/services/growth/`. Components:
+- **Job Runner** (`jobRunner.ts`): DB-backed job execution with idempotency keys and structured logging to `growth_job_runs` table.
+- **Scheduler** (`scheduler.ts`): UTC-based daily scheduling with same-day dedup. Ticks every 60s.
+- **Circuit Breaker** (`circuitBreaker.ts`): 5 failures in 30 min pauses auto-posting for 30 min cooldown.
+- **OpenAI Adapter** (`openaiAdapter.ts`): GPT-4o-mini integration with structured JSON output parsing.
+- **Content Jobs** (`contentJobs.ts`): Daily plan generation, content item generation, Daily 5 announcement/recap.
+- **Platform Adapters** (`platformAdapters.ts`): Discord webhook auto-post. Other platforms (X, TikTok, IG, Reddit, YouTube) use manual publishing queue.
+- **Auto Poster** (`autoPoster.ts`): Processes READY items with AUTO posting mode.
+DB tables: `growth_content_plans`, `growth_content_items`, `growth_job_runs`, `publishing_queue`.
+Admin UI at `/admin/growth` with Overview, Content, Queue (copy/mark-posted), and Job Logs tabs.
+Admin API: `GET /api/admin/growth/overview`, `GET /api/admin/growth/plans`, `GET /api/admin/growth/items`, `GET /api/admin/growth/queue`, `POST /api/admin/growth/queue/:id/posted`, `GET /api/admin/growth/runs`, `POST /api/admin/growth/run-job`, `POST /api/admin/growth/circuit-breaker/reset`.

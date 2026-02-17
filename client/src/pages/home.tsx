@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Clock, Shuffle } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Clock, Shuffle, Calendar } from "lucide-react";
 import { FoundersCounter } from "@/components/founders-counter";
 
 const gameModes = [
@@ -39,6 +39,18 @@ const gameModes = [
     badgeVariant: "default" as const,
     pointRange: "100-1000 pts",
     difficulty: "Competitive",
+    disabled: false,
+  },
+  {
+    id: "daily5",
+    title: "Daily 5",
+    description: "Same 5 cards for everyone, once per day. Compete on the daily leaderboard!",
+    icon: Calendar,
+    href: "/daily5",
+    badge: "New",
+    badgeVariant: "default" as const,
+    pointRange: "Up to 500 pts",
+    difficulty: "Everyone",
     disabled: false,
   },
   {

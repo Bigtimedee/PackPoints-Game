@@ -3609,3 +3609,217 @@ export const bundleCreateSchema = z.object({
 });
 
 export type BundleCreateRequest = z.infer<typeof bundleCreateSchema>;
+
+// ============================================
+// DAILY 5 CHALLENGE SYSTEM
+// ============================================
+
+export const dailyChallengeStatuses = ["SCHEDULED", "ACTIVE", "CLOSED"] as const;
+export type DailyChallengeStatus = typeof dailyChallengeStatuses[number];
+
+export const dailyChallenges = pgTable("daily_challenges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: varchar("date", { length: 10 }).notNull().unique(),
+  mode: varchar("mode", { length: 20 }).notNull().default("DAILY5"),
+  setId: varchar("set_id").references(() => gameSets.id),
+  seed: varchar("seed", { length: 128 }).notNull(),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("SCHEDULED"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_daily_challenges_date").on(table.date),
+  index("idx_daily_challenges_status").on(table.status),
+]);
+
+export const insertDailyChallengeSchema = createInsertSchema(dailyChallenges).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertDailyChallenge = z.infer<typeof insertDailyChallengeSchema>;
+export type DailyChallenge = typeof dailyChallenges.$inferSelect;
+
+export const dailyChallengeCards = pgTable("daily_challenge_cards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dailyChallengeId: varchar("daily_challenge_id").notNull().references(() => dailyChallenges.id),
+  position: integer("position").notNull(),
+  cardId: varchar("card_id").notNull().references(() => playableCards.id),
+  correctAnswer: text("correct_answer").notNull(),
+  choices: jsonb("choices").notNull().$type<string[]>(),
+  pointValue: integer("point_value").notNull().default(100),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_daily_challenge_cards_challenge").on(table.dailyChallengeId),
+  unique("daily_challenge_cards_position_unique").on(table.dailyChallengeId, table.position),
+]);
+
+export const insertDailyChallengeCardSchema = createInsertSchema(dailyChallengeCards).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertDailyChallengeCard = z.infer<typeof insertDailyChallengeCardSchema>;
+export type DailyChallengeCard = typeof dailyChallengeCards.$inferSelect;
+
+export const dailyChallengeEntries = pgTable("daily_challenge_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dailyChallengeId: varchar("daily_challenge_id").notNull().references(() => dailyChallenges.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  score: integer("score").notNull().default(0),
+  correctCount: integer("correct_count").notNull().default(0),
+  timeMs: integer("time_ms"),
+  answers: jsonb("answers").$type<{ position: number; selected: string; correct: boolean; timeMs?: number }[]>(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("daily_challenge_entries_user_unique").on(table.dailyChallengeId, table.userId),
+  index("idx_daily_challenge_entries_challenge").on(table.dailyChallengeId),
+  index("idx_daily_challenge_entries_user").on(table.userId),
+  index("idx_daily_challenge_entries_score").on(table.dailyChallengeId, table.score),
+]);
+
+export const insertDailyChallengeEntrySchema = createInsertSchema(dailyChallengeEntries).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertDailyChallengeEntry = z.infer<typeof insertDailyChallengeEntrySchema>;
+export type DailyChallengeEntry = typeof dailyChallengeEntries.$inferSelect;
+
+// ============================================
+// GROWTH AGENT SYSTEM
+// ============================================
+
+export const growthPlanStatuses = ["DRAFT", "APPROVED", "ACTIVE", "ARCHIVED"] as const;
+export type GrowthPlanStatus = typeof growthPlanStatuses[number];
+
+export const growthContentPlans = pgTable("growth_content_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: varchar("date", { length: 10 }).notNull().unique(),
+  theme: text("theme"),
+  targetPlatforms: jsonb("target_platforms").$type<string[]>(),
+  status: varchar("status", { length: 20 }).notNull().default("DRAFT"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_growth_content_plans_date").on(table.date),
+  index("idx_growth_content_plans_status").on(table.status),
+]);
+
+export const insertGrowthContentPlanSchema = createInsertSchema(growthContentPlans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertGrowthContentPlan = z.infer<typeof insertGrowthContentPlanSchema>;
+export type GrowthContentPlan = typeof growthContentPlans.$inferSelect;
+
+export const growthContentTypes = [
+  "SHORT_VIDEO_SCRIPT", "X_THREAD", "REDDIT_POST", "DISCORD_POST",
+  "DAILY5_ANNOUNCEMENT", "DAILY5_RECAP", "LEADERBOARD_SPOTLIGHT"
+] as const;
+export type GrowthContentType = typeof growthContentTypes[number];
+
+export const growthPostingModes = ["AUTO", "MANUAL_QUEUE"] as const;
+export type GrowthPostingMode = typeof growthPostingModes[number];
+
+export const growthContentStatuses = ["QUEUED", "READY", "POSTED", "FAILED"] as const;
+export type GrowthContentStatus = typeof growthContentStatuses[number];
+
+export const growthContentItems = pgTable("growth_content_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").references(() => growthContentPlans.id),
+  type: varchar("type", { length: 40 }).notNull(),
+  platform: varchar("platform", { length: 40 }).notNull(),
+  title: text("title"),
+  body: text("body"),
+  metadata: jsonb("metadata"),
+  postingMode: varchar("posting_mode", { length: 20 }).notNull().default("MANUAL_QUEUE"),
+  scheduledFor: timestamp("scheduled_for"),
+  postedAt: timestamp("posted_at"),
+  status: varchar("status", { length: 20 }).notNull().default("QUEUED"),
+  externalPostId: text("external_post_id"),
+  error: text("error"),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_growth_content_items_plan").on(table.planId),
+  index("idx_growth_content_items_platform").on(table.platform),
+  index("idx_growth_content_items_status").on(table.status),
+  index("idx_growth_content_items_scheduled").on(table.scheduledFor),
+  index("idx_growth_content_items_idempotency").on(table.idempotencyKey),
+]);
+
+export const insertGrowthContentItemSchema = createInsertSchema(growthContentItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertGrowthContentItem = z.infer<typeof insertGrowthContentItemSchema>;
+export type GrowthContentItem = typeof growthContentItems.$inferSelect;
+
+export const growthJobStatuses = ["STARTED", "SUCCEEDED", "FAILED"] as const;
+export type GrowthJobStatus = typeof growthJobStatuses[number];
+
+export const growthJobRuns = pgTable("growth_job_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobName: text("job_name").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("STARTED"),
+  startedAt: timestamp("started_at").defaultNow(),
+  endedAt: timestamp("ended_at"),
+  details: jsonb("details"),
+  error: text("error"),
+}, (table) => [
+  index("idx_growth_job_runs_name").on(table.jobName),
+  index("idx_growth_job_runs_status").on(table.status),
+  index("idx_growth_job_runs_started").on(table.startedAt),
+]);
+
+export const insertGrowthJobRunSchema = createInsertSchema(growthJobRuns).omit({
+  id: true,
+});
+export type InsertGrowthJobRun = z.infer<typeof insertGrowthJobRunSchema>;
+export type GrowthJobRun = typeof growthJobRuns.$inferSelect;
+
+export const publishingQueueStatuses = ["READY", "POSTED"] as const;
+export type PublishingQueueStatus = typeof publishingQueueStatuses[number];
+
+export const publishingQueue = pgTable("publishing_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contentItemId: varchar("content_item_id").references(() => growthContentItems.id),
+  platform: varchar("platform", { length: 40 }).notNull(),
+  assets: jsonb("assets"),
+  copyText: text("copy_text"),
+  status: varchar("status", { length: 20 }).notNull().default("READY"),
+  postedBy: varchar("posted_by").references(() => users.id),
+  postedAt: timestamp("posted_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_publishing_queue_platform").on(table.platform),
+  index("idx_publishing_queue_status").on(table.status),
+  index("idx_publishing_queue_content_item").on(table.contentItemId),
+]);
+
+export const insertPublishingQueueSchema = createInsertSchema(publishingQueue).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertPublishingQueue = z.infer<typeof insertPublishingQueueSchema>;
+export type PublishingQueue = typeof publishingQueue.$inferSelect;
+
+// ============================================
+// DAILY 5 API SCHEMAS
+// ============================================
+
+export const daily5AnswerSchema = z.object({
+  challengeId: z.string(),
+  position: z.number().int().min(1).max(5),
+  selectedAnswer: z.string(),
+});
+export type Daily5AnswerRequest = z.infer<typeof daily5AnswerSchema>;
+
+export const daily5FinishSchema = z.object({
+  challengeId: z.string(),
+});
+export type Daily5FinishRequest = z.infer<typeof daily5FinishSchema>;
