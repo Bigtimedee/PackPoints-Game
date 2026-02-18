@@ -722,47 +722,43 @@ export class DatabaseStorage implements IStorage {
   }
 
   private async refreshStaleCardImages(cards: PlayableCard[]): Promise<PlayableCard[]> {
-    const refreshedCards: PlayableCard[] = [];
-    
-    for (const card of cards) {
-      if (isImageStale(card.lastImageCheck)) {
+    const filteredCards = cards.filter(card => {
+      if (card.quarantineStatus === "QUARANTINED_ADMIN_REVIEW" && card.proposedUnplayable) {
+        console.warn(`[Storage] Excluding quarantined card ${card.id} (${card.player}) from gameplay`);
+        return false;
+      }
+      return true;
+    });
+
+    const staleCards = filteredCards.filter(c => isImageStale(c.lastImageCheck));
+    if (staleCards.length > 0) {
+      console.log(`[Storage] ${staleCards.length}/${filteredCards.length} cards have stale images - scheduling background refresh`);
+      this.scheduleBackgroundImageRefresh(staleCards);
+    }
+    return filteredCards;
+  }
+
+  private scheduleBackgroundImageRefresh(cards: PlayableCard[]): void {
+    setImmediate(async () => {
+      for (const card of cards) {
         try {
-          // CRITICAL: Pass expected player name to prevent accepting wrong player's image
           const result = await getFreshImageUrl(
             card.id,
             card.cardhedgeCardId || null,
             card.imageUrl || null,
             card.lastImageCheck || null,
-            card.player // Pass expected player name for verification
+            card.player
           );
-          
-          if (result.success && result.imageUrl) {
-            refreshedCards.push({
-              ...card,
-              imageUrl: result.imageUrl,
-              lastImageCheck: new Date(),
-              imageFailureCount: 0,
-            });
-            if (!result.fromCache) {
-              console.log(`[Storage] Refreshed stale image for card ${card.id}`);
-            }
+          if (result.success && !result.fromCache) {
+            console.log(`[Storage:BG] Refreshed stale image for card ${card.id}`);
           } else if (result.playerMismatch) {
-            // Card has player mismatch - don't serve it, it was already marked as not playable
-            console.warn(`[Storage] Excluding card ${card.id} due to player mismatch`);
-            // Don't add to refreshedCards - effectively filtering it out
-          } else {
-            refreshedCards.push(card);
+            console.warn(`[Storage:BG] Player mismatch detected for card ${card.id} - quarantined for admin review`);
           }
         } catch (error) {
-          console.error(`[Storage] Error refreshing card ${card.id}:`, error);
-          refreshedCards.push(card);
+          // Background refresh failures are non-critical
         }
-      } else {
-        refreshedCards.push(card);
       }
-    }
-    
-    return refreshedCards;
+    });
   }
 
   private generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): GameQuestion {

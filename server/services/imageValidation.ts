@@ -13,11 +13,12 @@ import {
   type OperationSource,
 } from "./mutationGuard";
 
-const VALIDATION_TIMEOUT_MS = 8000;
-const MAX_FAILURE_COUNT = 2;
+const VALIDATION_TIMEOUT_MS = 10000;
+const MAX_FAILURE_COUNT = 3;
 const VALIDATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const BATCH_SIZE = 50;
-const BATCH_DELAY_MS = 1000;
+const BATCH_SIZE = 10;
+const BATCH_DELAY_MS = 3000;
+const MAX_QUARANTINE_RATE = 0.15;
 const MIN_VALID_IMAGE_SIZE = 5000;
 
 const PLACEHOLDER_URL_PATTERNS = [
@@ -213,10 +214,28 @@ export async function validatePlayableCardImages(
 
   console.log(`[ImageValidation] Checking ${cardsToCheck.length} playable cards (source: ${operationSource})`);
 
+  let transientFailStreak = 0;
+  let abortedEarly = false;
+
   for (let i = 0; i < cardsToCheck.length; i += BATCH_SIZE) {
+    if (stats.totalChecked > 0) {
+      const quarantineRate = stats.newlyQuarantined / stats.totalChecked;
+      if (quarantineRate > MAX_QUARANTINE_RATE && stats.totalChecked >= 50) {
+        console.warn(`[ImageValidation] ABORTING: quarantine rate ${(quarantineRate * 100).toFixed(1)}% exceeds ${MAX_QUARANTINE_RATE * 100}% threshold after ${stats.totalChecked} cards - likely external outage`);
+        abortedEarly = true;
+        break;
+      }
+    }
+
+    if (transientFailStreak >= 10) {
+      console.warn(`[ImageValidation] ABORTING: ${transientFailStreak} consecutive transient failures - external service likely down`);
+      abortedEarly = true;
+      break;
+    }
+
     const batch = cardsToCheck.slice(i, i + BATCH_SIZE);
     
-    await Promise.all(batch.map(async (card) => {
+    for (const card of batch) {
       stats.totalChecked++;
       
       if (!card.imageUrl) {
@@ -238,13 +257,14 @@ export async function validatePlayableCardImages(
         if (meetsProposalCriteria) stats.proposedUnplayable++;
         stats.newlyQuarantined++;
         stats.errors.push({ cardId: card.id, player: card.player, error: "No image URL (quarantined)" });
-        return;
+        continue;
       }
 
       const result = await validateImageUrl(card.imageUrl);
       
       if (result.valid) {
         stats.valid++;
+        transientFailStreak = 0;
         await db.update(playableCards)
           .set({
             lastImageCheck: new Date(),
@@ -265,6 +285,22 @@ export async function validatePlayableCardImages(
         stats.invalid++;
         
         const hasTransient = isTransientError(result.statusCode || null, result.error || null);
+
+        if (hasTransient) {
+          transientFailStreak++;
+          await db.update(playableCards)
+            .set({
+              lastImageCheck: new Date(),
+              imageLastError: result.error || "Transient error",
+              lastValidationReason: result.error || "Transient error",
+              lastValidationCheckedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(playableCards.id, card.id));
+          continue;
+        }
+
+        transientFailStreak = 0;
         const newFailCount = (card.validationFailCount || 0) + 1;
         const firstFailAt = card.firstValidationFailAt || new Date();
         const meetsProposalCriteria = checkProposalCriteria(newFailCount, firstFailAt, hasTransient);
@@ -293,11 +329,15 @@ export async function validatePlayableCardImages(
         
         stats.errors.push({ cardId: card.id, player: card.player, error: result.error || "Unknown error" });
       }
-    }));
+    }
 
     if (i + BATCH_SIZE < cardsToCheck.length) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
+  }
+
+  if (abortedEarly) {
+    console.warn(`[ImageValidation] Job aborted early - checked ${stats.totalChecked}/${cardsToCheck.length} cards`);
   }
 
   console.log(`[ImageValidation] Playable cards: ${stats.valid} valid, ${stats.invalid} invalid, ${stats.newlyQuarantined} quarantined (NO cards marked unplayable)`);
@@ -400,16 +440,23 @@ export async function validateBaseballCardImages(
 
   console.log(`[ImageValidation] Checking ${cardsToCheck.length} baseball cards`);
 
+  let baseballTransientStreak = 0;
   for (let i = 0; i < cardsToCheck.length; i += BATCH_SIZE) {
+    if (baseballTransientStreak >= 10) {
+      console.warn(`[ImageValidation] ABORTING baseball validation: ${baseballTransientStreak} consecutive transient failures`);
+      break;
+    }
+
     const batch = cardsToCheck.slice(i, i + BATCH_SIZE);
     
-    await Promise.all(batch.map(async (card) => {
+    for (const card of batch) {
       stats.totalChecked++;
       
       const result = await validateImageUrl(card.imageUrl);
       
       if (result.valid) {
         stats.valid++;
+        baseballTransientStreak = 0;
         await db.update(baseballCards)
           .set({
             lastImageCheck: new Date(),
@@ -430,9 +477,15 @@ export async function validateBaseballCardImages(
           })
           .where(eq(baseballCards.id, card.id));
         
+        const hasTransient = isTransientError(null, result.error || null);
+        if (hasTransient) {
+          baseballTransientStreak++;
+        } else {
+          baseballTransientStreak = 0;
+        }
         stats.errors.push({ cardId: card.id, player: card.playerName, error: result.error || "Unknown error" });
       }
-    }));
+    }
 
     if (i + BATCH_SIZE < cardsToCheck.length) {
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
@@ -449,10 +502,8 @@ export async function runFullValidation(forceRecheck: boolean = false): Promise<
 }> {
   console.log(`[ImageValidation] Starting full validation (force=${forceRecheck})`);
   
-  const [playableStats, baseballStats] = await Promise.all([
-    validatePlayableCardImages(undefined, forceRecheck),
-    validateBaseballCardImages(forceRecheck)
-  ]);
+  const playableStats = await validatePlayableCardImages(undefined, forceRecheck);
+  const baseballStats = await validateBaseballCardImages(forceRecheck);
 
   console.log(`[ImageValidation] Full validation complete`);
   console.log(`  Playable: ${playableStats.totalChecked} checked, ${playableStats.newlyQuarantined} quarantined, 0 excluded (SAFE)`);
