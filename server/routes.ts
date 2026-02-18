@@ -2257,15 +2257,19 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Valid join code required" });
       }
       
-      // Use server-derived identity, ignore any client-provided guestId/guestUsername
-      const lobby = await matchService.joinLobby(joinCode.toUpperCase(), userId, user.username);
+      const result = await matchService.joinLobby(joinCode.toUpperCase(), userId, user.username);
       
-      if (!lobby) {
-        return res.status(404).json({ error: "Lobby not found or not available" });
+      if ("error" in result) {
+        const statusCode = result.code === "NOT_FOUND" ? 404
+          : result.code === "SELF_JOIN" ? 409
+          : result.code === "LOBBY_FULL" ? 409
+          : result.code === "NOT_WAITING" ? 410
+          : 400;
+        return res.status(statusCode).json({ error: result.error, code: result.code });
       }
       
-      const { hostSecret: _, guestSecret: __, ...safeLobby } = lobby;
-      res.json({ ...safeLobby, membershipSecret: lobby.guestSecret });
+      const { hostSecret: _, guestSecret: __, ...safeLobby } = result.lobby;
+      res.json({ ...safeLobby, membershipSecret: result.lobby.guestSecret });
     } catch (error) {
       console.error("Error joining lobby:", error);
       res.status(500).json({ error: "Failed to join lobby" });

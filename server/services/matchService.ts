@@ -114,13 +114,13 @@ class MatchService {
     return lobby;
   }
 
-  async joinLobby(joinCode: string, guestId: string, guestUsername: string): Promise<Lobby | null> {
+  async joinLobby(joinCode: string, guestId: string, guestUsername: string): Promise<{ lobby: Lobby } | { error: string; code: string }> {
     const lobby = await this.getLobbyByCode(joinCode);
     
-    if (!lobby) return null;
-    if (lobby.status !== "waiting") return null;
-    if (lobby.guestId) return null;
-    if (lobby.hostId === guestId) return null;
+    if (!lobby) return { error: "Lobby not found. Check your join code and try again.", code: "NOT_FOUND" };
+    if (lobby.hostId === guestId) return { error: "You cannot join your own lobby. Share the code with a friend to play against them.", code: "SELF_JOIN" };
+    if (lobby.status !== "waiting") return { error: "This lobby is no longer accepting players. The match may have already started.", code: "NOT_WAITING" };
+    if (lobby.guestId) return { error: "This lobby is already full. Another player has already joined.", code: "LOBBY_FULL" };
     
     const guestSecret = generateSecret();
     
@@ -130,7 +130,7 @@ class MatchService {
       .where(eq(lobbies.id, lobby.id))
       .returning();
     
-    return updatedLobby;
+    return { lobby: updatedLobby };
   }
 
   async leaveLobby(lobbyId: string, userId: string): Promise<Lobby | null> {
