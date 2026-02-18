@@ -293,9 +293,25 @@ function QueueTab() {
 }
 
 function JobLogsTab() {
-  const { data, isLoading } = useQuery<{ runs: any[] }>({
+  const { toast } = useToast();
+  const { data, isLoading, refetch } = useQuery<{ runs: any[] }>({
     queryKey: ["/api/admin/growth/runs"],
   });
+
+  const retryMutation = useMutation({
+    mutationFn: (jobName: string) => apiRequest("POST", "/api/admin/growth/run-job", { jobName }),
+    onSuccess: async (res) => {
+      const result = await res.json();
+      toast({ title: `Retry ${result.status}`, description: result.error || `Run ID: ${result.runId}` });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const [expandedError, setExpandedError] = useState<string | null>(null);
 
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin mx-auto mt-8" />;
 
@@ -305,19 +321,42 @@ function JobLogsTab() {
         <p className="text-sm text-muted-foreground text-center py-8">No job runs yet</p>
       )}
       {data?.runs.map(run => (
-        <div key={run.id} className="flex items-center justify-between gap-2 p-3 rounded-md bg-muted/50 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium">{run.jobName.replace(/_/g, " ")}</span>
-            <StatusBadge status={run.status} />
+        <div key={run.id} className="p-3 rounded-md bg-muted/50 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium">{run.jobName.replace(/_/g, " ")}</span>
+              <StatusBadge status={run.status} />
+            </div>
+            <div className="flex items-center gap-2">
+              {run.status === "FAILED" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => retryMutation.mutate(run.jobName)}
+                  disabled={retryMutation.isPending}
+                  data-testid={`button-retry-${run.id}`}>
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                  Retry
+                </Button>
+              )}
+              <span className="text-xs text-muted-foreground">
+                {new Date(run.startedAt).toLocaleString()}
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {run.error && (
-              <span className="text-xs text-destructive max-w-[200px] truncate">{run.error}</span>
-            )}
-            <span className="text-xs text-muted-foreground">
-              {new Date(run.startedAt).toLocaleString()}
-            </span>
-          </div>
+          {run.error && (
+            <div
+              className="cursor-pointer"
+              onClick={() => setExpandedError(expandedError === run.id ? null : run.id)}
+              data-testid={`error-detail-${run.id}`}>
+              <p className={`text-xs text-destructive ${expandedError === run.id ? "" : "line-clamp-2"}`}>
+                {run.error}
+              </p>
+              <span className="text-xs text-muted-foreground">
+                {expandedError === run.id ? "Click to collapse" : "Click to expand"}
+              </span>
+            </div>
+          )}
         </div>
       ))}
     </div>
