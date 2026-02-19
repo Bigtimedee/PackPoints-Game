@@ -11238,6 +11238,7 @@ export async function registerRoutes(
         discord: !!process.env.DISCORD_WEBHOOK_URL,
         x: !!(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET),
         instagram: !!(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID && process.env.INSTAGRAM_ACCESS_TOKEN),
+        reddit: !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET && process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD),
       };
 
       const todayChicago = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });

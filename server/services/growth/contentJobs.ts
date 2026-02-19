@@ -4,17 +4,13 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 import { generateStructuredContent } from "./openaiAdapter";
 import * as prompts from "./promptTemplates";
-
-interface ContentPiece {
-  title: string;
-  body: string;
-  hashtags: string[];
-}
-
-interface PlanOutput {
-  theme: string;
-  items: { type: string; platform: string; brief: string; postingMode: string }[];
-}
+import {
+  ContentPieceSchema, PlanOutputSchema, type ContentPiece, type PlanOutput,
+  validateWithSchema, getSchemaForPlatform, getSchemaJsonHint,
+} from "./schemas";
+import { validateCompliance } from "./complianceValidator";
+import { getRecentHooks, getRecentPlayerNames, getRecentThemes, buildDiversityConstraints } from "./diversityTracker";
+import { buildContentContext, contextToPromptSection } from "./contextBuilder";
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -54,16 +50,21 @@ registerJob("generate_daily_plan", async (ctx: JobContext) => {
     return { skipped: true, reason: "Plan already exists for today", planId: existing[0].id };
   }
 
-  const recentPlans = await db.select({ theme: growthContentPlans.theme })
-    .from(growthContentPlans)
-    .orderBy(desc(growthContentPlans.date))
-    .limit(5);
-  const recentThemes = recentPlans.map(p => p.theme).filter(Boolean) as string[];
+  const [recentThemesList, recentHooksList, recentPlayersList, contentCtx] = await Promise.all([
+    getRecentThemes(),
+    getRecentHooks(),
+    getRecentPlayerNames(),
+    buildContentContext(),
+  ]);
+  const diversityHint = buildDiversityConstraints(recentHooksList, recentPlayersList, recentThemesList);
+  const contextHint = contextToPromptSection(contentCtx);
 
-  const { parsed } = await generateStructuredContent<PlanOutput>({
-    systemPrompt: prompts.SYSTEM_PROMPT,
-    userPrompt: prompts.CONTENT_PLAN_PROMPT(date, recentThemes),
+  const { parsed: rawParsed } = await generateStructuredContent<PlanOutput>({
+    systemPrompt: prompts.SYSTEM_PROMPT + diversityHint + contextHint,
+    userPrompt: prompts.CONTENT_PLAN_PROMPT(date, recentThemesList),
   });
+
+  const parsed = validateWithSchema(PlanOutputSchema, rawParsed, "DailyPlan");
 
   const [plan] = await db.insert(growthContentPlans).values({
     date,
@@ -111,6 +112,14 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
   const platforms = (plan.targetPlatforms as string[]) || ["discord"];
   const generated: string[] = [];
 
+  const [hooksList, playersList, itemCtx] = await Promise.all([
+    getRecentHooks(),
+    getRecentPlayerNames(),
+    buildContentContext(),
+  ]);
+  const diversityHint = buildDiversityConstraints(hooksList, playersList, []);
+  const contextHint = contextToPromptSection(itemCtx);
+
   for (const platform of platforms) {
     let promptFn: ((t: string) => string) | null = null;
     let type = "";
@@ -125,6 +134,7 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       case "reddit":
         promptFn = prompts.REDDIT_POST_PROMPT;
         type = "REDDIT_POST";
+        postingMode = "MANUAL_QUEUE";
         break;
       case "x":
         promptFn = prompts.X_THREAD_PROMPT;
@@ -148,10 +158,18 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
     if (!promptFn) continue;
 
     try {
-      const { parsed } = await generateStructuredContent<ContentPiece>({
-        systemPrompt: prompts.SYSTEM_PROMPT,
+      const schema = getSchemaForPlatform(platform);
+      const { parsed: rawParsed } = await generateStructuredContent<ContentPiece>({
+        systemPrompt: prompts.SYSTEM_PROMPT + diversityHint + contextHint,
         userPrompt: promptFn(theme),
+        jsonSchema: getSchemaJsonHint(platform),
       });
+      let parsed = validateWithSchema(schema, rawParsed, `ContentItem:${platform}`) as ContentPiece;
+
+      const compliance = await validateCompliance(parsed, platform);
+      if (compliance.rewritten) {
+        parsed = { ...parsed, ...compliance.rewritten };
+      }
 
       const idempKey = `${ctx.idempotencyKey}_${platform}`;
       const [item] = await db.insert(growthContentItems).values({
@@ -160,7 +178,7 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
         platform,
         title: parsed.title,
         body: parsed.body,
-        metadata: { hashtags: parsed.hashtags, theme },
+        metadata: { hashtags: parsed.hashtags, theme, complianceIssues: compliance.issues.length > 0 ? compliance.issues : undefined },
         postingMode,
         status: postingMode === "AUTO" ? "READY" : "QUEUED",
         idempotencyKey: idempKey,
@@ -200,10 +218,11 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
     .limit(1);
   if (existing.length > 0) return { skipped: true, reason: "Already announced" };
 
-  const { parsed } = await generateStructuredContent<ContentPiece>({
+  const { parsed: rawParsed } = await generateStructuredContent<ContentPiece>({
     systemPrompt: prompts.SYSTEM_PROMPT,
     userPrompt: prompts.DAILY5_ANNOUNCEMENT_PROMPT(date, 5),
   });
+  const parsed = validateWithSchema(ContentPieceSchema, rawParsed, "Daily5Announcement");
 
   const [plan] = await db.select().from(growthContentPlans)
     .where(eq(growthContentPlans.date, date))
@@ -262,10 +281,11 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
     correct: e.correctCount,
   }));
 
-  const { parsed } = await generateStructuredContent<ContentPiece>({
+  const { parsed: rawParsed } = await generateStructuredContent<ContentPiece>({
     systemPrompt: prompts.SYSTEM_PROMPT,
     userPrompt: prompts.DAILY5_RECAP_PROMPT(date, topPlayers),
   });
+  const parsed = validateWithSchema(ContentPieceSchema, rawParsed, "Daily5Recap");
 
   const [plan] = await db.select().from(growthContentPlans)
     .where(eq(growthContentPlans.date, date))

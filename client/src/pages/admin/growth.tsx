@@ -28,7 +28,7 @@ interface Overview {
   recentPlans: any[];
   recentRuns: any[];
   pendingQueueCount: number;
-  platformStatus?: { discord: boolean; x: boolean; instagram: boolean };
+  platformStatus?: { discord: boolean; x: boolean; instagram: boolean; reddit: boolean };
   pipelineHealth?: PipelineHealth;
 }
 
