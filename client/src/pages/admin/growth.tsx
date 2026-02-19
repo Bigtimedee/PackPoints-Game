@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
   Megaphone, Play, RefreshCw, Copy, Check, AlertTriangle,
-  Clock, Zap, FileText, Send, Loader2, ShieldAlert
+  Clock, Zap, FileText, Send, Loader2, ShieldAlert, Archive, CalendarDays
 } from "lucide-react";
 
 interface PipelineHealth {
@@ -34,8 +34,11 @@ interface Overview {
 
 function StatusBadge({ status }: { status: string }) {
   const variant = status === "SUCCEEDED" || status === "POSTED" || status === "ACTIVE"
-    ? "default" : status === "FAILED" ? "destructive" : "secondary";
-  return <Badge variant={variant} data-testid={`badge-status-${status.toLowerCase()}`}>{status}</Badge>;
+    ? "default"
+    : status === "FAILED" ? "destructive"
+    : status === "RETRY_PENDING" ? "outline"
+    : "secondary";
+  return <Badge variant={variant} data-testid={`badge-status-${status.toLowerCase()}`}>{status === "RETRY_PENDING" ? "RETRYING" : status}</Badge>;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -372,7 +375,7 @@ function JobLogsTab() {
               <StatusBadge status={run.status} />
             </div>
             <div className="flex items-center gap-2">
-              {(run.status === "FAILED" || run.status === "SKIPPED") && (
+              {(run.status === "FAILED" || run.status === "SKIPPED" || run.status === "RETRY_PENDING") && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -406,8 +409,103 @@ function JobLogsTab() {
               {run.details.reason}
             </p>
           )}
+          {run.status === "RETRY_PENDING" && run.details?.retryAt && (
+            <p className="text-xs text-muted-foreground">
+              Retry #{run.details.retryCount || 1}/{run.details.maxRetries || 3} scheduled at {new Date(run.details.retryAt).toLocaleString()}
+            </p>
+          )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function ContentPlansTab() {
+  const { toast } = useToast();
+  const { data, isLoading, refetch } = useQuery<{ plans: any[] }>({
+    queryKey: ["/api/admin/growth/plans"],
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      apiRequest("PATCH", `/api/admin/growth/plans/${id}`, { status }),
+    onSuccess: () => {
+      toast({ title: "Plan updated" });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (isLoading) return <Loader2 className="h-6 w-6 animate-spin mx-auto mt-8" />;
+
+  return (
+    <div className="space-y-3">
+      {data?.plans.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-no-plans">No content plans yet</p>
+      )}
+      {data?.plans.map(plan => {
+        const platforms = Array.isArray(plan.targetPlatforms) ? plan.targetPlatforms : [];
+        return (
+          <Card key={plan.id}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium" data-testid={`text-plan-date-${plan.id}`}>{plan.date}</span>
+                    <StatusBadge status={plan.status} />
+                  </div>
+                  {plan.theme && (
+                    <p className="text-sm font-medium mb-1" data-testid={`text-plan-theme-${plan.id}`}>{plan.theme}</p>
+                  )}
+                  {plan.hook && (
+                    <p className="text-sm text-muted-foreground mb-1" data-testid={`text-plan-hook-${plan.id}`}>
+                      {plan.hook}
+                    </p>
+                  )}
+                  {platforms.length > 0 && (
+                    <div className="flex items-center gap-1 mt-2 flex-wrap">
+                      {platforms.map((p: string) => (
+                        <Badge key={p} variant="outline" data-testid={`badge-plan-platform-${p}`}>{p}</Badge>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {new Date(plan.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {plan.status === "ACTIVE" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateStatusMutation.mutate({ id: plan.id, status: "ARCHIVED" })}
+                      disabled={updateStatusMutation.isPending}
+                      data-testid={`button-archive-plan-${plan.id}`}>
+                      <Archive className="h-3 w-3 mr-1" />
+                      Archive
+                    </Button>
+                  )}
+                  {plan.status === "ARCHIVED" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateStatusMutation.mutate({ id: plan.id, status: "ACTIVE" })}
+                      disabled={updateStatusMutation.isPending}
+                      data-testid={`button-activate-plan-${plan.id}`}>
+                      <Play className="h-3 w-3 mr-1" />
+                      Activate
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -426,11 +524,13 @@ export default function AdminGrowth() {
       <Tabs defaultValue="overview">
         <TabsList className="mb-4">
           <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
+          <TabsTrigger value="plans" data-testid="tab-plans">Plans</TabsTrigger>
           <TabsTrigger value="items" data-testid="tab-items">Content</TabsTrigger>
           <TabsTrigger value="queue" data-testid="tab-queue">Queue</TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-logs">Job Logs</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab /></TabsContent>
+        <TabsContent value="plans"><ContentPlansTab /></TabsContent>
         <TabsContent value="items"><ContentItemsTab /></TabsContent>
         <TabsContent value="queue"><QueueTab /></TabsContent>
         <TabsContent value="logs"><JobLogsTab /></TabsContent>

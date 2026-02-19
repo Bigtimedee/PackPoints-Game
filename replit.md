@@ -120,16 +120,24 @@ Launch readiness audit documented in `docs/LAUNCH_AUDIT.md` with GO/NO-GO checkl
 Daily challenge where all users play the same 5 cards. Uses SHA-256 seeded deterministic card selection with `SECRET_SALT` env var. Challenge auto-creates at 8 PM ET daily (01:00 UTC), 24-hour play window. DB tables: `daily_challenges`, `daily_challenge_cards`, `daily_challenge_entries`. Service at `server/services/daily5Service.ts`. API endpoints: `GET /api/daily5/status`, `POST /api/daily5/start`, `POST /api/daily5/answer`, `POST /api/daily5/finish`, `GET /api/daily5/leaderboard`. Frontend at `/daily5` with countdown, game flow, results, and daily leaderboard. Entry point on home page game modes grid.
 
 ### Growth Agent System (Feb 2026)
-AI-powered content generation and social media automation system. Controlled by `GROWTH_AGENT_ENABLED` env var (default: false). Core files in `server/services/growth/`. Components:
-- **Job Runner** (`jobRunner.ts`): DB-backed job execution with idempotency keys and structured logging to `growth_job_runs` table.
+AI-powered content generation and social media automation system. Controlled by `GROWTH_AGENT_ENABLED` env var (default: false). Core files in `server/services/growth/`. Full documentation at `docs/GROWTH_AGENT.md`. Components:
+- **Job Runner** (`jobRunner.ts`): DB-backed job execution with idempotency keys, structured logging to `growth_job_runs` table, and persistent retry queue with exponential backoff (max 3 retries, 2^n * 60s delay). Retry worker scans every 120s for RETRY_PENDING jobs.
 - **Scheduler** (`scheduler.ts`): UTC-based daily scheduling with same-day dedup. Ticks every 60s.
 - **Circuit Breaker** (`circuitBreaker.ts`): 5 failures in 30 min pauses auto-posting for 30 min cooldown.
 - **OpenAI Adapter** (`openaiAdapter.ts`): GPT-4o-mini integration with structured JSON output parsing.
+- **Zod Schemas** (`schemas.ts`): Strict Zod validation for all AI-generated content (plans, Discord, Reddit, X thread, Instagram, video scripts, Daily 5 announcements/recaps). All outputs validated before database insertion.
+- **Compliance Validator** (`complianceValidator.ts`): Two-pass AI system - generates content, then validates against brand rules (no competitor mentions, no profanity, no false claims). Auto-rewrites once if violations found.
+- **Diversity Tracker** (`diversityTracker.ts`): Prevents duplicate hooks within 2 days and repeating player names within 72 hours. Constraints injected into AI prompts.
+- **Context Builder** (`contextBuilder.ts`): Enriches prompts with in-app events (yesterday's Daily 5 winners, active card set themes, seasonal moments calendar).
 - **Content Jobs** (`contentJobs.ts`): Daily plan generation, content item generation, Daily 5 announcement/recap.
-- **Platform Adapters** (`platformAdapters.ts`): Auto-posting to Discord (webhook), X/Twitter (`twitter-api-v2` with OAuth 1.0a), and Instagram (Facebook Graph API container→publish flow). Other platforms (TikTok, Reddit, YouTube) use manual publishing queue.
+- **Platform Adapters** (`platformAdapters.ts`): Auto-posting to Discord (webhook), X/Twitter (`twitter-api-v2` with OAuth 1.0a), Instagram (Facebook Graph API container→publish flow), and Reddit (OAuth2 script app, 1 post/subreddit/day rate limit, MANUAL_QUEUE by default). TikTok/YouTube use manual publishing queue.
 - **Auto Poster** (`autoPoster.ts`): Processes READY items with AUTO posting mode across all configured platforms.
 - **X/Twitter secrets**: `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`. Supports single tweets and threaded posts (`tweetThread`).
 - **Instagram secrets**: `INSTAGRAM_BUSINESS_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`. Uses Graph API v21.0 two-step container→publish. Falls back to PackPTS logo if no image URL in metadata. Caption limit: 2200 chars.
+- **Reddit secrets**: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`, `REDDIT_TARGET_SUBREDDITS` (comma-separated, default: baseballcards), `REDDIT_USER_AGENT`.
 DB tables: `growth_content_plans`, `growth_content_items`, `growth_job_runs`, `publishing_queue`.
-Admin UI at `/admin/growth` with Overview (includes platform connectivity status), Content, Queue (copy/mark-posted), and Job Logs tabs.
-Admin API: `GET /api/admin/growth/overview`, `GET /api/admin/growth/plans`, `GET /api/admin/growth/items`, `GET /api/admin/growth/queue`, `POST /api/admin/growth/queue/:id/posted`, `GET /api/admin/growth/runs`, `POST /api/admin/growth/run-job`, `POST /api/admin/growth/circuit-breaker/reset`.
+Admin UI at `/admin/growth` with Overview (includes platform connectivity status and pipeline health), Plans (view/archive/activate), Content, Queue (copy/mark-posted), and Job Logs tabs (with retry status display).
+Admin API: `GET /api/admin/growth/overview`, `GET /api/admin/growth/plans`, `PATCH /api/admin/growth/plans/:id`, `GET /api/admin/growth/items`, `GET /api/admin/growth/queue`, `POST /api/admin/growth/queue/:id/posted`, `GET /api/admin/growth/runs`, `POST /api/admin/growth/run-job`, `POST /api/admin/growth/circuit-breaker/reset`.
+
+### Daily 5 Share Card (Feb 2026)
+Shareable result card on the Daily 5 results page. Shows score grid (Lucide Check/X icons with colored backgrounds), points, correct count, and rank. Uses Web Share API when available, falls back to clipboard copy. Share text includes text-based grid (`[+]/[-]`) and stats.

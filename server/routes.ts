@@ -11323,6 +11323,24 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/growth/plans/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      if (!status || !["ACTIVE", "ARCHIVED"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be ACTIVE or ARCHIVED." });
+      }
+      const [updated] = await db.update(growthContentPlans)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(growthContentPlans.id, id))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Plan not found" });
+      res.json({ plan: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   app.get("/api/admin/growth/items", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const limit = Math.min(Number(req.query.limit) || 50, 200);

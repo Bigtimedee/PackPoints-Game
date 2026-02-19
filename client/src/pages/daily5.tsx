@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { GameCard } from "@/components/GameCard";
 import {
   Calendar, Clock, Trophy, ArrowLeft, Check, X, Loader2,
-  Play, Award, Timer, Users, Crown
+  Play, Award, Timer, Users, Crown, Share2
 } from "lucide-react";
 
 interface Daily5Status {
@@ -74,6 +74,99 @@ function formatTime(ms: number): string {
   const seconds = totalSeconds % 60;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function ShareResultCard({ score, correctCount, rank, date }: {
+  score: number;
+  correctCount: number;
+  rank?: number;
+  date?: string;
+}) {
+  const { toast } = useToast();
+  const [shared, setShared] = useState(false);
+
+  const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  const shareGrid = Array.from({ length: 5 }, (_, i) =>
+    i < correctCount ? "[+]" : "[-]"
+  ).join(" ");
+
+  const shareText = [
+    `PackPTS Daily 5 - ${dateStr}`,
+    shareGrid,
+    `Score: ${score} pts | ${correctCount}/5 correct`,
+    rank && rank > 0 ? `Rank: #${rank}` : null,
+    "",
+    "Play at packpts.com",
+  ].filter(Boolean).join("\n");
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: shareText });
+        setShared(true);
+        setTimeout(() => setShared(false), 3000);
+        return;
+      } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(shareText);
+      setShared(true);
+      toast({ title: "Copied to clipboard", description: "Share your result with friends!" });
+      setTimeout(() => setShared(false), 3000);
+    } catch {
+      toast({ title: "Could not copy", variant: "destructive" });
+    }
+  };
+
+  const resultIcons = Array.from({ length: 5 }, (_, i) => i < correctCount);
+
+  return (
+    <Card className="mb-6">
+      <CardContent className="p-4">
+        <div className="text-center space-y-3">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">PackPTS Daily 5 - {dateStr}</p>
+          <div className="flex justify-center gap-2" data-testid="text-d5-share-grid">
+            {resultIcons.map((correct, i) => (
+              <div
+                key={i}
+                className={`w-8 h-8 rounded-md flex items-center justify-center ${
+                  correct ? "bg-green-500/20 text-green-600 dark:text-green-400" : "bg-destructive/20 text-destructive"
+                }`}
+                data-testid={`icon-d5-result-${i}`}>
+                {correct ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-center gap-4">
+            <div>
+              <span className="font-bold font-mono">{score}</span>
+              <span className="text-xs text-muted-foreground ml-1">pts</span>
+            </div>
+            <div>
+              <span className="font-bold font-mono">{correctCount}/5</span>
+              <span className="text-xs text-muted-foreground ml-1">correct</span>
+            </div>
+            {rank && rank > 0 && (
+              <div>
+                <span className="font-bold font-mono">#{rank}</span>
+                <span className="text-xs text-muted-foreground ml-1">rank</span>
+              </div>
+            )}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleShare}
+            className="gap-2"
+            data-testid="button-d5-share">
+            {shared ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+            {shared ? "Shared" : "Share Result"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function formatDuration(ms: number): string {
@@ -366,6 +459,13 @@ export default function Daily5Page() {
               </p>
             )}
           </div>
+
+          <ShareResultCard
+            score={finishResult?.score ?? status?.entry?.score ?? 0}
+            correctCount={finishResult?.correctCount ?? status?.entry?.correctCount ?? 0}
+            rank={finishResult?.rank}
+            date={status?.challenge?.date}
+          />
 
           <Card className="mb-6">
             <CardHeader>

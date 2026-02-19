@@ -1,5 +1,5 @@
 import { scheduleJob, startScheduler, stopScheduler, getSchedule } from "./scheduler";
-import { executeJob, getRegisteredJobs } from "./jobRunner";
+import { executeJob, getRegisteredJobs, startRetryWorker, stopRetryWorker } from "./jobRunner";
 import { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
 
 import "./contentJobs";
@@ -26,6 +26,7 @@ export function initGrowthAgent(): void {
   scheduleJob("auto_post_ready_content", 18, 0);
 
   startScheduler();
+  startRetryWorker();
   initialized = true;
 
   const jobs = getRegisteredJobs();
