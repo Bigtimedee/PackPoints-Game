@@ -11239,6 +11239,56 @@ export async function registerRoutes(
         x: !!(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET),
         instagram: !!(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID && process.env.INSTAGRAM_ACCESS_TOKEN),
       };
+
+      const todayChicago = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+      const [todayPlan] = await db.select().from(growthContentPlans)
+        .where(and(eq(growthContentPlans.date, todayChicago), eq(growthContentPlans.status, "ACTIVE")))
+        .limit(1);
+      let todayContentResult: { count: number }[];
+      let todayPostResult: { count: number }[];
+      if (todayPlan) {
+        todayContentResult = await db.select({ count: sql<number>`count(*)` }).from(growthContentItems)
+          .where(eq(growthContentItems.planId, todayPlan.id));
+        todayPostResult = await db.select({ count: sql<number>`count(*)` }).from(growthContentItems)
+          .where(and(
+            eq(growthContentItems.planId, todayPlan.id),
+            eq(growthContentItems.status, "POSTED")
+          ));
+      } else {
+        todayContentResult = [{ count: 0 }];
+        todayPostResult = [{ count: 0 }];
+      }
+      const todayContentCount = Number(todayContentResult[0]?.count || 0);
+      const todayPostCount = Number(todayPostResult[0]?.count || 0);
+
+      let lastPlanFailure: string | undefined;
+      const [failedPlanRun] = await db.select().from(growthJobRuns)
+        .where(and(
+          eq(growthJobRuns.jobName, "generate_daily_plan"),
+          eq(growthJobRuns.status, "FAILED"),
+          sql`${growthJobRuns.startedAt} >= ${todayChicago}::date`,
+          sql`${growthJobRuns.startedAt} < (${todayChicago}::date + interval '1 day')`
+        ))
+        .orderBy(desc(growthJobRuns.startedAt))
+        .limit(1);
+      if (failedPlanRun) {
+        lastPlanFailure = failedPlanRun.error || "Unknown error";
+      }
+
+      let stalled = false;
+      let stalledReason: string | undefined;
+      if (!todayPlan && failedPlanRun) {
+        stalled = true;
+        stalledReason = `Today's content plan failed to generate. No content can be created until this is fixed. Last error: ${lastPlanFailure}`;
+      } else if (!todayPlan && todayContentCount === 0) {
+        const now = new Date();
+        const utcHour = now.getUTCHours();
+        if (utcHour >= 14) {
+          stalled = true;
+          stalledReason = "No content plan or content items exist for today. The pipeline may not be running. Try manually triggering 'generate daily plan'.";
+        }
+      }
+
       res.json({
         enabled: process.env.GROWTH_AGENT_ENABLED === "true",
         circuitBreaker: getCircuitBreakerStatus(),
@@ -11248,6 +11298,14 @@ export async function registerRoutes(
         recentRuns,
         pendingQueueCount: Number(queueCount[0]?.count || 0),
         platformStatus,
+        pipelineHealth: {
+          hasTodayPlan: !!todayPlan,
+          todayContentCount,
+          todayPostCount,
+          lastPlanFailure,
+          stalled,
+          stalledReason,
+        },
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });

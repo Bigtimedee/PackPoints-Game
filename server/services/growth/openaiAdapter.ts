@@ -4,7 +4,18 @@ let client: OpenAI | null = null;
 
 function getClient(): OpenAI {
   if (!client) {
-    client = new OpenAI();
+    const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+    const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+
+    if (baseURL && apiKey) {
+      console.log("[OpenAI/Growth] Using Replit AI Integration credentials");
+      client = new OpenAI({ apiKey, baseURL });
+    } else if (process.env.OPENAI_API_KEY) {
+      console.log("[OpenAI/Growth] Using user-provided OPENAI_API_KEY");
+      client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    } else {
+      throw new Error("No OpenAI credentials configured. Set up AI Integration or provide OPENAI_API_KEY.");
+    }
   }
   return client;
 }

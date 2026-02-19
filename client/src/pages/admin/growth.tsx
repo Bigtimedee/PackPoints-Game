@@ -11,6 +11,15 @@ import {
   Clock, Zap, FileText, Send, Loader2, ShieldAlert
 } from "lucide-react";
 
+interface PipelineHealth {
+  hasTodayPlan: boolean;
+  todayContentCount: number;
+  todayPostCount: number;
+  lastPlanFailure?: string;
+  stalled: boolean;
+  stalledReason?: string;
+}
+
 interface Overview {
   enabled: boolean;
   circuitBreaker: { state: string; failureCount: number; openUntil: number };
@@ -20,12 +29,13 @@ interface Overview {
   recentRuns: any[];
   pendingQueueCount: number;
   platformStatus?: { discord: boolean; x: boolean; instagram: boolean };
+  pipelineHealth?: PipelineHealth;
 }
 
 function StatusBadge({ status }: { status: string }) {
   const variant = status === "SUCCEEDED" || status === "POSTED" || status === "ACTIVE"
     ? "default" : status === "FAILED" ? "destructive" : "secondary";
-  return <Badge variant={variant}>{status}</Badge>;
+  return <Badge variant={variant} data-testid={`badge-status-${status.toLowerCase()}`}>{status}</Badge>;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -132,6 +142,40 @@ function OverviewTab() {
                   {connected ? "" : " (not configured)"}
                 </Badge>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.pipelineHealth?.stalled && (
+        <Card className="border-destructive">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              <span className="text-sm font-medium text-destructive">Pipeline Stalled</span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3" data-testid="text-stalled-reason">
+              {data.pipelineHealth.stalledReason}
+            </p>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-lg font-bold font-mono" data-testid="text-plan-status">
+                  {data.pipelineHealth.hasTodayPlan ? "1" : "0"}
+                </p>
+                <p className="text-xs text-muted-foreground">Plans Today</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold font-mono" data-testid="text-content-count">
+                  {data.pipelineHealth.todayContentCount}
+                </p>
+                <p className="text-xs text-muted-foreground">Content Items</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold font-mono" data-testid="text-post-count">
+                  {data.pipelineHealth.todayPostCount}
+                </p>
+                <p className="text-xs text-muted-foreground">Posts Made</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -328,7 +372,7 @@ function JobLogsTab() {
               <StatusBadge status={run.status} />
             </div>
             <div className="flex items-center gap-2">
-              {run.status === "FAILED" && (
+              {(run.status === "FAILED" || run.status === "SKIPPED") && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -356,6 +400,11 @@ function JobLogsTab() {
                 {expandedError === run.id ? "Click to collapse" : "Click to expand"}
               </span>
             </div>
+          )}
+          {run.status === "SKIPPED" && run.details?.reason && (
+            <p className="text-xs text-muted-foreground">
+              {run.details.reason}
+            </p>
           )}
         </div>
       ))}

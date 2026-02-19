@@ -44,8 +44,13 @@ export async function executeJob(
 
   if (existingRun.length > 0) {
     const existing = existingRun[0];
-    console.log(`[GrowthJobRunner] Idempotency hit: ${jobName} (key=${idempotencyKey}, run=${existing.id}, status=${existing.status})`);
-    return { runId: existing.id, status: existing.status, details: existing.details as any };
+    if (existing.status === "SKIPPED" || existing.status === "FAILED") {
+      console.log(`[GrowthJobRunner] Re-running previously ${existing.status} job: ${jobName} (key=${idempotencyKey})`);
+      await db.delete(growthJobRuns).where(eq(growthJobRuns.id, existing.id));
+    } else {
+      console.log(`[GrowthJobRunner] Idempotency hit: ${jobName} (key=${idempotencyKey}, run=${existing.id}, status=${existing.status})`);
+      return { runId: existing.id, status: existing.status, details: existing.details as any };
+    }
   }
 
   const [run] = await db.insert(growthJobRuns).values({
@@ -56,12 +61,17 @@ export async function executeJob(
 
   try {
     const details = await handler({ runId: run.id, jobName, idempotencyKey });
+
+    const finalStatus = details.skipped ? "SKIPPED" : "SUCCEEDED";
     await db.update(growthJobRuns)
-      .set({ status: "SUCCEEDED", endedAt: new Date(), details: { ...details, idempotencyKey } })
+      .set({ status: finalStatus, endedAt: new Date(), details: { ...details, idempotencyKey } })
       .where(eq(growthJobRuns.id, run.id));
-    recordSuccess();
-    console.log(`[GrowthJobRunner] Job ${jobName} succeeded (run=${run.id})`);
-    return { runId: run.id, status: "SUCCEEDED", details };
+
+    if (!details.skipped) {
+      recordSuccess();
+    }
+    console.log(`[GrowthJobRunner] Job ${jobName} ${finalStatus} (run=${run.id})${details.reason ? ` - ${details.reason}` : ""}`);
+    return { runId: run.id, status: finalStatus, details };
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     await db.update(growthJobRuns)

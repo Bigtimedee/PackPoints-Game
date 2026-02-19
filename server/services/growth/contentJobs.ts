@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { growthContentPlans, growthContentItems, publishingQueue, dailyChallenges, dailyChallengeEntries } from "@shared/schema";
+import { growthContentPlans, growthContentItems, growthJobRuns, publishingQueue, dailyChallenges, dailyChallengeEntries } from "@shared/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 import { generateStructuredContent } from "./openaiAdapter";
@@ -18,6 +18,32 @@ interface PlanOutput {
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+async function checkDailyPlanStatus(date: string): Promise<{ hasPlan: boolean; planFailed: boolean; failError?: string }> {
+  const [plan] = await db.select().from(growthContentPlans)
+    .where(and(eq(growthContentPlans.date, date), eq(growthContentPlans.status, "ACTIVE")))
+    .limit(1);
+
+  if (plan) return { hasPlan: true, planFailed: false };
+
+  const [failedRun] = await db.select().from(growthJobRuns)
+    .where(
+      and(
+        eq(growthJobRuns.jobName, "generate_daily_plan"),
+        eq(growthJobRuns.status, "FAILED"),
+        sql`${growthJobRuns.startedAt} >= ${date}::date`,
+        sql`${growthJobRuns.startedAt} < (${date}::date + interval '1 day')`
+      )
+    )
+    .orderBy(desc(growthJobRuns.startedAt))
+    .limit(1);
+
+  if (failedRun) {
+    return { hasPlan: false, planFailed: true, failError: failedRun.error || "Unknown error" };
+  }
+
+  return { hasPlan: false, planFailed: false };
 }
 
 registerJob("generate_daily_plan", async (ctx: JobContext) => {
@@ -51,6 +77,24 @@ registerJob("generate_daily_plan", async (ctx: JobContext) => {
 
 registerJob("generate_content_items", async (ctx: JobContext) => {
   const date = getChicagoDate();
+
+  const planStatus = await checkDailyPlanStatus(date);
+
+  if (!planStatus.hasPlan) {
+    if (planStatus.planFailed) {
+      return {
+        skipped: true,
+        reason: `Cannot generate content: today's daily plan failed (${planStatus.failError}). Fix the issue and retry 'generate_daily_plan' first.`,
+        dependencyFailed: true,
+      };
+    }
+    return {
+      skipped: true,
+      reason: "No active plan for today. Run 'generate_daily_plan' first.",
+      dependencyMissing: true,
+    };
+  }
+
   const [plan] = await db.select().from(growthContentPlans)
     .where(and(eq(growthContentPlans.date, date), eq(growthContentPlans.status, "ACTIVE")))
     .limit(1);
