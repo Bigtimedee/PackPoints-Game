@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Megaphone, Play, RefreshCw, Copy, Check, AlertTriangle,
-  Clock, Zap, FileText, Send, Loader2, ShieldAlert, Archive, CalendarDays
+  Clock, Zap, FileText, Send, Loader2, ShieldAlert, Archive, CalendarDays,
+  Download, Hash, Clipboard, Video, Undo2, CheckSquare, ListChecks
 } from "lucide-react";
 
 interface PipelineHealth {
@@ -35,6 +38,11 @@ interface DetailedPipelineHealth {
   summary: string;
 }
 
+interface TikTokConfig {
+  enabled: boolean;
+  mode: string;
+}
+
 interface Overview {
   enabled: boolean;
   circuitBreaker: { state: string; failureCount: number; openUntil: number };
@@ -43,7 +51,8 @@ interface Overview {
   recentPlans: any[];
   recentRuns: any[];
   pendingQueueCount: number;
-  platformStatus?: { discord: boolean; x: boolean; instagram: boolean; reddit: boolean };
+  platformStatus?: { discord: boolean; x: boolean; instagram: boolean; reddit: boolean; tiktok?: boolean };
+  tiktokConfig?: TikTokConfig;
   pipelineHealth?: PipelineHealth;
   detailedPipelineHealth?: DetailedPipelineHealth;
 }
@@ -157,8 +166,8 @@ function OverviewTab() {
                 <Badge key={platform} variant={connected ? "default" : "secondary"}
                   data-testid={`badge-platform-${platform}`}>
                   {connected ? <Check className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
-                  {platform === "x" ? "X / Twitter" : platform.charAt(0).toUpperCase() + platform.slice(1)}
-                  {connected ? "" : " (not configured)"}
+                  {platform === "x" ? "X / Twitter" : platform === "tiktok" ? "TikTok" : platform.charAt(0).toUpperCase() + platform.slice(1)}
+                  {platform === "tiktok" && connected ? " (manual)" : connected ? "" : " (not configured)"}
                 </Badge>
               ))}
             </div>
@@ -353,10 +362,237 @@ function ContentItemsTab() {
   );
 }
 
+function copyToClipboard(text: string, label: string, toast: any) {
+  navigator.clipboard.writeText(text);
+  toast({ title: `${label} copied to clipboard` });
+}
+
+function downloadTextFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadJsonFile(data: any, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function TikTokQueueCard({ item, onMarkPosted, onMarkReady, isPending, selected, onSelect }: {
+  item: any;
+  onMarkPosted: (id: string) => void;
+  onMarkReady: (id: string) => void;
+  isPending: boolean;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const assets = item.assets || {};
+  const meta = item.contentItem?.metadata || assets;
+  const hook = meta.hook || assets.hook || "";
+  const script = meta.script || assets.script || "";
+  const caption = meta.caption || item.copyText || "";
+  const hashtags: string[] = meta.hashtags || assets.hashtags || [];
+  const cta = meta.cta || assets.cta || "";
+  const thumbnailText = meta.thumbnail_text || assets.thumbnail_text || "";
+  const formatNotes = meta.format_notes || assets.format_notes || "";
+  const audioNotes = meta.audio_notes || assets.audio_notes || "";
+  const onScreenText: string[] = meta.on_screen_text || assets.on_screen_text || [];
+  const assetRefs: any[] = meta.asset_refs || assets.asset_refs || [];
+  const contentType = item.contentItem?.type || "TIKTOK";
+  const scheduledFor = item.contentItem?.scheduledFor;
+
+  const hashtagsStr = hashtags.join(" ");
+  const captionPlusHashtags = caption + "\n\n" + hashtagsStr;
+
+  const scriptFileContent = [
+    `HOOK: ${hook}`,
+    "",
+    `SCRIPT:`,
+    script,
+    "",
+    `ON-SCREEN TEXT:`,
+    ...onScreenText.map((t: string, i: number) => `  ${i + 1}. ${t}`),
+    "",
+    `CTA: ${cta}`,
+    "",
+    `CAPTION:`,
+    caption,
+    "",
+    `HASHTAGS:`,
+    hashtagsStr,
+    "",
+    `THUMBNAIL TEXT: ${thumbnailText}`,
+    "",
+    `FORMAT NOTES:`,
+    formatNotes,
+    "",
+    `AUDIO NOTES:`,
+    audioNotes,
+  ].join("\n");
+
+  return (
+    <Card className={`${item.status === "POSTED" ? "opacity-60" : ""}`}
+      data-testid={`tiktok-queue-card-${item.id}`}>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          {item.status === "READY" && (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onSelect(item.id, !!checked)}
+              data-testid={`checkbox-select-${item.id}`}
+              className="mt-1"
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <Badge variant="outline" className="gap-1">
+                <Video className="h-3 w-3" />
+                TikTok
+              </Badge>
+              <Badge variant="secondary">{contentType.replace(/^TIKTOK_/, "").replace(/_/g, " ")}</Badge>
+              <StatusBadge status={item.status} />
+              {scheduledFor && (
+                <span className="text-xs text-muted-foreground">
+                  Scheduled: {new Date(scheduledFor).toLocaleString()}
+                </span>
+              )}
+            </div>
+
+            {hook && (
+              <div className="mb-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Hook</p>
+                <p className="text-sm font-medium" data-testid={`text-hook-${item.id}`}>{hook}</p>
+              </div>
+            )}
+
+            {thumbnailText && (
+              <div className="mb-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Thumbnail</p>
+                <p className="text-sm" data-testid={`text-thumbnail-${item.id}`}>{thumbnailText}</p>
+              </div>
+            )}
+
+            {caption && (
+              <div className="mb-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Caption</p>
+                <p className="text-sm text-muted-foreground line-clamp-3" data-testid={`text-caption-${item.id}`}>{caption}</p>
+              </div>
+            )}
+
+            {hashtags.length > 0 && (
+              <div className="mb-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Hashtags</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {hashtags.slice(0, 8).map((tag: string, i: number) => (
+                    <Badge key={i} variant="outline" className="text-xs">{tag}</Badge>
+                  ))}
+                  {hashtags.length > 8 && (
+                    <Badge variant="outline" className="text-xs">+{hashtags.length - 8} more</Badge>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-1 mt-3">
+              <Button size="sm" variant="outline"
+                onClick={() => copyToClipboard(caption, "Caption", toast)}
+                data-testid={`button-copy-caption-${item.id}`}>
+                <Clipboard className="h-3 w-3 mr-1" />
+                Copy Caption
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={() => copyToClipboard(hashtagsStr, "Hashtags", toast)}
+                data-testid={`button-copy-hashtags-${item.id}`}>
+                <Hash className="h-3 w-3 mr-1" />
+                Copy Hashtags
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={() => copyToClipboard(captionPlusHashtags, "Caption + Hashtags", toast)}
+                data-testid={`button-copy-caption-hashtags-${item.id}`}>
+                <Copy className="h-3 w-3 mr-1" />
+                Caption + Hashtags
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={() => copyToClipboard(script, "Script", toast)}
+                data-testid={`button-copy-script-${item.id}`}>
+                <FileText className="h-3 w-3 mr-1" />
+                Copy Script
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={() => downloadTextFile(scriptFileContent, `tiktok_script_${item.id}.txt`)}
+                data-testid={`button-download-script-${item.id}`}>
+                <Download className="h-3 w-3 mr-1" />
+                Download Script
+              </Button>
+              {assetRefs.length > 0 && (
+                <Button size="sm" variant="outline"
+                  onClick={() => downloadJsonFile(assetRefs, `tiktok_assets_${item.id}.json`)}
+                  data-testid={`button-download-assets-${item.id}`}>
+                  <Download className="h-3 w-3 mr-1" />
+                  Asset List
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1 mt-2">
+              {item.status === "READY" && (
+                <Button size="sm" variant="default"
+                  onClick={() => onMarkPosted(item.id)}
+                  disabled={isPending}
+                  data-testid={`button-mark-posted-${item.id}`}>
+                  <Check className="h-3 w-3 mr-1" />
+                  Mark as Posted
+                </Button>
+              )}
+              {item.status === "POSTED" && (
+                <Button size="sm" variant="outline"
+                  onClick={() => onMarkReady(item.id)}
+                  disabled={isPending}
+                  data-testid={`button-undo-posted-${item.id}`}>
+                  <Undo2 className="h-3 w-3 mr-1" />
+                  Undo Posted
+                </Button>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground mt-2">
+              Created: {new Date(item.createdAt).toLocaleString()}
+              {item.postedAt && ` | Posted: ${new Date(item.postedAt).toLocaleString()}`}
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function QueueTab() {
   const { toast } = useToast();
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showChecklist, setShowChecklist] = useState(false);
+
+  const queryParams = new URLSearchParams();
+  if (platformFilter !== "all") queryParams.set("platform", platformFilter);
+  if (statusFilter !== "all") queryParams.set("status", statusFilter);
+  if (dateFilter) queryParams.set("date", dateFilter);
+  const queryString = queryParams.toString();
+
   const { data, isLoading, refetch } = useQuery<{ items: any[] }>({
-    queryKey: ["/api/admin/growth/queue"],
+    queryKey: ["/api/admin/growth/queue", queryString],
+    queryFn: () => fetch(`/api/admin/growth/queue${queryString ? `?${queryString}` : ""}`).then(r => r.json()),
   });
 
   const markPostedMutation = useMutation({
@@ -368,48 +604,250 @@ function QueueTab() {
     },
   });
 
+  const markReadyMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/growth/queue/${id}/mark-ready`),
+    onSuccess: () => {
+      toast({ title: "Reverted to READY" });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
+    },
+  });
+
+  const bulkMarkPostedMutation = useMutation({
+    mutationFn: (ids: string[]) => apiRequest("POST", "/api/admin/growth/queue/bulk-mark-posted", { ids }),
+    onSuccess: async (res) => {
+      const result = await res.json();
+      toast({ title: `${result.markedCount} items marked as posted` });
+      setSelectedIds(new Set<string>());
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
+    },
+  });
+
+  const handleSelect = (id: string, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set<string>(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (!data?.items) return;
+    const readyIds = data.items.filter((i: any) => i.status === "READY").map((i: any) => i.id as string);
+    if (selectedIds.size === readyIds.length) {
+      setSelectedIds(new Set<string>());
+    } else {
+      setSelectedIds(new Set<string>(readyIds));
+    }
+  };
+
+  const handleBulkCopyCaptions = () => {
+    if (!data?.items) return;
+    const captions = data.items
+      .filter((i: any) => selectedIds.has(i.id))
+      .map(i => {
+        const meta = i.contentItem?.metadata || i.assets || {};
+        return meta.caption || i.copyText || "";
+      })
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+    copyToClipboard(captions, "Captions", toast);
+  };
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin mx-auto mt-8" />;
 
+  const isTikTokView = platformFilter === "tiktok";
+  const readyCount = data?.items.filter(i => i.status === "READY").length || 0;
+
   return (
-    <div className="space-y-3">
-      {data?.items.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-8">Publishing queue is empty</p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={platformFilter} onValueChange={setPlatformFilter}>
+          <SelectTrigger className="w-[140px]" data-testid="select-platform-filter">
+            <SelectValue placeholder="Platform" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Platforms</SelectItem>
+            <SelectItem value="tiktok">TikTok</SelectItem>
+            <SelectItem value="reddit">Reddit</SelectItem>
+            <SelectItem value="discord">Discord</SelectItem>
+            <SelectItem value="x">X / Twitter</SelectItem>
+            <SelectItem value="instagram">Instagram</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[120px]" data-testid="select-status-filter">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="READY">Ready</SelectItem>
+            <SelectItem value="POSTED">Posted</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+            data-testid="input-date-filter"
+          />
+          {dateFilter && (
+            <Button size="sm" variant="ghost" onClick={() => setDateFilter("")}>Clear</Button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => setDateFilter(todayStr)}
+            data-testid="button-filter-today">
+            Today
+          </Button>
+        </div>
+
+        <Button size="sm" variant="ghost" onClick={() => refetch()} data-testid="button-refresh-queue">
+          <RefreshCw className="h-3 w-3 mr-1" />
+          Refresh
+        </Button>
+
+        <Button size="sm" variant="outline" onClick={() => setShowChecklist(!showChecklist)}
+          data-testid="button-toggle-checklist">
+          <ListChecks className="h-3 w-3 mr-1" />
+          Posting Checklist
+        </Button>
+      </div>
+
+      {showChecklist && (
+        <Card className="border-primary/20" data-testid="card-posting-checklist">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ListChecks className="h-4 w-4" />
+              Manual Posting Checklist
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+              <li>Open TikTok app on your phone</li>
+              <li>Click "Copy Caption + Hashtags" for the item you want to post</li>
+              <li>In TikTok, tap "+" to create a new post</li>
+              <li>Record or upload your video following the script</li>
+              <li>Paste caption + hashtags into the description</li>
+              <li>Add any relevant sounds or effects from the audio notes</li>
+              <li>Post the video</li>
+              <li>Come back here and click "Mark as Posted"</li>
+            </ol>
+          </CardContent>
+        </Card>
       )}
-      {data?.items.map(item => (
-        <Card key={item.id}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-2 flex-wrap">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <Badge variant="outline">{item.platform}</Badge>
-                  <StatusBadge status={item.status} />
-                </div>
-                {item.copyText && (
-                  <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line line-clamp-6">
-                    {item.copyText}
-                  </p>
-                )}
-                {item.notes && <p className="text-xs italic mt-1">{item.notes}</p>}
-                <p className="text-xs text-muted-foreground mt-2">
-                  {new Date(item.createdAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="flex items-center gap-1">
-                {item.copyText && <CopyButton text={item.copyText} />}
-                {item.status === "READY" && (
-                  <Button size="sm" variant="outline"
-                    onClick={() => markPostedMutation.mutate(item.id)}
-                    disabled={markPostedMutation.isPending}
-                    data-testid={`button-mark-posted-${item.id}`}>
-                    <Check className="h-3 w-3 mr-1" />
-                    Posted
-                  </Button>
-                )}
-              </div>
+
+      {selectedIds.size > 0 && (
+        <Card className="border-primary/30 bg-primary/5" data-testid="card-bulk-actions">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium">{selectedIds.size} selected</span>
+              <Button size="sm" variant="default"
+                onClick={() => bulkMarkPostedMutation.mutate(Array.from(selectedIds))}
+                disabled={bulkMarkPostedMutation.isPending}
+                data-testid="button-bulk-mark-posted">
+                <CheckSquare className="h-3 w-3 mr-1" />
+                Bulk Mark as Posted
+              </Button>
+              <Button size="sm" variant="outline"
+                onClick={handleBulkCopyCaptions}
+                data-testid="button-bulk-copy-captions">
+                <Copy className="h-3 w-3 mr-1" />
+                Bulk Copy Captions
+              </Button>
+              <Button size="sm" variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+                data-testid="button-clear-selection">
+                Clear Selection
+              </Button>
             </div>
           </CardContent>
         </Card>
-      ))}
+      )}
+
+      {readyCount > 1 && selectedIds.size === 0 && (
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={handleSelectAll} data-testid="button-select-all">
+            <CheckSquare className="h-3 w-3 mr-1" />
+            Select All Ready ({readyCount})
+          </Button>
+        </div>
+      )}
+
+      {data?.items.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-empty-queue">
+          Publishing queue is empty{platformFilter !== "all" ? ` for ${platformFilter}` : ""}
+        </p>
+      )}
+
+      {data?.items.map(item => {
+        if (item.platform === "tiktok") {
+          return (
+            <TikTokQueueCard
+              key={item.id}
+              item={item}
+              onMarkPosted={(id) => markPostedMutation.mutate(id)}
+              onMarkReady={(id) => markReadyMutation.mutate(id)}
+              isPending={markPostedMutation.isPending || markReadyMutation.isPending}
+              selected={selectedIds.has(item.id)}
+              onSelect={handleSelect}
+            />
+          );
+        }
+
+        return (
+          <Card key={item.id} data-testid={`queue-card-${item.id}`}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <Badge variant="outline">{item.platform}</Badge>
+                    <StatusBadge status={item.status} />
+                    {item.contentItem?.type && (
+                      <Badge variant="secondary">{item.contentItem.type.replace(/_/g, " ")}</Badge>
+                    )}
+                  </div>
+                  {item.copyText && (
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line line-clamp-6">
+                      {item.copyText}
+                    </p>
+                  )}
+                  {item.notes && <p className="text-xs italic mt-1">{item.notes}</p>}
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {new Date(item.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {item.copyText && <CopyButton text={item.copyText} />}
+                  {item.status === "READY" && (
+                    <Button size="sm" variant="outline"
+                      onClick={() => markPostedMutation.mutate(item.id)}
+                      disabled={markPostedMutation.isPending}
+                      data-testid={`button-mark-posted-${item.id}`}>
+                      <Check className="h-3 w-3 mr-1" />
+                      Posted
+                    </Button>
+                  )}
+                  {item.status === "POSTED" && (
+                    <Button size="sm" variant="ghost"
+                      onClick={() => markReadyMutation.mutate(item.id)}
+                      disabled={markReadyMutation.isPending}
+                      data-testid={`button-undo-posted-${item.id}`}>
+                      <Undo2 className="h-3 w-3 mr-1" />
+                      Undo
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }

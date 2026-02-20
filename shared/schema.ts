@@ -3718,7 +3718,10 @@ export type GrowthContentPlan = typeof growthContentPlans.$inferSelect;
 
 export const growthContentTypes = [
   "SHORT_VIDEO_SCRIPT", "X_THREAD", "REDDIT_POST", "DISCORD_POST",
-  "DAILY5_ANNOUNCEMENT", "DAILY5_RECAP", "LEADERBOARD_SPOTLIGHT"
+  "DAILY5_ANNOUNCEMENT", "DAILY5_RECAP", "LEADERBOARD_SPOTLIGHT",
+  "TIKTOK_DAILY5_ANNOUNCEMENT", "TIKTOK_TRIVIA_CHALLENGE",
+  "TIKTOK_LEADERBOARD_SPOTLIGHT", "TIKTOK_STREAK_REMINDER",
+  "INSTAGRAM_POST",
 ] as const;
 export type GrowthContentType = typeof growthContentTypes[number];
 

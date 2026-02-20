@@ -147,6 +147,7 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
         postingMode = "AUTO";
         break;
       case "tiktok":
+        continue;
       case "youtube":
         promptFn = prompts.SHORT_VIDEO_SCRIPT_PROMPT;
         type = "SHORT_VIDEO_SCRIPT";

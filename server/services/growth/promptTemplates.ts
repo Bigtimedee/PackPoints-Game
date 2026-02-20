@@ -60,6 +60,73 @@ Return JSON: {
 }
 Auto-post to Discord, X/Twitter, and Instagram. Other platforms (Reddit, TikTok, YouTube) should be MANUAL_QUEUE.`;
 
+export const TIKTOK_DAILY5_ANNOUNCEMENT_PROMPT = (date: string, cardCount: number) =>
+  `Create a TikTok video package for announcing today's Daily 5 Challenge (${date}).
+Everyone plays the same ${cardCount} baseball cards. The video should generate excitement and urgency.
+
+Return STRICT JSON matching this schema:
+{
+  "hook": "One attention-grabbing opening line (e.g., 'Can you name all 5 cards before time runs out?')",
+  "script": "Full voiceover script for a 15-30 second TikTok video. Include timing cues like [PAUSE], [SHOW CARD], etc.",
+  "on_screen_text": ["Text overlay 1", "Text overlay 2", "Text overlay 3"],
+  "caption": "TikTok caption under 200 chars with CTA to play",
+  "hashtags": ["#packpts", "#baseballcards", "#daily5challenge", "#sportscards", "#baseballtrivia", "#cardcollector", "#mlb", "#vintagebaseball", "#sportstrivia", "#baseballhistory"],
+  "cta": "Link in bio to play the Daily 5 Challenge!",
+  "thumbnail_text": "Daily 5 Challenge",
+  "format_notes": "Quick cuts between card reveals. Countdown timer overlay. 9:16 vertical format.",
+  "audio_notes": "Upbeat background music, suspenseful sound for card reveals",
+  "asset_refs": [],
+  "legal_safe": { "no_gambling_language": true, "no_prize_guarantees": true },
+  "dedupe_key": "${date}:TIKTOK_DAILY5_ANNOUNCEMENT"
+}
+
+IMPORTANT: Return ONLY valid JSON, no markdown or explanation.`;
+
+export const TIKTOK_TRIVIA_CHALLENGE_PROMPT = (date: string, theme: string) =>
+  `Create a TikTok video package for a baseball card trivia challenge about: ${theme}
+Date: ${date}
+
+Return STRICT JSON matching this schema:
+{
+  "hook": "One attention-grabbing question or statement that stops scrollers",
+  "script": "Full voiceover script for a 20-35 second TikTok video. Format: reveal a baseball card, challenge viewer to name the player, give clues, reveal answer.",
+  "on_screen_text": ["Clue overlay 1", "Clue overlay 2", "Answer reveal text"],
+  "caption": "Engaging caption under 200 chars asking viewers to comment their guess",
+  "hashtags": ["#packpts", "#baseballcards", "#sportstrivia", "#baseballquiz", "#sportscards", "#cardcollector", "#mlb", "#baseballtrivia", "#vintagebaseball", "#guessthatplayer"],
+  "cta": "Comment your guess! Play more at PackPTS - link in bio",
+  "thumbnail_text": "Can You Name This Player?",
+  "format_notes": "Card reveal format: show blurred/masked card → give clues → dramatic reveal. 9:16 vertical.",
+  "audio_notes": "Quiz show style sound effects, dramatic reveal sting",
+  "asset_refs": [],
+  "legal_safe": { "no_gambling_language": true, "no_prize_guarantees": true },
+  "dedupe_key": "${date}:TIKTOK_TRIVIA_CHALLENGE"
+}
+
+IMPORTANT: Return ONLY valid JSON, no markdown or explanation.`;
+
+export const TIKTOK_LEADERBOARD_SPOTLIGHT_PROMPT = (date: string, topPlayers: { username: string; score: number; correct: number }[]) =>
+  `Create a TikTok video package spotlighting today's Daily 5 Challenge leaderboard results.
+Date: ${date}
+Top performers: ${topPlayers.map((p, i) => `${i + 1}. ${p.username} - ${p.score} pts (${p.correct}/5 correct)`).join(", ")}
+
+Return STRICT JSON matching this schema:
+{
+  "hook": "Opening line celebrating today's top performers",
+  "script": "Full voiceover script for a 15-25 second TikTok video. Announce top players, celebrate their scores, challenge viewers to beat them tomorrow.",
+  "on_screen_text": ["#1 Player Name - Score", "#2 Player Name - Score", "#3 Player Name - Score"],
+  "caption": "Congratulations to today's Daily 5 champions! Can you make the leaderboard tomorrow?",
+  "hashtags": ["#packpts", "#baseballcards", "#daily5challenge", "#leaderboard", "#sportscards", "#cardcollector", "#baseballtrivia", "#champion", "#sportstrivia", "#mlb"],
+  "cta": "Think you can beat them? Play the Daily 5 Challenge - link in bio!",
+  "thumbnail_text": "Today's Champions",
+  "format_notes": "Countdown reveal of top 3. Confetti/celebration effects. 9:16 vertical.",
+  "audio_notes": "Victory fanfare, celebration sounds",
+  "asset_refs": [],
+  "legal_safe": { "no_gambling_language": true, "no_prize_guarantees": true },
+  "dedupe_key": "${date}:TIKTOK_LEADERBOARD_SPOTLIGHT"
+}
+
+IMPORTANT: Return ONLY valid JSON, no markdown or explanation.`;
+
 export const CONTENT_THEMES = [
   "Top rookie cards from the 1987 Topps set",
   "How to spot valuable baseball cards",

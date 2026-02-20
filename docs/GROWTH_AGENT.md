@@ -108,6 +108,63 @@ From the Overview tab, click any registered job name to run it manually. Jobs ar
 
 Reddit uses MANUAL_QUEUE by default due to stricter anti-spam policies. The Reddit adapter supports auto-posting when triggered manually but is rate-limited to 1 post per subreddit per day.
 
+## TikTok Manual Mode
+
+TikTok integration uses **manual mode only** — there is no TikTok API auto-posting. The Growth Agent generates structured TikTok content packages (scripts, captions, hashtags, shot lists) and places them in the admin Publishing Queue for manual posting.
+
+### Setup
+
+| Variable | Description |
+|---|---|
+| `GROWTH_TIKTOK_ENABLED` | Set to `true` to enable TikTok content generation. Default: `false` |
+| `GROWTH_TIKTOK_MODE` | `manual` (default) or `off`. Only `manual` mode is supported. |
+
+### How It Works
+
+1. When enabled, the `generate_tiktok_packages` job runs daily at 13:20 UTC (after daily plan + content generation)
+2. It generates 3 TikTok packages per day:
+   - **TIKTOK_DAILY5_ANNOUNCEMENT** — Announces the Daily 5 Challenge (scheduled 8 PM ET)
+   - **TIKTOK_TRIVIA_CHALLENGE** — Baseball card trivia video (scheduled 10 AM ET)
+   - **TIKTOK_LEADERBOARD_SPOTLIGHT** — Spotlights Daily 5 top performers (scheduled 9 PM ET)
+3. Each package is saved to `growth_content_items` (platform=tiktok, postingMode=MANUAL_QUEUE, status=READY) and to `publishing_queue`
+4. Deterministic dedupe keys prevent duplicate generation on re-runs
+
+### TikTok Package Schema
+
+Each TikTok content item has rich metadata (stored in `growth_content_items.metadata`):
+
+```json
+{
+  "hook": "Attention-grabbing opening line",
+  "script": "Full voiceover script (15-35 seconds)",
+  "on_screen_text": ["Overlay line 1", "Overlay line 2"],
+  "caption": "TikTok caption (max 2200 chars, prefer under 200)",
+  "hashtags": ["#packpts", "#baseballcards", ...],
+  "cta": "Call to action",
+  "thumbnail_text": "Max 6 words for thumbnail",
+  "format_notes": "Shot list, timing, transitions",
+  "audio_notes": "Background music / sound effects",
+  "asset_refs": [{ "type": "card_image", "card_id": "...", "url": "..." }],
+  "legal_safe": { "no_gambling_language": true, "no_prize_guarantees": true },
+  "dedupe_key": "2025-02-20:TIKTOK_DAILY5_ANNOUNCEMENT"
+}
+```
+
+### Admin Workflow
+
+Navigate to **Admin → Growth → Queue** tab, then filter by "TikTok" platform:
+
+1. **Copy Caption** — Copies the caption text to clipboard
+2. **Copy Hashtags** — Copies hashtags joined with spaces
+3. **Copy Caption + Hashtags** — Caption + newline + hashtags
+4. **Copy Script** — Copies the voiceover script
+5. **Download Script (.txt)** — Downloads a complete text file with hook, script, caption, hashtags, and shot list
+6. **Download Asset List** — Downloads asset_refs as JSON
+7. **Mark as Posted** — Updates status to POSTED with timestamp
+8. **Undo Posted** — Reverts to READY
+9. **Bulk actions** — Select multiple READY items for bulk mark-as-posted or bulk copy captions
+10. **Manual Posting Checklist** — Step-by-step guide for posting to TikTok
+
 ## Content Schemas
 
 All AI-generated content is validated with Zod schemas before saving:
@@ -117,6 +174,7 @@ All AI-generated content is validated with Zod schemas before saving:
 - **X Threads**: title, body (tweets separated by `\n---\n`), hashtags
 - **Video Scripts**: title, body (HOOK/BODY/CTA format), hashtags
 - **Daily 5 Announcements/Recaps**: title, body, hashtags
+- **TikTok Packages**: hook, script, on_screen_text, caption, hashtags, cta, thumbnail_text, format_notes, audio_notes, asset_refs, legal_safe, dedupe_key
 
 ## Operational Notes
 
@@ -125,3 +183,4 @@ All AI-generated content is validated with Zod schemas before saving:
 - The circuit breaker automatically resets after a 30-minute cooldown
 - Pipeline health is monitored: if no plan exists by 3 AM UTC or no content by 5 AM UTC, the stalled indicator shows in the admin dashboard
 - Content context is enriched with real app data (yesterday's Daily 5 winners, active card sets, seasonal moments) to make posts more relevant and timely
+- TikTok packages are generated independently of the main content items pipeline — they have their own dedicated job and prompt templates

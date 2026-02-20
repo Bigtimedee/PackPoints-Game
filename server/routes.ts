@@ -11240,7 +11240,7 @@ export async function registerRoutes(
 
   app.get("/api/admin/growth/overview", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const { getRegisteredJobs, getSchedule, getCircuitBreakerStatus, getPipelineHealth, getOpenAIHealthStatus } = await import("./services/growth");
+      const { getRegisteredJobs, getSchedule, getCircuitBreakerStatus, getPipelineHealth, getOpenAIHealthStatus, getTikTokConfig } = await import("./services/growth");
       const plans = await db.select().from(growthContentPlans).orderBy(desc(growthContentPlans.date)).limit(7);
       const recentRuns = await db.select().from(growthJobRuns).orderBy(desc(growthJobRuns.startedAt)).limit(20);
       const queueCount = await db.select({ count: sql<number>`count(*)` }).from(publishingQueue).where(eq(publishingQueue.status, "READY"));
@@ -11302,6 +11302,8 @@ export async function registerRoutes(
 
       const detailedHealth = await getPipelineHealth();
 
+      const tiktokConfig = getTikTokConfig();
+
       res.json({
         enabled: process.env.GROWTH_AGENT_ENABLED === "true",
         circuitBreaker: getCircuitBreakerStatus(),
@@ -11310,7 +11312,11 @@ export async function registerRoutes(
         recentPlans: plans,
         recentRuns,
         pendingQueueCount: Number(queueCount[0]?.count || 0),
-        platformStatus,
+        platformStatus: {
+          ...platformStatus,
+          tiktok: tiktokConfig.enabled,
+        },
+        tiktokConfig,
         pipelineHealth: {
           hasTodayPlan: !!todayPlan,
           todayContentCount,
@@ -11373,9 +11379,62 @@ export async function registerRoutes(
     try {
       const limit = Math.min(Number(req.query.limit) || 50, 200);
       const status = req.query.status as string | undefined;
-      let query = db.select().from(publishingQueue).orderBy(desc(publishingQueue.createdAt)).limit(limit);
-      if (status) query = query.where(eq(publishingQueue.status, status)) as any;
-      const items = await query;
+      const platform = req.query.platform as string | undefined;
+      const date = req.query.date as string | undefined;
+
+      const conditions: any[] = [];
+      if (status) conditions.push(eq(publishingQueue.status, status));
+      if (platform) conditions.push(eq(publishingQueue.platform, platform));
+
+      let query;
+      if (conditions.length > 0) {
+        query = db.select({
+          queue: publishingQueue,
+          contentItem: growthContentItems,
+        })
+          .from(publishingQueue)
+          .leftJoin(growthContentItems, eq(publishingQueue.contentItemId, growthContentItems.id))
+          .where(and(...conditions))
+          .orderBy(desc(publishingQueue.createdAt))
+          .limit(limit);
+      } else {
+        query = db.select({
+          queue: publishingQueue,
+          contentItem: growthContentItems,
+        })
+          .from(publishingQueue)
+          .leftJoin(growthContentItems, eq(publishingQueue.contentItemId, growthContentItems.id))
+          .orderBy(desc(publishingQueue.createdAt))
+          .limit(limit);
+      }
+
+      const rows = await query;
+
+      let items = rows.map(r => ({
+        ...r.queue,
+        contentItem: r.contentItem ? {
+          id: r.contentItem.id,
+          type: r.contentItem.type,
+          title: r.contentItem.title,
+          body: r.contentItem.body,
+          metadata: r.contentItem.metadata,
+          scheduledFor: r.contentItem.scheduledFor,
+          status: r.contentItem.status,
+        } : null,
+      }));
+
+      if (date) {
+        items = items.filter(item => {
+          const sf = item.contentItem?.scheduledFor;
+          if (!sf) {
+            const ca = item.createdAt;
+            if (!ca) return false;
+            return new Date(ca).toISOString().slice(0, 10) === date;
+          }
+          return new Date(sf).toISOString().slice(0, 10) === date;
+        });
+      }
+
       res.json({ items });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
@@ -11385,12 +11444,84 @@ export async function registerRoutes(
   app.post("/api/admin/growth/queue/:id/posted", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
-      await db.update(publishingQueue).set({
+      const [existing] = await db.select().from(publishingQueue).where(eq(publishingQueue.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ error: "Queue item not found" });
+      if (existing.status === "POSTED") return res.json({ ok: true, already: true, item: existing });
+
+      const [updated] = await db.update(publishingQueue).set({
         status: "POSTED",
         postedBy: req.user?.id || null,
         postedAt: new Date(),
-      }).where(eq(publishingQueue.id, id));
-      res.json({ ok: true });
+      }).where(eq(publishingQueue.id, id)).returning();
+
+      if (existing.contentItemId) {
+        await db.update(growthContentItems).set({
+          status: "POSTED",
+          postedAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(growthContentItems.id, existing.contentItemId));
+      }
+
+      res.json({ ok: true, item: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/queue/:id/mark-ready", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const [existing] = await db.select().from(publishingQueue).where(eq(publishingQueue.id, id)).limit(1);
+      if (!existing) return res.status(404).json({ error: "Queue item not found" });
+
+      const [updated] = await db.update(publishingQueue).set({
+        status: "READY",
+        postedBy: null,
+        postedAt: null,
+      }).where(eq(publishingQueue.id, id)).returning();
+
+      if (existing.contentItemId) {
+        await db.update(growthContentItems).set({
+          status: "READY",
+          postedAt: null,
+          updatedAt: new Date(),
+        }).where(eq(growthContentItems.id, existing.contentItemId));
+      }
+
+      res.json({ ok: true, item: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/queue/bulk-mark-posted", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids array required" });
+
+      const results: string[] = [];
+      for (const id of ids) {
+        const [existing] = await db.select().from(publishingQueue).where(eq(publishingQueue.id, id)).limit(1);
+        if (!existing || existing.status === "POSTED") continue;
+
+        await db.update(publishingQueue).set({
+          status: "POSTED",
+          postedBy: req.user?.id || null,
+          postedAt: new Date(),
+        }).where(eq(publishingQueue.id, id));
+
+        if (existing.contentItemId) {
+          await db.update(growthContentItems).set({
+            status: "POSTED",
+            postedAt: new Date(),
+            updatedAt: new Date(),
+          }).where(eq(growthContentItems.id, existing.contentItemId));
+        }
+
+        results.push(id);
+      }
+
+      res.json({ ok: true, markedCount: results.length, ids: results });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }
