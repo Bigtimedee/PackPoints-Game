@@ -308,6 +308,18 @@ app.use((req, res, next) => {
         } catch (err) {
           console.error("[GrowthAgent] Failed to initialize:", err);
         }
+
+        try {
+          const { verifyFFmpeg, isVideoFactoryEnabled } = await import("./videoFactory");
+          if (isVideoFactoryEnabled()) {
+            verifyFFmpeg();
+            console.log("[VideoFactory] Enabled and ready");
+          } else {
+            console.log("[VideoFactory] Disabled (set VIDEO_FACTORY_ENABLED=true to enable)");
+          }
+        } catch (err) {
+          console.error("[VideoFactory] Init check failed:", err);
+        }
       })();
     },
   );

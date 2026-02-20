@@ -387,11 +387,13 @@ function downloadJsonFile(data: any, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function TikTokQueueCard({ item, onMarkPosted, onMarkReady, isPending, selected, onSelect }: {
+function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPending, isRendering, selected, onSelect }: {
   item: any;
   onMarkPosted: (id: string) => void;
   onMarkReady: (id: string) => void;
+  onRenderVideo: (id: string, forceRerender?: boolean) => void;
   isPending: boolean;
+  isRendering: boolean;
   selected: boolean;
   onSelect: (id: string, checked: boolean) => void;
 }) {
@@ -410,6 +412,10 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, isPending, selected,
   const assetRefs: any[] = meta.asset_refs || assets.asset_refs || [];
   const contentType = item.contentItem?.type || "TIKTOK";
   const scheduledFor = item.contentItem?.scheduledFor;
+
+  const videoAsset = meta.video_asset || assets.video_asset || null;
+  const videoError = meta.video_error || null;
+  const hasVideo = !!videoAsset?.url;
 
   const hashtagsStr = hashtags.join(" ");
   const captionPlusHashtags = caption + "\n\n" + hashtagsStr;
@@ -461,6 +467,18 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, isPending, selected,
               </Badge>
               <Badge variant="secondary">{contentType.replace(/^TIKTOK_/, "").replace(/_/g, " ")}</Badge>
               <StatusBadge status={item.status} />
+              {hasVideo && (
+                <Badge className="bg-green-600 text-white text-xs gap-1">
+                  <Play className="h-3 w-3" />
+                  Video Ready
+                </Badge>
+              )}
+              {videoError && !hasVideo && (
+                <Badge variant="destructive" className="text-xs gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Render Failed
+                </Badge>
+              )}
               {scheduledFor && (
                 <span className="text-xs text-muted-foreground">
                   Scheduled: {new Date(scheduledFor).toLocaleString()}
@@ -503,7 +521,64 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, isPending, selected,
               </div>
             )}
 
+            {hasVideo && videoAsset.thumbnailUrl && (
+              <div className="mb-3 mt-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Video Preview</p>
+                <div className="flex items-start gap-3">
+                  <img src={videoAsset.thumbnailUrl} alt="Video thumbnail"
+                    className="w-20 h-36 object-cover rounded border"
+                    data-testid={`img-thumbnail-${item.id}`} />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>{videoAsset.width}x{videoAsset.height} &bull; {videoAsset.durationSec}s</p>
+                    <p>{videoAsset.sizeBytes ? `${(videoAsset.sizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}</p>
+                    <p>Template: {videoAsset.templateId || "classic_countdown"}</p>
+                    {videoAsset.createdAt && <p>Rendered: {new Date(videoAsset.createdAt).toLocaleString()}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {videoError && !hasVideo && (
+              <div className="mb-2 p-2 bg-destructive/10 rounded text-xs text-destructive">
+                Render error: {videoError.message} ({videoError.at ? new Date(videoError.at).toLocaleString() : "unknown time"})
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-1 mt-3">
+              {!hasVideo && (
+                <Button size="sm" variant="default"
+                  onClick={() => onRenderVideo(item.id)}
+                  disabled={isRendering}
+                  data-testid={`button-render-video-${item.id}`}>
+                  {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
+                  Render Video
+                </Button>
+              )}
+              {hasVideo && (
+                <>
+                  <Button size="sm" variant="outline" asChild
+                    data-testid={`button-download-mp4-${item.id}`}>
+                    <a href={videoAsset.url} download={`packpts_tiktok_${item.id}.mp4`}>
+                      <Download className="h-3 w-3 mr-1" />
+                      Download MP4
+                    </a>
+                  </Button>
+                  <Button size="sm" variant="outline" asChild
+                    data-testid={`button-download-thumb-${item.id}`}>
+                    <a href={videoAsset.thumbnailUrl} download={`packpts_thumb_${item.id}.jpg`}>
+                      <Download className="h-3 w-3 mr-1" />
+                      Thumbnail
+                    </a>
+                  </Button>
+                  <Button size="sm" variant="ghost"
+                    onClick={() => onRenderVideo(item.id, true)}
+                    disabled={isRendering}
+                    data-testid={`button-rerender-${item.id}`}>
+                    {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                    Re-render
+                  </Button>
+                </>
+              )}
               <Button size="sm" variant="outline"
                 onClick={() => copyToClipboard(caption, "Caption", toast)}
                 data-testid={`button-copy-caption-${item.id}`}>
@@ -623,6 +698,31 @@ function QueueTab() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
     },
   });
+
+  const [renderingId, setRenderingId] = useState<string | null>(null);
+  const renderVideoMutation = useMutation({
+    mutationFn: ({ id, forceRerender }: { id: string; forceRerender?: boolean }) =>
+      apiRequest("POST", `/api/admin/growth/queue/${id}/render-video`, { forceRerender }),
+    onSuccess: async (res) => {
+      const result = await res.json();
+      if (result.ok) {
+        toast({ title: "Video rendered successfully" });
+      } else {
+        toast({ title: "Render failed", description: result.error, variant: "destructive" });
+      }
+      setRenderingId(null);
+      refetch();
+    },
+    onError: (err: any) => {
+      toast({ title: "Render failed", description: err?.message, variant: "destructive" });
+      setRenderingId(null);
+    },
+  });
+
+  const handleRenderVideo = (id: string, forceRerender?: boolean) => {
+    setRenderingId(id);
+    renderVideoMutation.mutate({ id, forceRerender });
+  };
 
   const handleSelect = (id: string, checked: boolean) => {
     setSelectedIds(prev => {
@@ -793,7 +893,9 @@ function QueueTab() {
               item={item}
               onMarkPosted={(id) => markPostedMutation.mutate(id)}
               onMarkReady={(id) => markReadyMutation.mutate(id)}
+              onRenderVideo={handleRenderVideo}
               isPending={markPostedMutation.isPending || markReadyMutation.isPending}
+              isRendering={renderVideoMutation.isPending && renderingId === item.id}
               selected={selectedIds.has(item.id)}
               onSelect={handleSelect}
             />

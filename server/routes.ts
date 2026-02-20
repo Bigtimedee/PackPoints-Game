@@ -11559,5 +11559,73 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/growth/queue/:id/render-video", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { templateId, forceRerender, cardImageUrl } = req.body || {};
+
+      const [queueItem] = await db.select().from(publishingQueue).where(eq(publishingQueue.id, id)).limit(1);
+      if (!queueItem) return res.status(404).json({ error: "Queue item not found" });
+      if (!queueItem.contentItemId) return res.status(400).json({ error: "Queue item has no linked content item" });
+
+      const { generateVideoForContentItem, isVideoFactoryEnabled } = await import("./videoFactory");
+      if (!isVideoFactoryEnabled()) {
+        return res.status(400).json({ error: "Video Factory is disabled (set VIDEO_FACTORY_ENABLED=true)" });
+      }
+
+      const result = await generateVideoForContentItem(queueItem.contentItemId, {
+        templateId,
+        forceRerender: forceRerender === true,
+        cardImageUrl,
+      });
+
+      if (result.success) {
+        res.json({ ok: true, ...result });
+      } else {
+        res.status(400).json({ ok: false, error: result.error });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/queue/bulk-render", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids array required" });
+      if (ids.length > 5) return res.status(400).json({ error: "Max 5 items per bulk render" });
+
+      const { generateVideoForContentItem, isVideoFactoryEnabled } = await import("./videoFactory");
+      if (!isVideoFactoryEnabled()) {
+        return res.status(400).json({ error: "Video Factory is disabled" });
+      }
+
+      const results: Array<{ id: string; success: boolean; error?: string; videoUrl?: string }> = [];
+      for (const id of ids) {
+        const [queueItem] = await db.select().from(publishingQueue).where(eq(publishingQueue.id, id)).limit(1);
+        if (!queueItem || !queueItem.contentItemId) {
+          results.push({ id, success: false, error: "Not found or no content item" });
+          continue;
+        }
+
+        const result = await generateVideoForContentItem(queueItem.contentItemId);
+        results.push({ id, success: result.success, error: result.error, videoUrl: result.videoUrl });
+      }
+
+      res.json({ ok: true, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/video-factory/config", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getVideoFactoryConfig } = await import("./videoFactory");
+      res.json(getVideoFactoryConfig());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   return httpServer;
 }

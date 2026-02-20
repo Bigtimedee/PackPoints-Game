@@ -8,6 +8,7 @@ import { getTikTokConfig } from "./tiktokConfig";
 import "./contentJobs";
 import "./autoPoster";
 import "./tiktokJobs";
+import "../../videoFactory/workerJob";
 
 let initialized = false;
 
@@ -42,6 +43,7 @@ export async function initGrowthAgent(): Promise<void> {
 
   if (tiktokCfg.enabled) {
     scheduleJob("generate_tiktok_packages", 13, 20);
+    scheduleJob("render_tiktok_videos", 13, 35);
   }
 
   startScheduler();

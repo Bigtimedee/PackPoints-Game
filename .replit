@@ -49,6 +49,7 @@ DEBUG_REGISTRATION = "true"
 EBAY_ENV = "production"
 GROWTH_TIKTOK_ENABLED = "true"
 GROWTH_TIKTOK_MODE = "manual"
+VIDEO_FACTORY_ENABLED = "true"
 
 [userenv.development]
 APP_ENV = "development"
