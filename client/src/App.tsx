@@ -39,6 +39,7 @@ import AdminPackageGuardrails from "@/pages/admin/package-guardrails";
 import AdminCardSets from "@/pages/admin/card-sets";
 import AdminCardTelemetry from "@/pages/admin/card-telemetry";
 import AdminGrowth from "@/pages/admin/growth";
+import AdminDaily5Stats from "@/pages/admin/daily5-stats";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
@@ -145,6 +146,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminGrowth />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/daily5">
+        {() => (
+          <AdminLayout>
+            <AdminDaily5Stats />
           </AdminLayout>
         )}
       </Route>

@@ -44,7 +44,6 @@ interface Daily5Card {
 
 interface AnswerResult {
   correct: boolean;
-  correctAnswer: string;
   pointsEarned: number;
   score: number;
   correctCount: number;
@@ -55,6 +54,9 @@ interface FinishResult {
   correctCount: number;
   totalTime: number;
   rank: number;
+  flagged?: boolean;
+  correctAnswers?: { position: number; correctAnswer: string }[];
+  pointsCredited?: number;
 }
 
 interface LeaderboardEntry {
@@ -198,16 +200,16 @@ function CountdownTimer({ targetMs, label }: { targetMs: number; label: string }
 }
 
 function AnswerButton({
-  option, isSelected, isCorrect, isRevealed, onSelect, disabled,
+  option, isSelected, wasCorrectAnswer, isRevealed, onSelect, disabled,
 }: {
-  option: string; isSelected: boolean; isCorrect: boolean;
+  option: string; isSelected: boolean; wasCorrectAnswer: boolean;
   isRevealed: boolean; onSelect: () => void; disabled: boolean;
 }) {
   let variant: "default" | "outline" | "secondary" | "destructive" = "outline";
   let className = "w-full justify-start gap-3 text-left h-auto py-2.5 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
   if (isRevealed) {
-    if (isCorrect) className += " bg-accent text-accent-foreground border-accent";
-    else if (isSelected) className += " bg-destructive/10 text-destructive border-destructive";
+    if (isSelected && wasCorrectAnswer) className += " bg-accent text-accent-foreground border-accent";
+    else if (isSelected && !wasCorrectAnswer) className += " bg-destructive/10 text-destructive border-destructive";
   } else if (isSelected) {
     variant = "default";
   }
@@ -216,8 +218,8 @@ function AnswerButton({
       disabled={disabled || isRevealed}
       data-testid={`button-d5-answer-${option.toLowerCase().replace(/\s/g, '-')}`}>
       <div className="flex-1">{option}</div>
-      {isRevealed && isCorrect && <Check className="h-5 w-5 text-accent-foreground" />}
-      {isRevealed && isSelected && !isCorrect && <X className="h-5 w-5" />}
+      {isRevealed && isSelected && wasCorrectAnswer && <Check className="h-5 w-5 text-accent-foreground" />}
+      {isRevealed && isSelected && !wasCorrectAnswer && <X className="h-5 w-5" />}
     </Button>
   );
 }
@@ -380,7 +382,7 @@ export default function Daily5Page() {
                   key={option}
                   option={option}
                   isSelected={selectedAnswer === option}
-                  isCorrect={answerResult?.correctAnswer === option}
+                  wasCorrectAnswer={isRevealed && selectedAnswer === option && (answerResult?.correct ?? false)}
                   isRevealed={isRevealed}
                   onSelect={() => !isRevealed && setSelectedAnswer(option)}
                   disabled={answerMutation.isPending}

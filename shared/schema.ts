@@ -3666,9 +3666,12 @@ export const dailyChallengeEntries = pgTable("daily_challenge_entries", {
   userId: varchar("user_id").notNull().references(() => users.id),
   startedAt: timestamp("started_at").defaultNow(),
   completedAt: timestamp("completed_at"),
+  creditedAt: timestamp("credited_at"),
   score: integer("score").notNull().default(0),
   correctCount: integer("correct_count").notNull().default(0),
   timeMs: integer("time_ms"),
+  flagged: boolean("flagged").default(false),
+  flagReason: text("flag_reason"),
   answers: jsonb("answers").$type<{ position: number; selected: string; correct: boolean; timeMs?: number }[]>(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [

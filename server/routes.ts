@@ -1479,6 +1479,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/daily5/stats", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const stats = await daily5Service.getAdminStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("[Daily5] Error getting admin stats:", error);
+      res.status(500).json({ error: "Failed to get Daily 5 stats" });
+    }
+  });
+
   app.get("/api/marketplace", async (_req, res) => {
     try {
       const options = await storage.getRedemptionOptions();

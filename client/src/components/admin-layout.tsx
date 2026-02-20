@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Users, LogOut, Home, Shield, BarChart3, ScrollText, Gift, Coins, Flame, Package, UserPlus, RefreshCw, MapPin, Layers, Flag, ShieldCheck, Download, Megaphone } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Home, Shield, BarChart3, ScrollText, Gift, Coins, Flame, Package, UserPlus, RefreshCw, MapPin, Layers, Flag, ShieldCheck, Download, Megaphone, Calendar } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -19,6 +19,7 @@ const navItems = [
   { href: "/admin/tiers", label: "Tiers", icon: Coins },
   { href: "/admin/streaks", label: "Streaks", icon: Flame },
   { href: "/admin/growth", label: "Growth", icon: Megaphone },
+  { href: "/admin/daily5", label: "Daily 5", icon: Calendar },
   { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
   { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
 ];
