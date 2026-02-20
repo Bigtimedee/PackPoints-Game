@@ -11240,7 +11240,7 @@ export async function registerRoutes(
 
   app.get("/api/admin/growth/overview", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const { getRegisteredJobs, getSchedule, getCircuitBreakerStatus } = await import("./services/growth");
+      const { getRegisteredJobs, getSchedule, getCircuitBreakerStatus, getPipelineHealth, getOpenAIHealthStatus } = await import("./services/growth");
       const plans = await db.select().from(growthContentPlans).orderBy(desc(growthContentPlans.date)).limit(7);
       const recentRuns = await db.select().from(growthJobRuns).orderBy(desc(growthJobRuns.startedAt)).limit(20);
       const queueCount = await db.select({ count: sql<number>`count(*)` }).from(publishingQueue).where(eq(publishingQueue.status, "READY"));
@@ -11300,6 +11300,8 @@ export async function registerRoutes(
         }
       }
 
+      const detailedHealth = await getPipelineHealth();
+
       res.json({
         enabled: process.env.GROWTH_AGENT_ENABLED === "true",
         circuitBreaker: getCircuitBreakerStatus(),
@@ -11317,6 +11319,7 @@ export async function registerRoutes(
           stalled,
           stalledReason,
         },
+        detailedPipelineHealth: detailedHealth,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });

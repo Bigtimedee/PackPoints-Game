@@ -304,7 +304,7 @@ app.use((req, res, next) => {
 
         try {
           const { initGrowthAgent } = await import("./services/growth");
-          initGrowthAgent();
+          await initGrowthAgent();
         } catch (err) {
           console.error("[GrowthAgent] Failed to initialize:", err);
         }

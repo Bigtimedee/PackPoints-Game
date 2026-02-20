@@ -1,13 +1,15 @@
 import { scheduleJob, startScheduler, stopScheduler, getSchedule } from "./scheduler";
 import { executeJob, getRegisteredJobs, startRetryWorker, stopRetryWorker } from "./jobRunner";
 import { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
+import { checkOpenAIConnectivity, getOpenAIHealthStatus } from "./openaiAdapter";
+import { getPipelineHealth } from "./pipelineHealth";
 
 import "./contentJobs";
 import "./autoPoster";
 
 let initialized = false;
 
-export function initGrowthAgent(): void {
+export async function initGrowthAgent(): Promise<void> {
   if (initialized) return;
 
   const enabled = process.env.GROWTH_AGENT_ENABLED === "true";
@@ -17,6 +19,14 @@ export function initGrowthAgent(): void {
   }
 
   console.log("[GrowthAgent] Initializing...");
+
+  const connectivityResult = await checkOpenAIConnectivity();
+  if (!connectivityResult.ok) {
+    console.error(`[GrowthAgent] WARNING: OpenAI connectivity check FAILED: ${connectivityResult.error}`);
+    console.error("[GrowthAgent] Content generation jobs will fail until OpenAI access is restored.");
+  } else {
+    console.log(`[GrowthAgent] OpenAI connected via: ${connectivityResult.source}`);
+  }
 
   scheduleJob("generate_daily_plan", 13, 0);
   scheduleJob("generate_content_items", 13, 15);
@@ -39,3 +49,5 @@ export { executeJob, getRegisteredJobs } from "./jobRunner";
 export { getSchedule } from "./scheduler";
 export { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
 export { postToDiscord } from "./platformAdapters";
+export { checkOpenAIConnectivity, getOpenAIHealthStatus } from "./openaiAdapter";
+export { getPipelineHealth } from "./pipelineHealth";

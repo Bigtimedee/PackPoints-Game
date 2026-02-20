@@ -20,6 +20,21 @@ interface PipelineHealth {
   stalledReason?: string;
 }
 
+interface DetailedPipelineStage {
+  stage: string;
+  status: "GREEN" | "YELLOW" | "RED";
+  message: string;
+  lastRun?: { status: string; at: string; error?: string } | null;
+}
+
+interface DetailedPipelineHealth {
+  overall: "GREEN" | "YELLOW" | "RED";
+  openai: { status: "GREEN" | "YELLOW" | "RED"; source: string; lastCheck: any };
+  circuitBreaker: { status: "GREEN" | "YELLOW" | "RED"; isOpen: boolean };
+  stages: DetailedPipelineStage[];
+  summary: string;
+}
+
 interface Overview {
   enabled: boolean;
   circuitBreaker: { state: string; failureCount: number; openUntil: number };
@@ -30,6 +45,7 @@ interface Overview {
   pendingQueueCount: number;
   platformStatus?: { discord: boolean; x: boolean; instagram: boolean; reddit: boolean };
   pipelineHealth?: PipelineHealth;
+  detailedPipelineHealth?: DetailedPipelineHealth;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -150,7 +166,66 @@ function OverviewTab() {
         </Card>
       )}
 
-      {data.pipelineHealth?.stalled && (
+      {data.detailedPipelineHealth && (
+        <Card className={
+          data.detailedPipelineHealth.overall === "RED" ? "border-destructive" :
+          data.detailedPipelineHealth.overall === "YELLOW" ? "border-yellow-500" : "border-green-500"
+        } data-testid="card-pipeline-health">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              {data.detailedPipelineHealth.overall === "RED" ? (
+                <AlertTriangle className="h-5 w-5 text-destructive" />
+              ) : data.detailedPipelineHealth.overall === "YELLOW" ? (
+                <AlertTriangle className="h-5 w-5 text-yellow-500" />
+              ) : (
+                <Check className="h-5 w-5 text-green-500" />
+              )}
+              <span className="text-sm font-medium">
+                Pipeline Health: {data.detailedPipelineHealth.overall}
+              </span>
+              <Badge variant={
+                data.detailedPipelineHealth.overall === "RED" ? "destructive" :
+                data.detailedPipelineHealth.overall === "YELLOW" ? "outline" : "default"
+              } data-testid="badge-pipeline-overall">
+                {data.detailedPipelineHealth.overall}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3" data-testid="text-pipeline-summary">
+              {data.detailedPipelineHealth.summary}
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`inline-block w-2 h-2 rounded-full ${
+                  data.detailedPipelineHealth.openai.status === "GREEN" ? "bg-green-500" :
+                  data.detailedPipelineHealth.openai.status === "YELLOW" ? "bg-yellow-500" : "bg-red-500"
+                }`} />
+                <span>OpenAI: {data.detailedPipelineHealth.openai.source || "not checked"}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className={`inline-block w-2 h-2 rounded-full ${
+                  data.detailedPipelineHealth.circuitBreaker.isOpen ? "bg-red-500" : "bg-green-500"
+                }`} />
+                <span>Circuit Breaker: {data.detailedPipelineHealth.circuitBreaker.isOpen ? "OPEN" : "Closed"}</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              {data.detailedPipelineHealth.stages.map((stage) => (
+                <div key={stage.stage} className="flex items-center gap-2 text-sm"
+                  data-testid={`pipeline-stage-${stage.stage.toLowerCase().replace(/\s+/g, "-")}`}>
+                  <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
+                    stage.status === "GREEN" ? "bg-green-500" :
+                    stage.status === "YELLOW" ? "bg-yellow-500" : "bg-red-500"
+                  }`} />
+                  <span className="font-medium min-w-[160px]">{stage.stage}</span>
+                  <span className="text-muted-foreground truncate">{stage.message}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.pipelineHealth?.stalled && !data.detailedPipelineHealth && (
         <Card className="border-destructive">
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">

@@ -33,7 +33,11 @@ Aggregates listings from eBay and Goldin Auctions, providing filtering, affiliat
 A non-linear reward system calculates points based on player obscurity, vintage, and rarity, with daily and per-match point caps.
 
 ### Growth Agent System
-An AI-powered system for content generation and social media automation. It includes a job runner, scheduler, circuit breaker, OpenAI integration, strict Zod validation for all generated content, and a compliance validator. It features platform adapters for Discord, X/Twitter, Instagram, and Reddit, with auto-posting capabilities and anti-abuse safeguards for content diversity. An admin UI provides monitoring and control.
+An AI-powered system for content generation and social media automation. Controlled by `GROWTH_AGENT_ENABLED` env var (default: false). Core files in `server/services/growth/`. Full documentation at `docs/GROWTH_AGENT.md`. It includes a job runner with persistent retry queue, scheduler, circuit breaker, OpenAI integration (GPT-4o-mini via Replit AI Integration with user-key fallback), strict Zod validation, and a compliance validator. Platform adapters for Discord (webhook), X/Twitter (OAuth 1.0a via `twitter-api-v2`), Instagram (Graph API container/publish), and Reddit (OAuth2, `MANUAL_QUEUE` by default). Admin UI at `/admin/growth`.
+
+Pipeline health monitoring (`server/services/growth/pipelineHealth.ts`): Startup OpenAI connectivity check with automatic fallback from Replit AI Integration to user `OPENAI_API_KEY`. Pipeline health report (GREEN/YELLOW/RED) available at `GET /api/admin/growth/overview` in `detailedPipelineHealth` field. Admin dashboard shows health banner with per-stage status (Daily Plan Generation, Content Item Generation, Auto-Posting, Daily 5 Announcement/Recap), OpenAI source, and circuit breaker state. Failed upstream jobs (e.g., `generate_daily_plan`) are surfaced as `dependencyFailed` in downstream job results, preventing silent cascading failures.
+
+DB tables: `growth_content_plans`, `growth_content_items`, `growth_job_runs`, `publishing_queue`. X/Twitter secrets: `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`. Instagram secrets: `INSTAGRAM_BUSINESS_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`.
 
 ### System Hardening
 Includes centralized rate limiting, panic switches for disabling features, structured logging with request IDs, and a health endpoint for monitoring system status.
