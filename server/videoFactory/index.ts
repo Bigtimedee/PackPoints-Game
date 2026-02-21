@@ -3,6 +3,7 @@ import { growthContentItems, publishingQueue } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { validateAndPrepareImage, isPlaceholderUrl } from "./validate";
 import { renderClassicCountdown, type RenderInput, type RenderOutput } from "./render";
+import { getRendererForTemplate, type MultiCardRenderInput, type RenderOutput as MultiRenderOutput } from "./renderFormats";
 import { generateVoiceover, buildVoiceoverText, isTTSEnabled } from "./tts";
 import { getTemplate, getAvailableTemplates } from "./templates";
 import fs from "fs";
@@ -110,50 +111,84 @@ export async function generateVideoForContentItem(
     };
   }
 
-  let cardImageUrl = options?.cardImageUrl || resolveCardImageUrl(contentItem);
+  const templateId = options?.templateId || metadata.render_template_id || metadata.format_id || "classic_countdown";
+  const viralRenderer = getRendererForTemplate(templateId);
 
-  if (!cardImageUrl) {
+  const cardImageUrls = resolveAllCardImageUrls(contentItem, options?.cardImageUrl);
+
+  if (cardImageUrls.length === 0) {
     const { url: fallbackUrl } = await findFallbackCardImage();
     if (!fallbackUrl) {
       return { success: false, error: "No card image URL found in content item metadata or fallback" };
     }
-    cardImageUrl = fallbackUrl;
+    cardImageUrls.push(fallbackUrl);
   }
 
   const date = new Date().toISOString().slice(0, 10);
   const outputDir = getOutputDir(date, contentItemId);
 
   try {
-    console.log(`[VideoFactory] Starting video generation for ${contentItemId}`);
-    console.log(`[VideoFactory] Card image: ${cardImageUrl}`);
+    console.log(`[VideoFactory] Starting video generation for ${contentItemId} (template: ${templateId})`);
 
-    const imageResult = await validateAndPrepareImage(cardImageUrl, outputDir);
-    console.log(`[VideoFactory] Image validated and masked: ${imageResult.maskedImagePath}`);
+    const maskedPaths: string[] = [];
+    const tempPaths: string[] = [];
+
+    for (let i = 0; i < cardImageUrls.length; i++) {
+      const imgUrl = cardImageUrls[i];
+      console.log(`[VideoFactory] Preparing card image ${i + 1}/${cardImageUrls.length}: ${imgUrl}`);
+      const imageResult = await validateAndPrepareImage(imgUrl, outputDir);
+      maskedPaths.push(imageResult.maskedImagePath);
+      tempPaths.push(imageResult.originalPath, imageResult.maskedImagePath);
+    }
 
     const hookText = metadata.hook || contentItem.title || "Can you name this player?";
-    const answerText = metadata.answer || extractPlayerName(metadata) || "???";
+    const answerTexts = extractAnswerTexts(metadata);
     const ctaText = metadata.cta || "Play PackPTS.com \u2022 Daily 5 Challenge";
 
     let voiceAudioPath: string | null = null;
     if (isTTSEnabled()) {
-      const voiceText = buildVoiceoverText({ hookText, answerText, ctaText });
+      const voiceText = buildVoiceoverText({ hookText, answerText: answerTexts[0] || "???", ctaText });
       voiceAudioPath = await generateVoiceover(voiceText, path.join(outputDir, "voice.mp3"));
     }
 
-    const renderInput: RenderInput = {
-      cardImagePath: imageResult.maskedImagePath,
-      hookText,
-      answerText,
-      ctaText,
-      outputDir,
-      templateId: options?.templateId || "classic_countdown",
-      durationSec: 12,
-      voiceAudioPath,
-      width: 1080,
-      height: 1920,
-    };
+    const template = getTemplate(templateId);
+    const durationSec = template?.durationSec || 12;
 
-    const renderOutput = await renderClassicCountdown(renderInput);
+    let renderOutput: RenderOutput;
+
+    if (viralRenderer && templateId !== "classic_countdown") {
+      const multiInput: MultiCardRenderInput = {
+        cardImagePaths: maskedPaths,
+        templateId,
+        hookText,
+        answerTexts,
+        ctaText,
+        outputDir,
+        durationSec,
+        voiceAudioPath,
+        leaderboardLines: metadata.leaderboard_lines || undefined,
+        eraLabel: metadata.era_label || undefined,
+        extraOverlays: metadata.extra_overlays || undefined,
+        width: 1080,
+        height: 1920,
+      };
+      renderOutput = await viralRenderer(multiInput);
+    } else {
+      const renderInput: RenderInput = {
+        cardImagePath: maskedPaths[0],
+        hookText,
+        answerText: answerTexts[0] || "???",
+        ctaText,
+        outputDir,
+        templateId,
+        durationSec,
+        voiceAudioPath,
+        width: 1080,
+        height: 1920,
+      };
+      renderOutput = await renderClassicCountdown(renderInput);
+    }
+
     console.log(`[VideoFactory] Render complete: ${renderOutput.videoPath} (${Math.round(renderOutput.sizeBytes / 1024)}KB)`);
 
     const videoUrl = `/generated/videos/${date}/${contentItemId}/output.mp4`;
@@ -192,8 +227,9 @@ export async function generateVideoForContentItem(
     }
 
     try {
-      if (fs.existsSync(imageResult.maskedImagePath)) fs.unlinkSync(imageResult.maskedImagePath);
-      if (fs.existsSync(imageResult.originalPath)) fs.unlinkSync(imageResult.originalPath);
+      for (const tp of tempPaths) {
+        if (fs.existsSync(tp)) fs.unlinkSync(tp);
+      }
     } catch {}
 
     return {
@@ -225,6 +261,32 @@ function extractPlayerName(metadata: Record<string, any>): string | null {
   if (metadata.answerText) return metadata.answerText;
   if (metadata.answer) return metadata.answer;
   return null;
+}
+
+function extractAnswerTexts(metadata: Record<string, any>): string[] {
+  if (metadata.cards && Array.isArray(metadata.cards)) {
+    return metadata.cards.map((c: any) => c.player || c.answer || "???");
+  }
+  const single = metadata.answer || extractPlayerName(metadata) || "???";
+  return [single];
+}
+
+function resolveAllCardImageUrls(contentItem: any, overrideUrl?: string): string[] {
+  const metadata = (contentItem.metadata as Record<string, any>) || {};
+
+  if (overrideUrl) return [overrideUrl];
+
+  if (metadata.cards && Array.isArray(metadata.cards)) {
+    const urls = metadata.cards
+      .map((c: any) => c.imageUrl || c.image_url || c.url)
+      .filter((u: string) => u && !isPlaceholderUrl(u));
+    if (urls.length > 0) return urls;
+  }
+
+  const singleUrl = resolveCardImageUrl(contentItem);
+  if (singleUrl) return [singleUrl];
+
+  return [];
 }
 
 async function findFallbackCardImage(): Promise<{ url: string } | { url: null }> {

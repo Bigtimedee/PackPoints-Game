@@ -43,6 +43,7 @@ export async function initGrowthAgent(): Promise<void> {
 
   if (tiktokCfg.enabled) {
     scheduleJob("generate_tiktok_packages", 13, 20);
+    scheduleJob("generate_viral_tiktok_packages", 13, 25);
     scheduleJob("render_tiktok_videos", 13, 35);
   }
 

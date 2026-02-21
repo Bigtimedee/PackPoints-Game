@@ -412,6 +412,7 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
   const assetRefs: any[] = meta.asset_refs || assets.asset_refs || [];
   const contentType = item.contentItem?.type || "TIKTOK";
   const scheduledFor = item.contentItem?.scheduledFor;
+  const formatId = meta.format_id || assets.format_id || null;
 
   const videoAsset = meta.video_asset || assets.video_asset || null;
   const videoError = meta.video_error || null;
@@ -465,7 +466,12 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                 <Video className="h-3 w-3" />
                 TikTok
               </Badge>
-              <Badge variant="secondary">{contentType.replace(/^TIKTOK_/, "").replace(/_/g, " ")}</Badge>
+              <Badge variant="secondary">{contentType.replace(/^TIKTOK_(VIRAL_)?/, "").replace(/_/g, " ")}</Badge>
+              {formatId && (
+                <Badge className="bg-purple-600 text-white text-xs" data-testid={`badge-format-${item.id}`}>
+                  {formatId.replace(/_/g, " ")}
+                </Badge>
+              )}
               <StatusBadge status={item.status} />
               {hasVideo && (
                 <Badge className="bg-green-600 text-white text-xs gap-1">
@@ -655,6 +661,7 @@ function QueueTab() {
   const { toast } = useToast();
   const [platformFilter, setPlatformFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [formatFilter, setFormatFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showChecklist, setShowChecklist] = useState(false);
@@ -790,6 +797,21 @@ function QueueTab() {
           </SelectContent>
         </Select>
 
+        <Select value={formatFilter} onValueChange={setFormatFilter}>
+          <SelectTrigger className="w-[160px]" data-testid="select-format-filter">
+            <SelectValue placeholder="Format" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Formats</SelectItem>
+            <SelectItem value="only_real_fans">Only Real Fans</SelectItem>
+            <SelectItem value="difficulty_ladder">Difficulty Ladder</SelectItem>
+            <SelectItem value="memory_shock">Memory Shock</SelectItem>
+            <SelectItem value="pack_pull_drama">Pack Pull Drama</SelectItem>
+            <SelectItem value="leaderboard_flex">Leaderboard Flex</SelectItem>
+            <SelectItem value="era_wars">Era Wars</SelectItem>
+          </SelectContent>
+        </Select>
+
         <div className="flex items-center gap-2">
           <input
             type="date"
@@ -885,7 +907,14 @@ function QueueTab() {
         </p>
       )}
 
-      {data?.items.map(item => {
+      {data?.items
+        .filter((item: any) => {
+          if (formatFilter === "all") return true;
+          const meta = item.contentItem?.metadata || item.assets || {};
+          const fid = meta.format_id || item.assets?.format_id;
+          return fid === formatFilter;
+        })
+        .map((item: any) => {
         if (item.platform === "tiktok") {
           return (
             <TikTokQueueCard

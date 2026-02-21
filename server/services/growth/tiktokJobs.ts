@@ -4,8 +4,10 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 import { generateStructuredContent } from "./openaiAdapter";
 import * as prompts from "./promptTemplates";
-import { TikTokPackageSchema, validateTikTokPackage, TIKTOK_PACKAGE_JSON_HINT } from "./schemas";
+import { TikTokPackageSchema, validateTikTokPackage, TIKTOK_PACKAGE_JSON_HINT, validateViralTikTokPackage, checkTikTokCompliance, VIRAL_TIKTOK_PACKAGE_JSON_HINT } from "./schemas";
 import { isTikTokEnabled } from "./tiktokConfig";
+import { selectCardsForFormat, type SelectedCard } from "./cardSelector";
+import * as viralPrompts from "./viralPrompts";
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -173,6 +175,217 @@ registerJob("generate_tiktok_packages", async (ctx: JobContext) => {
   return {
     date,
     planId,
+    generated,
+    errors: errors.length > 0 ? errors : undefined,
+  };
+});
+
+async function saveViralTikTokItem(
+  planId: string | null,
+  type: string,
+  pkg: any,
+  idempKey: string,
+  scheduledFor: Date,
+): Promise<string | null> {
+  const existing = await db.select({ id: growthContentItems.id })
+    .from(growthContentItems)
+    .where(eq(growthContentItems.idempotencyKey, idempKey))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return null;
+  }
+
+  const [item] = await db.insert(growthContentItems).values({
+    planId,
+    type,
+    platform: "tiktok",
+    title: pkg.hook,
+    body: pkg.script,
+    metadata: {
+      ...pkg,
+      format_id: pkg.format_id,
+      render_template_id: pkg.render_template_id || pkg.format_id,
+      cards: pkg.cards,
+      scenes: pkg.scenes,
+      engagement_goal: pkg.engagement_goal,
+      safety_flags: pkg.safety_flags,
+    },
+    postingMode: "MANUAL_QUEUE",
+    status: "READY",
+    scheduledFor,
+    idempotencyKey: idempKey,
+  }).returning();
+
+  await db.insert(publishingQueue).values({
+    contentItemId: item.id,
+    platform: "tiktok",
+    copyText: pkg.caption,
+    assets: {
+      hook: pkg.hook,
+      script: pkg.script,
+      on_screen_text: pkg.on_screen_text,
+      caption: pkg.caption,
+      hashtags: pkg.hashtags,
+      cta: pkg.cta,
+      thumbnail_text: pkg.thumbnail_text,
+      format_notes: pkg.format_notes,
+      audio_notes: pkg.audio_notes,
+      asset_refs: pkg.asset_refs,
+      legal_safe: pkg.legal_safe,
+      format_id: pkg.format_id,
+      render_template_id: pkg.render_template_id,
+      cards: pkg.cards,
+      scenes: pkg.scenes,
+    },
+    status: "READY",
+  });
+
+  return item.id;
+}
+
+async function getLeaderboardData(date: string): Promise<{ username: string; score: number; correct: number; streak?: number }[]> {
+  try {
+    const [challenge] = await db.select().from(dailyChallenges)
+      .where(eq(dailyChallenges.date, date))
+      .limit(1);
+
+    if (!challenge) return [];
+
+    const topEntries = await db.select({
+      username: sql<string>`COALESCE(u.username, 'Anonymous')`,
+      score: dailyChallengeEntries.score,
+      correctCount: dailyChallengeEntries.correctCount,
+    })
+      .from(dailyChallengeEntries)
+      .innerJoin(sql`users u`, sql`u.id = ${dailyChallengeEntries.userId}`)
+      .where(eq(dailyChallengeEntries.dailyChallengeId, challenge.id))
+      .orderBy(desc(dailyChallengeEntries.score))
+      .limit(5);
+
+    return topEntries.map(e => ({
+      username: e.username,
+      score: e.score,
+      correct: e.correctCount,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+const VIRAL_FORMAT_SCHEDULE: { formatId: string; hour: number; minute: number; cardCount: number }[] = [
+  { formatId: "only_real_fans", hour: 9, minute: 0, cardCount: 1 },
+  { formatId: "memory_shock", hour: 12, minute: 0, cardCount: 1 },
+  { formatId: "pack_pull_drama", hour: 15, minute: 0, cardCount: 1 },
+  { formatId: "difficulty_ladder", hour: 17, minute: 0, cardCount: 3 },
+  { formatId: "era_wars", hour: 19, minute: 0, cardCount: 2 },
+  { formatId: "leaderboard_flex", hour: 21, minute: 30, cardCount: 0 },
+];
+
+function getViralPrompt(formatId: string, date: string, cards: SelectedCard[], leaderboardData?: any[]): string {
+  switch (formatId) {
+    case "only_real_fans":
+      return viralPrompts.ONLY_REAL_FANS_PROMPT(date, cards);
+    case "difficulty_ladder":
+      return viralPrompts.DIFFICULTY_LADDER_PROMPT(date, cards);
+    case "memory_shock":
+      return viralPrompts.MEMORY_SHOCK_PROMPT(date, cards);
+    case "pack_pull_drama":
+      return viralPrompts.PACK_PULL_DRAMA_PROMPT(date, cards);
+    case "leaderboard_flex":
+      return viralPrompts.LEADERBOARD_FLEX_PROMPT(date, leaderboardData || [], cards);
+    case "era_wars":
+      return viralPrompts.ERA_WARS_PROMPT(date, cards);
+    default:
+      return viralPrompts.ONLY_REAL_FANS_PROMPT(date, cards);
+  }
+}
+
+registerJob("generate_viral_tiktok_packages", async (ctx: JobContext) => {
+  if (!isTikTokEnabled()) {
+    return { skipped: true, reason: "TikTok is disabled" };
+  }
+
+  const date = getChicagoDate();
+
+  const [plan] = await db.select().from(growthContentPlans)
+    .where(and(eq(growthContentPlans.date, date), eq(growthContentPlans.status, "ACTIVE")))
+    .limit(1);
+
+  const planId = plan?.id || null;
+  const generated: string[] = [];
+  const errors: string[] = [];
+
+  const leaderboardData = await getLeaderboardData(date);
+
+  for (const schedule of VIRAL_FORMAT_SCHEDULE) {
+    const idempKey = `viral_${schedule.formatId}_${date}`;
+
+    try {
+      let selectedCards: SelectedCard[] = [];
+
+      if (schedule.cardCount > 0) {
+        selectedCards = await selectCardsForFormat(schedule.formatId, date);
+      }
+
+      const prompt = getViralPrompt(schedule.formatId, date, selectedCards, leaderboardData);
+
+      const { parsed: rawParsed } = await generateStructuredContent({
+        systemPrompt: viralPrompts.VIRAL_SYSTEM_PROMPT,
+        userPrompt: prompt,
+        jsonSchema: VIRAL_TIKTOK_PACKAGE_JSON_HINT,
+      });
+
+      const rawData = rawParsed as Record<string, any>;
+
+      if (!rawData.dedupe_key) rawData.dedupe_key = `${date}:${schedule.formatId}`;
+      if (!rawData.format_id) rawData.format_id = schedule.formatId;
+      if (!rawData.render_template_id) rawData.render_template_id = schedule.formatId;
+
+      if (!rawData.safety_flags) {
+        rawData.safety_flags = { no_gambling_language: true, no_prize_guarantees: true };
+      }
+
+      if (selectedCards.length > 0 && !rawData.cards) {
+        rawData.cards = selectedCards.map(c => ({
+          cardId: c.id,
+          player: c.player,
+          set: c.set,
+          year: c.year,
+          imageUrl: c.imageUrl,
+          difficulty: c.difficulty,
+          era: c.era,
+        }));
+      }
+
+      const compliance = checkTikTokCompliance(rawData as any);
+      if (!compliance.pass) {
+        console.warn(`[ViralTikTok] Compliance issues for ${schedule.formatId}: ${compliance.issues.join("; ")}`);
+      }
+
+      const pkg = validateViralTikTokPackage(rawData, `Viral_${schedule.formatId}`);
+      const contentType = `TIKTOK_VIRAL_${schedule.formatId.toUpperCase()}`;
+      const itemId = await saveViralTikTokItem(
+        planId,
+        contentType,
+        pkg,
+        idempKey,
+        getScheduledTime(date, schedule.hour, schedule.minute),
+      );
+
+      if (itemId) generated.push(`${contentType}:${itemId}`);
+      else generated.push(`${contentType}:deduped`);
+
+    } catch (err: any) {
+      console.error(`[ViralTikTok] Failed to generate ${schedule.formatId}:`, err?.message);
+      errors.push(`${schedule.formatId}: ${err?.message}`);
+    }
+  }
+
+  return {
+    date,
+    planId,
+    totalFormats: VIRAL_FORMAT_SCHEDULE.length,
     generated,
     errors: errors.length > 0 ? errors : undefined,
   };

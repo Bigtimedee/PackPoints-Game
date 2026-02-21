@@ -3721,6 +3721,9 @@ export const growthContentTypes = [
   "DAILY5_ANNOUNCEMENT", "DAILY5_RECAP", "LEADERBOARD_SPOTLIGHT",
   "TIKTOK_DAILY5_ANNOUNCEMENT", "TIKTOK_TRIVIA_CHALLENGE",
   "TIKTOK_LEADERBOARD_SPOTLIGHT", "TIKTOK_STREAK_REMINDER",
+  "TIKTOK_ONLY_REAL_FANS", "TIKTOK_DIFFICULTY_LADDER",
+  "TIKTOK_MEMORY_SHOCK", "TIKTOK_PACK_PULL_DRAMA",
+  "TIKTOK_LEADERBOARD_FLEX", "TIKTOK_ERA_WARS",
   "INSTAGRAM_POST",
 ] as const;
 export type GrowthContentType = typeof growthContentTypes[number];
@@ -3786,6 +3789,30 @@ export const insertGrowthJobRunSchema = createInsertSchema(growthJobRuns).omit({
 });
 export type InsertGrowthJobRun = z.infer<typeof insertGrowthJobRunSchema>;
 export type GrowthJobRun = typeof growthJobRuns.$inferSelect;
+
+// Growth Viral Format definitions
+export const viralFormatIds = [
+  "only_real_fans", "difficulty_ladder", "memory_shock",
+  "pack_pull_drama", "leaderboard_flex", "era_wars",
+] as const;
+export type ViralFormatId = typeof viralFormatIds[number];
+
+export const growthFormats = pgTable("growth_formats", {
+  id: varchar("id", { length: 50 }).primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  defaultDurationSec: integer("default_duration_sec").notNull().default(12),
+  defaultSceneTiming: jsonb("default_scene_timing"),
+  recommendedPostingWindow: jsonb("recommended_posting_window"),
+  engagementGoal: varchar("engagement_goal", { length: 30 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertGrowthFormatSchema = createInsertSchema(growthFormats).omit({
+  createdAt: true,
+});
+export type InsertGrowthFormat = z.infer<typeof insertGrowthFormatSchema>;
+export type GrowthFormat = typeof growthFormats.$inferSelect;
 
 export const publishingQueueStatuses = ["READY", "POSTED"] as const;
 export type PublishingQueueStatus = typeof publishingQueueStatuses[number];

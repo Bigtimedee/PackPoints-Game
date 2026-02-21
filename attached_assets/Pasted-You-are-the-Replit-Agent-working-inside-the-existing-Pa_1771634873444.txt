@@ -1,0 +1,251 @@
+You are the Replit Agent working inside the existing PackPTS repo.
+
+OBJECTIVE
+Implement “The PackPTS Growth Flywheel” inside the product so gameplay automatically generates content, and content automatically drives users back into gameplay — creating a compounding loop:
+
+GAMEPLAY DATA  →  AUTO CONTENT ASSETS  →  SOCIAL SHARING/REFERRALS  →  NEW/RETURNING USERS  →  MORE GAMEPLAY DATA
+
+This is NOT a marketing document. This must be implemented as real code, real UI, real tables, real jobs, and measurable analytics in the Admin portal.
+
+NON-NEGOTIABLES
+- Do NOT break existing match modes (1vComputer, 1vRandom, 1vFriend).
+- Must work for both Daily 5 and normal matches.
+- Must be safe (no spam) and deterministic (no duplicate assets).
+- Must not require social network APIs; default to “shareable assets + links” and the Publishing Queue.
+- Must provide Admin analytics to validate the flywheel is working.
+
+=====================================================================
+PART 1 — DATA: EVENT SOURCES OF TRUTH (GAME → CONTENT)
+=====================================================================
+
+1) Add event tables (if not already present) to capture immutable “facts”:
+A) gameplay_events
+- id (uuid)
+- user_id
+- event_type (enum/text): MATCH_STARTED, MATCH_FINISHED, DAILY5_FINISHED, STREAK_UPDATED, PACKPTS_EARNED, PACKPTS_PURCHASED
+- payload (json)
+- created_at
+Indexes: (event_type, created_at), (user_id, created_at)
+
+B) share_events
+- id (uuid)
+- user_id
+- share_type: SCORE_CARD, LEADERBOARD_CARD, STREAK_CARD, CHALLENGE_INVITE
+- target: TIKTOK, INSTAGRAM, X, DISCORD, COPY_LINK, NATIVE_SHARE
+- content_asset_id (fk nullable)
+- share_link_id (fk nullable)
+- created_at
+
+C) referral_links
+- id (uuid)
+- code (unique short code)
+- created_by_user_id
+- purpose: INVITE, DAILY5_CHALLENGE, SCORE_SHARE
+- destination_path (text) e.g., /signup?ref=...
+- created_at
+- expires_at nullable
+- is_active boolean default true
+
+D) referral_attributions
+- id (uuid)
+- referral_link_id
+- invited_user_id
+- event_type: SIGNUP, FIRST_MATCH, FIRST_PURCHASE
+- created_at
+Unique: (referral_link_id, invited_user_id, event_type)
+
+2) Add rollups for speed:
+A) user_growth_rollups (per user, per day)
+- user_id
+- date (YYYY-MM-DD)
+- matches_played
+- daily5_played
+- correct_answers
+- packpts_earned
+- packpts_spent
+- shares_count
+- referrals_sent
+- invited_signups
+- created_at
+Unique: (user_id, date)
+
+B) global_growth_rollups (per day)
+- date
+- dau
+- matches
+- daily5_entries
+- shares
+- invites
+- signups_from_invites
+- k_factor_estimate
+- created_at
+Unique: (date)
+
+=====================================================================
+PART 2 — CONTENT ASSETS: AUTO-GENERATED SHAREABLE “PROOF”
+=====================================================================
+
+Implement an internal “Content Factory” that creates shareable assets the moment gameplay ends.
+These are lightweight and deterministic.
+
+1) Create a table:
+content_assets
+- id (uuid)
+- asset_type: SCORE_CARD, DAILY5_RANK_CARD, STREAK_BADGE, LEADERBOARD_SPOTLIGHT
+- user_id nullable (some assets are global)
+- source_event_id (fk to gameplay_events)
+- metadata (json) // score, rank, streak, mode, date, etc.
+- image_path (text) // generated PNG
+- video_path (text nullable) // optional mp4 if video factory is enabled
+- created_at
+Unique: (asset_type, user_id, source_event_id)
+
+2) Create an asset generator:
+server/contentFactory/generateScoreCard.ts
+- Input: match result (score, correct_count, mode, set, time, etc.)
+- Output: 1080x1920 PNG “score card” image suitable for TikTok/IG story
+- Use HTML-to-image (playwright) OR canvas in Node OR a server-side React render:
+  - Keep it simple: generate a styled PNG with username, score, streak, CTA “PackPTS.com”
+- Ensure safe-area padding and readable typography.
+
+3) Generate these assets automatically on:
+- MATCH_FINISHED
+- DAILY5_FINISHED
+- STREAK_UPDATED (only when streak hits milestones: 3, 7, 14, 30)
+
+4) Store the image in:
+public/generated/share/{date}/{assetId}.png
+(or S3 later)
+
+=====================================================================
+PART 3 — PRODUCT: SHARE + INVITE MECHANICS (CONTENT → USERS)
+=====================================================================
+
+Implement in the UI:
+
+A) Post-match “Share your score” module (mandatory)
+After a match finishes:
+- Show the generated score card preview
+- Buttons:
+  - “Copy Link”
+  - “Download Image”
+  - “Share (native)” if available (Web Share API)
+- Also show “Challenge a friend” button that creates a referral link.
+
+B) Daily 5 “Rank Card”
+After Daily 5:
+- Show rank, score, streak
+- Provide share buttons same as above
+- “Beat me tonight” invite link
+
+C) Referral link creation
+- Implement POST /api/referrals/create
+Body: { purpose, destination_path }
+Returns: { url: https://packpts.com/r/{code} }
+- Implement GET /r/:code redirect endpoint that:
+  - logs click
+  - stores attribution cookie/localStorage ref code
+  - redirects to destination_path
+
+D) Referral attribution
+On signup and first match and first purchase:
+- if ref cookie exists, write referral_attributions rows.
+
+E) Rewards (optional but recommended)
+- When invited user completes FIRST_MATCH:
+  - inviter gets +X PackPTS bonus (guardrails apply; daily cap)
+- Add a simple “Invite progress” UI:
+  - “Invite 3 friends → 2x PackPTS next match”
+
+All rewards must be enforced by server, idempotent, and included in wallet ledger.
+
+=====================================================================
+PART 4 — GROWTH AGENT: AUTOMATE CONTENT AMPLIFICATION
+=====================================================================
+
+Hook the Growth Agent into the flywheel:
+
+1) Every hour:
+- pick top 3 user-generated assets (by score/rank/streak) created in last 24h
+- create Publishing Queue items:
+  - “Leaderboard spotlight”
+  - “Streak milestone”
+- Use compliance rules:
+  - do not expose private info
+  - usernames are okay; allow opt-out
+
+2) Daily schedule:
+- 8pm ET: Daily 5 announcement content
+- After close: recap content using winners
+
+3) Add a user preference:
+- settings.allow_leaderboard_spotlight boolean default true
+- Users can opt out of being highlighted publicly.
+
+=====================================================================
+PART 5 — ADMIN: FLYWHEEL DASHBOARD (MEASURE COMPOUNDING)
+=====================================================================
+
+Create /admin/growth/flywheel dashboard showing:
+- DAU, matches/day, Daily5 entries/day
+- shares/day (by share_type and target)
+- invites/day + signups from invites
+- K-factor estimate:
+  K = (invites_per_user * conversion_rate_to_signup)
+  Use global_growth_rollups to compute and trend
+
+- “Top content assets” list for last 24h:
+  - preview image
+  - source (match/daily5)
+  - user
+  - score/rank
+  - one-click “Create TikTok package from this” (publishing queue item)
+
+Add drilldowns:
+- by mode (Daily5 vs normal matches)
+- by set/category
+
+=====================================================================
+PART 6 — JOBS: ROLLUPS + IDENTITY + SAFETY
+=====================================================================
+
+1) Add a nightly job to compute rollups:
+server/growthAgent/jobs/computeFlywheelRollups.ts
+- aggregates gameplay_events + share_events + referrals into rollup tables
+
+2) Add safety limits:
+- prevent “share spam”: max 10 share events per user per day counted in rollups
+- referral bonuses: max bonus per day (respect daily cap rules)
+- idempotency for rewards: unique key per (inviter, invited_user, milestone)
+
+3) Add simple alerts:
+- If webhook errors OR pack purchase errors, show admin banner.
+- If K-factor drops below threshold for 7 days, show “content engine needs refresh” notice.
+
+=====================================================================
+PART 7 — IMPLEMENTATION ORDER (DO THIS EXACTLY)
+=====================================================================
+
+1) Add DB migrations (tables above)
+2) Add redirect route /r/:code + referral create API
+3) Implement content_assets generator for score/rank/streak PNGs
+4) Add post-match share module and Daily 5 share module
+5) Add share_events logging for every action
+6) Add nightly rollups job + admin flywheel dashboard
+7) Hook Growth Agent to promote top assets into Publishing Queue
+
+=====================================================================
+ACCEPTANCE TESTS (YOU MUST RUN)
+=====================================================================
+1) Finish a match → a score PNG is created and shown; no page scroll issues.
+2) Click “Copy Link” → share_events row created; referral link works and redirects.
+3) New user signs up via referral → referral attribution recorded.
+4) Admin flywheel dashboard shows correct counts for today.
+5) Growth Agent creates “spotlight” queue items from top assets.
+
+DELIVER BACK TO ME
+- Files changed
+- New env vars (if any)
+- URLs in admin to view flywheel analytics
+- How a user shares and invites
+- How K-factor is computed in the dashboard

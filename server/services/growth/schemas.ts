@@ -12,6 +12,12 @@ export const TIKTOK_CONTENT_TYPES = [
   "TIKTOK_TRIVIA_CHALLENGE",
   "TIKTOK_LEADERBOARD_SPOTLIGHT",
   "TIKTOK_STREAK_REMINDER",
+  "TIKTOK_ONLY_REAL_FANS",
+  "TIKTOK_DIFFICULTY_LADDER",
+  "TIKTOK_MEMORY_SHOCK",
+  "TIKTOK_PACK_PULL_DRAMA",
+  "TIKTOK_LEADERBOARD_FLEX",
+  "TIKTOK_ERA_WARS",
 ] as const;
 export type TikTokContentType = typeof TIKTOK_CONTENT_TYPES[number];
 
@@ -137,3 +143,107 @@ export function validateTikTokPackage(data: unknown, label: string): TikTokPacka
   }
   return result.data;
 }
+
+export const ViralSceneSchema = z.object({
+  sceneId: z.string(),
+  startSec: z.number(),
+  endSec: z.number(),
+  overlayText: z.string(),
+  overlayColor: z.string().default("#FFFFFF"),
+});
+
+export const ViralCardRefSchema = z.object({
+  cardId: z.string(),
+  player: z.string(),
+  set: z.string(),
+  year: z.number(),
+  imageUrl: z.string(),
+  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
+  era: z.string().optional(),
+});
+
+export const ViralSafetyFlagsSchema = z.object({
+  no_gambling_language: z.boolean().default(true),
+  no_prize_guarantees: z.boolean().default(true),
+});
+
+export const ViralTikTokPackageSchema = TikTokPackageSchema.extend({
+  format_id: z.enum([
+    "only_real_fans", "difficulty_ladder", "memory_shock",
+    "pack_pull_drama", "leaderboard_flex", "era_wars",
+  ]),
+  scenes: z.array(ViralSceneSchema).optional(),
+  render_template_id: z.string(),
+  cards: z.array(ViralCardRefSchema).optional(),
+  engagement_goal: z.enum(["comments", "shares", "replays", "conversion"]).optional(),
+  safety_flags: ViralSafetyFlagsSchema.default({ no_gambling_language: true, no_prize_guarantees: true }),
+});
+export type ViralTikTokPackage = z.infer<typeof ViralTikTokPackageSchema>;
+
+export function validateViralTikTokPackage(data: unknown, label: string): ViralTikTokPackage {
+  const result = ViralTikTokPackageSchema.safeParse(data);
+  if (!result.success) {
+    const errors = result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw new Error(`[${label}] Viral TikTok package validation failed: ${errors}`);
+  }
+  return result.data;
+}
+
+const COMPLIANCE_BANNED_PHRASES = [
+  /\bguaranteed?\b/i, /\bfree money\b/i, /\bwin big\b/i,
+  /\bjackpot\b/i, /\bcash out\b/i, /\bbet\b/i, /\bgambl/i,
+  /\bprize\s+(money|cash)\b/i, /\bmake\s+money\b/i,
+  /\bget\s+rich\b/i, /\bno\s+risk\b/i,
+];
+
+export function checkTikTokCompliance(pkg: TikTokPackage | ViralTikTokPackage): { pass: boolean; issues: string[] } {
+  const issues: string[] = [];
+  const textsToCheck = [pkg.hook, pkg.script, pkg.caption, pkg.cta, ...(pkg.on_screen_text || [])];
+
+  for (const text of textsToCheck) {
+    for (const pattern of COMPLIANCE_BANNED_PHRASES) {
+      if (pattern.test(text)) {
+        issues.push(`Banned phrase found: "${pattern.source}" in text: "${text.slice(0, 60)}..."`);
+      }
+    }
+  }
+
+  if (pkg.caption && pkg.caption.length > 200) {
+    issues.push(`Caption exceeds preferred 200 chars (${pkg.caption.length} chars)`);
+  }
+
+  if (!pkg.cta || pkg.cta.length < 5) {
+    issues.push("Missing or too-short CTA");
+  }
+
+  const safetyFlags = (pkg as any).safety_flags || pkg.legal_safe;
+  if (safetyFlags && !safetyFlags.no_gambling_language) {
+    issues.push("safety_flags.no_gambling_language must be true");
+  }
+  if (safetyFlags && !safetyFlags.no_prize_guarantees) {
+    issues.push("safety_flags.no_prize_guarantees must be true");
+  }
+
+  return { pass: issues.length === 0, issues };
+}
+
+export const VIRAL_TIKTOK_PACKAGE_JSON_HINT = `{
+  "hook": "string (1-line attention grabber)",
+  "script": "string (voiceover script)",
+  "on_screen_text": ["overlay line 1", "overlay line 2"],
+  "caption": "string (max 200 chars preferred)",
+  "hashtags": ["#packpts", "#baseballcards", ...],
+  "cta": "string (call to action)",
+  "thumbnail_text": "string (max 6 words)",
+  "format_notes": "string",
+  "audio_notes": "string",
+  "asset_refs": [],
+  "legal_safe": { "no_gambling_language": true, "no_prize_guarantees": true },
+  "dedupe_key": "string",
+  "format_id": "string (the format id)",
+  "scenes": [{ "sceneId": "string", "startSec": 0, "endSec": 2, "overlayText": "string", "overlayColor": "#FFFFFF" }],
+  "render_template_id": "string (template id for video factory)",
+  "cards": [{ "cardId": "string", "player": "string", "set": "string", "year": 2024, "imageUrl": "string", "difficulty": "easy|medium|hard", "era": "string" }],
+  "engagement_goal": "comments|shares|replays|conversion",
+  "safety_flags": { "no_gambling_language": true, "no_prize_guarantees": true }
+}`;
