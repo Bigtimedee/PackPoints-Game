@@ -9,7 +9,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle } from "lucide-react";
+import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle, Download, UserPlus, Image } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -798,9 +798,16 @@ export default function Game() {
     const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${session.totalQuestions} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
+    const logShareEvent = async (shareType: string, target: string, contentAssetId?: string) => {
+      try {
+        await apiRequest("POST", "/api/share-events", { shareType, target, contentAssetId });
+      } catch {}
+    };
+
     const handleShare = async (platform: "twitter" | "facebook" | "native" | "copy") => {
       const encodedText = encodeURIComponent(shareText);
       const encodedUrl = encodeURIComponent(shareUrl);
+      const target = platform === "twitter" ? "X" : platform === "facebook" ? "DISCORD" : platform === "native" ? "NATIVE_SHARE" : "COPY_LINK";
       
       switch (platform) {
         case "twitter":
@@ -818,7 +825,7 @@ export default function Game() {
                 url: shareUrl,
               });
             } catch (err) {
-              // User cancelled or share failed
+              return;
             }
           }
           break;
@@ -835,8 +842,52 @@ export default function Game() {
               description: "Failed to copy to clipboard",
               variant: "destructive",
             });
+            return;
           }
           break;
+      }
+      logShareEvent("SCORE_CARD", target);
+    };
+
+    const handleDownloadScoreCard = async () => {
+      try {
+        const res = await fetch(`/api/content-assets/latest?matchId=${session.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          const asset = data.assets?.[0];
+          if (asset?.metadata?.imageUrl) {
+            const link = document.createElement("a");
+            link.href = asset.metadata.imageUrl;
+            link.download = `packpts-score-${session.id.slice(0, 8)}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            logShareEvent("SCORE_CARD", "COPY_LINK", asset.id);
+            toast({ title: "Downloading!", description: "Score card image downloading" });
+            return;
+          }
+        }
+        toast({ title: "Not ready", description: "Score card is being generated, try again shortly", variant: "destructive" });
+      } catch {
+        toast({ title: "Error", description: "Failed to download score card", variant: "destructive" });
+      }
+    };
+
+    const handleChallengeInvite = async () => {
+      try {
+        const res = await apiRequest("POST", "/api/referrals/create", {
+          purpose: "SCORE_SHARE",
+          destinationPath: "/",
+        });
+        const data = await res.json();
+        if (data.url) {
+          const challengeText = `I scored ${session.score} points on PackPTS! Think you can beat me? ${data.url}`;
+          await navigator.clipboard.writeText(challengeText);
+          logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
+          toast({ title: "Challenge link copied!", description: "Share it with a friend" });
+        }
+      } catch {
+        toast({ title: "Error", description: "Failed to create challenge link", variant: "destructive" });
       }
     };
 
@@ -905,6 +956,28 @@ export default function Game() {
                   </Button>
                 )}
               </div>
+              {isAuthenticated && (
+                <div className="flex flex-col gap-2 pt-2">
+                  <Button 
+                    variant="outline" 
+                    className="w-full gap-2"
+                    onClick={handleDownloadScoreCard}
+                    data-testid="button-download-scorecard"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Score Card
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="w-full gap-2"
+                    onClick={handleChallengeInvite}
+                    data-testid="button-challenge-friend"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Challenge a Friend
+                  </Button>
+                </div>
+              )}
             </div>
             
             {currentGameSet && (

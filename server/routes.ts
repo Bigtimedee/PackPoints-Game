@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, growthContentPlans, growthContentItems, growthJobRuns, publishingQueue, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, growthContentPlans, growthContentItems, growthJobRuns, publishingQueue, globalGrowthRollups, shareEvents, referralAttributions, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -60,6 +60,7 @@ import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewar
 import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
 import cardhedgeRouter from "./routes/cardhedge.routes";
+import referralsRouter from "./routes/referrals";
 import * as matchEngine from "./services/matches/engine";
 import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
@@ -116,6 +117,9 @@ export async function registerRoutes(
   
   // Friends and match invite routes
   app.use(friendsRouter);
+  
+  // Referral and share event routes
+  app.use(referralsRouter);
   
   // CardHedge API routes (server-side only, never expose API key to client)
   app.use("/api/cardhedge", cardhedgeRouter);
@@ -1349,6 +1353,22 @@ export async function registerRoutes(
             if (streakResult.success && !streakResult.alreadyClaimed && streakResult.totalAwarded) {
               console.log(`[Streak] User ${session.userId} earned ${streakResult.totalAwarded} PackPTS for day ${streakResult.streakInfo?.currentDays} streak`);
             }
+
+            try {
+              const { onMatchFinished } = await import("./contentFactory/index");
+              const streakDays = streakResult.streakInfo?.currentDays;
+              onMatchFinished({
+                matchId: session.id,
+                userId: session.userId,
+                score: finalScore,
+                correctCount: session.correctAnswers,
+                totalQuestions: session.totalQuestions,
+                mode: session.mode || "solo",
+                streak: streakDays,
+              }).catch(err => console.error("[ContentFactory] Background error:", err?.message));
+            } catch (cfErr) {
+              console.error("[ContentFactory] Import error:", cfErr);
+            }
           } catch (streakError) {
             console.error("Failed to process streak:", streakError);
           }
@@ -1461,6 +1481,23 @@ export async function registerRoutes(
       }
       
       const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
+
+      try {
+        const { onDaily5Finished } = await import("./contentFactory/index");
+        const date = new Date().toISOString().slice(0, 10);
+        onDaily5Finished({
+          challengeId: parsed.data.challengeId,
+          userId,
+          score: result.score || 0,
+          correctCount: result.correctCount || 0,
+          totalQuestions: 5,
+          rank: result.rank,
+          date,
+        }).catch(err => console.error("[ContentFactory] Daily5 background error:", err?.message));
+      } catch (cfErr) {
+        console.error("[ContentFactory] Daily5 import error:", cfErr);
+      }
+
       res.json(result);
     } catch (error: any) {
       console.error("[Daily5] Error finishing challenge:", error);
@@ -11622,6 +11659,75 @@ export async function registerRoutes(
     try {
       const { getVideoFactoryConfig } = await import("./videoFactory");
       res.json(getVideoFactoryConfig());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/flywheel", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { days = "30" } = req.query;
+      const numDays = Math.min(Number(days) || 30, 90);
+
+      const rollups = await db.select()
+        .from(globalGrowthRollups)
+        .orderBy(desc(globalGrowthRollups.date))
+        .limit(numDays);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const todayShareCount = await db.select({
+        cnt: sql<number>`count(*)`,
+      }).from(shareEvents)
+        .where(gte(shareEvents.createdAt, new Date(`${today}T00:00:00Z`)));
+
+      const todayInviteCount = await db.select({
+        cnt: sql<number>`count(*)`,
+      }).from(referralAttributions)
+        .where(gte(referralAttributions.createdAt, new Date(`${today}T00:00:00Z`)));
+
+      const totalContentAssets = await db.select({
+        cnt: sql<number>`count(*)`,
+      }).from(contentAssets);
+
+      res.json({
+        rollups: rollups.reverse(),
+        todayLive: {
+          shares: Number(todayShareCount[0]?.cnt || 0),
+          invites: Number(todayInviteCount[0]?.cnt || 0),
+          contentAssets: Number(totalContentAssets[0]?.cnt || 0),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/flywheel/compute", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { date } = req.body;
+      const { computeFlywheelRollups } = await import("./jobs/computeFlywheelRollups");
+      const result = await computeFlywheelRollups(date);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/flywheel/top-assets", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const assets = await db.select({
+        id: contentAssets.id,
+        assetType: contentAssets.assetType,
+        userId: contentAssets.userId,
+        sourceEventId: contentAssets.sourceEventId,
+        metadata: contentAssets.metadata,
+        imagePath: contentAssets.imagePath,
+        createdAt: contentAssets.createdAt,
+      })
+        .from(contentAssets)
+        .orderBy(desc(contentAssets.createdAt))
+        .limit(20);
+      res.json({ assets });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }

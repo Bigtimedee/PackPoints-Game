@@ -43,6 +43,9 @@ Video Factory (`server/videoFactory/`): Automated MP4 video generation system fo
 
 DB tables: `growth_content_plans`, `growth_content_items`, `growth_job_runs`, `publishing_queue`. X/Twitter secrets: `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`. Instagram secrets: `INSTAGRAM_BUSINESS_ACCOUNT_ID`, `INSTAGRAM_ACCESS_TOKEN`.
 
+### Growth Flywheel System
+A viral growth loop: Gameplay -> Auto-generated content (score cards/streak badges) -> Social sharing -> Referral links -> User acquisition. DB tables: `share_events`, `referral_links`, `referral_attributions`, `content_assets`, `user_growth_rollups`, `global_growth_rollups`. Core files: `server/contentFactory/` (PNG generation via Sharp + SVG), `server/routes/referrals.ts` (referral system + share events + content assets API), `server/services/referralRewards.ts` (bonus PackPTS on referral), `server/jobs/computeFlywheelRollups.ts` (nightly aggregation), `server/services/growth/flywheelJobs.ts` (auto-queue top content for publishing). Admin dashboard at `/admin/flywheel` with DAU, K-factor trend, daily rollup history, and recent content assets. Share UI in game.tsx and daily5.tsx with Download Score Card, Challenge a Friend, and share event logging. Safety: 10 shares/user/day cap, 500 pts/day referral bonus cap, idempotency on all ledger entries.
+
 ### System Hardening
 Includes centralized rate limiting, panic switches for disabling features, structured logging with request IDs, and a health endpoint for monitoring system status.
 

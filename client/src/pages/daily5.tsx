@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { GameCard } from "@/components/GameCard";
 import {
   Calendar, Clock, Trophy, ArrowLeft, Check, X, Loader2,
-  Play, Award, Timer, Users, Crown, Share2
+  Play, Award, Timer, Users, Crown, Share2, Download, UserPlus
 } from "lucide-react";
 
 interface Daily5Status {
@@ -78,13 +78,15 @@ function formatTime(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function ShareResultCard({ score, correctCount, rank, date }: {
+function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
   score: number;
   correctCount: number;
   rank?: number;
   date?: string;
+  challengeId?: string;
 }) {
   const { toast } = useToast();
+  const { isAuthenticated } = useAuth();
   const [shared, setShared] = useState(false);
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -102,11 +104,18 @@ function ShareResultCard({ score, correctCount, rank, date }: {
     "Play at packpts.com",
   ].filter(Boolean).join("\n");
 
+  const logShareEvent = async (shareType: string, target: string) => {
+    try {
+      await apiRequest("POST", "/api/share-events", { shareType, target });
+    } catch {}
+  };
+
   const handleShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({ text: shareText });
         setShared(true);
+        logShareEvent("SCORE_CARD", "NATIVE_SHARE");
         setTimeout(() => setShared(false), 3000);
         return;
       } catch {}
@@ -114,10 +123,53 @@ function ShareResultCard({ score, correctCount, rank, date }: {
     try {
       await navigator.clipboard.writeText(shareText);
       setShared(true);
+      logShareEvent("SCORE_CARD", "COPY_LINK");
       toast({ title: "Copied to clipboard", description: "Share your result with friends!" });
       setTimeout(() => setShared(false), 3000);
     } catch {
       toast({ title: "Could not copy", variant: "destructive" });
+    }
+  };
+
+  const handleDownloadScoreCard = async () => {
+    if (!challengeId) return;
+    try {
+      const res = await fetch(`/api/content-assets/latest?challengeId=${challengeId}`);
+      if (res.ok) {
+        const data = await res.json();
+        const asset = data.assets?.[0];
+        if (asset?.metadata?.imageUrl) {
+          const link = document.createElement("a");
+          link.href = asset.metadata.imageUrl;
+          link.download = `packpts-daily5-${dateStr}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          toast({ title: "Downloading!", description: "Score card image downloading" });
+          return;
+        }
+      }
+      toast({ title: "Not ready", description: "Score card is being generated, try again shortly", variant: "destructive" });
+    } catch {
+      toast({ title: "Error", description: "Failed to download score card", variant: "destructive" });
+    }
+  };
+
+  const handleChallengeInvite = async () => {
+    try {
+      const res = await apiRequest("POST", "/api/referrals/create", {
+        purpose: "SCORE_SHARE",
+        destinationPath: "/daily5",
+      });
+      const data = await res.json();
+      if (data.url) {
+        const challengeText = `I scored ${score} points in today's PackPTS Daily 5! Can you beat me? ${data.url}`;
+        await navigator.clipboard.writeText(challengeText);
+        logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
+        toast({ title: "Challenge link copied!", description: "Share it with a friend" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to create challenge link", variant: "destructive" });
     }
   };
 
@@ -156,15 +208,39 @@ function ShareResultCard({ score, correctCount, rank, date }: {
               </div>
             )}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleShare}
-            className="gap-2"
-            data-testid="button-d5-share">
-            {shared ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
-            {shared ? "Shared" : "Share Result"}
-          </Button>
+          <div className="flex flex-col gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShare}
+              className="gap-2 w-full"
+              data-testid="button-d5-share">
+              {shared ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+              {shared ? "Shared" : "Share Result"}
+            </Button>
+            {isAuthenticated && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadScoreCard}
+                  className="gap-2 w-full"
+                  data-testid="button-d5-download-scorecard">
+                  <Download className="h-4 w-4" />
+                  Download Score Card
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleChallengeInvite}
+                  className="gap-2 w-full"
+                  data-testid="button-d5-challenge-friend">
+                  <UserPlus className="h-4 w-4" />
+                  Challenge a Friend
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -467,6 +543,7 @@ export default function Daily5Page() {
             correctCount={finishResult?.correctCount ?? status?.entry?.correctCount ?? 0}
             rank={finishResult?.rank}
             date={status?.challenge?.date}
+            challengeId={status?.challenge?.id}
           />
 
           <Card className="mb-6">

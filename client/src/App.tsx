@@ -39,6 +39,7 @@ import AdminPackageGuardrails from "@/pages/admin/package-guardrails";
 import AdminCardSets from "@/pages/admin/card-sets";
 import AdminCardTelemetry from "@/pages/admin/card-telemetry";
 import AdminGrowth from "@/pages/admin/growth";
+import AdminFlywheel from "@/pages/admin/flywheel";
 import AdminDaily5Stats from "@/pages/admin/daily5-stats";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
@@ -146,6 +147,13 @@ function Router() {
         {() => (
           <AdminLayout>
             <AdminGrowth />
+          </AdminLayout>
+        )}
+      </Route>
+      <Route path="/admin/flywheel">
+        {() => (
+          <AdminLayout>
+            <AdminFlywheel />
           </AdminLayout>
         )}
       </Route>

@@ -3856,3 +3856,146 @@ export const daily5FinishSchema = z.object({
   challengeId: z.string(),
 });
 export type Daily5FinishRequest = z.infer<typeof daily5FinishSchema>;
+
+// ============================================
+// GROWTH FLYWHEEL TABLES
+// ============================================
+
+export const shareEventTypeEnum = pgEnum("share_event_type", [
+  "SCORE_CARD", "LEADERBOARD_CARD", "STREAK_CARD", "CHALLENGE_INVITE",
+]);
+
+export const shareTargetEnum = pgEnum("share_target", [
+  "TIKTOK", "INSTAGRAM", "X", "DISCORD", "COPY_LINK", "NATIVE_SHARE",
+]);
+
+export const shareEvents = pgTable("share_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  shareType: shareEventTypeEnum("share_type").notNull(),
+  target: shareTargetEnum("target").notNull(),
+  contentAssetId: varchar("content_asset_id"),
+  shareLinkId: varchar("share_link_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_share_events_user").on(table.userId, table.createdAt),
+  index("idx_share_events_type").on(table.shareType, table.createdAt),
+]);
+
+export const insertShareEventSchema = createInsertSchema(shareEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertShareEvent = z.infer<typeof insertShareEventSchema>;
+export type ShareEvent = typeof shareEvents.$inferSelect;
+
+export const referralPurposeEnum = pgEnum("referral_purpose", [
+  "INVITE", "DAILY5_CHALLENGE", "SCORE_SHARE",
+]);
+
+export const referralLinks = pgTable("referral_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: varchar("code", { length: 20 }).notNull().unique(),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  purpose: referralPurposeEnum("purpose").notNull(),
+  destinationPath: text("destination_path").notNull(),
+  clickCount: integer("click_count").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_referral_links_user").on(table.createdByUserId),
+  index("idx_referral_links_code").on(table.code),
+]);
+
+export const insertReferralLinkSchema = createInsertSchema(referralLinks).omit({
+  id: true,
+  clickCount: true,
+  createdAt: true,
+});
+export type InsertReferralLink = z.infer<typeof insertReferralLinkSchema>;
+export type ReferralLink = typeof referralLinks.$inferSelect;
+
+export const referralAttributionEventEnum = pgEnum("referral_attribution_event", [
+  "SIGNUP", "FIRST_MATCH", "FIRST_PURCHASE",
+]);
+
+export const referralAttributions = pgTable("referral_attributions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  referralLinkId: varchar("referral_link_id").notNull().references(() => referralLinks.id),
+  invitedUserId: varchar("invited_user_id").notNull().references(() => users.id),
+  eventType: referralAttributionEventEnum("event_type").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("uq_referral_attribution").on(table.referralLinkId, table.invitedUserId, table.eventType),
+  index("idx_referral_attributions_link").on(table.referralLinkId),
+  index("idx_referral_attributions_user").on(table.invitedUserId),
+]);
+
+export const insertReferralAttributionSchema = createInsertSchema(referralAttributions).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertReferralAttribution = z.infer<typeof insertReferralAttributionSchema>;
+export type ReferralAttribution = typeof referralAttributions.$inferSelect;
+
+export const contentAssetTypeEnum = pgEnum("content_asset_type", [
+  "SCORE_CARD", "DAILY5_RANK_CARD", "STREAK_BADGE", "LEADERBOARD_SPOTLIGHT",
+]);
+
+export const contentAssets = pgTable("content_assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  assetType: contentAssetTypeEnum("asset_type").notNull(),
+  userId: varchar("user_id").references(() => users.id),
+  sourceEventId: varchar("source_event_id"),
+  metadata: jsonb("metadata"),
+  imagePath: text("image_path"),
+  videoPath: text("video_path"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("uq_content_asset").on(table.assetType, table.userId, table.sourceEventId),
+  index("idx_content_assets_user").on(table.userId),
+  index("idx_content_assets_type").on(table.assetType, table.createdAt),
+]);
+
+export const insertContentAssetSchema = createInsertSchema(contentAssets).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertContentAsset = z.infer<typeof insertContentAssetSchema>;
+export type ContentAsset = typeof contentAssets.$inferSelect;
+
+export const userGrowthRollups = pgTable("user_growth_rollups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  date: varchar("date", { length: 10 }).notNull(),
+  matchesPlayed: integer("matches_played").notNull().default(0),
+  daily5Played: integer("daily5_played").notNull().default(0),
+  correctAnswers: integer("correct_answers").notNull().default(0),
+  packptsEarned: integer("packpts_earned").notNull().default(0),
+  packptsSpent: integer("packpts_spent").notNull().default(0),
+  sharesCount: integer("shares_count").notNull().default(0),
+  referralsSent: integer("referrals_sent").notNull().default(0),
+  invitedSignups: integer("invited_signups").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("uq_user_growth_rollup").on(table.userId, table.date),
+  index("idx_user_growth_rollups_date").on(table.date),
+]);
+
+export type UserGrowthRollup = typeof userGrowthRollups.$inferSelect;
+
+export const globalGrowthRollups = pgTable("global_growth_rollups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: varchar("date", { length: 10 }).notNull().unique(),
+  dau: integer("dau").notNull().default(0),
+  matches: integer("matches").notNull().default(0),
+  daily5Entries: integer("daily5_entries").notNull().default(0),
+  shares: integer("shares").notNull().default(0),
+  invites: integer("invites").notNull().default(0),
+  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
+  kFactorEstimate: real("k_factor_estimate").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type GlobalGrowthRollup = typeof globalGrowthRollups.$inferSelect;
