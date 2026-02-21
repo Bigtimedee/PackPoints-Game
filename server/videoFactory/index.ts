@@ -156,7 +156,7 @@ export async function generateVideoForContentItem(
 
     let renderOutput: RenderOutput;
 
-    if (viralRenderer && templateId !== "classic_countdown") {
+    if (viralRenderer) {
       const multiInput: MultiCardRenderInput = {
         cardImagePaths: maskedPaths,
         templateId,
@@ -203,7 +203,7 @@ export async function generateVideoForContentItem(
       sizeBytes: renderOutput.sizeBytes,
       width: renderOutput.width,
       height: renderOutput.height,
-      templateId: options?.templateId || "classic_countdown",
+      templateId: templateId,
       createdAt: new Date().toISOString(),
     };
 

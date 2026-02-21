@@ -500,7 +500,6 @@ function cleanup(...files: string[]) {
 export function getRendererForTemplate(templateId: string): ((input: MultiCardRenderInput) => Promise<RenderOutput>) | null {
   switch (templateId) {
     case "only_real_fans":
-    case "classic_countdown":
       return renderOnlyRealFans;
     case "difficulty_ladder":
       return renderDifficultyLadder;
