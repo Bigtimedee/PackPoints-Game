@@ -11,7 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Megaphone, Play, RefreshCw, Copy, Check, AlertTriangle,
   Clock, Zap, FileText, Send, Loader2, ShieldAlert, Archive, CalendarDays,
-  Download, Hash, Clipboard, Video, Undo2, CheckSquare, ListChecks
+  Download, Hash, Clipboard, Video, Undo2, CheckSquare, ListChecks,
+  ChevronDown, ChevronUp, PackageOpen
 } from "lucide-react";
 
 interface PipelineHealth {
@@ -398,6 +399,7 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
   onSelect: (id: string, checked: boolean) => void;
 }) {
   const { toast } = useToast();
+  const [showMore, setShowMore] = useState(false);
   const assets = item.assets || {};
   const meta = item.contentItem?.metadata || assets;
   const hook = meta.hook || assets.hook || "";
@@ -420,6 +422,30 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
 
   const hashtagsStr = hashtags.join(" ");
   const captionPlusHashtags = caption + "\n\n" + hashtagsStr;
+
+  const copyAllContent = [
+    `TIKTOK POST -- ${contentType.replace(/^TIKTOK_(VIRAL_)?/, "").replace(/_/g, " ")}`,
+    `${"─".repeat(40)}`,
+    "",
+    `CAPTION (paste into TikTok):`,
+    caption,
+    "",
+    `HASHTAGS:`,
+    hashtagsStr,
+    "",
+    `SCRIPT:`,
+    script,
+    "",
+    `HOOK: ${hook}`,
+    "",
+    `ON-SCREEN TEXT:`,
+    ...onScreenText.map((t: string, i: number) => `  ${i + 1}. ${t}`),
+    "",
+    `CTA: ${cta}`,
+    ...(thumbnailText ? [``, `THUMBNAIL TEXT: ${thumbnailText}`] : []),
+    ...(audioNotes ? [``, `AUDIO NOTES: ${audioNotes}`] : []),
+    ...(formatNotes ? [``, `FORMAT NOTES: ${formatNotes}`] : []),
+  ].join("\n");
 
   const scriptFileContent = [
     `HOOK: ${hook}`,
@@ -550,7 +576,22 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
               </div>
             )}
 
-            <div className="flex flex-wrap gap-1 mt-3">
+            <div className="flex flex-wrap gap-2 mt-3">
+              <Button size="sm" className="bg-primary text-primary-foreground font-medium"
+                onClick={() => copyToClipboard(copyAllContent, "All TikTok content", toast)}
+                data-testid={`button-copy-all-${item.id}`}>
+                <PackageOpen className="h-3 w-3 mr-1" />
+                Copy All for Posting
+              </Button>
+              {hasVideo && (
+                <Button size="sm" variant="default" asChild
+                  data-testid={`button-download-mp4-${item.id}`}>
+                  <a href={videoAsset.url} download={`packpts_tiktok_${item.id}.mp4`}>
+                    <Download className="h-3 w-3 mr-1" />
+                    Download MP4
+                  </a>
+                </Button>
+              )}
               {!hasVideo && (
                 <Button size="sm" variant="default"
                   onClick={() => onRenderVideo(item.id)}
@@ -560,74 +601,8 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                   Render Video
                 </Button>
               )}
-              {hasVideo && (
-                <>
-                  <Button size="sm" variant="outline" asChild
-                    data-testid={`button-download-mp4-${item.id}`}>
-                    <a href={videoAsset.url} download={`packpts_tiktok_${item.id}.mp4`}>
-                      <Download className="h-3 w-3 mr-1" />
-                      Download MP4
-                    </a>
-                  </Button>
-                  <Button size="sm" variant="outline" asChild
-                    data-testid={`button-download-thumb-${item.id}`}>
-                    <a href={videoAsset.thumbnailUrl} download={`packpts_thumb_${item.id}.jpg`}>
-                      <Download className="h-3 w-3 mr-1" />
-                      Thumbnail
-                    </a>
-                  </Button>
-                  <Button size="sm" variant="ghost"
-                    onClick={() => onRenderVideo(item.id, true)}
-                    disabled={isRendering}
-                    data-testid={`button-rerender-${item.id}`}>
-                    {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                    Re-render
-                  </Button>
-                </>
-              )}
-              <Button size="sm" variant="outline"
-                onClick={() => copyToClipboard(caption, "Caption", toast)}
-                data-testid={`button-copy-caption-${item.id}`}>
-                <Clipboard className="h-3 w-3 mr-1" />
-                Copy Caption
-              </Button>
-              <Button size="sm" variant="outline"
-                onClick={() => copyToClipboard(hashtagsStr, "Hashtags", toast)}
-                data-testid={`button-copy-hashtags-${item.id}`}>
-                <Hash className="h-3 w-3 mr-1" />
-                Copy Hashtags
-              </Button>
-              <Button size="sm" variant="outline"
-                onClick={() => copyToClipboard(captionPlusHashtags, "Caption + Hashtags", toast)}
-                data-testid={`button-copy-caption-hashtags-${item.id}`}>
-                <Copy className="h-3 w-3 mr-1" />
-                Caption + Hashtags
-              </Button>
-              <Button size="sm" variant="outline"
-                onClick={() => copyToClipboard(script, "Script", toast)}
-                data-testid={`button-copy-script-${item.id}`}>
-                <FileText className="h-3 w-3 mr-1" />
-                Copy Script
-              </Button>
-              <Button size="sm" variant="outline"
-                onClick={() => downloadTextFile(scriptFileContent, `tiktok_script_${item.id}.txt`)}
-                data-testid={`button-download-script-${item.id}`}>
-                <Download className="h-3 w-3 mr-1" />
-                Download Script
-              </Button>
-              {assetRefs.length > 0 && (
-                <Button size="sm" variant="outline"
-                  onClick={() => downloadJsonFile(assetRefs, `tiktok_assets_${item.id}.json`)}
-                  data-testid={`button-download-assets-${item.id}`}>
-                  <Download className="h-3 w-3 mr-1" />
-                  Asset List
-                </Button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1 mt-2">
               {item.status === "READY" && (
-                <Button size="sm" variant="default"
+                <Button size="sm" variant="outline"
                   onClick={() => onMarkPosted(item.id)}
                   disabled={isPending}
                   data-testid={`button-mark-posted-${item.id}`}>
@@ -643,6 +618,75 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                   <Undo2 className="h-3 w-3 mr-1" />
                   Undo Posted
                 </Button>
+              )}
+            </div>
+
+            <div className="mt-2">
+              <Button size="sm" variant="ghost"
+                onClick={() => setShowMore(!showMore)}
+                data-testid={`button-toggle-more-${item.id}`}>
+                {showMore ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                {showMore ? "Hide individual actions" : "More actions"}
+              </Button>
+              {showMore && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  <Button size="sm" variant="outline"
+                    onClick={() => copyToClipboard(captionPlusHashtags, "Caption + Hashtags", toast)}
+                    data-testid={`button-copy-caption-hashtags-${item.id}`}>
+                    <Copy className="h-3 w-3 mr-1" />
+                    Caption + Hashtags
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    onClick={() => copyToClipboard(caption, "Caption", toast)}
+                    data-testid={`button-copy-caption-${item.id}`}>
+                    <Clipboard className="h-3 w-3 mr-1" />
+                    Copy Caption
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    onClick={() => copyToClipboard(hashtagsStr, "Hashtags", toast)}
+                    data-testid={`button-copy-hashtags-${item.id}`}>
+                    <Hash className="h-3 w-3 mr-1" />
+                    Copy Hashtags
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    onClick={() => copyToClipboard(script, "Script", toast)}
+                    data-testid={`button-copy-script-${item.id}`}>
+                    <FileText className="h-3 w-3 mr-1" />
+                    Copy Script
+                  </Button>
+                  <Button size="sm" variant="outline"
+                    onClick={() => downloadTextFile(scriptFileContent, `tiktok_script_${item.id}.txt`)}
+                    data-testid={`button-download-script-${item.id}`}>
+                    <Download className="h-3 w-3 mr-1" />
+                    Download Script
+                  </Button>
+                  {hasVideo && (
+                    <>
+                      <Button size="sm" variant="outline" asChild
+                        data-testid={`button-download-thumb-${item.id}`}>
+                        <a href={videoAsset.thumbnailUrl} download={`packpts_thumb_${item.id}.jpg`}>
+                          <Download className="h-3 w-3 mr-1" />
+                          Thumbnail
+                        </a>
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => onRenderVideo(item.id, true)}
+                        disabled={isRendering}
+                        data-testid={`button-rerender-${item.id}`}>
+                        {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                        Re-render
+                      </Button>
+                    </>
+                  )}
+                  {assetRefs.length > 0 && (
+                    <Button size="sm" variant="outline"
+                      onClick={() => downloadJsonFile(assetRefs, `tiktok_assets_${item.id}.json`)}
+                      data-testid={`button-download-assets-${item.id}`}>
+                      <Download className="h-3 w-3 mr-1" />
+                      Asset List
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -850,16 +894,19 @@ function QueueTab() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pb-4">
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Open TikTok app on your phone</li>
-              <li>Click "Copy Caption + Hashtags" for the item you want to post</li>
-              <li>In TikTok, tap "+" to create a new post</li>
-              <li>Record or upload your video following the script</li>
-              <li>Paste caption + hashtags into the description</li>
-              <li>Add any relevant sounds or effects from the audio notes</li>
+            <ol className="list-decimal list-inside space-y-1.5 text-sm text-muted-foreground">
+              <li><strong className="text-foreground">Click "Copy All for Posting"</strong> on the TikTok item below</li>
+              <li>If a video is ready, click <strong className="text-foreground">"Download MP4"</strong> to save it</li>
+              <li>Open TikTok and tap <strong className="text-foreground">"+"</strong> to create a new post</li>
+              <li>Upload the MP4 or record your own video using the copied script</li>
+              <li>Paste the copied content into a notes app to reference the caption, hashtags, and script</li>
+              <li>Copy just the caption + hashtags into TikTok's description field</li>
               <li>Post the video</li>
-              <li>Come back here and click "Mark as Posted"</li>
+              <li>Come back here and click <strong className="text-foreground">"Mark as Posted"</strong></li>
             </ol>
+            <p className="text-xs text-muted-foreground mt-3 italic">
+              Tip: "Copy All" puts everything in your clipboard at once -- caption, hashtags, script, hook, and CTA. Paste it into Notes to reference while creating your TikTok post.
+            </p>
           </CardContent>
         </Card>
       )}
