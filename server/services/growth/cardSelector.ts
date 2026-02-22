@@ -1,7 +1,7 @@
 import { db } from "../../db";
 import { playableCards, gameSets } from "@shared/schema";
 import { eq, and, sql, isNull, not } from "drizzle-orm";
-import { isPlaceholderUrl } from "../../videoFactory/validate";
+import { isPlaceholderUrl, quickValidateImageUrl } from "../../videoFactory/validate";
 import crypto from "crypto";
 
 export type DifficultyTag = "easy" | "medium" | "hard";
@@ -152,6 +152,19 @@ function toSelectedCard(row: CardRow): SelectedCard {
   };
 }
 
+async function validateCardImages(cards: SelectedCard[]): Promise<SelectedCard[]> {
+  const validated: SelectedCard[] = [];
+  for (const card of cards) {
+    const check = await quickValidateImageUrl(card.imageUrl);
+    if (check.valid) {
+      validated.push(card);
+    } else {
+      console.warn(`[CardSelector] Rejected card ${card.id} (${card.player}): ${check.error}`);
+    }
+  }
+  return validated;
+}
+
 export async function selectCardsForFormat(
   formatId: string,
   date: string,
@@ -167,28 +180,41 @@ export async function selectCardsForFormat(
   const shuffled = seededShuffle(rows, rng);
   const cards = shuffled.map(toSelectedCard);
 
+  if (cards.length === 0) {
+    console.warn(`[CardSelector] No eligible cards for format ${formatId}`);
+    return [];
+  }
+
+  let selected: SelectedCard[];
   switch (formatId) {
     case "only_real_fans":
-      return pickByDifficulty(cards, ["medium", "hard"], 1, rng);
-
+      selected = pickByDifficulty(cards, ["medium", "hard"], 1, rng);
+      break;
     case "difficulty_ladder":
-      return pickDifficultyLadder(cards, rng);
-
+      selected = pickDifficultyLadder(cards, rng);
+      break;
     case "memory_shock":
-      return pickMemoryShock(cards, rng);
-
+      selected = pickMemoryShock(cards, rng);
+      break;
     case "pack_pull_drama":
-      return pickByDifficulty(cards, ["medium", "hard"], 1, rng);
-
+      selected = pickByDifficulty(cards, ["medium", "hard"], 1, rng);
+      break;
     case "leaderboard_flex":
-      return pickByDifficulty(cards, ["easy", "medium"], 1, rng);
-
+      selected = pickByDifficulty(cards, ["easy", "medium"], 1, rng);
+      break;
     case "era_wars":
-      return pickEraWars(cards, rng);
-
+      selected = pickEraWars(cards, rng);
+      break;
     default:
-      return pickByDifficulty(cards, ["medium"], 1, rng);
+      selected = pickByDifficulty(cards, ["medium"], 1, rng);
+      break;
   }
+
+  const validated = await validateCardImages(selected);
+  if (validated.length === 0 && selected.length > 0) {
+    console.warn(`[CardSelector] All ${selected.length} selected cards failed image validation for format ${formatId}`);
+  }
+  return validated;
 }
 
 function pickByDifficulty(

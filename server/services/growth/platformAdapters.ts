@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { growthContentItems } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { TwitterApi } from "twitter-api-v2";
+import { deepValidateImageUrl } from "../../videoFactory/validate";
 
 export interface PostResult {
   success: boolean;
@@ -164,7 +165,25 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
   const hashtags = metadata?.hashtags || [];
   const hashtagStr = hashtags.map((t: string) => `#${t}`).join(" ");
 
-  const imageUrl = metadata?.imageUrl || PACKPTS_LOGO_URL;
+  const rawImageUrl = metadata?.imageUrl;
+  let imageUrl: string;
+
+  if (rawImageUrl) {
+    const imgCheck = await deepValidateImageUrl(rawImageUrl);
+    if (imgCheck.valid) {
+      imageUrl = rawImageUrl;
+    } else {
+      console.error(`[InstagramAdapter] Blocked post ${contentItemId}: image failed validation -- ${imgCheck.error}`);
+      await db.update(growthContentItems).set({
+        status: "FAILED",
+        error: `Image validation failed: ${imgCheck.error}`,
+        updatedAt: new Date(),
+      }).where(eq(growthContentItems.id, contentItemId));
+      return { success: false, error: `Image validation failed: ${imgCheck.error}` };
+    }
+  } else {
+    imageUrl = PACKPTS_LOGO_URL;
+  }
 
   const body = item.body || "";
   let caption = body;

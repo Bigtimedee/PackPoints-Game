@@ -8,6 +8,7 @@ import { TikTokPackageSchema, validateTikTokPackage, TIKTOK_PACKAGE_JSON_HINT, v
 import { isTikTokEnabled } from "./tiktokConfig";
 import { selectCardsForFormat, type SelectedCard } from "./cardSelector";
 import * as viralPrompts from "./viralPrompts";
+import { quickValidateImageUrl, isPlaceholderUrl } from "../../videoFactory/validate";
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -196,6 +197,29 @@ async function saveViralTikTokItem(
     return null;
   }
 
+  if (pkg.cards && Array.isArray(pkg.cards)) {
+    const originalCount = pkg.cards.length;
+    const validCards: any[] = [];
+    for (const card of pkg.cards) {
+      const imgUrl = card.imageUrl || card.image_url;
+      if (!imgUrl) {
+        console.warn(`[ViralTikTok] Skipping card without image URL: ${card.player || card.cardId}`);
+        continue;
+      }
+      const check = await quickValidateImageUrl(imgUrl);
+      if (check.valid) {
+        validCards.push(card);
+      } else {
+        console.warn(`[ViralTikTok] Rejected card image at save time: ${card.player || card.cardId} -- ${check.error}`);
+      }
+    }
+    if (validCards.length === 0 && originalCount > 0) {
+      console.error(`[ViralTikTok] All ${originalCount} card images failed validation for ${type} -- skipping item`);
+      return null;
+    }
+    pkg.cards = validCards;
+  }
+
   const [item] = await db.insert(growthContentItems).values({
     planId,
     type,
@@ -326,6 +350,11 @@ registerJob("generate_viral_tiktok_packages", async (ctx: JobContext) => {
 
       if (schedule.cardCount > 0) {
         selectedCards = await selectCardsForFormat(schedule.formatId, date);
+        if (selectedCards.length === 0) {
+          console.warn(`[ViralTikTok] No valid cards for format ${schedule.formatId} on ${date} -- skipping`);
+          errors.push(`${schedule.formatId}: no valid card images available`);
+          continue;
+        }
       }
 
       const prompt = getViralPrompt(schedule.formatId, date, selectedCards, leaderboardData);
@@ -347,7 +376,15 @@ registerJob("generate_viral_tiktok_packages", async (ctx: JobContext) => {
       }
 
       if (selectedCards.length > 0 && !rawData.cards) {
-        rawData.cards = selectedCards.map(c => ({
+        const validatedCards: SelectedCard[] = [];
+        for (const c of selectedCards) {
+          if (c.imageUrl && !isPlaceholderUrl(c.imageUrl)) {
+            validatedCards.push(c);
+          } else {
+            console.warn(`[ViralTikTok] Skipping card ${c.id} (${c.player}): placeholder/silhouette image`);
+          }
+        }
+        rawData.cards = validatedCards.map(c => ({
           cardId: c.id,
           player: c.player,
           set: c.set,
