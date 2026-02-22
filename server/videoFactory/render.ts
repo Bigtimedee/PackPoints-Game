@@ -184,14 +184,18 @@ export async function renderClassicCountdown(input: RenderInput): Promise<Render
 
   const filterComplex = filterParts.join(";");
 
+  const hasVoice = !!(input.voiceAudioPath && fs.existsSync(input.voiceAudioPath));
+
   const ffmpegArgs: string[] = [
     "-y",
     "-i", bgPath,
     "-i", cardOverlayPath,
   ];
 
-  if (input.voiceAudioPath && fs.existsSync(input.voiceAudioPath)) {
-    ffmpegArgs.push("-i", input.voiceAudioPath);
+  if (hasVoice) {
+    ffmpegArgs.push("-i", input.voiceAudioPath!);
+  } else {
+    ffmpegArgs.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");
   }
 
   ffmpegArgs.push(
@@ -199,11 +203,10 @@ export async function renderClassicCountdown(input: RenderInput): Promise<Render
     "-map", `[${finalLabel}]`,
   );
 
-  if (input.voiceAudioPath && fs.existsSync(input.voiceAudioPath)) {
+  if (hasVoice) {
     ffmpegArgs.push("-map", "[voice]");
   } else {
-    ffmpegArgs.push("-f", "lavfi", "-i", `anullsrc=channel_layout=stereo:sample_rate=44100`,
-      "-shortest");
+    ffmpegArgs.push("-map", "2:a", "-shortest");
   }
 
   ffmpegArgs.push(
