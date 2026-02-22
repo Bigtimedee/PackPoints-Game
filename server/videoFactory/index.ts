@@ -261,10 +261,16 @@ export async function generateVideoForContentItem(
   } catch (err: any) {
     console.error(`[VideoFactory] Generation failed for ${contentItemId}:`, err?.message);
 
+    const prevRetryCount = (metadata.video_error?.retry_count as number) || 0;
+
     await db.update(growthContentItems).set({
       metadata: {
         ...metadata,
-        video_error: { message: err?.message, at: new Date().toISOString() },
+        video_error: {
+          message: err?.message,
+          at: new Date().toISOString(),
+          retry_count: prevRetryCount + (options?.forceRerender ? 1 : 0),
+        },
       },
       updatedAt: new Date(),
     }).where(eq(growthContentItems.id, contentItemId));
