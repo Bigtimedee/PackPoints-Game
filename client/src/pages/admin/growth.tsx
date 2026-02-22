@@ -67,12 +67,64 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant} data-testid={`badge-status-${status.toLowerCase()}`}>{status === "RETRY_PENDING" ? "RETRYING" : status}</Badge>;
 }
 
+function fallbackCopyText(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
+async function copyToClipboard(text: string, label: string, toast: any) {
+  if (!text || !text.trim()) {
+    toast({ title: `No ${label.toLowerCase()} content to copy`, variant: "destructive" });
+    return;
+  }
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ok = fallbackCopyText(text);
+      if (!ok) throw new Error("execCommand copy failed");
+    }
+    toast({ title: `${label} copied to clipboard` });
+  } catch {
+    const ok = fallbackCopyText(text);
+    if (ok) {
+      toast({ title: `${label} copied to clipboard` });
+    } else {
+      toast({ title: `Failed to copy ${label.toLowerCase()} -- try selecting text manually`, variant: "destructive" });
+    }
+  }
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ok = fallbackCopyText(text);
+        if (!ok) throw new Error("fallback failed");
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const ok = fallbackCopyText(text);
+      if (ok) {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    }
   };
   return (
     <Button variant="ghost" size="icon" onClick={handleCopy} data-testid="button-copy">
@@ -363,10 +415,6 @@ function ContentItemsTab() {
   );
 }
 
-function copyToClipboard(text: string, label: string, toast: any) {
-  navigator.clipboard.writeText(text);
-  toast({ title: `${label} copied to clipboard` });
-}
 
 function downloadTextFile(content: string, filename: string) {
   const blob = new Blob([content], { type: "text/plain" });
