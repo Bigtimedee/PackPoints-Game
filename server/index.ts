@@ -310,10 +310,14 @@ app.use((req, res, next) => {
         }
 
         try {
-          const { verifyFFmpeg, isVideoFactoryEnabled } = await import("./videoFactory");
+          const { verifyFFmpeg, isVideoFactoryEnabled, isFFmpegAvailable } = await import("./videoFactory");
           if (isVideoFactoryEnabled()) {
             verifyFFmpeg();
-            console.log("[VideoFactory] Enabled and ready");
+            if (isFFmpegAvailable()) {
+              console.log("[VideoFactory] Enabled and ready");
+            } else {
+              console.warn("[VideoFactory] DEGRADED: Enabled but FFmpeg not found - video rendering will be unavailable");
+            }
           } else {
             console.log("[VideoFactory] Disabled (set VIDEO_FACTORY_ENABLED=true to enable)");
           }

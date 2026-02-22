@@ -12,13 +12,22 @@ import { execSync } from "child_process";
 
 const VIDEO_OUTPUT_BASE = path.resolve("public/generated/videos");
 
+let ffmpegAvailable = false;
+let ffmpegVersion = "unknown";
+
 export function isVideoFactoryEnabled(): boolean {
   return process.env.VIDEO_FACTORY_ENABLED === "true";
+}
+
+export function isFFmpegAvailable(): boolean {
+  return ffmpegAvailable;
 }
 
 export function getVideoFactoryConfig() {
   return {
     enabled: isVideoFactoryEnabled(),
+    renderingAvailable: ffmpegAvailable,
+    ffmpegVersion,
     ttsEnabled: isTTSEnabled(),
     availableTemplates: getAvailableTemplates(),
     outputDir: VIDEO_OUTPUT_BASE,
@@ -30,9 +39,13 @@ export function verifyFFmpeg(): boolean {
     const result = execSync("ffmpeg -version", { encoding: "utf-8", timeout: 5000 });
     const version = result.split("\n")[0] || "unknown";
     console.log(`[VideoFactory] FFmpeg verified: ${version}`);
+    ffmpegAvailable = true;
+    ffmpegVersion = version;
     return true;
   } catch {
     console.error("[VideoFactory] FFmpeg not found in PATH");
+    ffmpegAvailable = false;
+    ffmpegVersion = "not installed";
     return false;
   }
 }
@@ -87,6 +100,10 @@ export async function generateVideoForContentItem(
 ): Promise<GenerateVideoResult> {
   if (!isVideoFactoryEnabled()) {
     return { success: false, error: "Video Factory is disabled (set VIDEO_FACTORY_ENABLED=true)" };
+  }
+
+  if (!ffmpegAvailable) {
+    return { success: false, error: "FFmpeg is not available in this environment. Video rendering is disabled." };
   }
 
   const [contentItem] = await db.select().from(growthContentItems)
