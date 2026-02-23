@@ -158,6 +158,7 @@ export interface GameSession {
   score: number;
   correctAnswers: number;
   totalQuestions: number;
+  skippedQuestions: number;
   status: "active" | "completed" | "expired";
   startedAt: string;
   completedAt?: string;
@@ -173,6 +174,7 @@ export const gameSessionsTable = pgTable("game_sessions", {
   score: integer("score").notNull().default(0),
   correctAnswers: integer("correct_answers").notNull().default(0),
   totalQuestions: integer("total_questions").notNull(),
+  skippedQuestions: integer("skipped_questions").notNull().default(0),
   status: varchar("status", { length: 20 }).notNull().default("active"),
   startedAt: varchar("started_at").notNull(),
   completedAt: varchar("completed_at"),

@@ -1079,15 +1079,20 @@ export async function registerRoutes(
       // Always flag the failed card for admin review (regardless of replacement availability)
       await storage.flagCardForImageFailure(failedCardId);
 
+      (session.questions[session.currentQuestionIndex] as any).imageFailure = true;
+
       const result = await storage.getReplacementCardForSession(id, failedCardId, excludeCardIds);
       
       if (!result) {
-        console.log(`[CardReplacement] No replacement available for session ${id}, card ${failedCardId} (flagged for review)`);
+        await storage.updateGameSession(session);
+        console.log(`[CardReplacement] No replacement available for session ${id}, card ${failedCardId} (flagged for review, marked imageFailure)`);
         return res.status(404).json({ error: "No replacement card available", flagged: true });
       }
 
-      // Update the session with the replacement question
-      session.questions[session.currentQuestionIndex] = result.question;
+      // Update the session with the replacement question, preserving imageFailure flag
+      const replacement = result.question as any;
+      replacement.imageFailure = true;
+      session.questions[session.currentQuestionIndex] = replacement;
       await storage.updateGameSession(session);
 
       console.log(`[CardReplacement] Replaced card ${failedCardId} with ${result.question.card.id} in session ${id}`);
@@ -1268,7 +1273,7 @@ export async function registerRoutes(
 
   app.post("/api/game/next", async (req: any, res) => {
     try {
-      const { sessionId, matchToken, tokenSignature } = req.body;
+      const { sessionId, matchToken, tokenSignature, reason } = req.body;
       
       if (!sessionId) {
         return res.status(400).json({ error: "Session ID required" });
@@ -1281,12 +1286,30 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Session not found" });
       }
       
+      if (reason === "image_failure") {
+        const currentQ = session.questions[session.currentQuestionIndex] as any;
+        if (currentQ?.imageFailure) {
+          session.skippedQuestions = (session.skippedQuestions ?? 0) + 1;
+          console.log("[Game Next] Question skipped due to verified image failure", {
+            sessionId: sessionId.substring(0, 8),
+            questionIndex: session.currentQuestionIndex,
+            skippedQuestions: session.skippedQuestions,
+          });
+        } else {
+          console.warn("[Game Next] Ignoring unverified image_failure skip attempt", {
+            sessionId: sessionId.substring(0, 8),
+            questionIndex: session.currentQuestionIndex,
+          });
+        }
+      }
+      
       const nextUserId = session.userId || req.session?.localUserId;
       console.log("[Game Next] Advancing", {
         sessionId: sessionId.substring(0, 8),
         userId: nextUserId ? nextUserId.substring(0, 8) : "guest",
         currentIndex: session.currentQuestionIndex,
         totalQuestions: session.totalQuestions,
+        skippedQuestions: session.skippedQuestions,
         isLastQuestion: session.currentQuestionIndex >= session.totalQuestions - 1,
         status: session.status,
       });
@@ -1294,6 +1317,8 @@ export async function registerRoutes(
       if (session.currentQuestionIndex >= session.totalQuestions - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
+        
+        const effectiveTotal = session.totalQuestions - (session.skippedQuestions ?? 0);
         
         let multiplier = 1.0;
         let tokenValidated = false;
@@ -1327,16 +1352,17 @@ export async function registerRoutes(
           await storage.updateUserStats(session.userId, {
             pointsEarned: finalScore,
             correctAnswers: session.correctAnswers,
-            totalAnswers: session.totalQuestions,
+            totalAnswers: effectiveTotal,
           });
           
           await analyticsService.matchCompleted(session.userId, session.id, {
             mode: session.mode,
             score: finalScore,
             correctAnswers: session.correctAnswers,
-            totalQuestions: session.totalQuestions,
+            totalQuestions: effectiveTotal,
             multiplier,
             tokenValidated,
+            skippedQuestions: session.skippedQuestions ?? 0,
           });
 
           try {
@@ -1353,7 +1379,7 @@ export async function registerRoutes(
                 userId: session.userId,
                 score: finalScore,
                 correctCount: session.correctAnswers,
-                totalQuestions: session.totalQuestions,
+                totalQuestions: effectiveTotal,
                 mode: session.mode || "solo",
                 streak: streakDays,
               }).catch(err => console.error("[ContentFactory] Background error:", err?.message));
@@ -1369,7 +1395,7 @@ export async function registerRoutes(
           }
           req.session.pendingPoints.score += finalScore;
           req.session.pendingPoints.correctAnswers += session.correctAnswers;
-          req.session.pendingPoints.totalAnswers += session.totalQuestions;
+          req.session.pendingPoints.totalAnswers += effectiveTotal;
           req.session.pendingPoints.gamesPlayed += 1;
         }
         

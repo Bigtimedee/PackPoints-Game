@@ -299,8 +299,8 @@ export default function Game() {
   });
 
   const nextQuestionMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/game/next", { sessionId });
+    mutationFn: async (reason?: string) => {
+      const res = await apiRequest("POST", "/api/game/next", { sessionId, reason });
       return res.json();
     },
     onSuccess: (data) => {
@@ -488,7 +488,7 @@ export default function Game() {
     // If we've failed 2+ times to get a replacement, allow true skip to next question
     if (attempts >= 2 && !nextQuestionMutation.isPending) {
       console.log(`[Game] Multiple replacement failures, skipping to next question`);
-      nextQuestionMutation.mutate();
+      nextQuestionMutation.mutate("image_failure");
       return;
     }
     
@@ -600,7 +600,7 @@ export default function Game() {
   };
 
   const handleNextQuestion = () => {
-    nextQuestionMutation.mutate();
+    nextQuestionMutation.mutate(undefined);
   };
 
   const handlePlayAgain = () => {
@@ -790,12 +790,13 @@ export default function Game() {
   }
 
   if (isGameOver) {
-    const accuracy = session.totalQuestions > 0 
-      ? Math.round((session.correctAnswers / session.totalQuestions) * 100) 
+    const effectiveTotal = session.totalQuestions - (session.skippedQuestions ?? 0);
+    const accuracy = effectiveTotal > 0 
+      ? Math.round((session.correctAnswers / effectiveTotal) * 100) 
       : 0;
 
     const setName = currentGameSet ? getSetDisplayName(currentGameSet) : "classic";
-    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${session.totalQuestions} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
+    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
     const logShareEvent = async (shareType: string, target: string, contentAssetId?: string) => {
@@ -915,7 +916,7 @@ export default function Game() {
               </div>
             </div>
             <div className="text-sm text-muted-foreground">
-              {session.correctAnswers} of {session.totalQuestions} players identified correctly
+              {session.correctAnswers} of {effectiveTotal} players identified correctly{(session.skippedQuestions ?? 0) > 0 && ` (${session.skippedQuestions} card${session.skippedQuestions === 1 ? '' : 's'} skipped)`}
             </div>
             
             <div className="space-y-3 pt-2">

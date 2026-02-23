@@ -881,6 +881,7 @@ export class DatabaseStorage implements IStorage {
       score: 0,
       correctAnswers: 0,
       totalQuestions,
+      skippedQuestions: 0,
       status: "active",
       startedAt: new Date().toISOString(),
     };
@@ -921,6 +922,7 @@ export class DatabaseStorage implements IStorage {
       score: row.score,
       correctAnswers: row.correctAnswers,
       totalQuestions: row.totalQuestions,
+      skippedQuestions: row.skippedQuestions ?? 0,
       status: row.status as GameSession["status"],
       startedAt: row.startedAt,
       completedAt: row.completedAt ?? undefined,
@@ -936,6 +938,7 @@ export class DatabaseStorage implements IStorage {
         currentQuestionIndex: session.currentQuestionIndex,
         score: session.score,
         correctAnswers: session.correctAnswers,
+        skippedQuestions: session.skippedQuestions ?? 0,
         status: session.status,
         completedAt: session.completedAt,
         matchPointsAwarded: (session as any).matchPointsAwarded ?? 0,
