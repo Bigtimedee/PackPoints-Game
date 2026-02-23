@@ -66,6 +66,17 @@ import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
 import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panicService";
 import { isStripeConfiguredSync } from "./stripeClient";
+import type { ZodError } from "zod";
+
+function formatZodError(zodError: ZodError): string {
+  const first = zodError.errors[0];
+  if (first) {
+    return first.message !== "Required"
+      ? first.message
+      : `${first.path.join(".")} is required`;
+  }
+  return "Invalid request";
+}
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -855,7 +866,7 @@ export async function registerRoutes(
     try {
       const parsed = startGameSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
@@ -1092,7 +1103,7 @@ export async function registerRoutes(
     try {
       const parsed = submitAnswerSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
       const { sessionId, questionIndex, selectedAnswer } = parsed.data;
@@ -1455,7 +1466,7 @@ export async function registerRoutes(
       
       const parsed = daily5AnswerSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.flatten() });
       }
       
       const { challengeId, position, selectedAnswer } = parsed.data;
@@ -1594,7 +1605,7 @@ export async function registerRoutes(
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
       const { username, email, password } = parsed.data;
@@ -1753,7 +1764,7 @@ export async function registerRoutes(
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
         console.log("[Login] Validation failed:", parsed.error.errors);
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
       const { usernameOrEmail, password } = parsed.data;
@@ -5353,7 +5364,7 @@ export async function registerRoutes(
 
       const parsed = updateActiveGameSetsSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.flatten() });
       }
 
       await updateUserActiveSets(userId, parsed.data.gameSetIds, parsed.data.defaultSetId);

@@ -201,17 +201,17 @@ export interface RedemptionOption {
 }
 
 export const startGameSchema = z.object({
-  mode: z.enum(["solo", "1v1", "tournament"]),
-  totalQuestions: z.number().min(5).max(20),
-  setId: z.string().uuid().optional(),
+  mode: z.enum(["solo", "1v1", "tournament"], { errorMap: () => ({ message: "Please select a valid game mode" }) }),
+  totalQuestions: z.number({ invalid_type_error: "Number of questions must be a number" }).min(5, "Minimum 5 questions").max(20, "Maximum 20 questions"),
+  setId: z.string().uuid("Please select a valid card set").optional(),
 });
 
 export type StartGameRequest = z.infer<typeof startGameSchema>;
 
 export const registerSchema = z.object({
-  username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
+  username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or fewer").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
   email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6).max(100),
+  password: z.string().min(6, "Password must be at least 6 characters").max(100, "Password is too long"),
 });
 
 export type RegisterRequest = z.infer<typeof registerSchema>;
@@ -224,9 +224,9 @@ export const loginSchema = z.object({
 export type LoginRequest = z.infer<typeof loginSchema>;
 
 export const submitAnswerSchema = z.object({
-  sessionId: z.string(),
-  questionIndex: z.number(),
-  selectedAnswer: z.string(),
+  sessionId: z.string({ required_error: "Session ID is required" }),
+  questionIndex: z.number({ required_error: "Question index is required" }),
+  selectedAnswer: z.string({ required_error: "Selected answer is required" }),
 });
 
 export type SubmitAnswer = z.infer<typeof submitAnswerSchema>;
@@ -457,15 +457,15 @@ export interface MatchState {
 }
 
 export const createLobbySchema = z.object({
-  hostId: z.string(),
-  hostUsername: z.string(),
-  totalQuestions: z.number().min(5).max(20).default(10),
+  hostId: z.string({ required_error: "Host ID is required" }),
+  hostUsername: z.string({ required_error: "Host username is required" }),
+  totalQuestions: z.number({ invalid_type_error: "Number of questions must be a number" }).min(5, "Minimum 5 questions").max(20, "Maximum 20 questions").default(10),
 });
 
 export const joinLobbySchema = z.object({
-  joinCode: z.string().length(6),
-  guestId: z.string(),
-  guestUsername: z.string(),
+  joinCode: z.string().length(6, "Join code must be exactly 6 characters"),
+  guestId: z.string({ required_error: "Guest ID is required" }),
+  guestUsername: z.string({ required_error: "Guest username is required" }),
 });
 
 export const matchAnswerSchema = z.object({
@@ -1799,8 +1799,8 @@ export type MatchContextLog = typeof matchContextLog.$inferSelect;
 
 // API schemas for game set endpoints
 export const updateActiveGameSetsSchema = z.object({
-  gameSetIds: z.array(z.string().uuid()),
-  defaultSetId: z.string().uuid().optional(),
+  gameSetIds: z.array(z.string().uuid("Each game set ID must be valid")),
+  defaultSetId: z.string().uuid("Default set ID must be valid").optional(),
 });
 
 export type UpdateActiveGameSetsRequest = z.infer<typeof updateActiveGameSetsSchema>;
@@ -1809,7 +1809,7 @@ export type UpdateActiveGameSetsRequest = z.infer<typeof updateActiveGameSetsSch
 export const contextualSearchSchema = z.object({
   q: z.string().optional(),
   source: z.enum(["ebay", "goldin", "all"]).default("all"),
-  setId: z.string().uuid().optional(),
+  setId: z.string().uuid("Please select a valid card set").optional(),
   limit: z.number().min(1).max(100).default(20),
   sort: z.enum(["relevance", "priceAsc", "priceDesc", "endingSoon"]).default("relevance"),
   forceRefresh: z.boolean().default(false),
