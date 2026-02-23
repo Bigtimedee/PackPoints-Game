@@ -12,8 +12,9 @@ import {
   Megaphone, Play, RefreshCw, Copy, Check, AlertTriangle,
   Clock, Zap, FileText, Send, Loader2, ShieldAlert, Archive, CalendarDays,
   Download, Hash, Clipboard, Video, Undo2, CheckSquare, ListChecks,
-  ChevronDown, ChevronUp, PackageOpen, X
+  ChevronDown, ChevronUp, PackageOpen, X, ExternalLink, CircleCheck
 } from "lucide-react";
+import { SiTiktok, SiX, SiInstagram } from "react-icons/si";
 
 interface PipelineHealth {
   hasTodayPlan: boolean;
@@ -516,6 +517,8 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
   const { toast } = useToast();
   const [showMore, setShowMore] = useState(false);
   const [thumbError, setThumbError] = useState(false);
+  const [mediaDownloaded, setMediaDownloaded] = useState(false);
+  const [textCopied, setTextCopied] = useState<string | null>(null);
   const assets = item.assets || {};
   const meta = item.contentItem?.metadata || assets;
   const hook = meta.hook || assets.hook || "";
@@ -539,6 +542,38 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
 
   const hashtagsStr = hashtags.join(" ");
   const captionPlusHashtags = caption + "\n\n" + hashtagsStr;
+
+  const tiktokCopyText = caption + "\n\n" + hashtagsStr;
+
+  const xLink = "https://packpts.com";
+  const xBase = caption.length > 0 ? caption : hook;
+  const buildXPost = () => {
+    const link = xLink;
+    let tags = "";
+    for (let i = Math.min(3, hashtags.length); i > 0; i--) {
+      const candidate = hashtags.slice(0, i).join(" ");
+      if (candidate.length + link.length + 4 < 250) { tags = candidate; break; }
+    }
+    const parts: string[] = [];
+    const suffixLen = (tags ? tags.length + 1 : 0) + link.length + 1;
+    const availableForCaption = 280 - suffixLen;
+    if (availableForCaption >= 20) {
+      const trimmed = xBase.length > availableForCaption
+        ? xBase.slice(0, availableForCaption - 1).trimEnd() + "…"
+        : xBase;
+      parts.push(trimmed);
+    }
+    if (tags) parts.push(tags);
+    parts.push(link);
+    const result = parts.join("\n");
+    if (result.length > 280) return result.slice(0, 279) + "…";
+    return result;
+  };
+  const xCopyText = buildXPost();
+
+  const igCopyText = hashtags.length > 0
+    ? caption + "\n\n.\n.\n.\n" + hashtagsStr
+    : caption;
 
   const copyAllContent = [
     `TIKTOK POST -- ${contentType.replace(/^TIKTOK_(VIRAL_)?/, "").replace(/_/g, " ")}`,
@@ -708,60 +743,139 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2 mt-3">
-              <Button size="sm" className="bg-primary text-primary-foreground font-medium"
-                onClick={() => copyToClipboard(copyAllContent, "All TikTok content", toast)}
-                data-testid={`button-copy-all-${item.id}`}>
-                <PackageOpen className="h-3 w-3 mr-1" />
-                Copy All for Posting
-              </Button>
-              {hasVideo && videoFileExists && item.contentItem?.id && (
-                <Button size="sm" variant="default"
-                  onClick={() => triggerFileDownload(
-                    `/api/admin/growth/video/${item.contentItem.id}/download`,
-                    `packpts_tiktok_${item.id}.mp4`
+            <div className="mt-4 space-y-3 border-t pt-3">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Posting Steps</p>
+
+              <div className="flex items-start gap-2">
+                <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${mediaDownloaded ? "bg-green-600 text-white" : "bg-primary text-primary-foreground"}`}>
+                  {mediaDownloaded ? <Check className="h-3 w-3" /> : "1"}
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium mb-1">Download media</p>
+                  <div className="flex flex-wrap gap-1">
+                    {hasVideo && videoFileExists && item.contentItem?.id && (
+                      <Button size="sm" variant="default"
+                        onClick={() => {
+                          triggerFileDownload(
+                            `/api/admin/growth/video/${item.contentItem.id}/download`,
+                            `packpts_tiktok_${item.id}.mp4`
+                          );
+                          setMediaDownloaded(true);
+                        }}
+                        data-testid={`button-download-mp4-${item.id}`}>
+                        <Download className="h-3 w-3 mr-1" />
+                        Download MP4
+                      </Button>
+                    )}
+                    {hasVideo && videoFileExists && item.contentItem?.id && (
+                      <Button size="sm" variant="outline"
+                        onClick={() => {
+                          triggerFileDownload(
+                            `/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail`,
+                            `packpts_thumb_${item.id}.jpg`
+                          );
+                        }}
+                        data-testid={`button-download-thumb-${item.id}`}>
+                        <Download className="h-3 w-3 mr-1" />
+                        Thumbnail
+                      </Button>
+                    )}
+                    {hasVideo && !videoFileExists && (
+                      <Button size="sm" variant="default"
+                        onClick={() => onRenderVideo(item.id, true)}
+                        disabled={isRendering}
+                        data-testid={`button-rerender-video-${item.id}`}>
+                        {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                        Re-render Video
+                      </Button>
+                    )}
+                    {!hasVideo && (
+                      <Button size="sm" variant="default"
+                        onClick={() => onRenderVideo(item.id)}
+                        disabled={isRendering}
+                        data-testid={`button-render-video-${item.id}`}>
+                        {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
+                        Render Video
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${textCopied ? "bg-green-600 text-white" : "bg-primary text-primary-foreground"}`}>
+                  {textCopied ? <Check className="h-3 w-3" /> : "2"}
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium mb-1">Copy text for platform</p>
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="sm" variant={textCopied === "tiktok" ? "default" : "outline"}
+                      onClick={() => {
+                        copyToClipboard(tiktokCopyText, "TikTok caption + hashtags", toast);
+                        setTextCopied("tiktok");
+                      }}
+                      data-testid={`button-copy-tiktok-${item.id}`}>
+                      {textCopied === "tiktok" ? <Check className="h-3 w-3 mr-1" /> : <SiTiktok className="h-3 w-3 mr-1" />}
+                      Copy for TikTok
+                    </Button>
+                    <Button size="sm" variant={textCopied === "x" ? "default" : "outline"}
+                      onClick={() => {
+                        copyToClipboard(xCopyText, "X post (280 chars)", toast);
+                        setTextCopied("x");
+                      }}
+                      data-testid={`button-copy-x-${item.id}`}>
+                      {textCopied === "x" ? <Check className="h-3 w-3 mr-1" /> : <SiX className="h-3 w-3 mr-1" />}
+                      Copy for X
+                    </Button>
+                    <Button size="sm" variant={textCopied === "ig" ? "default" : "outline"}
+                      onClick={() => {
+                        copyToClipboard(igCopyText, "Instagram caption + hashtags", toast);
+                        setTextCopied("ig");
+                      }}
+                      data-testid={`button-copy-ig-${item.id}`}>
+                      {textCopied === "ig" ? <Check className="h-3 w-3 mr-1" /> : <SiInstagram className="h-3 w-3 mr-1" />}
+                      Copy for Instagram
+                    </Button>
+                  </div>
+                  {textCopied && (
+                    <p className="text-[10px] text-green-500 mt-1 flex items-center gap-1">
+                      <CircleCheck className="h-3 w-3" />
+                      {textCopied === "tiktok" && "Caption + hashtags copied — paste into TikTok description"}
+                      {textCopied === "x" && `Post copied (${xCopyText.length}/280 chars) — paste into X compose`}
+                      {textCopied === "ig" && "Caption + hashtags copied — paste into Instagram caption"}
+                    </p>
                   )}
-                  data-testid={`button-download-mp4-${item.id}`}>
-                  <Download className="h-3 w-3 mr-1" />
-                  Download MP4
-                </Button>
-              )}
-              {hasVideo && !videoFileExists && (
-                <Button size="sm" variant="default"
-                  onClick={() => onRenderVideo(item.id, true)}
-                  disabled={isRendering}
-                  data-testid={`button-rerender-video-${item.id}`}>
-                  {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                  Re-render Video
-                </Button>
-              )}
-              {!hasVideo && (
-                <Button size="sm" variant="default"
-                  onClick={() => onRenderVideo(item.id)}
-                  disabled={isRendering}
-                  data-testid={`button-render-video-${item.id}`}>
-                  {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
-                  Render Video
-                </Button>
-              )}
-              {item.status === "READY" && (
-                <Button size="sm" variant="outline"
-                  onClick={() => onMarkPosted(item.id)}
-                  disabled={isPending}
-                  data-testid={`button-mark-posted-${item.id}`}>
-                  <Check className="h-3 w-3 mr-1" />
-                  Mark as Posted
-                </Button>
-              )}
-              {item.status === "POSTED" && (
-                <Button size="sm" variant="outline"
-                  onClick={() => onMarkReady(item.id)}
-                  disabled={isPending}
-                  data-testid={`button-undo-posted-${item.id}`}>
-                  <Undo2 className="h-3 w-3 mr-1" />
-                  Undo Posted
-                </Button>
-              )}
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <div className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-primary text-primary-foreground">
+                  3
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium mb-1">Post & mark done</p>
+                  <div className="flex flex-wrap gap-1">
+                    {item.status === "READY" && (
+                      <Button size="sm" variant="outline"
+                        onClick={() => onMarkPosted(item.id)}
+                        disabled={isPending}
+                        data-testid={`button-mark-posted-${item.id}`}>
+                        <Check className="h-3 w-3 mr-1" />
+                        Mark as Posted
+                      </Button>
+                    )}
+                    {item.status === "POSTED" && (
+                      <Button size="sm" variant="outline"
+                        onClick={() => onMarkReady(item.id)}
+                        disabled={isPending}
+                        data-testid={`button-undo-posted-${item.id}`}>
+                        <Undo2 className="h-3 w-3 mr-1" />
+                        Undo Posted
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-2">
@@ -774,10 +888,10 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
               {showMore && (
                 <div className="flex flex-wrap gap-1 mt-1">
                   <Button size="sm" variant="outline"
-                    onClick={() => copyToClipboard(captionPlusHashtags, "Caption + Hashtags", toast)}
-                    data-testid={`button-copy-caption-hashtags-${item.id}`}>
-                    <Copy className="h-3 w-3 mr-1" />
-                    Caption + Hashtags
+                    onClick={() => copyToClipboard(copyAllContent, "All content (raw)", toast)}
+                    data-testid={`button-copy-all-${item.id}`}>
+                    <PackageOpen className="h-3 w-3 mr-1" />
+                    Copy All (Raw)
                   </Button>
                   <Button size="sm" variant="outline"
                     onClick={() => copyToClipboard(caption, "Caption", toast)}
@@ -804,25 +918,13 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                     Download Script
                   </Button>
                   {hasVideo && (
-                    <>
-                      <Button size="sm" variant="outline"
-                        disabled={!videoFileExists}
-                        onClick={() => item.contentItem?.id && triggerFileDownload(
-                          `/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail`,
-                          `packpts_thumb_${item.id}.jpg`
-                        )}
-                        data-testid={`button-download-thumb-${item.id}`}>
-                        <Download className="h-3 w-3 mr-1" />
-                        Thumbnail{!videoFileExists ? " (unavailable)" : ""}
-                      </Button>
-                      <Button size="sm" variant="ghost"
-                        onClick={() => onRenderVideo(item.id, true)}
-                        disabled={isRendering}
-                        data-testid={`button-rerender-${item.id}`}>
-                        {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                        Re-render
-                      </Button>
-                    </>
+                    <Button size="sm" variant="ghost"
+                      onClick={() => onRenderVideo(item.id, true)}
+                      disabled={isRendering}
+                      data-testid={`button-rerender-${item.id}`}>
+                      {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                      Re-render
+                    </Button>
                   )}
                   {assetRefs.length > 0 && (
                     <Button size="sm" variant="outline"
