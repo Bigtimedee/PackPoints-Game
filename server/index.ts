@@ -215,6 +215,21 @@ app.use((req, res, next) => {
     }, 60 * 60 * 1000);
   }
 
+  {
+    const { cleanupStaleLobbiesAndMatches } = await import("./services/staleMatchCleanup");
+    console.log("[MatchCleanup] Starting scheduled stale lobby/match cleanup (every 1 hour)");
+    setTimeout(() => {
+      cleanupStaleLobbiesAndMatches().catch(err => {
+        console.error("[MatchCleanup] Initial cleanup failed:", err);
+      });
+    }, 45 * 1000);
+    setInterval(() => {
+      cleanupStaleLobbiesAndMatches().catch(err => {
+        console.error("[MatchCleanup] Scheduled cleanup failed:", err);
+      });
+    }, 60 * 60 * 1000);
+  }
+
   if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
     const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
     console.log("[StaleCleanup] Starting scheduled stale redemption cleanup (every 1 hour)");

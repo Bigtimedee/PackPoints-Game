@@ -554,14 +554,14 @@ function checkAnswerRateLimit(userId: string): boolean {
 // Periodic cleanup of stale rate tracker entries every 60 seconds
 setInterval(() => {
   const now = Date.now();
-  for (const [userId, timestamps] of answerRateTracker) {
-    const recent = timestamps.filter(t => now - t < ANSWER_RATE_LIMIT_WINDOW);
+  Array.from(answerRateTracker.entries()).forEach(([userId, timestamps]) => {
+    const recent = timestamps.filter((t: number) => now - t < ANSWER_RATE_LIMIT_WINDOW);
     if (recent.length === 0) {
       answerRateTracker.delete(userId);
     } else {
       answerRateTracker.set(userId, recent);
     }
-  }
+  });
 }, 60000);
 
 async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; userId: string; questionIndex: number; selectedAnswer: string; clientMsgId?: string }) {
@@ -1216,13 +1216,14 @@ async function handleDisconnectFromLobby(ws: WebSocket, client: ClientConnection
       const lobbyWsClients = lobbyConnections.get(lobbyId);
       let hostReconnected = false;
       if (lobbyWsClients) {
-        for (const client of lobbyWsClients) {
+        Array.from(lobbyWsClients).some(client => {
           const info = clients.get(client);
           if (info?.userId === userId) {
             hostReconnected = true;
-            break;
+            return true;
           }
-        }
+          return false;
+        });
       }
       
       if (hostReconnected) {
