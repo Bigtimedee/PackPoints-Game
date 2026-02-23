@@ -11475,18 +11475,28 @@ export async function registerRoutes(
 
       const rows = await query;
 
-      let items = rows.map(r => ({
-        ...r.queue,
-        contentItem: r.contentItem ? {
-          id: r.contentItem.id,
-          type: r.contentItem.type,
-          title: r.contentItem.title,
-          body: r.contentItem.body,
-          metadata: r.contentItem.metadata,
-          scheduledFor: r.contentItem.scheduledFor,
-          status: r.contentItem.status,
-        } : null,
-      }));
+      const fsModule = await import("fs");
+      let items = rows.map(r => {
+        const ciMeta = (r.contentItem?.metadata as Record<string, any>) || {};
+        const va = ciMeta.video_asset;
+        let videoFileExists = false;
+        if (va?.path) {
+          try { videoFileExists = fsModule.existsSync(va.path); } catch {}
+        }
+        return {
+          ...r.queue,
+          videoFileExists,
+          contentItem: r.contentItem ? {
+            id: r.contentItem.id,
+            type: r.contentItem.type,
+            title: r.contentItem.title,
+            body: r.contentItem.body,
+            metadata: r.contentItem.metadata,
+            scheduledFor: r.contentItem.scheduledFor,
+            status: r.contentItem.status,
+          } : null,
+        };
+      });
 
       if (date) {
         items = items.filter(item => {

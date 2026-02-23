@@ -515,6 +515,7 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
 }) {
   const { toast } = useToast();
   const [showMore, setShowMore] = useState(false);
+  const [thumbError, setThumbError] = useState(false);
   const assets = item.assets || {};
   const meta = item.contentItem?.metadata || assets;
   const hook = meta.hook || assets.hook || "";
@@ -534,6 +535,7 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
   const videoAsset = meta.video_asset || assets.video_asset || null;
   const videoError = meta.video_error || null;
   const hasVideo = !!videoAsset?.url;
+  const videoFileExists = item.videoFileExists ?? false;
 
   const hashtagsStr = hashtags.join(" ");
   const captionPlusHashtags = caption + "\n\n" + hashtagsStr;
@@ -672,14 +674,29 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
               <div className="mb-3 mt-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Video Preview</p>
                 <div className="flex items-start gap-3">
-                  <img src={`/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail&inline=true`} alt="Video thumbnail"
-                    className="w-20 h-36 object-cover rounded border"
-                    data-testid={`img-thumbnail-${item.id}`} />
+                  {videoFileExists && !thumbError ? (
+                    <img src={`/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail&inline=true`} alt="Video thumbnail"
+                      className="w-20 h-36 object-cover rounded border"
+                      data-testid={`img-thumbnail-${item.id}`}
+                      onError={() => setThumbError(true)} />
+                  ) : (
+                    <div className="w-20 h-36 rounded border border-dashed border-muted-foreground/30 bg-muted/50 flex items-center justify-center flex-col gap-1"
+                      data-testid={`placeholder-thumbnail-${item.id}`}>
+                      <Video className="h-5 w-5 text-muted-foreground/50" />
+                      <span className="text-[10px] text-muted-foreground/60 text-center leading-tight">Re-render needed</span>
+                    </div>
+                  )}
                   <div className="text-xs text-muted-foreground space-y-1">
                     <p>{videoAsset.width}x{videoAsset.height} &bull; {videoAsset.durationSec}s</p>
                     <p>{videoAsset.sizeBytes ? `${(videoAsset.sizeBytes / 1024 / 1024).toFixed(1)}MB` : ""}</p>
                     <p>Template: {videoAsset.templateId || "classic_countdown"}</p>
                     {videoAsset.createdAt && <p>Rendered: {new Date(videoAsset.createdAt).toLocaleString()}</p>}
+                    {!videoFileExists && (
+                      <p className="text-amber-500 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        File missing — re-render to download
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -698,7 +715,7 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                 <PackageOpen className="h-3 w-3 mr-1" />
                 Copy All for Posting
               </Button>
-              {hasVideo && item.contentItem?.id && (
+              {hasVideo && videoFileExists && item.contentItem?.id && (
                 <Button size="sm" variant="default"
                   onClick={() => triggerFileDownload(
                     `/api/admin/growth/video/${item.contentItem.id}/download`,
@@ -707,6 +724,15 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                   data-testid={`button-download-mp4-${item.id}`}>
                   <Download className="h-3 w-3 mr-1" />
                   Download MP4
+                </Button>
+              )}
+              {hasVideo && !videoFileExists && (
+                <Button size="sm" variant="default"
+                  onClick={() => onRenderVideo(item.id, true)}
+                  disabled={isRendering}
+                  data-testid={`button-rerender-video-${item.id}`}>
+                  {isRendering ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                  Re-render Video
                 </Button>
               )}
               {!hasVideo && (
@@ -780,13 +806,14 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                   {hasVideo && (
                     <>
                       <Button size="sm" variant="outline"
+                        disabled={!videoFileExists}
                         onClick={() => item.contentItem?.id && triggerFileDownload(
                           `/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail`,
                           `packpts_thumb_${item.id}.jpg`
                         )}
                         data-testid={`button-download-thumb-${item.id}`}>
                         <Download className="h-3 w-3 mr-1" />
-                        Thumbnail
+                        Thumbnail{!videoFileExists ? " (unavailable)" : ""}
                       </Button>
                       <Button size="sm" variant="ghost"
                         onClick={() => onRenderVideo(item.id, true)}
