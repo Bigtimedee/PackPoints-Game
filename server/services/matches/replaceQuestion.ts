@@ -5,15 +5,17 @@ import {
   matchQuestions,
   matchUsedCards,
   matchEvents,
-  baseballCards,
+  playableCards,
   MatchStatus,
   type GameQuestion,
 } from "@shared/schema";
-import { eq, and, sql, notInArray } from "drizzle-orm";
-import { quarantineCard, cardHasRealImage, getQuarantinedCardIds } from "../cards/imageQuality";
+import { eq, and, sql, inArray } from "drizzle-orm";
+import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/imageQuality";
+import { getOrValidateCardImage } from "../images/imageGate";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
+const LOW_POOL_THRESHOLD = 20;
 
 export interface ReplaceQuestionResult {
   success: boolean;
@@ -50,6 +52,68 @@ async function logEvent(matchId: string, type: string, payload: object, actorUse
   }
 }
 
+async function findReplacementCard(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  matchId: string,
+  gameSetId: string | null,
+  usedCardIds: string[]
+): Promise<typeof playableCards.$inferSelect | null> {
+  const baseConditions = [
+    eq(playableCards.isPlayable, true),
+    inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
+  ];
+
+  const tryFindCard = async (conditions: any[], label: string) => {
+    const candidates = await tx
+      .select()
+      .from(playableCards)
+      .where(and(...conditions))
+      .orderBy(sql`RANDOM()`)
+      .limit(50);
+
+    const usedSet = new Set(usedCardIds);
+    const filtered = candidates.filter(c => {
+      if (usedSet.has(c.id)) return false;
+      if (!c.imageUrl || !c.player) return false;
+      if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.player })) {
+        quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
+        return false;
+      }
+      const normalized = normalizeImageUrl(c.imageUrl);
+      if (!normalized) return false;
+      return true;
+    });
+
+    if (filtered.length > 0 && filtered.length < LOW_POOL_THRESHOLD) {
+      console.warn(`[ReplaceQuestion] LOW POOL WARNING: Only ${filtered.length} replacement cards available (${label}, matchId=${matchId})`);
+    }
+
+    if (filtered.length === 0) return null;
+
+    for (const card of filtered) {
+      try {
+        const validation = await getOrValidateCardImage(card.id, normalizeImageUrl(card.imageUrl)!);
+        if (validation.status === "ok") {
+          return card;
+        }
+        console.warn(`[ReplaceQuestion] Card ${card.id} failed image validation: ${validation.status}`);
+      } catch (e) {
+        console.warn(`[ReplaceQuestion] Card ${card.id} validation error:`, e);
+      }
+    }
+
+    return null;
+  };
+
+  if (gameSetId) {
+    const card = await tryFindCard([...baseConditions, eq(playableCards.gameSetId, gameSetId)], `set:${gameSetId}`);
+    if (card) return card;
+    console.log(`[ReplaceQuestion] No card in set ${gameSetId}, falling back to all sets`);
+  }
+
+  return tryFindCard(baseConditions, "all_sets");
+}
+
 export async function replaceMatchQuestion(
   matchId: string,
   userId: string,
@@ -60,7 +124,6 @@ export async function replaceMatchQuestion(
   console.log(`[ReplaceQuestion] Request: matchId=${matchId}, userId=${userId}, idx=${idx}, seedVersion=${seedVersion}, reason=${reason}`);
 
   return await db.transaction(async (tx) => {
-    // 1) Lock match row FOR UPDATE
     const [match] = await tx
       .select()
       .from(matches)
@@ -72,7 +135,6 @@ export async function replaceMatchQuestion(
       return { success: false, error: "Match not found", errorCode: "MATCH_NOT_FOUND" };
     }
 
-    // 2) Validate match status
     if (match.status !== MatchStatus.ACTIVE && match.status !== MatchStatus.INITIALIZING) {
       return { 
         success: false, 
@@ -81,7 +143,6 @@ export async function replaceMatchQuestion(
       };
     }
 
-    // 3) Validate idx matches current question
     if (match.currentQuestionIndex !== idx) {
       console.log(`[ReplaceQuestion] Stale index: current=${match.currentQuestionIndex}, requested=${idx}`);
       return { 
@@ -91,7 +152,6 @@ export async function replaceMatchQuestion(
       };
     }
 
-    // 4) Validate user is participant
     const participants = await tx
       .select()
       .from(matchParticipants)
@@ -106,7 +166,6 @@ export async function replaceMatchQuestion(
       };
     }
 
-    // 5) Get current question from match_questions table or parse from questionsData
     let currentQuestion = await tx
       .select()
       .from(matchQuestions)
@@ -114,7 +173,6 @@ export async function replaceMatchQuestion(
       .limit(1)
       .then(rows => rows[0]);
 
-    // If question doesn't exist in match_questions, create it from questionsData
     if (!currentQuestion) {
       let questions: GameQuestion[] = [];
       try {
@@ -141,7 +199,6 @@ export async function replaceMatchQuestion(
 
       currentQuestion = inserted;
 
-      // Also track this card as used
       try {
         await tx.insert(matchUsedCards).values({
           matchId,
@@ -152,7 +209,6 @@ export async function replaceMatchQuestion(
       }
     }
 
-    // 6) Validate seedVersion matches
     if (currentQuestion.seedVersion !== seedVersion) {
       console.log(`[ReplaceQuestion] Stale seedVersion: current=${currentQuestion.seedVersion}, requested=${seedVersion}`);
       return { 
@@ -162,7 +218,6 @@ export async function replaceMatchQuestion(
       };
     }
 
-    // 7) Check replaced count limit
     if (currentQuestion.replacedCount >= MAX_REPLACES_PER_IDX) {
       await logEvent(matchId, "REPLACE_DENIED", { userId, idx, reason: "max_replaces_exceeded" }, userId);
       return { 
@@ -172,7 +227,6 @@ export async function replaceMatchQuestion(
       };
     }
 
-    // 8) Check cooldown
     if (currentQuestion.assignedAt) {
       const secondsSinceAssignment = (Date.now() - new Date(currentQuestion.assignedAt).getTime()) / 1000;
       if (secondsSinceAssignment < COOLDOWN_SECONDS) {
@@ -185,17 +239,14 @@ export async function replaceMatchQuestion(
       }
     }
 
-    // 9) Quarantine the old card that failed to load
     const oldCardId = currentQuestion.cardId;
     if (oldCardId) {
-      // Fire-and-forget quarantine (don't block the transaction)
       quarantineCard(oldCardId, `replaced_in_match:${reason}`, null).catch(e => {
         console.error(`[ReplaceQuestion] Failed to quarantine card ${oldCardId}:`, e);
       });
       console.warn(`[ReplaceQuestion] Quarantined card ${oldCardId}: ${reason}`);
     }
 
-    // 10) Get all used card IDs for this match
     const usedCards = await tx
       .select({ cardId: matchUsedCards.cardId })
       .from(matchUsedCards)
@@ -203,31 +254,12 @@ export async function replaceMatchQuestion(
     
     const usedCardIds = usedCards.map(c => c.cardId);
 
-    // 11) Get quarantined card IDs
-    const quarantinedIds = await getQuarantinedCardIds();
-
-    // 12) Select a new verified card not already used and not quarantined
-    const potentialCards = await tx
-      .select()
-      .from(baseballCards)
-      .where(eq(baseballCards.imageVerified, true))
-      .orderBy(sql`RANDOM()`)
-      .limit(20);
-
-    // Filter out used cards, quarantined cards, and cards without real images
-    const availableCard = potentialCards.find(c => {
-      if (usedCardIds.includes(c.id)) return false;
-      if (quarantinedIds.has(c.id)) return false;
-      if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.playerName })) {
-        // Quarantine detected placeholder
-        quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
-        return false;
-      }
-      return true;
-    });
+    const gameSetId = match.cardSetId || null;
+    const availableCard = await findReplacementCard(tx, matchId, gameSetId, usedCardIds);
 
     if (!availableCard) {
-      await logEvent(matchId, "REPLACE_DENIED", { userId, idx, reason: "no_cards_available" }, userId);
+      await logEvent(matchId, "REPLACE_DENIED", { userId, idx, reason: "no_cards_available", gameSetId }, userId);
+      console.error(`[ReplaceQuestion] CRITICAL: No replacement cards available. usedCards=${usedCardIds.length}, gameSetId=${gameSetId}`);
       return { 
         success: false, 
         error: "No replacement cards available", 
@@ -235,27 +267,33 @@ export async function replaceMatchQuestion(
       };
     }
 
-    // 11) Generate new question choices
+    const playerName = availableCard.player || "Unknown";
+
     const allPlayerNames = await tx
-      .select({ playerName: baseballCards.playerName })
-      .from(baseballCards)
-      .limit(100);
+      .select({ player: playableCards.player })
+      .from(playableCards)
+      .where(and(
+        eq(playableCards.isPlayable, true),
+        sql`${playableCards.player} IS NOT NULL`
+      ))
+      .orderBy(sql`RANDOM()`)
+      .limit(200);
 
     const wrongOptions = allPlayerNames
-      .map(c => c.playerName)
-      .filter(name => name !== availableCard.playerName)
+      .map(c => c.player!)
+      .filter(name => name !== playerName)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
 
-    const choices = [availableCard.playerName, ...wrongOptions].sort(() => Math.random() - 0.5);
+    const choices = [playerName, ...wrongOptions].sort(() => Math.random() - 0.5);
+    const cardPopularity = 50;
     const basePoints = 100;
-    const pointValue = Math.max(50, basePoints + (100 - availableCard.popularity) * 4);
+    const pointValue = Math.max(50, basePoints + (100 - cardPopularity) * 4);
 
-    // 12) Update match_questions with new card
     const newSeedVersion = currentQuestion.seedVersion + 1;
     await tx.update(matchQuestions).set({
       cardId: availableCard.id,
-      correctAnswer: availableCard.playerName,
+      correctAnswer: playerName,
       choices: JSON.stringify(choices),
       pointValue,
       seedVersion: newSeedVersion,
@@ -263,13 +301,11 @@ export async function replaceMatchQuestion(
       assignedAt: new Date(),
     }).where(and(eq(matchQuestions.matchId, matchId), eq(matchQuestions.idx, idx)));
 
-    // 13) Mark new card as used
     await tx.insert(matchUsedCards).values({
       matchId,
       cardId: availableCard.id,
     }).onConflictDoNothing();
 
-    // 14) Update questionsData in match table (for compatibility)
     let questions: GameQuestion[] = [];
     try {
       questions = JSON.parse(match.questionsData);
@@ -279,13 +315,24 @@ export async function replaceMatchQuestion(
 
     if (idx < questions.length) {
       const proxiedCard = {
-        ...availableCard,
+        id: availableCard.id,
+        playerName,
+        team: "Unknown",
+        position: "Unknown",
+        year: 0,
+        setName: availableCard.set || "Unknown",
+        cardNumber: availableCard.number || "",
         imageUrl: `/api/images/card/${availableCard.id}`,
+        popularity: 50,
+        imageVerified: true,
+        lastImageCheck: availableCard.lastImageCheck,
+        imageFailureCount: availableCard.imageFailureCount,
+        imageLastError: availableCard.imageLastError,
       };
       questions[idx] = {
         card: proxiedCard,
         options: choices,
-        correctAnswer: availableCard.playerName,
+        correctAnswer: playerName,
         pointValue,
       };
       await tx.update(matches).set({
@@ -293,7 +340,6 @@ export async function replaceMatchQuestion(
       }).where(eq(matches.id, matchId));
     }
 
-    // 15) Log replacement event
     await tx.insert(matchEvents).values({
       matchId,
       type: "QUESTION_REPLACED",
@@ -305,11 +351,12 @@ export async function replaceMatchQuestion(
         oldSeedVersion: currentQuestion.seedVersion,
         newSeedVersion,
         reason,
+        source: "playable_cards",
       },
       actorUserId: userId,
     });
 
-    console.log(`[ReplaceQuestion] Success: matchId=${matchId}, idx=${idx}, oldCard=${currentQuestion.cardId}, newCard=${availableCard.id}, newSeedVersion=${newSeedVersion}`);
+    console.log(`[ReplaceQuestion] Success: matchId=${matchId}, idx=${idx}, oldCard=${currentQuestion.cardId}, newCard=${availableCard.id}, newSeedVersion=${newSeedVersion} (from playable_cards pool)`);
 
     return {
       success: true,
@@ -319,14 +366,14 @@ export async function replaceMatchQuestion(
         card: {
           id: availableCard.id,
           imageUrl: `/api/images/card/${availableCard.id}`,
-          team: availableCard.team,
-          year: availableCard.year,
-          setName: availableCard.setName,
-          cardNumber: availableCard.cardNumber,
+          team: "Unknown",
+          year: 0,
+          setName: availableCard.set || "Unknown",
+          cardNumber: availableCard.number || "",
         },
         choices,
         pointValue,
-        correctAnswer: availableCard.playerName,
+        correctAnswer: playerName,
       },
     };
   });
