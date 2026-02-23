@@ -1165,24 +1165,26 @@ export async function registerRoutes(
         if (userId) {
           try {
             const cardId = (currentQuestion.card as any)?.id || `${sessionId}:q${questionIndex}`;
+            const card = currentQuestion.card as any;
             
-            // Award daily base points using card-completion curve (200 cards = 15,000 pts)
             const dailyBaseResult = await awardDailyBaseForCorrectCard({
               userId,
               matchId: sessionId,
               cardId,
+              playerName: currentQuestion.correctAnswer,
+              year: card?.year || undefined,
+              rarityType: card?.rarityType || undefined,
             });
             
             pointsEarned = dailyBaseResult.deltaPts;
             
-            // Build reward result for response
             rewardResult = {
-              basePts: 75, // Fixed 75 pts per card in linear curve
+              basePts: dailyBaseResult.basePts ?? 75,
               finalPts: dailyBaseResult.deltaPts,
-              fameScore: 0.5, // Not used in new system
-              vintageMultiplier: 1.0,
-              rarityMultiplier: 1.0,
-              policyId: "daily_card_curve",
+              fameScore: dailyBaseResult.fameScore ?? 0.5,
+              vintageMultiplier: dailyBaseResult.vintageMultiplier ?? 1.0,
+              rarityMultiplier: dailyBaseResult.rarityMultiplier ?? 1.0,
+              policyId: "fame_based",
               capped: dailyBaseResult.isDailyCapped,
               cappedReason: dailyBaseResult.isDailyCapped ? "daily_card_cap_reached" : 
                            dailyBaseResult.isDuplicate ? "duplicate_card" : undefined,

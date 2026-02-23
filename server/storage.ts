@@ -5,6 +5,7 @@ import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
+import { computeReward } from "./services/rewardEngine";
 
 // Known silhouette/placeholder URL patterns that should NEVER be served
 // These are stock images from Card Hedge that indicate missing card scans
@@ -761,21 +762,27 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  private generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): GameQuestion {
+  private async generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): Promise<GameQuestion> {
     const correctAnswer = card.player || "Unknown Player";
-    // Only use player names from the same set - do NOT mix with legacy baseball players
-    // Ensure unique names to prevent duplicate key issues in React
     const uniqueNames = Array.from(new Set(playerNames));
     let wrongOptions = uniqueNames
       .filter(name => name !== correctAnswer && name)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
     
-    // Ensure no duplicates in final options array
     const options = Array.from(new Set([correctAnswer, ...wrongOptions])).sort(() => Math.random() - 0.5);
     
-    const basePoints = 100;
-    const pointValue = basePoints;
+    let pointValue = 100;
+    try {
+      const reward = await computeReward({
+        cardId: card.id,
+        playerName: correctAnswer,
+        sport: "baseball",
+      });
+      pointValue = reward.finalPts;
+    } catch (err) {
+      // Fall back to 100 if reward engine fails
+    }
     
     const cardAsGameplayCard: GameplayCard = {
       id: card.id,
@@ -788,8 +795,8 @@ export class DatabaseStorage implements IStorage {
       imageVerified: true,
       setName: card.set || "",
       position: "",
-      imageRotation: card.imageRotation || 0, // Include rotation correction
-      playableCardId: card.id, // Track original card id for reporting
+      imageRotation: card.imageRotation || 0,
+      playableCardId: card.id,
       lastImageCheck: card.lastImageCheck || null,
       imageFailureCount: card.imageFailureCount || 0,
       imageLastError: card.imageLastError || null,
@@ -848,7 +855,7 @@ export class DatabaseStorage implements IStorage {
         const additionalNames = await this.getSamplePlayerNamesFromSet(effectiveSetId, 100);
         // Only use player names from the same set - do NOT mix with legacy baseball players
         const allNames = Array.from(new Set([...playerNames, ...additionalNames]));
-        questions = playableSetCards.map(card => this.generateQuestionFromPlayableCard(card, allNames));
+        questions = await Promise.all(playableSetCards.map(card => this.generateQuestionFromPlayableCard(card, allNames)));
       }
     } else {
       const cards = await this.getRandomCards(totalQuestions);
@@ -1080,7 +1087,7 @@ export class DatabaseStorage implements IStorage {
       refreshedCard.gameSetId || "",
       100
     );
-    const question = this.generateQuestionFromPlayableCard(refreshedCard, additionalNames);
+    const question = await this.generateQuestionFromPlayableCard(refreshedCard, additionalNames);
 
     return { question, flagged: true };
   }

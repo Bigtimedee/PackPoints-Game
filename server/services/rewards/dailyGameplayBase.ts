@@ -9,7 +9,7 @@ import {
 } from "@shared/schema";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { DAILY_GAMEPLAY_BASE } from "../../config/rewards";
-import { isUserFrozen } from "../rewardEngine";
+import { isUserFrozen, computeReward, type CardContext } from "../rewardEngine";
 import { bucketService } from "../bucketService";
 import { getChicagoDate } from "../progress/dailyProgress";
 
@@ -21,6 +21,10 @@ export interface DailyBaseAwardResult {
   isDailyCapped: boolean;
   frozen?: boolean;
   frozenReason?: string;
+  fameScore?: number;
+  vintageMultiplier?: number;
+  rarityMultiplier?: number;
+  basePts?: number;
 }
 
 export interface DailyProgressResult {
@@ -39,6 +43,9 @@ export async function awardDailyBaseForCorrectCard(params: {
   matchId?: string;
   cardId: string;
   now?: Date;
+  playerName?: string;
+  year?: number;
+  rarityType?: "base" | "insert" | "parallel" | "sp";
 }): Promise<DailyBaseAwardResult> {
   const { userId, matchId, cardId } = params;
   const dayKey = DAILY_GAMEPLAY_BASE.dayKeyUTC(params.now ?? new Date());
@@ -132,10 +139,34 @@ export async function awardDailyBaseForCorrectCard(params: {
     const oldC = counter?.cardsCompleted ?? 0;
     const newC = Math.min(oldC + 1, DAILY_GAMEPLAY_BASE.CARDS_MAX_PER_DAY);
     const oldP = counter?.basePtsAwarded ?? 0;
-    const targetP = DAILY_GAMEPLAY_BASE.pointsForCardsCompleted(newC);
-    const delta = Math.max(0, targetP - oldP);
     
     const isDailyCapped = oldC >= DAILY_GAMEPLAY_BASE.CARDS_MAX_PER_DAY;
+
+    let delta: number;
+    let rewardFameScore = 0.5;
+    let rewardVintageMultiplier = 1.0;
+    let rewardRarityMultiplier = 1.0;
+    let rewardBasePts = 75;
+
+    if (params.playerName) {
+      const cardContext: CardContext = {
+        cardId: cardId,
+        playerName: params.playerName,
+        year: params.year,
+        rarityType: params.rarityType,
+        sport: "baseball",
+      };
+      const reward = await computeReward(cardContext);
+      rewardFameScore = reward.fameScore;
+      rewardVintageMultiplier = reward.vintageMultiplier;
+      rewardRarityMultiplier = reward.rarityMultiplier;
+      rewardBasePts = reward.basePts;
+      delta = isDailyCapped ? 0 : Math.min(reward.finalPts, DAILY_GAMEPLAY_BASE.PTS_MAX_PER_DAY - oldP);
+      delta = Math.max(0, delta);
+    } else {
+      const targetP = DAILY_GAMEPLAY_BASE.pointsForCardsCompleted(newC);
+      delta = Math.max(0, targetP - oldP);
+    }
     
     await tx
       .update(userGameplayDailyCounters)
@@ -255,6 +286,10 @@ export async function awardDailyBaseForCorrectCard(params: {
       cardsCompleted: newC,
       isDuplicate: false,
       isDailyCapped,
+      fameScore: rewardFameScore,
+      vintageMultiplier: rewardVintageMultiplier,
+      rarityMultiplier: rewardRarityMultiplier,
+      basePts: rewardBasePts,
     };
   });
 }
