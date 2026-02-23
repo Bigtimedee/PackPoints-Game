@@ -462,10 +462,19 @@ export const createLobbySchema = z.object({
   totalQuestions: z.number({ invalid_type_error: "Number of questions must be a number" }).min(5, "Minimum 5 questions").max(20, "Maximum 20 questions").default(10),
 });
 
+export const createLobbyRequestSchema = z.object({
+  totalQuestions: z.coerce.number({ invalid_type_error: "Number of questions must be a number" }).min(5, "Minimum 5 questions").max(20, "Maximum 20 questions").default(10),
+  gameSetId: z.string().uuid("Please select a valid card set").nullish(),
+});
+
 export const joinLobbySchema = z.object({
   joinCode: z.string().length(6, "Join code must be exactly 6 characters"),
   guestId: z.string({ required_error: "Guest ID is required" }),
   guestUsername: z.string({ required_error: "Guest username is required" }),
+});
+
+export const joinLobbyRequestSchema = z.object({
+  joinCode: z.string({ required_error: "Join code is required" }).min(1, "Join code is required").length(6, "Join code must be exactly 6 characters"),
 });
 
 export const matchAnswerSchema = z.object({

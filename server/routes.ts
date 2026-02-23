@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, joinLobbySchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, growthContentPlans, growthContentItems, growthJobRuns, publishingQueue, globalGrowthRollups, shareEvents, referralAttributions, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, growthContentPlans, growthContentItems, growthJobRuns, publishingQueue, globalGrowthRollups, shareEvents, referralAttributions, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -2279,15 +2279,14 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
-      // Validate totalQuestions from request body (limit to reasonable range)
-      const requestedQuestions = parseInt(req.body.totalQuestions) || 10;
-      const totalQuestions = Math.min(Math.max(requestedQuestions, 5), 20);
+      const parsed = createLobbyRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
+      }
       
-      // Validate gameSetId if provided
-      const gameSetId = req.body.gameSetId || null;
+      const { totalQuestions, gameSetId } = parsed.data;
       
-      // Use server-derived identity, ignore any client-provided hostId/hostUsername
-      const lobby = await matchService.createLobby(userId, user.username, totalQuestions, gameSetId);
+      const lobby = await matchService.createLobby(userId, user.username, totalQuestions, gameSetId ?? null);
       
       const { guestSecret: _, ...lobbyForHost } = lobby;
       res.json({ ...lobbyForHost, membershipSecret: lobby.hostSecret });
@@ -2310,12 +2309,12 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
-      const { joinCode } = req.body;
-      if (!joinCode || typeof joinCode !== 'string') {
-        return res.status(400).json({ error: "Valid join code required" });
+      const parsed = joinLobbyRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
-      const result = await matchService.joinLobby(joinCode.toUpperCase(), userId, user.username);
+      const result = await matchService.joinLobby(parsed.data.joinCode.toUpperCase(), userId, user.username);
       
       if ("error" in result) {
         const statusCode = result.code === "NOT_FOUND" ? 404
