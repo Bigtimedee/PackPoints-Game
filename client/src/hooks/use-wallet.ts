@@ -74,8 +74,10 @@ export function useWallet() {
   const { data, isLoading, refetch, error } = useQuery<WalletData | null>({
     queryKey: ["/wallet"],
     queryFn: fetchWallet,
-    retry: false,
-    staleTime: 1000 * 30, // 30 seconds
+    retry: 2,
+    retryDelay: 1000,
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 60,
   });
 
   const riskStatus = data?.riskState?.status ?? "NORMAL";

@@ -65,13 +65,13 @@ export async function applyProgressForMatchIfNeeded(params: {
       bumpDailyProgressForMatch({
         tx,
         userId: hostUserId,
-        cardsDelta: totalQuestions,
+        cardsDelta: 0,
         matchesDelta: 1,
       }),
       bumpDailyProgressForMatch({
         tx,
         userId: guestUserId,
-        cardsDelta: totalQuestions,
+        cardsDelta: 0,
         matchesDelta: 1,
       }),
     ]);

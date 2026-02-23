@@ -261,7 +261,11 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const walletData = await walletService.getWalletWithHistory(userId, 10);
+      let walletData = await walletService.getWalletWithHistory(userId, 10);
+      if (!walletData) {
+        await walletService.getOrCreateWallet(userId);
+        walletData = await walletService.getWalletWithHistory(userId, 10);
+      }
       if (!walletData) {
         return res.status(404).json({ error: "Wallet not found" });
       }
@@ -1324,32 +1328,6 @@ export async function registerRoutes(
             totalAnswers: session.totalQuestions,
           });
           
-          try {
-            const earnResult = await applyLedgerEntry({
-              userId: session.userId,
-              direction: "credit",
-              amountPackpts: finalScore,
-              source: "gameplay",
-              eventType: "match_complete_award",
-              refType: "match",
-              refId: session.id,
-              idempotencyKey: `gameplay:match_complete:${session.id}:${session.userId}`,
-              metadata: { sessionId: session.id, mode: session.mode, multiplier, tokenValidated, correctAnswers: session.correctAnswers, totalQuestions: session.totalQuestions },
-            });
-            
-            if (earnResult.success && !earnResult.idempotent) {
-              await analyticsService.ptsEarned(session.userId, finalScore, {
-                sessionId: session.id,
-                mode: session.mode,
-                multiplier,
-                correctAnswers: session.correctAnswers,
-                totalQuestions: session.totalQuestions,
-              });
-            }
-          } catch (walletError) {
-            console.error("Failed to credit wallet:", walletError);
-          }
-          
           await analyticsService.matchCompleted(session.userId, session.id, {
             mode: session.mode,
             score: finalScore,
@@ -1674,6 +1652,12 @@ export async function registerRoutes(
       }
       
       req.session.localUserId = user.id;
+
+      try {
+        await walletService.getOrCreateWallet(user.id);
+      } catch (walletErr) {
+        console.error("[Register] Error ensuring wallet exists (non-fatal):", walletErr);
+      }
       
       const updatedUser = await storage.getUser(user.id);
       
@@ -1832,6 +1816,12 @@ export async function registerRoutes(
       
       req.session.localUserId = user.id;
       console.log("[Login] Session localUserId set:", user.id);
+
+      try {
+        await walletService.getOrCreateWallet(user.id);
+      } catch (walletErr) {
+        console.error("[Login] Error ensuring wallet exists (non-fatal):", walletErr);
+      }
       
       // Get updated user stats after transferring points
       let updatedUser;

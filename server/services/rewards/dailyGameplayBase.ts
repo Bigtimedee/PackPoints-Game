@@ -5,11 +5,13 @@ import {
   ledgerEntries,
   wallets,
   pointsAwards,
+  userDailyProgress,
 } from "@shared/schema";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { DAILY_GAMEPLAY_BASE } from "../../config/rewards";
 import { isUserFrozen } from "../rewardEngine";
 import { bucketService } from "../bucketService";
+import { getChicagoDate } from "../progress/dailyProgress";
 
 export interface DailyBaseAwardResult {
   deltaPts: number;
@@ -146,6 +148,23 @@ export async function awardDailyBaseForCorrectCard(params: {
         eq(userGameplayDailyCounters.userId, userId),
         eq(userGameplayDailyCounters.dayKey, dayKey)
       ));
+
+    const chicagoDayDate = getChicagoDate();
+    await tx
+      .insert(userDailyProgress)
+      .values({
+        userId,
+        dayDate: chicagoDayDate,
+        cardsAnswered: 1,
+        matchesCompleted: 0,
+      })
+      .onConflictDoUpdate({
+        target: [userDailyProgress.userId, userDailyProgress.dayDate],
+        set: {
+          cardsAnswered: sql`${userDailyProgress.cardsAnswered} + 1`,
+          updatedAt: sql`now()`,
+        },
+      });
     
     if (delta > 0) {
       let [wallet] = await tx
