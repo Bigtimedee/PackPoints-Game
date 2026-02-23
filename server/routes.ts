@@ -11655,6 +11655,56 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/growth/video/:contentItemId/download", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { contentItemId } = req.params;
+      const type = (req.query.type as string) || "video";
+
+      const [contentItem] = await db.select().from(growthContentItems)
+        .where(eq(growthContentItems.id, contentItemId))
+        .limit(1);
+
+      if (!contentItem) return res.status(404).json({ error: "Content item not found" });
+
+      const metadata = (contentItem.metadata as Record<string, any>) || {};
+      const videoAsset = metadata.video_asset;
+      if (!videoAsset) return res.status(404).json({ error: "No video has been rendered for this content item" });
+
+      const filePath = type === "thumbnail" ? videoAsset.thumbnailPath : videoAsset.path;
+      if (!filePath) return res.status(404).json({ error: `No ${type} path found` });
+
+      const fsModule = await import("fs");
+      if (!fsModule.existsSync(filePath)) {
+        return res.status(404).json({ error: `${type} file not found on disk. It may need to be re-rendered.` });
+      }
+
+      const filename = type === "thumbnail"
+        ? `packpts_thumb_${contentItemId}.jpg`
+        : `packpts_tiktok_${contentItemId}.mp4`;
+      const mimeType = type === "thumbnail" ? "image/jpeg" : "video/mp4";
+      const disposition = req.query.inline === "true" ? "inline" : "attachment";
+
+      res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`);
+      res.setHeader("Content-Type", mimeType);
+
+      const stat = fsModule.statSync(filePath);
+      res.setHeader("Content-Length", stat.size);
+
+      const stream = fsModule.createReadStream(filePath);
+      stream.pipe(res);
+      stream.on("error", (err) => {
+        console.error(`[VideoDownload] Stream error for ${contentItemId}:`, err.message);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to stream file" });
+        }
+      });
+    } catch (err: any) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: err?.message });
+      }
+    }
+  });
+
   app.get("/api/admin/growth/video-factory/config", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
       const { getVideoFactoryConfig } = await import("./videoFactory");

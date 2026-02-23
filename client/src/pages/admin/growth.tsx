@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import {
   Megaphone, Play, RefreshCw, Copy, Check, AlertTriangle,
   Clock, Zap, FileText, Send, Loader2, ShieldAlert, Archive, CalendarDays,
   Download, Hash, Clipboard, Video, Undo2, CheckSquare, ListChecks,
-  ChevronDown, ChevronUp, PackageOpen
+  ChevronDown, ChevronUp, PackageOpen, X
 } from "lucide-react";
 
 interface PipelineHealth {
@@ -67,9 +67,16 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={variant} data-testid={`badge-status-${status.toLowerCase()}`}>{status === "RETRY_PENDING" ? "RETRYING" : status}</Badge>;
 }
 
+let _showCopyFallback: ((text: string, label: string) => void) | null = null;
+
+function registerCopyFallback(fn: (text: string, label: string) => void) {
+  _showCopyFallback = fn;
+}
+
 function fallbackCopyText(text: string): boolean {
   const textarea = document.createElement("textarea");
   textarea.value = text;
+  textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
   textarea.style.left = "-9999px";
   textarea.style.top = "-9999px";
@@ -88,42 +95,102 @@ async function copyToClipboard(text: string, label: string, toast: any) {
     toast({ title: `No ${label.toLowerCase()} content to copy`, variant: "destructive" });
     return;
   }
+
+  let success = false;
+
   try {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function" && window.isSecureContext) {
       await navigator.clipboard.writeText(text);
-    } else {
-      const ok = fallbackCopyText(text);
-      if (!ok) throw new Error("execCommand copy failed");
+      success = true;
     }
+  } catch {}
+
+  if (!success) {
+    success = fallbackCopyText(text);
+  }
+
+  if (success) {
     toast({ title: `${label} copied to clipboard` });
-  } catch {
-    const ok = fallbackCopyText(text);
-    if (ok) {
-      toast({ title: `${label} copied to clipboard` });
+  } else {
+    if (_showCopyFallback) {
+      _showCopyFallback(text, label);
     } else {
-      toast({ title: `Failed to copy ${label.toLowerCase()} -- try selecting text manually`, variant: "destructive" });
+      toast({ title: `Could not copy automatically. Please select and copy the text manually.`, variant: "destructive" });
     }
   }
+}
+
+function triggerFileDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => document.body.removeChild(a), 100);
+}
+
+function CopyFallbackModal({ text, label, onClose }: { text: string; label: string; onClose: () => void }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleSelectAll = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.select();
+    }
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}
+      data-testid="copy-fallback-modal">
+      <div className="bg-background border rounded-lg shadow-lg p-4 max-w-lg w-full mx-4 max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-medium text-sm">Copy {label}</h3>
+          <Button size="sm" variant="ghost" onClick={onClose} data-testid="button-close-copy-modal">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-2">
+          Auto-copy didn't work. Select all the text below and copy it manually (Ctrl+C / Cmd+C).
+        </p>
+        <textarea
+          ref={textareaRef}
+          readOnly
+          value={text}
+          className="flex-1 min-h-[200px] w-full border rounded p-2 text-xs font-mono bg-muted resize-none focus:outline-none focus:ring-2 focus:ring-primary"
+          data-testid="textarea-copy-fallback"
+          onFocus={(e) => e.target.select()}
+        />
+        <div className="flex gap-2 mt-2">
+          <Button size="sm" onClick={handleSelectAll} data-testid="button-select-all-copy">
+            Select All
+          </Button>
+          <Button size="sm" variant="outline" onClick={onClose} data-testid="button-done-copy">
+            Done
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
+    let success = false;
     try {
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function" && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
-      } else {
-        const ok = fallbackCopyText(text);
-        if (!ok) throw new Error("fallback failed");
+        success = true;
       }
+    } catch {}
+    if (!success) {
+      success = fallbackCopyText(text);
+    }
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const ok = fallbackCopyText(text);
-      if (ok) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
     }
   };
   return (
@@ -380,10 +447,10 @@ function ContentItemsTab() {
 
   return (
     <div className="space-y-3">
-      {data?.items.length === 0 && (
+      {data?.items?.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-8">No content items yet</p>
       )}
-      {data?.items.map(item => (
+      {data?.items?.map(item => (
         <Card key={item.id}>
           <CardContent className="p-4">
             <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -473,7 +540,7 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
 
   const copyAllContent = [
     `TIKTOK POST -- ${contentType.replace(/^TIKTOK_(VIRAL_)?/, "").replace(/_/g, " ")}`,
-    `${"─".repeat(40)}`,
+    `${"=".repeat(40)}`,
     "",
     `CAPTION (paste into TikTok):`,
     caption,
@@ -601,11 +668,11 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
               </div>
             )}
 
-            {hasVideo && videoAsset.thumbnailUrl && (
+            {hasVideo && item.contentItem?.id && (
               <div className="mb-3 mt-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Video Preview</p>
                 <div className="flex items-start gap-3">
-                  <img src={videoAsset.thumbnailUrl} alt="Video thumbnail"
+                  <img src={`/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail&inline=true`} alt="Video thumbnail"
                     className="w-20 h-36 object-cover rounded border"
                     data-testid={`img-thumbnail-${item.id}`} />
                   <div className="text-xs text-muted-foreground space-y-1">
@@ -631,13 +698,15 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                 <PackageOpen className="h-3 w-3 mr-1" />
                 Copy All for Posting
               </Button>
-              {hasVideo && (
-                <Button size="sm" variant="default" asChild
+              {hasVideo && item.contentItem?.id && (
+                <Button size="sm" variant="default"
+                  onClick={() => triggerFileDownload(
+                    `/api/admin/growth/video/${item.contentItem.id}/download`,
+                    `packpts_tiktok_${item.id}.mp4`
+                  )}
                   data-testid={`button-download-mp4-${item.id}`}>
-                  <a href={videoAsset.url} download={`packpts_tiktok_${item.id}.mp4`}>
-                    <Download className="h-3 w-3 mr-1" />
-                    Download MP4
-                  </a>
+                  <Download className="h-3 w-3 mr-1" />
+                  Download MP4
                 </Button>
               )}
               {!hasVideo && (
@@ -710,12 +779,14 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                   </Button>
                   {hasVideo && (
                     <>
-                      <Button size="sm" variant="outline" asChild
+                      <Button size="sm" variant="outline"
+                        onClick={() => item.contentItem?.id && triggerFileDownload(
+                          `/api/admin/growth/video/${item.contentItem.id}/download?type=thumbnail`,
+                          `packpts_thumb_${item.id}.jpg`
+                        )}
                         data-testid={`button-download-thumb-${item.id}`}>
-                        <a href={videoAsset.thumbnailUrl} download={`packpts_thumb_${item.id}.jpg`}>
-                          <Download className="h-3 w-3 mr-1" />
-                          Thumbnail
-                        </a>
+                        <Download className="h-3 w-3 mr-1" />
+                        Thumbnail
                       </Button>
                       <Button size="sm" variant="ghost"
                         onClick={() => onRenderVideo(item.id, true)}
@@ -757,6 +828,9 @@ function QueueTab() {
   const [dateFilter, setDateFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showChecklist, setShowChecklist] = useState(false);
+  const [copyFallback, setCopyFallback] = useState<{ text: string; label: string } | null>(null);
+
+  registerCopyFallback((text, label) => setCopyFallback({ text, label }));
 
   const queryParams = new URLSearchParams();
   if (platformFilter !== "all") queryParams.set("platform", platformFilter);
@@ -859,7 +933,7 @@ function QueueTab() {
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin mx-auto mt-8" />;
 
   const isTikTokView = platformFilter === "tiktok";
-  const readyCount = data?.items.filter(i => i.status === "READY").length || 0;
+  const readyCount = data?.items?.filter((i: any) => i.status === "READY").length || 0;
 
   return (
     <div className="space-y-4">
@@ -996,14 +1070,14 @@ function QueueTab() {
         </div>
       )}
 
-      {data?.items.length === 0 && (
+      {data?.items?.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-empty-queue">
           Publishing queue is empty{platformFilter !== "all" ? ` for ${platformFilter}` : ""}
         </p>
       )}
 
       {data?.items
-        .filter((item: any) => {
+        ?.filter((item: any) => {
           if (formatFilter === "all") return true;
           const meta = item.contentItem?.metadata || item.assets || {};
           const fid = meta.format_id || item.assets?.format_id;
@@ -1074,6 +1148,14 @@ function QueueTab() {
           </Card>
         );
       })}
+
+      {copyFallback && (
+        <CopyFallbackModal
+          text={copyFallback.text}
+          label={copyFallback.label}
+          onClose={() => setCopyFallback(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1103,10 +1185,10 @@ function JobLogsTab() {
 
   return (
     <div className="space-y-2">
-      {data?.runs.length === 0 && (
+      {data?.runs?.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-8">No job runs yet</p>
       )}
-      {data?.runs.map(run => (
+      {data?.runs?.map(run => (
         <div key={run.id} className="p-3 rounded-md bg-muted/50 space-y-2">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1182,10 +1264,10 @@ function ContentPlansTab() {
 
   return (
     <div className="space-y-3">
-      {data?.plans.length === 0 && (
+      {data?.plans?.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-8" data-testid="text-no-plans">No content plans yet</p>
       )}
-      {data?.plans.map(plan => {
+      {data?.plans?.map(plan => {
         const platforms = Array.isArray(plan.targetPlatforms) ? plan.targetPlatforms : [];
         return (
           <Card key={plan.id}>
