@@ -3,8 +3,35 @@ import { growthContentItems, publishingQueue } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 
+const PACKPTS_LOGO_URL = "https://packpts.com/logo-social.jpg";
+
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+function extractImageUrl(metadata: Record<string, any> | null, contentItemId: string): string {
+  if (!metadata) return PACKPTS_LOGO_URL;
+
+  if (metadata.imageUrl) return metadata.imageUrl;
+
+  const assetRefs = metadata.asset_refs as { type?: string; url?: string }[] | undefined;
+  if (assetRefs && assetRefs.length > 0) {
+    const cardImage = assetRefs.find(a => a.type === "card_image" && a.url);
+    if (cardImage?.url) return cardImage.url;
+    const anyAsset = assetRefs.find(a => a.url);
+    if (anyAsset?.url) return anyAsset.url;
+  }
+
+  const cards = metadata.cards as { imageUrl?: string }[] | undefined;
+  if (cards && cards.length > 0) {
+    const cardWithImg = cards.find(c => c.imageUrl);
+    if (cardWithImg?.imageUrl) return cardWithImg.imageUrl;
+  }
+
+  const videoAsset = metadata.video_asset as { thumbnail?: string } | undefined;
+  if (videoAsset?.thumbnail) return videoAsset.thumbnail;
+
+  return PACKPTS_LOGO_URL;
 }
 
 registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
@@ -28,6 +55,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
 
   for (const item of tiktokItems) {
     const metadata = item.metadata as Record<string, any> | null;
+    const resolvedImageUrl = extractImageUrl(metadata, item.id);
 
     const igIdempKey = `crosspost_ig_${item.idempotencyKey || item.id}`;
     try {
@@ -45,6 +73,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
           body: item.body,
           metadata: {
             ...metadata,
+            imageUrl: resolvedImageUrl,
             crossPostedFrom: item.id,
             originalPlatform: "tiktok",
           },
@@ -60,6 +89,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
           copyText: metadata?.caption || item.body || "",
           assets: {
             ...(metadata || {}),
+            imageUrl: resolvedImageUrl,
             crossPostedFrom: item.id,
           },
           status: "READY",
@@ -88,6 +118,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
           body: item.body,
           metadata: {
             ...metadata,
+            imageUrl: resolvedImageUrl,
             crossPostedFrom: item.id,
             originalPlatform: "tiktok",
           },
@@ -103,6 +134,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
           copyText: metadata?.caption || item.body || "",
           assets: {
             ...(metadata || {}),
+            imageUrl: resolvedImageUrl,
             crossPostedFrom: item.id,
           },
           status: "READY",

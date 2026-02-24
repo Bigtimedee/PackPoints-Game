@@ -11,6 +11,38 @@ import {
 import { validateCompliance } from "./complianceValidator";
 import { getRecentHooks, getRecentPlayerNames, getRecentThemes, buildDiversityConstraints } from "./diversityTracker";
 import { buildContentContext, contextToPromptSection } from "./contextBuilder";
+import { selectCardsForFormat } from "./cardSelector";
+
+const VISUAL_PLATFORMS = new Set(["instagram", "x", "facebook", "tiktok"]);
+const PACKPTS_LOGO_URL = "https://packpts.com/logo-social.jpg";
+
+async function ensureImageForVisualPlatform(
+  platform: string,
+  date: string,
+  formatSeed: string,
+  existingMetadata: Record<string, any>,
+): Promise<Record<string, any>> {
+  if (!VISUAL_PLATFORMS.has(platform)) return existingMetadata;
+  if (existingMetadata.imageUrl || existingMetadata.video_asset) return existingMetadata;
+
+  try {
+    const cards = await selectCardsForFormat(formatSeed, date);
+    if (cards.length > 0) {
+      const card = cards[0];
+      console.log(`[ContentJobs] Attached card image for ${platform}: ${card.player} (${card.set} ${card.year})`);
+      return {
+        ...existingMetadata,
+        imageUrl: card.imageUrl,
+        attachedCard: { cardId: card.id, player: card.player, set: card.set, year: card.year },
+      };
+    }
+  } catch (err: any) {
+    console.warn(`[ContentJobs] Card selection failed for ${platform}: ${err?.message}`);
+  }
+
+  console.warn(`[ContentJobs] Using PackPTS logo fallback for ${platform} — no eligible cards found`);
+  return { ...existingMetadata, imageUrl: PACKPTS_LOGO_URL };
+}
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -144,7 +176,7 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       case "instagram":
         promptFn = prompts.INSTAGRAM_POST_PROMPT;
         type = "INSTAGRAM_POST";
-        postingMode = "AUTO";
+        postingMode = "MANUAL_QUEUE";
         break;
       case "tiktok":
         continue;
@@ -173,13 +205,16 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       }
 
       const idempKey = `${ctx.idempotencyKey}_${platform}`;
+      let itemMetadata: Record<string, any> = { hashtags: parsed.hashtags, theme, complianceIssues: compliance.issues.length > 0 ? compliance.issues : undefined };
+      itemMetadata = await ensureImageForVisualPlatform(platform, date, `content_${platform}`, itemMetadata);
+
       const [item] = await db.insert(growthContentItems).values({
         planId: plan.id,
         type,
         platform,
         title: parsed.title,
         body: parsed.body,
-        metadata: { hashtags: parsed.hashtags, theme, complianceIssues: compliance.issues.length > 0 ? compliance.issues : undefined },
+        metadata: itemMetadata,
         postingMode,
         status: postingMode === "AUTO" ? "READY" : "QUEUED",
         idempotencyKey: idempKey,
@@ -229,20 +264,36 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const autoPostPlatforms = ["discord", "x", "instagram"];
+  const postPlatforms = ["discord", "x", "instagram"];
   const items: string[] = [];
-  for (const platform of autoPostPlatforms) {
+  for (const platform of postPlatforms) {
+    const isManual = platform === "instagram";
+    const postingMode = isManual ? "MANUAL_QUEUE" : "AUTO";
+    let announceMeta: Record<string, any> = { hashtags: parsed.hashtags };
+    announceMeta = await ensureImageForVisualPlatform(platform, date, `daily5_announce_${platform}`, announceMeta);
+
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
       type: "DAILY5_ANNOUNCEMENT",
       platform,
       title: parsed.title,
       body: parsed.body,
-      metadata: { hashtags: parsed.hashtags },
-      postingMode: "AUTO",
-      status: "READY",
+      metadata: announceMeta,
+      postingMode,
+      status: postingMode === "AUTO" ? "READY" : "QUEUED",
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
+
+    if (isManual) {
+      await db.insert(publishingQueue).values({
+        contentItemId: item.id,
+        platform,
+        copyText: parsed.body,
+        assets: { hashtags: parsed.hashtags, title: parsed.title, imageUrl: announceMeta.imageUrl },
+        status: "READY",
+      });
+    }
+
     items.push(`${platform}:${item.id}`);
   }
 
@@ -292,20 +343,35 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const autoPostPlatforms = ["discord", "x", "instagram"];
+  const postPlatforms = ["discord", "x", "instagram"];
   const items: string[] = [];
-  for (const platform of autoPostPlatforms) {
+  for (const platform of postPlatforms) {
+    const isManual = platform === "instagram";
+    const postingMode = isManual ? "MANUAL_QUEUE" : "AUTO";
+    let recapMeta: Record<string, any> = { hashtags: parsed.hashtags, topPlayers };
+    recapMeta = await ensureImageForVisualPlatform(platform, date, `daily5_recap_${platform}`, recapMeta);
+
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
       type: "DAILY5_RECAP",
       platform,
       title: parsed.title,
       body: parsed.body,
-      metadata: { hashtags: parsed.hashtags, topPlayers },
-      postingMode: "AUTO",
-      status: "READY",
+      metadata: recapMeta,
+      postingMode,
+      status: postingMode === "AUTO" ? "READY" : "QUEUED",
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
+
+    if (isManual) {
+      await db.insert(publishingQueue).values({
+        contentItemId: item.id,
+        platform,
+        copyText: parsed.body,
+        assets: { hashtags: parsed.hashtags, title: parsed.title, topPlayers, imageUrl: recapMeta.imageUrl },
+        status: "READY",
+      });
+    }
 
     items.push(`${platform}:${item.id}`);
   }
