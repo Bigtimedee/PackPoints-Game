@@ -245,6 +245,45 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function CredentialHealthCard() {
+  const { data, isLoading, refetch } = useQuery<{ credentials: { platform: string; valid: boolean; error?: string }[] }>({
+    queryKey: ["/api/admin/growth/credential-health"],
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  if (isLoading || !data?.credentials) return null;
+
+  const hasIssues = data.credentials.some(c => !c.valid && c.error !== "Credentials not configured");
+  if (!hasIssues) return null;
+
+  return (
+    <Card className="border-destructive" data-testid="card-credential-health">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldAlert className="h-4 w-4 text-destructive" />
+          <span className="text-sm font-medium text-destructive">Credential Issues Detected</span>
+          <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => refetch()}
+            data-testid="button-refresh-creds">
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+        </div>
+        <div className="space-y-2">
+          {data.credentials.filter(c => !c.valid && c.error !== "Credentials not configured").map(c => (
+            <div key={c.platform} className="flex items-start gap-2 p-2 rounded-md bg-destructive/10">
+              <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium">{c.platform === "x" ? "X / Twitter" : c.platform.charAt(0).toUpperCase() + c.platform.slice(1)}</p>
+                <p className="text-xs text-destructive/80">{c.error}</p>
+                <p className="text-xs text-muted-foreground mt-1">Update the API credentials in your Secrets tab. Posts will fail until fixed.</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverviewTab() {
   const { toast } = useToast();
   const { data, isLoading, refetch } = useQuery<Overview>({
@@ -339,6 +378,8 @@ function OverviewTab() {
           </CardContent>
         </Card>
       )}
+
+      <CredentialHealthCard />
 
       {data.platformStatus && (
         <Card data-testid="card-autopost-controls">
@@ -517,45 +558,250 @@ function OverviewTab() {
   );
 }
 
+function ContentItemCard({ item }: { item: any }) {
+  const { toast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/admin/growth/items/${item.id}/retry`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Item reset to READY", description: "It will be retried on the next auto-post cycle." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/items"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const metadata = item.metadata as any || {};
+  const hashtags: string[] = metadata?.hashtags || [];
+  const hashtagStr = hashtags.map((t: string) => `#${t}`).join(" ");
+  const imageUrl = metadata?.imageUrl;
+  const videoAsset = metadata?.video_asset;
+
+  const body = item.body || "";
+  const caption = item.title ? `${item.title}\n\n${body}` : body;
+  const fullCaption = hashtagStr ? `${caption}\n\n${hashtagStr}` : caption;
+
+  const xText = (body + (hashtagStr ? `\n\n${hashtagStr}` : "")).slice(0, 280);
+  const igText = fullCaption.slice(0, 2200);
+
+  const platformIcon = item.platform === "x" ? <SiX className="h-3 w-3" /> :
+    item.platform === "instagram" ? <SiInstagram className="h-3 w-3" /> :
+    item.platform === "facebook" ? <SiFacebook className="h-3 w-3" /> :
+    item.platform === "tiktok" ? <SiTiktok className="h-3 w-3" /> : null;
+
+  return (
+    <Card className={item.status === "FAILED" ? "border-destructive/50" : ""}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <Badge variant="outline" className="flex items-center gap-1">
+                {platformIcon}
+                {item.platform}
+              </Badge>
+              <Badge variant="outline">{item.type}</Badge>
+              <StatusBadge status={item.status} />
+              <Badge variant={item.postingMode === "AUTO" ? "default" : "secondary"}>
+                {item.postingMode}
+              </Badge>
+            </div>
+            {item.title && <p className="font-medium text-sm" data-testid={`text-title-${item.id}`}>{item.title}</p>}
+            {item.body && (
+              <p className={`text-sm text-muted-foreground mt-1 whitespace-pre-line ${expanded ? "" : "line-clamp-4"}`}
+                data-testid={`text-body-${item.id}`}>
+                {item.body}
+              </p>
+            )}
+            {item.body && item.body.length > 200 && (
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs mt-1"
+                onClick={() => setExpanded(!expanded)}
+                data-testid={`button-expand-${item.id}`}>
+                {expanded ? <><ChevronUp className="h-3 w-3 mr-1" /> Show less</> : <><ChevronDown className="h-3 w-3 mr-1" /> Show more</>}
+              </Button>
+            )}
+
+            {item.status === "FAILED" && item.error && (
+              <div className="mt-2 p-2 rounded-md bg-destructive/10 border border-destructive/20"
+                data-testid={`error-details-${item.id}`}>
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-destructive mb-0.5">Error Details</p>
+                    <p className="text-xs text-destructive/80 break-all">{item.error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground mt-2">
+              {new Date(item.createdAt).toLocaleString()}
+              {item.postedAt && <> &middot; Posted {new Date(item.postedAt).toLocaleString()}</>}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
+          {item.status === "FAILED" && (
+            <Button variant="destructive" size="sm"
+              onClick={() => retryMutation.mutate()}
+              disabled={retryMutation.isPending}
+              data-testid={`button-retry-item-${item.id}`}>
+              {retryMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+              Retry
+            </Button>
+          )}
+
+          {item.platform === "x" && (
+            <Button variant="outline" size="sm"
+              onClick={() => copyToClipboard(xText, "X post (280 chars)", toast)}
+              data-testid={`button-copy-x-${item.id}`}>
+              <SiX className="h-3 w-3 mr-1" />
+              Copy for X
+            </Button>
+          )}
+
+          {item.platform === "instagram" && (
+            <Button variant="outline" size="sm"
+              onClick={() => copyToClipboard(igText, "Instagram caption", toast)}
+              data-testid={`button-copy-ig-${item.id}`}>
+              <SiInstagram className="h-3 w-3 mr-1" />
+              Copy for Instagram
+            </Button>
+          )}
+
+          {item.platform === "facebook" && (
+            <Button variant="outline" size="sm"
+              onClick={() => copyToClipboard(fullCaption, "Facebook post", toast)}
+              data-testid={`button-copy-fb-${item.id}`}>
+              <SiFacebook className="h-3 w-3 mr-1" />
+              Copy for Facebook
+            </Button>
+          )}
+
+          <Button variant="outline" size="sm"
+            onClick={() => copyToClipboard(fullCaption, "Full caption + hashtags", toast)}
+            data-testid={`button-copy-full-${item.id}`}>
+            <Clipboard className="h-3 w-3 mr-1" />
+            Copy All
+          </Button>
+
+          {hashtagStr && (
+            <Button variant="outline" size="sm"
+              onClick={() => copyToClipboard(hashtagStr, "Hashtags", toast)}
+              data-testid={`button-copy-hashtags-${item.id}`}>
+              <Hash className="h-3 w-3 mr-1" />
+              Copy Hashtags
+            </Button>
+          )}
+
+          {videoAsset?.path && (
+            <Button variant="outline" size="sm" asChild
+              data-testid={`button-download-video-${item.id}`}>
+              <a href={`/api/admin/growth/video/${item.id}/download`} download>
+                <Download className="h-3 w-3 mr-1" />
+                Download MP4
+              </a>
+            </Button>
+          )}
+        </div>
+
+        {imageUrl && (
+          <div className="mt-2">
+            <img src={imageUrl} alt="Content image" className="max-h-32 rounded-md object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              data-testid={`img-content-${item.id}`} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ContentItemsTab() {
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
   const { data, isLoading } = useQuery<{ items: any[] }>({
     queryKey: ["/api/admin/growth/items"],
   });
 
+  const bulkRetryMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await apiRequest("POST", "/api/admin/growth/items/bulk-retry", { ids });
+      return res.json();
+    },
+    onSuccess: (result: any) => {
+      toast({ title: "Bulk retry complete", description: `${result.retried} items reset to READY` });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/items"] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Bulk retry failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin mx-auto mt-8" />;
+
+  const items = data?.items || [];
+  const filteredItems = items.filter(item => {
+    if (statusFilter !== "all" && item.status !== statusFilter) return false;
+    if (platformFilter !== "all" && item.platform !== platformFilter) return false;
+    return true;
+  });
+
+  const failedItems = filteredItems.filter(i => i.status === "FAILED");
+  const failedCount = items.filter(i => i.status === "FAILED").length;
 
   return (
     <div className="space-y-3">
-      {data?.items?.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-8">No content items yet</p>
+      <div className="flex flex-wrap gap-2 items-center">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="READY">Ready</SelectItem>
+            <SelectItem value="POSTED">Posted</SelectItem>
+            <SelectItem value="FAILED">Failed</SelectItem>
+            <SelectItem value="QUEUED">Queued</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={platformFilter} onValueChange={setPlatformFilter}>
+          <SelectTrigger className="w-[140px]" data-testid="select-platform-filter">
+            <SelectValue placeholder="Platform" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Platforms</SelectItem>
+            <SelectItem value="x">X / Twitter</SelectItem>
+            <SelectItem value="instagram">Instagram</SelectItem>
+            <SelectItem value="facebook">Facebook</SelectItem>
+            <SelectItem value="discord">Discord</SelectItem>
+            <SelectItem value="reddit">Reddit</SelectItem>
+            <SelectItem value="tiktok">TikTok</SelectItem>
+          </SelectContent>
+        </Select>
+        {failedCount > 0 && (
+          <Button variant="destructive" size="sm"
+            onClick={() => bulkRetryMutation.mutate(failedItems.map(i => i.id))}
+            disabled={bulkRetryMutation.isPending || failedItems.length === 0}
+            data-testid="button-bulk-retry">
+            {bulkRetryMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+            Retry All Failed ({statusFilter === "all" ? failedCount : failedItems.length})
+          </Button>
+        )}
+        <span className="text-xs text-muted-foreground ml-auto">{filteredItems.length} items</span>
+      </div>
+
+      {filteredItems.length === 0 && (
+        <p className="text-sm text-muted-foreground text-center py-8">No content items match filters</p>
       )}
-      {data?.items?.map(item => (
-        <Card key={item.id}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-2 flex-wrap">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <Badge variant="outline">{item.platform}</Badge>
-                  <Badge variant="outline">{item.type}</Badge>
-                  <StatusBadge status={item.status} />
-                  <Badge variant={item.postingMode === "AUTO" ? "default" : "secondary"}>
-                    {item.postingMode}
-                  </Badge>
-                </div>
-                {item.title && <p className="font-medium text-sm">{item.title}</p>}
-                {item.body && (
-                  <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line line-clamp-4">
-                    {item.body}
-                  </p>
-                )}
-                <p className="text-xs text-muted-foreground mt-2">
-                  {new Date(item.createdAt).toLocaleString()}
-                </p>
-              </div>
-              {item.body && <CopyButton text={item.body} />}
-            </div>
-          </CardContent>
-        </Card>
+      {filteredItems.map(item => (
+        <ContentItemCard key={item.id} item={item} />
       ))}
     </div>
   );

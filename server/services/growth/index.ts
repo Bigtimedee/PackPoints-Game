@@ -35,6 +35,19 @@ export async function initGrowthAgent(): Promise<void> {
   const tiktokCfg = getTikTokConfig();
   console.log(`[GrowthAgent] TikTok: ${tiktokCfg.enabled ? "ENABLED (manual mode)" : "DISABLED"}`);
 
+  const { validateAllCredentials: checkCreds } = await import("./platformAdapters");
+  const credResults = await checkCreds();
+  for (const cr of credResults) {
+    if (cr.valid) {
+      console.log(`[GrowthAgent] ${cr.platform} credentials: VALID`);
+    } else if (cr.error === "Credentials not configured") {
+      console.log(`[GrowthAgent] ${cr.platform} credentials: NOT CONFIGURED`);
+    } else {
+      console.error(`[GrowthAgent] WARNING: ${cr.platform} credentials INVALID — ${cr.error}`);
+      console.error(`[GrowthAgent] ACTION REQUIRED: Update ${cr.platform} API credentials in Secrets tab. Posts will fail until fixed.`);
+    }
+  }
+
   const igAutopost = process.env.GROWTH_IG_AUTOPOST === "true";
   const fbAutopost = process.env.GROWTH_FB_AUTOPOST === "true";
   console.log(`[GrowthAgent] Instagram auto-post: ${igAutopost ? "ENABLED" : "DISABLED"}`);
@@ -71,7 +84,7 @@ export async function initGrowthAgent(): Promise<void> {
 export { executeJob, getRegisteredJobs } from "./jobRunner";
 export { getSchedule } from "./scheduler";
 export { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
-export { postToDiscord, postToFacebook } from "./platformAdapters";
+export { postToDiscord, postToFacebook, validateAllCredentials, validateTwitterCredentials, validateInstagramCredentials, validateFacebookCredentials, clearCredentialCache } from "./platformAdapters";
 export { checkOpenAIConnectivity, getOpenAIHealthStatus } from "./openaiAdapter";
 export { getPipelineHealth } from "./pipelineHealth";
 export { getTikTokConfig } from "./tiktokConfig";

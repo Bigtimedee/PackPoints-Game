@@ -11759,6 +11759,67 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/growth/items/:id/retry", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const [item] = await db.select().from(growthContentItems).where(eq(growthContentItems.id, id)).limit(1);
+      if (!item) return res.status(404).json({ error: "Content item not found" });
+      if (item.status !== "FAILED") return res.status(400).json({ error: `Cannot retry item with status ${item.status}. Only FAILED items can be retried.` });
+
+      await db.update(growthContentItems).set({
+        status: "READY",
+        error: null,
+        updatedAt: new Date(),
+      }).where(eq(growthContentItems.id, id));
+
+      const { clearCredentialCache } = await import("./services/growth");
+      clearCredentialCache(item.platform);
+
+      console.log(`[Admin] Content item ${id} reset to READY for retry (was: FAILED, platform: ${item.platform})`);
+      res.json({ success: true, id, newStatus: "READY" });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/items/bulk-retry", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "ids array required" });
+
+      let retried = 0;
+      for (const id of ids) {
+        const [item] = await db.select().from(growthContentItems).where(eq(growthContentItems.id, id)).limit(1);
+        if (item && item.status === "FAILED") {
+          await db.update(growthContentItems).set({
+            status: "READY",
+            error: null,
+            updatedAt: new Date(),
+          }).where(eq(growthContentItems.id, id));
+          retried++;
+        }
+      }
+
+      const { clearCredentialCache } = await import("./services/growth");
+      clearCredentialCache();
+
+      console.log(`[Admin] Bulk retry: ${retried}/${ids.length} items reset to READY`);
+      res.json({ success: true, retried, total: ids.length });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.get("/api/admin/growth/credential-health", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { validateAllCredentials } = await import("./services/growth");
+      const results = await validateAllCredentials();
+      res.json({ credentials: results });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   app.post("/api/admin/growth/autopost/toggle", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { platform, enabled } = req.body;

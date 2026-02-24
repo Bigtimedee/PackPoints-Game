@@ -10,6 +10,121 @@ export interface PostResult {
   error?: string;
 }
 
+export interface CredentialCheckResult {
+  platform: string;
+  valid: boolean;
+  error?: string;
+}
+
+const credentialCache = new Map<string, { valid: boolean; checkedAt: number; error?: string }>();
+const CREDENTIAL_CACHE_TTL = 10 * 60 * 1000;
+
+export async function validateTwitterCredentials(): Promise<CredentialCheckResult> {
+  const cached = credentialCache.get("x");
+  if (cached && Date.now() - cached.checkedAt < CREDENTIAL_CACHE_TTL) {
+    return { platform: "x", valid: cached.valid, error: cached.error };
+  }
+
+  const client = getTwitterClient();
+  if (!client) {
+    const result = { valid: false, error: "Credentials not configured" };
+    credentialCache.set("x", { ...result, checkedAt: Date.now() });
+    return { platform: "x", ...result };
+  }
+
+  try {
+    await client.v2.me();
+    credentialCache.set("x", { valid: true, checkedAt: Date.now() });
+    return { platform: "x", valid: true };
+  } catch (err: any) {
+    const error = err?.data?.detail || err?.message || "Authentication failed";
+    console.error(`[TwitterAdapter] Credential validation failed: ${error}`);
+    credentialCache.set("x", { valid: false, checkedAt: Date.now(), error });
+    return { platform: "x", valid: false, error };
+  }
+}
+
+export async function validateInstagramCredentials(): Promise<CredentialCheckResult> {
+  const cached = credentialCache.get("instagram");
+  if (cached && Date.now() - cached.checkedAt < CREDENTIAL_CACHE_TTL) {
+    return { platform: "instagram", valid: cached.valid, error: cached.error };
+  }
+
+  const config = await getInstagramConfig();
+  if (!config) {
+    const result = { valid: false, error: "Credentials not configured" };
+    credentialCache.set("instagram", { ...result, checkedAt: Date.now() });
+    return { platform: "instagram", ...result };
+  }
+
+  try {
+    const res = await fetch(
+      `${GRAPH_API_BASE}/${config.userId}?fields=id,username&access_token=${config.accessToken}`
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as any;
+      const error = body?.error?.message || `HTTP ${res.status}`;
+      credentialCache.set("instagram", { valid: false, checkedAt: Date.now(), error });
+      return { platform: "instagram", valid: false, error };
+    }
+    credentialCache.set("instagram", { valid: true, checkedAt: Date.now() });
+    return { platform: "instagram", valid: true };
+  } catch (err: any) {
+    const error = err?.message || "Connection failed";
+    credentialCache.set("instagram", { valid: false, checkedAt: Date.now(), error });
+    return { platform: "instagram", valid: false, error };
+  }
+}
+
+export async function validateFacebookCredentials(): Promise<CredentialCheckResult> {
+  const cached = credentialCache.get("facebook");
+  if (cached && Date.now() - cached.checkedAt < CREDENTIAL_CACHE_TTL) {
+    return { platform: "facebook", valid: cached.valid, error: cached.error };
+  }
+
+  const config = await getFacebookConfig();
+  if (!config) {
+    const result = { valid: false, error: "Credentials not configured" };
+    credentialCache.set("facebook", { ...result, checkedAt: Date.now() });
+    return { platform: "facebook", ...result };
+  }
+
+  try {
+    const res = await fetch(
+      `${GRAPH_API_BASE}/${config.pageId}?fields=id,name&access_token=${config.accessToken}`
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as any;
+      const error = body?.error?.message || `HTTP ${res.status}`;
+      credentialCache.set("facebook", { valid: false, checkedAt: Date.now(), error });
+      return { platform: "facebook", valid: false, error };
+    }
+    credentialCache.set("facebook", { valid: true, checkedAt: Date.now() });
+    return { platform: "facebook", valid: true };
+  } catch (err: any) {
+    const error = err?.message || "Connection failed";
+    credentialCache.set("facebook", { valid: false, checkedAt: Date.now(), error });
+    return { platform: "facebook", valid: false, error };
+  }
+}
+
+export async function validateAllCredentials(): Promise<CredentialCheckResult[]> {
+  const results = await Promise.allSettled([
+    validateTwitterCredentials(),
+    validateInstagramCredentials(),
+    validateFacebookCredentials(),
+  ]);
+  return results.map(r => r.status === "fulfilled" ? r.value : { platform: "unknown", valid: false, error: "Check failed" });
+}
+
+export function clearCredentialCache(platform?: string): void {
+  if (platform) {
+    credentialCache.delete(platform);
+  } else {
+    credentialCache.clear();
+  }
+}
+
 export async function postToDiscord(contentItemId: string): Promise<PostResult> {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
