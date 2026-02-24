@@ -572,78 +572,97 @@ function ContentItemCard({ item }: { item: any }) {
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
-          {item.status === "FAILED" && (
-            <Button variant="destructive" size="sm"
-              onClick={() => retryMutation.mutate()}
-              disabled={retryMutation.isPending}
-              data-testid={`button-retry-item-${item.id}`}>
-              {retryMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-              Retry
-            </Button>
+        <div className="mt-3 border-t pt-3 space-y-3">
+          {(imageUrl || videoAsset?.path) && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Media</p>
+              <div className="flex flex-wrap gap-2 items-start">
+                {imageUrl && (
+                  <>
+                    <a href={imageUrl} target="_blank" rel="noopener noreferrer">
+                      <img src={imageUrl} alt="Content image" className="max-h-24 rounded-md object-cover border cursor-pointer hover:opacity-80 transition-opacity"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        data-testid={`img-content-${item.id}`} />
+                    </a>
+                    <Button variant="outline" size="sm"
+                      onClick={() => triggerFileDownload(imageUrl, `packpts_${item.platform}_${item.id}.jpg`)}
+                      data-testid={`button-download-image-${item.id}`}>
+                      <Download className="h-3 w-3 mr-1" />
+                      Download Image
+                    </Button>
+                  </>
+                )}
+                {videoAsset?.path && (
+                  <Button variant="outline" size="sm" asChild
+                    data-testid={`button-download-video-${item.id}`}>
+                    <a href={`/api/admin/growth/video/${item.id}/download`} download>
+                      <Download className="h-3 w-3 mr-1" />
+                      Download MP4
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
 
-          {item.platform === "x" && (
-            <Button variant="outline" size="sm"
-              onClick={() => copyToClipboard(xText, "X post (280 chars)", toast)}
-              data-testid={`button-copy-x-${item.id}`}>
-              <SiX className="h-3 w-3 mr-1" />
-              Copy for X
-            </Button>
-          )}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Caption</p>
+            <div className="flex flex-wrap gap-2">
+              {item.status === "FAILED" && (
+                <Button variant="destructive" size="sm"
+                  onClick={() => retryMutation.mutate()}
+                  disabled={retryMutation.isPending}
+                  data-testid={`button-retry-item-${item.id}`}>
+                  {retryMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                  Retry
+                </Button>
+              )}
 
-          {item.platform === "instagram" && (
-            <Button variant="outline" size="sm"
-              onClick={() => copyToClipboard(igText, "Instagram caption", toast)}
-              data-testid={`button-copy-ig-${item.id}`}>
-              <SiInstagram className="h-3 w-3 mr-1" />
-              Copy for Instagram
-            </Button>
-          )}
+              {item.platform === "x" && (
+                <Button variant="outline" size="sm"
+                  onClick={() => copyToClipboard(xText, "Caption copied (280 chars)", toast)}
+                  data-testid={`button-copy-x-${item.id}`}>
+                  <SiX className="h-3 w-3 mr-1" />
+                  Copy Caption
+                </Button>
+              )}
 
-          {item.platform === "facebook" && (
-            <Button variant="outline" size="sm"
-              onClick={() => copyToClipboard(fullCaption, "Facebook post", toast)}
-              data-testid={`button-copy-fb-${item.id}`}>
-              <SiFacebook className="h-3 w-3 mr-1" />
-              Copy for Facebook
-            </Button>
-          )}
+              {item.platform === "instagram" && (
+                <Button variant="outline" size="sm"
+                  onClick={() => copyToClipboard(igText, "Caption copied", toast)}
+                  data-testid={`button-copy-ig-${item.id}`}>
+                  <SiInstagram className="h-3 w-3 mr-1" />
+                  Copy Caption
+                </Button>
+              )}
 
-          <Button variant="outline" size="sm"
-            onClick={() => copyToClipboard(fullCaption, "Full caption + hashtags", toast)}
-            data-testid={`button-copy-full-${item.id}`}>
-            <Clipboard className="h-3 w-3 mr-1" />
-            Copy All
-          </Button>
+              {item.platform === "facebook" && (
+                <Button variant="outline" size="sm"
+                  onClick={() => copyToClipboard(fullCaption, "Caption copied", toast)}
+                  data-testid={`button-copy-fb-${item.id}`}>
+                  <SiFacebook className="h-3 w-3 mr-1" />
+                  Copy Caption
+                </Button>
+              )}
 
-          {hashtagStr && (
-            <Button variant="outline" size="sm"
-              onClick={() => copyToClipboard(hashtagStr, "Hashtags", toast)}
-              data-testid={`button-copy-hashtags-${item.id}`}>
-              <Hash className="h-3 w-3 mr-1" />
-              Copy Hashtags
-            </Button>
-          )}
+              <Button variant="outline" size="sm"
+                onClick={() => copyToClipboard(fullCaption, "Caption + hashtags copied", toast)}
+                data-testid={`button-copy-full-${item.id}`}>
+                <Clipboard className="h-3 w-3 mr-1" />
+                Copy Caption + Hashtags
+              </Button>
 
-          {videoAsset?.path && (
-            <Button variant="outline" size="sm" asChild
-              data-testid={`button-download-video-${item.id}`}>
-              <a href={`/api/admin/growth/video/${item.id}/download`} download>
-                <Download className="h-3 w-3 mr-1" />
-                Download MP4
-              </a>
-            </Button>
-          )}
-        </div>
-
-        {imageUrl && (
-          <div className="mt-2">
-            <img src={imageUrl} alt="Content image" className="max-h-32 rounded-md object-cover"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-              data-testid={`img-content-${item.id}`} />
+              {hashtagStr && (
+                <Button variant="outline" size="sm"
+                  onClick={() => copyToClipboard(hashtagStr, "Hashtags copied", toast)}
+                  data-testid={`button-copy-hashtags-${item.id}`}>
+                  <Hash className="h-3 w-3 mr-1" />
+                  Copy Hashtags
+                </Button>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -1080,20 +1099,30 @@ function TikTokQueueCard({ item, onMarkPosted, onMarkReady, onRenderVideo, isPen
                     </Button>
                     <Button size="sm" variant={textCopied === "ig" ? "default" : "outline"}
                       onClick={() => {
-                        copyToClipboard(igCopyText, "Instagram caption + hashtags", toast);
+                        copyToClipboard(igCopyText, "Instagram caption copied", toast);
                         setTextCopied("ig");
                       }}
                       data-testid={`button-copy-ig-${item.id}`}>
                       {textCopied === "ig" ? <Check className="h-3 w-3 mr-1" /> : <SiInstagram className="h-3 w-3 mr-1" />}
-                      Copy for Instagram
+                      Copy Caption
+                    </Button>
+                    <Button size="sm" variant={textCopied === "fb" ? "default" : "outline"}
+                      onClick={() => {
+                        copyToClipboard(tiktokCopyText, "Facebook caption copied", toast);
+                        setTextCopied("fb");
+                      }}
+                      data-testid={`button-copy-fb-${item.id}`}>
+                      {textCopied === "fb" ? <Check className="h-3 w-3 mr-1" /> : <SiFacebook className="h-3 w-3 mr-1" />}
+                      Copy Caption
                     </Button>
                   </div>
                   {textCopied && (
                     <p className="text-[10px] text-green-500 mt-1 flex items-center gap-1">
                       <CircleCheck className="h-3 w-3" />
-                      {textCopied === "tiktok" && "Caption + hashtags copied — paste into TikTok description"}
-                      {textCopied === "x" && `Post copied (${xCopyText.length}/280 chars) — paste into X compose`}
-                      {textCopied === "ig" && "Caption + hashtags copied — paste into Instagram caption"}
+                      {textCopied === "tiktok" && "Caption copied — paste into TikTok description"}
+                      {textCopied === "x" && `Caption copied (${xCopyText.length}/280 chars) — paste into X compose`}
+                      {textCopied === "ig" && "Caption copied — paste into Instagram caption"}
+                      {textCopied === "fb" && "Caption copied — paste into Facebook post"}
                     </p>
                   )}
                 </div>
