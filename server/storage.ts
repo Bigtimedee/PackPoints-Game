@@ -880,7 +880,7 @@ export class DatabaseStorage implements IStorage {
       currentQuestionIndex: 0,
       score: 0,
       correctAnswers: 0,
-      totalQuestions,
+      totalQuestions: questions.length,
       skippedQuestions: 0,
       status: "active",
       startedAt: new Date().toISOString(),

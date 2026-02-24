@@ -1314,7 +1314,8 @@ export async function registerRoutes(
         status: session.status,
       });
       
-      if (session.currentQuestionIndex >= session.totalQuestions - 1) {
+      const effectiveQuestionCount = Math.min(session.totalQuestions, session.questions.length);
+      if (session.currentQuestionIndex >= effectiveQuestionCount - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
         
