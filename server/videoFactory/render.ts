@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import sharp from "sharp";
+import { FFMPEG_PATH } from "./ffmpegPath";
 
 const FONT_PATH = path.resolve("assets/fonts/DejaVuSans-Bold.ttf");
 const FONT_REGULAR_PATH = path.resolve("assets/fonts/DejaVuSans.ttf");
@@ -71,7 +72,7 @@ async function resizeCardForOverlay(
 
 function runFFmpeg(args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(FFMPEG_PATH, args, { stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
 

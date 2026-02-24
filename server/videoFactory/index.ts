@@ -9,6 +9,7 @@ import { getTemplate, getAvailableTemplates } from "./templates";
 import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
+import { FFMPEG_PATH } from "./ffmpegPath";
 
 const VIDEO_OUTPUT_BASE = path.resolve("public/generated/videos");
 
@@ -36,7 +37,7 @@ export function getVideoFactoryConfig() {
 
 export function verifyFFmpeg(): boolean {
   try {
-    const result = execSync("ffmpeg -version", { encoding: "utf-8", timeout: 5000 });
+    const result = execSync(`${FFMPEG_PATH} -version`, { encoding: "utf-8", timeout: 5000 });
     const version = result.split("\n")[0] || "unknown";
     console.log(`[VideoFactory] FFmpeg verified: ${version}`);
     ffmpegAvailable = true;
