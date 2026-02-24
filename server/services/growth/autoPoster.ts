@@ -1,22 +1,16 @@
 import { db } from "../../db";
 import { growthContentItems } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, notInArray } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
-import { getAdapterForPlatform, validateTwitterCredentials, validateInstagramCredentials, validateFacebookCredentials, clearCredentialCache } from "./platformAdapters";
+import { getAdapterForPlatform, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
 import { isOpen, recordFailure, recordSuccess } from "./circuitBreaker";
+
+const MANUAL_ONLY_PLATFORMS = ["instagram", "facebook"];
 
 async function checkPlatformCredentials(platform: string): Promise<{ valid: boolean; error?: string }> {
   switch (platform) {
     case "x": {
       const r = await validateTwitterCredentials();
-      return { valid: r.valid, error: r.error };
-    }
-    case "instagram": {
-      const r = await validateInstagramCredentials();
-      return { valid: r.valid, error: r.error };
-    }
-    case "facebook": {
-      const r = await validateFacebookCredentials();
       return { valid: r.valid, error: r.error };
     }
     default:
@@ -32,7 +26,8 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   const readyItems = await db.select().from(growthContentItems)
     .where(and(
       eq(growthContentItems.postingMode, "AUTO"),
-      eq(growthContentItems.status, "READY")
+      eq(growthContentItems.status, "READY"),
+      notInArray(growthContentItems.platform, MANUAL_ONLY_PLATFORMS)
     ))
     .limit(10);
 

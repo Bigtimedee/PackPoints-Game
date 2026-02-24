@@ -111,8 +111,6 @@ export async function validateFacebookCredentials(): Promise<CredentialCheckResu
 export async function validateAllCredentials(): Promise<CredentialCheckResult[]> {
   const results = await Promise.allSettled([
     validateTwitterCredentials(),
-    validateInstagramCredentials(),
-    validateFacebookCredentials(),
   ]);
   return results.map(r => r.status === "fulfilled" ? r.value : { platform: "unknown", valid: false, error: "Check failed" });
 }
