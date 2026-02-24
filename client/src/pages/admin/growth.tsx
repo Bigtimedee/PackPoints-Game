@@ -14,7 +14,7 @@ import {
   Download, Hash, Clipboard, Video, Undo2, CheckSquare, ListChecks,
   ChevronDown, ChevronUp, PackageOpen, X, ExternalLink, CircleCheck
 } from "lucide-react";
-import { SiTiktok, SiX, SiInstagram } from "react-icons/si";
+import { SiTiktok, SiX, SiInstagram, SiFacebook } from "react-icons/si";
 
 interface PipelineHealth {
   hasTodayPlan: boolean;
@@ -53,7 +53,8 @@ interface Overview {
   recentPlans: any[];
   recentRuns: any[];
   pendingQueueCount: number;
-  platformStatus?: { discord: boolean; x: boolean; instagram: boolean; reddit: boolean; tiktok?: boolean };
+  platformStatus?: { discord: boolean; x: boolean; instagram: boolean; facebook?: boolean; reddit: boolean; tiktok?: boolean };
+  autoPostStatus?: { instagram: boolean; facebook: boolean };
   tiktokConfig?: TikTokConfig;
   pipelineHealth?: PipelineHealth;
   detailedPipelineHealth?: DetailedPipelineHealth;
@@ -66,6 +67,49 @@ function StatusBadge({ status }: { status: string }) {
     : status === "RETRY_PENDING" ? "outline"
     : "secondary";
   return <Badge variant={variant} data-testid={`badge-status-${status.toLowerCase()}`}>{status === "RETRY_PENDING" ? "RETRYING" : status}</Badge>;
+}
+
+function AutoPostToggle({ platform, label, icon, enabled, configured, onToggle }: {
+  platform: string; label: string; icon: React.ReactNode;
+  enabled: boolean; configured: boolean;
+  onToggle: (enabled: boolean) => Promise<void>;
+}) {
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  const handleToggle = async () => {
+    if (!configured) {
+      toast({ title: `${label} not configured`, description: `Add ${label} API credentials first.`, variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    try {
+      await onToggle(!enabled);
+      toast({ title: `${label} auto-posting ${!enabled ? "enabled" : "disabled"}` });
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 border rounded-lg px-3 py-2" data-testid={`autopost-toggle-${platform}`}>
+      {icon}
+      <span className="text-sm font-medium">{label}</span>
+      {!configured ? (
+        <Badge variant="secondary" className="text-[10px]">Not configured</Badge>
+      ) : (
+        <Button size="sm" variant={enabled ? "default" : "outline"}
+          disabled={loading} onClick={handleToggle}
+          data-testid={`button-toggle-autopost-${platform}`}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : enabled ? (
+            <><Check className="h-3 w-3 mr-1" />ON</>
+          ) : "OFF"}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 let _showCopyFallback: ((text: string, label: string) => void) | null = null;
@@ -287,11 +331,45 @@ function OverviewTab() {
                 <Badge key={platform} variant={connected ? "default" : "secondary"}
                   data-testid={`badge-platform-${platform}`}>
                   {connected ? <Check className="h-3 w-3 mr-1" /> : <AlertTriangle className="h-3 w-3 mr-1" />}
-                  {platform === "x" ? "X / Twitter" : platform === "tiktok" ? "TikTok" : platform.charAt(0).toUpperCase() + platform.slice(1)}
+                  {platform === "x" ? "X / Twitter" : platform === "tiktok" ? "TikTok" : platform === "facebook" ? "Facebook" : platform.charAt(0).toUpperCase() + platform.slice(1)}
                   {platform === "tiktok" && connected ? " (manual)" : connected ? "" : " (not configured)"}
                 </Badge>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.platformStatus && (
+        <Card data-testid="card-autopost-controls">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Zap className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium">Auto-Posting</span>
+              <Badge variant="outline" className="text-[10px]">Cross-posts TikTok content</Badge>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <AutoPostToggle platform="instagram" label="Instagram" icon={<SiInstagram className="h-3.5 w-3.5" />}
+                enabled={data.autoPostStatus?.instagram ?? false}
+                configured={data.platformStatus.instagram}
+                onToggle={async (enabled) => {
+                  await apiRequest("POST", "/api/admin/growth/autopost/toggle", { platform: "instagram", enabled });
+                  queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
+                }}
+              />
+              <AutoPostToggle platform="facebook" label="Facebook" icon={<SiFacebook className="h-3.5 w-3.5" />}
+                enabled={data.autoPostStatus?.facebook ?? false}
+                configured={data.platformStatus.facebook ?? false}
+                onToggle={async (enabled) => {
+                  await apiRequest("POST", "/api/admin/growth/autopost/toggle", { platform: "facebook", enabled });
+                  queryClient.invalidateQueries({ queryKey: ["/api/admin/growth/overview"] });
+                }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-2">
+              When enabled, TikTok content is automatically cross-posted as Reels (Instagram) and video posts (Facebook).
+              Toggle takes effect on the next scheduled run.
+            </p>
           </CardContent>
         </Card>
       )}

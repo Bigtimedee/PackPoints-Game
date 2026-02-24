@@ -11313,7 +11313,13 @@ export async function registerRoutes(
         discord: !!process.env.DISCORD_WEBHOOK_URL,
         x: !!(process.env.TWITTER_API_KEY && process.env.TWITTER_API_SECRET && process.env.TWITTER_ACCESS_TOKEN && process.env.TWITTER_ACCESS_SECRET),
         instagram: !!(process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID && process.env.INSTAGRAM_ACCESS_TOKEN),
+        facebook: !!(process.env.FACEBOOK_PAGE_ID && process.env.FACEBOOK_PAGE_ACCESS_TOKEN),
         reddit: !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET && process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD),
+      };
+
+      const autoPostStatus = {
+        instagram: process.env.GROWTH_IG_AUTOPOST === "true",
+        facebook: process.env.GROWTH_FB_AUTOPOST === "true",
       };
 
       const todayChicago = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -11381,6 +11387,7 @@ export async function registerRoutes(
           ...platformStatus,
           tiktok: tiktokConfig.enabled,
         },
+        autoPostStatus,
         tiktokConfig,
         pipelineHealth: {
           hasTodayPlan: !!todayPlan,
@@ -11747,6 +11754,46 @@ export async function registerRoutes(
     try {
       const { getVideoFactoryConfig } = await import("./videoFactory");
       res.json(getVideoFactoryConfig());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/autopost/toggle", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { platform, enabled } = req.body;
+      if (!platform || typeof enabled !== "boolean") {
+        return res.status(400).json({ error: "platform and enabled (boolean) required" });
+      }
+
+      if (platform === "instagram") {
+        process.env.GROWTH_IG_AUTOPOST = enabled ? "true" : "false";
+      } else if (platform === "facebook") {
+        process.env.GROWTH_FB_AUTOPOST = enabled ? "true" : "false";
+      } else {
+        return res.status(400).json({ error: "Supported platforms: instagram, facebook" });
+      }
+
+      console.log(`[Admin] Auto-post toggled: ${platform} = ${enabled}`);
+      res.json({
+        success: true,
+        platform,
+        enabled,
+        autoPostStatus: {
+          instagram: process.env.GROWTH_IG_AUTOPOST === "true",
+          facebook: process.env.GROWTH_FB_AUTOPOST === "true",
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/admin/growth/crosspost/trigger", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { executeJob } = await import("./services/growth");
+      const result = await executeJob("crosspost_to_ig_fb", {});
+      res.json({ success: true, result });
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
     }

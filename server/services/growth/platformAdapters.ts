@@ -151,6 +151,59 @@ async function getInstagramConfig(): Promise<{ userId: string; accessToken: stri
   return { userId, accessToken };
 }
 
+function getAppBaseUrl(): string {
+  return process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : process.env.APP_URL || "https://packpts.com";
+}
+
+function resolveVideoUrl(contentItemId: string, metadata: any): string | null {
+  const videoAsset = metadata?.video_asset;
+  if (videoAsset?.url) {
+    if (videoAsset.url.startsWith("http")) return videoAsset.url;
+    return `${getAppBaseUrl()}${videoAsset.url}`;
+  }
+
+  const date = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const localPath = `public/generated/videos/${date}/${contentItemId}/output.mp4`;
+  try {
+    const fs = require("fs");
+    if (fs.existsSync(localPath)) {
+      return `${getAppBaseUrl()}/generated/videos/${date}/${contentItemId}/output.mp4`;
+    }
+  } catch {}
+
+  return null;
+}
+
+function isVideoContent(item: { type: string; metadata: any }): boolean {
+  const type = item.type || "";
+  if (type.startsWith("TIKTOK_")) return true;
+  const meta = item.metadata as any;
+  if (meta?.video_asset?.url) return true;
+  if (meta?.format_id || meta?.render_template_id) return true;
+  return false;
+}
+
+async function pollContainerStatus(containerId: string, accessToken: string, maxPolls = 30, intervalMs = 5000): Promise<{ ready: boolean; error?: string }> {
+  for (let i = 0; i < maxPolls; i++) {
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+    try {
+      const statusRes = await fetch(
+        `${GRAPH_API_BASE}/${containerId}?fields=status_code,status&access_token=${accessToken}`
+      );
+      if (statusRes.ok) {
+        const statusData = await statusRes.json() as { status_code?: string; status?: string };
+        if (statusData.status_code === "FINISHED") return { ready: true };
+        if (statusData.status_code === "ERROR") {
+          return { ready: false, error: `Container processing failed: ${statusData.status || "unknown"}` };
+        }
+      }
+    } catch {}
+  }
+  return { ready: false, error: "Container processing timed out" };
+}
+
 export async function postToInstagram(contentItemId: string): Promise<PostResult> {
   const config = await getInstagramConfig();
   if (!config) {
@@ -161,29 +214,9 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
     .where(eq(growthContentItems.id, contentItemId));
   if (!item) return { success: false, error: "Content item not found" };
 
-  const metadata = item.metadata as { hashtags?: string[]; imageUrl?: string } | null;
+  const metadata = item.metadata as { hashtags?: string[]; imageUrl?: string; video_asset?: { url?: string } } | null;
   const hashtags = metadata?.hashtags || [];
   const hashtagStr = hashtags.map((t: string) => `#${t}`).join(" ");
-
-  const rawImageUrl = metadata?.imageUrl;
-  let imageUrl: string;
-
-  if (rawImageUrl) {
-    const imgCheck = await deepValidateImageUrl(rawImageUrl);
-    if (imgCheck.valid) {
-      imageUrl = rawImageUrl;
-    } else {
-      console.error(`[InstagramAdapter] Blocked post ${contentItemId}: image failed validation -- ${imgCheck.error}`);
-      await db.update(growthContentItems).set({
-        status: "FAILED",
-        error: `Image validation failed: ${imgCheck.error}`,
-        updatedAt: new Date(),
-      }).where(eq(growthContentItems.id, contentItemId));
-      return { success: false, error: `Image validation failed: ${imgCheck.error}` };
-    }
-  } else {
-    imageUrl = PACKPTS_LOGO_URL;
-  }
 
   const body = item.body || "";
   let caption = body;
@@ -195,17 +228,58 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
   }
   caption = caption.slice(0, 2200);
 
+  const hasVideo = isVideoContent(item);
+  const videoUrl = hasVideo ? resolveVideoUrl(contentItemId, metadata) : null;
+
   try {
+    let containerPayload: Record<string, any>;
+
+    if (hasVideo && videoUrl) {
+      if (!videoUrl.startsWith("https://")) {
+        console.warn(`[InstagramAdapter] Video URL not publicly accessible for ${contentItemId}: ${videoUrl}`);
+      }
+      containerPayload = {
+        media_type: "REELS",
+        video_url: videoUrl,
+        caption,
+        share_to_feed: true,
+        access_token: config.accessToken,
+      };
+      console.log(`[InstagramAdapter] Creating Reels container for ${contentItemId}`);
+    } else {
+      const rawImageUrl = metadata?.imageUrl;
+      let imageUrl: string;
+
+      if (rawImageUrl) {
+        const imgCheck = await deepValidateImageUrl(rawImageUrl);
+        if (imgCheck.valid) {
+          imageUrl = rawImageUrl;
+        } else {
+          console.error(`[InstagramAdapter] Blocked post ${contentItemId}: image failed validation -- ${imgCheck.error}`);
+          await db.update(growthContentItems).set({
+            status: "FAILED",
+            error: `Image validation failed: ${imgCheck.error}`,
+            updatedAt: new Date(),
+          }).where(eq(growthContentItems.id, contentItemId));
+          return { success: false, error: `Image validation failed: ${imgCheck.error}` };
+        }
+      } else {
+        imageUrl = PACKPTS_LOGO_URL;
+      }
+
+      containerPayload = {
+        image_url: imageUrl,
+        caption,
+        access_token: config.accessToken,
+      };
+    }
+
     const createRes = await fetch(
       `${GRAPH_API_BASE}/${config.userId}/media`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image_url: imageUrl,
-          caption,
-          access_token: config.accessToken,
-        }),
+        body: JSON.stringify(containerPayload),
       }
     );
 
@@ -217,21 +291,11 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
     const createData = await createRes.json() as { id: string };
     const containerId = createData.id;
 
-    const maxPolls = 10;
-    for (let i = 0; i < maxPolls; i++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      try {
-        const statusRes = await fetch(
-          `${GRAPH_API_BASE}/${containerId}?fields=status_code&access_token=${config.accessToken}`
-        );
-        if (statusRes.ok) {
-          const statusData = await statusRes.json() as { status_code?: string };
-          if (statusData.status_code === "FINISHED") break;
-          if (statusData.status_code === "ERROR") {
-            return { success: false, error: "Instagram container processing failed" };
-          }
-        }
-      } catch { /* continue polling */ }
+    const pollInterval = hasVideo ? 5000 : 3000;
+    const pollCount = hasVideo ? 30 : 10;
+    const pollResult = await pollContainerStatus(containerId, config.accessToken, pollCount, pollInterval);
+    if (!pollResult.ready) {
+      return { success: false, error: pollResult.error || "Container processing failed" };
     }
 
     const publishRes = await fetch(
@@ -260,10 +324,140 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
       updatedAt: new Date(),
     }).where(eq(growthContentItems.id, contentItemId));
 
+    console.log(`[InstagramAdapter] Posted ${hasVideo ? "Reel" : "image"} to Instagram: ig-${publishData.id}`);
     return { success: true, externalPostId: `ig-${publishData.id}` };
   } catch (err: any) {
     const errorMsg = err?.message || "Instagram post failed";
     console.error(`[InstagramAdapter] Error posting ${contentItemId}:`, errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}
+
+async function getFacebookConfig(): Promise<{ pageId: string; accessToken: string } | null> {
+  const pageId = process.env.FACEBOOK_PAGE_ID;
+  const accessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+  if (!pageId || !accessToken) return null;
+  return { pageId, accessToken };
+}
+
+export async function postToFacebook(contentItemId: string): Promise<PostResult> {
+  const config = await getFacebookConfig();
+  if (!config) {
+    return { success: false, error: "Facebook credentials not configured (need FACEBOOK_PAGE_ID, FACEBOOK_PAGE_ACCESS_TOKEN)" };
+  }
+
+  const [item] = await db.select().from(growthContentItems)
+    .where(eq(growthContentItems.id, contentItemId));
+  if (!item) return { success: false, error: "Content item not found" };
+
+  const metadata = item.metadata as { hashtags?: string[]; imageUrl?: string; video_asset?: { url?: string } } | null;
+  const hashtags = metadata?.hashtags || [];
+  const hashtagStr = hashtags.map((t: string) => `#${t}`).join(" ");
+
+  const body = item.body || "";
+  let message = body;
+  if (item.title) {
+    message = `${item.title}\n\n${body}`;
+  }
+  if (hashtagStr) {
+    message += `\n\n${hashtagStr}`;
+  }
+
+  const hasVideo = isVideoContent(item);
+  const videoUrl = hasVideo ? resolveVideoUrl(contentItemId, metadata) : null;
+
+  try {
+    let postId: string;
+
+    if (hasVideo && videoUrl) {
+      console.log(`[FacebookAdapter] Posting video to Facebook for ${contentItemId}`);
+      const res = await fetch(
+        `${GRAPH_API_BASE}/${config.pageId}/videos`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            file_url: videoUrl,
+            description: message.slice(0, 8000),
+            access_token: config.accessToken,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        return { success: false, error: `Facebook video upload failed (${res.status}): ${errBody.slice(0, 300)}` };
+      }
+
+      const data = await res.json() as { id: string };
+      postId = data.id;
+    } else {
+      const rawImageUrl = metadata?.imageUrl;
+      let validImageUrl: string | null = null;
+
+      if (rawImageUrl) {
+        const imgCheck = await deepValidateImageUrl(rawImageUrl);
+        if (imgCheck.valid) validImageUrl = rawImageUrl;
+      }
+
+      if (validImageUrl) {
+        console.log(`[FacebookAdapter] Posting photo to Facebook for ${contentItemId}`);
+        const res = await fetch(
+          `${GRAPH_API_BASE}/${config.pageId}/photos`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              url: validImageUrl,
+              message: message.slice(0, 8000),
+              access_token: config.accessToken,
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          return { success: false, error: `Facebook photo post failed (${res.status}): ${errBody.slice(0, 300)}` };
+        }
+
+        const data = await res.json() as { id: string; post_id?: string };
+        postId = data.post_id || data.id;
+      } else {
+        console.log(`[FacebookAdapter] Posting text to Facebook for ${contentItemId}`);
+        const res = await fetch(
+          `${GRAPH_API_BASE}/${config.pageId}/feed`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: message.slice(0, 8000),
+              access_token: config.accessToken,
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          return { success: false, error: `Facebook post failed (${res.status}): ${errBody.slice(0, 300)}` };
+        }
+
+        const data = await res.json() as { id: string };
+        postId = data.id;
+      }
+    }
+
+    await db.update(growthContentItems).set({
+      status: "POSTED",
+      postedAt: new Date(),
+      externalPostId: `fb-${postId}`,
+      updatedAt: new Date(),
+    }).where(eq(growthContentItems.id, contentItemId));
+
+    console.log(`[FacebookAdapter] Posted to Facebook: fb-${postId}`);
+    return { success: true, externalPostId: `fb-${postId}` };
+  } catch (err: any) {
+    const errorMsg = err?.message || "Facebook post failed";
+    console.error(`[FacebookAdapter] Error posting ${contentItemId}:`, errorMsg);
     return { success: false, error: errorMsg };
   }
 }
@@ -428,6 +622,8 @@ export async function getAdapterForPlatform(platform: string): Promise<((id: str
       return postToTwitter;
     case "instagram":
       return postToInstagram;
+    case "facebook":
+      return postToFacebook;
     case "reddit":
       return postToReddit;
     default:

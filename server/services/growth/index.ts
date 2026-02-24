@@ -8,6 +8,7 @@ import { getTikTokConfig } from "./tiktokConfig";
 import "./contentJobs";
 import "./autoPoster";
 import "./tiktokJobs";
+import "./crossPostJobs";
 import "../../videoFactory/workerJob";
 
 let initialized = false;
@@ -34,6 +35,11 @@ export async function initGrowthAgent(): Promise<void> {
   const tiktokCfg = getTikTokConfig();
   console.log(`[GrowthAgent] TikTok: ${tiktokCfg.enabled ? "ENABLED (manual mode)" : "DISABLED"}`);
 
+  const igAutopost = process.env.GROWTH_IG_AUTOPOST === "true";
+  const fbAutopost = process.env.GROWTH_FB_AUTOPOST === "true";
+  console.log(`[GrowthAgent] Instagram auto-post: ${igAutopost ? "ENABLED" : "DISABLED"}`);
+  console.log(`[GrowthAgent] Facebook auto-post: ${fbAutopost ? "ENABLED" : "DISABLED"}`);
+
   scheduleJob("generate_daily_plan", 13, 0);
   scheduleJob("generate_content_items", 13, 15);
   scheduleJob("generate_daily5_announcement", 1, 5);
@@ -45,6 +51,11 @@ export async function initGrowthAgent(): Promise<void> {
     scheduleJob("generate_tiktok_packages", 13, 20);
     scheduleJob("generate_viral_tiktok_packages", 13, 25);
     scheduleJob("render_tiktok_videos", 13, 35);
+  }
+
+  if (igAutopost || fbAutopost) {
+    scheduleJob("crosspost_to_ig_fb", 13, 40);
+    scheduleJob("auto_post_ready_content", 14, 15);
   }
 
   startScheduler();
@@ -60,7 +71,7 @@ export async function initGrowthAgent(): Promise<void> {
 export { executeJob, getRegisteredJobs } from "./jobRunner";
 export { getSchedule } from "./scheduler";
 export { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
-export { postToDiscord } from "./platformAdapters";
+export { postToDiscord, postToFacebook } from "./platformAdapters";
 export { checkOpenAIConnectivity, getOpenAIHealthStatus } from "./openaiAdapter";
 export { getPipelineHealth } from "./pipelineHealth";
 export { getTikTokConfig } from "./tiktokConfig";
