@@ -12,9 +12,12 @@ import type { IdentityProvider } from "@shared/schema";
 
 const getOidcConfig = memoize(
   async () => {
+    if (!process.env.REPL_ID) {
+      return null;
+    }
     return await client.discovery(
       new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
-      process.env.REPL_ID!
+      process.env.REPL_ID
     );
   },
   { maxAge: 3600 * 1000 }
@@ -90,6 +93,10 @@ export async function setupAuth(app: Express) {
   app.use(passport.session());
 
   const config = await getOidcConfig();
+  if (!config) {
+    console.log("[Auth] Replit OIDC not configured (REPL_ID not set), skipping Replit auth setup");
+    return;
+  }
   const provider: IdentityProvider = "replit";
 
   const verify: VerifyFunction = async (
