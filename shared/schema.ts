@@ -3838,11 +3838,26 @@ export const publishingQueue = pgTable("publishing_queue", {
   postedBy: varchar("posted_by").references(() => users.id),
   postedAt: timestamp("posted_at"),
   notes: text("notes"),
+
+  // Notion integration fields
+  notionPageId: text("notion_page_id"),
+  notionSyncStatus: varchar("notion_sync_status", { length: 20 }).default("PENDING"),
+  notionSyncedAt: timestamp("notion_synced_at"),
+  notionSyncError: text("notion_sync_error"),
+
+  // Enhanced posting workflow
+  postingStatus: varchar("posting_status", { length: 20 }).default("MANUAL_QUEUE"),
+  scheduledFor: timestamp("scheduled_for"),
+  platformPostId: text("platform_post_id"),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_publishing_queue_platform").on(table.platform),
   index("idx_publishing_queue_status").on(table.status),
   index("idx_publishing_queue_content_item").on(table.contentItemId),
+  index("idx_publishing_queue_notion_sync").on(table.notionSyncStatus, table.notionPageId),
+  index("idx_publishing_queue_posting_status").on(table.postingStatus, table.scheduledFor),
 ]);
 
 export const insertPublishingQueueSchema = createInsertSchema(publishingQueue).omit({
