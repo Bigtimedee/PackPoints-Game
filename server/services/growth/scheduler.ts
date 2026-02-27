@@ -13,25 +13,32 @@ let notionSyncInterval: NodeJS.Timeout | null = null;
 
 export function scheduleJob(name: string, hour: number, minute: number): void {
   schedule.push({ name, cronHour: hour, cronMinute: minute, lastRun: "" });
-  console.log(`[GrowthScheduler] Scheduled ${name} at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} UTC`);
+  console.log(`[GrowthScheduler] Scheduled ${name} at ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} Chicago time`);
 }
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 
-async function tick(): Promise<void> {
+function getChicagoTime(): { hour: number; minute: number } {
   const now = new Date();
-  const utcHour = now.getUTCHours();
-  const utcMinute = now.getUTCMinutes();
+  const chicagoTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  return {
+    hour: chicagoTime.getHours(),
+    minute: chicagoTime.getMinutes()
+  };
+}
+
+async function tick(): Promise<void> {
+  const { hour: chicagoHour, minute: chicagoMinute } = getChicagoTime();
 
   for (const job of schedule) {
-    if (job.cronHour === utcHour && utcMinute >= job.cronMinute && utcMinute < job.cronMinute + 5) {
+    if (job.cronHour === chicagoHour && chicagoMinute >= job.cronMinute && chicagoMinute < job.cronMinute + 5) {
       const today = getChicagoDate();
       const key = `${job.name}_${today}`;
       if (job.lastRun === key) continue;
       job.lastRun = key;
-      console.log(`[GrowthScheduler] Triggering scheduled job: ${job.name}`);
+      console.log(`[GrowthScheduler] Triggering scheduled job: ${job.name} (Chicago time: ${chicagoHour}:${String(chicagoMinute).padStart(2, "0")})`);
       try {
         await executeJob(job.name, { idempotencyKey: key });
       } catch (err: any) {
