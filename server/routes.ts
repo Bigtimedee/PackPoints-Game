@@ -2871,7 +2871,7 @@ export async function registerRoutes(
     const configured = await checkStripeConfigured();
     const { getWebhookSecret: getWhs } = await import("./stripeClient");
     const hasWebhookSecret = !!getWhs();
-    
+
     res.status(200).json({
       ok: configured,
       stripeMode: mode,
@@ -2879,6 +2879,12 @@ export async function registerRoutes(
       webhookPath: "/webhooks/purchases",
     });
   });
+
+  // Notion webhook endpoints for social media workflow
+  const { handleNotionPostComplete, getPendingContentForNotion } = await import("./services/notion/webhookHandler");
+
+  app.post("/webhooks/notion/post-complete", handleNotionPostComplete);
+  app.get("/api/notion/pending-content", getPendingContentForNotion);
 
   // Billing sync endpoint - reconciles user's purchases with Stripe
   app.post("/billing/sync", isAuthenticated, async (req: any, res) => {

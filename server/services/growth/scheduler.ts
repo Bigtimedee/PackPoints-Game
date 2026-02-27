@@ -9,6 +9,7 @@ interface ScheduledJob {
 
 const schedule: ScheduledJob[] = [];
 let intervalHandle: NodeJS.Timeout | null = null;
+let notionSyncInterval: NodeJS.Timeout | null = null;
 
 export function scheduleJob(name: string, hour: number, minute: number): void {
   schedule.push({ name, cronHour: hour, cronMinute: minute, lastRun: "" });
@@ -53,6 +54,44 @@ export function stopScheduler(): void {
     clearInterval(intervalHandle);
     intervalHandle = null;
     console.log("[GrowthScheduler] Stopped");
+  }
+}
+
+async function syncNotionTick(): Promise<void> {
+  try {
+    const { syncContentToNotion } = await import("../notion/exportContentToNotion");
+    const result = await syncContentToNotion();
+    console.log(`[NotionSync] ✅ Synced ${result.synced} items, ${result.errors} errors, ${result.skipped} skipped`);
+  } catch (err: any) {
+    console.error(`[NotionSync] ❌ Error:`, err?.message);
+  }
+}
+
+export function startNotionSync(): void {
+  if (notionSyncInterval) return;
+
+  const enabled = process.env.NOTION_API_KEY && process.env.NOTION_CONTENT_DATABASE_ID;
+  if (!enabled) {
+    console.log("[NotionSync] Disabled (set NOTION_API_KEY and NOTION_CONTENT_DATABASE_ID to enable)");
+    return;
+  }
+
+  console.log("[NotionSync] Starting sync every 15 minutes");
+
+  // Run immediately on startup
+  syncNotionTick();
+
+  // Then every 15 minutes
+  notionSyncInterval = setInterval(() => {
+    syncNotionTick().catch(err => console.error("[NotionSync] Tick error:", err));
+  }, 15 * 60 * 1000);
+}
+
+export function stopNotionSync(): void {
+  if (notionSyncInterval) {
+    clearInterval(notionSyncInterval);
+    notionSyncInterval = null;
+    console.log("[NotionSync] Stopped");
   }
 }
 

@@ -1,4 +1,4 @@
-import { scheduleJob, startScheduler, stopScheduler, getSchedule } from "./scheduler";
+import { scheduleJob, startScheduler, stopScheduler, getSchedule, startNotionSync, stopNotionSync } from "./scheduler";
 import { executeJob, getRegisteredJobs, startRetryWorker, stopRetryWorker } from "./jobRunner";
 import { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
 import { checkOpenAIConnectivity, getOpenAIHealthStatus } from "./openaiAdapter";
@@ -9,6 +9,7 @@ import "./contentJobs";
 import "./autoPoster";
 import "./tiktokJobs";
 import "./crossPostJobs";
+import "./notionSyncJob";
 import "../../videoFactory/workerJob";
 
 let initialized = false;
@@ -63,6 +64,7 @@ export async function initGrowthAgent(): Promise<void> {
 
   startScheduler();
   startRetryWorker();
+  startNotionSync();
   initialized = true;
 
   const jobs = getRegisteredJobs();
