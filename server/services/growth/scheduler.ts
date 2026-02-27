@@ -21,12 +21,16 @@ function getChicagoDate(): string {
 }
 
 function getChicagoTime(): { hour: number; minute: number } {
-  const now = new Date();
-  const chicagoTime = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-  return {
-    hour: chicagoTime.getHours(),
-    minute: chicagoTime.getMinutes()
-  };
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(new Date());
+  const hour = parseInt(parts.find(p => p.type === "hour")?.value || "0", 10);
+  const minute = parseInt(parts.find(p => p.type === "minute")?.value || "0", 10);
+  return { hour, minute };
 }
 
 async function tick(): Promise<void> {
