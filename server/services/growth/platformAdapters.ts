@@ -727,6 +727,76 @@ export async function postToReddit(contentItemId: string): Promise<PostResult> {
   return { success: false, error: lastError || "No subreddits available (rate limited)" };
 }
 
+export async function postToTikTok(contentItemId: string): Promise<PostResult> {
+  const accessToken = process.env.TIKTOK_ACCESS_TOKEN;
+
+  if (!accessToken) {
+    return { success: false, error: "TikTok credentials not configured (need TIKTOK_ACCESS_TOKEN)" };
+  }
+
+  const [item] = await db.select().from(growthContentItems)
+    .where(eq(growthContentItems.id, contentItemId));
+  if (!item) return { success: false, error: "Content item not found" };
+
+  const metadata = item.metadata as { hashtags?: string[]; video_asset?: { url?: string }; caption?: string } | null;
+  const videoUrl = resolveVideoUrl(contentItemId, metadata);
+
+  if (!videoUrl) {
+    return { success: false, error: "No video URL found for TikTok post" };
+  }
+
+  const caption = metadata?.caption || item.body || "";
+  const hashtags = metadata?.hashtags || [];
+  const fullCaption = caption + (hashtags.length > 0 ? '\n\n' + hashtags.map(t => `#${t}`).join(' ') : '');
+
+  try {
+    // TikTok Content Posting API - Share video to TikTok
+    const res = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        post_info: {
+          title: fullCaption.slice(0, 150),
+          privacy_level: "PUBLIC_TO_EVERYONE",
+          disable_duet: false,
+          disable_comment: false,
+          disable_stitch: false,
+          video_cover_timestamp_ms: 1000,
+        },
+        source_info: {
+          source: "FILE_URL",
+          video_url: videoUrl,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      return { success: false, error: `TikTok API error (${res.status}): ${errBody.slice(0, 300)}` };
+    }
+
+    const data = await res.json() as { data?: { publish_id?: string } };
+    const publishId = data?.data?.publish_id || "tiktok-upload";
+
+    await db.update(growthContentItems).set({
+      status: "POSTED",
+      postedAt: new Date(),
+      externalPostId: `tiktok-${publishId}`,
+      updatedAt: new Date(),
+    }).where(eq(growthContentItems.id, contentItemId));
+
+    console.log(`[TikTokAdapter] Posted to TikTok: tiktok-${publishId}`);
+    return { success: true, externalPostId: `tiktok-${publishId}` };
+  } catch (err: any) {
+    const errorMsg = err?.message || "TikTok post failed";
+    console.error(`[TikTokAdapter] Error posting ${contentItemId}:`, errorMsg);
+    return { success: false, error: errorMsg };
+  }
+}
+
 export async function getAdapterForPlatform(platform: string): Promise<((id: string) => Promise<PostResult>) | null> {
   switch (platform) {
     case "discord":
@@ -739,6 +809,8 @@ export async function getAdapterForPlatform(platform: string): Promise<((id: str
       return postToFacebook;
     case "reddit":
       return postToReddit;
+    case "tiktok":
+      return postToTikTok;
     default:
       return null;
   }

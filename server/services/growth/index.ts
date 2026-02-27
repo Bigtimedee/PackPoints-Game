@@ -46,7 +46,7 @@ export async function initGrowthAgent(): Promise<void> {
     console.error(`[GrowthAgent] WARNING: x credentials INVALID — ${twitterCreds.error}`);
     console.error(`[GrowthAgent] ACTION REQUIRED: Update x API credentials in Secrets tab. Posts will fail until fixed.`);
   }
-  console.log(`[GrowthAgent] Instagram/Facebook: manual-only (content generated to Publishing Queue for admin copy-paste)`);
+  console.log(`[GrowthAgent] Instagram/Facebook: AUTONOMOUS AUTO-POSTING ENABLED`);
 
   scheduleJob("generate_daily_plan", 13, 0);
   scheduleJob("generate_content_items", 13, 15);

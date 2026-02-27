@@ -5,12 +5,20 @@ import { registerJob, JobContext } from "./jobRunner";
 import { getAdapterForPlatform, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
 import { isOpen, recordFailure, recordSuccess } from "./circuitBreaker";
 
-const MANUAL_ONLY_PLATFORMS = ["instagram", "facebook"];
+const MANUAL_ONLY_PLATFORMS: string[] = [];
 
 async function checkPlatformCredentials(platform: string): Promise<{ valid: boolean; error?: string }> {
   switch (platform) {
     case "x": {
       const r = await validateTwitterCredentials();
+      return { valid: r.valid, error: r.error };
+    }
+    case "instagram": {
+      const r = await import("./platformAdapters").then(m => m.validateInstagramCredentials());
+      return { valid: r.valid, error: r.error };
+    }
+    case "facebook": {
+      const r = await import("./platformAdapters").then(m => m.validateFacebookCredentials());
       return { valid: r.valid, error: r.error };
     }
     default:
