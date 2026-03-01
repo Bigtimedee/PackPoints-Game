@@ -289,11 +289,14 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    console.error(`[FATAL] HTTP server error (${err.code}):`, err.message);
+    process.exit(1);
+  });
   httpServer.listen(
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);
@@ -358,7 +361,9 @@ app.use((req, res, next) => {
         } catch (err) {
           console.error("[VideoFactory] Init check failed:", err);
         }
-      })();
+      })().catch((err) => {
+        console.error("[StartupBackfill] Unhandled error in post-listen initialization:", err);
+      });
     },
   );
 })().catch((err) => {
