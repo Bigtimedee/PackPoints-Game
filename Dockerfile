@@ -22,5 +22,8 @@ RUN npm run build
 # Expose port
 EXPOSE 5000
 
+# Make startup script executable
+RUN chmod +x /app/start.sh
+
 # Start the application
-CMD ["npm", "run", "start"]
+CMD ["/bin/sh", "/app/start.sh"]
