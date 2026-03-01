@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 
 echo "[Startup] Container is alive"
 echo "[Startup] NODE_ENV=$NODE_ENV"
