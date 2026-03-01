@@ -102,8 +102,19 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await storage.initialize();
-  await matchService.initialize();
+  try {
+    await storage.initialize();
+  } catch (err) {
+    console.error("[Startup] storage.initialize() failed:", err);
+    // Non-fatal: app can still serve requests without pre-loaded card data
+  }
+
+  try {
+    await matchService.initialize();
+  } catch (err) {
+    console.error("[Startup] matchService.initialize() failed:", err);
+    // Non-fatal: match service will re-initialize on first use
+  }
   
   // Seed package guardrail configuration
   try {
@@ -120,8 +131,12 @@ app.use((req, res, next) => {
   }
   
   // Verify email configuration
-  await verifyEmailConfig();
-  
+  try {
+    await verifyEmailConfig();
+  } catch (err) {
+    console.error("[Startup] verifyEmailConfig() failed (non-fatal):", err);
+  }
+
   // Initialize Stripe connection
   try {
     const stripeConfigured = await initializeStripeConnection();
@@ -161,7 +176,11 @@ app.use((req, res, next) => {
   }
   
   // Setup Replit Auth (BEFORE registering other routes)
-  await setupAuth(app);
+  try {
+    await setupAuth(app);
+  } catch (err) {
+    console.error("[Startup] setupAuth() failed (non-fatal, Replit auth will be unavailable):", err);
+  }
   registerAuthRoutes(app);
   registerWorkosRoutes(app);
   
@@ -342,4 +361,7 @@ app.use((req, res, next) => {
       })();
     },
   );
-})();
+})().catch((err) => {
+  console.error("[FATAL] Unhandled startup error — server is shutting down:", err);
+  process.exit(1);
+});

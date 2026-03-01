@@ -290,9 +290,9 @@ export class DatabaseStorage implements IStorage {
       await this.seedMockUsers();
       await this.ensureAdminUser();
     } catch (error) {
-      console.error("Failed to initialize card data:", error);
+      console.error("Failed to initialize card data (non-fatal, will retry on first use):", error);
       this.initialized = false;
-      throw error;
+      // Do not re-throw: card data failure should not prevent the server from starting
     }
   }
 
