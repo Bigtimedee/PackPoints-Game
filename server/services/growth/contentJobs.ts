@@ -192,8 +192,25 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
 
     try {
       const schema = getSchemaForPlatform(platform);
+
+      // For visual platforms: select the card FIRST so content is written about that specific card
+      let preSelectedCard: { id: string; player: string; set: string; year: number; imageUrl: string } | null = null;
+      if (VISUAL_PLATFORMS.has(platform)) {
+        try {
+          const cards = await selectCardsForFormat(`content_${platform}`, date);
+          if (cards.length > 0) preSelectedCard = cards[0];
+        } catch (err: any) {
+          console.warn(`[ContentJobs] Pre-selection failed for ${platform}: ${err?.message}`);
+        }
+      }
+
+      // Inject card identity into the system prompt so the AI writes about THIS specific card
+      const cardHint = preSelectedCard
+        ? `\n\nFEATURED CARD FOR THIS POST: ${preSelectedCard.player} — ${preSelectedCard.year} ${preSelectedCard.set}\nYour post MUST be specifically about this player and card. All content references must match this exact card. Do not reference other players, other sports, or cards from different sets or eras.`
+        : "";
+
       const { parsed: rawParsed } = await generateStructuredContent<ContentPiece>({
-        systemPrompt: prompts.SYSTEM_PROMPT + diversityHint + contextHint,
+        systemPrompt: prompts.SYSTEM_PROMPT + diversityHint + contextHint + cardHint,
         userPrompt: promptFn(theme),
         jsonSchema: getSchemaJsonHint(platform),
       });
@@ -206,7 +223,15 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
 
       const idempKey = `${ctx.idempotencyKey}_${platform}`;
       let itemMetadata: Record<string, any> = { hashtags: parsed.hashtags, theme, complianceIssues: compliance.issues.length > 0 ? compliance.issues : undefined };
-      itemMetadata = await ensureImageForVisualPlatform(platform, date, `content_${platform}`, itemMetadata);
+
+      if (preSelectedCard) {
+        // Attach the pre-selected card — content was already written about this card
+        itemMetadata.imageUrl = preSelectedCard.imageUrl;
+        itemMetadata.attachedCard = { cardId: preSelectedCard.id, player: preSelectedCard.player, set: preSelectedCard.set, year: preSelectedCard.year };
+        console.log(`[ContentJobs] Card-matched post for ${platform}: ${preSelectedCard.player} (${preSelectedCard.set} ${preSelectedCard.year})`);
+      } else {
+        itemMetadata = await ensureImageForVisualPlatform(platform, date, `content_${platform}`, itemMetadata);
+      }
 
       const [item] = await db.insert(growthContentItems).values({
         planId: plan.id,
@@ -254,8 +279,19 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
     .limit(1);
   if (existing.length > 0) return { skipped: true, reason: "Already announced" };
 
+  // Select the featured card before generating content so text matches the image
+  let announceFeaturedCard: { id: string; player: string; set: string; year: number; imageUrl: string } | null = null;
+  try {
+    const cards = await selectCardsForFormat(`daily5_announce_instagram`, date);
+    if (cards.length > 0) announceFeaturedCard = cards[0];
+  } catch {}
+
+  const announceCardHint = announceFeaturedCard
+    ? `\n\nFEATURED CARD FOR THIS ANNOUNCEMENT: ${announceFeaturedCard.player} — ${announceFeaturedCard.year} ${announceFeaturedCard.set}\nReference this specific player and card in the announcement. All content must match this card exactly.`
+    : "";
+
   const { parsed: rawParsed } = await generateStructuredContent<ContentPiece>({
-    systemPrompt: prompts.SYSTEM_PROMPT,
+    systemPrompt: prompts.SYSTEM_PROMPT + announceCardHint,
     userPrompt: prompts.DAILY5_ANNOUNCEMENT_PROMPT(date, 5),
   });
   const parsed = validateWithSchema(ContentPieceSchema, rawParsed, "Daily5Announcement");
@@ -269,7 +305,12 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
   for (const platform of postPlatforms) {
     const postingMode = "AUTO";
     let announceMeta: Record<string, any> = { hashtags: parsed.hashtags };
-    announceMeta = await ensureImageForVisualPlatform(platform, date, `daily5_announce_${platform}`, announceMeta);
+    if (announceFeaturedCard && VISUAL_PLATFORMS.has(platform)) {
+      announceMeta.imageUrl = announceFeaturedCard.imageUrl;
+      announceMeta.attachedCard = { cardId: announceFeaturedCard.id, player: announceFeaturedCard.player, set: announceFeaturedCard.set, year: announceFeaturedCard.year };
+    } else {
+      announceMeta = await ensureImageForVisualPlatform(platform, date, `daily5_announce_${platform}`, announceMeta);
+    }
 
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
@@ -322,8 +363,19 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
     correct: e.correctCount,
   }));
 
+  // Select the featured card before generating the recap so text matches the image
+  let recapFeaturedCard: { id: string; player: string; set: string; year: number; imageUrl: string } | null = null;
+  try {
+    const cards = await selectCardsForFormat(`daily5_recap_instagram`, date);
+    if (cards.length > 0) recapFeaturedCard = cards[0];
+  } catch {}
+
+  const recapCardHint = recapFeaturedCard
+    ? `\n\nFEATURED CARD FOR THIS RECAP: ${recapFeaturedCard.player} — ${recapFeaturedCard.year} ${recapFeaturedCard.set}\nReference this specific player and card when describing today's challenge. All content must match this card exactly.`
+    : "";
+
   const { parsed: rawParsed } = await generateStructuredContent<ContentPiece>({
-    systemPrompt: prompts.SYSTEM_PROMPT,
+    systemPrompt: prompts.SYSTEM_PROMPT + recapCardHint,
     userPrompt: prompts.DAILY5_RECAP_PROMPT(date, topPlayers),
   });
   const parsed = validateWithSchema(ContentPieceSchema, rawParsed, "Daily5Recap");
@@ -337,7 +389,12 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
   for (const platform of postPlatforms) {
     const postingMode = "AUTO";
     let recapMeta: Record<string, any> = { hashtags: parsed.hashtags, topPlayers };
-    recapMeta = await ensureImageForVisualPlatform(platform, date, `daily5_recap_${platform}`, recapMeta);
+    if (recapFeaturedCard && VISUAL_PLATFORMS.has(platform)) {
+      recapMeta.imageUrl = recapFeaturedCard.imageUrl;
+      recapMeta.attachedCard = { cardId: recapFeaturedCard.id, player: recapFeaturedCard.player, set: recapFeaturedCard.set, year: recapFeaturedCard.year };
+    } else {
+      recapMeta = await ensureImageForVisualPlatform(platform, date, `daily5_recap_${platform}`, recapMeta);
+    }
 
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
