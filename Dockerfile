@@ -4,6 +4,9 @@ FROM node:20-alpine
 # Install FFmpeg
 RUN apk add --no-cache ffmpeg
 
+# Set production environment
+ENV NODE_ENV=production
+
 # Set working directory
 WORKDIR /app
 

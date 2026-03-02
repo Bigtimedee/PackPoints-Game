@@ -17,6 +17,9 @@ export function getStripeMode(host?: string): "live" | "test" {
   if (appEnv === "production") {
     return "live";
   }
+  if (process.env.NODE_ENV === "production") {
+    return "live";
+  }
   const isReplitDeployment = process.env.REPLIT_DEPLOYMENT === '1';
   if (isReplitDeployment) {
     return "live";
