@@ -370,3 +370,4 @@ app.use((req, res, next) => {
   console.error("[FATAL] Unhandled startup error — server is shutting down:", err);
   process.exit(1);
 });
+// deploy-test: Sun Mar  1 18:30:12 CST 2026
