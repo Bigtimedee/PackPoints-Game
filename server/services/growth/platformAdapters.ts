@@ -265,9 +265,7 @@ async function getInstagramConfig(): Promise<{ userId: string; accessToken: stri
 }
 
 function getAppBaseUrl(): string {
-  return process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.APP_URL || "https://packpts.com";
+  return process.env.APP_URL || "https://packpts.com";
 }
 
 function resolveVideoUrl(contentItemId: string, metadata: any): string | null {

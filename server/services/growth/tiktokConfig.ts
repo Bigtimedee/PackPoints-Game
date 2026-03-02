@@ -1,12 +1,12 @@
 export interface TikTokConfig {
   enabled: boolean;
-  mode: "manual" | "off";
+  mode: "auto" | "manual" | "off";
 }
 
 export function getTikTokConfig(): TikTokConfig {
   const enabled = process.env.GROWTH_TIKTOK_ENABLED === "true";
   const rawMode = (process.env.GROWTH_TIKTOK_MODE || "manual").toLowerCase();
-  const mode = rawMode === "off" ? "off" : "manual";
+  const mode = rawMode === "off" ? "off" : rawMode === "auto" ? "auto" : "manual";
 
   return {
     enabled: enabled && mode !== "off",

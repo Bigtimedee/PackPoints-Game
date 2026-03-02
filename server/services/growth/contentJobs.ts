@@ -166,7 +166,7 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       case "reddit":
         promptFn = prompts.REDDIT_POST_PROMPT;
         type = "REDDIT_POST";
-        postingMode = "MANUAL_QUEUE";
+        postingMode = "AUTO";
         break;
       case "x":
         promptFn = prompts.X_THREAD_PROMPT;
@@ -176,7 +176,7 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       case "instagram":
         promptFn = prompts.INSTAGRAM_POST_PROMPT;
         type = "INSTAGRAM_POST";
-        postingMode = "MANUAL_QUEUE";
+        postingMode = "AUTO";
         break;
       case "tiktok":
         continue;
@@ -267,8 +267,7 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
   const postPlatforms = ["discord", "x", "instagram"];
   const items: string[] = [];
   for (const platform of postPlatforms) {
-    const isManual = platform === "instagram";
-    const postingMode = isManual ? "MANUAL_QUEUE" : "AUTO";
+    const postingMode = "AUTO";
     let announceMeta: Record<string, any> = { hashtags: parsed.hashtags };
     announceMeta = await ensureImageForVisualPlatform(platform, date, `daily5_announce_${platform}`, announceMeta);
 
@@ -280,19 +279,9 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
       body: parsed.body,
       metadata: announceMeta,
       postingMode,
-      status: postingMode === "AUTO" ? "READY" : "QUEUED",
+      status: "READY",
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
-
-    if (isManual) {
-      await db.insert(publishingQueue).values({
-        contentItemId: item.id,
-        platform,
-        copyText: parsed.body,
-        assets: { hashtags: parsed.hashtags, title: parsed.title, imageUrl: announceMeta.imageUrl },
-        status: "READY",
-      });
-    }
 
     items.push(`${platform}:${item.id}`);
   }
@@ -346,8 +335,7 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
   const postPlatforms = ["discord", "x", "instagram"];
   const items: string[] = [];
   for (const platform of postPlatforms) {
-    const isManual = platform === "instagram";
-    const postingMode = isManual ? "MANUAL_QUEUE" : "AUTO";
+    const postingMode = "AUTO";
     let recapMeta: Record<string, any> = { hashtags: parsed.hashtags, topPlayers };
     recapMeta = await ensureImageForVisualPlatform(platform, date, `daily5_recap_${platform}`, recapMeta);
 
@@ -359,19 +347,9 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
       body: parsed.body,
       metadata: recapMeta,
       postingMode,
-      status: postingMode === "AUTO" ? "READY" : "QUEUED",
+      status: "READY",
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
-
-    if (isManual) {
-      await db.insert(publishingQueue).values({
-        contentItemId: item.id,
-        platform,
-        copyText: parsed.body,
-        assets: { hashtags: parsed.hashtags, title: parsed.title, topPlayers, imageUrl: recapMeta.imageUrl },
-        status: "READY",
-      });
-    }
 
     items.push(`${platform}:${item.id}`);
   }
