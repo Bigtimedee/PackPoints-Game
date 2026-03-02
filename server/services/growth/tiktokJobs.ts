@@ -350,11 +350,19 @@ registerJob("generate_viral_tiktok_packages", async (ctx: JobContext) => {
 
       if (schedule.cardCount > 0) {
         selectedCards = await selectCardsForFormat(schedule.formatId, date);
-        if (selectedCards.length === 0) {
-          console.warn(`[ViralTikTok] No valid cards for format ${schedule.formatId} on ${date} -- skipping`);
-          errors.push(`${schedule.formatId}: no valid card images available`);
+        if (selectedCards.length < schedule.cardCount) {
+          console.warn(`[ViralTikTok] Need ${schedule.cardCount} cards for ${schedule.formatId}, got ${selectedCards.length} on ${date} -- skipping`);
+          errors.push(`${schedule.formatId}: need ${schedule.cardCount} cards, only ${selectedCards.length} valid card images available`);
           continue;
         }
+      }
+
+      // Skip leaderboard_flex when no real entries exist — prevents AI from inventing
+      // fictional @Player placeholder names instead of real leaderboard participants
+      if (schedule.formatId === "leaderboard_flex" && leaderboardData.length === 0) {
+        console.warn(`[ViralTikTok] No Daily 5 entries for ${date} — skipping leaderboard_flex`);
+        errors.push(`leaderboard_flex: no Daily 5 entries found for today`);
+        continue;
       }
 
       const prompt = getViralPrompt(schedule.formatId, date, selectedCards, leaderboardData);

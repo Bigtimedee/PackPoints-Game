@@ -21,6 +21,19 @@ async function checkPlatformCredentials(platform: string): Promise<{ valid: bool
       const r = await import("./platformAdapters").then(m => m.validateFacebookCredentials());
       return { valid: r.valid, error: r.error };
     }
+    case "discord": {
+      const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+      return webhookUrl
+        ? { valid: true }
+        : { valid: false, error: "DISCORD_WEBHOOK_URL not configured — set env var to enable Discord posting" };
+    }
+    case "reddit": {
+      const hasRedditCreds = process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET &&
+        process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD;
+      return hasRedditCreds
+        ? { valid: true }
+        : { valid: false, error: "Reddit credentials not configured — set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD" };
+    }
     default:
       return { valid: true };
   }
