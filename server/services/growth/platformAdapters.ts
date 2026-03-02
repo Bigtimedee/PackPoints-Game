@@ -366,13 +366,10 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
         if (imgCheck.valid) {
           imageUrl = rawImageUrl;
         } else {
-          console.error(`[InstagramAdapter] Blocked post ${contentItemId}: image failed validation -- ${imgCheck.error}`);
-          await db.update(growthContentItems).set({
-            status: "FAILED",
-            error: `Image validation failed: ${imgCheck.error}`,
-            updatedAt: new Date(),
-          }).where(eq(growthContentItems.id, contentItemId));
-          return { success: false, error: `Image validation failed: ${imgCheck.error}` };
+          // Fall back to the brand logo rather than marking the item FAILED.
+          // A post with the logo image is far better than a permanently failed post.
+          console.warn(`[InstagramAdapter] Image validation failed for ${contentItemId}, falling back to logo: ${imgCheck.error}`);
+          imageUrl = PACKPTS_LOGO_URL;
         }
       } else {
         imageUrl = PACKPTS_LOGO_URL;
@@ -633,7 +630,12 @@ function recordRedditPost(subreddit: string): void {
 }
 
 export async function postToReddit(contentItemId: string): Promise<PostResult> {
-  const token = await getRedditToken();
+  let token: string | null;
+  try {
+    token = await getRedditToken();
+  } catch (err: any) {
+    return { success: false, error: `Reddit authentication failed: ${err?.message || "Unknown error"}` };
+  }
   if (!token) {
     return { success: false, error: "Reddit credentials not configured (need REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD)" };
   }
