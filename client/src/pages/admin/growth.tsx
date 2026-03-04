@@ -206,38 +206,211 @@ function CopyButton({ text }: { text: string }) {
 function CredentialHealthCard() {
   const { data, isLoading, refetch } = useQuery<{ credentials: { platform: string; valid: boolean; error?: string }[] }>({
     queryKey: ["/api/admin/growth/credential-health"],
-    refetchInterval: 5 * 60 * 1000,
+    refetchInterval: 3 * 60 * 1000,
   });
 
   if (isLoading || !data?.credentials) return null;
 
-  const autoPostPlatforms = data.credentials.filter(c => c.platform === "x");
-  const hasIssues = autoPostPlatforms.some(c => !c.valid && c.error !== "Credentials not configured");
-  if (!hasIssues) return null;
+  const POSTING_PLATFORMS = ["x", "instagram", "facebook", "discord", "reddit"];
+  const all = POSTING_PLATFORMS.map(p => {
+    const found = data.credentials.find(c => c.platform === p);
+    return found ?? { platform: p, valid: false, error: "Not checked" };
+  });
+
+  const platformLabel = (p: string) =>
+    p === "x" ? "X / Twitter" : p.charAt(0).toUpperCase() + p.slice(1);
 
   return (
-    <Card className="border-destructive" data-testid="card-credential-health">
+    <Card data-testid="card-credential-health">
       <CardContent className="p-4">
         <div className="flex items-center gap-2 mb-3">
-          <ShieldAlert className="h-4 w-4 text-destructive" />
-          <span className="text-sm font-medium text-destructive">Credential Issues Detected</span>
+          <ShieldAlert className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium">Live Credential Status</span>
           <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => refetch()}
             data-testid="button-refresh-creds">
             <RefreshCw className="h-3 w-3" />
           </Button>
         </div>
-        <div className="space-y-2">
-          {autoPostPlatforms.filter(c => !c.valid && c.error !== "Credentials not configured").map(c => (
-            <div key={c.platform} className="flex items-start gap-2 p-2 rounded-md bg-destructive/10">
-              <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium">{c.platform === "x" ? "X / Twitter" : c.platform.charAt(0).toUpperCase() + c.platform.slice(1)}</p>
-                <p className="text-xs text-destructive/80">{c.error}</p>
-                <p className="text-xs text-muted-foreground mt-1">Update the API credentials in your Secrets tab. Auto-posts will fail until fixed.</p>
-              </div>
+        <div className="flex flex-wrap gap-2">
+          {all.map(c => (
+            <div key={c.platform}
+              title={c.valid ? "Credentials valid" : (c.error || "Invalid")}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium border ${
+                c.valid
+                  ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
+                  : "bg-destructive/10 border-destructive/30 text-destructive"
+              }`}>
+              {c.valid
+                ? <Check className="h-3 w-3" />
+                : <AlertTriangle className="h-3 w-3" />}
+              {platformLabel(c.platform)}
+              {!c.valid && c.error && (
+                <span className="text-[10px] opacity-70 max-w-[200px] truncate ml-1">— {c.error}</span>
+              )}
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface DiagnoseResult {
+  credentials: Record<string, { valid: boolean; error?: string }>;
+  queue: { autoReady: number; manualReady: number };
+  itemCounts: { status: string; postingMode: string; platform: string; count: number }[];
+  recentFailed: { id: string; platform: string; type: string; error: string | null; updatedAt: string }[];
+  envVars: Record<string, boolean>;
+}
+
+function DiagnosePanel() {
+  const [result, setResult] = useState<DiagnoseResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiRequest("GET", "/api/admin/growth/diagnose");
+      const data = await res.json();
+      setResult(data);
+    } catch (e: any) {
+      setError(e?.message || "Diagnostic failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const platformLabel = (p: string) =>
+    p === "x" ? "X / Twitter" : p.charAt(0).toUpperCase() + p.slice(1);
+
+  return (
+    <Card data-testid="card-diagnose">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Zap className="h-4 w-4" />
+            Publisher Diagnostics
+          </CardTitle>
+          <Button size="sm" variant="outline" onClick={run} disabled={loading}>
+            {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+            Run Diagnostics
+          </Button>
+        </div>
+        <CardDescription>Live credential validation + queue state snapshot</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        {!result && !loading && (
+          <p className="text-xs text-muted-foreground">Click "Run Diagnostics" to check system health.</p>
+        )}
+        {result && (
+          <div className="space-y-4">
+            {/* Credentials */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Credentials (live API check)</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(result.credentials).map(([platform, c]) => (
+                  <div key={platform}
+                    title={c.valid ? "Valid" : (c.error || "Invalid")}
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium border ${
+                      c.valid
+                        ? "bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400"
+                        : "bg-destructive/10 border-destructive/30 text-destructive"
+                    }`}>
+                    {c.valid ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                    {platformLabel(platform)}
+                    {!c.valid && c.error && (
+                      <span className="text-[10px] opacity-80 ml-1 max-w-[220px] truncate">— {c.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Queue counts */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Queue State</p>
+              <div className="flex gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">AUTO+READY (will post): </span>
+                  <span className={`font-bold ${result.queue.autoReady === 0 ? "text-yellow-500" : "text-green-500"}`}>
+                    {result.queue.autoReady}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">MANUAL_QUEUE+READY (stuck): </span>
+                  <span className={`font-bold ${result.queue.manualReady > 0 ? "text-yellow-500" : ""}`}>
+                    {result.queue.manualReady}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Item counts table */}
+            {result.itemCounts.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Items by Status</p>
+                <div className="rounded-md border overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left p-2">Platform</th>
+                        <th className="text-left p-2">Status</th>
+                        <th className="text-left p-2">Mode</th>
+                        <th className="text-right p-2">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.itemCounts.map((row, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="p-2">{row.platform}</td>
+                          <td className="p-2">
+                            <Badge variant={row.status === "POSTED" ? "default" : row.status === "FAILED" ? "destructive" : "secondary"} className="text-[10px]">
+                              {row.status}
+                            </Badge>
+                          </td>
+                          <td className="p-2 text-muted-foreground">{row.postingMode}</td>
+                          <td className="p-2 text-right font-mono font-bold">{row.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Recent failures */}
+            {result.recentFailed.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                  Recent Failures ({result.recentFailed.length})
+                </p>
+                <div className="space-y-1">
+                  {result.recentFailed.map(f => (
+                    <div key={f.id} className="text-xs rounded bg-destructive/10 px-2 py-1">
+                      <span className="font-medium">{f.platform}/{f.type}</span>
+                      <span className="text-muted-foreground ml-2 font-mono">{f.error || "No error message"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Env vars */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Env Vars Set</p>
+              <div className="flex flex-wrap gap-1">
+                {Object.entries(result.envVars).map(([k, v]) => (
+                  <span key={k} className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${v ? "bg-green-500/10 text-green-600" : "bg-destructive/10 text-destructive"}`}>
+                    {v ? "✓" : "✗"} {k}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -434,6 +607,8 @@ function OverviewTab() {
           </CardContent>
         </Card>
       )}
+
+      <DiagnosePanel />
 
       <Card>
         <CardHeader>

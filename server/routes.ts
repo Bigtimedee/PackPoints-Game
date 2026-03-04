@@ -11647,6 +11647,103 @@ export async function registerRoutes(
     }
   });
 
+  // Diagnostic endpoint: returns real-time credential status + item counts
+  app.get("/api/admin/growth/diagnose", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const {
+        validateTwitterCredentials,
+        validateInstagramCredentials,
+        validateFacebookCredentials,
+        clearCredentialCache,
+      } = await import("./services/growth");
+
+      clearCredentialCache();
+
+      const [twitterCreds, instagramCreds, facebookCreds] = await Promise.all([
+        validateTwitterCredentials().catch((e: any) => ({ platform: "x", valid: false, error: e?.message || "Check threw" })),
+        validateInstagramCredentials().catch((e: any) => ({ platform: "instagram", valid: false, error: e?.message || "Check threw" })),
+        validateFacebookCredentials().catch((e: any) => ({ platform: "facebook", valid: false, error: e?.message || "Check threw" })),
+      ]);
+
+      const discordOk = !!process.env.DISCORD_WEBHOOK_URL;
+      const redditOk = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET &&
+        process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD);
+
+      // Item counts grouped by status + postingMode + platform
+      const rawCounts = await db
+        .select({
+          status: growthContentItems.status,
+          postingMode: growthContentItems.postingMode,
+          platform: growthContentItems.platform,
+          count: sql<number>`cast(count(*) as int)`,
+        })
+        .from(growthContentItems)
+        .groupBy(growthContentItems.status, growthContentItems.postingMode, growthContentItems.platform)
+        .orderBy(growthContentItems.status, growthContentItems.platform);
+
+      // Recent failed items
+      const recentFailed = await db
+        .select({
+          id: growthContentItems.id,
+          platform: growthContentItems.platform,
+          type: growthContentItems.type,
+          error: growthContentItems.error,
+          updatedAt: growthContentItems.updatedAt,
+        })
+        .from(growthContentItems)
+        .where(eq(growthContentItems.status, "FAILED"))
+        .orderBy(desc(growthContentItems.updatedAt))
+        .limit(20);
+
+      // READY+AUTO items (what the autoposter would actually pick up right now)
+      const autoReadyCount = await db
+        .select({ count: sql<number>`cast(count(*) as int)` })
+        .from(growthContentItems)
+        .where(and(
+          eq(growthContentItems.status, "READY"),
+          eq(growthContentItems.postingMode, "AUTO")
+        ));
+
+      // READY+MANUAL_QUEUE items (stuck, won't be auto-posted)
+      const manualReadyCount = await db
+        .select({ count: sql<number>`cast(count(*) as int)` })
+        .from(growthContentItems)
+        .where(and(
+          eq(growthContentItems.status, "READY"),
+          eq(growthContentItems.postingMode, "MANUAL_QUEUE")
+        ));
+
+      res.json({
+        credentials: {
+          x: { valid: twitterCreds.valid, error: twitterCreds.error },
+          instagram: { valid: instagramCreds.valid, error: instagramCreds.error },
+          facebook: { valid: facebookCreds.valid, error: facebookCreds.error },
+          discord: { valid: discordOk, error: discordOk ? undefined : "DISCORD_WEBHOOK_URL not set" },
+          reddit: { valid: redditOk, error: redditOk ? undefined : "REDDIT_CLIENT_ID/SECRET/USERNAME/PASSWORD not set" },
+        },
+        queue: {
+          autoReady: autoReadyCount[0]?.count ?? 0,
+          manualReady: manualReadyCount[0]?.count ?? 0,
+        },
+        itemCounts: rawCounts,
+        recentFailed,
+        envVars: {
+          INSTAGRAM_BUSINESS_ACCOUNT_ID: !!process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID,
+          INSTAGRAM_ACCESS_TOKEN: !!process.env.INSTAGRAM_ACCESS_TOKEN,
+          FACEBOOK_PAGE_ID: !!process.env.FACEBOOK_PAGE_ID,
+          FACEBOOK_PAGE_ACCESS_TOKEN: !!process.env.FACEBOOK_PAGE_ACCESS_TOKEN,
+          TWITTER_API_KEY: !!process.env.TWITTER_API_KEY,
+          TWITTER_API_SECRET: !!process.env.TWITTER_API_SECRET,
+          TWITTER_ACCESS_TOKEN: !!process.env.TWITTER_ACCESS_TOKEN,
+          TWITTER_ACCESS_SECRET: !!process.env.TWITTER_ACCESS_SECRET,
+          DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   app.post("/api/admin/growth/queue/:id/render-video", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;

@@ -161,13 +161,35 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
     .limit(10);
 
   if (readyItems.length === 0) {
-    return { posted: 0, autoHealed, backlogPromoted, reason: "No ready items" };
+    // Count how many items are stuck in MANUAL_QUEUE+READY so the admin
+    // can see there is work to do but the backlog promoter found none
+    const stuckCount = await db.select({ id: growthContentItems.id })
+      .from(growthContentItems)
+      .where(and(
+        eq(growthContentItems.status, "READY"),
+        eq(growthContentItems.postingMode, "MANUAL_QUEUE"),
+      ))
+      .limit(1);
+    return {
+      posted: 0,
+      failed: 0,
+      skippedCredentials: 0,
+      autoHealed,
+      backlogPromoted,
+      total: 0,
+      errors: [],
+      reason: stuckCount.length > 0
+        ? "No AUTO+READY items — MANUAL_QUEUE items exist but were not promoted (check platform filter)"
+        : "No READY items in queue",
+    };
   }
 
   const platformsToPost = Array.from(new Set(readyItems.map(i => i.platform)));
   const credentialResults = new Map<string, { valid: boolean; error?: string }>();
   for (const p of platformsToPost) {
-    credentialResults.set(p, await checkPlatformCredentials(p));
+    const result = await checkPlatformCredentials(p);
+    credentialResults.set(p, result);
+    console.log(`[AutoPoster] Credential check ${p}: ${result.valid ? "VALID" : `INVALID — ${result.error}`}`);
   }
 
   let posted = 0;
@@ -182,6 +204,11 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
       const reason = credCheck.error || "Credentials invalid";
       console.warn(`[AutoPoster] Skipping ${item.id} (${item.platform}/${item.type}) — ${reason}`);
       errors.push({ id: item.id, platform: item.platform, type: item.type || "", error: `CREDENTIAL_SKIP: ${reason}` });
+      // Store the skip reason on the item so it is visible in the Content tab
+      await db.update(growthContentItems).set({
+        error: `Skipped: ${reason}`,
+        updatedAt: new Date(),
+      }).where(eq(growthContentItems.id, item.id)).catch(() => {});
       continue;
     }
 
@@ -228,5 +255,8 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
     }
   }
 
-  return { posted, failed, skippedCredentials, autoHealed, backlogPromoted, total: readyItems.length, errors };
+  const credentialStatus: Record<string, { valid: boolean; error?: string }> = {};
+  credentialResults.forEach((v, k) => { credentialStatus[k] = v; });
+
+  return { posted, failed, skippedCredentials, autoHealed, backlogPromoted, total: readyItems.length, errors, credentialStatus };
 });

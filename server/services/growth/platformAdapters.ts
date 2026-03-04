@@ -111,8 +111,24 @@ export async function validateFacebookCredentials(): Promise<CredentialCheckResu
 export async function validateAllCredentials(): Promise<CredentialCheckResult[]> {
   const results = await Promise.allSettled([
     validateTwitterCredentials(),
+    validateInstagramCredentials(),
+    validateFacebookCredentials(),
   ]);
-  return results.map(r => r.status === "fulfilled" ? r.value : { platform: "unknown", valid: false, error: "Check failed" });
+  const mapped = results.map((r, i) => {
+    const platforms = ["x", "instagram", "facebook"];
+    return r.status === "fulfilled"
+      ? r.value
+      : { platform: platforms[i], valid: false, error: "Check threw an exception" };
+  });
+
+  // Also include Discord and Reddit (env-var-only checks)
+  const discordOk = !!process.env.DISCORD_WEBHOOK_URL;
+  const redditOk = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET &&
+    process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD);
+  mapped.push({ platform: "discord", valid: discordOk, error: discordOk ? undefined : "DISCORD_WEBHOOK_URL not set" });
+  mapped.push({ platform: "reddit", valid: redditOk, error: redditOk ? undefined : "Credentials not configured" });
+
+  return mapped;
 }
 
 export function clearCredentialCache(platform?: string): void {

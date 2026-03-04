@@ -81,7 +81,7 @@ export async function initGrowthAgent(): Promise<void> {
 export { executeJob, getRegisteredJobs } from "./jobRunner";
 export { getSchedule } from "./scheduler";
 export { getStatus as getCircuitBreakerStatus, reset as resetCircuitBreaker } from "./circuitBreaker";
-export { postToDiscord, postToFacebook, validateAllCredentials, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
+export { postToDiscord, postToFacebook, validateAllCredentials, validateTwitterCredentials, validateInstagramCredentials, validateFacebookCredentials, clearCredentialCache } from "./platformAdapters";
 export { checkOpenAIConnectivity, getOpenAIHealthStatus } from "./openaiAdapter";
 export { getPipelineHealth } from "./pipelineHealth";
 export { getTikTokConfig } from "./tiktokConfig";
