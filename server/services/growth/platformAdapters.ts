@@ -797,6 +797,69 @@ export async function postToTikTok(contentItemId: string): Promise<PostResult> {
   }
 }
 
+export interface TwitterFollower {
+  id: string;
+  username: string;
+}
+
+export async function getNewTwitterFollowers(knownFollowerIds: Set<string>): Promise<TwitterFollower[]> {
+  const client = getTwitterClient();
+  if (!client) return [];
+
+  try {
+    const me = await client.v2.me();
+    const userId = me.data.id;
+
+    const newFollowers: TwitterFollower[] = [];
+    let paginationToken: string | undefined;
+
+    do {
+      const response = await client.v2.followers(userId, {
+        max_results: 100,
+        "user.fields": ["id", "username"],
+        ...(paginationToken ? { pagination_token: paginationToken } : {}),
+      } as any);
+
+      const users = response.data ?? [];
+      let hitKnown = false;
+
+      for (const user of users) {
+        if (knownFollowerIds.has(user.id)) {
+          hitKnown = true;
+          break;
+        }
+        newFollowers.push({ id: user.id, username: user.username });
+      }
+
+      if (hitKnown) break;
+      paginationToken = (response.meta as any)?.next_token;
+    } while (paginationToken);
+
+    return newFollowers;
+  } catch (err: any) {
+    console.error("[TwitterAdapter] getNewTwitterFollowers error:", err?.message || err);
+    return [];
+  }
+}
+
+export async function sendTwitterWelcomeDM(
+  followerId: string,
+  followerUsername: string,
+): Promise<{ success: boolean; error?: string }> {
+  const client = getTwitterClient();
+  if (!client) return { success: false, error: "Twitter client not configured" };
+
+  const message = `Hey @${followerUsername}! 👋 Thanks for following PackPTS! We challenge you to play 1 match on PackPTS — the ultimate sports card trivia game. Think you can handle it? 🏆 https://packpts.com`;
+
+  try {
+    await client.v2.sendDmToParticipant(followerId, { text: message });
+    return { success: true };
+  } catch (err: any) {
+    const error = err?.data?.detail || err?.message || "DM send failed";
+    return { success: false, error };
+  }
+}
+
 export async function getAdapterForPlatform(platform: string): Promise<((id: string) => Promise<PostResult>) | null> {
   switch (platform) {
     case "discord":

@@ -4024,4 +4024,23 @@ export const globalGrowthRollups = pgTable("global_growth_rollups", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ============================================
+// GROWTH — FOLLOWER WELCOME DM LOG
+// ============================================
+
+export const growthFollowerDmLog = pgTable("growth_follower_dm_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  platform: varchar("platform", { length: 20 }).notNull(),
+  followerId: varchar("follower_id", { length: 100 }).notNull(),
+  followerUsername: varchar("follower_username", { length: 100 }),
+  dmStatus: varchar("dm_status", { length: 20 }).notNull().default("SENT"),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  unique("growth_follower_dm_log_platform_follower_id_unique").on(t.platform, t.followerId),
+  index("idx_follower_dm_log_platform").on(t.platform),
+]);
+
+export type GrowthFollowerDmLog = typeof growthFollowerDmLog.$inferSelect;
+
 export type GlobalGrowthRollup = typeof globalGrowthRollups.$inferSelect;

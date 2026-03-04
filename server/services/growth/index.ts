@@ -10,6 +10,7 @@ import "./autoPoster";
 import "./tiktokJobs";
 import "./crossPostJobs";
 import "./notionSyncJob";
+import "./dmJobs";
 import "../../videoFactory/workerJob";
 
 let initialized = false;
@@ -54,6 +55,10 @@ export async function initGrowthAgent(): Promise<void> {
   scheduleJob("generate_daily5_recap", 5, 0);
   scheduleJob("auto_post_ready_content", 14, 0);
   scheduleJob("auto_post_ready_content", 18, 0);
+  scheduleJob("send_follower_dms", 8,  0);
+  scheduleJob("send_follower_dms", 12, 0);
+  scheduleJob("send_follower_dms", 16, 0);
+  scheduleJob("send_follower_dms", 20, 0);
 
   if (tiktokCfg.enabled) {
     scheduleJob("generate_tiktok_packages", 13, 20);
