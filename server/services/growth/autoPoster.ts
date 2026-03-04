@@ -113,7 +113,7 @@ async function promoteManualQueueBacklog(): Promise<number> {
       .where(and(
         eq(growthContentItems.postingMode, "MANUAL_QUEUE"),
         eq(growthContentItems.status, "READY"),
-        inArray(growthContentItems.platform, ["instagram", "facebook"])
+        inArray(growthContentItems.platform, ["instagram", "facebook", "x", "discord", "reddit"])
       ))
       .limit(200);
 
@@ -137,6 +137,11 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   if (isOpen()) {
     return { skipped: true, reason: "Circuit breaker open" };
   }
+
+  // Always start with fresh credential validation so that newly-added or
+  // recently-rotated credentials take effect immediately without waiting for
+  // the 10-minute cache TTL to expire.
+  clearCredentialCache();
 
   // Self-heal: reset any FAILED items that failed only because credentials
   // were not yet configured.  Runs every time so the queue recovers
@@ -168,18 +173,22 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   let posted = 0;
   let failed = 0;
   let skippedCredentials = 0;
+  const errors: { id: string; platform: string; type: string; error: string }[] = [];
 
   for (const item of readyItems) {
     const credCheck = credentialResults.get(item.platform);
     if (credCheck && !credCheck.valid) {
       skippedCredentials++;
-      console.warn(`[AutoPoster] Skipping ${item.id} — ${item.platform} credentials invalid: ${credCheck.error}. Item stays READY for retry after credentials are fixed.`);
+      const reason = credCheck.error || "Credentials invalid";
+      console.warn(`[AutoPoster] Skipping ${item.id} (${item.platform}/${item.type}) — ${reason}`);
+      errors.push({ id: item.id, platform: item.platform, type: item.type || "", error: `CREDENTIAL_SKIP: ${reason}` });
       continue;
     }
 
     const adapter = await getAdapterForPlatform(item.platform);
     if (!adapter) {
       console.warn(`[AutoPoster] No adapter for platform: ${item.platform}`);
+      errors.push({ id: item.id, platform: item.platform, type: item.type || "", error: "No adapter registered for platform" });
       continue;
     }
 
@@ -190,7 +199,7 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
       if (result.success) {
         posted++;
         recordSuccess();
-        console.log(`[AutoPoster] Posted ${item.type} to ${item.platform} (${item.id})`);
+        console.log(`[AutoPoster] Posted ${item.type} to ${item.platform} (${item.id}) → ${result.externalPostId}`);
       } else {
         failed++;
         recordFailure();
@@ -200,7 +209,9 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
           error: result.error,
           updatedAt: new Date(),
         }).where(eq(growthContentItems.id, item.id));
-        console.error(`[AutoPoster] Failed to post ${item.id}: ${result.error}`);
+        const errMsg = result.error || "Unknown error";
+        console.error(`[AutoPoster] Failed ${item.platform}/${item.type} (${item.id}): ${errMsg}`);
+        errors.push({ id: item.id, platform: item.platform, type: item.type || "", error: errMsg });
       }
     } catch (err: any) {
       failed++;
@@ -213,8 +224,9 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
         updatedAt: new Date(),
       }).where(eq(growthContentItems.id, item.id));
       console.error(`[AutoPoster] Unexpected error posting ${item.id} to ${item.platform}:`, errorMsg);
+      errors.push({ id: item.id, platform: item.platform, type: item.type || "", error: errorMsg });
     }
   }
 
-  return { posted, failed, skippedCredentials, autoHealed, backlogPromoted, total: readyItems.length };
+  return { posted, failed, skippedCredentials, autoHealed, backlogPromoted, total: readyItems.length, errors };
 });

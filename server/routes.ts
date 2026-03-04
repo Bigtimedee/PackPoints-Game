@@ -11626,7 +11626,10 @@ export async function registerRoutes(
     try {
       const { jobName } = req.body;
       if (!jobName) return res.status(400).json({ error: "jobName required" });
-      const { executeJob } = await import("./services/growth");
+      const { executeJob, clearCredentialCache } = await import("./services/growth");
+      // Always use fresh credentials for manually-triggered runs so that
+      // recently-rotated tokens take effect without waiting for the cache TTL.
+      clearCredentialCache();
       const result = await executeJob(jobName, { skipCircuitBreaker: true });
       res.json(result);
     } catch (err: any) {

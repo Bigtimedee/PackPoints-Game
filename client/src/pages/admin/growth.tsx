@@ -1600,7 +1600,7 @@ function JobLogsTab() {
     },
   });
 
-  const [expandedError, setExpandedError] = useState<string | null>(null);
+  const [expandedRun, setExpandedRun] = useState<string | null>(null);
 
   if (isLoading) return <Loader2 className="h-6 w-6 animate-spin mx-auto mt-8" />;
 
@@ -1609,55 +1609,103 @@ function JobLogsTab() {
       {data?.runs?.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-8">No job runs yet</p>
       )}
-      {data?.runs?.map(run => (
-        <div key={run.id} className="p-3 rounded-md bg-muted/50 space-y-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-medium">{run.jobName.replace(/_/g, " ")}</span>
-              <StatusBadge status={run.status} />
-            </div>
-            <div className="flex items-center gap-2">
-              {(run.status === "FAILED" || run.status === "SKIPPED" || run.status === "RETRY_PENDING") && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => retryMutation.mutate(run.jobName)}
-                  disabled={retryMutation.isPending}
-                  data-testid={`button-retry-${run.id}`}>
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  Retry
-                </Button>
+      {data?.runs?.map(run => {
+        const isExpanded = expandedRun === run.id;
+        const d = run.details || {};
+        const hasPostingStats = typeof d.posted === "number" || typeof d.failed === "number";
+        const errors: { id: string; platform: string; type: string; error: string }[] = d.errors || [];
+
+        return (
+          <div key={run.id}
+            className="rounded-md bg-muted/50 overflow-hidden cursor-pointer select-none"
+            onClick={() => setExpandedRun(isExpanded ? null : run.id)}
+            data-testid={`job-run-${run.id}`}>
+            <div className="p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{run.jobName.replace(/_/g, " ")}</span>
+                  <StatusBadge status={run.status} />
+                  {hasPostingStats && (
+                    <span className="text-xs text-muted-foreground">
+                      {d.posted ?? 0} posted · {d.failed ?? 0} failed · {d.skippedCredentials ?? 0} skipped · {d.total ?? 0} total
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {(run.status === "FAILED" || run.status === "SKIPPED" || run.status === "RETRY_PENDING") && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); retryMutation.mutate(run.jobName); }}
+                      disabled={retryMutation.isPending}
+                      data-testid={`button-retry-${run.id}`}>
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Retry
+                    </Button>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(run.startedAt).toLocaleString()}
+                  </span>
+                  {isExpanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
+                </div>
+              </div>
+              {run.status === "SKIPPED" && d.reason && (
+                <p className="text-xs text-muted-foreground">{d.reason}</p>
               )}
-              <span className="text-xs text-muted-foreground">
-                {new Date(run.startedAt).toLocaleString()}
-              </span>
+              {run.status === "RETRY_PENDING" && d.retryAt && (
+                <p className="text-xs text-muted-foreground">
+                  Retry #{d.retryCount || 1}/{d.maxRetries || 3} scheduled at {new Date(d.retryAt).toLocaleString()}
+                </p>
+              )}
+              {run.error && !isExpanded && (
+                <p className="text-xs text-destructive line-clamp-1">{run.error}</p>
+              )}
             </div>
+
+            {isExpanded && (
+              <div className="border-t px-3 pb-3 pt-2 space-y-3">
+                {run.error && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Error</p>
+                    <p className="text-xs text-destructive font-mono whitespace-pre-wrap">{run.error}</p>
+                  </div>
+                )}
+                {hasPostingStats && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Result</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                      <span className="text-muted-foreground">Posted</span><span className="font-medium text-green-500">{d.posted ?? 0}</span>
+                      <span className="text-muted-foreground">Failed</span><span className={`font-medium ${(d.failed ?? 0) > 0 ? "text-destructive" : ""}`}>{d.failed ?? 0}</span>
+                      <span className="text-muted-foreground">Skipped (credentials)</span><span className={`font-medium ${(d.skippedCredentials ?? 0) > 0 ? "text-yellow-500" : ""}`}>{d.skippedCredentials ?? 0}</span>
+                      <span className="text-muted-foreground">Auto-healed</span><span className="font-medium">{d.autoHealed ?? 0}</span>
+                      <span className="text-muted-foreground">Backlog promoted</span><span className="font-medium">{d.backlogPromoted ?? 0}</span>
+                      <span className="text-muted-foreground">Total items</span><span className="font-medium">{d.total ?? 0}</span>
+                    </div>
+                  </div>
+                )}
+                {errors.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Item Errors ({errors.length})</p>
+                    <div className="space-y-1">
+                      {errors.map((e, i) => (
+                        <div key={i} className="text-xs rounded bg-destructive/10 px-2 py-1">
+                          <span className="font-medium">{e.platform}/{e.type}</span>
+                          <span className="text-muted-foreground ml-2 font-mono">{e.error}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {!hasPostingStats && !run.error && (
+                  <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap overflow-auto max-h-48">
+                    {JSON.stringify(d, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
-          {run.error && (
-            <div
-              className="cursor-pointer"
-              onClick={() => setExpandedError(expandedError === run.id ? null : run.id)}
-              data-testid={`error-detail-${run.id}`}>
-              <p className={`text-xs text-destructive ${expandedError === run.id ? "" : "line-clamp-2"}`}>
-                {run.error}
-              </p>
-              <span className="text-xs text-muted-foreground">
-                {expandedError === run.id ? "Click to collapse" : "Click to expand"}
-              </span>
-            </div>
-          )}
-          {run.status === "SKIPPED" && run.details?.reason && (
-            <p className="text-xs text-muted-foreground">
-              {run.details.reason}
-            </p>
-          )}
-          {run.status === "RETRY_PENDING" && run.details?.retryAt && (
-            <p className="text-xs text-muted-foreground">
-              Retry #{run.details.retryCount || 1}/{run.details.maxRetries || 3} scheduled at {new Date(run.details.retryAt).toLocaleString()}
-            </p>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
