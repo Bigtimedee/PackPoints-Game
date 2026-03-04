@@ -77,7 +77,9 @@ async function checkDailyPlanStatus(date: string): Promise<{ hasPlan: boolean; p
 registerJob("generate_daily_plan", async (ctx: JobContext) => {
   const date = getChicagoDate();
 
-  const existing = await db.select().from(growthContentPlans).where(eq(growthContentPlans.date, date)).limit(1);
+  const existing = await db.select().from(growthContentPlans)
+    .where(and(eq(growthContentPlans.date, date), eq(growthContentPlans.status, "ACTIVE")))
+    .limit(1);
   if (existing.length > 0) {
     return { skipped: true, reason: "Plan already exists for today", planId: existing[0].id };
   }
@@ -176,6 +178,11 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
       case "instagram":
         promptFn = prompts.INSTAGRAM_POST_PROMPT;
         type = "INSTAGRAM_POST";
+        postingMode = "AUTO";
+        break;
+      case "facebook":
+        promptFn = prompts.INSTAGRAM_POST_PROMPT;
+        type = "FACEBOOK_POST";
         postingMode = "AUTO";
         break;
       case "tiktok":

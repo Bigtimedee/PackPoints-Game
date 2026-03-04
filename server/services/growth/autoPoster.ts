@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { growthContentItems } from "@shared/schema";
-import { eq, and, notInArray, inArray } from "drizzle-orm";
+import { eq, and, notInArray, inArray, or, isNull, lte } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 import { getAdapterForPlatform, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
 import { isOpen, recordFailure, recordSuccess } from "./circuitBreaker";
@@ -152,13 +152,15 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   // created before the crossPostJobs postingMode bug was fixed.
   const backlogPromoted = await promoteManualQueueBacklog();
 
+  const now = new Date();
   const readyItems = await db.select().from(growthContentItems)
     .where(and(
       eq(growthContentItems.postingMode, "AUTO"),
       eq(growthContentItems.status, "READY"),
-      notInArray(growthContentItems.platform, MANUAL_ONLY_PLATFORMS)
+      notInArray(growthContentItems.platform, MANUAL_ONLY_PLATFORMS),
+      or(isNull(growthContentItems.scheduledFor), lte(growthContentItems.scheduledFor, now))
     ))
-    .limit(10);
+    .limit(25);
 
   if (readyItems.length === 0) {
     // Count how many items are stuck in MANUAL_QUEUE+READY so the admin

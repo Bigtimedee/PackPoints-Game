@@ -49,8 +49,8 @@ export async function initGrowthAgent(): Promise<void> {
   }
   console.log(`[GrowthAgent] Instagram/Facebook: AUTONOMOUS AUTO-POSTING ENABLED`);
 
-  scheduleJob("generate_daily_plan", 13, 0);
-  scheduleJob("generate_content_items", 13, 15);
+  scheduleJob("generate_daily_plan", 12, 0);
+  scheduleJob("generate_content_items", 12, 30);
   scheduleJob("generate_daily5_announcement", 1, 5);
   scheduleJob("generate_daily5_recap", 5, 0);
   scheduleJob("auto_post_ready_content", 14, 0);
