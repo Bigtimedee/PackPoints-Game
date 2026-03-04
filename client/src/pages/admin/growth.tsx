@@ -1551,7 +1551,7 @@ function QueueTab() {
                       disabled={markPostedMutation.isPending}
                       data-testid={`button-mark-posted-${item.id}`}>
                       <Check className="h-3 w-3 mr-1" />
-                      Posted
+                      Mark as Posted
                     </Button>
                   )}
                   {item.status === "POSTED" && (
