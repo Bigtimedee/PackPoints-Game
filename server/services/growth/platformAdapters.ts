@@ -33,7 +33,10 @@ export async function validateTwitterCredentials(): Promise<CredentialCheckResul
   }
 
   try {
-    await client.v2.me();
+    // Use v1.1 verifyCredentials — works across all API access tiers.
+    // client.v2.me() requires a project-based app with users.read scope and
+    // returns 401 for many valid credentials, causing false-negative failures.
+    await client.v1.verifyCredentials();
     credentialCache.set("x", { valid: true, checkedAt: Date.now() });
     return { platform: "x", valid: true };
   } catch (err: any) {
