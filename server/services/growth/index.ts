@@ -67,6 +67,8 @@ export async function initGrowthAgent(): Promise<void> {
     scheduleJob("crosspost_to_ig_fb", 13, 40);
   }
 
+  scheduleJob("auto_post_ready_content", 10, 0);
+
   startScheduler();
   startRetryWorker();
   startNotionSync();
@@ -76,6 +78,16 @@ export async function initGrowthAgent(): Promise<void> {
   const schedule = getSchedule();
   console.log(`[GrowthAgent] Ready: ${jobs.length} jobs, ${schedule.length} scheduled tasks`);
   console.log(`[GrowthAgent] Jobs: ${jobs.join(", ")}`);
+
+  // On every startup: generate today's content if none exists, then immediately
+  // promote any MANUAL_QUEUE backlog and post whatever is READY.
+  // Both jobs are fully idempotent — safe to run on every deploy.
+  const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  setTimeout(() => {
+    executeJob("generate_content_items", { idempotencyKey: `startup_content_${todayKey}` })
+      .then(() => executeJob("auto_post_ready_content", { idempotencyKey: `startup_autopost_${todayKey}_${Date.now()}` }))
+      .catch(err => console.warn("[GrowthAgent] Startup bootstrap run:", err?.message));
+  }, 90_000);
 }
 
 export { executeJob, getRegisteredJobs } from "./jobRunner";

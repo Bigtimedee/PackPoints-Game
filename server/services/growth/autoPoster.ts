@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { growthContentItems } from "@shared/schema";
-import { eq, and, notInArray, inArray, or, isNull, lte } from "drizzle-orm";
+import { eq, and, notInArray, inArray, or, isNull, lte, lt, sql } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 import { getAdapterForPlatform, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
 import { isOpen, recordFailure, recordSuccess } from "./circuitBreaker";
@@ -67,6 +67,8 @@ async function checkPlatformCredentials(platform: string): Promise<{ valid: bool
  */
 async function resetCredentialFailedItems(): Promise<number> {
   try {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
     const failedItems = await db
       .select({ id: growthContentItems.id, error: growthContentItems.error, platform: growthContentItems.platform })
       .from(growthContentItems)
@@ -75,8 +77,27 @@ async function resetCredentialFailedItems(): Promise<number> {
 
     const toReset = failedItems.filter(item => {
       const err = (item.error || "").toLowerCase();
-      return CREDENTIAL_ERROR_MARKERS.some(m => err.includes(m));
+      // Reset items that failed due to credential config issues
+      if (CREDENTIAL_ERROR_MARKERS.some(m => err.includes(m))) return true;
+      return false;
     });
+
+    // Also reset ALL FAILED items that are older than 2 hours — transient errors
+    // (network blips, rate limits, API timeouts) should not permanently block items.
+    const staleFailedItems = await db
+      .select({ id: growthContentItems.id, platform: growthContentItems.platform })
+      .from(growthContentItems)
+      .where(and(
+        eq(growthContentItems.status, "FAILED"),
+        lte(growthContentItems.updatedAt, twoHoursAgo)
+      ))
+      .limit(100);
+
+    const staleIds = new Set(staleFailedItems.map(i => i.id));
+    const alreadyInReset = new Set(toReset.map(i => i.id));
+    for (const item of staleFailedItems) {
+      if (!alreadyInReset.has(item.id)) toReset.push(item as any);
+    }
 
     if (toReset.length === 0) return 0;
 
@@ -87,7 +108,8 @@ async function resetCredentialFailedItems(): Promise<number> {
         updatedAt: new Date(),
       }).where(eq(growthContentItems.id, item.id));
       clearCredentialCache(item.platform || undefined);
-      console.log(`[AutoPoster] Auto-healed: reset ${item.platform} item ${item.id} FAILED → READY (was a credential-config error)`);
+      const reason = staleIds.has(item.id) ? "stale FAILED (>2h) — queued for retry" : "credential-config error";
+      console.log(`[AutoPoster] Auto-healed: reset ${item.platform} item ${item.id} FAILED → READY (${reason})`);
     }
 
     return toReset.length;
