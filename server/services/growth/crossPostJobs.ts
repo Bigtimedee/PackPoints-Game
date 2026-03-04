@@ -1,5 +1,5 @@
 import { db } from "../../db";
-import { growthContentItems, publishingQueue } from "@shared/schema";
+import { growthContentItems } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 
@@ -77,26 +77,14 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
             crossPostedFrom: item.id,
             originalPlatform: "tiktok",
           },
-          postingMode: "MANUAL_QUEUE",
+          postingMode: "AUTO",
           status: "READY",
           scheduledFor: item.scheduledFor,
           idempotencyKey: igIdempKey,
         }).returning();
 
-        await db.insert(publishingQueue).values({
-          contentItemId: igItem.id,
-          platform: "instagram",
-          copyText: metadata?.caption || item.body || "",
-          assets: {
-            ...(metadata || {}),
-            imageUrl: resolvedImageUrl,
-            crossPostedFrom: item.id,
-          },
-          status: "READY",
-        });
-
         igCreated++;
-        console.log(`[CrossPost] Created Instagram copy (manual): ${igItem.id} from TikTok ${item.id}`);
+        console.log(`[CrossPost] Created Instagram copy (auto): ${igItem.id} from TikTok ${item.id}`);
       }
     } catch (err: any) {
       errors.push(`ig_${item.id}: ${err?.message}`);
@@ -122,26 +110,14 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
             crossPostedFrom: item.id,
             originalPlatform: "tiktok",
           },
-          postingMode: "MANUAL_QUEUE",
+          postingMode: "AUTO",
           status: "READY",
           scheduledFor: item.scheduledFor,
           idempotencyKey: fbIdempKey,
         }).returning();
 
-        await db.insert(publishingQueue).values({
-          contentItemId: fbItem.id,
-          platform: "facebook",
-          copyText: metadata?.caption || item.body || "",
-          assets: {
-            ...(metadata || {}),
-            imageUrl: resolvedImageUrl,
-            crossPostedFrom: item.id,
-          },
-          status: "READY",
-        });
-
         fbCreated++;
-        console.log(`[CrossPost] Created Facebook copy (manual): ${fbItem.id} from TikTok ${item.id}`);
+        console.log(`[CrossPost] Created Facebook copy (auto): ${fbItem.id} from TikTok ${item.id}`);
       }
     } catch (err: any) {
       errors.push(`fb_${item.id}: ${err?.message}`);

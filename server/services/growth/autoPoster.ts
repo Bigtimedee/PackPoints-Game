@@ -1,6 +1,6 @@
 import { db } from "../../db";
 import { growthContentItems } from "@shared/schema";
-import { eq, and, notInArray } from "drizzle-orm";
+import { eq, and, notInArray, inArray } from "drizzle-orm";
 import { registerJob, JobContext } from "./jobRunner";
 import { getAdapterForPlatform, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
 import { isOpen, recordFailure, recordSuccess } from "./circuitBreaker";
@@ -97,6 +97,42 @@ async function resetCredentialFailedItems(): Promise<number> {
   }
 }
 
+/**
+ * One-time backlog fix: promotes MANUAL_QUEUE items that are in READY status
+ * to AUTO so the auto-poster can pick them up.  These were created incorrectly
+ * by the cross-post job before the postingMode bug was fixed.  Safe to run
+ * every cycle — it becomes a no-op once the backlog is drained.
+ */
+async function promoteManualQueueBacklog(): Promise<number> {
+  try {
+    // Only promote cross-posted items (instagram/facebook from TikTok) that
+    // are stuck in MANUAL_QUEUE+READY and have never been posted.
+    const stuckItems = await db
+      .select({ id: growthContentItems.id, platform: growthContentItems.platform })
+      .from(growthContentItems)
+      .where(and(
+        eq(growthContentItems.postingMode, "MANUAL_QUEUE"),
+        eq(growthContentItems.status, "READY"),
+        inArray(growthContentItems.platform, ["instagram", "facebook"])
+      ))
+      .limit(200);
+
+    if (stuckItems.length === 0) return 0;
+
+    const ids = stuckItems.map(i => i.id);
+    await db.update(growthContentItems).set({
+      postingMode: "AUTO",
+      updatedAt: new Date(),
+    }).where(inArray(growthContentItems.id, ids));
+
+    console.log(`[AutoPoster] Backlog promotion: converted ${stuckItems.length} MANUAL_QUEUE → AUTO items (instagram/facebook)`);
+    return stuckItems.length;
+  } catch (err: any) {
+    console.warn(`[AutoPoster] Backlog promotion failed: ${err?.message}`);
+    return 0;
+  }
+}
+
 registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   if (isOpen()) {
     return { skipped: true, reason: "Circuit breaker open" };
@@ -107,6 +143,10 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   // automatically once credentials are added.
   const autoHealed = await resetCredentialFailedItems();
 
+  // Backlog fix: promote any MANUAL_QUEUE instagram/facebook items that were
+  // created before the crossPostJobs postingMode bug was fixed.
+  const backlogPromoted = await promoteManualQueueBacklog();
+
   const readyItems = await db.select().from(growthContentItems)
     .where(and(
       eq(growthContentItems.postingMode, "AUTO"),
@@ -116,7 +156,7 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
     .limit(10);
 
   if (readyItems.length === 0) {
-    return { posted: 0, autoHealed, reason: "No ready items" };
+    return { posted: 0, autoHealed, backlogPromoted, reason: "No ready items" };
   }
 
   const platformsToPost = Array.from(new Set(readyItems.map(i => i.platform)));
@@ -176,5 +216,5 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
     }
   }
 
-  return { posted, failed, skippedCredentials, autoHealed, total: readyItems.length };
+  return { posted, failed, skippedCredentials, autoHealed, backlogPromoted, total: readyItems.length };
 });
