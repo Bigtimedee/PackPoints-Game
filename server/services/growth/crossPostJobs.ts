@@ -81,7 +81,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
           },
           postingMode: "AUTO",
           status: "READY",
-          scheduledFor: item.scheduledFor,
+          scheduledFor: null,
           idempotencyKey: igIdempKey,
         }).returning();
 
@@ -114,7 +114,7 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
           },
           postingMode: "AUTO",
           status: "READY",
-          scheduledFor: item.scheduledFor,
+          scheduledFor: null,
           idempotencyKey: fbIdempKey,
         }).returning();
 
