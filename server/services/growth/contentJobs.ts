@@ -307,7 +307,7 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const postPlatforms = ["discord", "x", "instagram"];
+  const postPlatforms = ["discord", "x", "instagram", "facebook"];
   const items: string[] = [];
   for (const platform of postPlatforms) {
     const postingMode = "AUTO";
@@ -391,7 +391,7 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const postPlatforms = ["discord", "x", "instagram"];
+  const postPlatforms = ["discord", "x", "instagram", "facebook"];
   const items: string[] = [];
   for (const platform of postPlatforms) {
     const postingMode = "AUTO";

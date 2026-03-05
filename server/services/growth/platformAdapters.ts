@@ -418,11 +418,14 @@ export async function postToInstagram(contentItemId: string): Promise<PostResult
     const createData = await createRes.json() as { id: string };
     const containerId = createData.id;
 
-    const pollInterval = hasVideo ? 5000 : 3000;
-    const pollCount = hasVideo ? 30 : 10;
-    const pollResult = await pollContainerStatus(containerId, config.accessToken, pollCount, pollInterval);
-    if (!pollResult.ready) {
-      return { success: false, error: pollResult.error || "Container processing failed" };
+    // Video containers (Reels) require async processing — poll until FINISHED.
+    // Image containers are ready immediately after creation — skip polling to
+    // avoid a 30-second wait and eliminate timeout-caused post failures.
+    if (hasVideo) {
+      const pollResult = await pollContainerStatus(containerId, config.accessToken, 30, 5000);
+      if (!pollResult.ready) {
+        return { success: false, error: pollResult.error || "Container processing timed out after 150s" };
+      }
     }
 
     const publishRes = await fetch(
@@ -527,50 +530,32 @@ export async function postToFacebook(contentItemId: string): Promise<PostResult>
         if (imgCheck.valid) validImageUrl = rawImageUrl;
       }
 
-      if (validImageUrl) {
-        console.log(`[FacebookAdapter] Posting photo to Facebook for ${contentItemId}`);
-        const res = await fetch(
-          `${GRAPH_API_BASE}/${config.pageId}/photos`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              url: validImageUrl,
-              message: message.slice(0, 8000),
-              access_token: config.accessToken,
-            }),
-          }
-        );
-
-        if (!res.ok) {
-          const errBody = await res.text();
-          return { success: false, error: `Facebook photo post failed (${res.status}): ${errBody.slice(0, 300)}` };
-        }
-
-        const data = await res.json() as { id: string; post_id?: string };
-        postId = data.post_id || data.id;
-      } else {
-        console.log(`[FacebookAdapter] Posting text to Facebook for ${contentItemId}`);
-        const res = await fetch(
-          `${GRAPH_API_BASE}/${config.pageId}/feed`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message: message.slice(0, 8000),
-              access_token: config.accessToken,
-            }),
-          }
-        );
-
-        if (!res.ok) {
-          const errBody = await res.text();
-          return { success: false, error: `Facebook post failed (${res.status}): ${errBody.slice(0, 300)}` };
-        }
-
-        const data = await res.json() as { id: string };
-        postId = data.id;
+      // Fall back to brand logo rather than posting text-only — consistent with Instagram adapter
+      const photoUrl = validImageUrl || PACKPTS_LOGO_URL;
+      if (!validImageUrl) {
+        console.warn(`[FacebookAdapter] No valid image for ${contentItemId}, falling back to logo`);
       }
+      console.log(`[FacebookAdapter] Posting photo to Facebook for ${contentItemId}`);
+      const photoRes = await fetch(
+        `${GRAPH_API_BASE}/${config.pageId}/photos`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: photoUrl,
+            message: message.slice(0, 8000),
+            access_token: config.accessToken,
+          }),
+        }
+      );
+
+      if (!photoRes.ok) {
+        const errBody = await photoRes.text();
+        return { success: false, error: `Facebook photo post failed (${photoRes.status}): ${errBody.slice(0, 300)}` };
+      }
+
+      const photoData = await photoRes.json() as { id: string; post_id?: string };
+      postId = photoData.post_id || photoData.id;
     }
 
     await db.update(growthContentItems).set({
@@ -826,8 +811,10 @@ export async function getNewTwitterFollowers(knownFollowerIds: Set<string>): Pro
   if (!client) return [];
 
   try {
-    const me = await client.v2.me();
-    const userId = me.data.id;
+    // Use v1 verifyCredentials to get our user ID — avoids the users.read
+    // OAuth scope requirement that client.v2.me() imposes.
+    const me = await client.v1.verifyCredentials();
+    const userId = me.id_str;
 
     const newFollowers: TwitterFollower[] = [];
     let paginationToken: string | undefined;

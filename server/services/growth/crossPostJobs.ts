@@ -41,7 +41,9 @@ registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
     .where(and(
       eq(growthContentItems.platform, "tiktok"),
       eq(growthContentItems.status, "READY"),
-      sql`DATE(${growthContentItems.createdAt}) = ${date}`
+      // Timezone-aware date filter: compare in Chicago time so items created at
+      // 11 PM Chicago (= midnight UTC next day) are not missed.
+      sql`DATE(${growthContentItems.createdAt} AT TIME ZONE 'America/Chicago') = ${date}`
     ))
     .limit(20);
 
