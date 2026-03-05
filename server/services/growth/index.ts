@@ -79,12 +79,15 @@ export async function initGrowthAgent(): Promise<void> {
   console.log(`[GrowthAgent] Ready: ${jobs.length} jobs, ${schedule.length} scheduled tasks`);
   console.log(`[GrowthAgent] Jobs: ${jobs.join(", ")}`);
 
-  // On every startup: generate today's content if none exists, then immediately
-  // promote any MANUAL_QUEUE backlog and post whatever is READY.
-  // Both jobs are fully idempotent — safe to run on every deploy.
+  // On every startup: run the full content pipeline from scratch.
+  // All three jobs are fully idempotent — each skips if its work is already done.
+  // Running generate_daily_plan first ensures the plan exists before content
+  // generation is attempted, which fixes the failure mode where the server
+  // restarts before noon and no plan has been created yet by the scheduler.
   const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
   setTimeout(() => {
-    executeJob("generate_content_items", { idempotencyKey: `startup_content_${todayKey}` })
+    executeJob("generate_daily_plan", { idempotencyKey: `startup_plan_${todayKey}` })
+      .then(() => executeJob("generate_content_items", { idempotencyKey: `startup_content_${todayKey}` }))
       .then(() => executeJob("auto_post_ready_content", { idempotencyKey: `startup_autopost_${todayKey}_${Date.now()}` }))
       .catch(err => console.warn("[GrowthAgent] Startup bootstrap run:", err?.message));
   }, 90_000);
