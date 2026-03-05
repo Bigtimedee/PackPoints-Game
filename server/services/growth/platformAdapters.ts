@@ -32,19 +32,15 @@ export async function validateTwitterCredentials(): Promise<CredentialCheckResul
     return { platform: "x", ...result };
   }
 
-  try {
-    // Use v1.1 verifyCredentials — works across all API access tiers.
-    // client.v2.me() requires a project-based app with users.read scope and
-    // returns 401 for many valid credentials, causing false-negative failures.
-    await client.v1.verifyCredentials();
-    credentialCache.set("x", { valid: true, checkedAt: Date.now() });
-    return { platform: "x", valid: true };
-  } catch (err: any) {
-    const error = err?.data?.detail || err?.message || "Authentication failed";
-    console.error(`[TwitterAdapter] Credential validation failed: ${error}`);
-    credentialCache.set("x", { valid: false, checkedAt: Date.now(), error });
-    return { platform: "x", valid: false, error };
-  }
+  // Skip live API validation for Twitter. Twitter v1.1 verifyCredentials returns
+  // 401 on Free-tier apps even with valid tokens (v1.1 is blocked at that tier).
+  // Twitter v2.me() requires users.read scope which is not always granted.
+  // The actual posting uses v2.tweet() which works on all tiers. A false-negative
+  // here causes autoPoster to skip ALL X posts silently — worse than a failed post.
+  // Trust that credentials are valid when all 4 env vars are set; per-item post
+  // failures will be logged and the item marked FAILED if the token is truly bad.
+  credentialCache.set("x", { valid: true, checkedAt: Date.now() });
+  return { platform: "x", valid: true };
 }
 
 export async function validateInstagramCredentials(): Promise<CredentialCheckResult> {
