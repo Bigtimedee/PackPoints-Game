@@ -13,7 +13,7 @@ import { getRecentHooks, getRecentPlayerNames, getRecentThemes, buildDiversityCo
 import { buildContentContext, contextToPromptSection } from "./contextBuilder";
 import { selectCardsForFormat } from "./cardSelector";
 
-const VISUAL_PLATFORMS = new Set(["instagram", "x", "facebook", "tiktok"]);
+const VISUAL_PLATFORMS = new Set(["x", "tiktok"]);
 const PACKPTS_LOGO_URL = "https://packpts.com/logo-social.jpg";
 
 async function ensureImageForVisualPlatform(
@@ -160,37 +160,13 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
     let postingMode = "MANUAL_QUEUE";
 
     switch (platform) {
-      case "discord":
-        promptFn = prompts.DISCORD_POST_PROMPT;
-        type = "DISCORD_POST";
-        postingMode = "AUTO";
-        break;
-      case "reddit":
-        promptFn = prompts.REDDIT_POST_PROMPT;
-        type = "REDDIT_POST";
-        postingMode = "AUTO";
-        break;
       case "x":
         promptFn = prompts.X_THREAD_PROMPT;
         type = "X_THREAD";
         postingMode = "AUTO";
         break;
-      case "instagram":
-        promptFn = prompts.INSTAGRAM_POST_PROMPT;
-        type = "INSTAGRAM_POST";
-        postingMode = "AUTO";
-        break;
-      case "facebook":
-        promptFn = prompts.INSTAGRAM_POST_PROMPT;
-        type = "FACEBOOK_POST";
-        postingMode = "AUTO";
-        break;
       case "tiktok":
         continue;
-      case "youtube":
-        promptFn = prompts.SHORT_VIDEO_SCRIPT_PROMPT;
-        type = "SHORT_VIDEO_SCRIPT";
-        break;
       default:
         continue;
     }
@@ -307,7 +283,7 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const postPlatforms = ["discord", "x", "instagram", "facebook"];
+  const postPlatforms = ["x"];
   const items: string[] = [];
   for (const platform of postPlatforms) {
     const postingMode = "AUTO";
@@ -391,7 +367,7 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
     .where(eq(growthContentPlans.date, date))
     .limit(1);
 
-  const postPlatforms = ["discord", "x", "instagram", "facebook"];
+  const postPlatforms = ["x"];
   const items: string[] = [];
   for (const platform of postPlatforms) {
     const postingMode = "AUTO";

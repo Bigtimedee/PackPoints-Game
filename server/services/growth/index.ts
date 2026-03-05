@@ -64,7 +64,6 @@ export async function initGrowthAgent(): Promise<void> {
     scheduleJob("generate_tiktok_packages", 13, 20);
     scheduleJob("generate_viral_tiktok_packages", 13, 25);
     scheduleJob("render_tiktok_videos", 13, 35);
-    scheduleJob("crosspost_to_ig_fb", 13, 40);
   }
 
   scheduleJob("auto_post_ready_content", 10, 0);

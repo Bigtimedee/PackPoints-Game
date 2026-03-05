@@ -35,6 +35,7 @@ function extractImageUrl(metadata: Record<string, any> | null, contentItemId: st
 }
 
 registerJob("crosspost_to_ig_fb", async (ctx: JobContext) => {
+  return { created: 0, reason: "Instagram/Facebook disabled — X/Twitter and TikTok only" };
   const date = getChicagoDate();
 
   const tiktokItems = await db.select().from(growthContentItems)

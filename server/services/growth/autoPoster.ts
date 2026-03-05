@@ -5,7 +5,7 @@ import { registerJob, JobContext } from "./jobRunner";
 import { getAdapterForPlatform, validateTwitterCredentials, clearCredentialCache } from "./platformAdapters";
 import { isOpen, recordFailure, recordSuccess } from "./circuitBreaker";
 
-const MANUAL_ONLY_PLATFORMS: string[] = [];
+const MANUAL_ONLY_PLATFORMS: string[] = ["instagram", "facebook", "discord", "reddit"];
 
 /**
  * Substrings that identify a FAILED item whose error was a missing-credential
@@ -34,33 +34,10 @@ async function checkPlatformCredentials(platform: string): Promise<{ valid: bool
         const r = await validateTwitterCredentials();
         return { valid: r.valid, error: r.error };
       }
-      case "instagram": {
-        const r = await import("./platformAdapters").then(m => m.validateInstagramCredentials());
-        return { valid: r.valid, error: r.error };
-      }
-      case "facebook": {
-        const r = await import("./platformAdapters").then(m => m.validateFacebookCredentials());
-        return { valid: r.valid, error: r.error };
-      }
-      case "discord": {
-        const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
-        return webhookUrl
-          ? { valid: true }
-          : { valid: false, error: "DISCORD_WEBHOOK_URL not configured — set env var to enable Discord posting" };
-      }
-      case "reddit": {
-        const hasRedditCreds = process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET &&
-          process.env.REDDIT_USERNAME && process.env.REDDIT_PASSWORD;
-        return hasRedditCreds
-          ? { valid: true }
-          : { valid: false, error: "Reddit credentials not configured — set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD" };
-      }
       default:
         return { valid: true };
     }
   } catch (err: any) {
-    // If the credential check itself throws (network error, etc.), skip this
-    // platform rather than crashing the entire posting run.
     const error = err?.message || "Credential check failed";
     console.warn(`[AutoPoster] Credential check threw for ${platform}: ${error} — skipping platform this run`);
     return { valid: false, error: `Credential check error: ${error}` };
@@ -143,7 +120,7 @@ async function promoteManualQueueBacklog(): Promise<number> {
       .where(and(
         eq(growthContentItems.postingMode, "MANUAL_QUEUE"),
         eq(growthContentItems.status, "READY"),
-        inArray(growthContentItems.platform, ["instagram", "facebook", "x", "discord", "reddit"])
+        inArray(growthContentItems.platform, ["x", "tiktok"])
       ))
       .limit(200);
 

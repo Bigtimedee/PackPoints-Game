@@ -51,12 +51,12 @@ export type TikTokPackage = z.infer<typeof TikTokPackageSchema>;
 
 export const PlanItemSchema = z.object({
   type: z.enum([
-    "DISCORD_POST", "REDDIT_POST", "X_THREAD", "SHORT_VIDEO_SCRIPT",
-    "INSTAGRAM_POST", "FACEBOOK_POST", "DAILY5_ANNOUNCEMENT", "DAILY5_RECAP", "LEADERBOARD_SPOTLIGHT",
+    "X_THREAD", "SHORT_VIDEO_SCRIPT",
+    "DAILY5_ANNOUNCEMENT", "DAILY5_RECAP", "LEADERBOARD_SPOTLIGHT",
     "TIKTOK_DAILY5_ANNOUNCEMENT", "TIKTOK_TRIVIA_CHALLENGE",
     "TIKTOK_LEADERBOARD_SPOTLIGHT", "TIKTOK_STREAK_REMINDER",
   ]),
-  platform: z.enum(["discord", "reddit", "x", "tiktok", "instagram", "facebook", "youtube"]),
+  platform: z.enum(["x", "tiktok", "youtube"]),
   brief: z.string().min(1),
   postingMode: z.enum(["AUTO", "MANUAL_QUEUE"]),
 });
