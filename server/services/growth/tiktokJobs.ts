@@ -15,8 +15,22 @@ function getChicagoDate(): string {
 }
 
 function getScheduledTime(date: string, hour: number, minute: number): Date {
-  const et = new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-05:00`);
-  return et;
+  // Try both CST (-06:00) and CDT (-05:00) offsets and return whichever one
+  // produces the correct Chicago wall-clock hour after DST conversion.
+  // This prevents TikTok items from being scheduled 1 hour late every winter.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  for (const offset of ["-06:00", "-05:00"]) {
+    const candidate = new Date(`${date}T${pad(hour)}:${pad(minute)}:00${offset}`);
+    const chicagoHour = parseInt(
+      new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "2-digit", hour12: false })
+        .formatToParts(candidate)
+        .find(p => p.type === "hour")?.value || "-1",
+      10
+    );
+    if (chicagoHour === hour) return candidate;
+  }
+  // Fallback: should never be reached, but prefer CST as the safer default
+  return new Date(`${date}T${pad(hour)}:${pad(minute)}:00-06:00`);
 }
 
 async function saveTikTokItem(

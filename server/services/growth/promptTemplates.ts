@@ -253,13 +253,14 @@ Choose a theme that:
 - Creates a natural bridge to PackPTS gameplay
 - Makes non-players feel like they're missing something real
 
-Generate 4-5 content pieces across platforms (Discord, Reddit, X/Twitter, Instagram).
+Generate 5-6 content pieces across platforms (Discord, Reddit, X/Twitter, Instagram, Facebook).
 Each piece must ladder up to the Founder acquisition objective.
+Facebook posts should be similar in style to Instagram posts — conversational, image-driven, with hashtags.
 
 Return JSON: {
   "theme": "daily theme — specific card/player/era focused",
   "items": [
-    { "type": "DISCORD_POST"|"REDDIT_POST"|"X_THREAD"|"INSTAGRAM_POST"|"SHORT_VIDEO_SCRIPT", "platform": "discord"|"reddit"|"x"|"instagram"|"youtube", "brief": "one-line description including Founder angle", "postingMode": "AUTO" }
+    { "type": "DISCORD_POST"|"REDDIT_POST"|"X_THREAD"|"INSTAGRAM_POST"|"FACEBOOK_POST"|"SHORT_VIDEO_SCRIPT", "platform": "discord"|"reddit"|"x"|"instagram"|"facebook"|"youtube", "brief": "one-line description including Founder angle", "postingMode": "AUTO" }
   ]
 }`;
 

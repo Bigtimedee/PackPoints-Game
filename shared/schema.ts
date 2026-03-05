@@ -3735,7 +3735,7 @@ export const growthContentTypes = [
   "TIKTOK_ONLY_REAL_FANS", "TIKTOK_DIFFICULTY_LADDER",
   "TIKTOK_MEMORY_SHOCK", "TIKTOK_PACK_PULL_DRAMA",
   "TIKTOK_LEADERBOARD_FLEX", "TIKTOK_ERA_WARS",
-  "INSTAGRAM_POST",
+  "INSTAGRAM_POST", "FACEBOOK_POST",
 ] as const;
 export type GrowthContentType = typeof growthContentTypes[number];
 
