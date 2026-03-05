@@ -17,6 +17,14 @@ const CREDENTIAL_ERROR_MARKERS = [
   "not configured",
   "not set",
   "credentials not found",
+  // Twitter OAuth errors — "Unauthorized" means the token is invalid/revoked,
+  // which is a credential configuration issue. Auto-reset so items are retried
+  // immediately on the next run once correct credentials are deployed.
+  "unauthorized",
+  // Meta token expiry — items that failed because the access token was expired
+  // should retry automatically once a fresh token is deployed.
+  "session has expired",
+  "error validating access token",
 ];
 
 async function checkPlatformCredentials(platform: string): Promise<{ valid: boolean; error?: string }> {
