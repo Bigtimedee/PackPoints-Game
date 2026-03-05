@@ -11913,6 +11913,141 @@ export async function registerRoutes(
     }
   });
 
+  // ── Layer 4: Human-in-the-Loop Review Queue ───────────────────────────────
+  // Items blocked by the fact-checker (Layers 1–3) land in PENDING_REVIEW.
+  // These endpoints let an admin inspect, approve, or reject them.
+
+  // GET /api/admin/growth/review-queue — list all PENDING_REVIEW items
+  app.get("/api/admin/growth/review-queue", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { platform, limit: limitParam = "50" } = req.query;
+      const limitNum = Math.min(Number(limitParam) || 50, 200);
+
+      const conditions: any[] = [eq(growthContentItems.status, "PENDING_REVIEW")];
+      if (platform && typeof platform === "string") {
+        conditions.push(eq(growthContentItems.platform, platform));
+      }
+
+      const items = await db
+        .select()
+        .from(growthContentItems)
+        .where(and(...conditions))
+        .orderBy(desc(growthContentItems.createdAt))
+        .limit(limitNum);
+
+      res.json({
+        count: items.length,
+        items: items.map(item => ({
+          id: item.id,
+          platform: item.platform,
+          type: item.type,
+          title: item.title,
+          body: item.body,
+          postingMode: item.postingMode,
+          scheduledFor: item.scheduledFor,
+          createdAt: item.createdAt,
+          factCheckResult: (item as any).factCheckResult ?? null,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/admin/growth/review-queue/:id/approve — approve a PENDING_REVIEW item
+  // Sets status to READY so the auto-poster will publish it on its next run.
+  app.post("/api/admin/growth/review-queue/:id/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { note } = req.body ?? {};
+
+      const [item] = await db
+        .select()
+        .from(growthContentItems)
+        .where(eq(growthContentItems.id, id))
+        .limit(1);
+
+      if (!item) return res.status(404).json({ error: "Content item not found" });
+      if (item.status !== "PENDING_REVIEW") {
+        return res.status(400).json({ error: `Cannot approve item with status "${item.status}". Only PENDING_REVIEW items can be approved.` });
+      }
+
+      // Stamp the approval into the factCheckResult metadata
+      const existingFcr = (item as any).factCheckResult ?? {};
+      const updatedFcr = {
+        ...existingFcr,
+        humanReview: {
+          decision: "APPROVED",
+          reviewedAt: new Date().toISOString(),
+          reviewedBy: req.user?.id ?? "admin",
+          note: note ?? null,
+        },
+      };
+
+      await db
+        .update(growthContentItems)
+        .set({
+          status: "READY",
+          error: null,
+          factCheckResult: updatedFcr,
+          updatedAt: new Date(),
+        } as any)
+        .where(eq(growthContentItems.id, id));
+
+      console.log(`[Admin/ReviewQueue] Approved item ${id} (${item.platform}/${item.type}) → READY${note ? ` | note: ${note}` : ""}`);
+      res.json({ success: true, id, newStatus: "READY" });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // POST /api/admin/growth/review-queue/:id/reject — reject a PENDING_REVIEW item
+  // Sets status to FAILED with the reviewer's reason so it won't be published.
+  app.post("/api/admin/growth/review-queue/:id/reject", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body ?? {};
+
+      const [item] = await db
+        .select()
+        .from(growthContentItems)
+        .where(eq(growthContentItems.id, id))
+        .limit(1);
+
+      if (!item) return res.status(404).json({ error: "Content item not found" });
+      if (item.status !== "PENDING_REVIEW") {
+        return res.status(400).json({ error: `Cannot reject item with status "${item.status}". Only PENDING_REVIEW items can be rejected.` });
+      }
+
+      const existingFcr = (item as any).factCheckResult ?? {};
+      const updatedFcr = {
+        ...existingFcr,
+        humanReview: {
+          decision: "REJECTED",
+          reviewedAt: new Date().toISOString(),
+          reviewedBy: req.user?.id ?? "admin",
+          reason: reason ?? "Rejected by reviewer",
+        },
+      };
+
+      await db
+        .update(growthContentItems)
+        .set({
+          status: "FAILED",
+          error: `Rejected by reviewer: ${reason ?? "no reason provided"}`,
+          factCheckResult: updatedFcr,
+          updatedAt: new Date(),
+        } as any)
+        .where(eq(growthContentItems.id, id));
+
+      console.log(`[Admin/ReviewQueue] Rejected item ${id} (${item.platform}/${item.type}) → FAILED | reason: ${reason ?? "none"}`);
+      res.json({ success: true, id, newStatus: "FAILED" });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
   app.get("/api/admin/growth/credential-health", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
       const { validateAllCredentials } = await import("./services/growth");

@@ -9,6 +9,7 @@ import {
   validateWithSchema, getSchemaForPlatform, getSchemaJsonHint,
 } from "./schemas";
 import { validateCompliance } from "./complianceValidator";
+import { checkFactualAccuracy, verdictToStatus } from "./factChecker";
 import { getRecentHooks, getRecentPlayerNames, getRecentThemes, buildDiversityConstraints } from "./diversityTracker";
 import { buildContentContext, contextToPromptSection } from "./contextBuilder";
 import { selectCardsForFormat } from "./cardSelector";
@@ -204,6 +205,14 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
         parsed = { ...parsed, ...compliance.rewritten };
       }
 
+      // Layer 1/2/3: Fact-check gate — run after compliance so we check the
+      // final (possibly rewritten) content. Pass card context for grounding.
+      const cardContext = preSelectedCard
+        ? { player: preSelectedCard.player, year: preSelectedCard.year, set: preSelectedCard.set, cardId: preSelectedCard.id }
+        : undefined;
+      const factCheck = await checkFactualAccuracy({ title: parsed.title, body: parsed.body }, platform, cardContext);
+      const factCheckStatus = postingMode === "AUTO" ? verdictToStatus(factCheck.verdict) : "QUEUED";
+
       const idempKey = `${ctx.idempotencyKey}_${platform}`;
       let itemMetadata: Record<string, any> = { hashtags: parsed.hashtags, theme, complianceIssues: compliance.issues.length > 0 ? compliance.issues : undefined };
 
@@ -216,6 +225,10 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
         itemMetadata = await ensureImageForVisualPlatform(platform, date, `content_${platform}`, itemMetadata);
       }
 
+      if (factCheckStatus === "PENDING_REVIEW") {
+        console.warn(`[ContentJobs] ${platform} post held for review — fact-check verdict: ${factCheck.verdict} (${factCheck.overallExplanation})`);
+      }
+
       const [item] = await db.insert(growthContentItems).values({
         planId: plan.id,
         type,
@@ -224,7 +237,8 @@ registerJob("generate_content_items", async (ctx: JobContext) => {
         body: parsed.body,
         metadata: itemMetadata,
         postingMode,
-        status: postingMode === "AUTO" ? "READY" : "QUEUED",
+        status: factCheckStatus,
+        factCheckResult: factCheck as any,
         idempotencyKey: idempKey,
       }).returning();
 
@@ -295,6 +309,15 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
       announceMeta = await ensureImageForVisualPlatform(platform, date, `daily5_announce_${platform}`, announceMeta);
     }
 
+    const announceCardCtx = announceFeaturedCard
+      ? { player: announceFeaturedCard.player, year: announceFeaturedCard.year, set: announceFeaturedCard.set, cardId: announceFeaturedCard.id }
+      : undefined;
+    const announceFactCheck = await checkFactualAccuracy({ title: parsed.title, body: parsed.body }, platform, announceCardCtx);
+    const announceStatus = verdictToStatus(announceFactCheck.verdict);
+    if (announceStatus === "PENDING_REVIEW") {
+      console.warn(`[ContentJobs] Daily5Announcement ${platform} held for review — ${announceFactCheck.verdict}: ${announceFactCheck.overallExplanation}`);
+    }
+
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
       type: "DAILY5_ANNOUNCEMENT",
@@ -303,7 +326,8 @@ registerJob("generate_daily5_announcement", async (ctx: JobContext) => {
       body: parsed.body,
       metadata: announceMeta,
       postingMode,
-      status: "READY",
+      status: announceStatus,
+      factCheckResult: announceFactCheck as any,
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
 
@@ -379,6 +403,15 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
       recapMeta = await ensureImageForVisualPlatform(platform, date, `daily5_recap_${platform}`, recapMeta);
     }
 
+    const recapCardCtx = recapFeaturedCard
+      ? { player: recapFeaturedCard.player, year: recapFeaturedCard.year, set: recapFeaturedCard.set, cardId: recapFeaturedCard.id }
+      : undefined;
+    const recapFactCheck = await checkFactualAccuracy({ title: parsed.title, body: parsed.body }, platform, recapCardCtx);
+    const recapStatus = verdictToStatus(recapFactCheck.verdict);
+    if (recapStatus === "PENDING_REVIEW") {
+      console.warn(`[ContentJobs] Daily5Recap ${platform} held for review — ${recapFactCheck.verdict}: ${recapFactCheck.overallExplanation}`);
+    }
+
     const [item] = await db.insert(growthContentItems).values({
       planId: plan?.id || null,
       type: "DAILY5_RECAP",
@@ -387,7 +420,8 @@ registerJob("generate_daily5_recap", async (ctx: JobContext) => {
       body: parsed.body,
       metadata: recapMeta,
       postingMode,
-      status: "READY",
+      status: recapStatus,
+      factCheckResult: recapFactCheck as any,
       idempotencyKey: `${idempKey}_${platform}`,
     }).returning();
 

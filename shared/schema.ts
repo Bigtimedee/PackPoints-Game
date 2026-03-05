@@ -3742,7 +3742,7 @@ export type GrowthContentType = typeof growthContentTypes[number];
 export const growthPostingModes = ["AUTO", "MANUAL_QUEUE"] as const;
 export type GrowthPostingMode = typeof growthPostingModes[number];
 
-export const growthContentStatuses = ["QUEUED", "READY", "POSTED", "FAILED"] as const;
+export const growthContentStatuses = ["QUEUED", "READY", "POSTED", "FAILED", "PENDING_REVIEW"] as const;
 export type GrowthContentStatus = typeof growthContentStatuses[number];
 
 export const growthContentItems = pgTable("growth_content_items", {
@@ -3760,6 +3760,8 @@ export const growthContentItems = pgTable("growth_content_items", {
   externalPostId: text("external_post_id"),
   error: text("error"),
   idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+  /** Stores the result of the factual accuracy guardrail check (Layers 1–3). */
+  factCheckResult: jsonb("fact_check_result"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

@@ -160,6 +160,8 @@ registerJob("auto_post_ready_content", async (ctx: JobContext) => {
   const backlogPromoted = await promoteManualQueueBacklog();
 
   const now = new Date();
+  // PENDING_REVIEW items are explicitly excluded — they must be approved via the
+  // review queue API (Layer 4) before they can be published.
   const readyItems = await db.select().from(growthContentItems)
     .where(and(
       eq(growthContentItems.postingMode, "AUTO"),

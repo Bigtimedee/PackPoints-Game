@@ -9,6 +9,7 @@ import { isTikTokEnabled } from "./tiktokConfig";
 import { selectCardsForFormat, type SelectedCard } from "./cardSelector";
 import * as viralPrompts from "./viralPrompts";
 import { quickValidateImageUrl, isPlaceholderUrl } from "../../videoFactory/validate";
+import { checkFactualAccuracy, verdictToStatus, type CardContext } from "./factChecker";
 
 function getChicagoDate(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -39,6 +40,7 @@ async function saveTikTokItem(
   pkg: any,
   idempKey: string,
   scheduledFor: Date,
+  cardContext?: CardContext,
 ): Promise<string | null> {
   const existing = await db.select({ id: growthContentItems.id })
     .from(growthContentItems)
@@ -49,6 +51,13 @@ async function saveTikTokItem(
     return null;
   }
 
+  // Layer 1/2/3: Fact-check gate before saving. Use hook as title, script as body.
+  const factCheck = await checkFactualAccuracy({ title: pkg.hook, body: pkg.script }, "tiktok", cardContext);
+  const itemStatus = verdictToStatus(factCheck.verdict);
+  if (itemStatus === "PENDING_REVIEW") {
+    console.warn(`[TikTokJobs] ${type} held for review — fact-check verdict: ${factCheck.verdict} (${factCheck.overallExplanation})`);
+  }
+
   const [item] = await db.insert(growthContentItems).values({
     planId,
     type,
@@ -57,7 +66,8 @@ async function saveTikTokItem(
     body: pkg.script,
     metadata: pkg,
     postingMode: "AUTO",
-    status: "READY",
+    status: itemStatus,
+    factCheckResult: factCheck as any,
     scheduledFor,
     idempotencyKey: idempKey,
   }).returning();
