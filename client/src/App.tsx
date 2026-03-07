@@ -51,6 +51,8 @@ import Invite from "@/pages/invite";
 import Redeem from "@/pages/redeem";
 import Friends from "@/pages/friends";
 import Daily5 from "@/pages/daily5";
+import PrivacyPolicy from "@/pages/privacy-policy";
+import TermsOfService from "@/pages/terms-of-service";
 import { AdminLayout } from "@/components/admin-layout";
 
 function Router() {
@@ -221,6 +223,8 @@ function Router() {
       <Route path="/redeem" component={Redeem} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/privacy-policy" component={PrivacyPolicy} />
+      <Route path="/terms-of-service" component={TermsOfService} />
       <Route component={NotFound} />
     </Switch>
   );
