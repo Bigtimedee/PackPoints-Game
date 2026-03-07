@@ -11300,5 +11300,14 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/social-agent/status", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getSocialAgentStatus } = await import("./services/socialMedia");
+      res.json(getSocialAgentStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   return httpServer;
 }

@@ -339,6 +339,15 @@ app.use((req, res, next) => {
           console.error("[WebhookRetryWorker] Failed to start:", err);
         }
 
+        if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
+          try {
+            const { initSocialMediaAgent } = await import("./services/socialMedia");
+            await initSocialMediaAgent();
+          } catch (err) {
+            console.error("[SocialMediaAgent] Failed to initialize:", err);
+          }
+        }
+
 
       })().catch((err) => {
         console.error("[StartupBackfill] Unhandled error in post-listen initialization:", err);

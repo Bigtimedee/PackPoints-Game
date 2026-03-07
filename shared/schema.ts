@@ -3822,3 +3822,93 @@ export const insertContentAssetSchema = createInsertSchema(contentAssets).omit({
 });
 export type InsertContentAsset = z.infer<typeof insertContentAssetSchema>;
 export type ContentAsset = typeof contentAssets.$inferSelect;
+
+// ---- Social Media Agent ----
+
+export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK"]);
+export const socialPostStatusEnum = pgEnum("social_post_status", [
+  "DRAFT", "QUEUED", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED",
+]);
+export const socialContentTypeEnum = pgEnum("social_content_type", [
+  "TRIVIA_CARD", "LEADERBOARD_HIGHLIGHT", "STREAK_MILESTONE",
+  "MARKET_PRICE_SPOTLIGHT", "NEW_USER_ACQUISITION", "REWARD_ANNOUNCEMENT", "CHALLENGE",
+]);
+export const abTestStatusEnum = pgEnum("ab_test_status", ["RUNNING", "CONCLUDED", "INCONCLUSIVE"]);
+export const campaignRewardTypeEnum = pgEnum("campaign_reward_type", [
+  "SIGNUP_BONUS", "STREAK_REWARD", "REFERRAL",
+]);
+
+export const socialPosts = pgTable("social_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  platform: socialPlatformEnum("platform").notNull(),
+  contentType: socialContentTypeEnum("content_type").notNull(),
+  status: socialPostStatusEnum("status").notNull().default("DRAFT"),
+  abGroup: varchar("ab_group", { length: 1 }),
+  abTestId: varchar("ab_test_id"),
+  campaignId: varchar("campaign_id"),
+  cardId: varchar("card_id"),
+  cardImageUrl: text("card_image_url"),
+  composedImagePath: text("composed_image_path"),
+  cardQueryParams: jsonb("card_query_params"),
+  copyText: text("copy_text").notNull(),
+  hashtags: text("hashtags").array(),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  publishedAt: timestamp("published_at"),
+  platformPostId: varchar("platform_post_id"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  errorMessage: text("error_message"),
+  factCheckPassed: boolean("fact_check_passed").notNull().default(false),
+  factCheckLog: jsonb("fact_check_log"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_social_posts_platform_status").on(t.platform, t.status),
+  index("idx_social_posts_scheduled").on(t.scheduledAt, t.status),
+  index("idx_social_posts_ab_test").on(t.abTestId),
+]);
+export const insertSocialPostSchema = createInsertSchema(socialPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type SocialPost = typeof socialPosts.$inferSelect;
+
+export const postAnalytics = pgTable("post_analytics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  postId: varchar("post_id").notNull().references(() => socialPosts.id),
+  fetchedAt: timestamp("fetched_at").defaultNow(),
+  impressions: integer("impressions").default(0),
+  likes: integer("likes").default(0),
+  shares: integer("shares").default(0),
+  comments: integer("comments").default(0),
+  clicks: integer("clicks").default(0),
+  profileVisits: integer("profile_visits").default(0),
+  newSignupsAttributed: integer("new_signups_attributed").default(0),
+  conversionRate: real("conversion_rate"),
+}, (t) => [index("idx_post_analytics_post_id").on(t.postId)]);
+export type PostAnalytics = typeof postAnalytics.$inferSelect;
+
+export const abTests = pgTable("ab_tests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull(),
+  contentType: socialContentTypeEnum("content_type").notNull(),
+  testName: varchar("test_name").notNull(),
+  hypothesis: text("hypothesis"),
+  variantADescription: text("variant_a_description"),
+  variantBDescription: text("variant_b_description"),
+  status: abTestStatusEnum("status").notNull().default("RUNNING"),
+  winner: varchar("winner", { length: 1 }),
+  winningMetric: varchar("winning_metric"),
+  startedAt: timestamp("started_at").defaultNow(),
+  endedAt: timestamp("ended_at"),
+}, (t) => [index("idx_ab_tests_status").on(t.status)]);
+export type AbTest = typeof abTests.$inferSelect;
+
+export const campaignRewards = pgTable("campaign_rewards", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  campaignId: varchar("campaign_id").notNull(),
+  rewardType: campaignRewardTypeEnum("reward_type").notNull(),
+  rewardDescription: text("reward_description").notNull(),
+  rewardValue: varchar("reward_value").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  validFrom: timestamp("valid_from").defaultNow(),
+  validUntil: timestamp("valid_until"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [index("idx_campaign_rewards_active").on(t.isActive)]);
+export type CampaignReward = typeof campaignRewards.$inferSelect;
