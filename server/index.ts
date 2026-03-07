@@ -339,28 +339,7 @@ app.use((req, res, next) => {
           console.error("[WebhookRetryWorker] Failed to start:", err);
         }
 
-        try {
-          const { initGrowthAgent } = await import("./services/growth");
-          await initGrowthAgent();
-        } catch (err) {
-          console.error("[GrowthAgent] Failed to initialize:", err);
-        }
 
-        try {
-          const { verifyFFmpeg, isVideoFactoryEnabled, isFFmpegAvailable } = await import("./videoFactory");
-          if (isVideoFactoryEnabled()) {
-            verifyFFmpeg();
-            if (isFFmpegAvailable()) {
-              console.log("[VideoFactory] Enabled and ready");
-            } else {
-              console.warn("[VideoFactory] DEGRADED: Enabled but FFmpeg not found - video rendering will be unavailable");
-            }
-          } else {
-            console.log("[VideoFactory] Disabled (set VIDEO_FACTORY_ENABLED=true to enable)");
-          }
-        } catch (err) {
-          console.error("[VideoFactory] Init check failed:", err);
-        }
       })().catch((err) => {
         console.error("[StartupBackfill] Unhandled error in post-listen initialization:", err);
       });
