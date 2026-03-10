@@ -57,6 +57,129 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   }
 }
 
+export async function sendStreakReminderEmail(
+  email: string,
+  username: string,
+  streakDays: number,
+): Promise<boolean> {
+  const siteUrl = process.env.SITE_URL || "https://packpts.com";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Your streak is at risk!</title>
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; margin: 0; padding: 20px;">
+      <div style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div style="background-color: #18181b; padding: 24px; text-align: center;">
+          <h1 style="color: #FFD700; margin: 0; font-size: 28px;">🔥 ${streakDays}-Day Streak</h1>
+          <p style="color: #a1a1aa; margin: 8px 0 0; font-size: 14px;">PackPoints</p>
+        </div>
+        <div style="padding: 32px 24px;">
+          <h2 style="color: #18181b; margin: 0 0 12px 0; font-size: 20px;">Don't break your streak, ${username}!</h2>
+          <p style="color: #52525b; line-height: 1.6; margin: 0 0 24px 0;">
+            You're on a <strong>${streakDays}-day streak</strong> — that's seriously impressive. Play today's card challenge to keep it alive and earn your daily streak bonus.
+          </p>
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${siteUrl}" style="display: inline-block; background-color: #FFD700; color: #18181b; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
+              Play Now &rarr;
+            </a>
+          </div>
+          <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 0; text-align: center;">
+            Your streak resets at midnight. Don't let it slip!
+          </p>
+        </div>
+        <div style="background-color: #fafafa; padding: 16px 24px; text-align: center;">
+          <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
+            &copy; ${new Date().getFullYear()} PackPoints. All rights reserved.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `Don't break your streak, ${username}!
+
+You're on a ${streakDays}-day streak. Play today to keep it alive: ${siteUrl}
+
+Your streak resets at midnight.
+
+- The PackPoints Team`;
+
+  return sendEmail({
+    to: email,
+    subject: `🔥 Your ${streakDays}-day streak is at risk today`,
+    html,
+    text,
+  });
+}
+
+export async function sendReEngagementEmail(
+  email: string,
+  username: string,
+  daysSinceLastPlay: number,
+  totalCardsIdentified: number,
+): Promise<boolean> {
+  const siteUrl = process.env.SITE_URL || "https://packpts.com";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>We miss you!</title>
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; margin: 0; padding: 20px;">
+      <div style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div style="background-color: #18181b; padding: 24px; text-align: center;">
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">PackPoints</h1>
+        </div>
+        <div style="padding: 32px 24px;">
+          <h2 style="color: #18181b; margin: 0 0 12px 0; font-size: 20px;">We miss you, ${username}!</h2>
+          <p style="color: #52525b; line-height: 1.6; margin: 0 0 16px 0;">
+            It's been <strong>${daysSinceLastPlay} days</strong> since your last game. You've identified <strong>${totalCardsIdentified.toLocaleString()} cards</strong> so far — that's a collection worth coming back to.
+          </p>
+          <p style="color: #52525b; line-height: 1.6; margin: 0 0 24px 0;">
+            New cards hit the market every week. Jump back in and see what you've been missing.
+          </p>
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${siteUrl}" style="display: inline-block; background-color: #18181b; color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
+              Play Today &rarr;
+            </a>
+          </div>
+          <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 0; text-align: center;">
+            Daily players earn streak bonuses. Start a new streak today.
+          </p>
+        </div>
+        <div style="background-color: #fafafa; padding: 16px 24px; text-align: center;">
+          <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
+            &copy; ${new Date().getFullYear()} PackPoints. All rights reserved.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `We miss you, ${username}!
+
+It's been ${daysSinceLastPlay} days since your last game. You've identified ${totalCardsIdentified.toLocaleString()} cards — that's impressive!
+
+Jump back in and see what's new: ${siteUrl}
+
+- The PackPoints Team`;
+
+  return sendEmail({
+    to: email,
+    subject: `It's been ${daysSinceLastPlay} days — come back to PackPoints`,
+    html,
+    text,
+  });
+}
+
 export async function sendPasswordResetEmail(
   email: string,
   resetToken: string,

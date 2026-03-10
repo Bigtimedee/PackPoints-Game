@@ -10,6 +10,7 @@ import { uploadMedia, publishTweet } from "./publisher/twitter";
 import { publishPhoto } from "./publisher/tiktok";
 import { fetchAnalyticsForRecentPosts } from "./analytics";
 import { newUserAcquisitionCampaign } from "./campaigns/newUserAcquisition";
+import { retentionCampaign } from "./campaigns/retention";
 
 const logger = createLogger("Scheduler");
 
@@ -59,6 +60,11 @@ async function countTodaysPosts(platform: Platform): Promise<number> {
   return result[0]?.cnt ?? 0;
 }
 
+function isRetentionDay(): boolean {
+  // Alternate campaigns by day: even days = acquisition, odd days = retention
+  return new Date().getDate() % 2 !== 0;
+}
+
 async function buildQueueForPlatform(platform: Platform): Promise<void> {
   const existing = await countTodaysPosts(platform);
   if (existing >= agentConfig.minPostsPerDay) return;
@@ -69,11 +75,20 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
   const needed = Math.max(0, n - existing);
   const slots = TIME_SLOTS_EST.slice(0, needed);
 
-  logger.info("building_queue", { platform, existing, target: n, slots });
+  const useRetention = isRetentionDay();
+  const campaign = useRetention ? retentionCampaign : newUserAcquisitionCampaign;
+  const rotation = useRetention ? retentionCampaign.contentTypeRotation : undefined;
+
+  logger.info("building_queue", { platform, existing, target: n, slots, campaign: campaign.campaignId });
 
   for (const hour of slots) {
     try {
-      const draft = await generateDraftPost(platform);
+      // Pick content type from campaign rotation if available
+      const contentType = rotation
+        ? rotation[Math.floor(Math.random() * rotation.length)]
+        : undefined;
+
+      const draft = await generateDraftPost(platform, contentType);
       const composed = await composePostImage({
         platform,
         contentType: draft.contentType,
@@ -81,7 +96,7 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
       });
 
       const { abTestId, abGroup } = await getOrCreateAbTest(
-        newUserAcquisitionCampaign.campaignId,
+        campaign.campaignId,
         draft.contentType as any,
       );
 
@@ -91,7 +106,7 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         status: "QUEUED",
         abGroup,
         abTestId,
-        campaignId: newUserAcquisitionCampaign.campaignId,
+        campaignId: campaign.campaignId,
         cardId: composed.cardId,
         cardImageUrl: composed.cardImageUrl,
         composedImagePath: composed.imagePath,
@@ -102,7 +117,7 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         factCheckPassed: true,
       });
 
-      logger.info("post_queued", { platform, contentType: draft.contentType, hour });
+      logger.info("post_queued", { platform, contentType: draft.contentType, hour, campaign: campaign.campaignId });
     } catch (err) {
       logger.error("queue_build_error", { platform, hour, error: String(err) });
     }

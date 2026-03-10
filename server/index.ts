@@ -348,6 +348,13 @@ app.use((req, res, next) => {
           }
         }
 
+        try {
+          const { startRetentionEmailLoops } = await import("./services/retentionEmails");
+          startRetentionEmailLoops();
+        } catch (err) {
+          console.error("[RetentionEmails] Failed to start loops:", err);
+        }
+
 
       })().catch((err) => {
         console.error("[StartupBackfill] Unhandled error in post-listen initialization:", err);

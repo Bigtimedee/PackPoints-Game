@@ -3,8 +3,9 @@ import { wallets, ledgerEntries, referralAttributions, referralLinks } from "@sh
 import { eq, and, sql, gte } from "drizzle-orm";
 import { bucketService } from "./bucketService";
 
-const REFERRAL_BONUS_POINTS = 50;
-const DAILY_REFERRAL_BONUS_CAP = 500;
+const REFERRAL_BONUS_POINTS = 200;
+const DAILY_REFERRAL_BONUS_CAP = 1000;
+const REFERRAL_WELCOME_BONUS_POINTS = 100;
 
 export async function grantReferralBonus(invitedUserId: string, eventType: "FIRST_MATCH"): Promise<{ granted: boolean; reason?: string }> {
   try {
@@ -126,6 +127,88 @@ export async function grantReferralBonus(invitedUserId: string, eventType: "FIRS
     });
   } catch (err: any) {
     console.error("[ReferralRewards] Error:", err?.message);
+    return { granted: false, reason: "error" };
+  }
+}
+
+export async function grantReferralWelcomeBonus(invitedUserId: string, referralLinkId: string): Promise<{ granted: boolean; reason?: string }> {
+  try {
+    const idempotencyKey = `referral_welcome:${invitedUserId}:${referralLinkId}`;
+
+    return await db.transaction(async (tx) => {
+      const existing = await tx.select({ id: ledgerEntries.id })
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return { granted: false, reason: "already_granted" };
+      }
+
+      let [wallet] = await tx.select()
+        .from(wallets)
+        .where(eq(wallets.userId, invitedUserId))
+        .for("update")
+        .limit(1);
+
+      if (!wallet) {
+        const [newWallet] = await tx.insert(wallets).values({
+          userId: invitedUserId,
+          balance: 0,
+          lifetimeEarned: 0,
+          lifetimeSpent: 0,
+          status: "active",
+        }).returning();
+        wallet = newWallet;
+      }
+
+      if (wallet.status !== "active") {
+        return { granted: false, reason: "wallet_inactive" };
+      }
+
+      const newBalance = wallet.balance + REFERRAL_WELCOME_BONUS_POINTS;
+
+      const [entry] = await tx.insert(ledgerEntries).values({
+        walletId: wallet.id,
+        entryType: "EARN",
+        amount: REFERRAL_WELCOME_BONUS_POINTS,
+        balanceAfter: newBalance,
+        reason: `Welcome bonus: joined via referral link`,
+        source: "referral",
+        eventType: "referral_welcome",
+        refType: "referral",
+        refId: referralLinkId,
+        metadata: {
+          referralLinkId,
+          invitedUserId,
+        },
+        idempotencyKey,
+      }).returning();
+
+      await tx.update(wallets).set({
+        balance: newBalance,
+        lifetimeEarned: wallet.lifetimeEarned + REFERRAL_WELCOME_BONUS_POINTS,
+        updatedAt: new Date(),
+      }).where(eq(wallets.id, wallet.id));
+
+      await bucketService.createBucket(
+        invitedUserId,
+        REFERRAL_WELCOME_BONUS_POINTS,
+        "BONUS",
+        entry.id,
+        {
+          source: "referral_welcome",
+          referralLinkId,
+        },
+        undefined,
+        tx,
+      );
+
+      console.log(`[ReferralRewards] Granted ${REFERRAL_WELCOME_BONUS_POINTS} welcome pts to ${invitedUserId} via referral link ${referralLinkId}`);
+      return { granted: true };
+    });
+  } catch (err: any) {
+    console.error("[ReferralRewards] Welcome bonus error:", err?.message);
     return { granted: false, reason: "error" };
   }
 }

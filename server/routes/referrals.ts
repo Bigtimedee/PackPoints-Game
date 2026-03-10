@@ -142,6 +142,14 @@ router.post("/api/referrals/attribute", async (req: Request, res: Response) => {
         }).catch(() => {});
       }
 
+      if (eventType === "SIGNUP") {
+        import("../services/referralRewards").then(({ grantReferralWelcomeBonus }) => {
+          grantReferralWelcomeBonus(userId, link.id).catch(err =>
+            console.error("[Referral] Welcome bonus grant error:", err?.message)
+          );
+        }).catch(() => {});
+      }
+
       return res.json({ attributed: true });
     } catch (err: any) {
       if (err?.message?.includes("uq_referral_attribution") || err?.code === "23505") {
