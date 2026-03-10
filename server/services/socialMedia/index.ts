@@ -65,7 +65,7 @@ export async function initSocialMediaAgent(): Promise<void> {
 
   // 2. Verify CardHedge — HARD FAIL
   try {
-    await cardSearchSorted({ page: 1, page_size: 1 });
+    await cardSearchSorted({ page: 1, page_size: 1, category: "Baseball" });
   } catch (err) {
     logger.error("cardhedge_check_failed", { error: String(err) });
     throw new Error("[SocialMediaAgent] CardHedge connectivity check failed");

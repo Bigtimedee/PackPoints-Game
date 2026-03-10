@@ -28,7 +28,7 @@ export interface AgentConfig {
 
 export const agentConfig: AgentConfig = {
   enabled: process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true",
-  dryRun: process.env.AGENT_DRY_RUN !== "false",
+  dryRun: process.env.AGENT_DRY_RUN === "true",
   timezone: process.env.AGENT_TIMEZONE ?? "America/New_York",
   minPostsPerDay: parseInt(process.env.AGENT_MIN_POSTS_PER_DAY ?? "2"),
   maxPostsPerDay: parseInt(process.env.AGENT_MAX_POSTS_PER_DAY ?? "4"),
