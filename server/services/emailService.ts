@@ -13,9 +13,49 @@ export async function verifyEmailConfig(): Promise<boolean> {
   }
 
   resend = new Resend(apiKey);
-  emailConfigValid = true;
-  console.log('[EmailService] Resend configured successfully');
-  return true;
+
+  // Actually test the API key and check domain verification status
+  try {
+    const { data: domains, error } = await resend.domains.list();
+
+    if (error) {
+      console.error('[EmailService] RESEND_API_KEY is invalid or unauthorized:', error.message);
+      emailConfigValid = false;
+      return false;
+    }
+
+    const SENDING_DOMAIN = 'packpts.com';
+    const verified = domains?.data?.find(
+      (d: any) => d.name === SENDING_DOMAIN && d.status === 'verified'
+    );
+
+    if (!verified) {
+      const found = domains?.data?.find((d: any) => d.name === SENDING_DOMAIN);
+      if (!found) {
+        console.error(
+          `[EmailService] DOMAIN NOT ADDED: "${SENDING_DOMAIN}" is not listed in your Resend account. ` +
+          'Go to https://resend.com/domains → Add Domain → add packpts.com → copy the DNS records to your DNS provider.'
+        );
+      } else {
+        console.error(
+          `[EmailService] DOMAIN NOT VERIFIED: "${SENDING_DOMAIN}" is in Resend but status="${found.status}". ` +
+          'Go to https://resend.com/domains, select packpts.com, and add the required DNS records. ' +
+          'Emails from noreply@packpts.com will fail until the domain is verified.'
+        );
+      }
+      // Still allow the app to start, but flag as invalid
+      emailConfigValid = false;
+      return false;
+    }
+
+    emailConfigValid = true;
+    console.log(`[EmailService] Resend configured successfully. Domain "${SENDING_DOMAIN}" is verified.`);
+    return true;
+  } catch (err: any) {
+    console.error('[EmailService] Failed to connect to Resend API:', err.message);
+    emailConfigValid = false;
+    return false;
+  }
 }
 
 interface SendEmailOptions {
@@ -45,7 +85,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
     });
 
     if (error) {
-      console.error(`[EmailService] Failed to send email:`, error.message);
+      console.error(`[EmailService] Resend rejected email to ${options.to} — ${error.name}: ${error.message}`);
       return false;
     }
 
