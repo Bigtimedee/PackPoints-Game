@@ -28,9 +28,10 @@ function buildScheduledTime(hourEst: number): Date {
   const year = todayEst.getUTCFullYear();
   const month = todayEst.getUTCMonth();
   const day = todayEst.getUTCDate();
-  // Build UTC time for the EST hour
+  // Build UTC time for the EST hour; carry over to next day if utcHour >= 24
   const utcHour = hourEst - getEstOffset() / (60 * 60 * 1000);
-  return new Date(Date.UTC(year, month, day, utcHour % 24, 0, 0, 0));
+  const dayOffset = Math.floor(utcHour / 24);
+  return new Date(Date.UTC(year, month, day + dayOffset, utcHour % 24, 0, 0, 0));
 }
 
 function todayStartUtc(): Date {
@@ -95,7 +96,7 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         cardQuery: draft.cardQueryParams as any,
       });
 
-      const { abTestId, abGroup } = await getOrCreateAbTest(
+      const { abTestId } = await getOrCreateAbTest(
         campaign.campaignId,
         draft.contentType as any,
       );
@@ -104,7 +105,7 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         platform,
         contentType: draft.contentType as any,
         status: "QUEUED",
-        abGroup,
+        abGroup: draft.abGroup as any,
         abTestId,
         campaignId: campaign.campaignId,
         cardId: composed.cardId,

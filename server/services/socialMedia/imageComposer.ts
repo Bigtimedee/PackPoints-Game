@@ -86,7 +86,7 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
   const searchResult = await cardSearchSorted({
     page: 1,
     page_size: 10,
-    category: cardQuery?.category,
+    category: cardQuery?.category ?? "Baseball",
     player: cardQuery?.player,
     sort_by: "sales_7day",
     sort_order: "desc",

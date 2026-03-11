@@ -21,9 +21,8 @@ function getClient(): TwitterApi {
 
 export async function uploadMedia(imagePath: string): Promise<string> {
   const client = getClient();
-  const absPath = imagePath.startsWith("/")
-    ? path.resolve(process.cwd(), "public", imagePath)
-    : path.resolve(imagePath);
+  const relativePath = imagePath.replace(/^\//, "");
+  const absPath = path.resolve(process.cwd(), "public", relativePath);
   logger.info("media_upload_path", { imagePath, absPath, cwd: process.cwd() });
   const mediaBuffer = fs.readFileSync(absPath);
   const mediaId = await client.v1.uploadMedia(mediaBuffer, { mimeType: "image/png" });

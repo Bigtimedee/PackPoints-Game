@@ -8,7 +8,7 @@ const logger = createLogger("ABTestManager");
 
 export interface ABTestAssignment {
   abTestId: string;
-  abGroup: "A" | "B";
+  abGroup: "A" | "B" | "C";
 }
 
 export async function getOrCreateAbTest(
@@ -51,7 +51,8 @@ export async function getOrCreateAbTest(
     logger.info("ab_test_created", { testId, campaignId, contentType });
   }
 
-  // Assign group: odd day = A, even day = B
-  const abGroup: "A" | "B" = new Date().getDate() % 2 !== 0 ? "A" : "B";
+  // Assign group: day % 3 maps to A / B / C, matching contentGenerator logic
+  const dayMod = new Date().getDate() % 3;
+  const abGroup: "A" | "B" | "C" = dayMod === 0 ? "A" : dayMod === 1 ? "B" : "C";
   return { abTestId: testId, abGroup };
 }

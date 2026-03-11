@@ -11,7 +11,7 @@ export interface DraftPost {
   copyText: string;
   hashtags: string[];
   cardQueryParams: Record<string, unknown>;
-  abGroup: "A" | "B";
+  abGroup: "A" | "B" | "C";
 }
 
 export interface FactCheckLogEntry {
