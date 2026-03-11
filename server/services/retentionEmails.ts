@@ -1,140 +1,119 @@
 import { db } from "../db";
-import { sql } from "drizzle-orm";
+import { users, streakState } from "@shared/schema";
+import { eq, and, gte, lte, isNotNull } from "drizzle-orm";
 import { sendStreakReminderEmail, sendReEngagementEmail } from "./emailService";
 
-const STREAK_REMINDER_MIN_DAYS = 3;
-const REENGAGEMENT_LAPSED_DAYS = 3;
-const REENGAGEMENT_MAX_DAYS = 30;
+let lastStreakReminderDate = "";
+let lastReEngagementDate = "";
 
 export async function sendStreakReminderBatch(): Promise<void> {
-  try {
-    // Find users with active streaks >= threshold who have NOT played today
-    const result = await db.execute(sql`
-      SELECT
-        u.id,
-        u.email,
-        u.username,
-        ss.current_days
-      FROM streak_state ss
-      JOIN users u ON u.id = ss.user_id
-      WHERE
-        ss.current_days >= ${STREAK_REMINDER_MIN_DAYS}
-        AND u.email IS NOT NULL
-        AND u.status = 'ACTIVE'
-        AND NOT EXISTS (
-          SELECT 1 FROM matches m
-          WHERE m.user_id = u.id
-            AND m.status = 'COMPLETED'
-            AND m.created_at >= NOW()::date
-        )
-      LIMIT 500
-    `);
+  // Users with streak >= 3 who last played yesterday are at risk of losing it today
+  const yesterday = new Date();
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
-    const rows = result.rows as Array<{
-      id: string;
-      email: string;
-      username: string;
-      current_days: number;
-    }>;
+  const atRiskUsers = await db
+    .select({
+      userId: streakState.userId,
+      currentDays: streakState.currentDays,
+      email: users.email,
+      username: users.username,
+    })
+    .from(streakState)
+    .innerJoin(users, eq(streakState.userId, users.id))
+    .where(
+      and(
+        gte(streakState.currentDays, 3),
+        eq(streakState.lastActiveLocalDate, yesterdayStr),
+        eq(users.status, "ACTIVE"),
+        isNotNull(users.email),
+      ),
+    );
 
-    let sent = 0;
-    for (const row of rows) {
-      try {
-        const ok = await sendStreakReminderEmail(row.email, row.username, row.current_days);
-        if (ok) sent++;
-      } catch { /* per-user failure is non-fatal */ }
+  let sent = 0;
+  for (const user of atRiskUsers) {
+    if (!user.email || !user.username) continue;
+    try {
+      await sendStreakReminderEmail(user.email, user.username, user.currentDays);
+      sent++;
+    } catch (err) {
+      console.error("[RetentionEmails] Streak reminder failed for user:", user.userId, err);
     }
-
-    if (rows.length > 0) {
-      console.log(`[RetentionEmails] Streak reminders: ${sent}/${rows.length} sent`);
-    }
-  } catch (err) {
-    console.error("[RetentionEmails] sendStreakReminderBatch error:", err);
   }
+
+  console.log(`[RetentionEmails] Streak reminder batch complete: ${sent}/${atRiskUsers.length} emails sent`);
 }
 
 export async function sendReEngagementBatch(): Promise<void> {
-  try {
-    // Find users inactive for 3–30 days who have not received a re-engagement email recently
-    const result = await db.execute(sql`
-      SELECT
-        u.id,
-        u.email,
-        u.username,
-        EXTRACT(DAY FROM NOW() - MAX(m.created_at))::int AS days_since,
-        COUNT(ma.id)::int AS total_cards
-      FROM users u
-      JOIN matches m ON m.user_id = u.id AND m.status = 'COMPLETED'
-      LEFT JOIN match_answers ma ON ma.user_id = u.id
-      WHERE
-        u.email IS NOT NULL
-        AND u.status = 'ACTIVE'
-      GROUP BY u.id, u.email, u.username
-      HAVING
-        EXTRACT(DAY FROM NOW() - MAX(m.created_at)) >= ${REENGAGEMENT_LAPSED_DAYS}
-        AND EXTRACT(DAY FROM NOW() - MAX(m.created_at)) <= ${REENGAGEMENT_MAX_DAYS}
-      LIMIT 500
-    `);
+  // Users who last played 3–7 days ago — lapsed but not too far gone
+  const today = new Date().toISOString().slice(0, 10);
 
-    const rows = result.rows as Array<{
-      id: string;
-      email: string;
-      username: string;
-      days_since: number;
-      total_cards: number;
-    }>;
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setUTCDate(threeDaysAgo.getUTCDate() - 3);
+  const threeDaysAgoStr = threeDaysAgo.toISOString().slice(0, 10);
 
-    let sent = 0;
-    for (const row of rows) {
-      try {
-        const ok = await sendReEngagementEmail(
-          row.email,
-          row.username,
-          row.days_since,
-          row.total_cards,
-        );
-        if (ok) sent++;
-      } catch { /* per-user failure is non-fatal */ }
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 7);
+  const sevenDaysAgoStr = sevenDaysAgo.toISOString().slice(0, 10);
+
+  const lapsedUsers = await db
+    .select({
+      userId: streakState.userId,
+      email: users.email,
+      username: users.username,
+      lastActiveLocalDate: streakState.lastActiveLocalDate,
+      correctAnswers: users.correctAnswers,
+    })
+    .from(streakState)
+    .innerJoin(users, eq(streakState.userId, users.id))
+    .where(
+      and(
+        lte(streakState.lastActiveLocalDate, threeDaysAgoStr),
+        gte(streakState.lastActiveLocalDate, sevenDaysAgoStr),
+        eq(users.status, "ACTIVE"),
+        isNotNull(users.email),
+      ),
+    );
+
+  let sent = 0;
+  for (const user of lapsedUsers) {
+    if (!user.email || !user.username) continue;
+    const lastDate = user.lastActiveLocalDate ?? sevenDaysAgoStr;
+    const daysSince = Math.round(
+      (new Date(today).getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24),
+    );
+    try {
+      await sendReEngagementEmail(user.email, user.username, daysSince, user.correctAnswers ?? 0);
+      sent++;
+    } catch (err) {
+      console.error("[RetentionEmails] Re-engagement failed for user:", user.userId, err);
     }
-
-    if (rows.length > 0) {
-      console.log(`[RetentionEmails] Re-engagement: ${sent}/${rows.length} sent`);
-    }
-  } catch (err) {
-    console.error("[RetentionEmails] sendReEngagementBatch error:", err);
   }
+
+  console.log(`[RetentionEmails] Re-engagement batch complete: ${sent}/${lapsedUsers.length} emails sent`);
 }
 
 export function startRetentionEmailLoops(): void {
-  // Streak reminders: run once daily at ~6 PM UTC (18:00)
-  const STREAK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-  const STREAK_INITIAL_DELAY_MS = 2 * 60 * 1000; // 2 min after startup
+  setInterval(async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const utcHour = new Date().getUTCHours();
 
-  setTimeout(() => {
-    sendStreakReminderBatch().catch(err =>
-      console.error("[RetentionEmails] Initial streak reminder failed:", err)
-    );
-    setInterval(() => {
+    // Streak reminders at ~20:00 UTC (3 PM ET) — once per day
+    if (utcHour === 20 && lastStreakReminderDate !== today) {
+      lastStreakReminderDate = today;
       sendStreakReminderBatch().catch(err =>
-        console.error("[RetentionEmails] Streak reminder failed:", err)
+        console.error("[RetentionEmails] Streak reminder batch error:", err),
       );
-    }, STREAK_INTERVAL_MS);
-  }, STREAK_INITIAL_DELAY_MS);
+    }
 
-  // Re-engagement: run once daily (offset by 30 min to spread load)
-  const REENG_INTERVAL_MS = 24 * 60 * 60 * 1000;
-  const REENG_INITIAL_DELAY_MS = 32 * 60 * 1000; // 32 min after startup
-
-  setTimeout(() => {
-    sendReEngagementBatch().catch(err =>
-      console.error("[RetentionEmails] Initial re-engagement failed:", err)
-    );
-    setInterval(() => {
+    // Re-engagement emails at ~14:00 UTC (9 AM ET) — once per day
+    if (utcHour === 14 && lastReEngagementDate !== today) {
+      lastReEngagementDate = today;
       sendReEngagementBatch().catch(err =>
-        console.error("[RetentionEmails] Re-engagement failed:", err)
+        console.error("[RetentionEmails] Re-engagement batch error:", err),
       );
-    }, REENG_INTERVAL_MS);
-  }, REENG_INITIAL_DELAY_MS);
+    }
+  }, 60 * 60 * 1000); // check every hour
 
-  console.log("[RetentionEmails] Streak reminder and re-engagement loops started");
+  console.log("[RetentionEmails] Retention email loops started");
 }
