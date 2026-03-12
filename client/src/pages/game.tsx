@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "wouter";
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,7 @@ import { SiX, SiFacebook } from "react-icons/si";
 import type { GameSession, GameQuestion, GameSet, PlayableSet } from "@shared/schema";
 import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function AnswerButton({
   option,
@@ -55,6 +57,7 @@ function AnswerButton({
       className={className}
       onClick={onSelect}
       disabled={disabled || isRevealed}
+      aria-label={`Answer option: ${option}`}
       data-testid={`button-answer-${option.toLowerCase().replace(/\s/g, '-')}`}
     >
       <div className="flex-1">{option}</div>
@@ -152,6 +155,10 @@ export default function Game() {
   const [hasStartedGame, setHasStartedGame] = useState(false);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
 
+  // Milestone tracking
+  const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
+  const shownMilestones = useRef<Set<string>>(new Set());
+
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
@@ -199,6 +206,9 @@ export default function Game() {
       setReplacementAttempts(new Map());
       setShowSkipButton(false);
       setReplacementStartTime(null);
+      // Reset milestone tracking for new session
+      setConsecutiveCorrect(0);
+      shownMilestones.current = new Set();
     },
     onError: (error: any) => {
       const errorMessage = error?.message || "";
@@ -269,8 +279,33 @@ export default function Game() {
             description: "You're close to your daily PackPTS limit. Points may be reduced.",
           });
         }
+
+        // Milestone toasts — correct streak and score thresholds
+        const newStreak = consecutiveCorrect + 1;
+        setConsecutiveCorrect(newStreak);
+
+        if (newStreak === 3 && !shownMilestones.current.has("streak3")) {
+          shownMilestones.current.add("streak3");
+          toast({ title: "3 in a row! 🔥", description: "You're on a hot streak!" });
+        } else if (newStreak === 5 && !shownMilestones.current.has("streak5")) {
+          shownMilestones.current.add("streak5");
+          toast({ title: "5 in a row! 🔥🔥", description: "Unstoppable!" });
+        } else if (newStreak === 10 && !shownMilestones.current.has("streak10")) {
+          shownMilestones.current.add("streak10");
+          toast({ title: "10 in a row! 🏆", description: "You're a card expert!" });
+        }
+
+        const newScore = data.totalScore;
+        for (const threshold of [500, 1000, 2000, 5000]) {
+          const key = `score${threshold}`;
+          if (newScore >= threshold && !shownMilestones.current.has(key)) {
+            shownMilestones.current.add(key);
+            toast({ title: `${threshold.toLocaleString()} pts! 💰`, description: `You've earned ${threshold.toLocaleString()} PackPTS this game!` });
+          }
+        }
       } else {
         setRewardDetails(null);
+        setConsecutiveCorrect(0);
       }
       if (data.session) {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
@@ -368,7 +403,7 @@ export default function Game() {
     },
     onSuccess: (data) => {
       if (data.autoFlagged) {
-        console.log(`[Game] Card auto-flagged after ${data.failureCount} failures`);
+        logger.debug(`[Game] Card auto-flagged after ${data.failureCount} failures`);
       }
     },
   });
@@ -398,20 +433,25 @@ export default function Game() {
     },
     onSuccess: (data) => {
       if (data.success && data.question) {
-        // Update the session with the replacement question
+        // Snapshot the index before entering the updater to avoid a race condition
+        // where nextQuestionMutation.onSuccess advances currentQuestionIndex first
+        const replacedIndex = queryClient.getQueryData<any>(["/api/game/session", sessionId])?.currentQuestionIndex;
         queryClient.setQueryData(["/api/game/session", sessionId], (oldData: any) => {
           if (!oldData) return oldData;
+          const targetIndex = replacedIndex ?? oldData.currentQuestionIndex;
           const newQuestions = [...oldData.questions];
-          newQuestions[oldData.currentQuestionIndex] = data.question;
-          // Mark this question index as having been replaced
-          setReplacedQuestionIndices(prev => new Set(prev).add(oldData.currentQuestionIndex));
+          newQuestions[targetIndex] = data.question;
           return { ...oldData, questions: newQuestions };
         });
-        console.log(`[Game] Card replaced successfully with ${data.question.card.id}`);
+        // Move setState outside of setQueryData updater (pure-function requirement)
+        if (replacedIndex != null) {
+          setReplacedQuestionIndices(prev => new Set(prev).add(replacedIndex));
+        }
+        logger.debug(`[Game] Card replaced successfully with ${data.question.card.id}`);
       }
     },
     onError: (error) => {
-      console.log(`[Game] Card replacement failed:`, error);
+      logger.debug(`[Game] Card replacement failed:`, error);
       // Mark this question as having had a replacement attempt
       if (session) {
         const currentIdx = session.currentQuestionIndex;
@@ -487,7 +527,7 @@ export default function Game() {
     
     // If we've failed 2+ times to get a replacement, allow true skip to next question
     if (attempts >= 2 && !nextQuestionMutation.isPending) {
-      console.log(`[Game] Multiple replacement failures, skipping to next question`);
+      logger.debug(`[Game] Multiple replacement failures, skipping to next question`);
       nextQuestionMutation.mutate("image_failure");
       return;
     }
@@ -514,7 +554,7 @@ export default function Game() {
     // If so, increment the attempt counter (image failed after replacement succeeded)
     // and show skip button rather than trying again automatically
     if (replacedQuestionIndices.has(currentIndex)) {
-      console.log(`[Game] Replacement card image also failed at question ${currentIndex + 1}, incrementing attempts`);
+      logger.debug(`[Game] Replacement card image also failed at question ${currentIndex + 1}, incrementing attempts`);
       // Count this as another failed attempt toward the skip threshold
       setReplacementAttempts(prev => {
         const newMap = new Map(prev);
@@ -624,10 +664,14 @@ export default function Game() {
 
   if (startGameMutation.isPending || sessionLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Loading game...</p>
+      <div className="flex flex-col items-center gap-4 p-6 max-w-lg mx-auto">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+        <div className="grid grid-cols-2 gap-3 w-full">
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
         </div>
       </div>
     );
@@ -754,35 +798,6 @@ export default function Game() {
                 </Button>
               </>
             )}
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const currentQuestion = session.questions?.[session.currentQuestionIndex];
-  const progress = ((session.currentQuestionIndex + (isRevealed ? 1 : 0)) / session.totalQuestions) * 100;
-
-  // Defensive check for missing question data
-  if (!currentQuestion || !currentQuestion.card) {
-    return (
-      <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8">
-        <Card className="max-w-md w-full mx-4">
-          <CardContent className="p-6 text-center space-y-4">
-            <X className="h-12 w-12 text-destructive mx-auto" />
-            <h2 className="text-xl font-bold">Game Error</h2>
-            <p className="text-muted-foreground">Unable to load the current card. Please try again.</p>
-            <div className="flex flex-col gap-2">
-              <Button onClick={() => startGameMutation.mutate(parseInt(selectedCardCount))} data-testid="button-retry-game">
-                Start New Game
-              </Button>
-              <Link href="/">
-                <Button variant="outline" className="w-full" data-testid="button-go-home">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Go Home
-                </Button>
-              </Link>
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -1043,6 +1058,35 @@ export default function Game() {
     );
   }
 
+  const currentQuestion = session.questions?.[session.currentQuestionIndex];
+  const progress = ((session.currentQuestionIndex + (isRevealed ? 1 : 0)) / session.totalQuestions) * 100;
+
+  // Defensive check for missing question data (should not normally occur)
+  if (!currentQuestion || !currentQuestion.card) {
+    return (
+      <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8">
+        <Card className="max-w-md w-full mx-4">
+          <CardContent className="p-6 text-center space-y-4">
+            <X className="h-12 w-12 text-destructive mx-auto" />
+            <h2 className="text-xl font-bold">Game Error</h2>
+            <p className="text-muted-foreground">Unable to load the current card. Please try again.</p>
+            <div className="flex flex-col gap-2">
+              <Button onClick={() => startGameMutation.mutate(parseInt(selectedCardCount))} data-testid="button-retry-game">
+                Start New Game
+              </Button>
+              <Link href="/">
+                <Button variant="outline" className="w-full" data-testid="button-go-home">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Go Home
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div data-testid="game-active-viewport">
       <div className="max-w-2xl mx-auto w-full px-3 sm:px-4">
@@ -1106,7 +1150,7 @@ export default function Game() {
             </div>
 
             <div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" role="group" aria-label="Answer choices">
                 {currentQuestion.options.map((option) => (
                   <AnswerButton
                     key={option}

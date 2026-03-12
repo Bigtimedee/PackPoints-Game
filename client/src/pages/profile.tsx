@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Zap, Trophy, Target, Clock, Star, TrendingUp, Settings } from "lucide-react";
 import { StreakCard, StreakCalendar } from "@/components/streak-card";
 import { FoundersPassCard } from "@/components/founders-pass-card";
+import { AchievementBadges } from "@/components/AchievementBadges";
 
 interface ProfileStats {
   username: string;
@@ -137,7 +138,7 @@ export default function Profile() {
                   <Progress value={stats.levelProgress} className="h-2" data-testid="progress-level" />
                 </div>
               </div>
-              <Button variant="outline" size="icon" data-testid="button-settings">
+              <Button variant="outline" size="icon" aria-label="Open settings" data-testid="button-settings">
                 <Settings className="h-5 w-5" />
               </Button>
             </div>
@@ -146,6 +147,15 @@ export default function Profile() {
 
         <div className="mb-8">
           <StreakCard />
+        </div>
+
+        <div className="mb-8">
+          <AchievementBadges stats={{
+            gamesPlayed: stats.gamesPlayed,
+            correctAnswers: stats.correctAnswers,
+            totalAnswers: stats.totalAnswers,
+            points: stats.points,
+          }} />
         </div>
 
         <div className="mb-8">

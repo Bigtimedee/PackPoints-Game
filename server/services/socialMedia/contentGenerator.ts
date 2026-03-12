@@ -6,6 +6,35 @@ import { createLogger } from "./logger";
 
 const logger = createLogger("ContentGenerator");
 
+// Graceful check: warn at startup if OPENAI_API_KEY is not set
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('[ContentGenerator] OPENAI_API_KEY is not set — AI content generation is disabled. Posts will use fallback templates.');
+}
+
+/**
+ * Returns a simple template-based fallback post when AI content generation is unavailable.
+ */
+function generateFallbackContent(type: string): string {
+  const { siteUrl } = agentConfig;
+  switch (type) {
+    case 'LEADERBOARD_HIGHLIGHT':
+      return `This week's top PackPTS player is crushing the leaderboard! Can you take the top spot? Play free at ${siteUrl} #PackPTS #SportsCards`;
+    case 'STREAK_MILESTONE':
+      return `Daily streaks = bonus points. Keep your PackPTS streak alive and watch your rewards grow! Play at ${siteUrl} #PackPTS #CardCollector`;
+    case 'CHALLENGE':
+      return `New daily challenge is live! Test your sports card knowledge and climb the leaderboard at ${siteUrl} #PackPTS #TradingCards`;
+    case 'MARKET_PRICE_SPOTLIGHT':
+      return `The hottest baseball cards on the market right now — can you name them all? Prove it at ${siteUrl} #PackPTS #SportsCards`;
+    case 'REWARD_ANNOUNCEMENT':
+      return `Earn real rewards for your card knowledge! Join PackPTS free and start collecting points at ${siteUrl} #PackPTS #Collectibles`;
+    case 'NEW_USER_ACQUISITION':
+      return `Free to play. Real rewards. PackPTS turns your sports card knowledge into points you can actually use. Start at ${siteUrl} #PackPTS #SportsCards`;
+    case 'TRIVIA_CARD':
+    default:
+      return `Think you know your baseball cards? Test yourself with today's trivia and earn PackPTS! Play free at ${siteUrl} #PackPTS #TradingCards`;
+  }
+}
+
 export type Platform = "TWITTER" | "TIKTOK";
 export type SocialContentType =
   | "TRIVIA_CARD"
@@ -72,6 +101,11 @@ async function buildCopy(
   platform: Platform,
   abGroup: "A" | "B" | "C",
 ): Promise<{ copyText: string; cardQueryParams: Record<string, unknown> }> {
+  if (!process.env.OPENAI_API_KEY) {
+    // Return a fallback template-based content instead of crashing
+    return { copyText: generateFallbackContent(type), cardQueryParams: { sortBy: "sales_7day" } };
+  }
+
   const { siteUrl } = agentConfig;
   const maxChars = platform === "TWITTER" ? 280 : 2200;
   let copy = "";

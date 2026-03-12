@@ -1,9 +1,34 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Clock, Shuffle, Calendar } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame } from "lucide-react";
 import { FoundersCounter } from "@/components/founders-counter";
+import { OnboardingModal } from "@/components/OnboardingModal";
+import { apiRequest } from "@/lib/queryClient";
+
+// A/B test: hero CTA variants
+const AB_STORAGE_KEY = "pp_hero_cta_variant";
+const AB_VARIANTS = ["A", "B"] as const;
+type HeroCTAVariant = typeof AB_VARIANTS[number];
+
+function getOrAssignVariant(): HeroCTAVariant {
+  try {
+    const stored = localStorage.getItem(AB_STORAGE_KEY);
+    if (stored === "A" || stored === "B") return stored;
+    const variant: HeroCTAVariant = Math.random() < 0.5 ? "A" : "B";
+    localStorage.setItem(AB_STORAGE_KEY, variant);
+    return variant;
+  } catch {
+    return "A";
+  }
+}
+
+function logAbEvent(event: "impression" | "click", variant: HeroCTAVariant) {
+  apiRequest("POST", "/api/ab-events", { test: "hero_cta", variant, event }).catch(() => {});
+}
 
 const gameModes = [
   {
@@ -67,15 +92,204 @@ const gameModes = [
   },
 ];
 
-const quickStats = [
-  { label: "Total Games Played", value: "2,847", icon: Star },
-  { label: "Cards Guessed", value: "12,493", icon: Zap },
-  { label: "Avg Response Time", value: "3.2s", icon: Clock },
-];
+function PromotionBanner() {
+  const { data: promotion } = useQuery<{
+    id: number;
+    name: string;
+    description: string | null;
+    pointsMultiplier: number;
+    endAt: string;
+  } | null>({
+    queryKey: ["/api/promotions/active"],
+    staleTime: 60_000,
+  });
+
+  if (!promotion) return null;
+
+  const endDate = new Date(promotion.endAt);
+  const timeLeft = endDate.getTime() - Date.now();
+  const daysLeft = Math.ceil(timeLeft / (1000 * 60 * 60 * 24));
+
+  return (
+    <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-2 text-center text-sm font-medium">
+      <span className="mr-2">🔥</span>
+      <strong>{promotion.name}</strong>
+      {promotion.pointsMultiplier > 1 && (
+        <span className="ml-2">{promotion.pointsMultiplier}× Points!</span>
+      )}
+      {daysLeft > 0 && daysLeft <= 7 && (
+        <span className="ml-2 opacity-90">— Ends in {daysLeft} day{daysLeft !== 1 ? 's' : ''}</span>
+      )}
+      {promotion.description && (
+        <span className="ml-2 opacity-90">— {promotion.description}</span>
+      )}
+    </div>
+  );
+}
+
+function HowItWorks() {
+  const steps = [
+    {
+      number: "01",
+      title: "See the Card",
+      description: "You'll see a real sports trading card with the player's name hidden. Study the team, stats, and design.",
+      emoji: "🃏",
+    },
+    {
+      number: "02",
+      title: "Make Your Guess",
+      description: "Choose from 4 options. Faster correct answers earn more PackPTS. Build a streak for multipliers!",
+      emoji: "⚡",
+    },
+    {
+      number: "03",
+      title: "Redeem for Real Cards",
+      description: "Use your PackPTS to get discounts on real sports cards from our marketplace partners.",
+      emoji: "🏆",
+    },
+  ];
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-xl font-bold mb-4 text-center">How It Works</h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {steps.map((step) => (
+          <div key={step.number} className="flex gap-3 p-4 rounded-lg bg-muted/30">
+            <div className="text-2xl flex-shrink-0">{step.emoji}</div>
+            <div>
+              <p className="text-xs text-primary font-mono font-bold">{step.number}</p>
+              <h3 className="font-semibold text-sm">{step.title}</h3>
+              <p className="text-xs text-muted-foreground mt-1">{step.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FAQ() {
+  const faqs = [
+    {
+      q: "What is PackPTS?",
+      a: "PackPTS is a sports card trivia game where you identify players from their trading cards. Correct answers earn PackPTS (points) that you can redeem for real card discounts.",
+    },
+    {
+      q: "Is PackPTS free to play?",
+      a: "Yes! PackPTS has a free tier with daily game limits. Pro subscribers get unlimited games, bonus point multipliers, and priority access to new card sets.",
+    },
+    {
+      q: "How do I redeem my points?",
+      a: "Visit the Marketplace section to browse available cards. Apply your PackPTS at checkout for discounts at partner stores including eBay and Goldin Auctions.",
+    },
+    {
+      q: "What sports are covered?",
+      a: "We cover MLB, NBA, NFL, and NHL cards spanning multiple decades. New card sets are added regularly based on community requests.",
+    },
+    {
+      q: "How does the 1v1 mode work?",
+      a: "Challenge a friend or get matched with a random opponent. Both players see the same cards and race to answer correctly. The player with the most correct answers wins bonus points.",
+    },
+  ];
+
+  return (
+    <div className="mb-8">
+      <h2 className="text-xl font-bold mb-4">Frequently Asked Questions</h2>
+      <div className="space-y-3">
+        {faqs.map((faq, i) => (
+          <div key={i} className="p-4 rounded-lg border bg-card">
+            <h3 className="font-semibold text-sm mb-1">{faq.q}</h3>
+            <p className="text-sm text-muted-foreground">{faq.a}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CardOfTheDay() {
+  const { data: card } = useQuery<{
+    cardId: number;
+    imageUrl: string;
+    setName: string;
+    year: string;
+    wrongAnswerRate: number;
+    date: string;
+  } | null>({
+    queryKey: ["/api/card-of-the-day"],
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
+  if (!card) return null;
+
+  return (
+    <Card className="mb-8 overflow-hidden border-2 border-primary/20">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Flame className="h-5 w-5 text-orange-500" />
+          <CardTitle className="text-lg">Card of the Day</CardTitle>
+          <Badge variant="secondary" className="ml-auto">
+            {Math.round(card.wrongAnswerRate)}% got it wrong
+          </Badge>
+        </div>
+        <CardDescription>
+          Can you identify today's mystery player? {Math.round(card.wrongAnswerRate)}% of players got it wrong yesterday!
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="pb-4">
+        <div className="flex items-center gap-4">
+          <div className="w-20 h-28 rounded-md overflow-hidden bg-muted flex-shrink-0 relative">
+            <img
+              src={card.imageUrl}
+              alt="Mystery card - player identity hidden"
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+              <span className="text-white text-xs font-bold">?</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <p className="font-medium">{card.setName} {card.year}</p>
+            <p className="text-sm text-muted-foreground">Play today to find out who this is!</p>
+            <Button size="sm" asChild className="mt-2">
+              <a href="/game">Play Now</a>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Home() {
+  const { data: homeStats } = useQuery<{ totalGames: number; totalCards: number }>({
+    queryKey: ["/api/home-stats"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const variant = useRef<HeroCTAVariant>(getOrAssignVariant());
+  useEffect(() => {
+    logAbEvent("impression", variant.current);
+  }, []);
+
+  const quickStats = [
+    {
+      label: "Total Games Played",
+      value: homeStats ? homeStats.totalGames.toLocaleString() : "—",
+      icon: Star,
+    },
+    {
+      label: "Cards Guessed",
+      value: homeStats ? homeStats.totalCards.toLocaleString() : "—",
+      icon: Zap,
+    },
+  ];
+
   return (
     <div className="min-h-screen pb-20 md:pb-8">
+      <PromotionBanner />
+      <OnboardingModal />
       <section className="relative overflow-hidden py-16 px-4">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />
         <div className="container mx-auto relative">
@@ -94,9 +308,15 @@ export default function Home() {
             </p>
             <div className="flex flex-wrap justify-center gap-4 pt-4">
               <Link href="/game/solo">
-                <Button size="lg" className="gap-2" data-testid="button-play-now">
+                <Button
+                  size="lg"
+                  className="gap-2"
+                  data-testid="button-play-now"
+                  data-ab-variant={variant.current}
+                  onClick={() => logAbEvent("click", variant.current)}
+                >
                   <Zap className="h-5 w-5" />
-                  Play Now
+                  {variant.current === "B" ? "Start Earning — It's Free" : "Play Now"}
                 </Button>
               </Link>
               <Link href="/leaderboard">
@@ -114,8 +334,13 @@ export default function Home() {
         <FoundersCounter />
       </section>
 
+      <section className="container mx-auto px-4 pt-4">
+        <CardOfTheDay />
+      </section>
+
       <section className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+        <HowItWorks />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-12">
           {quickStats.map((stat) => {
             const Icon = stat.icon;
             return (
@@ -221,6 +446,26 @@ export default function Home() {
           </CardContent>
         </Card>
       </section>
+
+      <section className="container mx-auto px-4 py-4">
+        <FAQ />
+      </section>
+
+      {/* Discord community link */}
+      {import.meta.env.VITE_DISCORD_INVITE_URL && (
+        <div className="text-center py-4">
+          <a
+            href={import.meta.env.VITE_DISCORD_INVITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Join our Discord community"
+          >
+            <MessageCircle className="h-4 w-4" />
+            Join our Discord community
+          </a>
+        </div>
+      )}
     </div>
   );
 }

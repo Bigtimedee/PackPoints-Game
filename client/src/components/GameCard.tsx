@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { logger } from "@/lib/logger";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,14 @@ function isPlaceholderUrl(url: string): boolean {
   return false;
 }
 
+const CLIENT_SIDE_IMAGE_VALIDATION = import.meta.env.VITE_CLIENT_SIDE_IMAGE_VALIDATION !== 'false';
+
+/**
+ * Canvas-based image validation — detects blank/placeholder card images.
+ * Performance note: runs on the client for every loaded image.
+ * Server-side canonical solution: see server/services/imageValidation.ts
+ * Toggle with VITE_CLIENT_SIDE_IMAGE_VALIDATION env var (default: enabled when var is absent).
+ */
 function isPlaceholderImage(img: HTMLImageElement): boolean {
   try {
     const canvas = document.createElement('canvas');
@@ -80,7 +89,7 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     // Silhouettes typically have < 50 unique colors, but we use 30 as buffer
     // Real cards have 300-500 unique colors (at this quantization ~40-60)
     if (colorSet.size < 30) {
-      console.log(`[PlaceholderDetect] Low color diversity: ${colorSet.size} unique colors`);
+      logger.debug(`[PlaceholderDetect] Low color diversity: ${colorSet.size} unique colors`);
       return true;
     }
     
@@ -100,7 +109,7 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     
     // Real cards have <10% dominant color, silhouettes have >50%
     if (dominantPercent > 50) {
-      console.log(`[PlaceholderDetect] High dominant color: ${dominantPercent.toFixed(1)}%`);
+      logger.debug(`[PlaceholderDetect] High dominant color: ${dominantPercent.toFixed(1)}%`);
       return true;
     }
     
@@ -113,6 +122,12 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
   }
 }
 
+/**
+ * Canvas-based image validation — detects blank/placeholder card images.
+ * Performance note: runs on the client for every loaded image.
+ * Server-side canonical solution: see server/services/imageValidation.ts
+ * Toggle with VITE_CLIENT_SIDE_IMAGE_VALIDATION env var (default: enabled when var is absent).
+ */
 function isBlankImage(img: HTMLImageElement): boolean {
   try {
     const canvas = document.createElement('canvas');
@@ -199,12 +214,12 @@ interface GameCardProps {
   onReportSubmitted?: () => void;
 }
 
-export function GameCard({ 
-  imageUrl, 
-  isRevealed, 
+export function GameCard({
+  imageUrl,
+  isRevealed,
   setLabel,
   setKey,
-  onImageError, 
+  onImageError,
   imageRotation = 0,
   showSkipButton = false,
   skipPending = false,
@@ -219,6 +234,9 @@ export function GameCard({
   sessionId,
   onReportSubmitted
 }: GameCardProps) {
+  const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
+  const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
+
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl)) {
@@ -307,20 +325,25 @@ export function GameCard({
       return;
     }
     
-    if (isBlankImage(img)) {
-      setImageError(true);
-      onImageError?.();
-      autoReportPlaceholder("blank_image");
-      return;
+    // Canvas-based placeholder detection
+    // Disabled by default in production (server-side validation is the canonical solution)
+    // Enable with VITE_CLIENT_SIDE_IMAGE_VALIDATION=true
+    if (CLIENT_SIDE_IMAGE_VALIDATION) {
+      if (isBlankImage(img)) {
+        setImageError(true);
+        onImageError?.();
+        autoReportPlaceholder("blank_image");
+        return;
+      }
+
+      if (isPlaceholderImage(img)) {
+        setImageError(true);
+        onImageError?.();
+        autoReportPlaceholder("placeholder_image");
+        return;
+      }
     }
-    
-    if (isPlaceholderImage(img)) {
-      setImageError(true);
-      onImageError?.();
-      autoReportPlaceholder("placeholder_image");
-      return;
-    }
-    
+
     setImageLoaded(true);
   };
 
@@ -448,11 +471,15 @@ export function GameCard({
           </div>
         </div>
       )}
+      {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
+      {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
       <img
-        src={imageUrl}
-        alt="Baseball card"
+        src={cdnImageUrl}
+        alt="Sports card - player identity hidden"
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         crossOrigin="anonymous"
+        loading="lazy"
+        decoding="async"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,
           transform: imageRotation ? `rotate(${imageRotation}deg)` : undefined,
@@ -504,6 +531,7 @@ export function GameCard({
                 size="icon"
                 className={`h-8 w-8 bg-black/50 hover:bg-black/70 ${reportSubmitted ? 'text-green-400' : 'text-white/70 hover:text-white'}`}
                 disabled={reportSubmitted || reportPending}
+                aria-label="Report this card image"
                 data-testid="button-report-card"
               >
                 {reportSubmitted ? (

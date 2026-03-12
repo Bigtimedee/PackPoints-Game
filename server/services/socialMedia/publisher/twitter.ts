@@ -35,6 +35,12 @@ export async function publishTweet(
   hashtags: string[],
   mediaId: string,
 ): Promise<string> {
+  // Platform health check: skip gracefully if credentials not configured
+  if (!process.env.TWITTER_API_KEY) {
+    console.log('[SocialMedia] Twitter disabled — TWITTER_API_KEY not set');
+    return Promise.reject({ success: false, platform: 'twitter', reason: 'credentials_missing' });
+  }
+
   if (rateLimitRemaining < 5) {
     throw new Error("Twitter rate limit too low — skipping publish");
   }

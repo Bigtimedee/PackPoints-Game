@@ -3,6 +3,93 @@ import { wallets, ledgerEntries, referralAttributions, referralLinks } from "@sh
 import { eq, and, sql, gte } from "drizzle-orm";
 import { bucketService } from "./bucketService";
 
+/**
+ * Ambassador Tier System for Referral Program
+ *
+ * Tiers:
+ *   Bronze: 5+ referrals → badge + 1.25x daily earn cap
+ *   Silver: 25+ referrals → badge + 1.5x daily earn cap + early access flag
+ *   Gold: 100+ referrals → badge + 2x daily earn cap + revenue share flag
+ */
+
+export const AMBASSADOR_TIERS = [
+  {
+    name: 'bronze' as const,
+    label: 'Bronze Ambassador',
+    minReferrals: 5,
+    dailyCapMultiplier: 1.25,
+    earlyAccess: false,
+    revenueShare: false,
+    badgeColor: '#CD7F32',
+    description: '5+ successful referrals',
+  },
+  {
+    name: 'silver' as const,
+    label: 'Silver Ambassador',
+    minReferrals: 25,
+    dailyCapMultiplier: 1.5,
+    earlyAccess: true,
+    revenueShare: false,
+    badgeColor: '#C0C0C0',
+    description: '25+ successful referrals',
+  },
+  {
+    name: 'gold' as const,
+    label: 'Gold Ambassador',
+    minReferrals: 100,
+    dailyCapMultiplier: 2.0,
+    earlyAccess: true,
+    revenueShare: true,
+    badgeColor: '#FFD700',
+    description: '100+ successful referrals',
+  },
+] as const;
+
+export type AmbassadorTierName = typeof AMBASSADOR_TIERS[number]['name'];
+
+export interface AmbassadorTier {
+  name: AmbassadorTierName | null;
+  label: string;
+  referralCount: number;
+  dailyCapMultiplier: number;
+  earlyAccess: boolean;
+  revenueShare: boolean;
+  nextTier: {
+    name: string;
+    referralsNeeded: number;
+  } | null;
+}
+
+/**
+ * Calculate a user's ambassador tier based on their referral count.
+ */
+export function calculateAmbassadorTier(referralCount: number): AmbassadorTier {
+  // Find the highest tier the user qualifies for (tiers sorted descending)
+  const qualifiedTier = [...AMBASSADOR_TIERS]
+    .reverse()
+    .find(t => referralCount >= t.minReferrals);
+
+  // Find the next tier
+  const nextTierDef = qualifiedTier
+    ? AMBASSADOR_TIERS.find(t => t.minReferrals > qualifiedTier.minReferrals)
+    : AMBASSADOR_TIERS[0];
+
+  return {
+    name: qualifiedTier?.name ?? null,
+    label: qualifiedTier?.label ?? 'Member',
+    referralCount,
+    dailyCapMultiplier: qualifiedTier?.dailyCapMultiplier ?? 1.0,
+    earlyAccess: qualifiedTier?.earlyAccess ?? false,
+    revenueShare: qualifiedTier?.revenueShare ?? false,
+    nextTier: nextTierDef
+      ? {
+          name: nextTierDef.label,
+          referralsNeeded: nextTierDef.minReferrals - referralCount,
+        }
+      : null,
+  };
+}
+
 const REFERRAL_BONUS_POINTS = 200;
 const DAILY_REFERRAL_BONUS_CAP = 1000;
 const REFERRAL_WELCOME_BONUS_POINTS = 100;

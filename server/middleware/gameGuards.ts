@@ -37,7 +37,7 @@ export function allowGuest(req: AuthenticatedRequest, res: Response, next: NextF
     req.isGuest = false;
   } else {
     if (!req.session?.guestSessionId) {
-      req.session!.guestSessionId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      req.session!.guestSessionId = `guest_${Date.now()}_${require('crypto').randomBytes(8).toString('hex')}`;
     }
     req.userId = req.session.guestSessionId;
     req.isGuest = true;

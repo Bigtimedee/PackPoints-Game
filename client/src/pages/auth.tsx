@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation, Link, useSearch } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { AuthUser, CapStatus } from "@/types/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 import { SiReplit } from "react-icons/si";
 
@@ -51,7 +52,7 @@ export default function AuthPage() {
     }
   }, [tabFromUrl]);
 
-  const { data: capStatus } = useQuery<any>({
+  const { data: capStatus } = useQuery<CapStatus>({
     queryKey: ["/api/access/cap"],
     retry: false,
   });
@@ -80,11 +81,13 @@ export default function AuthPage() {
 
   const signupMutation = useMutation({
     mutationFn: async (data: SignupFormData) => {
+      const utmParams = getStoredUtmParams();
       const response = await apiRequest("POST", "/api/auth/register", {
         username: data.username,
         email: data.email,
         password: data.password,
         inviteCode: inviteCode || undefined,
+        ...utmParams,
       });
       return response.json();
     },
@@ -100,18 +103,18 @@ export default function AuthPage() {
           title: "You're on the waitlist!",
           description: `Position #${data.waitlistPosition}. We'll notify you when a spot opens.`,
         });
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
         setLocation("/waitlist");
       } else {
         toast({
           title: "Account created!",
           description: "Welcome to PackPTS. Start playing to earn PackPTS!",
         });
-        await new Promise(resolve => setTimeout(resolve, 150));
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
         setLocation("/");
       }
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       const message = error?.message || "Failed to create account";
       toast({
         title: "Signup failed",
@@ -137,11 +140,11 @@ export default function AuthPage() {
         title: "Welcome back!",
         description: "You've successfully logged in.",
       });
-      // Small delay to ensure session cookie is fully processed by browser before navigating
-      await new Promise(resolve => setTimeout(resolve, 150));
+      // Invalidate and refetch auth state before navigating
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       setLocation("/");
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       const message = error?.message || "Invalid username or password";
       toast({
         title: "Login failed",

@@ -65,6 +65,12 @@ export async function publishPhoto(
   title: string,
   imagePublicUrl: string,
 ): Promise<string> {
+  // Platform health check: skip gracefully if credentials not configured
+  if (!process.env.TIKTOK_ACCESS_TOKEN) {
+    console.log('[SocialMedia] TikTok disabled — TIKTOK_ACCESS_TOKEN not set');
+    return Promise.reject({ success: false, platform: 'tiktok', reason: 'credentials_missing' });
+  }
+
   const data = await tiktokPost<{ data?: { publish_id?: string } }>(
     "/post/publish/content/init/",
     {

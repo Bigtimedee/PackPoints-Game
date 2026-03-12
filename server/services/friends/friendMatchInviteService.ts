@@ -17,20 +17,16 @@ const MAX_INVITES_PER_HOUR = 10;
 
 function generateJoinCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = require('crypto').randomBytes(6);
   let code = "";
   for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars.charAt(bytes[i] % chars.length);
   }
   return code;
 }
 
 function generateSecret(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let secret = "";
-  for (let i = 0; i < 32; i++) {
-    secret += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return secret;
+  return require('crypto').randomBytes(24).toString('hex');
 }
 
 export interface InviteResult {

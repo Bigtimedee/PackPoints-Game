@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
+import { logger } from "@/lib/logger";
 import { useQuery } from "@tanstack/react-query";
+import type { WsLobbyEvent, LobbyState as ApiLobbyState } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +14,7 @@ import { CardSetPicker } from "@/components/CardSetPicker";
 import { useToast, toast as standaloneToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { PlayableSet } from "@shared/schema";
 
 interface LobbyState {
@@ -91,20 +94,20 @@ export default function Lobby() {
       navigate("/");
     });
     
-    const cleanup3 = on("match_started", (matchState: any) => {
+    const cleanup3 = on("match_started", (matchState: { matchId: string }) => {
       if (lobbyRef.current?.membershipSecret) {
         localStorage.setItem("packpoints_match_secret", lobbyRef.current.membershipSecret);
       }
       navigate(`/match/${matchState.matchId}`);
     });
 
-    const cleanup4 = on("error", (data: any) => {
+    const cleanup4 = on("error", (data: WsLobbyEvent | string) => {
       const message = typeof data === "string" ? data : data?.message || "Something went wrong";
       toast({ title: "Error", description: message, variant: "destructive" });
     });
 
-    const cleanup5 = on("start_match_error", (data: any) => {
-      console.log("[Lobby] start_match_error received:", data);
+    const cleanup5 = on("start_match_error", (data: WsLobbyEvent | string) => {
+      logger.debug("[Lobby] start_match_error received:", data);
       const message = typeof data === "string" ? data : data?.message || "Failed to start match";
       setMatchError(message);
       standaloneToast({ title: "Match Error", description: message, variant: "destructive" });
@@ -171,8 +174,8 @@ export default function Lobby() {
       const newLobby = await response.json();
       setLobby(newLobby);
       toast({ title: "Lobby Created!", description: `Share code: ${newLobby.joinCode}` });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error", description: (error as Error).message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -201,8 +204,8 @@ export default function Lobby() {
       const joinedLobby = await response.json();
       setLobby(joinedLobby);
       toast({ title: "Joined!", description: `Joined ${joinedLobby.hostUsername}'s lobby` });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } catch (error: unknown) {
+      toast({ title: "Error", description: (error as Error).message, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -260,8 +263,11 @@ export default function Lobby() {
   // Show loading while checking authentication
   if (authLoading) {
     return (
-      <div className="min-h-screen pb-20 md:pb-8 pt-8 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex flex-col items-center gap-4 p-6 max-w-md mx-auto">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+        <Skeleton className="h-24 w-full rounded-lg" />
+        <Skeleton className="h-10 w-40 rounded-lg" />
       </div>
     );
   }

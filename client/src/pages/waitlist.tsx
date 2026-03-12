@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import type { AuthUser, CapStatus, WaitlistStatus } from "@/types/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,17 +27,17 @@ export default function WaitlistPage() {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
-  const { data: user } = useQuery<any>({
+  const { data: user } = useQuery<AuthUser>({
     queryKey: ["/api/auth/user"],
     retry: false,
   });
 
-  const { data: capStatus, isLoading: isCapLoading } = useQuery<any>({
+  const { data: capStatus, isLoading: isCapLoading } = useQuery<CapStatus>({
     queryKey: ["/api/access/cap"],
     retry: false,
   });
 
-  const { data: waitlistStatus, isLoading: isWaitlistLoading } = useQuery<any>({
+  const { data: waitlistStatus, isLoading: isWaitlistLoading } = useQuery<WaitlistStatus>({
     queryKey: ["/api/waitlist/status"],
     enabled: !!user,
     retry: false,
@@ -75,7 +76,7 @@ export default function WaitlistPage() {
         });
       }
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast({
         title: "Failed to join waitlist",
         description: error?.message || "Please try again later.",

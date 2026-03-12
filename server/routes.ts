@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -61,6 +61,9 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
+import { registerHealthRoutes } from "./routes/health.routes";
+import { registerWalletRoutes } from "./routes/wallet.routes";
+import { registerAdminRoutes } from "./routes/admin.routes";
 import * as matchEngine from "./services/matches/engine";
 import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
@@ -128,65 +131,63 @@ export async function registerRoutes(
   
   // Friends and match invite routes
   app.use(friendsRouter);
-  
+
   // Referral and share event routes
   app.use(referralsRouter);
-  
+
   // CardHedge API routes (server-side only, never expose API key to client)
   app.use("/api/cardhedge", cardhedgeRouter);
-  
-  // Health check endpoint for monitoring (no auth required)
-  app.get("/api/health", async (req, res) => {
-    let topStatus: "ok" | "degraded" = "ok";
-    const checks: Record<string, any> = {};
 
-    const dbStart = Date.now();
-    try {
-      await db.execute(sql`SELECT 1`);
-      checks.database = { status: "ok", latencyMs: Date.now() - dbStart };
-    } catch (err) {
-      topStatus = "degraded";
-      checks.database = { status: "error", message: (err as Error).message, latencyMs: Date.now() - dbStart };
-    }
+  // Modular route registrations
+  registerHealthRoutes(app);
+  registerWalletRoutes(app);
+  registerAdminRoutes(app);
 
+  // ============================================
+  // HOME STATS (public, cached)
+  // ============================================
+
+  let homeStatsCache: { data: any; cachedAt: number } | null = null;
+  const HOME_STATS_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  app.get("/api/home-stats", async (_req, res) => {
     try {
-      checks.stripe = {
-        status: "ok",
-        mode: getStripeMode(),
-        configured: isStripeConfiguredSync(),
+      if (homeStatsCache && Date.now() - homeStatsCache.cachedAt < HOME_STATS_TTL_MS) {
+        return res.json(homeStatsCache.data);
+      }
+
+      const [gamesResult, cardsResult] = await Promise.all([
+        db.select({ count: sql<number>`count(*)` })
+          .from(gameSessionsTable)
+          .where(eq(gameSessionsTable.status, "completed")),
+        db.select({ total: sql<number>`COALESCE(SUM(correct_answers), 0)` })
+          .from(gameSessionsTable)
+          .where(eq(gameSessionsTable.status, "completed")),
+      ]);
+
+      const totalGames = Number(gamesResult[0]?.count ?? 0);
+      const totalCards = Number(cardsResult[0]?.total ?? 0);
+
+      const data = {
+        totalGames,
+        totalCards,
       };
-    } catch (err) {
-      topStatus = "degraded";
-      checks.stripe = { status: "error", message: (err as Error).message };
-    }
 
-    try {
-      const [row] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(playableCards)
-        .where(eq(playableCards.isPlayable, true));
-      checks.playableCards = { status: "ok", count: Number(row?.count ?? 0) };
+      homeStatsCache = { data, cachedAt: Date.now() };
+      return res.json(data);
     } catch (err) {
-      topStatus = "degraded";
-      checks.playableCards = { status: "error", message: (err as Error).message };
+      console.error("[HomeStats] Query failed:", err);
+      return res.json({ totalGames: 0, totalCards: 0 });
     }
-
-    res.json({
-      status: topStatus,
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor(process.uptime()),
-      checks,
-    });
   });
 
-  // Keep legacy /health for backwards compat
-  app.get("/health", async (_req, res) => {
-    try {
-      await db.execute(sql`SELECT 1`);
-      res.json({ status: "ok", timestamp: new Date().toISOString(), uptime: process.uptime(), database: "connected" });
-    } catch {
-      res.status(503).json({ status: "error", timestamp: new Date().toISOString(), database: "disconnected" });
+  // A/B test event logging
+  app.post("/api/ab-events", async (req, res) => {
+    const { test, variant, event } = req.body ?? {};
+    if (test && variant && event) {
+      console.log(`[AB] test=${test} variant=${variant} event=${event}`);
     }
+    return res.json({ ok: true });
   });
 
   // ============================================
@@ -246,623 +247,6 @@ export async function registerRoutes(
     } catch (err) {
       console.error("[PanicSwitch] Error toggling set:", err);
       res.status(500).json({ error: "Failed to toggle panic switch" });
-    }
-  });
-
-  // ============================================
-  // WALLET ENDPOINTS (PackPTS)
-  // ============================================
-
-  // GET /wallet - Get current user's wallet (auth required)
-  app.get("/wallet", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      let walletData = await walletService.getWalletWithHistory(userId, 10);
-      if (!walletData) {
-        await walletService.getOrCreateWallet(userId);
-        walletData = await walletService.getWalletWithHistory(userId, 10);
-      }
-      if (!walletData) {
-        return res.status(404).json({ error: "Wallet not found" });
-      }
-
-      // Check user risk state (NORMAL, UNDER_REVIEW, or FROZEN)
-      let riskState: { status: "NORMAL" | "UNDER_REVIEW" | "FROZEN"; reason?: string } = { status: "NORMAL" };
-      try {
-        const [state] = await db
-          .select()
-          .from(userRiskState)
-          .where(eq(userRiskState.userId, userId))
-          .limit(1);
-        if (state) {
-          riskState = { status: state.status as "NORMAL" | "UNDER_REVIEW" | "FROZEN", reason: state.reason || undefined };
-        }
-      } catch (e) {
-        // Risk state table might not exist yet, silently continue
-      }
-
-      // Calculate debt (negative balance scenario)
-      const debtPts = walletData.wallet.balance < 0 ? Math.abs(walletData.wallet.balance) : 0;
-      const availablePts = Math.max(0, walletData.wallet.balance);
-
-      res.json({
-        wallet: {
-          id: walletData.wallet.id,
-          balance: walletData.wallet.balance,
-          availablePts,
-          debtPts,
-          lifetimeEarned: walletData.wallet.lifetimeEarned,
-          lifetimeSpent: walletData.wallet.lifetimeSpent,
-          status: walletData.wallet.status,
-          createdAt: walletData.wallet.createdAt,
-          updatedAt: walletData.wallet.updatedAt,
-        },
-        riskState,
-        recentTransactions: walletData.recentEntries.map(e => ({
-          id: e.id,
-          type: e.entryType,
-          amount: e.amount,
-          balanceAfter: e.balanceAfter,
-          reason: e.reason,
-          createdAt: e.createdAt,
-        })),
-      });
-    } catch (error) {
-      console.error("Error getting wallet:", error);
-      res.status(500).json({ error: "Failed to get wallet" });
-    }
-  });
-
-  // GET /api/user/daily-progress - Get today's PackPTS earning progress (card-based daily cap)
-  app.get("/api/user/daily-progress", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const cardProgress = await getDailyProgress(userId);
-
-      // Calculate time until midnight UTC (when daily cap resets)
-      const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      tomorrow.setUTCHours(0, 0, 0, 0);
-      const msUntilReset = tomorrow.getTime() - now.getTime();
-      const hoursUntilReset = Math.floor(msUntilReset / (1000 * 60 * 60));
-      const minutesUntilReset = Math.floor((msUntilReset % (1000 * 60 * 60)) / (1000 * 60));
-
-      res.json({
-        todayEarned: cardProgress.basePtsAwarded,
-        dailyCap: cardProgress.basePtsMax,
-        remaining: cardProgress.remainingPts,
-        percentUsed: cardProgress.progressPct,
-        isAtCap: cardProgress.cardsCompleted >= cardProgress.cardsMax,
-        cardsCompleted: cardProgress.cardsCompleted,
-        cardsMax: cardProgress.cardsMax,
-        dayKey: cardProgress.dayKey,
-        resetIn: {
-          hours: hoursUntilReset,
-          minutes: minutesUntilReset,
-          ms: msUntilReset,
-        },
-      });
-    } catch (error) {
-      console.error("Error getting daily progress:", error);
-      res.status(500).json({ error: "Failed to get daily progress" });
-    }
-  });
-
-  // GET /api/rewards/daily-progress - Card-based daily progress (alternative endpoint)
-  app.get("/api/rewards/daily-progress", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const progress = await getDailyProgress(userId);
-      res.json(progress);
-    } catch (error) {
-      console.error("Error getting rewards daily progress:", error);
-      res.status(500).json({ error: "Failed to get daily progress" });
-    }
-  });
-
-  // GET /api/progress/daily - Get match-based daily progress (cards answered and matches completed today)
-  app.get("/api/progress/daily", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const progress = await getMatchDailyProgress(userId);
-      res.json(progress);
-    } catch (error) {
-      console.error("Error getting daily progress:", error);
-      res.status(500).json({ error: "Failed to get daily progress" });
-    }
-  });
-
-  // POST /wallet/spend - Spend PackPTS (auth required, idempotent)
-  app.post("/wallet/spend", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const parsed = spendWalletSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      const { amount, reason, idempotencyKey, metadata } = parsed.data;
-
-      const result = await walletService.spend(userId, amount, reason, idempotencyKey, metadata, undefined,
-        { source: "redemption", eventType: "wallet_spend", refType: "api", refId: idempotencyKey }
-      );
-
-      if (!result.success) {
-        if (result.error === "Insufficient balance") {
-          return res.status(402).json({ error: result.error });
-        }
-        return res.status(400).json({ error: result.error });
-      }
-      
-      if (!result.idempotent) {
-        await analyticsService.ptsSpent(userId, amount, {
-          reason,
-          idempotencyKey,
-          ...metadata,
-        });
-      }
-
-      res.json({
-        success: true,
-        idempotent: result.idempotent || false,
-        wallet: {
-          balance: result.wallet!.balance,
-          lifetimeSpent: result.wallet!.lifetimeSpent,
-        },
-        transaction: result.ledgerEntry ? {
-          id: result.ledgerEntry.id,
-          amount: result.ledgerEntry.amount,
-          balanceAfter: result.ledgerEntry.balanceAfter,
-          createdAt: result.ledgerEntry.createdAt,
-        } : null,
-      });
-    } catch (error) {
-      console.error("Error spending from wallet:", error);
-      res.status(500).json({ error: "Failed to process spend" });
-    }
-  });
-
-  // ============================================
-  // INTERNAL WALLET ENDPOINTS (not callable by client)
-  // These require internal API key validation
-  // ============================================
-
-  const requireInternalAuth = (req: Request, res: Response, next: NextFunction) => {
-    const internalKey = req.headers["x-internal-key"];
-    const expectedKey = process.env.INTERNAL_API_KEY;
-    
-    if (!expectedKey) {
-      console.error("INTERNAL_API_KEY not configured");
-      return res.status(500).json({ error: "Internal configuration error" });
-    }
-    
-    if (internalKey !== expectedKey) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-    
-    next();
-  };
-
-  // POST /internal/wallet/earn - Credit PackPTS to user (internal only)
-  app.post("/internal/wallet/earn", requireInternalAuth, async (req: any, res) => {
-    try {
-      const parsed = earnWalletSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      const { userId, amount, reason, idempotencyKey, metadata } = parsed.data;
-
-      const result = await walletService.earn(userId, amount, reason, idempotencyKey, metadata, undefined,
-        { source: "admin", eventType: "internal_earn", refType: "api", refId: idempotencyKey }
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({
-        success: true,
-        idempotent: result.idempotent || false,
-        wallet: {
-          balance: result.wallet!.balance,
-          lifetimeEarned: result.wallet!.lifetimeEarned,
-        },
-        transaction: result.ledgerEntry ? {
-          id: result.ledgerEntry.id,
-          amount: result.ledgerEntry.amount,
-          balanceAfter: result.ledgerEntry.balanceAfter,
-          createdAt: result.ledgerEntry.createdAt,
-        } : null,
-      });
-    } catch (error) {
-      console.error("Error earning to wallet:", error);
-      res.status(500).json({ error: "Failed to process earn" });
-    }
-  });
-
-  // POST /internal/wallet/adjust - Adjust PackPTS balance (internal only)
-  app.post("/internal/wallet/adjust", requireInternalAuth, async (req: any, res) => {
-    try {
-      const parsed = adjustWalletSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      const { userId, amount, reason, idempotencyKey, metadata } = parsed.data;
-
-      const result = await walletService.adjust(userId, amount, reason, idempotencyKey, metadata,
-        { source: "admin", eventType: "internal_adjust", refType: "api", refId: idempotencyKey }
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({
-        success: true,
-        idempotent: result.idempotent || false,
-        wallet: {
-          balance: result.wallet!.balance,
-          lifetimeEarned: result.wallet!.lifetimeEarned,
-          lifetimeSpent: result.wallet!.lifetimeSpent,
-        },
-        transaction: result.ledgerEntry ? {
-          id: result.ledgerEntry.id,
-          amount: result.ledgerEntry.amount,
-          balanceAfter: result.ledgerEntry.balanceAfter,
-          createdAt: result.ledgerEntry.createdAt,
-        } : null,
-      });
-    } catch (error) {
-      console.error("Error adjusting wallet:", error);
-      res.status(500).json({ error: "Failed to process adjustment" });
-    }
-  });
-
-  // ============================================
-  // PACKPTS WALLET ENDPOINTS
-  // ============================================
-
-  // GET /api/wallet/balance - Get user's wallet balance and status
-  app.get("/api/wallet/balance", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const { walletService } = await import("./services/walletService");
-      const { riskEngine } = await import("./services/riskEngine");
-
-      // Get wallet balance
-      const wallet = await walletService.getOrCreateWallet(userId);
-      
-      // Get risk status (NORMAL, RESTRICTED, FROZEN)
-      const riskState = await riskEngine.getUserRiskState(userId);
-      
-      // Calculate debt (negative balance scenario or pending chargebacks)
-      const debtPts = wallet.balance < 0 ? Math.abs(wallet.balance) : 0;
-      
-      // Determine status based on risk state
-      let status: "NORMAL" | "RESTRICTED" | "FROZEN" = "NORMAL";
-      if (riskState) {
-        if (riskState.status === "FROZEN") {
-          status = "FROZEN";
-        }
-      }
-      // If user has debt, they are restricted
-      if (debtPts > 0) {
-        status = "RESTRICTED";
-      }
-      
-      res.json({
-        availablePts: Math.max(0, wallet.balance),
-        pendingPts: 0, // Could be extended to track pending transactions
-        lockedPts: 0, // Could be extended to track locked reservations
-        debtPts,
-        status,
-        lifetimeEarned: wallet.lifetimeEarned,
-        lifetimeSpent: wallet.lifetimeSpent,
-      });
-    } catch (error) {
-      console.error("Error getting wallet balance:", error);
-      res.status(500).json({ error: "Failed to get wallet balance" });
-    }
-  });
-
-  // ============================================
-  // PACKPTS EXPIRATION ENDPOINTS
-  // ============================================
-
-  // GET /api/wallet/expirations - Get user's expiration info (auth required)
-  app.get("/api/wallet/expirations", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const expirationInfo = await bucketService.getUserExpirationInfo(userId);
-      const upcomingExpirations = await bucketService.getUpcomingExpirations(userId, 90);
-      const policy = await expirationEngine.getExpirationPolicy();
-
-      res.json({
-        balance: expirationInfo.totalBalance,
-        expiringNext30Days: expirationInfo.expiringNext30Days,
-        expiringNext60Days: expirationInfo.expiringNext60Days,
-        expiringNext90Days: expirationInfo.expiringNext90Days,
-        nextExpirationDate: expirationInfo.nextExpirationDate,
-        nextExpirationAmount: expirationInfo.nextExpirationAmount,
-        bucketsBySource: expirationInfo.bucketsBySource,
-        weeklyExpirations: upcomingExpirations,
-        policy: policy ? {
-          earnedDaysToExpire: policy.earnedDaysToExpire,
-          purchasedDaysToExpire: policy.purchasedDaysToExpire,
-          bonusDefaultDaysToExpire: policy.bonusDefaultDaysToExpire,
-          gracePeriodDays: policy.gracePeriodDays,
-          inactivityEnabled: policy.inactivityEnabled,
-          inactivityDays: policy.inactivityDays,
-        } : null,
-      });
-    } catch (error) {
-      console.error("Error getting expiration info:", error);
-      res.status(500).json({ error: "Failed to get expiration info" });
-    }
-  });
-
-  // GET /api/wallet/expiring-soon - Get points expiring in grace period (auth required)
-  app.get("/api/wallet/expiring-soon", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const gracePeriodBuckets = await expirationEngine.getGracePeriodBuckets(userId);
-      const totalExpiringSoon = gracePeriodBuckets.reduce((sum, b) => sum + b.remainingAmount, 0);
-      const policy = await expirationEngine.getExpirationPolicy();
-
-      res.json({
-        expiringSoon: totalExpiringSoon,
-        gracePeriodDays: policy?.gracePeriodDays || 7,
-        buckets: gracePeriodBuckets.map(b => ({
-          id: b.id,
-          amount: b.remainingAmount,
-          sourceType: b.sourceType,
-          expiresAt: b.expiresAt,
-          earnedAt: b.earnedAt,
-        })),
-      });
-    } catch (error) {
-      console.error("Error getting expiring-soon buckets:", error);
-      res.status(500).json({ error: "Failed to get expiring-soon buckets" });
-    }
-  });
-
-  // POST /api/admin/webhooks/retry - Manually trigger webhook retry for failed events
-  app.post("/api/admin/webhooks/retry", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const result = await retryFailedWebhookEvents();
-      res.json({
-        success: true,
-        totalFound: result.totalFound,
-        retried: result.retried,
-        succeeded: result.succeeded,
-        failed: result.failed,
-        results: result.results,
-      });
-    } catch (error) {
-      console.error("Error retrying webhook events:", error);
-      res.status(500).json({ error: "Failed to retry webhook events" });
-    }
-  });
-
-  // ── PackPTS Ledger API ──────────────────────────────────────────────
-  app.get("/api/packpts/balance", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Authentication required" });
-      const balance = await getLedgerBalance(userId);
-      res.json({ balance });
-    } catch (error) {
-      console.error("Error fetching PackPTS balance:", error);
-      res.status(500).json({ error: "Failed to fetch balance" });
-    }
-  });
-
-  app.get("/api/packpts/ledger", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Authentication required" });
-      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
-      const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
-      const { entries, hasMore, nextCursor } = await getLedgerHistory(userId, limit, offset);
-      res.json({ entries, hasMore, nextCursor, limit, offset });
-    } catch (error) {
-      console.error("Error fetching PackPTS ledger:", error);
-      res.status(500).json({ error: "Failed to fetch ledger history" });
-    }
-  });
-
-  app.post("/api/admin/packpts/reconcile", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const schema = z.object({ userId: z.string().min(1) });
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: "userId is required and must be a non-empty string" });
-      const report = await reconcileLedgerBalance(parsed.data.userId);
-      res.json(report);
-    } catch (error) {
-      console.error("Error reconciling PackPTS:", error);
-      res.status(500).json({ error: "Failed to reconcile" });
-    }
-  });
-
-  // Admin endpoints for expiration management
-  // GET /api/admin/expiration/policy - Get current expiration policy
-  app.get("/api/admin/expiration/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const policy = await expirationEngine.getExpirationPolicy();
-      
-      if (!policy) {
-        return res.status(404).json({ error: "No expiration policy found" });
-      }
-
-      res.json({ policy });
-    } catch (error) {
-      console.error("Error getting expiration policy:", error);
-      res.status(500).json({ error: "Failed to get expiration policy" });
-    }
-  });
-
-  // PUT /api/admin/expiration/policy - Update expiration policy
-  app.put("/api/admin/expiration/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const policyUpdateSchema = z.object({
-        earnedDaysToExpire: z.number().int().min(1).max(3650).optional(),
-        purchasedDaysToExpire: z.number().int().min(1).max(3650).nullable().optional(),
-        bonusDefaultDaysToExpire: z.number().int().min(1).max(3650).optional(),
-        inactivityEnabled: z.boolean().optional(),
-        inactivityDays: z.number().int().min(1).max(365).optional(),
-        inactivityMinAgeDays: z.number().int().min(1).max(365).optional(),
-        gracePeriodDays: z.number().int().min(1).max(30).optional(),
-        enabled: z.boolean().optional(),
-      });
-
-      const parsed = policyUpdateSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      const updatedPolicy = await expirationEngine.updateExpirationPolicy(parsed.data);
-      
-      if (!updatedPolicy) {
-        return res.status(404).json({ error: "No expiration policy found to update" });
-      }
-
-      res.json({ success: true, policy: updatedPolicy });
-    } catch (error) {
-      console.error("Error updating expiration policy:", error);
-      res.status(500).json({ error: "Failed to update expiration policy" });
-    }
-  });
-
-  // GET /api/admin/expiration/liability - Get liability snapshot
-  app.get("/api/admin/expiration/liability", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const latestSnapshot = await expirationEngine.getLatestLiabilitySnapshot();
-      
-      res.json({
-        snapshot: latestSnapshot,
-        generated: latestSnapshot ? true : false,
-      });
-    } catch (error) {
-      console.error("Error getting liability snapshot:", error);
-      res.status(500).json({ error: "Failed to get liability snapshot" });
-    }
-  });
-
-  // POST /api/admin/expiration/snapshot - Create liability snapshot
-  app.post("/api/admin/expiration/snapshot", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const result = await expirationEngine.createLiabilitySnapshot();
-      
-      if (!result.success) {
-        return res.status(500).json({ error: result.error });
-      }
-
-      res.json({ success: true, snapshot: result.snapshot });
-    } catch (error) {
-      console.error("Error creating liability snapshot:", error);
-      res.status(500).json({ error: "Failed to create liability snapshot" });
-    }
-  });
-
-  // POST /api/admin/expiration/run - Run expiration job manually
-  app.post("/api/admin/expiration/run", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { dryRun = false } = req.body;
-      
-      const result = await expirationEngine.runExpirationJob(dryRun);
-      
-      res.json({
-        success: result.success,
-        dryRun,
-        expiredBuckets: result.expiredBuckets,
-        totalPointsExpired: result.totalPointsExpired,
-        errors: result.errors,
-      });
-    } catch (error) {
-      console.error("Error running expiration job:", error);
-      res.status(500).json({ error: "Failed to run expiration job" });
-    }
-  });
-
-  // POST /api/admin/expiration/run-inactivity - Run inactivity expiration job manually
-  app.post("/api/admin/expiration/run-inactivity", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { dryRun = false } = req.body;
-      
-      const result = await expirationEngine.runInactivityExpiration(dryRun);
-      
-      res.json({
-        success: result.success,
-        dryRun,
-        usersAffected: result.usersAffected,
-        bucketsExpired: result.bucketsExpired,
-        totalPointsExpired: result.totalPointsExpired,
-        errors: result.errors,
-      });
-    } catch (error) {
-      console.error("Error running inactivity expiration job:", error);
-      res.status(500).json({ error: "Failed to run inactivity expiration job" });
-    }
-  });
-
-  // GET /api/admin/users/:userId/buckets - Get user's buckets (admin)
-  app.get("/api/admin/users/:userId/buckets", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const buckets = await bucketService.getUserOpenBuckets(userId);
-      const expirationInfo = await bucketService.getUserExpirationInfo(userId);
-      
-      res.json({
-        userId,
-        buckets: buckets.map(b => ({
-          id: b.id,
-          sourceType: b.sourceType,
-          originalAmount: b.originalAmount,
-          remainingAmount: b.remainingAmount,
-          earnedAt: b.earnedAt,
-          expiresAt: b.expiresAt,
-          status: b.status,
-        })),
-        summary: expirationInfo,
-      });
-    } catch (error) {
-      console.error("Error getting user buckets:", error);
-      res.status(500).json({ error: "Failed to get user buckets" });
     }
   });
 
@@ -1689,7 +1073,31 @@ export async function registerRoutes(
       }
       
       const updatedUser = await storage.getUser(user.id);
-      
+
+      // Capture UTM attribution if provided
+      if (req.body.utmSource || req.body.utmCampaign) {
+        try {
+          const { pool: dbPool } = await import('./db');
+          await dbPool.query(
+            `INSERT INTO user_attribution (user_id, utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (user_id) DO NOTHING`,
+            [
+              user.id,
+              req.body.utmSource || null,
+              req.body.utmMedium || null,
+              req.body.utmCampaign || null,
+              req.body.utmTerm || null,
+              req.body.utmContent || null,
+              req.headers.referer || null,
+            ]
+          );
+        } catch (err) {
+          // Non-fatal — don't fail registration if attribution fails
+          console.error('[UTM] Attribution capture failed:', err);
+        }
+      }
+
       // Explicitly save session to ensure it's persisted before response
       req.session.save((err: any) => {
         if (err) {
@@ -2417,1467 +1825,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/dashboard", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const allUsers: User[] = await db.select().from(users);
-      const allCards = await storage.getCards();
-      const verifiedCards = allCards.filter(c => c.imageVerified).length;
-      
-      const totalUsers = allUsers.length;
-      const totalPoints = allUsers.reduce((sum: number, u: User) => sum + u.points, 0);
-      const totalGames = allUsers.reduce((sum: number, u: User) => sum + u.gamesPlayed, 0);
-      const totalCorrect = allUsers.reduce((sum: number, u: User) => sum + u.correctAnswers, 0);
-      const totalAnswers = allUsers.reduce((sum: number, u: User) => sum + u.totalAnswers, 0);
-      const avgAccuracy = totalAnswers > 0 ? Math.round((totalCorrect / totalAnswers) * 100) : 0;
-      
-      const topPlayers = [...allUsers]
-        .sort((a: User, b: User) => b.points - a.points)
-        .slice(0, 5)
-        .map((u: User) => ({
-          username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
-          points: u.points,
-          gamesPlayed: u.gamesPlayed,
-        }));
-      
-      const mostActive = [...allUsers]
-        .sort((a: User, b: User) => b.gamesPlayed - a.gamesPlayed)
-        .slice(0, 5)
-        .map((u: User) => ({
-          username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
-          gamesPlayed: u.gamesPlayed,
-          points: u.points,
-        }));
-      
-      res.json({
-        overview: {
-          totalUsers,
-          totalPoints,
-          totalGames,
-          avgAccuracy,
-          totalCards: allCards.length,
-          verifiedCards,
-        },
-        topPlayers,
-        mostActive,
-      });
-    } catch (error) {
-      console.error("Error getting dashboard stats:", error);
-      res.status(500).json({ error: "Failed to get dashboard stats" });
-    }
-  });
-
-  // GET /api/admin/affiliate/summary - Affiliate click analytics summary
-  app.get("/api/admin/affiliate/summary", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const days = parseInt(req.query.days as string) || 7;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      
-      // Clicks by day
-      const clicksByDay = await db.execute(sql`
-        SELECT 
-          date_trunc('day', created_at)::date as day,
-          COUNT(*) as clicks,
-          COUNT(DISTINCT user_id) as unique_users
-        FROM outbound_clicks
-        WHERE created_at >= ${startDate}
-          AND source = 'ebay'
-        GROUP BY date_trunc('day', created_at)::date
-        ORDER BY day DESC
-      `);
-      
-      // Top items by clicks
-      const topItems = await db.execute(sql`
-        SELECT 
-          listing_id as item_id,
-          COUNT(*) as clicks
-        FROM outbound_clicks
-        WHERE created_at >= ${startDate}
-          AND source = 'ebay'
-        GROUP BY listing_id
-        ORDER BY clicks DESC
-        LIMIT 10
-      `);
-      
-      // Top pages by clicks
-      const topPages = await db.execute(sql`
-        SELECT 
-          COALESCE(page_path, 'unknown') as page_path,
-          COUNT(*) as clicks
-        FROM outbound_clicks
-        WHERE created_at >= ${startDate}
-          AND source = 'ebay'
-        GROUP BY page_path
-        ORDER BY clicks DESC
-        LIMIT 10
-      `);
-      
-      // Total summary
-      const totalSummary = await db.execute(sql`
-        SELECT 
-          COUNT(*) as total_clicks,
-          COUNT(DISTINCT user_id) as unique_users,
-          COUNT(DISTINCT listing_id) as unique_items
-        FROM outbound_clicks
-        WHERE created_at >= ${startDate}
-          AND source = 'ebay'
-      `);
-      
-      res.json({
-        period: { days, startDate: startDate.toISOString() },
-        summary: totalSummary.rows[0] || { total_clicks: 0, unique_users: 0, unique_items: 0 },
-        clicksByDay: clicksByDay.rows,
-        topItems: topItems.rows,
-        topPages: topPages.rows,
-      });
-    } catch (error) {
-      console.error("Error getting affiliate summary:", error);
-      res.status(500).json({ error: "Failed to get affiliate summary" });
-    }
-  });
-
-  // GET /api/admin/image-validation/status - Get image validation status
-  app.get("/api/admin/image-validation/status", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const { getValidationStatus } = await import("./services/imageValidation");
-      const status = await getValidationStatus();
-      res.json(status);
-    } catch (error) {
-      console.error("Error getting validation status:", error);
-      res.status(500).json({ error: "Failed to get validation status" });
-    }
-  });
-
-  // POST /api/admin/image-validation/run - Trigger image validation
-  app.post("/api/admin/image-validation/run", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { forceRecheck, gameSetId } = req.body || {};
-      const { validatePlayableCardImages, validateBaseballCardImages } = await import("./services/imageValidation");
-      
-      const results = {
-        playableCards: await validatePlayableCardImages(gameSetId, forceRecheck === true),
-        baseballCards: await validateBaseballCardImages(forceRecheck === true)
-      };
-      
-      res.json({
-        success: true,
-        results,
-        message: `Validated ${results.playableCards.totalChecked + results.baseballCards.totalChecked} cards, excluded ${results.playableCards.newlyExcluded + results.baseballCards.newlyExcluded}`
-      });
-    } catch (error) {
-      console.error("Error running validation:", error);
-      res.status(500).json({ error: "Failed to run validation" });
-    }
-  });
-
-  // GET /api/admin/card-pool/stats - Get card pool statistics
-  app.get("/api/admin/card-pool/stats", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const { getCardPoolStats, isRefreshJobRunning } = await import("./services/cardPoolRefresh");
-      const stats = await getCardPoolStats();
-      res.json({
-        ...stats,
-        refreshJobRunning: isRefreshJobRunning(),
-      });
-    } catch (error) {
-      console.error("Error getting card pool stats:", error);
-      res.status(500).json({ error: "Failed to get card pool stats" });
-    }
-  });
-
-  // POST /api/admin/card-pool/refresh - Trigger card pool refresh job
-  app.post("/api/admin/card-pool/refresh", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const { runCardPoolRefreshJob, isRefreshJobRunning } = await import("./services/cardPoolRefresh");
-      
-      if (isRefreshJobRunning()) {
-        return res.status(409).json({ error: "Refresh job already running" });
-      }
-      
-      const result = await runCardPoolRefreshJob();
-      res.json({
-        success: true,
-        result,
-        message: `Processed ${result.cardsProcessed} cards, revalidated ${result.cardsRevalidated}, failed ${result.cardsFailed}`
-      });
-    } catch (error) {
-      console.error("Error running card pool refresh:", error);
-      res.status(500).json({ error: "Failed to run card pool refresh" });
-    }
-  });
-
-  // POST /api/admin/image-validation/revalidate/:cardId - Revalidate single card
-  app.post("/api/admin/image-validation/revalidate/:cardId", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { cardId } = req.params;
-      const { cardType } = req.body || {};
-      
-      if (!cardType || !["playable", "baseball"].includes(cardType)) {
-        return res.status(400).json({ error: "cardType must be 'playable' or 'baseball'" });
-      }
-      
-      const { revalidateCard } = await import("./services/imageValidation");
-      const result = await revalidateCard(cardId, cardType);
-      
-      res.json({
-        cardId,
-        cardType,
-        valid: result.valid,
-        error: result.error
-      });
-    } catch (error) {
-      console.error("Error revalidating card:", error);
-      res.status(500).json({ error: "Failed to revalidate card" });
-    }
-  });
-
-  app.get("/api/admin/users", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const search = (req.query.search as string) || "";
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const offset = (page - 1) * limit;
-      
-      let allUsers: User[] = await db.select().from(users);
-      
-      if (search) {
-        const searchLower = search.toLowerCase();
-        allUsers = allUsers.filter((u: User) => 
-          (u.firstName || '').toLowerCase().includes(searchLower) ||
-          (u.lastName || '').toLowerCase().includes(searchLower) ||
-          (u.email || '').toLowerCase().includes(searchLower)
-        );
-      }
-      
-      const total = allUsers.length;
-      const sortedUsers = [...allUsers].sort((a: User, b: User) => b.points - a.points);
-      const paginatedUsers = sortedUsers.slice(offset, offset + limit);
-      
-      const usersWithStats = paginatedUsers.map((u: User) => ({
-        id: u.id,
-        username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
-        points: u.points,
-        gamesPlayed: u.gamesPlayed,
-        correctAnswers: u.correctAnswers,
-        totalAnswers: u.totalAnswers,
-        accuracy: u.totalAnswers > 0 ? Math.round((u.correctAnswers / u.totalAnswers) * 100) : 0,
-      }));
-      
-      res.json({
-        users: usersWithStats,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      });
-    } catch (error) {
-      console.error("Error getting users:", error);
-      res.status(500).json({ error: "Failed to get users" });
-    }
-  });
-
-  app.get("/api/admin/users/:id", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const user = await storage.getUser(id);
-      
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      
-      const accuracy = user.totalAnswers > 0 
-        ? Math.round((user.correctAnswers / user.totalAnswers) * 100) 
-        : 0;
-      
-      const avgPointsPerGame = user.gamesPlayed > 0 
-        ? Math.round(user.points / user.gamesPlayed) 
-        : 0;
-      
-      res.json({
-        id: user.id,
-        username: user.firstName || user.email?.split('@')[0] || 'Anonymous',
-        points: user.points,
-        gamesPlayed: user.gamesPlayed,
-        correctAnswers: user.correctAnswers,
-        totalAnswers: user.totalAnswers,
-        accuracy,
-        avgPointsPerGame,
-      });
-    } catch (error) {
-      console.error("Error getting user:", error);
-      res.status(500).json({ error: "Failed to get user" });
-    }
-  });
-
-  app.post("/api/admin/sync-images", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const cards = await storage.getCards();
-      const players = cards.map(c => ({ playerName: c.playerName, cardNumber: c.cardNumber }));
-      
-      const imageResults = await fetch1987ToppsFromCardHedge(players);
-      
-      let verified = 0;
-      let fromCardHedge = 0;
-      let unverified = 0;
-      
-      for (const card of cards) {
-        const result = imageResults.get(card.playerName);
-        
-        if (result && result.imageUrl && result.verified) {
-          await storage.updateCardImage(card.playerName, result.imageUrl, true);
-          verified++;
-          if (result.source === "cardhedge") {
-            fromCardHedge++;
-          }
-        } else if (result && result.imageUrl) {
-          await storage.updateCardImage(card.playerName, result.imageUrl, false);
-          unverified++;
-        } else {
-          await storage.updateCardImage(card.playerName, "", false);
-          unverified++;
-        }
-      }
-      
-      res.json({ 
-        message: `Synced images: ${verified} verified (${fromCardHedge} from Card Hedge), ${unverified} unverified`,
-        verified,
-        fromCardHedge,
-        unverified,
-        cardHedgeConfigured: isCardHedgeConfigured()
-      });
-    } catch (error) {
-      console.error("Error syncing images:", error);
-      res.status(500).json({ error: "Failed to sync images" });
-    }
-  });
-
-  // Product catalog endpoints
-  app.get("/api/products", async (req: any, res) => {
-    try {
-      const products = await storage.getProducts(true);
-      
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (userId) {
-        await analyticsService.storeViewed(userId, { productCount: products.length });
-      }
-      
-      res.json(products);
-    } catch (error) {
-      console.error("Error getting products:", error);
-      res.status(500).json({ error: "Failed to get products" });
-    }
-  });
-
-  // User entitlements endpoint (requires auth)
-  app.get("/api/me/entitlements", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-      
-      const entitlements = await storage.getUserEntitlements(userId);
-      res.json(entitlements);
-    } catch (error) {
-      console.error("Error getting user entitlements:", error);
-      res.status(500).json({ error: "Failed to get entitlements" });
-    }
-  });
-
-  // ============================================
-  // STRIPE CONFIG & WEBHOOK & BILLING ENDPOINTS
-  // ============================================
-
-  app.get("/api/stripe/config", async (req: Request, res: Response) => {
-    try {
-      const host = req.headers.host;
-      const config = await getStripeConfig(host);
-      res.json(config);
-    } catch (error) {
-      console.error("[Stripe] Config endpoint error:", error);
-      res.status(503).json({ error: "Payment configuration unavailable" });
-    }
-  });
-
-  // Stripe webhook endpoint - receives raw body for signature verification
-  // Global JSON parser skips /webhooks/ routes (see server/index.ts), so express.raw() gets the raw Buffer
-  app.post("/webhooks/purchases", 
-    express.raw({ type: "application/json" }),
-    async (req: Request, res: Response) => {
-      const host = req.headers.host;
-      const mode = getStripeMode(host);
-      const signature = req.headers["stripe-signature"];
-      
-      if (!signature || typeof signature !== "string") {
-        console.error("[Stripe] Webhook rejected: missing stripe-signature header");
-        return res.status(400).json({ error: "Missing stripe-signature header" });
-      }
-
-      if (isProductionHost(host) && mode !== "live") {
-        console.error(`[Stripe] BLOCKED: Webhook on production host "${host}" but mode is "${mode}"`);
-        return res.status(503).json({ error: "Payment processing misconfigured" });
-      }
-
-      if (!(await checkStripeConfigured())) {
-        console.error("[Stripe] Webhook rejected: Stripe is not configured");
-        return res.status(503).json({ error: "Payment processing not configured" });
-      }
-
-      console.log(`[Stripe] Webhook received: host=${host}, mode=${mode}, bodyType=${Buffer.isBuffer(req.body) ? 'Buffer' : typeof req.body}, bodyLen=${Buffer.isBuffer(req.body) ? req.body.length : JSON.stringify(req.body)?.length || 0}`);
-
-      let event: Stripe.Event;
-      try {
-        event = await stripePurchaseService.verifyAndParseWebhook(
-          req.body,
-          signature,
-          host
-        );
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown verification error";
-        console.error(`[Stripe] Webhook signature verification FAILED: ${msg}`);
-        return res.status(400).json({ error: "Invalid signature" });
-      }
-
-      // Livemode guard: reject events that don't match the server's expected mode
-      const expectedLivemode = mode === "live";
-      if (event.livemode !== expectedLivemode) {
-        console.error(`[Stripe] Webhook livemode MISMATCH: event.livemode=${event.livemode}, expected=${expectedLivemode} (mode=${mode})`);
-        return res.status(200).json({ received: true, ignored: true, reason: "livemode mismatch" });
-      }
-
-      try {
-        const result = await stripePurchaseService.processWebhookEvent(event);
-        
-        console.log(`[Stripe] Webhook processed: eventId=${result.eventId}, type=${event.type}, status=${result.status}${result.message ? `, msg=${result.message}` : ""}`);
-        
-        return res.status(200).json({
-          received: true,
-          eventId: result.eventId,
-          status: result.status,
-        });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : "Unknown processing error";
-        console.error(`[Stripe] Webhook processing error (returning 200 to prevent retries): eventId=${event.id}, type=${event.type}, error=${msg}`);
-        return res.status(200).json({ received: true, error: "Internal processing error" });
-      }
-    }
-  );
-
-  // Webhook health endpoint - no auth required, no secrets exposed
-  app.get("/webhooks/health", async (_req: Request, res: Response) => {
-    const mode = getStripeMode();
-    const configured = await checkStripeConfigured();
-    const { getWebhookSecret: getWhs } = await import("./stripeClient");
-    const hasWebhookSecret = !!getWhs();
-
-    res.status(200).json({
-      ok: configured,
-      stripeMode: mode,
-      hasWebhookSecret,
-      webhookPath: "/webhooks/purchases",
-    });
-  });
-
-  // Billing sync endpoint - reconciles user's purchases with Stripe
-  app.post("/billing/sync", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-
-      if (!(await checkStripeConfigured())) {
-        return res.status(503).json({ error: "Payment processing not configured" });
-      }
-
-      const { stripeCustomerId } = req.body || {};
-      
-      const result = await stripePurchaseService.syncUserPurchases(userId, stripeCustomerId);
-      
-      res.json({
-        success: result.errors.length === 0,
-        userId: result.userId,
-        processedEvents: result.processedEvents,
-        grantedPackPts: result.grantedPackPts,
-        grantedEntitlements: result.grantedEntitlements,
-        errors: result.errors,
-      });
-    } catch (error) {
-      console.error("Billing sync error:", error);
-      res.status(500).json({ error: "Failed to sync purchases" });
-    }
-  });
-
-  // Admin: Reprocess a failed purchase event
-  app.post("/api/admin/purchases/:eventId/reprocess", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { eventId } = req.params;
-      
-      if (!eventId) {
-        return res.status(400).json({ error: "Event ID is required" });
-      }
-
-      const result = await stripePurchaseService.reprocessEvent(eventId);
-      
-      res.json({
-        success: result.success,
-        eventId: result.eventId,
-        status: result.status,
-        message: result.message,
-        error: result.error,
-      });
-    } catch (error) {
-      console.error("Reprocess error:", error);
-      res.status(500).json({ error: "Failed to reprocess event" });
-    }
-  });
-
-  // Stripe configuration status (for frontend)
-  app.get("/api/billing/status", async (_req, res) => {
-    const configured = await checkStripeConfigured();
-    res.json({
-      stripeConfigured: configured,
-    });
-  });
-
-  app.get("/api/admin/stripe-diagnostics", requireAdmin, async (_req, res) => {
-    const diag = getStripeDiagnostics();
-    const configured = await checkStripeConfigured();
-    
-    const recentEvents = await db
-      .select({
-        eventId: purchaseEvents.eventId,
-        eventType: purchaseEvents.eventType,
-        userId: purchaseEvents.userId,
-        status: purchaseEvents.status,
-        errorMessage: purchaseEvents.errorMessage,
-        retryCount: purchaseEvents.retryCount,
-        createdAt: purchaseEvents.createdAt,
-        processedAt: purchaseEvents.processedAt,
-      })
-      .from(purchaseEvents)
-      .orderBy(desc(purchaseEvents.createdAt))
-      .limit(50);
-
-    res.json({ 
-      ...diag, 
-      configuredNow: configured,
-      recentWebhookEvents: recentEvents,
-    });
-  });
-
-  // ============================================
-  // STORE CHECKOUT ENDPOINTS
-  // ============================================
-
-  // Get PackPTS bundles for purchase
-  app.get("/api/store/products", async (req: any, res) => {
-    try {
-      const bundles = await storeCheckoutService.getPackPtsBundles();
-      
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (userId) {
-        await analyticsService.storeViewed(userId, { productCount: bundles.length, type: "packpts_bundles" });
-      }
-      
-      const configured = await checkStripeConfigured();
-      res.json({
-        products: bundles,
-        stripeConfigured: configured,
-      });
-    } catch (error) {
-      console.error("Error getting store products:", error);
-      res.status(500).json({ error: "Failed to get store products" });
-    }
-  });
-
-  // Create Stripe checkout session for PackPTS purchase
-  app.post("/api/store/checkout", isAuthenticated, requireActiveUser, checkoutLimiter, async (req: any, res) => {
-    try {
-      if (await isPanicEnabled("disable_purchases")) {
-        return res.status(503).json({ error: "Purchases are temporarily disabled." });
-      }
-
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-
-      const { sku } = req.body;
-      if (!sku || typeof sku !== "string") {
-        return res.status(400).json({ error: "SKU is required" });
-      }
-
-      const host = req.headers.host;
-      const mode = getStripeMode(host);
-
-      try {
-        assertLiveModeForHost(host);
-      } catch (modeError) {
-        console.error("[Stripe] Checkout blocked:", (modeError as Error).message);
-        return res.status(503).json({ error: "Payments are temporarily unavailable. Please try again later." });
-      }
-
-      if (!(await checkStripeConfigured())) {
-        return res.status(503).json({ error: "Payment processing not configured" });
-      }
-
-      const baseUrl = isProductionHost(host)
-        ? `https://${host}`
-        : (process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`);
-      const successUrl = `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${baseUrl}/store/cancel`;
-
-      console.log(`[Stripe] checkout_create: { host: "${host}", mode: "${mode}", sku: "${sku}", userId: "${userId}", stripeKeyType: "${mode}" }`);
-
-      const result = await storeCheckoutService.createCheckoutSession(
-        userId,
-        sku,
-        successUrl,
-        cancelUrl,
-        host
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({ url: result.url, sessionId: result.sessionId });
-    } catch (error) {
-      console.error("Error creating checkout session:", error);
-      res.status(500).json({ error: "Payments are temporarily unavailable. Please try again later." });
-    }
-  });
-
-  // Get checkout session status (for success page polling) - requires auth for security
-  app.get("/api/store/checkout/:sessionId", isAuthenticated, async (req: any, res) => {
-    try {
-      const { sessionId } = req.params;
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      
-      if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-      
-      if (!sessionId) {
-        return res.status(400).json({ error: "Session ID is required" });
-      }
-
-      const host = req.headers.host;
-      const status = await storeCheckoutService.getCheckoutSessionStatus(sessionId, host);
-      
-      if (!status) {
-        return res.status(404).json({ error: "Checkout session not found" });
-      }
-
-      if (status.userId !== userId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      res.json(status);
-    } catch (error) {
-      console.error("Error getting checkout session:", error);
-      res.status(500).json({ error: "Failed to get checkout session status" });
-    }
-  });
-
-  // ============================================
-  // MONTHLY PACKPTS SUBSCRIPTIONS
-  // ============================================
-
-  // Get available monthly PackPTS subscription products
-  app.get("/api/store/subscriptions", async (req: any, res) => {
-    try {
-      const subscriptions = await storeCheckoutService.getPackPtsSubscriptions();
-      
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (userId) {
-        await analyticsService.storeViewed(userId, { productCount: subscriptions.length, type: "packpts_subscriptions" });
-      }
-      
-      res.json({ subscriptions });
-    } catch (error) {
-      console.error("Error getting subscription products:", error);
-      res.status(500).json({ error: "Failed to get subscription products" });
-    }
-  });
-
-  // Create subscription checkout session for monthly PackPTS
-  app.post("/api/store/subscribe", isAuthenticated, requireActiveUser, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
-      }
-
-      const { sku } = req.body;
-      if (!sku) {
-        return res.status(400).json({ error: "SKU is required" });
-      }
-
-      const host = req.headers.host;
-      const mode = getStripeMode(host);
-
-      try {
-        assertLiveModeForHost(host);
-      } catch (modeError) {
-        console.error("[Stripe] Subscribe blocked:", (modeError as Error).message);
-        return res.status(503).json({ error: "Payments are temporarily unavailable. Please try again later." });
-      }
-
-      const baseUrl = isProductionHost(host)
-        ? `https://${host}`
-        : (process.env.REPLIT_DEV_DOMAIN 
-          ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-          : `http://localhost:5000`);
-      
-      const successUrl = `${baseUrl}/store/success?session_id={CHECKOUT_SESSION_ID}`;
-      const cancelUrl = `${baseUrl}/store/cancel`;
-
-      console.log(`[Stripe] subscribe_create: { host: "${host}", mode: "${mode}", sku: "${sku}", userId: "${userId}", stripeKeyType: "${mode}" }`);
-
-      const result = await storeCheckoutService.createSubscriptionCheckoutSession(
-        userId,
-        sku,
-        successUrl,
-        cancelUrl,
-        host
-      );
-
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-
-      res.json({ url: result.url, sessionId: result.sessionId });
-    } catch (error) {
-      console.error("Error creating subscription checkout session:", error);
-      res.status(500).json({ error: "Payments are temporarily unavailable. Please try again later." });
-    }
-  });
-
-  // ============================================
-  // ADMIN MANAGEMENT ENDPOINTS
-  // ============================================
-
-  // Admin: Get user's wallet and ledger
-  app.get("/api/admin/users/:userId/wallet", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const walletData = await adminService.getUserWallet(userId);
-      
-      if (!walletData) {
-        return res.status(404).json({ error: "Wallet not found" });
-      }
-      
-      res.json(walletData);
-    } catch (error) {
-      console.error("Error getting user wallet:", error);
-      res.status(500).json({ error: "Failed to get user wallet" });
-    }
-  });
-
-  // Admin: Get purchase events
-  app.get("/api/admin/purchases", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const status = req.query.status as string | undefined;
-      const userId = req.query.userId as string | undefined;
-      
-      const result = await adminService.getPurchaseEvents(page, limit, status, userId);
-      res.json(result);
-    } catch (error) {
-      console.error("Error getting purchase events:", error);
-      res.status(500).json({ error: "Failed to get purchase events" });
-    }
-  });
-
-  // Admin: Get user's entitlements
-  app.get("/api/admin/users/:userId/entitlements", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const entitlements = await adminService.getUserEntitlements(userId);
-      res.json({ entitlements });
-    } catch (error) {
-      console.error("Error getting user entitlements:", error);
-      res.status(500).json({ error: "Failed to get entitlements" });
-    }
-  });
-
-  // Admin: Grant entitlement
-  app.post("/api/admin/users/:userId/entitlements", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId } = req.params;
-      const { entitlementKey, expiresAt } = req.body;
-      
-      if (!entitlementKey) {
-        return res.status(400).json({ error: "Entitlement key required" });
-      }
-      
-      const result = await adminService.grantEntitlement(
-        { adminUserId, targetUserId: userId },
-        entitlementKey,
-        expiresAt ? new Date(expiresAt) : null
-      );
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, message: `Granted ${entitlementKey} to user` });
-    } catch (error) {
-      console.error("Error granting entitlement:", error);
-      res.status(500).json({ error: "Failed to grant entitlement" });
-    }
-  });
-
-  // Admin: Revoke entitlement
-  app.delete("/api/admin/users/:userId/entitlements/:entitlementKey", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId, entitlementKey } = req.params;
-      const { reason } = req.body || {};
-      
-      const result = await adminService.revokeEntitlement(
-        { adminUserId, targetUserId: userId },
-        entitlementKey,
-        reason || "Admin revocation"
-      );
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, message: `Revoked ${entitlementKey} from user` });
-    } catch (error) {
-      console.error("Error revoking entitlement:", error);
-      res.status(500).json({ error: "Failed to revoke entitlement" });
-    }
-  });
-
-  // Admin: Adjust PackPTS balance
-  app.post("/api/admin/users/:userId/wallet/adjust", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId } = req.params;
-      const { amount, reason } = req.body;
-      
-      if (typeof amount !== "number") {
-        return res.status(400).json({ error: "Amount must be a number" });
-      }
-      
-      if (!reason || typeof reason !== "string") {
-        return res.status(400).json({ error: "Reason required" });
-      }
-      
-      const result = await adminService.adjustPackPTS(
-        { adminUserId, targetUserId: userId },
-        amount,
-        reason
-      );
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, newBalance: result.newBalance });
-    } catch (error) {
-      console.error("Error adjusting PackPTS:", error);
-      res.status(500).json({ error: "Failed to adjust PackPTS" });
-    }
-  });
-
-  // Admin: Get user admin status
-  app.get("/api/admin/users/:userId/admin-status", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const status = await adminService.getUserAdminStatus(userId);
-      
-      if (!status) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      
-      res.json(status);
-    } catch (error) {
-      console.error("Error getting admin status:", error);
-      res.status(500).json({ error: "Failed to get admin status" });
-    }
-  });
-
-  // Admin: Grant admin access
-  app.post("/api/admin/users/:userId/grant-admin", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId } = req.params;
-      
-      const result = await adminService.grantAdminAccess({
-        adminUserId,
-        targetUserId: userId,
-      });
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, message: "Admin access granted" });
-    } catch (error) {
-      console.error("Error granting admin:", error);
-      res.status(500).json({ error: "Failed to grant admin access" });
-    }
-  });
-
-  // Admin: Revoke admin access
-  app.post("/api/admin/users/:userId/revoke-admin", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId } = req.params;
-      const { reason } = req.body;
-      
-      if (!reason || typeof reason !== "string") {
-        return res.status(400).json({ error: "Reason required" });
-      }
-      
-      const result = await adminService.revokeAdminAccess(
-        { adminUserId, targetUserId: userId },
-        reason
-      );
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, message: "Admin access revoked" });
-    } catch (error) {
-      console.error("Error revoking admin:", error);
-      res.status(500).json({ error: "Failed to revoke admin access" });
-    }
-  });
-
-  // Admin: Suspend user
-  app.post("/api/admin/users/:userId/suspend", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId } = req.params;
-      const { reason } = req.body;
-      
-      if (!reason || typeof reason !== "string") {
-        return res.status(400).json({ error: "Reason required" });
-      }
-      
-      const result = await adminService.suspendUser(
-        { adminUserId, targetUserId: userId },
-        reason
-      );
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, message: "User suspended" });
-    } catch (error) {
-      console.error("Error suspending user:", error);
-      res.status(500).json({ error: "Failed to suspend user" });
-    }
-  });
-
-  // Admin: Unsuspend user
-  app.post("/api/admin/users/:userId/unsuspend", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { userId } = req.params;
-      
-      const result = await adminService.unsuspendUser({
-        adminUserId,
-        targetUserId: userId,
-      });
-      
-      if (!result.success) {
-        return res.status(400).json({ error: result.error });
-      }
-      
-      res.json({ success: true, message: "User unsuspended" });
-    } catch (error) {
-      console.error("Error unsuspending user:", error);
-      res.status(500).json({ error: "Failed to unsuspend user" });
-    }
-  });
-
-  // Admin: Get all admins
-  app.get("/api/admin/admins", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const admins = await adminService.getAllAdmins();
-      res.json({ admins });
-    } catch (error) {
-      console.error("Error getting admins:", error);
-      res.status(500).json({ error: "Failed to get admins" });
-    }
-  });
-
-  // Admin: Get feature flags
-  app.get("/api/admin/feature-flags", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const flags = await adminService.getFeatureFlags();
-      res.json({ flags });
-    } catch (error) {
-      console.error("Error getting feature flags:", error);
-      res.status(500).json({ error: "Failed to get feature flags" });
-    }
-  });
-
-  // Admin: Toggle feature flag
-  app.patch("/api/admin/feature-flags/:key", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      const { key } = req.params;
-      const { enabled, value } = req.body;
-      
-      if (typeof enabled === "boolean") {
-        const result = await adminService.toggleFeatureFlag(
-          { adminUserId },
-          key,
-          enabled
-        );
-        
-        if (!result.success) {
-          return res.status(400).json({ error: result.error });
-        }
-      }
-      
-      if (value !== undefined) {
-        const result = await adminService.updateFeatureFlagValue(
-          { adminUserId },
-          key,
-          value
-        );
-        
-        if (!result.success) {
-          return res.status(400).json({ error: result.error });
-        }
-      }
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error updating feature flag:", error);
-      res.status(500).json({ error: "Failed to update feature flag" });
-    }
-  });
-
-  // Admin: Get all products
-  app.get("/api/admin/products", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const allProducts = await db
-        .select()
-        .from(products)
-        .orderBy(sql`${products.createdAt} DESC`);
-      res.json({ products: allProducts });
-    } catch (error) {
-      console.error("Error getting products:", error);
-      res.status(500).json({ error: "Failed to get products" });
-    }
-  });
-
-  // Admin: Create product
-  app.post("/api/admin/products", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const baseSchema = z.object({
-        sku: z.string().min(1).max(100),
-        name: z.string().min(1).max(200),
-        priceUsd: z.number().int().positive(),
-        stripePriceId: z.string().optional().nullable(),
-        isActive: z.boolean().default(true),
-        metadata: z.record(z.any()).optional().nullable(),
-        description: z.string().optional().nullable(),
-        sortOrder: z.number().int().optional().nullable(),
-        isBestValue: z.boolean().optional(),
-      });
-
-      const consumableSchema = baseSchema.extend({
-        type: z.literal("CONSUMABLE"),
-        packptsGrant: z.number().int().positive(),
-        entitlementKey: z.null().optional(),
-        durationDays: z.null().optional(),
-      });
-
-      const entitlementSchema = baseSchema.extend({
-        type: z.literal("ENTITLEMENT"),
-        packptsGrant: z.null().optional(),
-        entitlementKey: z.string().min(1).max(100),
-        durationDays: z.null().optional(),
-      });
-
-      const subscriptionSchema = baseSchema.extend({
-        type: z.literal("SUBSCRIPTION"),
-        packptsGrant: z.null().optional(),
-        entitlementKey: z.string().min(1).max(100),
-        durationDays: z.number().int().positive(),
-      });
-
-      const productSchema = z.discriminatedUnion("type", [
-        consumableSchema,
-        entitlementSchema,
-        subscriptionSchema,
-      ]);
-
-      const parsed = productSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      const existingSku = await db
-        .select()
-        .from(products)
-        .where(eq(products.sku, parsed.data.sku))
-        .limit(1);
-
-      if (existingSku.length > 0) {
-        return res.status(400).json({ error: "SKU already exists" });
-      }
-
-      const [newProduct] = await db
-        .insert(products)
-        .values({
-          sku: parsed.data.sku,
-          name: parsed.data.name,
-          type: parsed.data.type,
-          packptsGrant: parsed.data.packptsGrant || null,
-          entitlementKey: parsed.data.entitlementKey || null,
-          durationDays: parsed.data.durationDays || null,
-          priceUsd: parsed.data.priceUsd,
-          isActive: parsed.data.isActive,
-          stripePriceId: parsed.data.stripePriceId || null,
-          description: parsed.data.description || null,
-          sortOrder: parsed.data.sortOrder ?? 0,
-          isBestValue: parsed.data.isBestValue ?? false,
-          metadata: parsed.data.metadata || null,
-        })
-        .returning();
-
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction(
-        adminUserId,
-        "product_created",
-        null,
-        { productId: newProduct.id, sku: newProduct.sku, name: newProduct.name }
-      );
-
-      res.json({ success: true, product: newProduct });
-    } catch (error) {
-      console.error("Error creating product:", error);
-      res.status(500).json({ error: "Failed to create product" });
-    }
-  });
-
-  // Admin: Update product
-  app.patch("/api/admin/products/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-
-      const existingProduct = await db
-        .select()
-        .from(products)
-        .where(eq(products.id, id))
-        .limit(1);
-
-      if (existingProduct.length === 0) {
-        return res.status(404).json({ error: "Product not found" });
-      }
-
-      const productType = existingProduct[0].type;
-      
-      const baseUpdateSchema = z.object({
-        name: z.string().min(1).max(200).optional(),
-        priceUsd: z.number().int().positive().optional(),
-        stripePriceId: z.string().optional().nullable(),
-        isActive: z.boolean().optional(),
-        metadata: z.record(z.any()).optional().nullable(),
-        description: z.string().optional().nullable(),
-        sortOrder: z.number().int().optional().nullable(),
-        isBestValue: z.boolean().optional(),
-      });
-
-      let updateSchema;
-      if (productType === "CONSUMABLE") {
-        updateSchema = baseUpdateSchema.extend({
-          packptsGrant: z.number().int().positive().optional(),
-          entitlementKey: z.null().optional(),
-          durationDays: z.null().optional(),
-        });
-      } else if (productType === "ENTITLEMENT") {
-        updateSchema = baseUpdateSchema.extend({
-          packptsGrant: z.null().optional(),
-          entitlementKey: z.string().min(1).max(100).optional(),
-          durationDays: z.null().optional(),
-        });
-      } else {
-        updateSchema = baseUpdateSchema.extend({
-          packptsGrant: z.null().optional(),
-          entitlementKey: z.string().min(1).max(100).optional(),
-          durationDays: z.number().int().positive().optional(),
-        });
-      }
-
-      const parsed = updateSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      const updateData: Record<string, any> = { updatedAt: new Date() };
-      if (parsed.data.name) updateData.name = parsed.data.name;
-      if (parsed.data.priceUsd !== undefined) updateData.priceUsd = parsed.data.priceUsd;
-      if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
-      if (parsed.data.stripePriceId !== undefined) updateData.stripePriceId = parsed.data.stripePriceId || null;
-      if (parsed.data.description !== undefined) updateData.description = parsed.data.description || null;
-      if (parsed.data.sortOrder !== undefined) updateData.sortOrder = parsed.data.sortOrder ?? 0;
-      if (parsed.data.isBestValue !== undefined) updateData.isBestValue = parsed.data.isBestValue;
-      if (parsed.data.metadata !== undefined) updateData.metadata = parsed.data.metadata;
-
-      if (productType === "CONSUMABLE" && parsed.data.packptsGrant !== undefined) {
-        updateData.packptsGrant = parsed.data.packptsGrant;
-      }
-      if (productType !== "CONSUMABLE" && parsed.data.entitlementKey !== undefined) {
-        updateData.entitlementKey = parsed.data.entitlementKey;
-      }
-      if (productType === "SUBSCRIPTION" && parsed.data.durationDays !== undefined) {
-        updateData.durationDays = parsed.data.durationDays;
-      }
-
-      const [updatedProduct] = await db
-        .update(products)
-        .set(updateData)
-        .where(eq(products.id, id))
-        .returning();
-
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction(
-        adminUserId,
-        "product_updated",
-        null,
-        { productId: id, productType, changes: parsed.data }
-      );
-
-      res.json({ success: true, product: updatedProduct });
-    } catch (error) {
-      console.error("Error updating product:", error);
-      res.status(500).json({ error: "Failed to update product" });
-    }
-  });
-
-  // Admin: Toggle product active status
-  app.patch("/api/admin/products/:id/toggle", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-
-      const existingProduct = await db
-        .select()
-        .from(products)
-        .where(eq(products.id, id))
-        .limit(1);
-
-      if (existingProduct.length === 0) {
-        return res.status(404).json({ error: "Product not found" });
-      }
-
-      const newActiveStatus = !existingProduct[0].isActive;
-
-      const [updatedProduct] = await db
-        .update(products)
-        .set({ isActive: newActiveStatus })
-        .where(eq(products.id, id))
-        .returning();
-
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction(
-        adminUserId,
-        newActiveStatus ? "product_activated" : "product_deactivated",
-        null,
-        { productId: id, sku: existingProduct[0].sku }
-      );
-
-      res.json({ success: true, product: updatedProduct });
-    } catch (error) {
-      console.error("Error toggling product:", error);
-      res.status(500).json({ error: "Failed to toggle product" });
-    }
-  });
-
-  // Admin: Delete product (soft delete by setting isActive to false)
-  app.delete("/api/admin/products/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-
-      const existingProduct = await db
-        .select()
-        .from(products)
-        .where(eq(products.id, id))
-        .limit(1);
-
-      if (existingProduct.length === 0) {
-        return res.status(404).json({ error: "Product not found" });
-      }
-
-      await db
-        .update(products)
-        .set({ isActive: false })
-        .where(eq(products.id, id));
-
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-      await adminService.logAction(
-        adminUserId,
-        "product_deleted",
-        null,
-        { productId: id, sku: existingProduct[0].sku }
-      );
-
-      res.json({ success: true, message: "Product deactivated" });
-    } catch (error) {
-      console.error("Error deleting product:", error);
-      res.status(500).json({ error: "Failed to delete product" });
-    }
-  });
-
-  // Admin: Get audit log
-  app.get("/api/admin/audit-log", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 50;
-      const adminUserId = req.query.adminUserId as string | undefined;
-      
-      const result = await adminService.getAuditLog(page, limit, adminUserId);
-      res.json(result);
-    } catch (error) {
-      console.error("Error getting audit log:", error);
-      res.status(500).json({ error: "Failed to get audit log" });
-    }
-  });
-
-  // Admin: Get metrics
-  app.get("/api/admin/metrics", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const date = req.query.date as string | undefined;
-      const metrics = await adminService.getMetrics(date);
-      res.json(metrics);
-    } catch (error) {
-      console.error("Error getting metrics:", error);
-      res.status(500).json({ error: "Failed to get metrics" });
-    }
-  });
-
-  // Admin: Get card delivery telemetry stats
-  app.get("/api/admin/telemetry/cards", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const { getCardDeliveryStats } = await import("./services/telemetry/cardDelivery");
-      const stats = await getCardDeliveryStats();
-      res.json(stats);
-    } catch (error) {
-      console.error("Error getting card telemetry:", error);
-      res.status(500).json({ error: "Failed to get card delivery stats" });
-    }
-  });
-
-  // ============================================
-  // ADMIN STREAK ENDPOINTS
-  // ============================================
-
-  // Admin: Get streak statistics
-  app.get("/api/admin/streaks/stats", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const stats = await streakService.getAdminStats();
-      res.json(stats);
-    } catch (error) {
-      console.error("Error getting streak stats:", error);
-      res.status(500).json({ error: "Failed to get streak statistics" });
-    }
-  });
-
-  // Admin: Get top streaks
-  app.get("/api/admin/streaks/top", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const topStreaks = await streakService.getTopStreaks(10);
-      res.json(topStreaks);
-    } catch (error) {
-      console.error("Error getting top streaks:", error);
-      res.status(500).json({ error: "Failed to get top streaks" });
-    }
-  });
-
-  // Admin: Get streak reward configuration
-  app.get("/api/admin/streaks/config", isAuthenticated, requireAdmin, async (_req, res) => {
-    try {
-      const configs = await streakService.getRewardConfigs();
-      res.json(configs);
-    } catch (error) {
-      console.error("Error getting streak config:", error);
-      res.status(500).json({ error: "Failed to get streak configuration" });
-    }
-  });
-
-  // Admin: Add streak reward configuration
-  app.post("/api/admin/streaks/config", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { dayNumber, baseReward, milestoneBonus } = req.body;
-      
-      if (typeof dayNumber !== "number" || dayNumber < 1) {
-        return res.status(400).json({ error: "Day number must be a positive integer" });
-      }
-      if (typeof baseReward !== "number" || baseReward < 0) {
-        return res.status(400).json({ error: "Base reward must be a non-negative number" });
-      }
-      if (typeof milestoneBonus !== "number" || milestoneBonus < 0) {
-        return res.status(400).json({ error: "Milestone bonus must be a non-negative number" });
-      }
-
-      const config = await streakService.addRewardConfig(dayNumber, baseReward, milestoneBonus);
-      res.json(config);
-    } catch (error) {
-      console.error("Error adding streak config:", error);
-      res.status(500).json({ error: "Failed to add streak configuration" });
-    }
-  });
-
-  // Admin: Update streak reward configuration
-  app.patch("/api/admin/streaks/config/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { baseReward, milestoneBonus } = req.body;
-      
-      if (isNaN(id)) {
-        return res.status(400).json({ error: "Invalid config ID" });
-      }
-
-      const config = await streakService.updateRewardConfig(id, { baseReward, milestoneBonus });
-      if (!config) {
-        return res.status(404).json({ error: "Configuration not found" });
-      }
-      res.json(config);
-    } catch (error) {
-      console.error("Error updating streak config:", error);
-      res.status(500).json({ error: "Failed to update streak configuration" });
-    }
-  });
-
-  // Admin: Delete streak reward configuration
-  app.delete("/api/admin/streaks/config/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      
-      if (isNaN(id)) {
-        return res.status(400).json({ error: "Invalid config ID" });
-      }
-
-      const success = await streakService.deleteRewardConfig(id);
-      if (!success) {
-        return res.status(404).json({ error: "Configuration not found" });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error deleting streak config:", error);
-      res.status(500).json({ error: "Failed to delete streak configuration" });
-    }
-  });
-
   // ============================================
   // REDEMPTION ENDPOINTS
   // ============================================
@@ -3985,8 +1932,17 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const redemptions = await redemptionService.getUserRedemptions(userId);
-      res.json({ redemptions });
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+
+      const result = await redemptionService.getUserRedemptions(userId, page, pageSize);
+      res.json({
+        redemptions: result.redemptions,
+        total: result.total,
+        page: result.page,
+        pageSize: result.pageSize,
+        totalPages: Math.ceil(result.total / result.pageSize),
+      });
     } catch (error) {
       console.error("Error fetching redemption history:", error);
       res.status(500).json({ error: "Failed to fetch redemption history" });
@@ -6587,8 +4543,31 @@ export async function registerRoutes(
   // Admin: Get all Goldin curated listings
   app.get("/api/admin/goldin/listings", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const listings = await marketplaceService.getAllCuratedListingsAdmin();
-      res.json(listings);
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+      const offset = (page - 1) * pageSize;
+
+      const [listings, countResult] = await Promise.all([
+        db
+          .select()
+          .from(goldinCuratedListings)
+          .orderBy(desc(goldinCuratedListings.createdAt))
+          .limit(pageSize)
+          .offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(goldinCuratedListings),
+      ]);
+
+      const total = countResult[0]?.count || 0;
+
+      res.json({
+        items: listings,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
     } catch (error) {
       console.error("Error getting Goldin listings:", error);
       res.status(500).json({ error: "Failed to get listings" });
@@ -7889,21 +5868,38 @@ export async function registerRoutes(
   // Admin: Get global audit log (all sets)
   app.get("/api/admin/audit-log", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const { limit: limitParam = "100", operationSource } = req.query;
-      const limitNum = Math.min(parseInt(String(limitParam), 10) || 100, 500);
-      
-      const whereCondition = operationSource && typeof operationSource === 'string' 
-        ? eq(setAuditLog.operationSource, operationSource) 
+      const { operationSource } = req.query;
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+      const offset = (page - 1) * pageSize;
+
+      const whereCondition = operationSource && typeof operationSource === 'string'
+        ? eq(setAuditLog.operationSource, operationSource)
         : undefined;
-      
-      const logs = await db
-        .select()
-        .from(setAuditLog)
-        .where(whereCondition)
-        .orderBy(desc(setAuditLog.createdAt))
-        .limit(limitNum);
-      
-      res.json(logs);
+
+      const [logs, countResult] = await Promise.all([
+        db
+          .select()
+          .from(setAuditLog)
+          .where(whereCondition)
+          .orderBy(desc(setAuditLog.createdAt))
+          .limit(pageSize)
+          .offset(offset),
+        db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(setAuditLog)
+          .where(whereCondition),
+      ]);
+
+      const total = countResult[0]?.count || 0;
+
+      res.json({
+        items: logs,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
     } catch (error) {
       console.error("Error getting global audit log:", error);
       res.status(500).json({ error: "Failed to get audit log" });
@@ -10545,6 +8541,154 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // STORE CHECKOUT ENDPOINTS (PackPTS Bundles & Subscriptions)
+  // ============================================
+
+  // GET /api/store/bundles - Get available PackPTS bundle products
+  app.get("/api/store/bundles", async (_req, res) => {
+    try {
+      const bundles = await storeCheckoutService.getPackPtsBundles();
+      res.json({ bundles });
+    } catch (error: any) {
+      console.error("[StoreCheckout] Error getting bundles:", error);
+      res.status(500).json({ error: "Failed to get bundle products" });
+    }
+  });
+
+  // GET /api/store/subscriptions - Get available PackPTS subscription products
+  app.get("/api/store/subscriptions", async (_req, res) => {
+    try {
+      const subscriptions = await storeCheckoutService.getPackPtsSubscriptions();
+      res.json({ subscriptions });
+    } catch (error: any) {
+      console.error("[StoreCheckout] Error getting subscriptions:", error);
+      res.status(500).json({ error: "Failed to get subscription products" });
+    }
+  });
+
+  // POST /api/store/checkout - Create a Stripe checkout session for a PackPTS bundle
+  app.post("/api/store/checkout", isAuthenticated, checkoutLimiter, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const idempotencyKey = req.headers["x-idempotency-key"] as string | undefined;
+
+      const { sku, successUrl, cancelUrl } = req.body;
+
+      if (!sku || typeof sku !== "string") {
+        return res.status(400).json({ error: "sku is required" });
+      }
+      if (!successUrl || typeof successUrl !== "string") {
+        return res.status(400).json({ error: "successUrl is required" });
+      }
+      if (!cancelUrl || typeof cancelUrl !== "string") {
+        return res.status(400).json({ error: "cancelUrl is required" });
+      }
+
+      const host = req.get("host");
+      const result = await storeCheckoutService.createCheckoutSession(
+        userId,
+        sku,
+        successUrl,
+        cancelUrl,
+        host,
+        idempotencyKey
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        url: result.url,
+        sessionId: result.sessionId,
+      });
+    } catch (error: any) {
+      console.error("[StoreCheckout] Error creating checkout session:", error);
+      res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  });
+
+  // POST /api/store/subscribe - Create a Stripe subscription checkout session
+  app.post("/api/store/subscribe", isAuthenticated, checkoutLimiter, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const idempotencyKey = req.headers["x-idempotency-key"] as string | undefined;
+
+      const { sku, successUrl, cancelUrl } = req.body;
+
+      if (!sku || typeof sku !== "string") {
+        return res.status(400).json({ error: "sku is required" });
+      }
+      if (!successUrl || typeof successUrl !== "string") {
+        return res.status(400).json({ error: "successUrl is required" });
+      }
+      if (!cancelUrl || typeof cancelUrl !== "string") {
+        return res.status(400).json({ error: "cancelUrl is required" });
+      }
+
+      const host = req.get("host");
+      const result = await storeCheckoutService.createSubscriptionCheckoutSession(
+        userId,
+        sku,
+        successUrl,
+        cancelUrl,
+        host,
+        idempotencyKey
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({
+        success: true,
+        url: result.url,
+        sessionId: result.sessionId,
+      });
+    } catch (error: any) {
+      console.error("[StoreCheckout] Error creating subscription checkout session:", error);
+      res.status(500).json({ error: "Failed to create subscription checkout session" });
+    }
+  });
+
+  // GET /api/store/checkout/status/:sessionId - Check checkout session status
+  app.get("/api/store/checkout/status/:sessionId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { sessionId } = req.params;
+      const host = req.get("host");
+      const statusInfo = await storeCheckoutService.getCheckoutSessionStatus(sessionId, host);
+
+      if (!statusInfo) {
+        return res.status(404).json({ error: "Checkout session not found" });
+      }
+
+      // Ensure user can only check their own sessions
+      if (statusInfo.userId !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      res.json(statusInfo);
+    } catch (error: any) {
+      console.error("[StoreCheckout] Error getting checkout session status:", error);
+      res.status(500).json({ error: "Failed to get checkout session status" });
+    }
+  });
+
+  // ============================================
   // FRAUD SCORING PIPELINE & RISK API ENDPOINTS
   // ============================================
 
@@ -11306,6 +9450,478 @@ export async function registerRoutes(
       res.json(getSocialAgentStatus());
     } catch (err: any) {
       res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // Creator Program Applications
+  app.post('/api/creators/apply', async (req, res) => {
+    try {
+      const { name, email, socialHandle, platform, followerCount, contentDescription, whyPackpts } = req.body;
+
+      if (!name || !email || !socialHandle || !platform || !contentDescription || !whyPackpts) {
+        return res.status(400).json({ message: 'All required fields must be provided' });
+      }
+
+      const { pool: dbPool } = await import('./db');
+      const result = await dbPool.query(
+        `INSERT INTO creator_applications (name, email, social_handle, platform, follower_count, content_description, why_packpts)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, created_at`,
+        [name, email, socialHandle, platform, followerCount || null, contentDescription, whyPackpts]
+      );
+
+      res.status(201).json({
+        success: true,
+        applicationId: result.rows[0].id,
+        message: 'Application submitted successfully'
+      });
+    } catch (err) {
+      console.error('[Creators] Apply error:', err);
+      res.status(500).json({ message: 'Failed to submit application' });
+    }
+  });
+
+  app.get('/api/admin/creator-applications', requireAdmin, async (req, res) => {
+    try {
+      const { pool: dbPool } = await import('./db');
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+      const status = req.query.status as string | undefined;
+      const offset = (page - 1) * pageSize;
+
+      const params = status ? [pageSize, offset, status] : [pageSize, offset];
+
+      const [rows, count] = await Promise.all([
+        dbPool.query(
+          `SELECT id, name, email, social_handle, platform, follower_count, status, tier, created_at
+           FROM creator_applications
+           ${status ? 'WHERE status = $3' : ''}
+           ORDER BY created_at DESC
+           LIMIT $1 OFFSET $2`,
+          params
+        ),
+        dbPool.query(`SELECT COUNT(*) FROM creator_applications ${status ? 'WHERE status = $1' : ''}`, status ? [status] : []),
+      ]);
+
+      const total = parseInt(count.rows[0].count);
+      res.json({
+        applications: rows.rows,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
+    } catch (err) {
+      console.error('[Creators] Admin list error:', err);
+      res.status(500).json({ message: 'Failed to fetch applications' });
+    }
+  });
+
+  app.patch('/api/admin/creator-applications/:id', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, tier, notes } = req.body;
+      const userId = (req.user as any)?.id;
+
+      const { pool: dbPool } = await import('./db');
+      await dbPool.query(
+        `UPDATE creator_applications
+         SET status = COALESCE($1, status), tier = COALESCE($2, tier), notes = COALESCE($3, notes),
+             reviewed_by = $4, reviewed_at = NOW(), updated_at = NOW()
+         WHERE id = $5`,
+        [status, tier, notes, userId, id]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[Creators] Admin update error:', err);
+      res.status(500).json({ message: 'Failed to update application' });
+    }
+  });
+
+  // Card of the Day
+  app.get('/api/card-of-the-day', async (req, res) => {
+    try {
+      const { pool: dbPool } = await import('./db');
+
+      // Get today's card
+      const today = new Date().toISOString().split('T')[0];
+      let result = await dbPool.query(
+        `SELECT cotd.*, pc.image_url, pc.player_name, pc.set_name, pc.year
+         FROM card_of_the_day cotd
+         JOIN playable_cards pc ON pc.id = cotd.card_id
+         WHERE cotd.date = $1`,
+        [today]
+      );
+
+      if (result.rows.length === 0) {
+        // No card set for today — pick the card with highest wrong answer rate from yesterday
+        const cardResult = await dbPool.query(
+          `SELECT
+             pc.id as card_id,
+             pc.image_url,
+             pc.set_name,
+             pc.year,
+             COUNT(ga.id) as total_answers,
+             COUNT(CASE WHEN ga.is_correct = false THEN 1 END) as wrong_answers,
+             ROUND(
+               COUNT(CASE WHEN ga.is_correct = false THEN 1 END)::numeric / NULLIF(COUNT(ga.id), 0) * 100,
+               2
+             ) as wrong_answer_rate
+           FROM playable_cards pc
+           JOIN game_answers ga ON ga.card_id = pc.id
+           WHERE ga.created_at >= NOW() - INTERVAL '24 hours'
+             AND pc.is_active = true
+           GROUP BY pc.id, pc.image_url, pc.set_name, pc.year
+           HAVING COUNT(ga.id) >= 5
+           ORDER BY wrong_answer_rate DESC
+           LIMIT 1`
+        );
+
+        if (cardResult.rows.length > 0) {
+          const card = cardResult.rows[0];
+          const insertResult = await dbPool.query(
+            `INSERT INTO card_of_the_day (card_id, date, wrong_answer_rate, difficulty_score)
+             VALUES ($1, $2, $3, $3)
+             ON CONFLICT (date) DO NOTHING
+             RETURNING *`,
+            [card.card_id, today, card.wrong_answer_rate]
+          );
+
+          if (insertResult.rows.length > 0) {
+            return res.json({
+              cardId: card.card_id,
+              imageUrl: card.image_url,
+              setName: card.set_name,
+              year: card.year,
+              wrongAnswerRate: card.wrong_answer_rate,
+              date: today,
+            });
+          }
+        }
+
+        return res.json(null); // No card of the day available
+      }
+
+      const card = result.rows[0];
+
+      // Increment times_shown
+      await dbPool.query(
+        `UPDATE card_of_the_day SET times_shown = times_shown + 1 WHERE id = $1`,
+        [card.id]
+      );
+
+      res.json({
+        cardId: card.card_id,
+        imageUrl: card.image_url,
+        setName: card.set_name,
+        year: card.year,
+        wrongAnswerRate: card.wrong_answer_rate,
+        date: today,
+      });
+    } catch (err) {
+      console.error('[CardOfTheDay] Error:', err);
+      res.status(500).json({ message: 'Failed to get card of the day' });
+    }
+  });
+
+  // Newsletter unsubscribe
+  app.get('/api/email/unsubscribe/:token', async (req, res) => {
+    try {
+      const { token } = req.params;
+      const { pool: dbPool } = await import('./db');
+
+      const result = await dbPool.query(
+        `UPDATE users
+         SET newsletter_opted_in = false, updated_at = NOW()
+         WHERE newsletter_unsubscribe_token = $1
+         RETURNING id`,
+        [token]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).send('<h1>Invalid unsubscribe link</h1><p>This link may have already been used.</p>');
+      }
+
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Unsubscribed</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 40px;">
+          <h1>&#x2705; Unsubscribed</h1>
+          <p>You've been unsubscribed from PackPTS emails.</p>
+          <p><a href="/">Return to PackPTS</a></p>
+        </body>
+        </html>
+      `);
+    } catch (err) {
+      console.error('[Newsletter] Unsubscribe error:', err);
+      res.status(500).send('<h1>Error</h1><p>Please try again later.</p>');
+    }
+  });
+
+  // UTM Attribution Analytics
+  app.get('/api/admin/attribution', requireAdmin, async (req, res) => {
+    try {
+      const { pool: dbPool } = await import('./db');
+      const [bySource, byCampaign, totalAttributed] = await Promise.all([
+        dbPool.query(
+          `SELECT utm_source, COUNT(*) as signups
+           FROM user_attribution
+           WHERE utm_source IS NOT NULL
+           GROUP BY utm_source
+           ORDER BY signups DESC
+           LIMIT 20`
+        ),
+        dbPool.query(
+          `SELECT utm_campaign, utm_source, COUNT(*) as signups
+           FROM user_attribution
+           WHERE utm_campaign IS NOT NULL
+           GROUP BY utm_campaign, utm_source
+           ORDER BY signups DESC
+           LIMIT 20`
+        ),
+        dbPool.query(`SELECT COUNT(*) as total FROM user_attribution`),
+      ]);
+
+      res.json({
+        bySource: bySource.rows,
+        byCampaign: byCampaign.rows,
+        totalAttributed: parseInt(totalAttributed.rows[0].total),
+      });
+    } catch (err) {
+      console.error('[Attribution] Admin error:', err);
+      res.status(500).json({ message: 'Failed to get attribution data' });
+    }
+  });
+
+  // ─── C12: Partner Inquiries ───────────────────────────────────────────────
+
+  app.post('/api/partner-inquiry', async (req, res) => {
+    try {
+      const { shopName, contactName, contactEmail, website, location, monthlyVolume, message } = req.body;
+
+      if (!shopName || !contactName || !contactEmail) {
+        return res.status(400).json({ message: 'Shop name, contact name, and email are required' });
+      }
+
+      const result = await db.execute(
+        sql`INSERT INTO partner_inquiries (shop_name, contact_name, contact_email, website, location, monthly_volume, message)
+            VALUES (${shopName}, ${contactName}, ${contactEmail}, ${website || null}, ${location || null}, ${monthlyVolume || null}, ${message || null})
+            RETURNING id`
+      );
+
+      return res.status(201).json({ success: true, inquiryId: result.rows[0]?.id });
+    } catch (err: any) {
+      console.error('[Partners] Inquiry error:', err?.message);
+      return res.status(500).json({ message: 'Failed to submit inquiry' });
+    }
+  });
+
+  app.get('/api/admin/partner-inquiries', isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+      const status = req.query.status as string | undefined;
+      const offset = (page - 1) * pageSize;
+
+      const [rows, count] = await Promise.all([
+        db.execute(
+          status
+            ? sql`SELECT id, shop_name, contact_name, contact_email, location, monthly_volume, status, created_at
+                  FROM partner_inquiries
+                  WHERE status = ${status}
+                  ORDER BY created_at DESC
+                  LIMIT ${pageSize} OFFSET ${offset}`
+            : sql`SELECT id, shop_name, contact_name, contact_email, location, monthly_volume, status, created_at
+                  FROM partner_inquiries
+                  ORDER BY created_at DESC
+                  LIMIT ${pageSize} OFFSET ${offset}`
+        ),
+        db.execute(
+          status
+            ? sql`SELECT COUNT(*) FROM partner_inquiries WHERE status = ${status}`
+            : sql`SELECT COUNT(*) FROM partner_inquiries`
+        ),
+      ]);
+
+      const total = parseInt(count.rows[0]?.count as string || '0');
+      return res.json({
+        inquiries: rows.rows,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
+    } catch (err: any) {
+      console.error('[Partners] Admin list error:', err?.message);
+      return res.status(500).json({ message: 'Failed to get inquiries' });
+    }
+  });
+
+  // ── Seasonal Promotions (C13) ────────────────────────────────────────────
+
+  app.get('/api/promotions/active', async (req, res) => {
+    try {
+      const { getActivePromotion } = await import('./services/promotionService');
+      const promotion = await getActivePromotion();
+      res.json(promotion || null);
+    } catch (err) {
+      console.error('[Promotions] Error:', err);
+      res.status(500).json({ message: 'Failed to get promotion' });
+    }
+  });
+
+  app.get('/api/admin/promotions', requireAdmin, async (req, res) => {
+    try {
+      const { pool: dbPool } = await import('./db');
+      const result = await dbPool.query(
+        `SELECT id, name, description, start_at, end_at, points_multiplier, active, created_at
+         FROM promotions
+         ORDER BY start_at DESC`
+      );
+      res.json({ promotions: result.rows });
+    } catch (err) {
+      console.error('[Promotions] Admin list error:', err);
+      res.status(500).json({ message: 'Failed to get promotions' });
+    }
+  });
+
+  app.post('/api/admin/promotions', requireAdmin, async (req, res) => {
+    try {
+      const { name, description, startAt, endAt, pointsMultiplier } = req.body;
+
+      if (!name || !startAt || !endAt || !pointsMultiplier) {
+        return res.status(400).json({ message: 'name, startAt, endAt, and pointsMultiplier are required' });
+      }
+
+      if (parseFloat(pointsMultiplier) < 1.0 || parseFloat(pointsMultiplier) > 10.0) {
+        return res.status(400).json({ message: 'pointsMultiplier must be between 1.0 and 10.0' });
+      }
+
+      const { pool: dbPool } = await import('./db');
+      const userId = (req.user as any)?.id;
+
+      const result = await dbPool.query(
+        `INSERT INTO promotions (name, description, start_at, end_at, points_multiplier, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [name, description || null, startAt, endAt, parseFloat(pointsMultiplier), userId]
+      );
+
+      const { invalidatePromotionCache } = await import('./services/promotionService');
+      invalidatePromotionCache();
+
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error('[Promotions] Create error:', err);
+      res.status(500).json({ message: 'Failed to create promotion' });
+    }
+  });
+
+  app.patch('/api/admin/promotions/:id', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { active } = req.body;
+
+      const { pool: dbPool } = await import('./db');
+      await dbPool.query(
+        `UPDATE promotions SET active = $1, updated_at = NOW() WHERE id = $2`,
+        [active, id]
+      );
+
+      const { invalidatePromotionCache } = await import('./services/promotionService');
+      invalidatePromotionCache();
+
+      res.json({ success: true });
+    } catch (err) {
+      console.error('[Promotions] Update error:', err);
+      res.status(500).json({ message: 'Failed to update promotion' });
+    }
+  });
+
+  // ── User Feedback & Roadmap (C15) ────────────────────────────────────────
+
+  app.post('/api/feedback', async (req, res) => {
+    try {
+      const { category, message, pageUrl } = req.body;
+      const userId = (req.user as any)?.id || null;
+
+      const VALID_CATEGORIES = ['bug', 'feature_request', 'card_set_request', 'general'];
+      if (!category || !VALID_CATEGORIES.includes(category)) {
+        return res.status(400).json({ message: 'Invalid category' });
+      }
+
+      if (!message || message.trim().length < 10) {
+        return res.status(400).json({ message: 'Message must be at least 10 characters' });
+      }
+
+      const { pool: dbPool } = await import('./db');
+      await dbPool.query(
+        `INSERT INTO user_feedback (user_id, category, message, page_url)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, category, message.trim(), pageUrl || null]
+      );
+
+      res.status(201).json({ success: true });
+    } catch (err) {
+      console.error('[Feedback] Submit error:', err);
+      res.status(500).json({ message: 'Failed to submit feedback' });
+    }
+  });
+
+  app.get('/api/admin/feedback', requireAdmin, async (req, res) => {
+    try {
+      const { pool: dbPool } = await import('./db');
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
+      const category = req.query.category as string | undefined;
+      const status = req.query.status as string | undefined;
+      const offset = (page - 1) * pageSize;
+
+      const conditions: string[] = [];
+      const params: any[] = [pageSize, offset];
+      let paramIdx = 3;
+
+      if (category) {
+        conditions.push(`uf.category = $${paramIdx++}`);
+        params.push(category);
+      }
+      if (status) {
+        conditions.push(`uf.status = $${paramIdx++}`);
+        params.push(status);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const [rows, count] = await Promise.all([
+        dbPool.query(
+          `SELECT uf.id, uf.category, uf.message, uf.page_url, uf.status, uf.created_at,
+                  u.username
+           FROM user_feedback uf
+           LEFT JOIN users u ON u.id = uf.user_id
+           ${whereClause}
+           ORDER BY uf.created_at DESC
+           LIMIT $1 OFFSET $2`,
+          params
+        ),
+        dbPool.query(
+          `SELECT COUNT(*) FROM user_feedback uf ${whereClause}`,
+          params.slice(2) // Only the filter params
+        ),
+      ]);
+
+      const total = parseInt(count.rows[0].count);
+      res.json({
+        feedback: rows.rows,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      });
+    } catch (err) {
+      console.error('[Feedback] Admin list error:', err);
+      res.status(500).json({ message: 'Failed to get feedback' });
     }
   });
 

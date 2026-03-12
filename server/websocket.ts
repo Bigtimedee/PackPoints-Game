@@ -125,9 +125,23 @@ export function setupWebSocket(httpServer: HttpServer) {
   
   httpServer.on("upgrade", async (req, socket, head) => {
     if (req.url !== "/ws" && !req.url?.startsWith("/ws?")) {
+      socket.destroy();
       return;
     }
-    
+
+    // Origin validation for WebSocket connections
+    const origin = req.headers.origin;
+    const allowedOrigins = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : ['http://localhost:5000', 'http://localhost:3000'];
+
+    if (origin && !allowedOrigins.includes(origin)) {
+      log(`[WS Upgrade] Rejected connection from disallowed origin: ${origin}`, "ws");
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
     try {
       const sessionData = await parseSessionFromUpgrade(req);
       
@@ -319,7 +333,7 @@ async function handleAuth(ws: WebSocket, payload: { userId: string; username: st
     existingWs.close();
   }
   
-  const socketId = Math.random().toString(36).substring(7);
+  const socketId = require('crypto').randomBytes(8).toString('hex');
   clients.set(ws, { 
     userId, 
     username, 
@@ -1134,7 +1148,7 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
     return;
   }
   
-  const socketId = existingClient?.socketId || Math.random().toString(36).substring(7);
+  const socketId = existingClient?.socketId || require('crypto').randomBytes(8).toString('hex');
   
   clients.set(ws, { 
     userId, 
@@ -1171,7 +1185,7 @@ async function handleLeaveQueue(ws: WebSocket, payload: { userId: string }) {
   
   client.inQueue = false;
   
-  const socketId = client.socketId || Math.random().toString(36).substring(7);
+  const socketId = client.socketId || require('crypto').randomBytes(8).toString('hex');
   await presenceService.setOnline(userId, socketId);
   
   const removed = await dbMatchmakingQueue.leaveQueue(userId);

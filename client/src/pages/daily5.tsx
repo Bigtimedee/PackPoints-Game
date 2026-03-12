@@ -8,6 +8,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import {
   Calendar, Clock, Trophy, ArrowLeft, Check, X, Loader2,
@@ -369,6 +370,7 @@ export default function Daily5Page() {
       setGameState("results");
       queryClient.invalidateQueries({ queryKey: ["/api/daily5/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily5/leaderboard"] });
+      queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message || "Failed to finish", variant: "destructive" });

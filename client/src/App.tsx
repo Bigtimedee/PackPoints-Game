@@ -1,5 +1,6 @@
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
+import { queryClient, captureUtmParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,56 +8,66 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Header } from "@/components/header";
 import { MobileNav } from "@/components/mobile-nav";
+import { AdminLayout } from "@/components/admin-layout";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { FeedbackWidget } from "@/components/FeedbackWidget";
+
+// Critical path — eager imports
 import Home from "@/pages/home";
-import Game from "@/pages/game";
-import Lobby from "@/pages/lobby";
-import Match from "@/pages/match";
-import Queue from "@/pages/queue";
-import Leaderboard from "@/pages/leaderboard";
-import Marketplace from "@/pages/marketplace";
-import Store from "@/pages/store";
-import StoreSuccess from "@/pages/store-success";
-import StoreCancel from "@/pages/store-cancel";
-import Profile from "@/pages/profile";
-import AdminLogin from "@/pages/admin/login";
-import AdminDashboard from "@/pages/admin/dashboard";
-import AdminUsers from "@/pages/admin/users";
-import AdminUserDetail from "@/pages/admin/user-detail";
-import AdminMetrics from "@/pages/admin/metrics";
-import AdminAuditLog from "@/pages/admin/audit-log";
-import AdminRedemptions from "@/pages/admin/redemptions";
-import AdminTiers from "@/pages/admin/tiers";
-import AdminStreaks from "@/pages/admin/streaks";
-import AdminProducts from "@/pages/admin/products";
-import AdminSubscriptions from "@/pages/admin/subscriptions";
-import AdminAccess from "@/pages/admin/access";
-import AdminGeo from "@/pages/admin/geo";
-import AdminPlayableSets from "@/pages/admin/playable-sets";
-import AdminCardHedgeCard from "@/pages/admin/cardhedge-card";
-import AdminCardSearch from "@/pages/admin/card-search";
-import AdminCardReports from "@/pages/admin/card-reports";
-import AdminPackageGuardrails from "@/pages/admin/package-guardrails";
-import AdminCardSets from "@/pages/admin/card-sets";
-import AdminCardTelemetry from "@/pages/admin/card-telemetry";
-import AdminDaily5Stats from "@/pages/admin/daily5-stats";
-import ForgotPassword from "@/pages/forgot-password";
-import ResetPassword from "@/pages/reset-password";
+import Auth from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 import AuthError from "@/pages/auth-error";
-import Auth from "@/pages/auth";
 import AuthSuccess from "@/pages/auth-success";
 import LinkRequired from "@/pages/link-required";
-import Waitlist from "@/pages/waitlist";
-import Invite from "@/pages/invite";
-import Redeem from "@/pages/redeem";
-import Friends from "@/pages/friends";
-import Daily5 from "@/pages/daily5";
-import PrivacyPolicy from "@/pages/privacy-policy";
-import TermsOfService from "@/pages/terms-of-service";
-import { AdminLayout } from "@/components/admin-layout";
+
+// Lazy-load everything else
+const Game = lazy(() => import("@/pages/game"));
+const Lobby = lazy(() => import("@/pages/lobby"));
+const Match = lazy(() => import("@/pages/match"));
+const Queue = lazy(() => import("@/pages/queue"));
+const Leaderboard = lazy(() => import("@/pages/leaderboard"));
+const Marketplace = lazy(() => import("@/pages/marketplace"));
+const Store = lazy(() => import("@/pages/store"));
+const StoreSuccess = lazy(() => import("@/pages/store-success"));
+const StoreCancel = lazy(() => import("@/pages/store-cancel"));
+const Profile = lazy(() => import("@/pages/profile"));
+const Friends = lazy(() => import("@/pages/friends"));
+const Daily5 = lazy(() => import("@/pages/daily5"));
+const Waitlist = lazy(() => import("@/pages/waitlist"));
+const Invite = lazy(() => import("@/pages/invite"));
+const Redeem = lazy(() => import("@/pages/redeem"));
+const ForgotPassword = lazy(() => import("@/pages/forgot-password"));
+const ResetPassword = lazy(() => import("@/pages/reset-password"));
+const PrivacyPolicy = lazy(() => import("@/pages/privacy-policy"));
+const TermsOfService = lazy(() => import("@/pages/terms-of-service"));
+const Partners = lazy(() => import("@/pages/partners"));
+const AdminLogin = lazy(() => import("@/pages/admin/login"));
+const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
+const AdminUsers = lazy(() => import("@/pages/admin/users"));
+const AdminUserDetail = lazy(() => import("@/pages/admin/user-detail"));
+const AdminMetrics = lazy(() => import("@/pages/admin/metrics"));
+const AdminAuditLog = lazy(() => import("@/pages/admin/audit-log"));
+const AdminRedemptions = lazy(() => import("@/pages/admin/redemptions"));
+const AdminTiers = lazy(() => import("@/pages/admin/tiers"));
+const AdminStreaks = lazy(() => import("@/pages/admin/streaks"));
+const AdminProducts = lazy(() => import("@/pages/admin/products"));
+const AdminSubscriptions = lazy(() => import("@/pages/admin/subscriptions"));
+const AdminAccess = lazy(() => import("@/pages/admin/access"));
+const AdminGeo = lazy(() => import("@/pages/admin/geo"));
+const AdminPlayableSets = lazy(() => import("@/pages/admin/playable-sets"));
+const AdminCardHedgeCard = lazy(() => import("@/pages/admin/cardhedge-card"));
+const AdminCardSearch = lazy(() => import("@/pages/admin/card-search"));
+const AdminCardReports = lazy(() => import("@/pages/admin/card-reports"));
+const AdminPackageGuardrails = lazy(() => import("@/pages/admin/package-guardrails"));
+const AdminCardSets = lazy(() => import("@/pages/admin/card-sets"));
+const AdminCardTelemetry = lazy(() => import("@/pages/admin/card-telemetry"));
+const AdminDaily5Stats = lazy(() => import("@/pages/admin/daily5-stats"));
+const Creators = lazy(() => import("@/pages/creators"));
+const Roadmap = lazy(() => import("@/pages/roadmap"));
 
 function Router() {
   return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/game/:mode" component={Game} />
@@ -69,148 +80,194 @@ function Router() {
       <Route path="/store" component={Store} />
       <Route path="/store/success" component={StoreSuccess} />
       <Route path="/store/cancel" component={StoreCancel} />
-      <Route path="/profile" component={Profile} />
+      <Route path="/profile">
+        {() => (
+          <ProtectedRoute requireAuth>
+            <Profile />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/friends" component={Friends} />
       <Route path="/daily5" component={Daily5} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard">
         {() => (
-          <AdminLayout>
-            <AdminDashboard />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminDashboard />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/users">
         {() => (
-          <AdminLayout>
-            <AdminUsers />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminUsers />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/products">
         {() => (
-          <AdminLayout>
-            <AdminProducts />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminProducts />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/subscriptions">
         {() => (
-          <AdminLayout>
-            <AdminSubscriptions />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminSubscriptions />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/users/:userId">
         {() => (
-          <AdminLayout>
-            <AdminUserDetail />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminUserDetail />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/metrics">
         {() => (
-          <AdminLayout>
-            <AdminMetrics />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminMetrics />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/audit-log">
         {() => (
-          <AdminLayout>
-            <AdminAuditLog />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminAuditLog />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/redemptions">
         {() => (
-          <AdminLayout>
-            <AdminRedemptions />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminRedemptions />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/tiers">
         {() => (
-          <AdminLayout>
-            <AdminTiers />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminTiers />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/streaks">
         {() => (
-          <AdminLayout>
-            <AdminStreaks />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminStreaks />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/daily5">
         {() => (
-          <AdminLayout>
-            <AdminDaily5Stats />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminDaily5Stats />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/access">
         {() => (
-          <AdminLayout>
-            <AdminAccess />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminAccess />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/geo">
         {() => (
-          <AdminLayout>
-            <AdminGeo />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminGeo />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/playable-sets">
         {() => (
-          <AdminLayout>
-            <AdminPlayableSets />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminPlayableSets />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/card-sets">
         {() => (
-          <AdminLayout>
-            <AdminCardSets />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminCardSets />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/cardhedge-card">
         {() => (
-          <AdminLayout>
-            <AdminCardHedgeCard />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminCardHedgeCard />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/card-search">
         {() => (
-          <AdminLayout>
-            <AdminCardSearch />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminCardSearch />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/card-reports">
         {() => (
-          <AdminLayout>
-            <AdminCardReports />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminCardReports />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/card-telemetry">
         {() => (
-          <AdminLayout>
-            <AdminCardTelemetry />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminCardTelemetry />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/package-guardrails">
         {() => (
-          <AdminLayout>
-            <AdminPackageGuardrails />
-          </AdminLayout>
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminPackageGuardrails />
+            </AdminLayout>
+          </ProtectedRoute>
         )}
       </Route>
       <Route path="/auth" component={Auth} />
@@ -225,17 +282,59 @@ function Router() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/privacy-policy" component={PrivacyPolicy} />
       <Route path="/terms-of-service" component={TermsOfService} />
+      <Route path="/creators" component={Creators} />
+      <Route path="/partners" component={Partners} />
+      <Route path="/roadmap" component={Roadmap} />
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
   );
 }
 
 function App() {
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    captureUtmParams();
+  }, []);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider defaultTheme="dark" storageKey="packpoints-theme">
           <TooltipProvider>
+            {isOffline && (
+              <div
+                role="alert"
+                aria-live="assertive"
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 9999,
+                  backgroundColor: '#b91c1c',
+                  color: '#fff',
+                  textAlign: 'center',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                }}
+              >
+                You appear to be offline. Some features may not work.
+              </div>
+            )}
             <div className="min-h-screen flex flex-col bg-background text-foreground">
               <Header />
               <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
@@ -243,6 +342,7 @@ function App() {
               </main>
               <MobileNav />
             </div>
+            <FeedbackWidget />
             <Toaster />
           </TooltipProvider>
         </ThemeProvider>

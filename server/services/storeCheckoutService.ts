@@ -117,7 +117,8 @@ class StoreCheckoutService {
     sku: string,
     successUrl: string,
     cancelUrl: string,
-    host?: string
+    host?: string,
+    idempotencyKey?: string
   ): Promise<CheckoutResult> {
     const configured = await isStripeConfiguredAsync();
     if (!configured) {
@@ -202,7 +203,7 @@ class StoreCheckoutService {
         client_reference_id: userId,
         success_url: successUrl,
         cancel_url: cancelUrl,
-      });
+      }, idempotencyKey ? { idempotencyKey } : undefined);
 
       await db.insert(stripeCheckoutSessions).values({
         userId,
@@ -368,7 +369,8 @@ class StoreCheckoutService {
     sku: string,
     successUrl: string,
     cancelUrl: string,
-    host?: string
+    host?: string,
+    idempotencyKey?: string
   ): Promise<CheckoutResult> {
     const configured = await isStripeConfiguredAsync();
     if (!configured) {
@@ -443,6 +445,7 @@ class StoreCheckoutService {
         payment_method_types: ["card"],
         line_items: lineItems,
         subscription_data: {
+          trial_period_days: 14,
           metadata: {
             userId,
             sku,
@@ -459,7 +462,7 @@ class StoreCheckoutService {
         client_reference_id: userId,
         success_url: successUrl,
         cancel_url: cancelUrl,
-      });
+      }, idempotencyKey ? { idempotencyKey } : undefined);
 
       await db.insert(stripeCheckoutSessions).values({
         userId,

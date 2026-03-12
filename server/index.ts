@@ -13,6 +13,38 @@ import { runMigrations } from "stripe-replit-sync";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
 import { seedRewardPolicy } from "./services/rewardEngine";
 import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
+import { errorMonitor } from './services/errorMonitor';
+
+// --- Environment validation ---
+function validateEnvironment() {
+  const REQUIRED = ['DATABASE_URL', 'SESSION_SECRET'];
+  const RECOMMENDED = [
+    { key: 'STRIPE_SECRET_KEY', feature: 'Stripe payments' },
+    { key: 'STRIPE_WEBHOOK_SECRET', feature: 'Stripe webhooks' },
+    { key: 'WORKOS_API_KEY', feature: 'WorkOS auth' },
+    { key: 'OPENAI_API_KEY', feature: 'AI content generation' },
+  ];
+
+  const missing: string[] = [];
+  for (const key of REQUIRED) {
+    if (!process.env[key]) missing.push(key);
+  }
+
+  if (missing.length > 0) {
+    console.error(`[Startup] FATAL: Missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+
+  for (const { key, feature } of RECOMMENDED) {
+    if (!process.env[key]) {
+      console.warn(`[Startup] WARNING: ${key} not set — ${feature} will be unavailable`);
+    }
+  }
+
+  console.log('[Startup] Environment validation passed.');
+}
+
+validateEnvironment();
 
 const app = express();
 const httpServer = createServer(app);
@@ -35,6 +67,25 @@ app.use((req, res, next) => {
 });
 
 app.use(express.urlencoded({ extended: false }));
+
+// --- CORS Middleware (native, no external package required) ---
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5000', 'http://localhost:3000'];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id, X-Idempotency-Key');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+  next();
+});
 
 app.use(requestIdMiddleware);
 app.use(structuredRequestLogger);
@@ -184,6 +235,25 @@ app.use((req, res, next) => {
   registerAuthRoutes(app);
   registerWorkosRoutes(app);
   
+  // Register OpenAPI docs (dev only or when SHOW_API_DOCS=true)
+  const { registerOpenApiRoute } = await import('./openapi');
+  registerOpenApiRoute(app);
+
+  // Sync publishing queue to Notion (every 15 minutes, if configured)
+  if (process.env.NOTION_API_KEY && process.env.NOTION_DATABASE_ID) {
+    const { syncPendingToNotion } = await import('./services/notionService');
+    const { scheduleRecurringJob: scheduleJob } = await import('./jobs/pgJobQueue');
+    scheduleJob(
+      'notion_sync',
+      async () => { await syncPendingToNotion(); },
+      15 * 60 * 1000,
+      true
+    );
+    console.log('[Notion] Sync job scheduled (every 15 minutes)');
+  } else {
+    console.log('[Notion] Skipping sync job — NOTION_API_KEY or NOTION_DATABASE_ID not set');
+  }
+
   setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);
 
@@ -193,6 +263,9 @@ app.use((req, res, next) => {
     startRiskJobWorker();
   }
   
+  // Initialize persistent job queue
+  const { scheduleRecurringJob } = await import('./jobs/pgJobQueue');
+
   // Start the image validation job (runs every 6 hours)
   if (process.env.IMAGE_VALIDATION_ENABLED !== "false") {
     const { startValidationJob } = await import("./services/imageValidation");
@@ -200,72 +273,75 @@ app.use((req, res, next) => {
   }
 
   // Start the card pool refresh job (runs every 12 hours to revalidate excluded cards)
+  // Now wrapped in persistent job queue for crash-resistant, retry-safe execution
   if (process.env.CARD_POOL_REFRESH_ENABLED !== "false") {
     const { runCardPoolRefreshJob } = await import("./services/cardPoolRefresh");
-    console.log("[CardPoolRefresh] Starting scheduled refresh job (every 12 hours)");
-    
-    // Run initial refresh after 5 minutes to allow system to stabilize
-    setTimeout(() => {
-      runCardPoolRefreshJob().catch(err => {
-        console.error("[CardPoolRefresh] Initial refresh failed:", err);
-      });
-    }, 5 * 60 * 1000);
-
-    // Run every 12 hours
-    setInterval(() => {
-      runCardPoolRefreshJob().catch(err => {
-        console.error("[CardPoolRefresh] Scheduled refresh failed:", err);
-      });
-    }, 12 * 60 * 60 * 1000);
+    console.log("[CardPoolRefresh] Registering with persistent job queue (every 12 hours)");
+    scheduleRecurringJob(
+      'card_pool_refresh',
+      async () => { await runCardPoolRefreshJob(); },
+      12 * 60 * 60 * 1000,
+      true // run after 5-min delay via runImmediately flag
+    );
   }
 
   {
     const { cleanupStaleGameSessions } = await import("./services/staleGameSessionCleanup");
-    console.log("[GameSessionCleanup] Starting scheduled stale game session cleanup (every 1 hour)");
-    setTimeout(() => {
-      cleanupStaleGameSessions().catch(err => {
-        console.error("[GameSessionCleanup] Initial cleanup failed:", err);
-      });
-    }, 30 * 1000);
-    setInterval(() => {
-      cleanupStaleGameSessions().catch(err => {
-        console.error("[GameSessionCleanup] Scheduled cleanup failed:", err);
-      });
-    }, 60 * 60 * 1000);
+    console.log("[GameSessionCleanup] Registering with persistent job queue (every 1 hour)");
+    scheduleRecurringJob(
+      'stale_game_session_cleanup',
+      async () => { await cleanupStaleGameSessions(); },
+      60 * 60 * 1000,
+      true
+    );
   }
 
   {
     const { cleanupStaleLobbiesAndMatches } = await import("./services/staleMatchCleanup");
-    console.log("[MatchCleanup] Starting scheduled stale lobby/match cleanup (every 1 hour)");
-    setTimeout(() => {
-      cleanupStaleLobbiesAndMatches().catch(err => {
-        console.error("[MatchCleanup] Initial cleanup failed:", err);
-      });
-    }, 45 * 1000);
-    setInterval(() => {
-      cleanupStaleLobbiesAndMatches().catch(err => {
-        console.error("[MatchCleanup] Scheduled cleanup failed:", err);
-      });
-    }, 60 * 60 * 1000);
+    console.log("[MatchCleanup] Registering with persistent job queue (every 1 hour)");
+    scheduleRecurringJob(
+      'stale_match_cleanup',
+      async () => { await cleanupStaleLobbiesAndMatches(); },
+      60 * 60 * 1000,
+      true
+    );
   }
 
   if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
     const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
-    console.log("[StaleCleanup] Starting scheduled stale redemption cleanup (every 1 hour)");
-
-    setTimeout(() => {
-      runStaleRedemptionCleanup().catch(err => {
-        console.error("[StaleCleanup] Initial cleanup failed:", err);
-      });
-    }, 2 * 60 * 1000);
-
-    setInterval(() => {
-      runStaleRedemptionCleanup().catch(err => {
-        console.error("[StaleCleanup] Scheduled cleanup failed:", err);
-      });
-    }, 60 * 60 * 1000);
+    console.log("[StaleCleanup] Registering with persistent job queue (every 1 hour)");
+    scheduleRecurringJob(
+      'stale_redemption_cleanup',
+      async () => { await runStaleRedemptionCleanup(); },
+      60 * 60 * 1000,
+      true
+    );
   }
 
+  // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
+  // Using daily check pattern to avoid relying on exact 7-day timing
+  if (process.env.NEWSLETTER_ENABLED === 'true') {
+    const { sendWeeklyNewsletter } = await import('./services/newsletterService');
+    const { scheduleRecurringJob: scheduleNewsletterJob } = await import('./jobs/pgJobQueue');
+
+    const checkAndSendNewsletter = async () => {
+      const now = new Date();
+      // Only send on Sundays at hour 10 UTC
+      if (now.getUTCDay() === 0 && now.getUTCHours() === 10) {
+        await sendWeeklyNewsletter();
+      }
+    };
+
+    scheduleNewsletterJob(
+      'weekly_newsletter',
+      checkAndSendNewsletter,
+      60 * 60 * 1000, // Check every hour
+      false
+    );
+    console.log('[Newsletter] Weekly newsletter job scheduled');
+  }
+
+  app.use(errorMonitor.expressErrorHandler());
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

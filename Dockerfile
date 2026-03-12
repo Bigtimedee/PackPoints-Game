@@ -28,5 +28,13 @@ EXPOSE 5000
 # Make startup script executable
 RUN chmod +x /app/start.sh
 
+# Run as non-root user for security
+RUN addgroup -S packpts && adduser -S packpts -G packpts
+USER packpts
+
+# Health check using the existing /health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget -qO- http://localhost:${PORT:-5000}/health || exit 1
+
 # Start the application
 CMD ["/bin/sh", "/app/start.sh"]

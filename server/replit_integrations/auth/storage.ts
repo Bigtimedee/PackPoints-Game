@@ -26,7 +26,7 @@ class AuthStorage implements IAuthStorage {
     
     let username = existingUser?.username || userData.username;
     if (!username) {
-      const randomSuffix = Math.random().toString(36).substring(2, 6);
+      const randomSuffix = require('crypto').randomBytes(2).toString('hex');
       if (userData.firstName || userData.lastName) {
         const baseName = `${userData.firstName || ''}${userData.lastName || ''}`.replace(/\s+/g, '').toLowerCase();
         username = baseName ? `${baseName}_${randomSuffix}` : `player_${randomSuffix}`;

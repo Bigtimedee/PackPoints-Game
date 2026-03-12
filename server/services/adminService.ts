@@ -193,7 +193,7 @@ class AdminService {
     }
 
     try {
-      const adjustKey = `admin_adjust_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const adjustKey = `admin_adjust_${Date.now()}_${require('crypto').randomBytes(8).toString('hex')}`;
       const result = await walletService.adjust(
         ctx.targetUserId,
         amount,

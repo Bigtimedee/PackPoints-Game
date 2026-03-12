@@ -185,15 +185,60 @@ router.get("/api/referrals/my-stats", async (req: Request, res: Response) => {
     const signups = attributions.filter(a => a.referral_attributions.eventType === "SIGNUP").length;
     const firstMatches = attributions.filter(a => a.referral_attributions.eventType === "FIRST_MATCH").length;
 
+    // Calculate ambassador tier based on total successful signups
+    const { calculateAmbassadorTier } = await import("../services/referralRewards");
+    const tier = calculateAmbassadorTier(signups);
+
+    // Get an invite-type link for the referral link URL
+    const inviteLink = links.find(l => l.purpose === "INVITE") || links[0] || null;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const referralLink = inviteLink
+      ? `${baseUrl}/r/${inviteLink.code}`
+      : null;
+
     return res.json({
       totalLinks: links.length,
       totalClicks,
       signups,
       firstMatches,
+      tier,
+      referralLink,
     });
   } catch (err: any) {
     console.error("[Referral] Stats error:", err?.message);
     return res.status(500).json({ message: "Failed to get referral stats" });
+  }
+});
+
+router.get("/api/referrals/leaderboard", async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+
+    // Count SIGNUP attributions per referrer via referral_links join
+    const rows = await db.execute(
+      sql`
+        SELECT
+          u.id,
+          u.username,
+          rl.code AS referral_code,
+          COUNT(ra.id)::int AS referral_count,
+          RANK() OVER (ORDER BY COUNT(ra.id) DESC)::int AS rank
+        FROM users u
+        JOIN referral_links rl ON rl.created_by_user_id = u.id
+        LEFT JOIN referral_attributions ra
+          ON ra.referral_link_id = rl.id
+          AND ra.event_type = 'SIGNUP'
+        GROUP BY u.id, u.username, rl.code
+        HAVING COUNT(ra.id) > 0
+        ORDER BY referral_count DESC
+        LIMIT ${limit}
+      `
+    );
+
+    return res.json({ leaderboard: rows.rows });
+  } catch (err: any) {
+    console.error("[Referral] Leaderboard error:", err?.message);
+    return res.status(500).json({ message: "Failed to get referral leaderboard" });
   }
 });
 

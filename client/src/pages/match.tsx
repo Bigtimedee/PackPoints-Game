@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, User, Check, X, Loader2, Home, RotateCcw } from "lucide-react";
+import { Trophy, User, Check, X, Loader2, Home, RotateCcw, Share2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
 import { queryClient } from "@/lib/queryClient";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -161,7 +163,7 @@ export default function Match() {
         break;
       case "question_replaced":
         // Card was replaced - update current question WITHOUT changing idx
-        console.log("[Match] question_replaced received:", message.payload);
+        logger.debug("[Match] question_replaced received:", message.payload);
         setReplacementPending(false);
         setImageError(false);
         setImageLoaded(false);
@@ -186,7 +188,7 @@ export default function Match() {
         });
         break;
       case "question_replace_error":
-        console.log("[Match] question_replace_error:", message.payload);
+        logger.debug("[Match] question_replace_error:", message.payload);
         setReplacementPending(false);
         setShowReplaceButton(true);
         toast({
@@ -262,7 +264,7 @@ export default function Match() {
       case "answer_result": {
         const ackIdx = message.payload.idx ?? matchState?.currentQuestionIndex ?? -1;
         if (processedAnswerForIdx.current === ackIdx) {
-          console.log(`[Match] Ignoring duplicate answer_result for idx=${ackIdx}`);
+          logger.debug(`[Match] Ignoring duplicate answer_result for idx=${ackIdx}`);
           break;
         }
         processedAnswerForIdx.current = ackIdx;
@@ -339,7 +341,7 @@ export default function Match() {
   useEffect(() => {
     if (!isConnected && matchId && userId && !authLoading && !matchEnded) {
       const reconnectTimer = setTimeout(() => {
-        console.log("[Match] Auto-reconnecting after connection drop");
+        logger.debug("[Match] Auto-reconnecting after connection drop");
         connect();
       }, 2000);
       return () => clearTimeout(reconnectTimer);
@@ -349,10 +351,10 @@ export default function Match() {
   useEffect(() => {
     if (isConnected && matchId && userId && !hasJoinedMatchRef.current) {
       const matchSecret = getMatchSecret();
-      console.log("[Match] Attempting join_match:", { matchId, userId, hasSecret: !!matchSecret });
+      logger.debug("[Match] Attempting join_match:", { matchId, userId, hasSecret: !!matchSecret });
       if (matchSecret) {
         hasJoinedMatchRef.current = true;
-        console.log("[Match] Sending join_match with membershipSecret");
+        logger.debug("[Match] Sending join_match with membershipSecret");
         send("join_match", { 
           matchId, 
           userId, 
@@ -361,7 +363,7 @@ export default function Match() {
         });
       } else {
         hasJoinedMatchRef.current = true;
-        console.log("[Match] No secret, sending ready_next");
+        logger.debug("[Match] No secret, sending ready_next");
         send("ready_next", { matchId });
       }
     }
@@ -391,9 +393,9 @@ export default function Match() {
       (answerStatus?.answeredCount === 1 || (!answerStatus && !opponentHasAnswered));
     
     if (isWaiting) {
-      console.log("[Match] Auto-resync: starting 8s timer for stuck waiting state");
+      logger.debug("[Match] Auto-resync: starting 8s timer for stuck waiting state");
       resyncTimeoutRef.current = setTimeout(() => {
-        console.log("[Match] Auto-resync: 8s elapsed, sending resync");
+        logger.debug("[Match] Auto-resync: 8s elapsed, sending resync");
         send("match_resync", { matchId });
       }, 8000);
       
@@ -443,7 +445,7 @@ export default function Match() {
         if (submittingRef.current && !lockedInRef.current) {
           // Skip if WS already processed the answer for this question
           if (processedAnswerForIdx.current === currentIdx) {
-            console.log(`[Match] HTTP fallback skipped: answer already processed for idx=${currentIdx}`);
+            logger.debug(`[Match] HTTP fallback skipped: answer already processed for idx=${currentIdx}`);
             fallbackTimeoutRef.current = null;
             return;
           }
@@ -461,7 +463,7 @@ export default function Match() {
             const data = await response.json();
             // Double-check dedup after async fetch completes
             if (processedAnswerForIdx.current === currentIdx) {
-              console.log(`[Match] HTTP fallback response ignored: WS processed idx=${currentIdx} during fetch`);
+              logger.debug(`[Match] HTTP fallback response ignored: WS processed idx=${currentIdx} during fetch`);
               fallbackTimeoutRef.current = null;
               return;
             }
@@ -506,10 +508,18 @@ export default function Match() {
 
   if (!matchState) {
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Connecting to match...</p>
+      <div className="flex flex-col items-center gap-4 p-6 max-w-lg mx-auto">
+        <Skeleton className="h-8 w-64" />
+        <div className="flex gap-4 w-full">
+          <Skeleton className="h-16 flex-1 rounded-lg" />
+          <Skeleton className="h-16 flex-1 rounded-lg" />
+        </div>
+        <Skeleton className="h-56 w-full rounded-xl" />
+        <div className="grid grid-cols-2 gap-3 w-full">
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
+          <Skeleton className="h-12 rounded-lg" />
         </div>
       </div>
     );
@@ -581,7 +591,7 @@ export default function Match() {
       winnerName = matchEnded.winner;
     } else {
       // Fallback: calculate from correctAnswers
-      console.log("[Match] Using fallback winner calculation:", { myCorrect, opponentCorrect });
+      logger.debug("[Match] Using fallback winner calculation:", { myCorrect, opponentCorrect });
       if (myCorrect > opponentCorrect) {
         iWon = true;
         isDraw = false;
@@ -596,6 +606,25 @@ export default function Match() {
       }
     }
     
+    const handleShare = async (scoreText: string) => {
+      const shareData = {
+        title: 'PackPTS Score',
+        text: `${scoreText} 🏆 Test your sports card knowledge at packpts.com`,
+        url: 'https://packpts.com',
+      };
+      try {
+        if (navigator.share) {
+          await navigator.share(shareData);
+        } else {
+          await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+          // Show a brief toast or alert
+          alert('Score copied to clipboard!');
+        }
+      } catch (err) {
+        // User cancelled or clipboard failed — silently ignore
+      }
+    };
+
     return (
       <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
         <div className="container mx-auto px-4 max-w-lg">
@@ -631,6 +660,16 @@ export default function Match() {
                 <Button onClick={() => navigate("/lobby")} className="gap-2" data-testid="button-play-again">
                   <RotateCcw className="h-4 w-4" />
                   Play Again
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleShare(`I scored ${meResult?.correctAnswers ?? 0}/${matchState.totalQuestions} on PackPTS!`)}
+                  className="gap-2"
+                  aria-label="Share your score"
+                  data-testid="button-share-score"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share Score
                 </Button>
                 <Button variant="outline" onClick={() => navigate("/")} className="gap-2" data-testid="button-home">
                   <Home className="h-4 w-4" />
@@ -702,10 +741,10 @@ export default function Match() {
               setKey={matchState.gameSetId}
               onImageError={() => {
                 if (imageRetryCount < 2) {
-                  console.log(`[Match] Image load failed, retry ${imageRetryCount + 1}/2`);
+                  logger.debug(`[Match] Image load failed, retry ${imageRetryCount + 1}/2`);
                   setImageRetryCount(prev => prev + 1);
                 } else {
-                  console.log(`[Match] Image load failed after 2 retries, showing replace button`);
+                  logger.debug(`[Match] Image load failed after 2 retries, showing replace button`);
                   setImageError(true);
                   setShowReplaceButton(true);
                 }
@@ -713,7 +752,7 @@ export default function Match() {
               showReplaceButton={showReplaceButton}
               replacePending={replacementPending}
               onReplace={() => {
-                console.log(`[Match] Requesting card replacement: matchId=${matchId}, idx=${matchState.currentQuestionIndex}, seedVersion=${seedVersion}`);
+                logger.debug(`[Match] Requesting card replacement: matchId=${matchId}, idx=${matchState.currentQuestionIndex}, seedVersion=${seedVersion}`);
                 setReplacementPending(true);
                 send("question_replace_request", {
                   matchId,
@@ -733,12 +772,12 @@ export default function Match() {
               <Badge>{currentQuestion.pointValue} pts</Badge>
             </div>
             
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3" role="group" aria-label="Answer choices">
               {currentQuestion.options.map((option, index) => {
                 const isSelected = selectedChoice === option;
                 const isCorrect = answerResult?.correctAnswer === option;
                 const showResult = answerResult !== null;
-                
+
                 let variant: "default" | "outline" | "destructive" | "secondary" = "outline";
                 if (showResult) {
                   if (isCorrect) variant = "default";
@@ -746,7 +785,7 @@ export default function Match() {
                 } else if (isSelected) {
                   variant = "secondary";
                 }
-                
+
                 return (
                   <Button
                     key={option}
@@ -754,6 +793,7 @@ export default function Match() {
                     className={`h-auto py-3 px-4 text-left justify-start ${isSelected && !showResult ? "ring-2 ring-primary" : ""}`}
                     onClick={() => handleSelectChoice(option)}
                     disabled={lockedIn || submitting || showResult}
+                    aria-label={`Answer option: ${option}`}
                     data-testid={`button-option-${index}`}
                   >
                     <span className="truncate">{option}</span>

@@ -208,13 +208,29 @@ class RedemptionService {
     return result.length > 0 ? result[0] : null;
   }
 
-  async getUserRedemptions(userId: string, limit: number = 20): Promise<RewardRedemption[]> {
-    return await db
-      .select()
-      .from(rewardRedemptions)
-      .where(eq(rewardRedemptions.userId, userId))
-      .orderBy(desc(rewardRedemptions.createdAt))
-      .limit(limit);
+  async getUserRedemptions(userId: string, page: number = 1, pageSize: number = 20): Promise<RedemptionListResult> {
+    const offset = (page - 1) * pageSize;
+
+    const [redemptions, countResult] = await Promise.all([
+      db
+        .select()
+        .from(rewardRedemptions)
+        .where(eq(rewardRedemptions.userId, userId))
+        .orderBy(desc(rewardRedemptions.createdAt))
+        .limit(pageSize)
+        .offset(offset),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(rewardRedemptions)
+        .where(eq(rewardRedemptions.userId, userId)),
+    ]);
+
+    return {
+      redemptions,
+      total: countResult[0]?.count || 0,
+      page,
+      pageSize,
+    };
   }
 
   async getPendingRedemptions(page: number = 1, pageSize: number = 20): Promise<RedemptionListResult> {

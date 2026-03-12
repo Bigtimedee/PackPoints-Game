@@ -60,6 +60,18 @@ class StripePurchaseService {
       console.warn(`[Stripe] stripeSync webhook verification failed: ${(syncErr as Error).message}`);
     }
 
+    // No webhook secret configured and stripeSync verification unavailable.
+    // In production, this is a critical security failure — reject the event.
+    // In development, re-fetch from Stripe API as a fallback.
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      throw new Error(
+        `[Stripe] SECURITY: Webhook rejected — no webhook secret configured in production (mode=${mode}). ` +
+        `Set STRIPE_WEBHOOK_SECRET_LIVE or STRIPE_WEBHOOK_SECRET_TEST to enable verified webhooks.`
+      );
+    }
+
+    // Development fallback only: re-fetch event from Stripe to verify it exists
     const stripe = await getStripeClient(host);
     const payloadStr = Buffer.isBuffer(payload) ? payload.toString('utf8') : payload;
     let parsed: any;
@@ -73,7 +85,7 @@ class StripePurchaseService {
       throw new Error("Webhook signature verification failed: no webhook secret configured and event structure invalid");
     }
 
-    console.warn(`[Stripe] WARNING: No webhook secret configured. Falling back to unverified event parsing (mode=${mode}). Set STRIPE_WEBHOOK_SECRET_LIVE or STRIPE_WEBHOOK_SECRET_TEST for proper verification.`);
+    console.warn(`[Stripe] DEV ONLY: No webhook secret configured. Re-fetching event from Stripe API for development (mode=${mode}). NEVER deploy without STRIPE_WEBHOOK_SECRET set.`);
     const event = await stripe.events.retrieve(parsed.id);
     console.log(`[Stripe] Webhook event verified by re-fetching from Stripe API: ${event.id} (mode=${mode})`);
     return event;
@@ -360,7 +372,10 @@ class StripePurchaseService {
       
       case "customer.subscription.deleted":
         return this.handleSubscriptionDeleted(event);
-      
+
+      case "customer.subscription.trial_will_end":
+        return this.handleTrialWillEnd(event);
+
       case "charge.refunded":
         return this.handleChargeRefunded(event);
       
@@ -788,6 +803,59 @@ class StripePurchaseService {
       message: "Subscription canceled - entitlement will expire naturally",
       userId,
     };
+  }
+
+  private async handleTrialWillEnd(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    try {
+      const subscription = event.data.object as Stripe.Subscription;
+      const customerId = typeof subscription.customer === "string"
+        ? subscription.customer
+        : (subscription.customer as any)?.id;
+
+      const userId = subscription.metadata?.userId
+        || await this.getUserIdFromStripeCustomer(customerId);
+
+      if (!userId) {
+        console.warn("[Stripe] trial_will_end: no userId found for customer", customerId);
+        return { status: "ignored", message: "No userId found for trial_will_end" };
+      }
+
+      // Look up user email and username via storage
+      const user = await storage.getUser(userId);
+      if (user?.email) {
+        const trialEnd = new Date((subscription as any).trial_end * 1000);
+        const { sendEmail } = await import("./emailService");
+        await sendEmail({
+          to: user.email,
+          subject: "Your PackPTS Pro trial ends in 2 days",
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+              <h1>Your Pro trial is ending soon!</h1>
+              <p>Hi ${user.username || "there"},</p>
+              <p>Your PackPTS Pro trial ends on <strong>${trialEnd.toLocaleDateString()}</strong>.</p>
+              <p>After your trial ends, you'll continue at the regular Pro rate. No action needed if you want to keep Pro!</p>
+              <p>To manage your subscription, visit your account settings.</p>
+              <p>Thanks for trying PackPTS Pro!</p>
+            </div>
+          `,
+        });
+        console.log(`[Stripe] trial_will_end email sent to ${user.email} (userId=${userId})`);
+      }
+
+      return {
+        status: "processed",
+        message: "Trial ending email sent",
+        userId,
+      };
+    } catch (err: any) {
+      console.error("[Stripe] trial_will_end handler error:", err?.message);
+      return { status: "failed", error: err?.message };
+    }
   }
 
   private async handleChargeRefunded(event: Stripe.Event): Promise<{

@@ -15,6 +15,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { PlayableSet } from "@shared/schema";
 
 interface PresenceStats {
@@ -232,8 +233,11 @@ export default function Queue() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="flex flex-col items-center gap-4 p-6 max-w-md mx-auto">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-32 w-32 rounded-full" />
+        <Skeleton className="h-6 w-64" />
+        <Skeleton className="h-10 w-40 rounded-lg" />
       </div>
     );
   }

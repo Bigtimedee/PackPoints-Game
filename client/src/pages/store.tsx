@@ -160,18 +160,26 @@ function SubscriptionCard({
         </Badge>
       )}
       <div className="aspect-[4/3] rounded-t-md overflow-hidden relative">
-        <img 
-          src={getPackImage()} 
+        <img
+          src={getPackImage()}
           alt={`${getTierLabel()} Pack`}
           className="w-full h-full object-cover"
           data-testid={`img-pack-subscription-${subscription.sku}`}
         />
-        <Badge 
-          variant="secondary" 
+        <Badge
+          variant="secondary"
           className="absolute top-2 right-2 gap-1"
         >
           <RefreshCw className="h-3 w-3" />
           Monthly
+        </Badge>
+        <Badge
+          variant="secondary"
+          className="absolute top-2 left-2 gap-1 bg-primary/90 text-primary-foreground"
+          data-testid={`badge-trial-${subscription.sku}`}
+        >
+          <Zap className="h-3 w-3" />
+          14-day free trial
         </Badge>
       </div>
       <CardContent className="p-4 space-y-4">
