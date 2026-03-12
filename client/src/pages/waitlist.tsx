@@ -100,10 +100,10 @@ export default function WaitlistPage() {
     joinMutation.mutate(data);
   };
 
-  const spotsRemaining = capStatus ? capStatus.maxActive - capStatus.currentActive : 0;
-  const percentFull = capStatus ? Math.min(100, (capStatus.currentActive / capStatus.maxActive) * 100) : 0;
+  const spotsRemaining = capStatus ? capStatus.maxUsers - capStatus.currentUsers : 0;
+  const percentFull = capStatus ? Math.min(100, (capStatus.currentUsers / capStatus.maxUsers) * 100) : 0;
 
-  if (user?.status === "ACTIVE") {
+  if (user && !waitlistStatus?.isOnWaitlist && capStatus && !capStatus.isCapped) {
     return (
       <div className="container max-w-lg mx-auto py-12 px-4">
         <Card>
@@ -126,7 +126,7 @@ export default function WaitlistPage() {
     );
   }
 
-  if (waitlistStatus?.entry) {
+  if (waitlistStatus?.isOnWaitlist) {
     return (
       <div className="container max-w-lg mx-auto py-12 px-4">
         <Card>
@@ -136,7 +136,7 @@ export default function WaitlistPage() {
             </div>
             <CardTitle className="text-2xl">You're on the Waitlist</CardTitle>
             <CardDescription>
-              We'll notify you at <span className="font-medium">{waitlistStatus.entry.email}</span> when a spot opens.
+              We'll notify you at <span className="font-medium">{user?.email}</span> when a spot opens.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -144,25 +144,6 @@ export default function WaitlistPage() {
               <div className="text-5xl font-bold text-primary">#{waitlistStatus.position || "N/A"}</div>
               <div className="text-sm text-muted-foreground mt-1">Your position in line</div>
             </div>
-            
-            {waitlistStatus.entry.inviteCode && (
-              <div className="p-4 bg-accent/30 rounded-lg border border-accent-border">
-                <div className="flex items-center gap-2 mb-2">
-                  <Gift className="w-4 h-4 text-primary" />
-                  <span className="font-medium text-sm">Invite Code Ready</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Use code <span className="font-mono font-bold">{waitlistStatus.entry.inviteCode}</span> to skip the line!
-                </p>
-                <Button
-                  className="w-full mt-3"
-                  onClick={() => setLocation(`/invite?code=${waitlistStatus.entry.inviteCode}`)}
-                  data-testid="button-use-invite"
-                >
-                  Use Invite Code
-                </Button>
-              </div>
-            )}
 
             <div className="border-t pt-4">
               <div className="flex items-center gap-2 mb-3">
@@ -215,7 +196,7 @@ export default function WaitlistPage() {
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Founders Cap</span>
                 <span className="font-medium">
-                  {capStatus.currentActive} / {capStatus.maxActive}
+                  {capStatus.currentUsers} / {capStatus.maxUsers}
                 </span>
               </div>
               <Progress value={percentFull} className="h-2" />

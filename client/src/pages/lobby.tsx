@@ -102,13 +102,13 @@ export default function Lobby() {
     });
 
     const cleanup4 = on("error", (data: WsLobbyEvent | string) => {
-      const message = typeof data === "string" ? data : data?.message || "Something went wrong";
+      const message = typeof data === "string" ? data : (data?.type === "ERROR" ? data.message : "Something went wrong");
       toast({ title: "Error", description: message, variant: "destructive" });
     });
 
     const cleanup5 = on("start_match_error", (data: WsLobbyEvent | string) => {
       logger.debug("[Lobby] start_match_error received:", data);
-      const message = typeof data === "string" ? data : data?.message || "Failed to start match";
+      const message = typeof data === "string" ? data : (data?.type === "ERROR" ? data.message : "Failed to start match");
       setMatchError(message);
       standaloneToast({ title: "Match Error", description: message, variant: "destructive" });
     });

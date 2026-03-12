@@ -57,8 +57,8 @@ export default function AuthPage() {
     retry: false,
   });
 
-  const spotsRemaining = capStatus ? capStatus.maxActive - capStatus.currentActive : 0;
-  const percentFull = capStatus ? Math.min(100, (capStatus.currentActive / capStatus.maxActive) * 100) : 0;
+  const spotsRemaining = capStatus ? capStatus.maxUsers - capStatus.currentUsers : 0;
+  const percentFull = capStatus ? Math.min(100, (capStatus.currentUsers / capStatus.maxUsers) * 100) : 0;
   const capReached = spotsRemaining <= 0;
 
   const signupForm = useForm<SignupFormData>({
@@ -279,7 +279,7 @@ export default function AuthPage() {
                       Founders Cap
                     </span>
                     <span className="font-medium">
-                      {capStatus.currentActive} / {capStatus.maxActive}
+                      {capStatus.currentUsers} / {capStatus.maxUsers}
                     </span>
                   </div>
                   <Progress value={percentFull} className="h-1.5" />

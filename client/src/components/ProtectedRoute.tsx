@@ -1,5 +1,6 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Navigate, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AuthUser } from "@/types/api";
 
@@ -23,12 +24,31 @@ export function ProtectedRoute({
   requireAdmin = false,
   redirectTo,
 }: ProtectedRouteProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const { data: user, isLoading } = useQuery<AuthUser>({
     queryKey: ["/api/auth/user"],
     retry: false,
     staleTime: 30_000,
   });
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (requireAdmin) {
+      if (!user) {
+        setLocation(redirectTo || `/auth?redirect=${encodeURIComponent(location)}`);
+        return;
+      }
+      if (user.role !== 'admin') {
+        setLocation(redirectTo || "/");
+        return;
+      }
+    }
+
+    if (requireAuth && !user) {
+      setLocation(redirectTo || `/auth?redirect=${encodeURIComponent(location)}`);
+    }
+  }, [isLoading, user, requireAuth, requireAdmin, redirectTo, location, setLocation]);
 
   if (isLoading) {
     return (
@@ -40,19 +60,6 @@ export function ProtectedRoute({
         </div>
       </div>
     );
-  }
-
-  if (requireAdmin) {
-    if (!user) {
-      return <Navigate to={redirectTo || `/auth?redirect=${encodeURIComponent(location)}`} />;
-    }
-    if (user.role !== 'admin') {
-      return <Navigate to={redirectTo || "/"} />;
-    }
-  }
-
-  if (requireAuth && !user) {
-    return <Navigate to={redirectTo || `/auth?redirect=${encodeURIComponent(location)}`} />;
   }
 
   return <>{children}</>;
