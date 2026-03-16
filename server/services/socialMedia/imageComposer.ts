@@ -33,9 +33,9 @@ const BADGE_LABELS: Record<string, string> = {
   CHALLENGE: "CHALLENGE",
 };
 
-function getOutputDir(date: string): string {
+async function getOutputDir(date: string): Promise<string> {
   const dir = path.join(OUTPUT_BASE, date);
-  fs.mkdirSync(dir, { recursive: true });
+  await fs.promises.mkdir(dir, { recursive: true });
   return dir;
 }
 
@@ -134,10 +134,10 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
 
   // Save file
   const date = new Date().toISOString().slice(0, 10);
-  const dir = getOutputDir(date);
+  const dir = await getOutputDir(date);
   const filename = `${randomUUID()}.png`;
   const imagePath = path.join(dir, filename);
-  fs.writeFileSync(imagePath, composed);
+  await fs.promises.writeFile(imagePath, composed);
 
   logger.info("image_composed", {
     platform,

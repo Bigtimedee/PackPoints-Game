@@ -233,6 +233,32 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
   return map;
 }
 
+// Warn at startup if Stripe price IDs are missing in non-test environments
+export function validateStripeEnvVars(): void {
+  if (process.env.NODE_ENV === "test") return;
+
+  const required: Record<string, string | undefined> = {
+    STRIPE_PRICE_PACKPTS_500,
+    STRIPE_PRICE_PACKPTS_1500,
+    STRIPE_PRICE_PACKPTS_6000,
+    STRIPE_PRICE_PRO_MONTHLY,
+    STRIPE_PRICE_LEGEND_MODE,
+    STRIPE_PRICE_PACKPTS_MONTHLY_500,
+    STRIPE_PRICE_PACKPTS_MONTHLY_2000,
+    STRIPE_PRICE_PACKPTS_MONTHLY_5000,
+  };
+
+  const missing = Object.entries(required)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+
+  if (missing.length > 0) {
+    console.warn(
+      `[ProductMap] WARNING: Missing Stripe price ID env vars — Stripe webhook product lookup will fall back to static keys only. Missing: ${missing.join(", ")}`
+    );
+  }
+}
+
 // Lazy-initialize the store product map
 let _storeProductMap: Record<string, ProductMapping> | null = null;
 function getStoreProductMap(): Record<string, ProductMapping> {

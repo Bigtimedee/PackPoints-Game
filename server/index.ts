@@ -14,6 +14,7 @@ import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailSer
 import { seedRewardPolicy } from "./services/rewardEngine";
 import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
 import { errorMonitor } from './services/errorMonitor';
+import { validateStripeEnvVars } from "./services/productMap";
 
 // --- Environment validation ---
 function validateEnvironment() {
@@ -45,6 +46,7 @@ function validateEnvironment() {
 }
 
 validateEnvironment();
+validateStripeEnvVars();
 
 const app = express();
 const httpServer = createServer(app);

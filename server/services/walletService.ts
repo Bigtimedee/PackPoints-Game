@@ -123,11 +123,12 @@ class WalletService {
       
       if (existingEntry.length > 0) {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
-        return { 
-          success: true, 
-          wallet: wallet!, 
-          ledgerEntry: existingEntry[0], 
-          idempotent: true 
+        if (!wallet) throw new Error(`Wallet not found for user ${userId} during idempotent replay`);
+        return {
+          success: true,
+          wallet,
+          ledgerEntry: existingEntry[0],
+          idempotent: true
         };
       }
 
@@ -137,7 +138,7 @@ class WalletService {
         .where(eq(wallets.userId, userId))
         .for("update")
         .limit(1);
-      
+
       if (!wallet) {
         const [newWallet] = await tx.insert(wallets).values({
           userId,
@@ -236,11 +237,12 @@ class WalletService {
       
       if (existingEntry.length > 0) {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
-        return { 
-          success: true, 
-          wallet: wallet!, 
-          ledgerEntry: existingEntry[0], 
-          idempotent: true 
+        if (!wallet) throw new Error(`Wallet not found for user ${userId} during idempotent replay`);
+        return {
+          success: true,
+          wallet,
+          ledgerEntry: existingEntry[0],
+          idempotent: true
         };
       }
 
@@ -337,11 +339,12 @@ class WalletService {
       
       if (existingEntry.length > 0) {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
-        return { 
-          success: true, 
-          wallet: wallet!, 
-          ledgerEntry: existingEntry[0], 
-          idempotent: true 
+        if (!wallet) throw new Error(`Wallet not found for user ${userId} during idempotent replay`);
+        return {
+          success: true,
+          wallet,
+          ledgerEntry: existingEntry[0],
+          idempotent: true
         };
       }
 
@@ -351,7 +354,7 @@ class WalletService {
         .where(eq(wallets.userId, userId))
         .for("update")
         .limit(1);
-      
+
       if (!wallet) {
         const [newWallet] = await tx.insert(wallets).values({
           userId,
@@ -476,11 +479,12 @@ class WalletService {
       
       if (existingEntry.length > 0) {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
-        return { 
-          success: true, 
-          wallet: wallet!, 
-          ledgerEntry: existingEntry[0], 
-          idempotent: true 
+        if (!wallet) throw new Error(`Wallet not found for user ${userId} during idempotent replay`);
+        return {
+          success: true,
+          wallet,
+          ledgerEntry: existingEntry[0],
+          idempotent: true
         };
       }
 
@@ -490,7 +494,7 @@ class WalletService {
         .where(eq(wallets.userId, userId))
         .for("update")
         .limit(1);
-      
+
       if (!wallet) {
         const [newWallet] = await tx.insert(wallets).values({
           userId,
@@ -576,11 +580,12 @@ class WalletService {
       
       if (existingReversal.length > 0) {
         const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1);
-        return { 
-          success: true, 
-          wallet: wallet!, 
-          ledgerEntry: existingReversal[0], 
-          idempotent: true 
+        if (!wallet) throw new Error(`Wallet not found for user ${userId} during idempotent replay`);
+        return {
+          success: true,
+          wallet,
+          ledgerEntry: existingReversal[0],
+          idempotent: true
         };
       }
 
