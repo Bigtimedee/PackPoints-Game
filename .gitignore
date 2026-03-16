@@ -12,4 +12,7 @@ replit.nix
 *.log
 .env
 .env.*
-.local/
+.local/.bundle
+*.patch
+push_*.cjs
+push_*.js
