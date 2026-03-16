@@ -50,6 +50,7 @@ export async function setCache<T>(
     .onConflictDoUpdate({
       target: marketplaceCache.cacheKey,
       set: {
+        source,
         payload: data as any,
         expiresAt,
         createdAt: now,
@@ -81,9 +82,10 @@ export async function getOrSetCache<T>(
 
 export async function clearExpiredCache(): Promise<number> {
   const now = new Date();
-  await db
+  const deleted = await db
     .delete(marketplaceCache)
-    .where(lt(marketplaceCache.expiresAt, now));
-  
-  return 0;
+    .where(lt(marketplaceCache.expiresAt, now))
+    .returning({ id: marketplaceCache.id });
+
+  return deleted.length;
 }

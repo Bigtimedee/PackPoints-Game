@@ -9,6 +9,9 @@ export interface AuthUser {
   username: string;
   email: string;
   role: 'user' | 'admin';
+  firstName?: string;
+  lastName?: string;
+  profileImageUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +79,9 @@ export interface GameQuestion {
   imageUrl: string;
   options: string[];
   timeLimit: number;
+  correctAnswer?: string;
+  pointValue?: number;
+  card?: Record<string, unknown>;
 }
 
 export interface GameAnswerResult {

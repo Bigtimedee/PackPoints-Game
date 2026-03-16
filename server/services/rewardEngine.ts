@@ -319,120 +319,155 @@ export async function awardPoints(
 
   const policy = await loadActivePolicy();
   const playerKey = normalizePlayerKey(card.playerName, card.sport || "baseball");
-  
-  let reward = await computeReward(card);
-  let finalPts = reward.finalPts;
-  let capped = false;
-  let cappedReason: string | undefined;
 
-  // GUARDRAIL #2: Daily cap check
-  const todayAwarded = await getTodayPointsAwarded(userId);
-  const dailyRemaining = policy.dailyPointsCap - todayAwarded;
-  if (dailyRemaining <= 0) {
-    return {
-      ...reward,
-      finalPts: 0,
-      capped: true,
-      cappedReason: "daily_cap_reached",
-    };
-  }
-  if (finalPts > dailyRemaining) {
-    finalPts = dailyRemaining;
-    capped = true;
-    cappedReason = "daily_cap_partial";
-  }
+  const reward = await computeReward(card);
 
-  // GUARDRAIL #3: Match cap check - use database counter instead of passed param
-  let currentMatchPoints = matchPointsAwarded;
-  if (matchId) {
-    currentMatchPoints = await getMatchPointsAwarded(matchId);
-  }
-  const matchRemaining = policy.perMatchPointsCap - currentMatchPoints;
-  if (matchRemaining <= 0) {
-    return {
-      ...reward,
-      finalPts: 0,
-      capped: true,
-      cappedReason: "match_cap_reached",
-    };
-  }
-  if (finalPts > matchRemaining) {
-    finalPts = matchRemaining;
-    capped = true;
-    cappedReason = cappedReason ? `${cappedReason},match_cap_partial` : "match_cap_partial";
-  }
+  // GUARDRAIL #2–#4 + all writes: wrapped in a transaction with a per-user advisory
+  // lock so that the daily-cap check and counter increment are atomic.  Two concurrent
+  // calls for the same user will serialize here — the second will see the updated
+  // counter written by the first and compute the correct remaining budget.
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
 
-  // GUARDRAIL #4: Hard maximum per single award (absolute protection)
-  const ABSOLUTE_MAX_AWARD = policy.maxAwardCap || 250;
-  if (finalPts > ABSOLUTE_MAX_AWARD) {
-    finalPts = ABSOLUTE_MAX_AWARD;
-    capped = true;
-    cappedReason = cappedReason ? `${cappedReason},max_award_capped` : "max_award_capped";
-  }
+    // GUARDRAIL #2: Daily cap check (inline with tx so it sees the locked state)
+    const today = new Date().toISOString().split("T")[0];
+    const [counterRow] = await tx
+      .select()
+      .from(userPointsCounters)
+      .where(and(eq(userPointsCounters.userId, userId), eq(userPointsCounters.date, today)))
+      .limit(1);
+    const todayAwarded = counterRow?.pointsAwardedToday || 0;
+    const dailyRemaining = policy.dailyPointsCap - todayAwarded;
 
-  await db.insert(pointsAwards).values({
-    userId,
-    matchId,
-    cardId: card.cardId,
-    playerKey,
-    fameScore: reward.fameScore,
-    basePts: reward.basePts,
-    vintageMultiplier: reward.vintageMultiplier,
-    rarityMultiplier: reward.rarityMultiplier,
-    finalPts,
-    policyId: policy.id,
-    reason: "QUIZ_CORRECT",
-    idempotencyKey,
-  });
+    if (dailyRemaining <= 0) {
+      return { ...reward, finalPts: 0, capped: true, cappedReason: "daily_cap_reached" };
+    }
 
-  // Update daily counter
-  await updateDailyCounter(userId, finalPts);
+    let finalPts = reward.finalPts;
+    let capped = false;
+    let cappedReason: string | undefined;
 
-  // Update match counter in database
-  if (matchId) {
-    await updateMatchCounter(matchId, userId, finalPts);
-  }
+    if (finalPts > dailyRemaining) {
+      finalPts = dailyRemaining;
+      capped = true;
+      cappedReason = "daily_cap_partial";
+    }
 
-  const [wallet] = await db
-    .select()
-    .from(wallets)
-    .where(eq(wallets.userId, userId))
-    .limit(1);
+    // GUARDRAIL #3: Match cap check (inline with tx)
+    let currentMatchPoints = matchPointsAwarded;
+    if (matchId) {
+      const [matchCounter] = await tx
+        .select()
+        .from(matchPointsCounters)
+        .where(eq(matchPointsCounters.matchId, matchId))
+        .limit(1);
+      currentMatchPoints = matchCounter?.pointsAwarded || 0;
+    }
+    const matchRemaining = policy.perMatchPointsCap - currentMatchPoints;
 
-  if (wallet) {
-    await db
-      .update(wallets)
-      .set({ 
-        balance: sql`${wallets.balance} + ${finalPts}`,
-        updatedAt: new Date(),
-      })
-      .where(eq(wallets.userId, userId));
+    if (matchRemaining <= 0) {
+      return { ...reward, finalPts: 0, capped: true, cappedReason: "match_cap_reached" };
+    }
+    if (finalPts > matchRemaining) {
+      finalPts = matchRemaining;
+      capped = true;
+      cappedReason = cappedReason ? `${cappedReason},match_cap_partial` : "match_cap_partial";
+    }
 
-    await db.insert(ledgerEntries).values({
-      walletId: wallet.id,
-      entryType: "EARN",
-      amount: finalPts,
-      balanceAfter: wallet.balance + finalPts,
-      reason: `Quiz reward: ${card.playerName}`,
-      metadata: { 
-        playerKey, 
-        cardId: card.cardId,
-        matchId,
-        fameScore: reward.fameScore,
-      },
+    // GUARDRAIL #4: Hard maximum per single award (absolute protection)
+    const ABSOLUTE_MAX_AWARD = policy.maxAwardCap || 250;
+    if (finalPts > ABSOLUTE_MAX_AWARD) {
+      finalPts = ABSOLUTE_MAX_AWARD;
+      capped = true;
+      cappedReason = cappedReason ? `${cappedReason},max_award_capped` : "max_award_capped";
+    }
+
+    await tx.insert(pointsAwards).values({
+      userId,
+      matchId,
+      cardId: card.cardId,
+      playerKey,
+      fameScore: reward.fameScore,
+      basePts: reward.basePts,
+      vintageMultiplier: reward.vintageMultiplier,
+      rarityMultiplier: reward.rarityMultiplier,
+      finalPts,
+      policyId: policy.id,
+      reason: "QUIZ_CORRECT",
+      idempotencyKey,
     });
-  }
 
-  return {
-    basePts: reward.basePts,
-    finalPts,
-    fameScore: reward.fameScore,
-    vintageMultiplier: reward.vintageMultiplier,
-    rarityMultiplier: reward.rarityMultiplier,
-    policyId: policy.id,
-    capped,
-    cappedReason,
-  };
+    // Update daily counter (inline with tx)
+    await tx
+      .insert(userPointsCounters)
+      .values({ userId, date: today, pointsAwardedToday: finalPts })
+      .onConflictDoUpdate({
+        target: userPointsCounters.userId,
+        set: {
+          date: today,
+          pointsAwardedToday: sql`CASE WHEN ${userPointsCounters.date} = ${today}
+            THEN ${userPointsCounters.pointsAwardedToday} + ${finalPts}
+            ELSE ${finalPts} END`,
+          updatedAt: new Date(),
+        },
+      });
+
+    // Update match counter (inline with tx)
+    if (matchId) {
+      await tx
+        .insert(matchPointsCounters)
+        .values({ matchId, userId, pointsAwarded: finalPts })
+        .onConflictDoUpdate({
+          target: matchPointsCounters.matchId,
+          set: {
+            pointsAwarded: sql`${matchPointsCounters.pointsAwarded} + ${finalPts}`,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
+    // Update wallet balance and ledger
+    const [wallet] = await tx
+      .select()
+      .from(wallets)
+      .where(eq(wallets.userId, userId))
+      .limit(1);
+
+    if (wallet) {
+      await tx
+        .update(wallets)
+        .set({
+          balance: sql`${wallets.balance} + ${finalPts}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(wallets.userId, userId));
+
+      await tx.insert(ledgerEntries).values({
+        walletId: wallet.id,
+        entryType: "EARN",
+        amount: finalPts,
+        balanceAfter: wallet.balance + finalPts,
+        reason: `Quiz reward: ${card.playerName}`,
+        metadata: {
+          playerKey,
+          cardId: card.cardId,
+          matchId,
+          fameScore: reward.fameScore,
+        },
+      });
+    }
+
+    return {
+      basePts: reward.basePts,
+      finalPts,
+      fameScore: reward.fameScore,
+      vintageMultiplier: reward.vintageMultiplier,
+      rarityMultiplier: reward.rarityMultiplier,
+      policyId: policy.id,
+      capped,
+      cappedReason,
+    };
+  });
 }
 
 export async function explainReward(card: CardContext): Promise<ExplainResult> {

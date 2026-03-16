@@ -17,7 +17,8 @@ async function isUserFrozen(userId: string): Promise<{ frozen: boolean; reason?:
     
     return { frozen: true, reason: state.reason || "Account frozen" };
   } catch (e) {
-    return { frozen: false };
+    // Fail closed: if we can't verify freeze status, deny the operation
+    return { frozen: true, reason: "Unable to verify account status" };
   }
 }
 
@@ -192,7 +193,9 @@ class WalletService {
         amount,
         "EARNED",
         insertedEntries[0].id,
-        metadata
+        metadata,
+        undefined,
+        tx
       );
 
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };

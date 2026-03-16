@@ -285,20 +285,8 @@ class StreakService {
 
     const idempotencyKey = `streak_${userId}_${todayLocal}`;
 
-    const existingClaim = await db
-      .select()
-      .from(streakClaimLog)
-      .where(eq(streakClaimLog.idempotencyKey, idempotencyKey))
-      .limit(1);
-
-    if (existingClaim.length > 0) {
-      return {
-        success: true,
-        alreadyClaimed: true,
-        streakInfo: await this.getStreakInfo(userId),
-      };
-    }
-
+    // Idempotency is enforced inside the transaction under a FOR UPDATE lock on streakState,
+    // preventing the race window that an outer pre-transaction check would introduce.
     return await db.transaction(async (tx) => {
       const [lockedState] = await tx
         .select()

@@ -177,6 +177,22 @@ class TreasuryService {
 
   async createReservation(purchaseIntentId: string, reservedCents: number, txOrDb?: any): Promise<string> {
     const executor = txOrDb ?? db;
+
+    // Guard against overdraft: verify available margin covers this reservation
+    const [balanceRow] = await executor.execute(
+      sql`SELECT
+            COALESCE((SELECT SUM(amount_cents) FROM margin_ledger), 0) -
+            COALESCE((SELECT SUM(amount_cents) FROM margin_usage), 0) -
+            COALESCE((SELECT SUM(reserved_cents) FROM redemption_reservations WHERE status = 'ACTIVE'), 0)
+          AS available_cents`
+    );
+    const availableCents = Number(balanceRow?.available_cents ?? 0);
+    if (availableCents < reservedCents) {
+      throw new Error(
+        `Insufficient margin to create reservation: need ${reservedCents} cents, only ${availableCents} available`
+      );
+    }
+
     const [reservation] = await executor
       .insert(redemptionReservations)
       .values({

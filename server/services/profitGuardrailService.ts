@@ -315,24 +315,25 @@ class ProfitGuardrailService {
       };
     }
 
-    // Idempotency check before entering transaction
-    const [existingCredit] = await db
-      .select()
-      .from(redemptionCredit)
-      .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
-
-    if (existingCredit) {
-      return {
-        success: true,
-        approvedRedeemPackpts: existingCredit.packptsSpent,
-        creditCents: existingCredit.creditCents,
-        redemptionCreditId: existingCredit.id,
-        message: `Already reserved ${existingCredit.packptsSpent.toLocaleString()} PackPTS for $${(existingCredit.creditCents / 100).toFixed(2)} credit`,
-      };
-    }
-
     // All mutating steps wrapped in a single transaction so they commit or rollback together
     return await db.transaction(async (tx) => {
+      // Idempotency check inside the transaction to close the race window where two
+      // concurrent requests could both pass an outer check and double-charge the user.
+      const [existingCredit] = await tx
+        .select()
+        .from(redemptionCredit)
+        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+
+      if (existingCredit) {
+        return {
+          success: true,
+          approvedRedeemPackpts: existingCredit.packptsSpent,
+          creditCents: existingCredit.creditCents,
+          redemptionCreditId: existingCredit.id,
+          message: `Already reserved ${existingCredit.packptsSpent.toLocaleString()} PackPTS for $${(existingCredit.creditCents / 100).toFixed(2)} credit`,
+        };
+      }
+
       // Step 1: Create margin reservation
       await treasuryService.createReservation(purchaseIntentId, creditCents, tx);
 

@@ -274,6 +274,12 @@ export function notifyFriendMatchAccepted(toUserId: string, data: {
 async function handleMessage(ws: WebSocket, message: any) {
   const { type, payload } = message;
 
+  const UNAUTHENTICATED_ALLOWED = new Set(["auth", "heartbeat"]);
+  if (!UNAUTHENTICATED_ALLOWED.has(type) && !clients.get(ws)?.isAuthenticated) {
+    ws.send(JSON.stringify({ type: "error", code: "NOT_AUTHENTICATED", message: "Authentication required" }));
+    return;
+  }
+
   switch (type) {
     case "heartbeat":
       await handleHeartbeat(ws, payload);
@@ -440,7 +446,13 @@ async function handleJoinLobbyWs(ws: WebSocket, payload: { userId: string; usern
 
 async function handleLeaveLobbyWs(ws: WebSocket, payload: { lobbyId: string; userId: string }) {
   const { lobbyId, userId } = payload;
-  
+
+  const authClient = clients.get(ws);
+  if (!authClient || !authClient.isAuthenticated || authClient.userId !== userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
+    return;
+  }
+
   const result = await matchService.leaveLobby(lobbyId, userId);
   
   const client = clients.get(ws);

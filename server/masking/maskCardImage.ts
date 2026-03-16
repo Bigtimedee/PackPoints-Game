@@ -149,18 +149,30 @@ async function runOCRWithTimeout(
   const scaledMeta = await sharp(scaledBuffer).metadata();
   const scaleFactor = originalWidth / (scaledMeta.width || OCR_DOWNSCALE_WIDTH);
 
-  const ocrPromise = Tesseract.recognize(scaledBuffer, "eng", {
-    logger: () => {},
-  });
+  // Use an explicit worker so we can terminate it if the timeout fires,
+  // preventing leaked background threads from abandoned OCR jobs.
+  const worker = await Tesseract.createWorker("eng", 1, { logger: () => {} });
 
-  const timeoutPromise = new Promise<null>((resolve) => {
-    setTimeout(() => resolve(null), OCR_TIMEOUT_MS);
-  });
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    worker.terminate().catch(() => {});
+  }, OCR_TIMEOUT_MS);
 
-  const result = await Promise.race([ocrPromise, timeoutPromise]);
+  let result: Awaited<ReturnType<typeof worker.recognize>> | null = null;
+  try {
+    result = await worker.recognize(scaledBuffer);
+  } catch {
+    // Worker was terminated by timeout or failed
+  } finally {
+    clearTimeout(timeoutId);
+    if (!timedOut) {
+      await worker.terminate().catch(() => {});
+    }
+  }
 
-  if (!result) {
-    console.warn("[Masking] OCR timed out");
+  if (!result || timedOut) {
+    if (timedOut) console.warn("[Masking] OCR timed out — worker terminated");
     return { matches: [], tokens: [] };
   }
 

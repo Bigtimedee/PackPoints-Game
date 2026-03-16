@@ -160,7 +160,8 @@ export async function cleanupOldJobs(retentionDays = 7): Promise<number> {
   const result = await pool.query(
     `DELETE FROM job_queue
      WHERE status IN ('completed', 'failed')
-       AND updated_at < NOW() - INTERVAL '${retentionDays} days'`
+       AND updated_at < NOW() - (INTERVAL '1 day' * $1)`,
+    [retentionDays]
   );
   return result.rowCount ?? 0;
 }
