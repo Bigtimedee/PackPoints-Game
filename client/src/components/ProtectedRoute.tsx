@@ -48,7 +48,7 @@ export function ProtectedRoute({
     if (requireAuth && !user) {
       setLocation(redirectTo || `/auth?redirect=${encodeURIComponent(location)}`);
     }
-  }, [isLoading, user, requireAuth, requireAdmin, redirectTo, location, setLocation]);
+  }, [isLoading, user, requireAuth, requireAdmin, redirectTo, setLocation]);
 
   if (isLoading) {
     return (

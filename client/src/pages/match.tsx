@@ -647,12 +647,12 @@ export default function Match() {
                 <div className="p-4 rounded-lg bg-muted/50 space-y-1">
                   <p className="text-sm text-muted-foreground">Your Score</p>
                   <p className="text-3xl font-bold font-mono" data-testid="text-my-final-score">{meResult?.score || 0}</p>
-                  <p className="text-sm text-muted-foreground">{meResult?.correctAnswers}/{matchState.totalQuestions} correct</p>
+                  <p className="text-sm text-muted-foreground">{meResult?.correctAnswers}/{matchState?.totalQuestions ?? matchEnded.participants.length} correct</p>
                 </div>
                 <div className="p-4 rounded-lg bg-muted/50 space-y-1">
                   <p className="text-sm text-muted-foreground">Opponent</p>
                   <p className="text-3xl font-bold font-mono" data-testid="text-opponent-final-score">{opponentResult?.score || 0}</p>
-                  <p className="text-sm text-muted-foreground">{opponentResult?.correctAnswers}/{matchState.totalQuestions} correct</p>
+                  <p className="text-sm text-muted-foreground">{opponentResult?.correctAnswers}/{matchState?.totalQuestions ?? matchEnded.participants.length} correct</p>
                 </div>
               </div>
               

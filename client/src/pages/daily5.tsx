@@ -390,7 +390,7 @@ export default function Daily5Page() {
       setGameState("results");
     } else if (status.entry && !status.entry.completedAt && status.challenge?.status === "ACTIVE") {
       setGameState("playing");
-      if (cards.length === 0) {
+      if (cards.length === 0 && !startMutation.isPending) {
         startMutation.mutate();
       }
     } else {
