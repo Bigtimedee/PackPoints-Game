@@ -617,11 +617,14 @@ export default function Match() {
           await navigator.share(shareData);
         } else {
           await navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
-          // Show a brief toast or alert
-          alert('Score copied to clipboard!');
+          toast({ title: "Score copied!", description: "Your score has been copied to the clipboard." });
         }
       } catch (err) {
-        // User cancelled or clipboard failed — silently ignore
+        toast({
+          title: "Unable to share",
+          description: "Could not share your score. Please try again.",
+          variant: "destructive",
+        });
       }
     };
 

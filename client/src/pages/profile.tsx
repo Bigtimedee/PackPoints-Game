@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Zap, Trophy, Target, Clock, Star, TrendingUp, Settings } from "lucide-react";
+import { Zap, Trophy, Target, Clock, TrendingUp, Settings } from "lucide-react";
 import { StreakCard, StreakCalendar } from "@/components/streak-card";
 import { FoundersPassCard } from "@/components/founders-pass-card";
 import { AchievementBadges } from "@/components/AchievementBadges";
@@ -71,6 +72,7 @@ function ProfileSkeleton() {
 }
 
 export default function Profile() {
+  const [, navigate] = useLocation();
   const { data: stats, isLoading, error } = useQuery<ProfileStats>({
     queryKey: ["/api/profile/stats"],
   });
@@ -194,91 +196,27 @@ export default function Profile() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Star className="h-5 w-5 text-primary" />
-                Achievements
-              </CardTitle>
-              <CardDescription>Your collecting milestones</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
-                <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center">
-                  <Trophy className="h-5 w-5 text-secondary-foreground" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium">First Win</p>
-                  <p className="text-sm text-muted-foreground">Won your first game</p>
-                </div>
-                <Badge variant="outline" className="text-xs">Earned</Badge>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="h-5 w-5 text-primary" />
+              Recent Games
+            </CardTitle>
+            <CardDescription>Your latest performances</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
+              <Trophy className="h-10 w-10 text-muted-foreground/50" />
+              <div className="space-y-1">
+                <p className="font-medium text-muted-foreground">No recent games yet</p>
+                <p className="text-sm text-muted-foreground">Play a match and your results will appear here.</p>
               </div>
-              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/50">
-                <div className="w-10 h-10 rounded-md bg-secondary flex items-center justify-center">
-                  <Target className="h-5 w-5 text-secondary-foreground" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium">Sharp Eye</p>
-                  <p className="text-sm text-muted-foreground">90% accuracy in a game</p>
-                </div>
-                <Badge variant="outline" className="text-xs">Earned</Badge>
-              </div>
-              <div className="flex items-center gap-3 p-3 rounded-md bg-muted/30 opacity-60">
-                <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center">
-                  <Zap className="h-5 w-5 text-muted-foreground" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium">Point Master</p>
-                  <p className="text-sm text-muted-foreground">Earn 10,000 total points</p>
-                </div>
-                <Badge variant="secondary" className="text-xs">Locked</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Clock className="h-5 w-5 text-primary" />
-                Recent Games
-              </CardTitle>
-              <CardDescription>Your latest performances</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
-                <div>
-                  <p className="font-medium">Solo Challenge</p>
-                  <p className="text-sm text-muted-foreground">Today at 2:30 PM</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono font-semibold text-accent">+250 pts</p>
-                  <p className="text-sm text-muted-foreground">8/10 correct</p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
-                <div>
-                  <p className="font-medium">Solo Challenge</p>
-                  <p className="text-sm text-muted-foreground">Yesterday at 5:15 PM</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono font-semibold text-accent">+180 pts</p>
-                  <p className="text-sm text-muted-foreground">7/10 correct</p>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50">
-                <div>
-                  <p className="font-medium">Solo Challenge</p>
-                  <p className="text-sm text-muted-foreground">Jan 1 at 10:00 AM</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono font-semibold text-accent">+320 pts</p>
-                  <p className="text-sm text-muted-foreground">9/10 correct</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              <Button onClick={() => navigate("/")} variant="outline" size="sm">
+                Play Now
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

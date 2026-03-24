@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient, captureUtmParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -65,9 +65,18 @@ const AdminDaily5Stats = lazy(() => import("@/pages/admin/daily5-stats"));
 const Creators = lazy(() => import("@/pages/creators"));
 const Roadmap = lazy(() => import("@/pages/roadmap"));
 
+function BrandedLoadingScreen() {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
+      <span className="text-2xl font-black tracking-tight text-foreground">PackPTS</span>
+      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 function Router() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
+    <Suspense fallback={<BrandedLoadingScreen />}>
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/game/:mode" component={Game} />
@@ -87,7 +96,13 @@ function Router() {
           </ProtectedRoute>
         )}
       </Route>
-      <Route path="/friends" component={Friends} />
+      <Route path="/friends">
+        {() => (
+          <ProtectedRoute requireAuth>
+            <Friends />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/daily5" component={Daily5} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard">
@@ -291,6 +306,21 @@ function Router() {
   );
 }
 
+function AppShell() {
+  const [location] = useLocation();
+  const isMatchRoute = location === "/match" || location.startsWith("/match/");
+
+  return (
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
+      {!isMatchRoute && <Header />}
+      <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+        <Router />
+      </main>
+      <MobileNav />
+    </div>
+  );
+}
+
 function App() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
@@ -335,13 +365,7 @@ function App() {
                 You appear to be offline. Some features may not work.
               </div>
             )}
-            <div className="min-h-screen flex flex-col bg-background text-foreground">
-              <Header />
-              <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
-                <Router />
-              </main>
-              <MobileNav />
-            </div>
+            <AppShell />
             <FeedbackWidget />
             <Toaster />
           </TooltipProvider>

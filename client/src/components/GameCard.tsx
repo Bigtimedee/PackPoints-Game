@@ -475,10 +475,10 @@ export function GameCard({
       {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
       <img
         src={cdnImageUrl}
-        alt="Sports card - player identity hidden"
+        alt={[team, "sports card"].filter(Boolean).join(" ")}
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         crossOrigin="anonymous"
-        loading="lazy"
+        loading="eager"
         decoding="async"
         style={{
           opacity: imageLoaded && !imageError ? 1 : 0,

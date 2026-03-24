@@ -1,31 +1,102 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, Users, LogOut, Home, Shield, BarChart3, ScrollText, Gift, Coins, Flame, Package, UserPlus, RefreshCw, MapPin, Layers, Flag, ShieldCheck, Download, Calendar } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  LogOut,
+  Home,
+  Shield,
+  BarChart3,
+  ScrollText,
+  Gift,
+  Coins,
+  Flame,
+  Package,
+  UserPlus,
+  RefreshCw,
+  MapPin,
+  Layers,
+  Flag,
+  ShieldCheck,
+  Download,
+  Calendar,
+  Menu,
+  X,
+} from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-const navItems = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/access", label: "Access", icon: UserPlus },
-  { href: "/admin/geo", label: "Geo", icon: MapPin },
-  { href: "/admin/playable-sets", label: "Cards", icon: Layers },
-  { href: "/admin/card-sets", label: "Set Importer", icon: Download },
-  { href: "/admin/card-reports", label: "Reports", icon: Flag },
-  { href: "/admin/products", label: "Products", icon: Package },
-  { href: "/admin/package-guardrails", label: "Guardrails", icon: ShieldCheck },
-  { href: "/admin/subscriptions", label: "Subscriptions", icon: RefreshCw },
-  { href: "/admin/redemptions", label: "Redemptions", icon: Gift },
-  { href: "/admin/tiers", label: "Tiers", icon: Coins },
-  { href: "/admin/streaks", label: "Streaks", icon: Flame },
-  { href: "/admin/daily5", label: "Daily 5", icon: Calendar },
-  { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
-  { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
+type NavGroup = {
+  label: string;
+  items: { href: string; label: string; icon: React.ElementType }[];
+};
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Dashboard",
+    items: [
+      { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
+      { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
+      { href: "/admin/daily5", label: "Daily 5", icon: Calendar },
+    ],
+  },
+  {
+    label: "Users",
+    items: [
+      { href: "/admin/users", label: "Users", icon: Users },
+      { href: "/admin/access", label: "Access", icon: UserPlus },
+      { href: "/admin/geo", label: "Geo", icon: MapPin },
+      { href: "/admin/streaks", label: "Streaks", icon: Flame },
+    ],
+  },
+  {
+    label: "Content",
+    items: [
+      { href: "/admin/playable-sets", label: "Cards", icon: Layers },
+      { href: "/admin/card-sets", label: "Set Importer", icon: Download },
+      { href: "/admin/card-reports", label: "Reports", icon: Flag },
+    ],
+  },
+  {
+    label: "Financial",
+    items: [
+      { href: "/admin/products", label: "Products", icon: Package },
+      { href: "/admin/package-guardrails", label: "Guardrails", icon: ShieldCheck },
+      { href: "/admin/subscriptions", label: "Subscriptions", icon: RefreshCw },
+      { href: "/admin/redemptions", label: "Redemptions", icon: Gift },
+      { href: "/admin/tiers", label: "Tiers", icon: Coins },
+    ],
+  },
 ];
+
+function NavItem({ href, label, icon: Icon, isActive, onClick }: {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  isActive: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <Link href={href} onClick={onClick}>
+      <Button
+        variant={isActive ? "secondary" : "ghost"}
+        size="sm"
+        className="w-full justify-start gap-2"
+        data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        {label}
+      </Button>
+    </Link>
+  );
+}
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const getInitials = () => {
     if (user?.firstName && user?.lastName) {
@@ -37,36 +108,52 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     return "AD";
   };
 
+  const sidebar = (
+    <nav className="flex flex-col gap-6 p-4 overflow-y-auto h-full">
+      {navGroups.map((group) => (
+        <div key={group.label}>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
+            {group.label}
+          </p>
+          <div className="space-y-0.5">
+            {group.items.map((item) => (
+              <NavItem
+                key={item.href}
+                href={item.href}
+                label={item.label}
+                icon={item.icon}
+                isActive={location === item.href}
+                onClick={() => setSidebarOpen(false)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </nav>
+  );
+
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Top header bar */}
+      <header className="border-b bg-card flex-shrink-0">
+        <div className="px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {/* Hamburger — always visible, sidebar hidden/shown by state */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
+              aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+              onClick={() => setSidebarOpen((prev) => !prev)}
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
             <Link href="/admin/dashboard">
               <div className="flex items-center gap-2 cursor-pointer">
-                <Shield className="h-6 w-6 text-primary" />
-                <span className="font-bold text-lg">PackPTS Admin</span>
+                <Shield className="h-5 w-5 text-primary" />
+                <span className="font-bold text-base">PackPTS Admin</span>
               </div>
             </Link>
-            <nav className="hidden md:flex items-center gap-1 ml-6">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location === item.href;
-                return (
-                  <Link key={item.href} href={item.href}>
-                    <Button
-                      variant={isActive ? "secondary" : "ghost"}
-                      size="sm"
-                      className="gap-2"
-                      data-testid={`nav-${item.label.toLowerCase()}`}
-                    >
-                      <Icon className="h-4 w-4" />
-                      {item.label}
-                    </Button>
-                  </Link>
-                );
-              })}
-            </nav>
           </div>
           <div className="flex items-center gap-3">
             {user && (
@@ -75,7 +162,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                   <AvatarImage src={user.profileImageUrl || undefined} />
                   <AvatarFallback className="text-xs">{getInitials()}</AvatarFallback>
                 </Avatar>
-                <span className="hidden sm:inline">{user.firstName || user.email?.split('@')[0]}</span>
+                <span className="hidden sm:inline">{user.firstName || user.email?.split("@")[0]}</span>
               </div>
             )}
             <Link href="/">
@@ -84,9 +171,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
                 <span className="hidden sm:inline">Back to App</span>
               </Button>
             </Link>
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               asChild
               className="gap-2"
               data-testid="button-admin-logout"
@@ -100,30 +187,30 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="md:hidden border-b bg-muted/50">
-        <div className="container mx-auto px-4 py-2 flex gap-2 overflow-x-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location === item.href;
-            return (
-              <Link key={item.href} href={item.href}>
-                <Button
-                  variant={isActive ? "secondary" : "ghost"}
-                  size="sm"
-                  className="gap-2 whitespace-nowrap"
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Button>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Desktop persistent sidebar */}
+        <aside className="hidden lg:flex lg:flex-col w-52 border-r bg-card flex-shrink-0 overflow-y-auto">
+          {sidebar}
+        </aside>
 
-      <main className="container mx-auto px-4 py-6">
-        {children}
-      </main>
+        {/* Mobile sidebar overlay */}
+        {sidebarOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+              aria-hidden="true"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <aside className="fixed top-14 left-0 bottom-0 z-50 w-64 border-r bg-card overflow-y-auto lg:hidden">
+              {sidebar}
+            </aside>
+          </>
+        )}
+
+        <main className="flex-1 overflow-y-auto p-6">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
