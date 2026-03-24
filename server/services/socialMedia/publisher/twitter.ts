@@ -1,6 +1,4 @@
 import { TwitterApi } from "twitter-api-v2";
-import fs from "fs";
-import path from "path";
 import { agentConfig } from "../config";
 import { createLogger } from "../logger";
 import type { PostAnalytics } from "@shared/schema";
@@ -19,26 +17,15 @@ function getClient(): TwitterApi {
   });
 }
 
-export async function uploadMedia(imagePath: string): Promise<string> {
-  const client = getClient();
-  const relativePath = imagePath.replace(/^\//, "");
-  const absPath = path.resolve(process.cwd(), "public", relativePath);
-  logger.info("media_upload_path", { imagePath, absPath, cwd: process.cwd() });
-  const mediaBuffer = fs.readFileSync(absPath);
-  const mediaId = await client.v1.uploadMedia(mediaBuffer, { mimeType: "image/png" });
-  logger.info("media_uploaded", { mediaId, imagePath });
-  return mediaId;
-}
-
 export async function publishTweet(
   copy: string,
   hashtags: string[],
-  mediaId: string,
+  imageBuffer?: Buffer,
 ): Promise<string> {
   // Platform health check: skip gracefully if credentials not configured
   if (!process.env.TWITTER_API_KEY) {
     console.log('[SocialMedia] Twitter disabled — TWITTER_API_KEY not set');
-    return Promise.reject({ success: false, platform: 'twitter', reason: 'credentials_missing' });
+    throw new Error("credentials_missing: TWITTER_API_KEY not set");
   }
 
   if (rateLimitRemaining < 5) {
@@ -48,9 +35,10 @@ export async function publishTweet(
   const client = getClient();
   const fullText = `${copy}\n${hashtags.join(" ")}`;
 
+  // TODO: Upgrade to Elevated API access for media uploads
+  // imageBuffer is accepted but media upload is not attempted without Elevated access
   const response = await client.v2.tweet({
     text: fullText,
-    media: { media_ids: [mediaId] },
   });
 
   const tweetId = response.data.id;
@@ -62,7 +50,7 @@ export async function fetchMetrics(tweetId: string): Promise<Partial<PostAnalyti
   const client = getClient();
   try {
     const response = await client.v2.singleTweet(tweetId, {
-      "tweet.fields": ["public_metrics"],
+      "tweet.fields": ["public_metrics", "non_public_metrics"],
     });
     const metrics = response.data.public_metrics;
     if (!metrics) return {};

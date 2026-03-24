@@ -88,7 +88,7 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
     page_size: 10,
     category: cardQuery?.category ?? "Baseball",
     player: cardQuery?.player,
-    sort_by: "sales_7day",
+    sort_by: cardQuery?.sortBy ?? "sales_7day",
     sort_order: "desc",
   });
 

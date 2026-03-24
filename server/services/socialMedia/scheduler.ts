@@ -6,7 +6,7 @@ import { createLogger } from "./logger";
 import { generateDraftPost, type Platform } from "./contentGenerator";
 import { composePostImage } from "./imageComposer";
 import { getOrCreateAbTest } from "./abTesting/manager";
-import { uploadMedia, publishTweet } from "./publisher/twitter";
+import { publishTweet } from "./publisher/twitter";
 import { publishPhoto } from "./publisher/tiktok";
 import { fetchAnalyticsForRecentPosts } from "./analytics";
 import { newUserAcquisitionCampaign } from "./campaigns/newUserAcquisition";
@@ -14,22 +14,30 @@ import { retentionCampaign } from "./campaigns/retention";
 
 const logger = createLogger("Scheduler");
 
-// Post time slots in EST hours
+// Post time slots in Eastern hours
 const TIME_SLOTS_EST = [8, 12, 16, 20];
 
-function getEstOffset(): number {
-  // EST = UTC-5, EDT = UTC-4; approximate using fixed offset
-  return -5 * 60 * 60 * 1000;
+function getEasternOffsetMs(): number {
+  const now = new Date();
+  const easternDate = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  }).formatToParts(now);
+  const parts = Object.fromEntries(easternDate.map(p => [p.type, p.value]));
+  const easternMs = new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`).getTime();
+  return now.getTime() - easternMs;
 }
 
 function buildScheduledTime(hourEst: number): Date {
   const now = new Date();
-  const todayEst = new Date(now.getTime() + getEstOffset());
+  const todayEst = new Date(now.getTime() + getEasternOffsetMs());
   const year = todayEst.getUTCFullYear();
   const month = todayEst.getUTCMonth();
   const day = todayEst.getUTCDate();
-  // Build UTC time for the EST hour; carry over to next day if utcHour >= 24
-  const utcHour = hourEst - getEstOffset() / (60 * 60 * 1000);
+  // Build UTC time for the Eastern hour; carry over to next day if utcHour >= 24
+  const utcHour = hourEst - getEasternOffsetMs() / (60 * 60 * 1000);
   const dayOffset = Math.floor(utcHour / 24);
   return new Date(Date.UTC(year, month, day + dayOffset, utcHour % 24, 0, 0, 0));
 }
@@ -53,7 +61,7 @@ async function countTodaysPosts(platform: Platform): Promise<number> {
     .where(
       and(
         eq(socialPosts.platform, platform),
-        sql`${socialPosts.status} IN ('QUEUED', 'PUBLISHING', 'PUBLISHED')`,
+        sql`${socialPosts.status} IN ('PUBLISHED', 'SKIPPED')`,
         gte(socialPosts.scheduledAt, todayStartUtc()),
         lte(socialPosts.scheduledAt, todayEndUtc()),
       ),
@@ -68,7 +76,7 @@ function isRetentionDay(): boolean {
 
 async function buildQueueForPlatform(platform: Platform): Promise<void> {
   const existing = await countTodaysPosts(platform);
-  if (existing >= agentConfig.minPostsPerDay) return;
+  if (existing >= agentConfig.maxPostsPerDay) return;
 
   const n = Math.floor(
     Math.random() * (agentConfig.maxPostsPerDay - agentConfig.minPostsPerDay + 1)
@@ -115,7 +123,8 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         copyText: draft.copyText,
         hashtags: draft.hashtags,
         scheduledAt: buildScheduledTime(hour),
-        factCheckPassed: true,
+        factCheckPassed: draft.factCheckPassed ?? false,
+        factCheckLog: draft.factCheckLog ?? [],
       });
 
       logger.info("post_queued", { platform, contentType: draft.contentType, hour, campaign: campaign.campaignId });
@@ -134,7 +143,7 @@ export function startDailyQueueBuilder(): void {
     const today = new Date().toISOString().slice(0, 10);
     if (lastQueueBuildDate === today) return;
 
-    const estNow = new Date(Date.now() + getEstOffset());
+    const estNow = new Date(Date.now() + getEasternOffsetMs());
     const estHour = estNow.getUTCHours();
     if (estHour < agentConfig.dailyQueueBuildHour) return;
 
@@ -183,6 +192,7 @@ export function startPublisherLoop(): void {
     for (const post of duePosts) {
       if (agentConfig.dryRun) {
         logger.info("dry_run_skip", { postId: post.id, platform: post.platform });
+        await db.update(socialPosts).set({ status: "SKIPPED", updatedAt: new Date() }).where(eq(socialPosts.id, post.id));
         continue;
       }
 
@@ -201,8 +211,7 @@ export function startPublisherLoop(): void {
         let platformPostId: string;
 
         if (post.platform === "TWITTER") {
-          const mediaId = await uploadMedia(post.composedImagePath ?? "");
-          platformPostId = await publishTweet(post.copyText, post.hashtags ?? [], mediaId);
+          platformPostId = await publishTweet(post.copyText, post.hashtags ?? []);
         } else {
           const publicUrl = `${agentConfig.siteUrl}${post.composedImagePath}`;
           platformPostId = await publishPhoto(post.copyText.slice(0, 150), publicUrl);

@@ -15,6 +15,13 @@
       "when": 1769359756670,
       "tag": "0001_fast_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1742800000000,
+      "tag": "add_social_media_agent",
+      "breakpoints": true
     }
   ]
 }

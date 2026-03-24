@@ -12,6 +12,8 @@ export interface DraftPost {
   hashtags: string[];
   cardQueryParams: Record<string, unknown>;
   abGroup: "A" | "B" | "C";
+  factCheckPassed?: boolean;
+  factCheckLog?: FactCheckLogEntry[];
 }
 
 export interface FactCheckLogEntry {
@@ -145,6 +147,7 @@ export async function checkClaims(draft: DraftPost): Promise<FactCheckResult> {
     log.push({ claim: "site_url", verified: true, action: "kept" });
   }
 
-  const passed = log.length === 0 || log.some(e => e.verified || e.action === "replaced");
+  const hasUnfixableFail = log.some(e => !e.verified && e.action !== 'replaced');
+  const passed = !hasUnfixableFail;
   return { passed, cleanedCopyText: text, log };
 }

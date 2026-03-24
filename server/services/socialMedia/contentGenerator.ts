@@ -251,5 +251,7 @@ export async function generateDraftPost(
   return {
     ...draft,
     copyText: factResult.cleanedCopyText,
+    factCheckPassed: factResult.passed,
+    factCheckLog: factResult.log,
   };
 }

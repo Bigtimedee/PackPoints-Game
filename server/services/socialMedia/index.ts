@@ -1,11 +1,11 @@
 import { db } from "../../db";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { agentConfig } from "./config";
 import { createLogger } from "./logger";
 import { cardSearchSorted } from "../../services/cardhedge/client";
 import { verifyCreatorInfo } from "./publisher/tiktok";
 import { startDailyQueueBuilder, startPublisherLoop, startAnalyticsFetcher } from "./scheduler";
-import { campaignRewards } from "@shared/schema";
+import { campaignRewards, socialPosts } from "@shared/schema";
 import { count } from "drizzle-orm";
 
 const logger = createLogger("SocialMediaAgent");
@@ -123,6 +123,12 @@ export async function initSocialMediaAgent(): Promise<void> {
     logger.warn("seed_rewards_failed", { error: String(err) });
   }
 
+  // 5b. Recover posts stuck in PUBLISHING state from previous crash
+  await db.update(socialPosts)
+    .set({ status: 'QUEUED', updatedAt: new Date() })
+    .where(eq(socialPosts.status, 'PUBLISHING'));
+  logger.info('Recovered stuck PUBLISHING posts to QUEUED');
+
   // 6. Start loops
   startDailyQueueBuilder();
   startPublisherLoop();
@@ -141,4 +147,11 @@ export function getSocialAgentStatus(): AgentStatusResponse {
     tiktok: tiktokEnabled,
     startedAt: startedAt?.toISOString() ?? null,
   };
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  initSocialMediaAgent().catch(err => {
+    console.error('[SocialMedia] Fatal error:', err);
+    process.exit(1);
+  });
 }

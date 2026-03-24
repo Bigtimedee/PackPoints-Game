@@ -47,7 +47,13 @@ export async function fetchAnalyticsForRecentPosts(): Promise<void> {
           ${metrics.profileVisits ?? 0},
           ${metrics.newSignupsAttributed ?? 0}
         )
-        ON CONFLICT DO NOTHING
+        ON CONFLICT (post_id, (fetched_at::date)) DO UPDATE SET
+          impressions = EXCLUDED.impressions,
+          engagements = EXCLUDED.engagements,
+          clicks = EXCLUDED.clicks,
+          shares = EXCLUDED.shares,
+          raw_data = EXCLUDED.raw_data,
+          fetched_at = EXCLUDED.fetched_at
       `);
 
       logger.info("analytics_upserted", { postId: post.id, platform: post.platform });

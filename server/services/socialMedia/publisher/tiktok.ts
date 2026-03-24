@@ -68,7 +68,7 @@ export async function publishPhoto(
   // Platform health check: skip gracefully if credentials not configured
   if (!process.env.TIKTOK_ACCESS_TOKEN) {
     console.log('[SocialMedia] TikTok disabled — TIKTOK_ACCESS_TOKEN not set');
-    return Promise.reject({ success: false, platform: 'tiktok', reason: 'credentials_missing' });
+    throw new Error("credentials_missing: TIKTOK_ACCESS_TOKEN not set");
   }
 
   const data = await tiktokPost<{ data?: { publish_id?: string } }>(
@@ -78,6 +78,7 @@ export async function publishPhoto(
         title,
         privacy_level: "PUBLIC_TO_EVERYONE",
         disable_comment: false,
+        post_mode: "DIRECT_POST",
       },
       source_info: {
         source: "PULL_FROM_URL",
@@ -96,8 +97,13 @@ export async function publishPhoto(
 
 export async function verifyCreatorInfo(): Promise<boolean> {
   try {
-    const resp = await fetch(`${TIKTOK_API_BASE}/user/info/`, {
-      headers: { "Authorization": `Bearer ${getToken()}` },
+    const resp = await fetch(`${TIKTOK_API_BASE}/post/publish/creator_info/query/`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${getToken()}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({}),
     });
     return resp.ok;
   } catch { return false; }
@@ -106,30 +112,30 @@ export async function verifyCreatorInfo(): Promise<boolean> {
 export async function fetchMetrics(publishId: string): Promise<Partial<PostAnalytics>> {
   try {
     const resp = await fetch(
-      `${TIKTOK_API_BASE}/video/query/?fields=like_count,comment_count,share_count,view_count`,
+      `${TIKTOK_API_BASE}/post/publish/status/query/`,
       {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${getToken()}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ filters: { video_ids: [publishId] } }),
+        body: JSON.stringify({ publish_id: publishId }),
       },
     );
     if (!resp.ok) return {};
-    const data = await resp.json() as { data?: { videos?: Array<{
+    const data = await resp.json() as { data?: { status?: string; statistics?: {
       like_count?: number;
       comment_count?: number;
       share_count?: number;
       view_count?: number;
-    }> } };
-    const video = data?.data?.videos?.[0];
-    if (!video) return {};
+    } } };
+    const stats = data?.data?.statistics;
+    if (!stats) return {};
     return {
-      impressions: video.view_count ?? 0,
-      likes: video.like_count ?? 0,
-      shares: video.share_count ?? 0,
-      comments: video.comment_count ?? 0,
+      impressions: stats.view_count ?? 0,
+      likes: stats.like_count ?? 0,
+      shares: stats.share_count ?? 0,
+      comments: stats.comment_count ?? 0,
     };
   } catch (err) {
     logger.warn("fetch_metrics_failed", { publishId, error: String(err) });

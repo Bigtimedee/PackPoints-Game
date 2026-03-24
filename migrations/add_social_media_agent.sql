@@ -118,3 +118,5 @@ SELECT 'new-user-acquisition-v1', 'STREAK_REWARD', 'First 7-day streak completio
 WHERE NOT EXISTS (
   SELECT 1 FROM campaign_rewards WHERE campaign_id = 'new-user-acquisition-v1' AND reward_type = 'STREAK_REWARD'
 );
+
+ALTER TABLE post_analytics ADD CONSTRAINT uq_post_analytics_post_day UNIQUE (post_id, (fetched_at::date));
