@@ -64,6 +64,7 @@ import referralsRouter from "./routes/referrals";
 import { registerHealthRoutes } from "./routes/health.routes";
 import { registerWalletRoutes } from "./routes/wallet.routes";
 import { registerAdminRoutes } from "./routes/admin.routes";
+import { registerIosRoutes } from "./routes/ios.routes";
 import * as matchEngine from "./services/matches/engine";
 import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
@@ -142,6 +143,7 @@ export async function registerRoutes(
   registerHealthRoutes(app);
   registerWalletRoutes(app);
   registerAdminRoutes(app);
+  registerIosRoutes(app);
 
   // ============================================
   // HOME STATS (public, cached)

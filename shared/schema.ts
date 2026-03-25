@@ -91,6 +91,88 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type UpsertUser = typeof users.$inferInsert;
 
+// ============================================================
+// iOS Mobile Auth — JWT refresh tokens
+// ============================================================
+export const refreshTokens = pgTable(
+  "refresh_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    token: varchar("token", { length: 256 }).notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    deviceHint: varchar("device_hint", { length: 256 }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_refresh_tokens_user").on(table.userId),
+    index("idx_refresh_tokens_token").on(table.token),
+  ]
+);
+
+export type RefreshToken = typeof refreshTokens.$inferSelect;
+
+// ============================================================
+// iOS Mobile Auth — Apple Sign In (tracks apple_user_id <-> user mapping)
+// ============================================================
+export const appleUsers = pgTable("apple_users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  appleUserId: varchar("apple_user_id", { length: 256 }).notNull().unique(),
+  email: varchar("email", { length: 256 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type AppleUser = typeof appleUsers.$inferSelect;
+
+// ============================================================
+// iOS Push Notifications — APNs device tokens
+// ============================================================
+export const apnsTokens = pgTable(
+  "apns_tokens",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    token: varchar("token", { length: 256 }).notNull(),
+    environment: varchar("environment", { length: 20 }).notNull().default("production"),
+    updatedAt: timestamp("updated_at").defaultNow(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_apns_tokens_user").on(table.userId),
+    uniqueIndex("uq_apns_token").on(table.token),
+  ]
+);
+
+export type ApnsToken = typeof apnsTokens.$inferSelect;
+
+// ============================================================
+// iOS In-App Purchases — Apple IAP transaction records
+// ============================================================
+export const appleTransactions = pgTable(
+  "apple_transactions",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull().references(() => users.id),
+    transactionId: varchar("transaction_id", { length: 256 }).notNull().unique(),
+    originalTransactionId: varchar("original_transaction_id", { length: 256 }),
+    productId: varchar("product_id", { length: 256 }).notNull(),
+    purchaseType: varchar("purchase_type", { length: 50 }).notNull(), // 'subscription' | 'consumable'
+    environment: varchar("environment", { length: 20 }).notNull().default("production"),
+    rawReceipt: text("raw_receipt"),
+    verifiedAt: timestamp("verified_at").defaultNow(),
+    expiresAt: timestamp("expires_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_apple_tx_user").on(table.userId),
+    index("idx_apple_tx_product").on(table.productId),
+  ]
+);
+
+export type AppleTransaction = typeof appleTransactions.$inferSelect;
+
 // User daily progress table - tracks cards answered per day
 export const userDailyProgress = pgTable("user_daily_progress", {
   userId: varchar("user_id").notNull().references(() => users.id),
