@@ -414,6 +414,40 @@ export function registerIosRoutes(app: Express) {
   });
 
   /**
+   * GET /api/users/me
+   * Returns the authenticated user's profile.
+   * Requires JWT Bearer auth.
+   */
+  app.get("/api/users/me", async (req: any, res: Response) => {
+    const jwtUser = req.jwtUser;
+    if (!jwtUser) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    const user = await storage.getUser(jwtUser.sub);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImageUrl: user.profileImageUrl,
+        points: user.points,
+        gamesPlayed: user.gamesPlayed,
+        correctAnswers: user.correctAnswers,
+        totalAnswers: user.totalAnswers,
+        status: user.status,
+        createdAt: user.createdAt?.toISOString() ?? null,
+      },
+    });
+  });
+
+  /**
    * POST /api/auth/logout
    * Revoke all refresh tokens for the authenticated user (full sign-out).
    * Requires JWT Bearer auth.
