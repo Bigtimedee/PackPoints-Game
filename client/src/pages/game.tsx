@@ -253,6 +253,9 @@ export default function Game() {
 
   const submitAnswerMutation = useMutation({
     mutationFn: async (answer: string) => {
+      if (!sessionId) {
+        throw new Error("Cannot submit answer: game session has not started.");
+      }
       const res = await apiRequest("POST", "/api/game/answer", {
         sessionId,
         questionIndex: session?.currentQuestionIndex ?? 0,
@@ -1169,7 +1172,7 @@ export default function Game() {
                 {!isRevealed ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!selectedAnswer || submitAnswerMutation.isPending}
+                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending}
                     className="w-full gap-2"
                     data-testid="button-submit-answer"
                   >

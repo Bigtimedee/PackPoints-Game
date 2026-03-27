@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
+import { useAuth } from "@/hooks/use-auth";
 
 // Zod schema for type-safe wallet response validation
 const WalletResponseSchema = z.object({
@@ -71,9 +72,11 @@ async function fetchWallet(): Promise<WalletData | null> {
 }
 
 export function useWallet() {
+  const { isAuthenticated } = useAuth();
   const { data, isLoading, refetch, error } = useQuery<WalletData | null>({
     queryKey: ["/wallet"],
     queryFn: fetchWallet,
+    enabled: isAuthenticated,
     retry: 2,
     retryDelay: 1000,
     staleTime: 1000 * 30,
