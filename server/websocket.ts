@@ -655,6 +655,7 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
   ws.send(JSON.stringify({
     type: "answer_result",
     payload: {
+      idx: questionIndex,   // BUG-04: include idx so client can deduplicate
       correct: result.correct,
       pointsEarned: result.pointsEarned,
       correctAnswer: result.correctAnswer,

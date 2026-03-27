@@ -72,6 +72,9 @@ import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panic
 import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
 
+// BUG-02: Per-session async mutex to prevent race conditions on answer submission
+const sessionAnswerLocks = new Map<string, Promise<void>>();
+
 function formatZodError(zodError: ZodError): string {
   const first = zodError.errors[0];
   if (first) {
@@ -510,6 +513,17 @@ export async function registerRoutes(
       }
       
       const userId = session.userId || req.session?.localUserId;
+
+      // BUG-01: Ownership guard — reject if a different local user tries to answer another user's session
+      if (session.userId && req.session?.localUserId && req.session.localUserId !== session.userId) {
+        console.warn("[Game Answer] Ownership mismatch", {
+          sessionOwner: session.userId.substring(0, 8),
+          requestor: req.session.localUserId.substring(0, 8),
+          sessionId: sessionId.substring(0, 8),
+        });
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
       if (userId) {
         console.log("[Game Answer] Authenticated submission", {
           sessionId: sessionId.substring(0, 8),
@@ -530,77 +544,127 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid question index" });
       }
       
-      const currentQuestion = session.questions[questionIndex];
-      
-      if ((currentQuestion as any).answered) {
-        return res.status(400).json({ error: "Question already answered" });
-      }
-      
-      const isCorrect = selectedAnswer === currentQuestion.correctAnswer;
+      // BUG-02: Acquire per-session lock to prevent race conditions
+      const prev = sessionAnswerLocks.get(sessionId) ?? Promise.resolve();
+      let releaseLock!: () => void;
+      const lockPromise = new Promise<void>(resolve => { releaseLock = resolve; });
+      sessionAnswerLocks.set(sessionId, prev.then(() => lockPromise));
+
+      let isCorrect!: boolean;
       let pointsEarned = 0;
       let rewardResult: rewardEngine.AwardResult | null = null;
       let rewardError: string | null = null;
-      
-      // Try to update player stats (non-blocking - gameplay should work even if this fails)
+      let freshCurrentQuestion: any;
+
       try {
-        const playerKey = rewardEngine.normalizePlayerKey(currentQuestion.correctAnswer, "baseball");
-        await rewardEngine.updatePlayerStats(playerKey, isCorrect);
-      } catch (statsError: any) {
-        console.error("[Game] Failed to update player stats:", statsError?.message);
-        // Continue - this is not critical for gameplay
-      }
-      
-      if (isCorrect) {
-        const userId = session.userId || req.session?.localUserId;
-        
-        if (userId) {
-          try {
-            const cardId = (currentQuestion.card as any)?.id || `${sessionId}:q${questionIndex}`;
-            const card = currentQuestion.card as any;
-            
-            const dailyBaseResult = await awardDailyBaseForCorrectCard({
-              userId,
-              matchId: sessionId,
-              cardId,
-              playerName: currentQuestion.correctAnswer,
-              year: card?.year || undefined,
-              rarityType: card?.rarityType || undefined,
-            });
-            
-            pointsEarned = dailyBaseResult.deltaPts;
-            
-            rewardResult = {
-              basePts: dailyBaseResult.basePts ?? 75,
-              finalPts: dailyBaseResult.deltaPts,
-              fameScore: dailyBaseResult.fameScore ?? 0.5,
-              vintageMultiplier: dailyBaseResult.vintageMultiplier ?? 1.0,
-              rarityMultiplier: dailyBaseResult.rarityMultiplier ?? 1.0,
-              policyId: "fame_based",
-              capped: dailyBaseResult.isDailyCapped,
-              cappedReason: dailyBaseResult.isDailyCapped ? "daily_card_cap_reached" : 
-                           dailyBaseResult.isDuplicate ? "duplicate_card" : undefined,
-            };
-            
-            const matchPointsAwarded = (session as any).matchPointsAwarded || 0;
-            (session as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
-          } catch (rewardErr: any) {
-            console.error("[Game] Failed to award points:", rewardErr?.message);
-            rewardError = rewardErr?.message || "Reward system unavailable";
-            // Fall back to base point value
-            pointsEarned = currentQuestion.pointValue;
-          }
-        } else {
-          pointsEarned = currentQuestion.pointValue;
+        await prev; // wait for any prior request on this session to finish
+
+        // Re-read session fresh inside the lock
+        const freshSession = await storage.getGameSession(sessionId);
+        if (!freshSession) return res.status(404).json({ error: "Session not found" });
+
+        freshCurrentQuestion = freshSession.questions[questionIndex];
+        if ((freshCurrentQuestion as any).answered) {
+          return res.status(400).json({ error: "Question already answered" });
         }
-        
-        session.score += pointsEarned;
-        session.correctAnswers += 1;
+
+        // BUG-13: Normalize both sides before comparing
+        const normalize = (s: string) => s.trim().toLowerCase();
+        isCorrect = normalize(selectedAnswer) === normalize(freshCurrentQuestion.correctAnswer);
+
+        // Try to update player stats (non-blocking - gameplay should work even if this fails)
+        try {
+          const playerKey = rewardEngine.normalizePlayerKey(freshCurrentQuestion.correctAnswer, "baseball");
+          await rewardEngine.updatePlayerStats(playerKey, isCorrect);
+        } catch (statsError: any) {
+          console.error("[Game] Failed to update player stats:", statsError?.message);
+          // Continue - this is not critical for gameplay
+        }
+
+        if (isCorrect) {
+          const userId = freshSession.userId || req.session?.localUserId;
+
+          if (userId) {
+            try {
+              const cardId = (freshCurrentQuestion.card as any)?.id || `${sessionId}:q${questionIndex}`;
+              const card = freshCurrentQuestion.card as any;
+
+              const dailyBaseResult = await awardDailyBaseForCorrectCard({
+                userId,
+                matchId: sessionId,
+                cardId,
+                playerName: freshCurrentQuestion.correctAnswer,
+                year: card?.year || undefined,
+                rarityType: card?.rarityType || undefined,
+              });
+
+              pointsEarned = dailyBaseResult.deltaPts;
+
+              // BUG-12: Detect frozen wallet path and build distinct rewardResult
+              if ((dailyBaseResult as any).frozen) {
+                rewardResult = {
+                  basePts: 0,
+                  finalPts: 0,
+                  fameScore: 0,
+                  vintageMultiplier: 1.0,
+                  rarityMultiplier: 1.0,
+                  policyId: "fame_based",
+                  capped: false,
+                  cappedReason: undefined,
+                  frozen: true,
+                  frozenReason: (dailyBaseResult as any).frozenReason,
+                } as any;
+              } else {
+                rewardResult = {
+                  basePts: dailyBaseResult.basePts ?? 75,
+                  finalPts: dailyBaseResult.deltaPts,
+                  fameScore: dailyBaseResult.fameScore ?? 0.5,
+                  vintageMultiplier: dailyBaseResult.vintageMultiplier ?? 1.0,
+                  rarityMultiplier: dailyBaseResult.rarityMultiplier ?? 1.0,
+                  policyId: "fame_based",
+                  capped: dailyBaseResult.isDailyCapped,
+                  cappedReason: dailyBaseResult.isDailyCapped ? "daily_card_cap_reached" :
+                               dailyBaseResult.isDuplicate ? "duplicate_card" : undefined,
+                };
+              }
+
+              const matchPointsAwarded = (freshSession as any).matchPointsAwarded || 0;
+              (freshSession as any).matchPointsAwarded = matchPointsAwarded + pointsEarned;
+            } catch (rewardErr: any) {
+              console.error("[Game] Failed to award points:", rewardErr?.message);
+              rewardError = rewardErr?.message || "Reward system unavailable";
+              // BUG-05: Do not credit score when wallet was not credited
+              pointsEarned = 0;
+            }
+          } else {
+            pointsEarned = freshCurrentQuestion.pointValue;
+          }
+
+          freshSession.score += pointsEarned;
+          freshSession.correctAnswers += 1;
+        }
+
+        (freshCurrentQuestion as any).answered = true;
+        (freshCurrentQuestion as any).userAnswer = selectedAnswer;
+
+        // BUG-09: Stamp shownAt BEFORE updateGameSession so the value is persisted
+        if (!(freshCurrentQuestion as any).shownAt) {
+          (freshCurrentQuestion as any).shownAt = new Date().toISOString();
+        }
+
+        await storage.updateGameSession(freshSession);
+
+        // Sync local session reference so the response below uses fresh data
+        Object.assign(session, freshSession);
+      } finally {
+        releaseLock();
+        // Clean up lock entry if no more waiters
+        if (sessionAnswerLocks.get(sessionId) === lockPromise) {
+          sessionAnswerLocks.delete(sessionId);
+        }
       }
-      
-      (currentQuestion as any).answered = true;
-      (currentQuestion as any).userAnswer = selectedAnswer;
-      
-      await storage.updateGameSession(session);
+
+      const currentQuestion = freshCurrentQuestion;
 
       // Log gameplay event for risk analysis (non-blocking)
       try {
@@ -609,12 +673,7 @@ export async function registerRoutes(
           const { logGameplayEvent } = await import("./services/risk/events");
           // Use shownAt timestamp if available for accurate response time measurement
           // Fallback to session start time if shownAt not set (legacy sessions)
-          let shownAt = (currentQuestion as any).shownAt;
-          if (!shownAt) {
-            // Set shownAt now for future reference and use session start as fallback
-            shownAt = session.startedAt;
-            (currentQuestion as any).shownAt = new Date().toISOString();
-          }
+          const shownAt = (currentQuestion as any).shownAt || session.startedAt;
           const responseTimeMs = shownAt ? Date.now() - new Date(shownAt).getTime() : null;
           await logGameplayEvent("ANSWER_SUBMITTED", {
             userId,

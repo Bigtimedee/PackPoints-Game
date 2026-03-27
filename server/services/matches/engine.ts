@@ -301,10 +301,9 @@ export async function submitAnswer(
       return { status: "REJECTED" as const, reason: "match_not_started", serverIndex: currentIdx, serverStatus: status };
     }
 
+    // BUG-06: Reject ALL submissions while INITIALIZING regardless of idx
     if (status === MatchStatus.INITIALIZING) {
-      if (idx !== 0 || currentIdx !== 0) {
-        return { status: "REJECTED" as const, reason: "match_initializing", serverIndex: currentIdx, serverStatus: status };
-      }
+      return { status: "REJECTED" as const, reason: "match_initializing", serverIndex: currentIdx, serverStatus: status };
     }
 
     // 3) Validate idx matches current question
@@ -340,7 +339,9 @@ export async function submitAnswer(
     }
 
     const question = questions[idx];
-    const isCorrect = selected === question.correctAnswer;
+    // BUG-13: Normalize both sides before comparing
+    const normalizeAnswer = (s: string) => s.trim().toLowerCase();
+    const isCorrect = normalizeAnswer(selected) === normalizeAnswer(question.correctAnswer);
     const pointsEarned = isCorrect ? question.pointValue : 0;
 
     // 6) Idempotent upsert - check for existing answer first
@@ -392,6 +393,9 @@ export async function submitAnswer(
               userId,
               matchId,
               cardId,
+              playerName: question.correctAnswer ?? undefined,
+              year: (question.card as any)?.year ?? undefined,
+              rarityType: (question.card as any)?.rarityType ?? undefined,
             });
             if (rewardResult.frozen) {
               console.warn(`[Match] Reward skipped — user ${userId} is frozen: ${rewardResult.frozenReason}`);
@@ -404,6 +408,18 @@ export async function submitAnswer(
         if (error.code === "23505") {
           // Unique constraint violation - treat as idempotent success
           isIdempotent = true;
+          // BUG-03: Re-read the persisted row so client gets authoritative feedback
+          const [winningAnswer] = await tx.select().from(matchAnswers).where(
+            and(
+              eq(matchAnswers.matchId, matchId),
+              eq(matchAnswers.userId, userId),
+              eq(matchAnswers.idx, idx)
+            )
+          );
+          if (winningAnswer) {
+            actualIsCorrect = winningAnswer.isCorrect;
+            actualPointsEarned = winningAnswer.pointsEarned ?? 0;
+          }
         } else {
           throw error;
         }
@@ -433,12 +449,14 @@ export async function submitAnswer(
       const newIndex = idx + 1;
       const totalQuestions = questions.length;
 
-      const updateResult = await tx.update(matches)
+      // BUG-11: Use .returning() for reliable row-affected detection
+      const [advancedRow] = await tx.update(matches)
         .set({ currentQuestionIndex: newIndex })
-        .where(and(eq(matches.id, matchId), eq(matches.currentQuestionIndex, idx)));
+        .where(and(eq(matches.id, matchId), eq(matches.currentQuestionIndex, idx)))
+        .returning({ id: matches.id });
 
-      const rowsAffected = (updateResult as any).rowCount ?? (updateResult as any).changes ?? 0;
-      
+      const rowsAffected = advancedRow ? 1 : 0;
+
       if (rowsAffected > 0) {
         // We are the advancer!
         await tx.insert(matchEvents).values({
@@ -509,15 +527,24 @@ export async function completeMatchFinish(matchId: string, participants: MatchPa
   console.log(`[MatchFinish] matchId=${matchId}, computed=${JSON.stringify(computed)}, player1=${player1?.userId} (${player1?.role}), player2=${player2?.userId} (${player2?.role})`);
   
   if (player1 && player2) {
-    try {
-      await applyProgressForMatchIfNeeded({
-        matchId,
-        hostUserId: player1.userId,
-        guestUserId: player2.userId,
-        totalQuestions,
-      });
-    } catch (progressError: any) {
-      console.error(`[MatchFinish] Failed to apply progress for match ${matchId}: ${progressError.message}`, progressError.stack);
+    // BUG-16: Retry applyProgressForMatchIfNeeded up to 3 times with backoff
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await applyProgressForMatchIfNeeded({
+          matchId,
+          hostUserId: player1.userId,
+          guestUserId: player2.userId,
+          totalQuestions,
+        });
+        break;
+      } catch (progressError: any) {
+        console.error(`[MatchFinish] Progress apply attempt ${attempt}/3 failed for match ${matchId}: ${progressError.message}`);
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+        } else {
+          console.error(`[MatchFinish] All 3 attempts failed for match ${matchId}. Manual remediation may be required.`);
+        }
+      }
     }
   } else {
     console.warn(`[MatchFinish] Skipping progress: only ${updatedParticipants.length} participant(s) found for match ${matchId}`);

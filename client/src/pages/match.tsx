@@ -249,11 +249,17 @@ export default function Match() {
               return;
             }
             
+            // BUG-10: Auto-rejoin instead of showing stale-session error
+            if (reason === "missing_session") {
+              send("join_match", { matchId });
+              return;
+            }
+
             const errorMessages: Record<string, string> = {
               match_not_found: "Match not found",
               not_participant: "You are not a participant in this match",
               unauthorized: "Session expired. Please refresh the page.",
-              missing_session: "Session expired. Please refresh and try again.",
+              missing_session: "Connection lost. Attempting to reconnect...",
               not_in_match: "You are not in this match",
               bad_payload: "Invalid submission. Please try again.",
             };

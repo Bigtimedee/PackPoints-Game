@@ -268,7 +268,7 @@ export default function Game() {
         setTimeout(() => setShowPointsAnimation(false), 2000);
         
         // Show toast when daily cap is reached
-        if (data.reward?.capped && data.reward?.cappedReason?.includes("daily_cap_reached")) {
+        if (data.reward?.capped && data.reward?.cappedReason === "daily_card_cap_reached") {
           toast({
             title: "Daily Limit Reached",
             description: "You've earned the maximum PackPTS for today. Keep playing for practice - your limit resets at midnight!",
@@ -314,6 +314,7 @@ export default function Game() {
       queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
     },
     onError: (error: Error) => {
+      setIsRevealed(false); // BUG-15: roll back optimistic state on submission error
       const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
       if (isSessionExpired) {
         toast({

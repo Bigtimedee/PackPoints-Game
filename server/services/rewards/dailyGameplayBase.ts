@@ -118,13 +118,14 @@ export async function awardDailyBaseForCorrectCard(params: {
       .limit(1);
     
     if (!counter) {
+      // BUG-07: Use ON CONFLICT DO NOTHING to prevent duplicate insert race conditions
       await tx.insert(userGameplayDailyCounters).values({
         userId,
         dayKey,
         cardsCompleted: 0,
         basePtsAwarded: 0,
-      });
-      
+      }).onConflictDoNothing();
+
       [counter] = await tx
         .select()
         .from(userGameplayDailyCounters)
