@@ -32,7 +32,7 @@ export function MobileSelect({
       {/* Native select - shown on touch devices via CSS */}
       <select
         key={`native-select-${options.length}`}
-        id={id ? `${id}-native` : undefined}
+        id={id}
         data-testid={testId ? `${testId}-native` : undefined}
         value={value || ""}
         onChange={(e) => onValueChange(e.target.value)}
@@ -70,7 +70,6 @@ export function MobileSelect({
           disabled={disabled}
         >
           <SelectTrigger
-            id={id}
             data-testid={testId}
           >
             <SelectValue placeholder={placeholder} />
