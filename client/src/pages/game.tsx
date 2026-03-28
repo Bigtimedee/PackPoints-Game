@@ -1065,6 +1065,7 @@ export default function Game() {
   }
 
   const currentQuestion = session.questions?.[session.currentQuestionIndex];
+  const currentQuestionAnswered = (currentQuestion as any)?.answered === true;
   const progress = ((session.currentQuestionIndex + (isRevealed ? 1 : 0)) / session.totalQuestions) * 100;
 
   // Defensive check for missing question data (should not normally occur)
@@ -1171,10 +1172,10 @@ export default function Game() {
               </div>
 
               <div className="pt-2">
-                {!isRevealed ? (
+                {!isRevealed && !currentQuestionAnswered ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending || nextQuestionMutation.isPending}
+                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending || nextQuestionMutation.isPending || currentQuestionAnswered}
                     className="w-full gap-2"
                     data-testid="button-submit-answer"
                   >
