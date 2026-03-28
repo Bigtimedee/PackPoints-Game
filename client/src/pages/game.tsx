@@ -256,9 +256,11 @@ export default function Game() {
       if (!sessionId) {
         throw new Error("Cannot submit answer: game session has not started.");
       }
+      const freshSession = queryClient.getQueryData<GameSession>(["/api/game/session", sessionId]);
+      const questionIndex = freshSession?.currentQuestionIndex ?? session?.currentQuestionIndex ?? 0;
       const res = await apiRequest("POST", "/api/game/answer", {
         sessionId,
-        questionIndex: session?.currentQuestionIndex ?? 0,
+        questionIndex,
         selectedAnswer: answer,
       });
       return res.json();
@@ -1172,7 +1174,7 @@ export default function Game() {
                 {!isRevealed ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending}
+                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending || nextQuestionMutation.isPending}
                     className="w-full gap-2"
                     data-testid="button-submit-answer"
                   >
