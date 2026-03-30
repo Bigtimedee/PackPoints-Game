@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { checkClaims, type DraftPost } from "./factChecker";
 import { agentConfig } from "./config";
 import { createLogger } from "./logger";
+import { loadEvolvedVariants } from "./promptEvolution";
 
 const logger = createLogger("ContentGenerator");
 
@@ -101,6 +102,22 @@ async function buildCopy(
   platform: Platform,
   abGroup: "A" | "B" | "C",
 ): Promise<{ copyText: string; cardQueryParams: Record<string, unknown> }> {
+  // Prompt evolution: use AI-generated evolved variants when available.
+  // These are written nightly by promptEvolution.ts and supersede hardcoded copy.
+  try {
+    const evolved = await loadEvolvedVariants(type);
+    if (evolved?.[abGroup]) {
+      const { siteUrl } = agentConfig;
+      const maxChars = platform === "TWITTER" ? 280 : 2200;
+      const hashtags = pickHashtags(abGroup);
+      const trimmed = fitToLength(evolved[abGroup], siteUrl, hashtags, maxChars);
+      logger.info("evolved_variant_used", { type, abGroup, generation: "active" });
+      return { copyText: trimmed, cardQueryParams: { sortBy: "sales_7day", category: "Baseball" } };
+    }
+  } catch (err) {
+    logger.warn("evolved_variant_load_failed", { type, error: String(err) });
+  }
+
   if (!process.env.OPENAI_API_KEY) {
     // Return a fallback template-based content instead of crashing
     return { copyText: generateFallbackContent(type), cardQueryParams: { sortBy: "sales_7day" } };

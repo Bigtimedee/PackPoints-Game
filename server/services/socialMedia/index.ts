@@ -4,7 +4,7 @@ import { agentConfig } from "./config";
 import { createLogger } from "./logger";
 import { cardSearchSorted } from "../../services/cardhedge/client";
 import { verifyCreatorInfo } from "./publisher/tiktok";
-import { startDailyQueueBuilder, startPublisherLoop, startAnalyticsFetcher } from "./scheduler";
+import { startDailyQueueBuilder, startPublisherLoop, startAnalyticsFetcher, startPromptEvolutionLoop } from "./scheduler";
 import { campaignRewards, socialPosts } from "@shared/schema";
 import { count } from "drizzle-orm";
 
@@ -130,6 +130,7 @@ export async function initSocialMediaAgent(): Promise<void> {
   logger.info('Recovered stuck PUBLISHING posts to QUEUED');
 
   // 6. Start loops
+  startPromptEvolutionLoop();
   startDailyQueueBuilder();
   startPublisherLoop();
   startAnalyticsFetcher();

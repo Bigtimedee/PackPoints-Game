@@ -11,6 +11,7 @@ import { publishPhoto } from "./publisher/tiktok";
 import { fetchAnalyticsForRecentPosts } from "./analytics";
 import { newUserAcquisitionCampaign } from "./campaigns/newUserAcquisition";
 import { retentionCampaign } from "./campaigns/retention";
+import { runPromptEvolution } from "./promptEvolution";
 
 const logger = createLogger("Scheduler");
 
@@ -171,6 +172,42 @@ export function startDailyQueueBuilder(): void {
   }, intervalMs);
 
   logger.info("daily_queue_builder_started", { intervalMs });
+}
+
+// ---------------------------------------------------------------------------
+// Prompt evolution loop — runs nightly at 1am EST, one hour before queue build.
+// Reads A/B test winners, generates next-generation copy via OpenAI, writes to DB.
+// Human steering: edit /prompt_program.md to change research direction.
+// ---------------------------------------------------------------------------
+let lastEvolutionDate = "";
+
+export function startPromptEvolutionLoop(): void {
+  const EVOLUTION_HOUR_EST = 1; // 1am EST — runs before the 2am queue build
+  const intervalMs = 5 * 60 * 1000; // Check every 5 minutes
+
+  const tick = async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (lastEvolutionDate === today) return;
+
+    const estNow = new Date(Date.now() + getEasternOffsetMs());
+    const estHour = estNow.getUTCHours();
+    if (estHour < EVOLUTION_HOUR_EST) return;
+
+    lastEvolutionDate = today;
+    try {
+      await runPromptEvolution();
+    } catch (err) {
+      logger.error("prompt_evolution_failed", { error: String(err) });
+    }
+  };
+
+  setInterval(async () => {
+    try { await tick(); } catch (err) {
+      logger.error("prompt_evolution_tick_error", { error: String(err) });
+    }
+  }, intervalMs);
+
+  logger.info("prompt_evolution_loop_started", { hourEst: EVOLUTION_HOUR_EST });
 }
 
 export function startPublisherLoop(): void {

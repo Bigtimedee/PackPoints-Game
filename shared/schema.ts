@@ -3982,6 +3982,26 @@ export const abTests = pgTable("ab_tests", {
 }, (t) => [index("idx_ab_tests_status").on(t.status)]);
 export type AbTest = typeof abTests.$inferSelect;
 
+// ---------------------------------------------------------------------------
+// Prompt evolution — stores AI-generated copy variants produced by the
+// nightly promptEvolution loop. contentGenerator loads active variants from
+// here in preference to hardcoded copy.
+// ---------------------------------------------------------------------------
+export const evolvedCopyVariants = pgTable("evolved_copy_variants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contentType: socialContentTypeEnum("content_type").notNull(),
+  platform: varchar("platform", { length: 20 }).notNull(), // "TWITTER" | "TIKTOK" | "ALL"
+  abGroup: varchar("ab_group", { length: 1 }).notNull(),   // "A" | "B" | "C"
+  copyText: text("copy_text").notNull(),
+  generation: integer("generation").notNull().default(1),
+  rationale: text("rationale"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("idx_evolved_copy_active").on(t.isActive, t.contentType, t.platform),
+]);
+export type EvolvedCopyVariant = typeof evolvedCopyVariants.$inferSelect;
+
 export const campaignRewards = pgTable("campaign_rewards", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   campaignId: varchar("campaign_id").notNull(),
