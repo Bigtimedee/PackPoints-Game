@@ -4,6 +4,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { cardSearchSorted } from "../../services/cardhedge/client";
 import { createLogger } from "./logger";
+import { uploadImageToStorage } from "./imageStorage";
 
 const logger = createLogger("ImageComposer");
 const OUTPUT_BASE = path.resolve("public/generated/social");
@@ -132,22 +133,29 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
     .png({ quality: 90 })
     .toBuffer();
 
-  // Save file
+  // Save file locally (always — serves as fallback for dev and Twitter)
   const date = new Date().toISOString().slice(0, 10);
   const dir = await getOutputDir(date);
   const filename = `${randomUUID()}.png`;
-  const imagePath = path.join(dir, filename);
-  await fs.promises.writeFile(imagePath, composed);
+  const localPath = path.join(dir, filename);
+  await fs.promises.writeFile(localPath, composed);
+
+  // Try uploading to R2 for a permanent public URL (required by TikTok PULL_FROM_URL)
+  const r2Key = `social/${date}/${filename}`;
+  const r2Url = await uploadImageToStorage(composed, r2Key);
+
+  const imagePath = r2Url ?? `/generated/social/${date}/${filename}`;
 
   logger.info("image_composed", {
     platform,
     contentType,
     cardId: card.card_id ?? "unknown",
     imagePath,
+    storage: r2Url ? "r2" : "local",
   });
 
   return {
-    imagePath: `/generated/social/${date}/${filename}`,
+    imagePath,
     cardId: card.card_id ?? "",
     cardImageUrl: imageUrl,
     cardPlayer: card.player ?? "",

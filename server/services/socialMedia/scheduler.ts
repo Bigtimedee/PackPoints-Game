@@ -250,7 +250,12 @@ export function startPublisherLoop(): void {
         if (post.platform === "TWITTER") {
           platformPostId = await publishTweet(post.copyText, post.hashtags ?? []);
         } else {
-          const publicUrl = `${agentConfig.siteUrl}${post.composedImagePath}`;
+          // Use stored URL directly when it's already absolute (R2 CDN URL);
+          // fall back to constructing from siteUrl for local dev paths.
+          const composedPath = post.composedImagePath ?? "";
+          const publicUrl = composedPath.startsWith("http")
+            ? composedPath
+            : `${agentConfig.siteUrl}${composedPath}`;
           platformPostId = await publishPhoto(post.copyText.slice(0, 150), publicUrl);
         }
 
