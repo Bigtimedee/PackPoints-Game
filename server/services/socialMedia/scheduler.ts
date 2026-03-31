@@ -38,7 +38,7 @@ function buildScheduledTime(hourEst: number): Date {
   const month = todayEst.getUTCMonth();
   const day = todayEst.getUTCDate();
   // Build UTC time for the Eastern hour; carry over to next day if utcHour >= 24
-  const utcHour = hourEst - getEasternOffsetMs() / (60 * 60 * 1000);
+  const utcHour = hourEst + getEasternOffsetMs() / (60 * 60 * 1000);
   const dayOffset = Math.floor(utcHour / 24);
   return new Date(Date.UTC(year, month, day + dayOffset, utcHour % 24, 0, 0, 0));
 }
