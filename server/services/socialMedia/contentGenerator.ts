@@ -1,5 +1,5 @@
-import { db } from "../../db";
 import { sql } from "drizzle-orm";
+async function getDb() { const { db } = await import("../../db"); return db; }
 import { checkClaims, type DraftPost } from "./factChecker";
 import { agentConfig } from "./config";
 import { createLogger } from "./logger";
@@ -171,7 +171,7 @@ async function buildCopy(
     case "LEADERBOARD_HIGHLIGHT": {
       let topPlayer = "a PackPTS champion";
       try {
-        const r = await db.execute(sql`
+        const r = await (await getDb()).execute(sql`
           SELECT u.username, SUM(ma.points_earned) as score
           FROM match_answers ma
           JOIN matches m ON m.id = ma.match_id
@@ -193,7 +193,7 @@ async function buildCopy(
     case "STREAK_MILESTONE": {
       let streak = 7;
       try {
-        const r = await db.execute(sql`SELECT MAX(current_days) as mx FROM streak_state`);
+        const r = await (await getDb()).execute(sql`SELECT MAX(current_days) as mx FROM streak_state`);
         streak = parseInt(String((r.rows[0] as any)?.mx ?? "7")) || 7;
       } catch { /* use default */ }
       if (abGroup === "A") {
@@ -229,7 +229,7 @@ async function buildCopy(
     case "NEW_USER_ACQUISITION": {
       let userCount = 0;
       try {
-        const r = await db.execute(sql`SELECT COUNT(*) as cnt FROM users WHERE status = 'ACTIVE'`);
+        const r = await (await getDb()).execute(sql`SELECT COUNT(*) as cnt FROM users WHERE status = 'ACTIVE'`);
         userCount = parseInt(String((r.rows[0] as any)?.cnt ?? "0"));
       } catch { /* use default */ }
       const countStr = userCount > 0 ? `${userCount.toLocaleString()} players` : "thousands of players";
@@ -245,7 +245,7 @@ async function buildCopy(
     case "REWARD_ANNOUNCEMENT": {
       let rewardValue = "500";
       try {
-        const r = await db.execute(sql`SELECT reward_value FROM campaign_rewards WHERE is_active = TRUE LIMIT 1`);
+        const r = await (await getDb()).execute(sql`SELECT reward_value FROM campaign_rewards WHERE is_active = TRUE LIMIT 1`);
         if (r.rows.length > 0) rewardValue = String((r.rows[0] as any)?.reward_value ?? "500");
       } catch { /* use default */ }
       if (abGroup === "A") {
@@ -260,7 +260,7 @@ async function buildCopy(
     case "CHALLENGE": {
       let topScore = 0;
       try {
-        const r = await db.execute(sql`
+        const r = await (await getDb()).execute(sql`
           SELECT MAX(score) as top FROM (
             SELECT SUM(points_earned) as score FROM match_answers GROUP BY match_id
           ) sub

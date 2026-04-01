@@ -1,5 +1,5 @@
-import { db } from "../../db";
 import { sql } from "drizzle-orm";
+async function getDb() { const { db } = await import("../../db"); return db; }
 import { createLogger } from "./logger";
 import { agentConfig } from "./config";
 
@@ -31,21 +31,21 @@ export interface FactCheckResult {
 
 async function getActiveUserCount(): Promise<number | null> {
   try {
-    const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM users WHERE status = 'ACTIVE'`);
+    const result = await (await getDb()).execute(sql`SELECT COUNT(*) as cnt FROM users WHERE status = 'ACTIVE'`);
     return parseInt(String((result.rows[0] as any)?.cnt ?? "0"));
   } catch { return null; }
 }
 
 async function getCompletedMatchCount(): Promise<number | null> {
   try {
-    const result = await db.execute(sql`SELECT COUNT(*) as cnt FROM matches WHERE status = 'COMPLETED'`);
+    const result = await (await getDb()).execute(sql`SELECT COUNT(*) as cnt FROM matches WHERE status = 'COMPLETED'`);
     return parseInt(String((result.rows[0] as any)?.cnt ?? "0"));
   } catch { return null; }
 }
 
 async function getTopScore(): Promise<number | null> {
   try {
-    const result = await db.execute(sql`
+    const result = await (await getDb()).execute(sql`
       SELECT MAX(score) as top FROM (
         SELECT SUM(points_earned) as score FROM match_answers GROUP BY match_id
       ) sub
@@ -56,14 +56,14 @@ async function getTopScore(): Promise<number | null> {
 
 async function getMaxStreak(): Promise<number | null> {
   try {
-    const result = await db.execute(sql`SELECT MAX(current_days) as mx FROM streak_state`);
+    const result = await (await getDb()).execute(sql`SELECT MAX(current_days) as mx FROM streak_state`);
     return parseInt(String((result.rows[0] as any)?.mx ?? "0"));
   } catch { return null; }
 }
 
 async function getActiveRewardValues(): Promise<string[]> {
   try {
-    const result = await db.execute(sql`SELECT reward_value FROM campaign_rewards WHERE is_active = TRUE`);
+    const result = await (await getDb()).execute(sql`SELECT reward_value FROM campaign_rewards WHERE is_active = TRUE`);
     return (result.rows as any[]).map(r => String(r.reward_value));
   } catch { return []; }
 }

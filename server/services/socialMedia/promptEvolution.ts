@@ -1,3 +1,4 @@
+async function getDb() { const { db } = await import("../../db"); return db; }
 /**
  * Prompt Evolution Loop
  *
@@ -16,7 +17,6 @@
 
 import fs from "fs";
 import path from "path";
-import { db } from "../../db";
 import { abTests, socialPosts, evolvedCopyVariants } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { createLogger } from "./logger";
@@ -63,7 +63,7 @@ interface WinnerRecord {
 async function fetchRecentWinners(): Promise<WinnerRecord[]> {
   const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  const concludedTests = await db
+  const concludedTests = await (await getDb())
     .select()
     .from(abTests)
     .where(
@@ -81,7 +81,7 @@ async function fetchRecentWinners(): Promise<WinnerRecord[]> {
     if (!test.winner || !test.contentType) continue;
 
     // Find a published post from the winning group for this test
-    const winningPost = await db
+    const winningPost = await (await getDb())
       .select({ copyText: socialPosts.copyText, abGroup: socialPosts.abGroup })
       .from(socialPosts)
       .where(
@@ -96,7 +96,7 @@ async function fetchRecentWinners(): Promise<WinnerRecord[]> {
     if (winningPost.length === 0) continue;
 
     // Get the conversion rate for the winning group
-    const statsRow = await db.execute(sql`
+    const statsRow = await (await getDb()).execute(sql`
       SELECT
         SUM(pa.new_signups_attributed)::float /
           NULLIF(SUM(pa.clicks), 0) AS conversion_rate
@@ -108,7 +108,7 @@ async function fetchRecentWinners(): Promise<WinnerRecord[]> {
     const convRate = parseFloat(String((statsRow.rows[0] as any)?.conversion_rate ?? "0")) || 0;
 
     // Check if there is already an evolved variant for this content type to know generation
-    const latestEvolved = await db
+    const latestEvolved = await (await getDb())
       .select({ generation: evolvedCopyVariants.generation })
       .from(evolvedCopyVariants)
       .where(eq(evolvedCopyVariants.contentType, test.contentType as any))
@@ -221,7 +221,7 @@ Return ONLY valid JSON. No markdown fences, no explanation outside the JSON.`;
 async function persistVariants(generated: GeneratedVariants[]): Promise<void> {
   for (const item of generated) {
     // Deactivate existing active variants for this content type
-    await db
+    await (await getDb())
       .update(evolvedCopyVariants)
       .set({ isActive: false })
       .where(
@@ -233,7 +233,7 @@ async function persistVariants(generated: GeneratedVariants[]): Promise<void> {
 
     // Insert new generation for each group
     for (const [group, copyText] of Object.entries(item.variants) as [string, string][]) {
-      await db.insert(evolvedCopyVariants).values({
+      await (await getDb()).insert(evolvedCopyVariants).values({
         contentType: item.contentType as any,
         platform: "ALL",
         abGroup: group,
@@ -283,7 +283,7 @@ export async function runPromptEvolution(): Promise<void> {
 export async function loadEvolvedVariants(
   contentType: SocialContentType,
 ): Promise<Record<string, string> | null> {
-  const rows = await db
+  const rows = await (await getDb())
     .select({ abGroup: evolvedCopyVariants.abGroup, copyText: evolvedCopyVariants.copyText })
     .from(evolvedCopyVariants)
     .where(
