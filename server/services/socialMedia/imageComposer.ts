@@ -22,6 +22,8 @@ export interface ComposedImage {
   cardImageUrl: string;
   cardPlayer: string;
   cardSet: string;
+  cardPrice?: number;
+  cardSales7d?: number;
 }
 
 const BADGE_LABELS: Record<string, string> = {
@@ -160,5 +162,7 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
     cardImageUrl: imageUrl,
     cardPlayer: card.player ?? "",
     cardSet: card.set ?? "",
+    cardPrice: (card.prices as any)?.[0]?.price ?? undefined,
+    cardSales7d: (card as any)["7 Day Sales"] ?? (card as any).sales7d ?? undefined,
   };
 }

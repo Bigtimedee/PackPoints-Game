@@ -98,11 +98,19 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         ? rotation[Math.floor(Math.random() * rotation.length)]
         : undefined;
 
-      const draft = await generateDraftPost(platform, contentType);
+      // Compose image FIRST to get the actual card selected
       const composed = await composePostImage({
         platform,
-        contentType: draft.contentType,
-        cardQuery: draft.cardQueryParams as any,
+        contentType: contentType ?? "TRIVIA_CARD",
+        cardQuery: { sortBy: "sales_7day", category: "Baseball" },
+      });
+
+      // Generate copy ABOUT that specific card
+      const draft = await generateDraftPost(platform, contentType, undefined, {
+        player: composed.cardPlayer,
+        set: composed.cardSet,
+        cardPrice: composed.cardPrice,
+        cardSales7d: composed.cardSales7d,
       });
 
       const { abTestId } = await getOrCreateAbTest(

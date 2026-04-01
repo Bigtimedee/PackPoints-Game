@@ -37,6 +37,14 @@ function generateFallbackContent(type: string): string {
 }
 
 export type Platform = "TWITTER" | "TIKTOK";
+
+export interface CardContext {
+  player?: string;
+  set?: string;
+  cardPrice?: number;
+  cardSales7d?: number;
+}
+
 export type SocialContentType =
   | "TRIVIA_CARD"
   | "LEADERBOARD_HIGHLIGHT"
@@ -101,6 +109,7 @@ async function buildCopy(
   type: SocialContentType,
   platform: Platform,
   abGroup: "A" | "B" | "C",
+  cardContext?: CardContext,
 ): Promise<{ copyText: string; cardQueryParams: Record<string, unknown> }> {
   // Prompt evolution: use AI-generated evolved variants when available.
   // These are written nightly by promptEvolution.ts and supersede hardcoded copy.
@@ -130,12 +139,31 @@ async function buildCopy(
 
   switch (type) {
     case "TRIVIA_CARD": {
+      const player = cardContext?.player;
+      const price = cardContext?.cardPrice;
+      const sales = cardContext?.cardSales7d;
+      const priceStr = price ? `$${price.toLocaleString()}` : null;
+      const salesStr = sales ? `${sales} sales` : null;
+      const marketFact = priceStr && salesStr
+        ? `${priceStr} last sale. ${salesStr} in 7 days.`
+        : priceStr
+        ? `Last sale: ${priceStr}.`
+        : salesStr
+        ? `${salesStr} in the last 7 days.`
+        : null;
+      const playerRef = player ? player : "today's card";
       if (abGroup === "A") {
-        copy = `The most-traded baseball cards right now are flying on the market. Can you name today's hottest card? Test your knowledge at ${siteUrl}`;
+        copy = marketFact
+          ? `${marketFact} Any serious collector knows ${playerRef} on sight. Name it and earn points at ${siteUrl}`
+          : `Any serious collector knows ${playerRef} on sight. Name it and earn points at ${siteUrl}`;
       } else if (abGroup === "B") {
-        copy = `Think you know your cards? Challenge yourself with today's trending card trivia and climb the leaderboard at ${siteUrl}`;
+        copy = marketFact
+          ? `${marketFact} Collectors are already earning points on ${playerRef}. Can you name it? Play free at ${siteUrl}`
+          : `Collectors are already earning points on ${playerRef}. Can you name it? Play free at ${siteUrl}`;
       } else {
-        copy = `Hot cards. Real trivia. Big points. How many can you identify? Play PackPTS free at ${siteUrl}`;
+        copy = marketFact
+          ? `${marketFact} Points on ${playerRef} expire tonight. Name it now at ${siteUrl}`
+          : `Points on ${playerRef} expire tonight. Name it now at ${siteUrl}`;
       }
       cardQueryParams = { sortBy: "sales_7day", category: "Baseball" };
       break;
@@ -178,12 +206,22 @@ async function buildCopy(
       break;
     }
     case "MARKET_PRICE_SPOTLIGHT": {
+      const player = cardContext?.player;
+      const price = cardContext?.cardPrice;
+      const sales = cardContext?.cardSales7d;
+      const priceStr = price ? `$${price.toLocaleString()}` : null;
+      const salesStr = sales ? `${sales} copies` : null;
+      const cardRef = player ?? "this card";
       if (abGroup === "A") {
-        copy = `Baseball card prices are moving fast. Stay ahead of the market — test your card knowledge and earn rewards at ${siteUrl}`;
+        copy = priceStr && salesStr
+          ? `${cardRef}: ${priceStr} last sale. ${salesStr} moved in 7 days. It is today's spotlight card on PackPTS. ${siteUrl}`
+          : `${cardRef} is the market's top mover this week. It is live in the game today. Earn points at ${siteUrl}`;
       } else if (abGroup === "B") {
-        copy = `The hottest cards on the market this week — can you name them all? Test yourself at PackPTS: ${siteUrl}`;
+        copy = priceStr
+          ? `${cardRef} at ${priceStr}. If you follow the market you already know why. The window to earn points on it is today. ${siteUrl}`
+          : `${cardRef} is moving. The window to earn points before it moves further is today. Play at ${siteUrl}`;
       } else {
-        copy = `Card collectors: how well do you know the market's top movers? Prove it and earn points at ${siteUrl}`;
+        copy = `If you follow the market, you know ${cardRef}. Prove it in the game and earn points. ${siteUrl}`;
       }
       cardQueryParams = { sortBy: "sales_7day", category: "Baseball" };
       break;
@@ -250,12 +288,13 @@ export async function generateDraftPost(
   platform: Platform,
   contentType?: SocialContentType,
   abGroup?: "A" | "B" | "C",
+  cardContext?: CardContext,
 ): Promise<DraftPost> {
   const type = contentType ?? pickNextContentType(platform);
   const day = new Date().getDate() % 3;
   const group: "A" | "B" | "C" = abGroup ?? (day === 0 ? "A" : day === 1 ? "B" : "C");
 
-  const { copyText, cardQueryParams } = await buildCopy(type, platform, group);
+  const { copyText, cardQueryParams } = await buildCopy(type, platform, group, cardContext);
   const hashtags = pickHashtags(group);
 
   const draft: DraftPost = { platform, contentType: type, copyText, hashtags, cardQueryParams, abGroup: group as any };
