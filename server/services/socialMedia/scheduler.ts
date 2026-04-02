@@ -152,7 +152,7 @@ export function startDailyQueueBuilder(): void {
     const today = new Date().toISOString().slice(0, 10);
     if (lastQueueBuildDate === today) return;
 
-    const estNow = new Date(Date.now() + getEasternOffsetMs());
+    const estNow = new Date(Date.now() - getEasternOffsetMs());
     const estHour = estNow.getUTCHours();
     if (estHour < agentConfig.dailyQueueBuildHour) return;
 
@@ -197,7 +197,7 @@ export function startPromptEvolutionLoop(): void {
     const today = new Date().toISOString().slice(0, 10);
     if (lastEvolutionDate === today) return;
 
-    const estNow = new Date(Date.now() + getEasternOffsetMs());
+    const estNow = new Date(Date.now() - getEasternOffsetMs());
     const estHour = estNow.getUTCHours();
     if (estHour < EVOLUTION_HOUR_EST) return;
 

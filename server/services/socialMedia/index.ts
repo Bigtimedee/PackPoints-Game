@@ -63,12 +63,11 @@ export async function initSocialMediaAgent(): Promise<void> {
     throw new Error("[SocialMediaAgent] DB connectivity check failed");
   }
 
-  // 2. Verify CardHedge — HARD FAIL
+  // 2. Verify CardHedge — SOFT FAIL (image composition will fail per-post if unavailable)
   try {
     await cardSearchSorted({ page: 1, page_size: 1, category: "Baseball" });
   } catch (err) {
-    logger.error("cardhedge_check_failed", { error: String(err) });
-    throw new Error("[SocialMediaAgent] CardHedge connectivity check failed");
+    logger.warn("cardhedge_check_failed", { error: String(err) });
   }
 
   // 3. Verify Twitter — SOFT FAIL
