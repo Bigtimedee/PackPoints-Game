@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const CARDHEDGE_BASE_URL = process.env.CARDHEDGE_BASE_URL || "https://api.cardhedge.com";
+const CARDHEDGE_BASE_URL = process.env.CARDHEDGE_BASE_URL || "https://api.cardhedger.com";
 const CARDHEDGE_TIMEOUT_MS = parseInt(process.env.CARDHEDGE_HTTP_TIMEOUT_MS || "10000", 10);
 const MAX_RETRIES = 3; // Default retries
 const MAX_RETRIES_503 = 5; // Extra retries for 503 (service temporarily unavailable)
