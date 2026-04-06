@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS promotions (
   end_at TIMESTAMPTZ NOT NULL,
   points_multiplier NUMERIC(4,2) NOT NULL DEFAULT 1.0,
   active BOOLEAN NOT NULL DEFAULT true,
-  created_by INTEGER REFERENCES users(id),
+  created_by VARCHAR REFERENCES users(id),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
