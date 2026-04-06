@@ -33,7 +33,7 @@ export async function fetchAnalyticsForRecentPosts(): Promise<void> {
 
       if (Object.keys(metrics).length === 0) continue;
 
-      // Upsert into post_analytics
+      // Insert analytics snapshot (one row per fetch — no upsert needed)
       await db.execute(sql`
         INSERT INTO post_analytics (post_id, fetched_at, impressions, likes, shares, comments, clicks, profile_visits, new_signups_attributed)
         VALUES (
@@ -47,13 +47,6 @@ export async function fetchAnalyticsForRecentPosts(): Promise<void> {
           ${metrics.profileVisits ?? 0},
           ${metrics.newSignupsAttributed ?? 0}
         )
-        ON CONFLICT (post_id, (fetched_at::date)) DO UPDATE SET
-          impressions = EXCLUDED.impressions,
-          engagements = EXCLUDED.engagements,
-          clicks = EXCLUDED.clicks,
-          shares = EXCLUDED.shares,
-          raw_data = EXCLUDED.raw_data,
-          fetched_at = EXCLUDED.fetched_at
       `);
 
       logger.info("analytics_upserted", { postId: post.id, platform: post.platform });
