@@ -3,7 +3,7 @@ import { socialPosts } from "@shared/schema";
 import { eq, and, lte, gte, sql, count } from "drizzle-orm";
 import { agentConfig } from "./config";
 import { createLogger } from "./logger";
-import { generateDraftPost, type Platform } from "./contentGenerator";
+import { generateDraftPost, type Platform, type CardContext } from "./contentGenerator";
 import { composePostImage } from "./imageComposer";
 import { getOrCreateAbTest } from "./abTesting/manager";
 import { publishTweet } from "./publisher/twitter";
@@ -98,20 +98,30 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         ? rotation[Math.floor(Math.random() * rotation.length)]
         : undefined;
 
-      // Compose image FIRST to get the actual card selected
-      const composed = await composePostImage({
-        platform,
-        contentType: contentType ?? "TRIVIA_CARD",
-        cardQuery: { sortBy: "sales_7day", category: "Baseball" },
-      });
+      // Compose image FIRST to get the actual card selected.
+      // For Twitter, image is text-only in the publisher anyway — so fall back to
+      // no-image if CardHedge is unreachable rather than skipping the slot entirely.
+      let composed: Awaited<ReturnType<typeof composePostImage>> | null = null;
+      let cardContext: CardContext | undefined;
+      try {
+        composed = await composePostImage({
+          platform,
+          contentType: contentType ?? "TRIVIA_CARD",
+          cardQuery: { sortBy: "sales_7day", category: "Baseball" },
+        });
+        cardContext = {
+          player: composed.cardPlayer,
+          set: composed.cardSet,
+          cardPrice: composed.cardPrice,
+          cardSales7d: composed.cardSales7d,
+        };
+      } catch (imageErr) {
+        if (platform === "TIKTOK") throw imageErr; // TikTok requires an image
+        logger.warn("image_compose_skipped_text_only", { platform, hour, error: String(imageErr) });
+      }
 
-      // Generate copy ABOUT that specific card
-      const draft = await generateDraftPost(platform, contentType, undefined, {
-        player: composed.cardPlayer,
-        set: composed.cardSet,
-        cardPrice: composed.cardPrice,
-        cardSales7d: composed.cardSales7d,
-      });
+      // Generate copy (with or without card context)
+      const draft = await generateDraftPost(platform, contentType, undefined, cardContext);
 
       const { abTestId } = await getOrCreateAbTest(
         campaign.campaignId,
@@ -125,9 +135,9 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         abGroup: draft.abGroup as any,
         abTestId,
         campaignId: campaign.campaignId,
-        cardId: composed.cardId,
-        cardImageUrl: composed.cardImageUrl,
-        composedImagePath: composed.imagePath,
+        cardId: composed?.cardId ?? null,
+        cardImageUrl: composed?.cardImageUrl ?? null,
+        composedImagePath: composed?.imagePath ?? null,
         cardQueryParams: draft.cardQueryParams,
         copyText: draft.copyText,
         hashtags: draft.hashtags,
@@ -136,7 +146,7 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         factCheckLog: draft.factCheckLog ?? [],
       });
 
-      logger.info("post_queued", { platform, contentType: draft.contentType, hour, campaign: campaign.campaignId });
+      logger.info("post_queued", { platform, contentType: draft.contentType, hour, campaign: campaign.campaignId, hasImage: !!composed });
     } catch (err) {
       logger.error("queue_build_error", { platform, hour, error: String(err) });
     }
