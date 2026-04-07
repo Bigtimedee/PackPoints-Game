@@ -305,6 +305,14 @@ export async function cardHedgeFetch<T>(
       throw new CardHedgeError("Card Hedge API request timed out", undefined, true);
     }
     
+    // Log the full error including cause for network-level diagnostics
+    console.error(`[CardHedge] Network error (fetch failed)`, {
+      message: error instanceof Error ? error.message : String(error),
+      cause: error instanceof Error ? (error as any).cause : undefined,
+      causeCode: error instanceof Error ? (error as any).cause?.code : undefined,
+      causeMessage: error instanceof Error ? (error as any).cause?.message : undefined,
+    });
+
     // Try stale cache for network errors
     if (useCache && method === "POST") {
       const staleData = getFromCache<T>(cacheKey, true);
@@ -313,7 +321,7 @@ export async function cardHedgeFetch<T>(
         return staleData;
       }
     }
-    
+
     throw new CardHedgeError(
       `Card Hedge API request failed: ${error instanceof Error ? error.message : "Unknown error"}`
     );
