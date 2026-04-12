@@ -426,7 +426,7 @@ export default function Daily5Page() {
 
   if (gameState === "playing" && currentCard) {
     return (
-      <div className="min-h-screen pb-20 md:pb-8">
+      <div>
         <div className="container mx-auto px-4 py-4 max-w-2xl">
           <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
             <Badge variant="outline" className="gap-1.5">
@@ -503,7 +503,7 @@ export default function Daily5Page() {
   if (gameState === "results") {
     const lb = leaderboardQuery.data;
     return (
-      <div className="min-h-screen pb-20 md:pb-8">
+      <div>
         <div className="container mx-auto px-4 py-8 max-w-2xl">
           <div className="text-center space-y-4 mb-8">
             <div className="inline-flex p-4 rounded-full bg-primary/10">

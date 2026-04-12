@@ -1096,8 +1096,8 @@ export default function Game() {
   }
 
   return (
-    <div data-testid="game-active-viewport">
-      <div className="max-w-2xl mx-auto w-full px-3 sm:px-4">
+    <div data-testid="game-active-viewport" className="h-full flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto max-w-2xl mx-auto w-full px-3 sm:px-4">
         {/* Zone 1: Header */}
         <div className="pt-2 pb-1">
           <div className="flex items-center justify-between gap-4 mb-2">
