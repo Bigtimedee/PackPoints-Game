@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
+import { ShareAssetCard } from "@/components/ShareAssetCard";
 import {
   Calendar, Clock, Trophy, ArrowLeft, Check, X, Loader2,
   Play, Award, Timer, Users, Crown, Share2, Download, UserPlus
@@ -209,6 +210,15 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
               </div>
             )}
           </div>
+          {isAuthenticated && challengeId && (
+            <ShareAssetCard
+              challengeId={challengeId}
+              downloadFilename={`packpts-daily5-${dateStr}.png`}
+              shareUrl="https://packpts.com/daily5"
+              shareText={`I scored ${score} pts in today's PackPTS Daily 5! Play at packpts.com/daily5`}
+            />
+          )}
+
           <div className="flex flex-col gap-2">
             <Button
               variant="outline"
@@ -220,26 +230,15 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
               {shared ? "Shared" : "Share Result"}
             </Button>
             {isAuthenticated && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDownloadScoreCard}
-                  className="gap-2 w-full"
-                  data-testid="button-d5-download-scorecard">
-                  <Download className="h-4 w-4" />
-                  Download Score Card
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleChallengeInvite}
-                  className="gap-2 w-full"
-                  data-testid="button-d5-challenge-friend">
-                  <UserPlus className="h-4 w-4" />
-                  Challenge a Friend
-                </Button>
-              </>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleChallengeInvite}
+                className="gap-2 w-full"
+                data-testid="button-d5-challenge-friend">
+                <UserPlus className="h-4 w-4" />
+                Challenge a Friend
+              </Button>
             )}
           </div>
         </div>

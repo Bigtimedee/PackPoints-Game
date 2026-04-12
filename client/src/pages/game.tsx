@@ -22,6 +22,7 @@ import type { GameSession, GameQuestion, GameSet, PlayableSet } from "@shared/sc
 import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ShareAssetCard } from "@/components/ShareAssetCard";
 
 function AnswerButton({
   option,
@@ -940,37 +941,46 @@ export default function Game() {
               {session.correctAnswers} of {effectiveTotal} players identified correctly{(session.skippedQuestions ?? 0) > 0 && ` (${session.skippedQuestions} card${session.skippedQuestions === 1 ? '' : 's'} skipped)`}
             </div>
             
+            {isAuthenticated && (
+              <ShareAssetCard
+                matchId={session.id}
+                downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
+                shareUrl="https://packpts.com"
+                shareText={`I scored ${session.score} points on PackPTS! Play at packpts.com`}
+              />
+            )}
+
             <div className="space-y-3 pt-2">
               <p className="text-sm font-medium text-muted-foreground">Share your score</p>
               <div className="flex items-center justify-center gap-3">
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   onClick={() => handleShare("twitter")}
                   data-testid="button-share-twitter"
                 >
                   <SiX className="h-4 w-4" />
                 </Button>
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   onClick={() => handleShare("facebook")}
                   data-testid="button-share-facebook"
                 >
                   <SiFacebook className="h-4 w-4" />
                 </Button>
-                <Button 
-                  size="icon" 
-                  variant="outline" 
+                <Button
+                  size="icon"
+                  variant="outline"
                   onClick={() => handleShare("copy")}
                   data-testid="button-share-copy"
                 >
                   <Copy className="h-4 w-4" />
                 </Button>
                 {canNativeShare && (
-                  <Button 
-                    size="icon" 
-                    variant="outline" 
+                  <Button
+                    size="icon"
+                    variant="outline"
                     onClick={() => handleShare("native")}
                     data-testid="button-share-native"
                   >
@@ -980,17 +990,8 @@ export default function Game() {
               </div>
               {isAuthenticated && (
                 <div className="flex flex-col gap-2 pt-2">
-                  <Button 
-                    variant="outline" 
-                    className="w-full gap-2"
-                    onClick={handleDownloadScoreCard}
-                    data-testid="button-download-scorecard"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Score Card
-                  </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="w-full gap-2"
                     onClick={handleChallengeInvite}
                     data-testid="button-challenge-friend"

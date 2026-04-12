@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -948,6 +948,7 @@ export async function registerRoutes(
       try {
         const { onDaily5Finished } = await import("./contentFactory/index");
         const date = new Date().toISOString().slice(0, 10);
+        const streakResult = await streakService.processMatchCompletion(userId, parsed.data.challengeId).catch(() => null);
         onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -955,6 +956,7 @@ export async function registerRoutes(
           correctCount: result.correctCount || 0,
           totalQuestions: 5,
           rank: result.rank,
+          streak: streakResult?.streakInfo?.currentDays,
           date,
         }).catch(err => console.error("[ContentFactory] Daily5 background error:", err?.message));
       } catch (cfErr) {
@@ -976,6 +978,68 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Daily5] Error getting leaderboard:", error);
       res.status(500).json({ error: "Failed to get leaderboard" });
+    }
+  });
+
+  // ============================================
+  // CONTENT ASSETS ROUTES
+  // ============================================
+
+  // GET /api/content-assets/latest?matchId=<id> or ?challengeId=<id>
+  app.get("/api/content-assets/latest", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+      const { matchId, challengeId } = req.query as Record<string, string>;
+      if (!matchId && !challengeId) {
+        return res.status(400).json({ error: "matchId or challengeId is required" });
+      }
+
+      const sourceEventId = matchId ? `match_${matchId}` : `daily5_${challengeId}`;
+
+      const assets = await db
+        .select()
+        .from(contentAssets)
+        .where(
+          and(
+            eq(contentAssets.userId, userId),
+            eq(contentAssets.sourceEventId, sourceEventId),
+          ),
+        )
+        .orderBy(desc(contentAssets.createdAt))
+        .limit(5);
+
+      res.json({ assets });
+    } catch (error) {
+      console.error("[ContentAssets] Error fetching latest:", error);
+      res.status(500).json({ error: "Failed to fetch content assets" });
+    }
+  });
+
+  // GET /api/content-assets/:id
+  app.get("/api/content-assets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+      const [asset] = await db
+        .select()
+        .from(contentAssets)
+        .where(
+          and(
+            eq(contentAssets.id, req.params.id),
+            eq(contentAssets.userId, userId),
+          ),
+        )
+        .limit(1);
+
+      if (!asset) return res.status(404).json({ error: "Asset not found" });
+
+      res.json(asset);
+    } catch (error) {
+      console.error("[ContentAssets] Error fetching asset:", error);
+      res.status(500).json({ error: "Failed to fetch content asset" });
     }
   });
 
