@@ -16,6 +16,7 @@ import {
 } from "@shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { runDailyGrowthJob } from "../services/growthAgent";
+import { renderVideo } from "../services/videoFactory";
 import { z } from "zod";
 
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -183,6 +184,33 @@ export function registerGrowthRoutes(app: Express): void {
         }
 
         res.json({ ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // POST /api/admin/growth/queue/:queueId/render — render video for the content item
+  app.post(
+    "/api/admin/growth/queue/:queueId/render",
+    isAuthenticated,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      try {
+        // Look up the content item id via the queue row
+        const [queueRow] = await db
+          .select({ contentItemId: publishingQueue.contentItemId })
+          .from(publishingQueue)
+          .where(eq(publishingQueue.id, req.params.queueId))
+          .limit(1);
+
+        if (!queueRow) {
+          return res.status(404).json({ message: "Queue entry not found" });
+        }
+
+        const result = await renderVideo(queueRow.contentItemId);
+        res.json(result);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         res.status(500).json({ message: msg });

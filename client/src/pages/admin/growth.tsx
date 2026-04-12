@@ -31,7 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Play, RefreshCw, ExternalLink } from "lucide-react";
+import { Copy, Check, Play, RefreshCw, ExternalLink, Film, Download } from "lucide-react";
 
 // ──────────────────────────────────────────────
 // Types
@@ -62,6 +62,14 @@ interface GrowthItem {
   cta: string | null;
   assetRefs: { label: string; description: string }[];
   errorMessage: string | null;
+  metadata?: {
+    videoUrl?: string;
+    thumbnailUrl?: string;
+    renderStatus?: "PENDING" | "RENDERING" | "DONE" | "ERROR";
+    renderError?: string;
+    template?: string;
+    renderedAt?: string;
+  } | null;
 }
 
 interface QueueRow {
@@ -406,6 +414,23 @@ function QueueTab() {
     },
   });
 
+  const [renderingIds, setRenderingIds] = useState<Set<string>>(new Set());
+
+  async function handleRender(queueId: string) {
+    setRenderingIds((prev) => new Set(prev).add(queueId));
+    try {
+      const res = await fetch(`/api/admin/growth/queue/${queueId}/render`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Render failed");
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/queue"] });
+      toast({ title: "Video rendered", description: data.template });
+    } catch (err) {
+      toast({ title: "Render error", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setRenderingIds((prev) => { const s = new Set(prev); s.delete(queueId); return s; });
+    }
+  }
+
   const rows = queueQuery.data ?? [];
 
   return (
@@ -471,32 +496,82 @@ function QueueTab() {
                   <StatusBadge status={queue.status} />
                 </td>
                 <td className="p-3 text-right">
-                  {queue.status === "PENDING" && (
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="default"
-                        onClick={() => markPosted.mutate(queue.id)}
-                        disabled={markPosted.isPending}
-                      >
-                        <Check className="h-3.5 w-3.5 mr-1" />
-                        Posted
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => markSkipped.mutate(queue.id)}
-                        disabled={markSkipped.isPending}
-                      >
-                        Skip
-                      </Button>
-                    </div>
-                  )}
-                  {queue.status === "POSTED" && (
-                    <span className="text-xs text-muted-foreground">
-                      {queue.postedAt ? new Date(queue.postedAt).toLocaleDateString() : "Posted"}
-                    </span>
-                  )}
+                  <div className="flex justify-end gap-2 flex-wrap">
+                    {/* Video render / download actions */}
+                    {item && (
+                      <>
+                        {item.metadata?.renderStatus === "DONE" ? (
+                          <>
+                            {item.metadata.videoUrl && (
+                              <a href={item.metadata.videoUrl} download>
+                                <Button size="sm" variant="outline" className="gap-1.5">
+                                  <Download className="h-3.5 w-3.5" />
+                                  MP4
+                                </Button>
+                              </a>
+                            )}
+                            {item.metadata.thumbnailUrl && (
+                              <a href={item.metadata.thumbnailUrl} download>
+                                <Button size="sm" variant="outline" className="gap-1.5">
+                                  <Download className="h-3.5 w-3.5" />
+                                  Thumb
+                                </Button>
+                              </a>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="gap-1.5"
+                              onClick={() => handleRender(queue.id)}
+                              disabled={renderingIds.has(queue.id)}
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${renderingIds.has(queue.id) ? "animate-spin" : ""}`} />
+                              Re-render
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                            onClick={() => handleRender(queue.id)}
+                            disabled={renderingIds.has(queue.id) || item.metadata?.renderStatus === "RENDERING"}
+                          >
+                            <Film className={`h-3.5 w-3.5 ${renderingIds.has(queue.id) ? "animate-spin" : ""}`} />
+                            {item.metadata?.renderStatus === "RENDERING" ? "Rendering…" : "Render Video"}
+                          </Button>
+                        )}
+                      </>
+                    )}
+
+                    {/* Post / skip actions */}
+                    {queue.status === "PENDING" && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => markPosted.mutate(queue.id)}
+                          disabled={markPosted.isPending}
+                        >
+                          <Check className="h-3.5 w-3.5 mr-1" />
+                          Posted
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => markSkipped.mutate(queue.id)}
+                          disabled={markSkipped.isPending}
+                        >
+                          Skip
+                        </Button>
+                      </>
+                    )}
+                    {queue.status === "POSTED" && (
+                      <span className="text-xs text-muted-foreground">
+                        {queue.postedAt ? new Date(queue.postedAt).toLocaleDateString() : "Posted"}
+                      </span>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
