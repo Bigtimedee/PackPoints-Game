@@ -842,12 +842,12 @@ export default function Marketplace() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Switch
-                        id="contextual-mode"
+                        aria-label="Match to your games"
                         checked={useContextualSearch}
                         onCheckedChange={setUseContextualSearch}
                         data-testid="switch-contextual-mode"
                       />
-                      <Label htmlFor="contextual-mode" className="text-sm text-muted-foreground">
+                      <Label className="text-sm text-muted-foreground">
                         Match to your games
                       </Label>
                     </div>

@@ -139,7 +139,7 @@ export function CardSetPicker({
       disabled={disabled}
     >
       <SelectTrigger
-        id={id}
+        aria-label={placeholder}
         data-testid={testId}
       >
         <SelectValue placeholder={placeholder} />
