@@ -463,10 +463,14 @@ export default function Game() {
       if (session) {
         const currentIdx = session.currentQuestionIndex;
         setReplacedQuestionIndices(prev => new Set(prev).add(currentIdx));
-        // Increment the attempt counter for this question
+        // If the server definitively says no replacement exists, jump straight to the
+        // skip threshold so the next button press advances to the next question
+        // rather than making the user click twice more.
+        const noReplacement = error instanceof Error &&
+          error.message.includes("No replacement card available");
         setReplacementAttempts(prev => {
           const newMap = new Map(prev);
-          newMap.set(currentIdx, (newMap.get(currentIdx) || 0) + 1);
+          newMap.set(currentIdx, noReplacement ? 2 : (newMap.get(currentIdx) || 0) + 1);
           return newMap;
         });
       }
