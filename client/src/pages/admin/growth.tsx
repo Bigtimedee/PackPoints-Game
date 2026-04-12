@@ -31,7 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Play, RefreshCw, ExternalLink, Film, Download } from "lucide-react";
+import { Copy, Check, Play, RefreshCw, ExternalLink, Film, Download, TrendingUp } from "lucide-react";
 
 // ──────────────────────────────────────────────
 // Types
@@ -661,6 +661,294 @@ function JobRunsTab() {
 }
 
 // ──────────────────────────────────────────────
+// Flywheel Tab
+// ──────────────────────────────────────────────
+
+interface GlobalRollup {
+  dayKey: string;
+  dau: number;
+  matchesPlayed: number;
+  daily5Entries: number;
+  sharesTotal: number;
+  invitesSent: number;
+  signupsFromInvites: number;
+  firstMatchesFromInvites: number;
+  firstPurchasesFromInvites: number;
+  kFactor: number | null;
+  computedAt: string;
+}
+
+interface TopUser {
+  userId: string;
+  username: string | null;
+  matchesPlayed: number;
+  daily5Entries: number;
+  sharesTotal: number;
+  invitesSent: number;
+  signupsFromInvites: number;
+}
+
+interface TopAsset {
+  contentAssetId: string;
+  shareCount: number;
+}
+
+function MetricCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-4">
+        <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+        <p className="text-2xl font-bold">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FlywheelTab() {
+  const [days, setDays] = useState(30);
+  const [computeDate, setComputeDate] = useState(
+    () => new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+  );
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: rollups = [], isFetching: loadingRollups } = useQuery<GlobalRollup[]>({
+    queryKey: ["/api/admin/growth/flywheel", days],
+    queryFn: () =>
+      fetch(`/api/admin/growth/flywheel?days=${days}`).then((r) => r.json()),
+  });
+
+  const { data: topUsers = [], isFetching: loadingUsers } = useQuery<TopUser[]>({
+    queryKey: ["/api/admin/growth/flywheel/top-users", days],
+    queryFn: () =>
+      fetch(`/api/admin/growth/flywheel/top-users?days=${days}`).then((r) => r.json()),
+  });
+
+  const { data: topAssets = [], isFetching: loadingAssets } = useQuery<TopAsset[]>({
+    queryKey: ["/api/admin/growth/flywheel/top-assets", days],
+    queryFn: () =>
+      fetch(`/api/admin/growth/flywheel/top-assets?days=${days}`).then((r) => r.json()),
+  });
+
+  const computeMutation = useMutation({
+    mutationFn: (dayKey: string) =>
+      fetch("/api/admin/growth/flywheel/compute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dayKey }),
+      }).then((r) => r.json()),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/flywheel"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/flywheel/top-users"] });
+      toast({ title: `Rollup complete — DAU: ${data.dau} on ${data.dayKey}` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Compute failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Summary: sum across loaded rollups
+  const totals = rollups.reduce(
+    (acc, r) => ({
+      dau: Math.max(acc.dau, r.dau),
+      matchesPlayed: acc.matchesPlayed + r.matchesPlayed,
+      daily5Entries: acc.daily5Entries + r.daily5Entries,
+      sharesTotal: acc.sharesTotal + r.sharesTotal,
+      invitesSent: acc.invitesSent + r.invitesSent,
+      signupsFromInvites: acc.signupsFromInvites + r.signupsFromInvites,
+    }),
+    { dau: 0, matchesPlayed: 0, daily5Entries: 0, sharesTotal: 0, invitesSent: 0, signupsFromInvites: 0 },
+  );
+
+  const latestKFactor = rollups[0]?.kFactor;
+
+  return (
+    <div className="space-y-6">
+      {/* Controls */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">Last 7 days</SelectItem>
+            <SelectItem value="14">Last 14 days</SelectItem>
+            <SelectItem value="30">Last 30 days</SelectItem>
+            <SelectItem value="60">Last 60 days</SelectItem>
+            <SelectItem value="90">Last 90 days</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="flex items-center gap-2 ml-auto">
+          <input
+            type="date"
+            value={computeDate}
+            onChange={(e) => setComputeDate(e.target.value)}
+            className="border rounded px-2 py-1.5 text-sm bg-background"
+          />
+          <Button
+            size="sm"
+            onClick={() => computeMutation.mutate(computeDate)}
+            disabled={computeMutation.isPending}
+            className="gap-2"
+          >
+            {computeMutation.isPending ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <TrendingUp className="h-3.5 w-3.5" />
+            )}
+            Compute Rollup
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <MetricCard label="Peak DAU" value={totals.dau.toLocaleString()} />
+        <MetricCard label="Matches Played" value={totals.matchesPlayed.toLocaleString()} />
+        <MetricCard label="Daily 5 Entries" value={totals.daily5Entries.toLocaleString()} />
+        <MetricCard label="Shares" value={totals.sharesTotal.toLocaleString()} />
+        <MetricCard label="Invites Sent" value={totals.invitesSent.toLocaleString()} />
+        <MetricCard label="Signups from Invites" value={totals.signupsFromInvites.toLocaleString()} />
+        <MetricCard
+          label="K-Factor (latest)"
+          value={latestKFactor != null ? latestKFactor.toFixed(3) : "—"}
+        />
+      </div>
+
+      {/* Day-by-day trend table */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Day-by-Day Trend</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loadingRollups ? (
+            <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+          ) : rollups.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              No rollup data yet. Click "Compute Rollup" to generate it.
+            </p>
+          ) : (
+            <ScrollArea className="h-64">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted/60 text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-4 py-2">Date</th>
+                    <th className="text-right px-4 py-2">DAU</th>
+                    <th className="text-right px-4 py-2">Matches</th>
+                    <th className="text-right px-4 py-2">Daily 5</th>
+                    <th className="text-right px-4 py-2">Shares</th>
+                    <th className="text-right px-4 py-2">Invites</th>
+                    <th className="text-right px-4 py-2">Signups</th>
+                    <th className="text-right px-4 py-2">K-Factor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rollups.map((r) => (
+                    <tr key={r.dayKey} className="border-t hover:bg-muted/30">
+                      <td className="px-4 py-2 font-mono">{r.dayKey}</td>
+                      <td className="text-right px-4 py-2">{r.dau.toLocaleString()}</td>
+                      <td className="text-right px-4 py-2">{r.matchesPlayed.toLocaleString()}</td>
+                      <td className="text-right px-4 py-2">{r.daily5Entries.toLocaleString()}</td>
+                      <td className="text-right px-4 py-2">{r.sharesTotal.toLocaleString()}</td>
+                      <td className="text-right px-4 py-2">{r.invitesSent.toLocaleString()}</td>
+                      <td className="text-right px-4 py-2">{r.signupsFromInvites.toLocaleString()}</td>
+                      <td className="text-right px-4 py-2">
+                        {r.kFactor != null ? r.kFactor.toFixed(3) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top users */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Top Users Driving Growth</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loadingUsers ? (
+              <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+            ) : topUsers.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">No user rollup data yet.</p>
+            ) : (
+              <ScrollArea className="h-64">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/60 text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-4 py-2">User</th>
+                      <th className="text-right px-4 py-2">Signups</th>
+                      <th className="text-right px-4 py-2">Invites</th>
+                      <th className="text-right px-4 py-2">Shares</th>
+                      <th className="text-right px-4 py-2">Matches</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topUsers.map((u) => (
+                      <tr key={u.userId} className="border-t hover:bg-muted/30">
+                        <td className="px-4 py-2 truncate max-w-[180px]">
+                          {u.username ?? u.userId.slice(0, 8)}
+                        </td>
+                        <td className="text-right px-4 py-2 font-semibold">
+                          {u.signupsFromInvites}
+                        </td>
+                        <td className="text-right px-4 py-2">{u.invitesSent}</td>
+                        <td className="text-right px-4 py-2">{u.sharesTotal}</td>
+                        <td className="text-right px-4 py-2">{u.matchesPlayed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top content assets */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Top Shared Content Assets</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loadingAssets ? (
+              <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+            ) : topAssets.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground">No share data yet.</p>
+            ) : (
+              <ScrollArea className="h-64">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/60 text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-4 py-2">Asset ID</th>
+                      <th className="text-right px-4 py-2">Shares</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topAssets.map((a) => (
+                      <tr key={a.contentAssetId} className="border-t hover:bg-muted/30">
+                        <td className="px-4 py-2 font-mono text-xs truncate max-w-[280px]">
+                          {a.contentAssetId}
+                        </td>
+                        <td className="text-right px-4 py-2 font-semibold">{a.shareCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Main Page
 // ──────────────────────────────────────────────
 
@@ -727,6 +1015,7 @@ export default function AdminGrowth() {
           <TabsTrigger value="queue">Publishing Queue</TabsTrigger>
           <TabsTrigger value="plans">Content Plans</TabsTrigger>
           <TabsTrigger value="runs">Job Runs</TabsTrigger>
+          <TabsTrigger value="flywheel">Growth Flywheel</TabsTrigger>
         </TabsList>
 
         <TabsContent value="queue" className="mt-4">
@@ -739,6 +1028,10 @@ export default function AdminGrowth() {
 
         <TabsContent value="runs" className="mt-4">
           <JobRunsTab />
+        </TabsContent>
+
+        <TabsContent value="flywheel" className="mt-4">
+          <FlywheelTab />
         </TabsContent>
       </Tabs>
     </div>

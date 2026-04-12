@@ -4115,3 +4115,42 @@ export const growthJobRuns = pgTable("growth_job_runs", {
   index("idx_growth_job_runs_date").on(t.targetDate),
 ]);
 export type GrowthJobRun = typeof growthJobRuns.$inferSelect;
+
+// ============================================
+// GROWTH FLYWHEEL ROLLUPS
+// ============================================
+
+export const globalGrowthRollups = pgTable("global_growth_rollups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dayKey: varchar("day_key", { length: 10 }).notNull().unique(), // YYYY-MM-DD
+  dau: integer("dau").notNull().default(0),
+  matchesPlayed: integer("matches_played").notNull().default(0),
+  daily5Entries: integer("daily5_entries").notNull().default(0),
+  sharesTotal: integer("shares_total").notNull().default(0),
+  invitesSent: integer("invites_sent").notNull().default(0),
+  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
+  firstMatchesFromInvites: integer("first_matches_from_invites").notNull().default(0),
+  firstPurchasesFromInvites: integer("first_purchases_from_invites").notNull().default(0),
+  kFactor: real("k_factor"), // signupsFromInvites / dau (if dau > 0)
+  computedAt: timestamp("computed_at").defaultNow(),
+}, (t) => [
+  index("idx_global_growth_rollups_day").on(t.dayKey),
+]);
+export type GlobalGrowthRollup = typeof globalGrowthRollups.$inferSelect;
+
+export const userGrowthRollups = pgTable("user_growth_rollups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  dayKey: varchar("day_key", { length: 10 }).notNull(), // YYYY-MM-DD
+  matchesPlayed: integer("matches_played").notNull().default(0),
+  daily5Entries: integer("daily5_entries").notNull().default(0),
+  sharesTotal: integer("shares_total").notNull().default(0),
+  invitesSent: integer("invites_sent").notNull().default(0),
+  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
+  computedAt: timestamp("computed_at").defaultNow(),
+}, (t) => [
+  unique("uq_user_growth_rollup").on(t.userId, t.dayKey),
+  index("idx_user_growth_rollup_day").on(t.dayKey),
+  index("idx_user_growth_rollup_user").on(t.userId),
+]);
+export type UserGrowthRollup = typeof userGrowthRollups.$inferSelect;

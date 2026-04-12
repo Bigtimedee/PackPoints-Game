@@ -13,10 +13,15 @@ import {
   growthContentItems,
   publishingQueue,
   growthJobRuns,
+  globalGrowthRollups,
+  userGrowthRollups,
+  shareEvents,
+  users,
 } from "@shared/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sum, sql, asc } from "drizzle-orm";
 import { runDailyGrowthJob } from "../services/growthAgent";
 import { renderVideo } from "../services/videoFactory";
+import { computeRollup } from "../services/growthFlywheel/rollup";
 import { z } from "zod";
 
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -211,6 +216,126 @@ export function registerGrowthRoutes(app: Express): void {
 
         const result = await renderVideo(queueRow.contentItemId);
         res.json(result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // ── Growth Flywheel routes ────────────────────────────────────────────────
+
+  // GET /api/admin/growth/flywheel?days=N — last N days of global rollups (default 30)
+  app.get(
+    "/api/admin/growth/flywheel",
+    isAuthenticated,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      try {
+        const days = Math.min(Number(req.query.days ?? 30), 90);
+        const rows = await db
+          .select()
+          .from(globalGrowthRollups)
+          .orderBy(desc(globalGrowthRollups.dayKey))
+          .limit(days);
+        res.json(rows);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // POST /api/admin/growth/flywheel/compute — trigger rollup for a date (default: yesterday)
+  app.post(
+    "/api/admin/growth/flywheel/compute",
+    isAuthenticated,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const schema = z.object({
+        dayKey: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "dayKey must be YYYY-MM-DD" });
+      }
+      // Default to yesterday UTC
+      const dayKey =
+        parsed.data.dayKey ??
+        new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+      try {
+        const result = await computeRollup(dayKey);
+        res.json(result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // GET /api/admin/growth/flywheel/top-users?days=N — top users ranked by signups driven
+  app.get(
+    "/api/admin/growth/flywheel/top-users",
+    isAuthenticated,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      try {
+        const days = Math.min(Number(req.query.days ?? 30), 90);
+        const cutoff = new Date(Date.now() - days * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const rows = await db
+          .select({
+            userId: userGrowthRollups.userId,
+            username: users.username,
+            matchesPlayed: sum(userGrowthRollups.matchesPlayed).mapWith(Number),
+            daily5Entries: sum(userGrowthRollups.daily5Entries).mapWith(Number),
+            sharesTotal: sum(userGrowthRollups.sharesTotal).mapWith(Number),
+            invitesSent: sum(userGrowthRollups.invitesSent).mapWith(Number),
+            signupsFromInvites: sum(userGrowthRollups.signupsFromInvites).mapWith(Number),
+          })
+          .from(userGrowthRollups)
+          .leftJoin(users, eq(userGrowthRollups.userId, users.id))
+          .where(sql`${userGrowthRollups.dayKey} >= ${cutoff}`)
+          .groupBy(userGrowthRollups.userId, users.username)
+          .orderBy(desc(sum(userGrowthRollups.signupsFromInvites)))
+          .limit(50);
+        res.json(rows);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // GET /api/admin/growth/flywheel/top-assets?days=N — content assets ranked by share count
+  app.get(
+    "/api/admin/growth/flywheel/top-assets",
+    isAuthenticated,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      try {
+        const days = Math.min(Number(req.query.days ?? 30), 90);
+        const cutoff = new Date(Date.now() - days * 86_400_000);
+        const rows = await db
+          .select({
+            contentAssetId: shareEvents.contentAssetId,
+            shareCount: sql<number>`cast(count(*) as int)`,
+          })
+          .from(shareEvents)
+          .where(
+            and(
+              sql`${shareEvents.contentAssetId} is not null`,
+              sql`${shareEvents.createdAt} >= ${cutoff}`,
+            ),
+          )
+          .groupBy(shareEvents.contentAssetId)
+          .orderBy(desc(sql`count(*)`))
+          .limit(50);
+        res.json(rows);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         res.status(500).json({ message: msg });
