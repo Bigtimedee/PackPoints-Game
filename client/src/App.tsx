@@ -62,6 +62,7 @@ const AdminPackageGuardrails = lazy(() => import("@/pages/admin/package-guardrai
 const AdminCardSets = lazy(() => import("@/pages/admin/card-sets"));
 const AdminCardTelemetry = lazy(() => import("@/pages/admin/card-telemetry"));
 const AdminDaily5Stats = lazy(() => import("@/pages/admin/daily5-stats"));
+const AdminGrowth = lazy(() => import("@/pages/admin/growth"));
 const Creators = lazy(() => import("@/pages/creators"));
 const Roadmap = lazy(() => import("@/pages/roadmap"));
 
@@ -281,6 +282,15 @@ function Router() {
           <ProtectedRoute requireAdmin>
             <AdminLayout>
               <AdminPackageGuardrails />
+            </AdminLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/admin/growth">
+        {() => (
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminGrowth />
             </AdminLayout>
           </ProtectedRoute>
         )}

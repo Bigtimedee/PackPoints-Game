@@ -23,6 +23,7 @@ import {
   Calendar,
   Menu,
   X,
+  Megaphone,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -57,6 +58,12 @@ const navGroups: NavGroup[] = [
       { href: "/admin/playable-sets", label: "Cards", icon: Layers },
       { href: "/admin/card-sets", label: "Set Importer", icon: Download },
       { href: "/admin/card-reports", label: "Reports", icon: Flag },
+    ],
+  },
+  {
+    label: "Growth",
+    items: [
+      { href: "/admin/growth", label: "Publishing Queue", icon: Megaphone },
     ],
   },
   {

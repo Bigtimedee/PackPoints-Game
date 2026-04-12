@@ -4014,3 +4014,104 @@ export const campaignRewards = pgTable("campaign_rewards", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [index("idx_campaign_rewards_active").on(t.isActive)]);
 export type CampaignReward = typeof campaignRewards.$inferSelect;
+
+// ── Growth Agent ──────────────────────────────────────────────────────────────
+
+export const growthPlanStatusEnum = pgEnum("growth_plan_status", [
+  "PENDING", "GENERATING", "COMPLETE", "FAILED",
+]);
+export const growthItemStatusEnum = pgEnum("growth_item_status", [
+  "DRAFT", "QUEUED", "POSTED", "SKIPPED", "FAILED",
+]);
+export const growthJobStatusEnum = pgEnum("growth_job_status", [
+  "RUNNING", "COMPLETE", "FAILED",
+]);
+export const queueItemStatusEnum = pgEnum("queue_item_status", [
+  "PENDING", "POSTED", "SKIPPED", "FAILED",
+]);
+export const growthPlatformEnum = pgEnum("growth_platform", [
+  "TIKTOK", "INSTAGRAM", "X", "REDDIT",
+]);
+export const growthContentTypeEnum = pgEnum("growth_content_type", [
+  "SCORE_HIGHLIGHT", "STREAK_MILESTONE", "CHALLENGE_RECAP", "GENERAL",
+]);
+
+export const growthContentPlans = pgTable("growth_content_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
+  status: growthPlanStatusEnum("status").notNull().default("PENDING"),
+  platformTargets: jsonb("platform_targets").notNull().default({}), // { TIKTOK: true, ... }
+  themes: jsonb("themes").notNull().default([]), // string[]
+  goals: text("goals"),
+  summary: text("summary"), // AI-generated plan summary
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("idx_growth_plans_date").on(t.date),
+  index("idx_growth_plans_status").on(t.status),
+]);
+export type GrowthContentPlan = typeof growthContentPlans.$inferSelect;
+export type InsertGrowthContentPlan = typeof growthContentPlans.$inferInsert;
+
+export const growthContentItems = pgTable("growth_content_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").notNull().references(() => growthContentPlans.id),
+  platform: growthPlatformEnum("platform").notNull(),
+  contentType: growthContentTypeEnum("content_type").notNull(),
+  status: growthItemStatusEnum("status").notNull().default("DRAFT"),
+  caption: text("caption"),
+  hashtags: jsonb("hashtags").notNull().default([]), // string[]
+  hook: text("hook"), // opening line
+  script: text("script"), // full TikTok script
+  overlayText: text("overlay_text"),
+  cta: text("cta"), // call to action
+  assetRefs: jsonb("asset_refs").notNull().default([]), // { assetId, imageUrl }[]
+  metadata: jsonb("metadata").notNull().default({}),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_growth_items_plan").on(t.planId),
+  index("idx_growth_items_status").on(t.status),
+  index("idx_growth_items_platform").on(t.platform),
+]);
+export type GrowthContentItem = typeof growthContentItems.$inferSelect;
+export type InsertGrowthContentItem = typeof growthContentItems.$inferInsert;
+
+export const publishingQueue = pgTable("publishing_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contentItemId: varchar("content_item_id").notNull().references(() => growthContentItems.id),
+  platform: growthPlatformEnum("platform").notNull(),
+  status: queueItemStatusEnum("status").notNull().default("PENDING"),
+  scheduledFor: timestamp("scheduled_for"),
+  postedAt: timestamp("posted_at"),
+  postedBy: varchar("posted_by"), // admin userId
+  notes: text("notes"),
+  retryCount: integer("retry_count").notNull().default(0),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_publishing_queue_status").on(t.status),
+  index("idx_publishing_queue_item").on(t.contentItemId),
+  index("idx_publishing_queue_platform").on(t.platform),
+]);
+export type PublishingQueueItem = typeof publishingQueue.$inferSelect;
+
+export const growthJobRuns = pgTable("growth_job_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobType: varchar("job_type", { length: 50 }).notNull(), // "DAILY_PLAN" | "CONTENT_GENERATION"
+  status: growthJobStatusEnum("status").notNull().default("RUNNING"),
+  targetDate: varchar("target_date", { length: 10 }), // YYYY-MM-DD
+  planId: varchar("plan_id"),
+  itemsGenerated: integer("items_generated").notNull().default(0),
+  log: text("log"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("idx_growth_job_runs_type").on(t.jobType, t.status),
+  index("idx_growth_job_runs_date").on(t.targetDate),
+]);
+export type GrowthJobRun = typeof growthJobRuns.$inferSelect;
