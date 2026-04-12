@@ -320,6 +320,20 @@ app.use((req, res, next) => {
     );
   }
 
+  // Daily growth flywheel rollup — aggregates DAU, kFactor, shares, invites, signups
+  // Runs every 24 hours; boots with runImmediately=true to backfill yesterday on startup
+  scheduleRecurringJob(
+    'growth_flywheel_rollup',
+    async () => {
+      const { computeRollup } = await import('./services/growthFlywheel/rollup');
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+      await computeRollup(yesterday);
+    },
+    24 * 60 * 60 * 1000,
+    true
+  );
+  console.log('[GrowthFlywheel] Daily rollup job registered');
+
   // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
   // Using daily check pattern to avoid relying on exact 7-day timing
   if (process.env.NEWSLETTER_ENABLED === 'true') {

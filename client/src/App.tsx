@@ -319,11 +319,13 @@ function Router() {
 function AppShell() {
   const [location] = useLocation();
   const isMatchRoute = location === "/match" || location.startsWith("/match/");
+  const isGameRoute = location.startsWith("/game/");
+  const isFullscreen = isMatchRoute || isGameRoute;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
-      {!isMatchRoute && <Header />}
-      <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+    <div className="h-dvh flex flex-col bg-background text-foreground overflow-hidden">
+      {!isFullscreen && <Header />}
+      <main className={isFullscreen ? "flex-1 overflow-hidden" : "flex-1 overflow-y-auto pb-20 md:pb-0"}>
         <Router />
       </main>
       <MobileNav />

@@ -11,11 +11,16 @@ function generateShortCode(): string {
 }
 
 function isAuthenticated(req: Request): boolean {
-  return !!(req.session as any)?.localUserId || !!(req.session as any)?.userId;
+  return !!(req.user as any)?.claims?.sub
+    || !!(req.session as any)?.localUserId
+    || !!(req.session as any)?.userId;
 }
 
 function getUserId(req: Request): string | null {
-  return (req.session as any)?.localUserId || (req.session as any)?.userId || null;
+  return (req.user as any)?.claims?.sub
+    || (req.session as any)?.localUserId
+    || (req.session as any)?.userId
+    || null;
 }
 
 router.post("/api/referrals/create", async (req: Request, res: Response) => {
