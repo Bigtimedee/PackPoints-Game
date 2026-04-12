@@ -438,6 +438,7 @@ export async function awardPoints(
         .update(wallets)
         .set({
           balance: sql`${wallets.balance} + ${finalPts}`,
+          lifetimeEarned: sql`${wallets.lifetimeEarned} + ${finalPts}`,
           updatedAt: new Date(),
         })
         .where(eq(wallets.userId, userId));
@@ -448,6 +449,7 @@ export async function awardPoints(
         amount: finalPts,
         balanceAfter: wallet.balance + finalPts,
         reason: `Quiz reward: ${card.playerName}`,
+        idempotencyKey: idempotencyKey ?? undefined,
         metadata: {
           playerKey,
           cardId: card.cardId,

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../db';
-import { wallets, ledgerEntries, users } from '@shared/schema';
+import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters } from '@shared/schema';
 import { walletService } from '../services/walletService';
-import { eq, sql } from 'drizzle-orm';
+import { awardPoints, type CardContext } from '../services/rewardEngine';
+import { eq, sql, and } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 describe('WalletService', () => {
@@ -178,21 +179,102 @@ describe('WalletService', () => {
   describe('concurrent spend prevention', () => {
     it('should handle concurrent spend requests correctly', async () => {
       await walletService.earn(testUserId, 100, 'Setup', `setup-${randomUUID()}`);
-      
-      const spendPromises = Array.from({ length: 3 }, (_, i) => 
+
+      const spendPromises = Array.from({ length: 3 }, (_, i) =>
         walletService.spend(testUserId, 50, `Concurrent ${i}`, `concurrent-${randomUUID()}`)
       );
 
       const results = await Promise.all(spendPromises);
-      
+
       const successCount = results.filter(r => r.success).length;
       const failCount = results.filter(r => !r.success).length;
-      
+
       expect(successCount).toBe(2);
       expect(failCount).toBe(1);
-      
+
       const wallet = await walletService.getWallet(testUserId);
       expect(wallet?.balance).toBe(0);
     });
+  });
+});
+
+// ── Duplicate gameplay award prevention ──────────────────────────────────────
+
+describe('duplicate gameplay award prevention', () => {
+  let gpUserId: string;
+  const matchId = `match-${randomUUID()}`;
+  const questionId = `q-${randomUUID()}`;
+  const card: CardContext = { playerName: 'Test Player', rarityType: 'base' };
+
+  beforeAll(async () => {
+    gpUserId = randomUUID();
+    await db.insert(users).values({
+      id: gpUserId,
+      username: `gp_user_${Date.now()}`,
+      points: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      isAdmin: false,
+    });
+  });
+
+  afterAll(async () => {
+    const idempotencyKey = `award:${matchId}:${questionId}:${gpUserId}`;
+    await db.delete(pointsAwards).where(eq(pointsAwards.idempotencyKey, idempotencyKey));
+    await db.delete(userPointsCounters).where(eq(userPointsCounters.userId, gpUserId));
+    await db.delete(matchPointsCounters).where(eq(matchPointsCounters.matchId, matchId));
+    const wallet = await walletService.getWallet(gpUserId);
+    if (wallet) {
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.delete(wallets).where(eq(wallets.id, wallet.id));
+    }
+    await db.delete(users).where(eq(users.id, gpUserId));
+  });
+
+  it('credits the wallet exactly once when awardPoints is called twice with the same matchId+questionId', async () => {
+    // First call — should award points
+    const result1 = await awardPoints(gpUserId, card, matchId, questionId);
+    expect(result1).not.toBeNull();
+    const awardedPts = result1!.finalPts;
+    expect(awardedPts).toBeGreaterThan(0);
+
+    const walletAfterFirst = await walletService.getWallet(gpUserId);
+    expect(walletAfterFirst?.balance).toBe(awardedPts);
+    expect(walletAfterFirst?.lifetimeEarned).toBe(awardedPts);
+
+    // Second call with identical matchId + questionId — must be a no-op
+    const result2 = await awardPoints(gpUserId, card, matchId, questionId);
+    expect(result2).toBeNull();
+
+    // Balance must not have changed
+    const walletAfterSecond = await walletService.getWallet(gpUserId);
+    expect(walletAfterSecond?.balance).toBe(awardedPts);
+    expect(walletAfterSecond?.lifetimeEarned).toBe(awardedPts);
+  });
+
+  it('has exactly one points_awards row for the idempotency key', async () => {
+    const idempotencyKey = `award:${matchId}:${questionId}:${gpUserId}`;
+    const rows = await db
+      .select()
+      .from(pointsAwards)
+      .where(eq(pointsAwards.idempotencyKey, idempotencyKey));
+    expect(rows).toHaveLength(1);
+  });
+
+  it('has exactly one ledger_entries row for the idempotency key', async () => {
+    const idempotencyKey = `award:${matchId}:${questionId}:${gpUserId}`;
+    const wallet = await walletService.getWallet(gpUserId);
+    expect(wallet).toBeDefined();
+    const rows = await db
+      .select()
+      .from(ledgerEntries)
+      .where(
+        and(
+          eq(ledgerEntries.walletId, wallet!.id),
+          eq(ledgerEntries.idempotencyKey, idempotencyKey),
+        ),
+      );
+    expect(rows).toHaveLength(1);
   });
 });

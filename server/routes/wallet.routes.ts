@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { walletService } from "../services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "../services/packpts/ledgerService";
+import { reconcileAllWallets, reconcileCrossSystem } from "../services/walletReconciliation";
 import { isAuthenticated } from "../replit_integrations/auth";
 import { bucketService } from "../services/bucketService";
 import { expirationEngine } from "../services/expirationEngine";
@@ -497,6 +498,28 @@ export function registerWalletRoutes(app: Express): void {
     } catch (error) {
       console.error("Error reconciling PackPTS:", error);
       res.status(500).json({ error: "Failed to reconcile" });
+    }
+  });
+
+  // POST /api/admin/packpts/reconcile-all — check every wallet's cached balance vs ledger sum
+  app.post("/api/admin/packpts/reconcile-all", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const report = await reconcileAllWallets();
+      res.json(report);
+    } catch (error) {
+      console.error("Error running reconcileAllWallets:", error);
+      res.status(500).json({ error: "Failed to run full wallet reconciliation" });
+    }
+  });
+
+  // POST /api/admin/packpts/reconcile-cross-system — compare pointsAwards totals vs wallet.lifetimeEarned
+  app.post("/api/admin/packpts/reconcile-cross-system", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const report = await reconcileCrossSystem();
+      res.json(report);
+    } catch (error) {
+      console.error("Error running reconcileCrossSystem:", error);
+      res.status(500).json({ error: "Failed to run cross-system reconciliation" });
     }
   });
 
