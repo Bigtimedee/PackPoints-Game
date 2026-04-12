@@ -1,3 +1,20 @@
+/**
+ * generateScoreCard.ts
+ *
+ * Generates PNG share cards for PackPTS game results using sharp (SVG → PNG).
+ *
+ * Asset storage layout:
+ *   public/generated/share/{YYYY-MM-DD}/{assetId}.png
+ *
+ * Public URL served by Express static:
+ *   /generated/share/{YYYY-MM-DD}/{assetId}.png
+ *
+ * Full disk path (resolved from project root):
+ *   <project-root>/public/generated/share/{YYYY-MM-DD}/{assetId}.png
+ *
+ * Card dimensions: 1080 × 1920 px (9:16 portrait, optimised for Stories / Reels).
+ * Compression: PNG quality 90.
+ */
 import sharp from "sharp";
 import fs from "fs";
 import path from "path";
