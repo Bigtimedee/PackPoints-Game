@@ -108,7 +108,7 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
 
 // Middleware to require ACTIVE user status (Founders Cap enforcement)
 const requireActiveUser = async (req: any, res: Response, next: NextFunction) => {
-  const userId = req.user?.claims?.sub || req.session?.localUserId;
+  const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
   if (!userId) {
     return res.status(401).json({ message: "Authentication required" });
   }
@@ -270,7 +270,7 @@ export async function registerRoutes(
         return res.status(503).json({ error: "This card set is temporarily disabled." });
       }
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
       const isGuest = !userId;
       
       // Debug logging for mobile auth issues
@@ -886,7 +886,7 @@ export async function registerRoutes(
 
   app.get("/api/daily5/status", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const status = await daily5Service.getStatus(userId || undefined);
       res.json(status);
     } catch (error) {
@@ -897,7 +897,7 @@ export async function registerRoutes(
 
   app.post("/api/daily5/start", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const result = await daily5Service.startChallenge(userId);
       res.json(result);
@@ -915,7 +915,7 @@ export async function registerRoutes(
 
   app.post("/api/daily5/answer", isAuthenticated, answerSubmitLimiter, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       
       const parsed = daily5AnswerSchema.safeParse(req.body);
@@ -937,7 +937,7 @@ export async function registerRoutes(
 
   app.post("/api/daily5/finish", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       
       const parsed = daily5FinishSchema.safeParse(req.body);
@@ -990,7 +990,7 @@ export async function registerRoutes(
   // GET /api/content-assets/latest?matchId=<id> or ?challengeId=<id>
   app.get("/api/content-assets/latest", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
       const { matchId, challengeId } = req.query as Record<string, string>;
@@ -1022,7 +1022,7 @@ export async function registerRoutes(
   // GET /api/content-assets/:id
   app.get("/api/content-assets/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
       const [asset] = await db
@@ -1067,7 +1067,7 @@ export async function registerRoutes(
 
   app.get("/api/profile/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1576,7 +1576,7 @@ export async function registerRoutes(
   // Confirm link after user proves ownership (logged in)
   app.post("/api/auth/link/confirm", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1797,7 +1797,7 @@ export async function registerRoutes(
   // Get user's linked identities
   app.get("/api/auth/identities", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1823,7 +1823,7 @@ export async function registerRoutes(
       }
 
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
-      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1853,7 +1853,7 @@ export async function registerRoutes(
   app.post("/api/lobby/join", isAuthenticated, requireActiveUser, async (req: any, res) => {
     try {
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
-      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1922,7 +1922,7 @@ export async function registerRoutes(
   app.post("/api/lobby/:id/leave", isAuthenticated, async (req: any, res) => {
     try {
       // Get authenticated user ID from session - server-side derivation, not client-provided
-      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1998,7 +1998,7 @@ export async function registerRoutes(
   // POST /api/redeem - Redeem PackPTS for store credit
   app.post("/api/redeem", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2054,7 +2054,7 @@ export async function registerRoutes(
   // GET /api/redemption/history - Get user's redemption history
   app.get("/api/redemption/history", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2164,7 +2164,7 @@ export async function registerRoutes(
   // POST /api/admin/redemptions/:id/approve - Approve a pending redemption
   app.post("/api/admin/redemptions/:id/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
 
       const result = await redemptionService.approveRedemption(id, adminUserId);
@@ -2193,7 +2193,7 @@ export async function registerRoutes(
   // POST /api/admin/redemptions/:id/reject - Reject a pending redemption
   app.post("/api/admin/redemptions/:id/reject", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
       const { reason } = req.body;
 
@@ -2227,7 +2227,7 @@ export async function registerRoutes(
   // POST /api/admin/redemptions/:id/reverse - Reverse a completed redemption (fraud)
   app.post("/api/admin/redemptions/:id/reverse", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
       const { reason } = req.body;
 
@@ -2275,7 +2275,7 @@ export async function registerRoutes(
   // POST /api/admin/redemption-tiers - Create a new tier
   app.post("/api/admin/redemption-tiers", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { name, packptsRequired, usdCapCents, effectiveRatePct, description, sortOrder, isActive } = req.body;
 
       if (!name || !packptsRequired || !usdCapCents || !description) {
@@ -2322,7 +2322,7 @@ export async function registerRoutes(
   // PATCH /api/admin/redemption-tiers/:id - Update a tier
   app.patch("/api/admin/redemption-tiers/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
       const updates = req.body;
 
@@ -2366,7 +2366,7 @@ export async function registerRoutes(
   // DELETE /api/admin/redemption-tiers/:id - Delete a tier
   app.delete("/api/admin/redemption-tiers/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
 
       const tier = await redemptionService.getTierById(id);
@@ -2392,7 +2392,7 @@ export async function registerRoutes(
   // POST /api/admin/redemption-tiers/seed - Seed default tiers
   app.post("/api/admin/redemption-tiers/seed", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await redemptionService.seedDefaultTiers();
 
       await adminService.logAction(adminUserId, "seed_redemption_tiers", null, {});
@@ -2412,7 +2412,7 @@ export async function registerRoutes(
   // GET /api/streak - Get current user's streak info
   app.get("/api/streak", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -2477,7 +2477,7 @@ export async function registerRoutes(
   // POST /api/admin/streak/configs - Create a new streak config
   app.post("/api/admin/streak/configs", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { jsonSchedule, milestoneBonuses, dailyCap, effectiveFrom, effectiveUntil } = req.body;
 
       if (!jsonSchedule || !milestoneBonuses) {
@@ -2507,7 +2507,7 @@ export async function registerRoutes(
   // PATCH /api/admin/streak/configs/:id - Update a streak config
   app.patch("/api/admin/streak/configs/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
       const updates = req.body;
 
@@ -2528,7 +2528,7 @@ export async function registerRoutes(
   // DELETE /api/admin/streak/configs/:id - Delete a streak config
   app.delete("/api/admin/streak/configs/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { id } = req.params;
 
       await streakService.deleteConfig(id);
@@ -2545,7 +2545,7 @@ export async function registerRoutes(
   // POST /api/admin/streak/configs/seed - Seed default streak config
   app.post("/api/admin/streak/configs/seed", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
 
       const config = await streakService.createConfig(
         DEFAULT_STREAK_SCHEDULE,
@@ -2577,7 +2577,7 @@ export async function registerRoutes(
   // POST /api/admin/users/:userId/streak/freeze - Grant streak freezes
   app.post("/api/admin/users/:userId/streak/freeze", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { userId } = req.params;
       const { count } = req.body;
 
@@ -2603,7 +2603,7 @@ export async function registerRoutes(
   // POST /api/admin/users/:userId/streak/adjust - Adjust user's streak
   app.post("/api/admin/users/:userId/streak/adjust", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { userId } = req.params;
       const { newCurrentDays, reason } = req.body;
 
@@ -2713,7 +2713,7 @@ export async function registerRoutes(
       }
       
       // If user is authenticated, try to activate them directly
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (userId) {
         const activationResult = await accessService.tryActivateUser(userId, {
           inviteCode: code.toUpperCase(),
@@ -2808,7 +2808,7 @@ export async function registerRoutes(
       
       // If no email provided, try to get from authenticated user
       if (!email) {
-        const userId = req.user?.claims?.sub || req.session?.localUserId;
+        const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
         if (userId) {
           const user = await storage.getUser(userId);
           if (user?.email) {
@@ -2870,7 +2870,7 @@ export async function registerRoutes(
         return res.status(400).json({ ok: false, error: "No pass token in session" });
       }
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (userId) {
         const user = await storage.getUser(userId);
         if (user && user.status === "ACTIVE") {
@@ -2918,7 +2918,7 @@ export async function registerRoutes(
   // GET /api/founders-pass/mine - Get authenticated user's pass (if they have one)
   app.get("/api/founders-pass/mine", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2964,7 +2964,7 @@ export async function registerRoutes(
   // POST /api/founders-pass/issue - Issue a new pass to authenticated user (force re-issue)
   app.post("/api/founders-pass/issue", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3020,7 +3020,7 @@ export async function registerRoutes(
   // Admin: Deactivate all active passes (kill switch)
   app.post("/api/admin/founders/deactivate-all", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const count = await foundersPassService.deactivateAllPasses();
       
       await accessService.logAccessAudit("ABUSE_BLOCKED", {
@@ -3040,7 +3040,7 @@ export async function registerRoutes(
     try {
       const { passId } = req.params;
       const { reason } = req.body;
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       
       const success = await foundersPassService.deactivatePass(passId, reason);
       
@@ -3091,7 +3091,7 @@ export async function registerRoutes(
   // Admin: Update founders cap config
   app.post("/api/admin/access/cap", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       // Accept both naming conventions from frontend
       const { 
         maxActiveUsers, maxActive, 
@@ -3125,7 +3125,7 @@ export async function registerRoutes(
   // Admin: Create invite codes
   app.post("/api/admin/invites/create", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { count, maxUses, expiresAt, reservedSeat, note } = req.body;
       
       const inviteCount = Math.min(parseInt(count) || 1, 100);
@@ -3187,7 +3187,7 @@ export async function registerRoutes(
   // Admin: Invite waitlist entry (send them an invite code)
   app.post("/api/admin/waitlist/:waitlistId/invite", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { waitlistId } = req.params;
       
       const result = await accessService.inviteWaitlistEntry(waitlistId, adminUserId);
@@ -3208,7 +3208,7 @@ export async function registerRoutes(
   // Admin: Approve a waitlisted user to active
   app.post("/api/admin/users/:userId/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       const { userId } = req.params;
       
       const result = await accessService.approveWaitlistedUser(userId, adminUserId);
@@ -3341,7 +3341,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid or expired token" });
       }
 
-      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
       const sessionId = req.sessionID || null;
       const ip = req.ip || req.headers["x-forwarded-for"] || null;
       const userAgent = req.headers["user-agent"] || null;
@@ -3399,7 +3399,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid or expired token" });
       }
 
-      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
       const sessionId = req.sessionID || null;
       const ip = req.ip || req.headers["x-forwarded-for"] || null;
       const userAgent = req.headers["user-agent"] || null;
@@ -3437,7 +3437,7 @@ export async function registerRoutes(
   app.get("/api/marketplace/contexts", async (req: any, res) => {
     try {
       const { getUserActiveContexts, getActiveGameSets } = await import("./services/marketplace/context");
-      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
       const contexts = await getUserActiveContexts(userId);
       const allSets = await getActiveGameSets();
       
@@ -3458,7 +3458,7 @@ export async function registerRoutes(
       const { updateUserActiveSets } = await import("./services/marketplace/context");
       const { updateActiveGameSetsSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3493,7 +3493,7 @@ export async function registerRoutes(
         gameSetToContext,
       } = await import("./services/marketplace/context");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
       const q = (req.query.q as string)?.trim() || "";
       const source = (req.query.source as string) || "all";
       const setId = req.query.setId as string | undefined;
@@ -7641,7 +7641,7 @@ export async function registerRoutes(
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       const { redemptionQuoteRequestSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7676,7 +7676,7 @@ export async function registerRoutes(
       const { walletService } = await import("./services/walletService");
       const { riskEngine } = await import("./services/riskEngine");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7786,7 +7786,7 @@ export async function registerRoutes(
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       const { redemptionApplyRequestSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7817,7 +7817,7 @@ export async function registerRoutes(
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       const { purchaseConfirmRequestSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7847,7 +7847,7 @@ export async function registerRoutes(
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8131,7 +8131,7 @@ export async function registerRoutes(
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8229,7 +8229,7 @@ export async function registerRoutes(
 
       const updatedPolicy = await packageGuardrailService.updatePolicy(parsed.data);
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(
         adminUserId,
         "store_package_policy_updated",
@@ -8270,7 +8270,7 @@ export async function registerRoutes(
         parsed.data
       );
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(
         adminUserId,
         "store_fee_profile_updated",
@@ -8296,7 +8296,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8361,7 +8361,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8429,7 +8429,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8541,7 +8541,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8599,7 +8599,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8696,7 +8696,7 @@ export async function registerRoutes(
   // POST /api/store/checkout - Create a Stripe checkout session for a PackPTS bundle
   app.post("/api/store/checkout", isAuthenticated, checkoutLimiter, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8743,7 +8743,7 @@ export async function registerRoutes(
   // POST /api/store/subscribe - Create a Stripe subscription checkout session
   app.post("/api/store/subscribe", isAuthenticated, checkoutLimiter, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8790,7 +8790,7 @@ export async function registerRoutes(
   // GET /api/store/checkout/status/:sessionId - Check checkout session status
   app.get("/api/store/checkout/status/:sessionId", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8823,7 +8823,7 @@ export async function registerRoutes(
   app.get("/api/internal/risk/snapshot", isAuthenticated, async (req: any, res) => {
     try {
       const { getPublicRiskInfo } = await import("./services/risk/riskAPI");
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -8845,7 +8845,7 @@ export async function registerRoutes(
   app.post("/api/internal/risk/recompute", isAuthenticated, async (req: any, res) => {
     try {
       const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -8914,7 +8914,7 @@ export async function registerRoutes(
         reason
       );
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(
         adminUserId,
         "risk_suppression_created",
@@ -8951,7 +8951,7 @@ export async function registerRoutes(
 
       const snapshot = await updateRiskSnapshot(userId);
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(
         adminUserId,
         "risk_recompute_forced",
@@ -9024,7 +9024,7 @@ export async function registerRoutes(
         })
         .returning();
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(adminUserId, "card_set_created", newSet.id, { setName, sport, year });
 
       res.json({ success: true, set: newSet });
@@ -9096,7 +9096,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Card set not found" });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(adminUserId, "card_set_updated", id, updates);
 
       res.json({ success: true, set: updated });
@@ -9113,7 +9113,7 @@ export async function registerRoutes(
 
       await db.delete(cardSets).where(eq(cardSets.id, id));
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(adminUserId, "card_set_deleted", id, {});
 
       res.json({ success: true });
@@ -9144,7 +9144,7 @@ export async function registerRoutes(
         console.error(`Import job ${jobId} failed:`, error);
       });
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
       await adminService.logAction(adminUserId, "card_set_import_started", id, { jobId });
 
       res.json({ success: true, jobId });
@@ -9473,7 +9473,7 @@ export async function registerRoutes(
     try {
       const { matchId } = req.params;
       const { idx } = req.body;
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
 
       if (!userId) {
         return res.status(401).json({ ok: false, error: "Authentication required" });
