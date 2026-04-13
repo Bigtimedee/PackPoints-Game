@@ -15,6 +15,7 @@ import { seedRewardPolicy } from "./services/rewardEngine";
 import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
 import { errorMonitor } from './services/errorMonitor';
 import { validateStripeEnvVars } from "./services/productMap";
+import { ensureSchema } from "./startup/ensureSchema";
 
 // --- Environment validation ---
 function validateEnvironment() {
@@ -155,6 +156,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  try {
+    await ensureSchema();
+  } catch (err) {
+    console.error("[Startup] ensureSchema() failed:", err);
+  }
+
   try {
     await storage.initialize();
   } catch (err) {
