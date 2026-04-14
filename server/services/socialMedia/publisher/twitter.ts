@@ -1,4 +1,4 @@
-import { TwitterApi } from "twitter-api-v2";
+import { TwitterApi, EUploadMimeType } from "twitter-api-v2";
 import { agentConfig } from "../config";
 import { createLogger } from "../logger";
 import type { PostAnalytics } from "@shared/schema";
@@ -21,11 +21,16 @@ export async function publishTweet(
   copy: string,
   hashtags: string[],
   imageBuffer?: Buffer,
+  mediaRequired?: boolean,
 ): Promise<string> {
   // Platform health check: skip gracefully if credentials not configured
   if (!process.env.TWITTER_API_KEY) {
     console.log('[SocialMedia] Twitter disabled — TWITTER_API_KEY not set');
     throw new Error("credentials_missing: TWITTER_API_KEY not set");
+  }
+
+  if (mediaRequired && !imageBuffer) {
+    throw new Error("media_required: imageBuffer must be provided when mediaRequired=true");
   }
 
   if (rateLimitRemaining < 5) {
@@ -35,14 +40,19 @@ export async function publishTweet(
   const client = getClient();
   const fullText = `${copy}\n${hashtags.join(" ")}`;
 
-  // TODO: Upgrade to Elevated API access for media uploads
-  // imageBuffer is accepted but media upload is not attempted without Elevated access
+  let mediaIds: [string] | undefined;
+  if (imageBuffer) {
+    const mediaId = await client.v1.uploadMedia(imageBuffer, { mimeType: EUploadMimeType.Png });
+    mediaIds = [mediaId];
+  }
+
   const response = await client.v2.tweet({
     text: fullText,
+    ...(mediaIds ? { media: { media_ids: mediaIds } } : {}),
   });
 
   const tweetId = response.data.id;
-  logger.info("tweet_published", { tweetId });
+  logger.info("tweet_published", { tweetId, hasMedia: !!mediaIds });
   return tweetId;
 }
 

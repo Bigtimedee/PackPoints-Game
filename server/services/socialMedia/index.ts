@@ -128,6 +128,15 @@ export async function initSocialMediaAgent(): Promise<void> {
     .where(eq(socialPosts.status, 'PUBLISHING'));
   logger.info('Recovered stuck PUBLISHING posts to QUEUED');
 
+  // 5c. Block any queued posts with visual copy but no media
+  try {
+    const { auditBlockedPosts } = await import("./preflight");
+    const { blocked } = await auditBlockedPosts();
+    if (blocked > 0) logger.warn("startup_audit_blocked_posts", { blocked });
+  } catch (err) {
+    logger.warn("startup_audit_failed", { error: String(err) });
+  }
+
   // 6. Start loops
   startPromptEvolutionLoop();
   startDailyQueueBuilder();

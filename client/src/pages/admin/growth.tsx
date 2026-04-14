@@ -62,6 +62,9 @@ interface GrowthItem {
   cta: string | null;
   assetRefs: { label: string; description: string }[];
   errorMessage: string | null;
+  mediaRequired: boolean | null;
+  mediaStatus: "NOT_REQUIRED" | "PENDING" | "GENERATED" | "UPLOADED" | "FAILED" | null;
+  publishBlockReason: string | null;
   metadata?: {
     videoUrl?: string;
     thumbnailUrl?: string;
@@ -119,6 +122,7 @@ const STATUS_COLORS: Record<string, string> = {
   POSTED: "bg-green-100 text-green-800",
   SKIPPED: "bg-gray-100 text-gray-600",
   RUNNING: "bg-blue-100 text-blue-800",
+  BLOCKED: "bg-red-100 text-red-800",
 };
 
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -446,6 +450,7 @@ function QueueTab() {
             <SelectItem value="POSTED">Posted</SelectItem>
             <SelectItem value="SKIPPED">Skipped</SelectItem>
             <SelectItem value="FAILED">Failed</SelectItem>
+            <SelectItem value="BLOCKED">Blocked</SelectItem>
           </SelectContent>
         </Select>
         <Select value={platformFilter} onValueChange={setPlatformFilter}>
@@ -470,13 +475,14 @@ function QueueTab() {
               <th className="text-left p-3 font-medium">Type</th>
               <th className="text-left p-3 font-medium hidden sm:table-cell">Preview</th>
               <th className="text-left p-3 font-medium">Status</th>
+              <th className="text-left p-3 font-medium hidden sm:table-cell">Media</th>
               <th className="p-3 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-muted-foreground">
+                <td colSpan={6} className="p-6 text-center text-muted-foreground">
                   {queueQuery.isPending ? "Loading…" : "No queue items match the current filters."}
                 </td>
               </tr>
@@ -494,6 +500,17 @@ function QueueTab() {
                 </td>
                 <td className="p-3">
                   <StatusBadge status={queue.status} />
+                </td>
+                <td className="p-3 hidden sm:table-cell">
+                  {item?.mediaRequired && item.mediaStatus !== "GENERATED" && item.mediaStatus !== "UPLOADED" ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800" title={item.publishBlockReason ?? undefined}>
+                      No Media
+                    </span>
+                  ) : item?.mediaStatus === "GENERATED" || item?.mediaStatus === "UPLOADED" ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                      Ready
+                    </span>
+                  ) : null}
                 </td>
                 <td className="p-3 text-right">
                   <div className="flex justify-end gap-2 flex-wrap">

@@ -3909,7 +3909,10 @@ export type ContentAsset = typeof contentAssets.$inferSelect;
 
 export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK"]);
 export const socialPostStatusEnum = pgEnum("social_post_status", [
-  "DRAFT", "QUEUED", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED",
+  "DRAFT", "QUEUED", "MEDIA_PENDING", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED", "BLOCKED",
+]);
+export const mediaStatusEnum = pgEnum("media_status", [
+  "NOT_REQUIRED", "PENDING", "GENERATED", "UPLOADED", "FAILED",
 ]);
 export const socialContentTypeEnum = pgEnum("social_content_type", [
   "TRIVIA_CARD", "LEADERBOARD_HIGHLIGHT", "STREAK_MILESTONE",
@@ -3941,6 +3944,10 @@ export const socialPosts = pgTable("social_posts", {
   errorMessage: text("error_message"),
   factCheckPassed: boolean("fact_check_passed").notNull().default(false),
   factCheckLog: jsonb("fact_check_log"),
+  mediaRequired: boolean("media_required").notNull().default(false),
+  mediaStatus: mediaStatusEnum("media_status").notNull().default("NOT_REQUIRED"),
+  publishBlockReason: text("publish_block_reason"),
+  preflightPassed: boolean("preflight_passed"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -4069,6 +4076,11 @@ export const growthContentItems = pgTable("growth_content_items", {
   assetRefs: jsonb("asset_refs").notNull().default([]), // { assetId, imageUrl }[]
   metadata: jsonb("metadata").notNull().default({}),
   errorMessage: text("error_message"),
+  mediaRequired: boolean("media_required").notNull().default(false),
+  mediaStatus: mediaStatusEnum("media_status").notNull().default("NOT_REQUIRED"),
+  mediaAssetCount: integer("media_asset_count").notNull().default(0),
+  publishBlockReason: text("publish_block_reason"),
+  preflightPassed: boolean("preflight_passed"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

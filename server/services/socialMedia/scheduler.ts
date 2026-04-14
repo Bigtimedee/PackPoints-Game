@@ -8,8 +8,10 @@ import { composePostImage } from "./imageComposer";
 import { getOrCreateAbTest } from "./abTesting/manager";
 import { publishTweet } from "./publisher/twitter";
 import { publishPhoto } from "./publisher/tiktok";
+import { validatePostForPublishing, isVisualContentType } from "./preflight";
 import { fetchAnalyticsForRecentPosts } from "./analytics";
 import { newUserAcquisitionCampaign } from "./campaigns/newUserAcquisition";
+import * as fs from "fs";
 import { retentionCampaign } from "./campaigns/retention";
 import { runPromptEvolution } from "./promptEvolution";
 
@@ -117,6 +119,12 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         };
       } catch (imageErr) {
         if (platform === "TIKTOK") throw imageErr; // TikTok requires an image
+        const ct = contentType ?? "TRIVIA_CARD";
+        if (isVisualContentType(ct)) {
+          // Visual content types cannot be published without media — skip this slot
+          logger.warn("image_compose_failed_visual_slot_skipped", { platform, hour, contentType: ct, error: String(imageErr) });
+          continue;
+        }
         logger.warn("image_compose_skipped_text_only", { platform, hour, error: String(imageErr) });
       }
 
@@ -128,9 +136,11 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         draft.contentType as any,
       );
 
+      const resolvedContentType = draft.contentType as string;
+      const mediaRequired = isVisualContentType(resolvedContentType) || !composed ? isVisualContentType(resolvedContentType) : false;
       await db.insert(socialPosts).values({
         platform,
-        contentType: draft.contentType as any,
+        contentType: resolvedContentType as any,
         status: "QUEUED",
         abGroup: draft.abGroup as any,
         abTestId,
@@ -144,6 +154,8 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
         scheduledAt: buildScheduledTime(hour),
         factCheckPassed: draft.factCheckPassed ?? false,
         factCheckLog: draft.factCheckLog ?? [],
+        mediaRequired,
+        mediaStatus: composed ? "GENERATED" : "NOT_REQUIRED",
       });
 
       logger.info("post_queued", { platform, contentType: draft.contentType, hour, campaign: campaign.campaignId, hasImage: !!composed });
@@ -263,10 +275,39 @@ export function startPublisherLoop(): void {
       if (updated.length === 0) continue; // Another worker grabbed it
 
       try {
+        // Preflight: block posts that reference visual content without media
+        const preflightResult = validatePostForPublishing({
+          copyText: post.copyText,
+          contentType: post.contentType,
+          composedImagePath: post.composedImagePath,
+          mediaRequired: post.mediaRequired,
+        });
+        if (preflightResult.blocked) {
+          await db.update(socialPosts).set({
+            status: "BLOCKED",
+            publishBlockReason: preflightResult.reason,
+            preflightPassed: false,
+            updatedAt: new Date(),
+          }).where(eq(socialPosts.id, post.id));
+          logger.warn("post_blocked_preflight", { postId: post.id, reason: preflightResult.reason });
+          continue;
+        }
+
         let platformPostId: string;
 
         if (post.platform === "TWITTER") {
-          platformPostId = await publishTweet(post.copyText, post.hashtags ?? []);
+          // Load the image buffer from the composed path so it can be uploaded
+          let imageBuffer: Buffer | undefined;
+          if (post.composedImagePath) {
+            const p = post.composedImagePath;
+            if (p.startsWith("http")) {
+              const res = await fetch(p);
+              imageBuffer = Buffer.from(await res.arrayBuffer());
+            } else if (fs.existsSync(p)) {
+              imageBuffer = fs.readFileSync(p);
+            }
+          }
+          platformPostId = await publishTweet(post.copyText, post.hashtags ?? [], imageBuffer, post.mediaRequired ?? false);
         } else {
           // Use stored URL directly when it's already absolute (R2 CDN URL);
           // fall back to constructing from siteUrl for local dev paths.
@@ -282,6 +323,8 @@ export function startPublisherLoop(): void {
           platformPostId,
           publishedAt: new Date(),
           updatedAt: new Date(),
+          preflightPassed: true,
+          mediaStatus: post.composedImagePath ? "UPLOADED" : "NOT_REQUIRED",
         }).where(eq(socialPosts.id, post.id));
 
         logger.info("post_published", { postId: post.id, platform: post.platform, platformPostId });

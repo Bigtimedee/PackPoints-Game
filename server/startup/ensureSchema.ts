@@ -25,6 +25,28 @@ export async function ensureSchema(): Promise<void> {
       EXCEPTION WHEN duplicate_object THEN NULL;
       END $$;
 
+      DO $$ BEGIN
+        CREATE TYPE "public"."social_post_status" AS ENUM(
+          'DRAFT', 'QUEUED', 'MEDIA_PENDING', 'PUBLISHING', 'PUBLISHED', 'FAILED', 'SKIPPED', 'BLOCKED'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+
+      DO $$ BEGIN
+        ALTER TYPE "public"."social_post_status" ADD VALUE IF NOT EXISTS 'MEDIA_PENDING';
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+
+      DO $$ BEGIN
+        ALTER TYPE "public"."social_post_status" ADD VALUE IF NOT EXISTS 'BLOCKED';
+      EXCEPTION WHEN others THEN NULL;
+      END $$;
+
+      DO $$ BEGIN
+        CREATE TYPE "public"."media_status" AS ENUM('NOT_REQUIRED', 'PENDING', 'GENERATED', 'UPLOADED', 'FAILED');
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
+
       -- card_sets
       CREATE TABLE IF NOT EXISTS "card_sets" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -117,6 +139,19 @@ export async function ensureSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS "idx_set_audit_log_created" ON "set_audit_log" ("created_at");
       CREATE INDEX IF NOT EXISTS "idx_set_audit_log_action" ON "set_audit_log" ("action_type");
       CREATE INDEX IF NOT EXISTS "idx_set_audit_log_source" ON "set_audit_log" ("operation_source");
+
+      -- social_posts media columns (idempotent)
+      ALTER TABLE IF EXISTS "social_posts" ADD COLUMN IF NOT EXISTS "media_required" boolean NOT NULL DEFAULT false;
+      ALTER TABLE IF EXISTS "social_posts" ADD COLUMN IF NOT EXISTS "media_status" "media_status" NOT NULL DEFAULT 'NOT_REQUIRED';
+      ALTER TABLE IF EXISTS "social_posts" ADD COLUMN IF NOT EXISTS "publish_block_reason" text;
+      ALTER TABLE IF EXISTS "social_posts" ADD COLUMN IF NOT EXISTS "preflight_passed" boolean;
+
+      -- growth_content_items media columns (idempotent)
+      ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "media_required" boolean NOT NULL DEFAULT false;
+      ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "media_status" "media_status" NOT NULL DEFAULT 'NOT_REQUIRED';
+      ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "media_asset_count" integer NOT NULL DEFAULT 0;
+      ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "publish_block_reason" text;
+      ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "preflight_passed" boolean;
     `);
 
     console.log("[ensureSchema] Schema verified/created successfully.");
