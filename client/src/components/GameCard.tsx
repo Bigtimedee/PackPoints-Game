@@ -27,8 +27,8 @@ interface MaskConfig {
 }
 
 const DEFAULT_MASK_REGIONS: MaskRegion[] = [
-  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "solid", radiusPct: 0 },
-  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "solid", radiusPct: 0 },
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 68, wPct: 100, hPct: 32, type: "blur", radiusPct: 0 },
 ];
 
 const PLACEHOLDER_URL_PATTERNS = [
@@ -502,24 +502,14 @@ export function GameCard({
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "transparent",
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(0,0,0,0.25)",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(10px)" : undefined,
+            backdropFilter: region.type === "blur" ? "blur(18px) saturate(0.7)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(18px) saturate(0.7)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
-        >
-          {index === 0 && (
-            <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
-              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
-            </div>
-          )}
-          {index === 1 && (
-            <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
-              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
-            </div>
-          )}
-        </div>
+        />
       ))}
       
       {cardId && !imageError && (
