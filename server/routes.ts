@@ -7616,6 +7616,21 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // DEBUG: MASK STATE DUMP
+  // ============================================
+
+  app.get("/api/debug/mask-state", async (_req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { cardSetMasks } = await import("@shared/schema");
+      const rows = await db.select().from(cardSetMasks);
+      res.json({ count: rows.length, rows });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // ============================================
   // PROFIT GUARDRAIL & MARKETPLACE REDEMPTIONS
   // ============================================
 

@@ -54,7 +54,7 @@ function isPlaceholderUrl(url: string): boolean {
   return false;
 }
 
-const CLIENT_SIDE_IMAGE_VALIDATION = import.meta.env.VITE_CLIENT_SIDE_IMAGE_VALIDATION !== 'false';
+const CLIENT_SIDE_IMAGE_VALIDATION = import.meta.env.VITE_CLIENT_SIDE_IMAGE_VALIDATION === 'true';
 
 /**
  * Canvas-based image validation — detects blank/placeholder card images.
