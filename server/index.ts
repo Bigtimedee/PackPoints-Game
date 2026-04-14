@@ -163,6 +163,13 @@ app.use((req, res, next) => {
   }
 
   try {
+    const { resetAllMaskRegions } = await import("./services/maskConfig");
+    await resetAllMaskRegions();
+  } catch (err) {
+    console.error("[Startup] resetAllMaskRegions() failed (non-fatal):", err);
+  }
+
+  try {
     await storage.initialize();
   } catch (err) {
     console.error("[Startup] storage.initialize() failed:", err);

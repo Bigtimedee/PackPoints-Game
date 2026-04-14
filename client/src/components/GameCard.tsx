@@ -278,7 +278,7 @@ export function GameCard({
         };
       }
     },
-    staleTime: 10 * 60 * 1000,
+    staleTime: 0,
   });
 
   const regions = maskConfig?.regions || DEFAULT_MASK_REGIONS;

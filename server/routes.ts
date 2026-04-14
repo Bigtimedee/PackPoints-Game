@@ -7587,7 +7587,8 @@ export async function registerRoutes(
       const { getMaskConfig } = await import("./services/maskConfig");
       
       const config = await getMaskConfig(setKey || "");
-      
+
+      res.setHeader("Cache-Control", "no-store");
       res.json(config);
     } catch (error) {
       console.error("Error getting mask config:", error);

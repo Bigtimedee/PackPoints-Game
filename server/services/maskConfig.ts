@@ -66,6 +66,18 @@ export function clearMaskCache(setKey?: string): void {
   }
 }
 
+export async function resetAllMaskRegions(): Promise<void> {
+  await db
+    .update(cardSetMasks)
+    .set({
+      regions: DEFAULT_MASK_REGIONS,
+      maskVersion: 1,
+      updatedAt: new Date(),
+    });
+  maskCache.clear();
+  console.log("[MaskConfig] Reset all card set masks to DEFAULT_MASK_REGIONS (blur)");
+}
+
 export async function saveMaskConfig(
   setKey: string,
   regions: MaskRegion[],
