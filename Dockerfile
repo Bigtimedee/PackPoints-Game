@@ -1,5 +1,5 @@
 # Use official Node 20 image
-FROM node:20-alpine
+FROM node:20.18-alpine
 
 # Install FFmpeg
 RUN apk add --no-cache ffmpeg
