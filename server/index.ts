@@ -252,20 +252,28 @@ app.use((req, res, next) => {
   registerWorkosRoutes(app);
   
   // Register OpenAPI docs (dev only or when SHOW_API_DOCS=true)
-  const { registerOpenApiRoute } = await import('./openapi');
-  registerOpenApiRoute(app);
+  try {
+    const { registerOpenApiRoute } = await import('./openapi');
+    registerOpenApiRoute(app);
+  } catch (err) {
+    console.error('[Startup] OpenAPI route registration failed (non-fatal):', err);
+  }
 
   // Sync publishing queue to Notion (every 15 minutes, if configured)
   if (process.env.NOTION_API_KEY && process.env.NOTION_DATABASE_ID) {
-    const { syncPendingToNotion } = await import('./services/notionService');
-    const { scheduleRecurringJob: scheduleJob } = await import('./jobs/pgJobQueue');
-    scheduleJob(
-      'notion_sync',
-      async () => { await syncPendingToNotion(); },
-      15 * 60 * 1000,
-      true
-    );
-    console.log('[Notion] Sync job scheduled (every 15 minutes)');
+    try {
+      const { syncPendingToNotion } = await import('./services/notionService');
+      const { scheduleRecurringJob: scheduleJob } = await import('./jobs/pgJobQueue');
+      scheduleJob(
+        'notion_sync',
+        async () => { await syncPendingToNotion(); },
+        15 * 60 * 1000,
+        true
+      );
+      console.log('[Notion] Sync job scheduled (every 15 minutes)');
+    } catch (err) {
+      console.error('[Startup] Notion sync job failed to start (non-fatal):', err);
+    }
   } else {
     console.log('[Notion] Skipping sync job — NOTION_API_KEY or NOTION_DATABASE_ID not set');
   }
@@ -275,100 +283,128 @@ app.use((req, res, next) => {
 
   // Start the risk pipeline job worker
   if (process.env.RISK_PIPELINE_ENABLED !== "false") {
-    const { startRiskJobWorker } = await import("./services/risk/jobQueue");
-    startRiskJobWorker();
+    try {
+      const { startRiskJobWorker } = await import("./services/risk/jobQueue");
+      startRiskJobWorker();
+    } catch (err) {
+      console.error('[Startup] Risk job worker failed to start (non-fatal):', err);
+    }
   }
   
-  // Initialize persistent job queue
-  const { scheduleRecurringJob } = await import('./jobs/pgJobQueue');
+  // Initialize persistent job queue — all recurring jobs; non-fatal if scheduling fails
+  try {
+    const { scheduleRecurringJob } = await import('./jobs/pgJobQueue');
 
-  // Start the image validation job (runs every 6 hours)
-  if (process.env.IMAGE_VALIDATION_ENABLED !== "false") {
-    const { startValidationJob } = await import("./services/imageValidation");
-    startValidationJob();
-  }
-
-  // Start the card pool refresh job (runs every 12 hours to revalidate excluded cards)
-  // Now wrapped in persistent job queue for crash-resistant, retry-safe execution
-  if (process.env.CARD_POOL_REFRESH_ENABLED !== "false") {
-    const { runCardPoolRefreshJob } = await import("./services/cardPoolRefresh");
-    console.log("[CardPoolRefresh] Registering with persistent job queue (every 12 hours)");
-    scheduleRecurringJob(
-      'card_pool_refresh',
-      async () => { await runCardPoolRefreshJob(); },
-      12 * 60 * 60 * 1000,
-      true // run after 5-min delay via runImmediately flag
-    );
-  }
-
-  {
-    const { cleanupStaleGameSessions } = await import("./services/staleGameSessionCleanup");
-    console.log("[GameSessionCleanup] Registering with persistent job queue (every 1 hour)");
-    scheduleRecurringJob(
-      'stale_game_session_cleanup',
-      async () => { await cleanupStaleGameSessions(); },
-      60 * 60 * 1000,
-      true
-    );
-  }
-
-  {
-    const { cleanupStaleLobbiesAndMatches } = await import("./services/staleMatchCleanup");
-    console.log("[MatchCleanup] Registering with persistent job queue (every 1 hour)");
-    scheduleRecurringJob(
-      'stale_match_cleanup',
-      async () => { await cleanupStaleLobbiesAndMatches(); },
-      60 * 60 * 1000,
-      true
-    );
-  }
-
-  if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
-    const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
-    console.log("[StaleCleanup] Registering with persistent job queue (every 1 hour)");
-    scheduleRecurringJob(
-      'stale_redemption_cleanup',
-      async () => { await runStaleRedemptionCleanup(); },
-      60 * 60 * 1000,
-      true
-    );
-  }
-
-  // Daily growth flywheel rollup — aggregates DAU, kFactor, shares, invites, signups
-  // Runs every 24 hours; boots with runImmediately=true to backfill yesterday on startup
-  scheduleRecurringJob(
-    'growth_flywheel_rollup',
-    async () => {
-      const { computeRollup } = await import('./services/growthFlywheel/rollup');
-      const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-      await computeRollup(yesterday);
-    },
-    24 * 60 * 60 * 1000,
-    true
-  );
-  console.log('[GrowthFlywheel] Daily rollup job registered');
-
-  // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
-  // Using daily check pattern to avoid relying on exact 7-day timing
-  if (process.env.NEWSLETTER_ENABLED === 'true') {
-    const { sendWeeklyNewsletter } = await import('./services/newsletterService');
-    const { scheduleRecurringJob: scheduleNewsletterJob } = await import('./jobs/pgJobQueue');
-
-    const checkAndSendNewsletter = async () => {
-      const now = new Date();
-      // Only send on Sundays at hour 10 UTC
-      if (now.getUTCDay() === 0 && now.getUTCHours() === 10) {
-        await sendWeeklyNewsletter();
+    // Start the image validation job (runs every 6 hours)
+    if (process.env.IMAGE_VALIDATION_ENABLED !== "false") {
+      try {
+        const { startValidationJob } = await import("./services/imageValidation");
+        startValidationJob();
+      } catch (err) {
+        console.error('[Startup] Image validation job failed to start (non-fatal):', err);
       }
-    };
+    }
 
-    scheduleNewsletterJob(
-      'weekly_newsletter',
-      checkAndSendNewsletter,
-      60 * 60 * 1000, // Check every hour
-      false
+    // Start the card pool refresh job (runs every 12 hours to revalidate excluded cards)
+    // Now wrapped in persistent job queue for crash-resistant, retry-safe execution
+    if (process.env.CARD_POOL_REFRESH_ENABLED !== "false") {
+      try {
+        const { runCardPoolRefreshJob } = await import("./services/cardPoolRefresh");
+        console.log("[CardPoolRefresh] Registering with persistent job queue (every 12 hours)");
+        scheduleRecurringJob(
+          'card_pool_refresh',
+          async () => { await runCardPoolRefreshJob(); },
+          12 * 60 * 60 * 1000,
+          true // run after 5-min delay via runImmediately flag
+        );
+      } catch (err) {
+        console.error('[Startup] Card pool refresh job failed to start (non-fatal):', err);
+      }
+    }
+
+    try {
+      const { cleanupStaleGameSessions } = await import("./services/staleGameSessionCleanup");
+      console.log("[GameSessionCleanup] Registering with persistent job queue (every 1 hour)");
+      scheduleRecurringJob(
+        'stale_game_session_cleanup',
+        async () => { await cleanupStaleGameSessions(); },
+        60 * 60 * 1000,
+        true
+      );
+    } catch (err) {
+      console.error('[Startup] Stale game session cleanup job failed to start (non-fatal):', err);
+    }
+
+    try {
+      const { cleanupStaleLobbiesAndMatches } = await import("./services/staleMatchCleanup");
+      console.log("[MatchCleanup] Registering with persistent job queue (every 1 hour)");
+      scheduleRecurringJob(
+        'stale_match_cleanup',
+        async () => { await cleanupStaleLobbiesAndMatches(); },
+        60 * 60 * 1000,
+        true
+      );
+    } catch (err) {
+      console.error('[Startup] Stale match cleanup job failed to start (non-fatal):', err);
+    }
+
+    if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
+      try {
+        const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
+        console.log("[StaleCleanup] Registering with persistent job queue (every 1 hour)");
+        scheduleRecurringJob(
+          'stale_redemption_cleanup',
+          async () => { await runStaleRedemptionCleanup(); },
+          60 * 60 * 1000,
+          true
+        );
+      } catch (err) {
+        console.error('[Startup] Stale redemption cleanup job failed to start (non-fatal):', err);
+      }
+    }
+
+    // Daily growth flywheel rollup — aggregates DAU, kFactor, shares, invites, signups
+    // Runs every 24 hours; boots with runImmediately=true to backfill yesterday on startup
+    scheduleRecurringJob(
+      'growth_flywheel_rollup',
+      async () => {
+        const { computeRollup } = await import('./services/growthFlywheel/rollup');
+        const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+        await computeRollup(yesterday);
+      },
+      24 * 60 * 60 * 1000,
+      true
     );
-    console.log('[Newsletter] Weekly newsletter job scheduled');
+    console.log('[GrowthFlywheel] Daily rollup job registered');
+
+    // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
+    // Using daily check pattern to avoid relying on exact 7-day timing
+    if (process.env.NEWSLETTER_ENABLED === 'true') {
+      try {
+        const { sendWeeklyNewsletter } = await import('./services/newsletterService');
+        const { scheduleRecurringJob: scheduleNewsletterJob } = await import('./jobs/pgJobQueue');
+
+        const checkAndSendNewsletter = async () => {
+          const now = new Date();
+          // Only send on Sundays at hour 10 UTC
+          if (now.getUTCDay() === 0 && now.getUTCHours() === 10) {
+            await sendWeeklyNewsletter();
+          }
+        };
+
+        scheduleNewsletterJob(
+          'weekly_newsletter',
+          checkAndSendNewsletter,
+          60 * 60 * 1000, // Check every hour
+          false
+        );
+        console.log('[Newsletter] Weekly newsletter job scheduled');
+      } catch (err) {
+        console.error('[Startup] Newsletter job failed to start (non-fatal):', err);
+      }
+    }
+  } catch (err) {
+    console.error('[Startup] Job queue initialization failed (non-fatal):', err);
   }
 
   app.use(errorMonitor.expressErrorHandler());

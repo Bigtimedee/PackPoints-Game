@@ -140,6 +140,23 @@ export async function ensureSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS "idx_set_audit_log_action" ON "set_audit_log" ("action_type");
       CREATE INDEX IF NOT EXISTS "idx_set_audit_log_source" ON "set_audit_log" ("operation_source");
 
+      -- job_queue (persistent background job table for pgJobQueue.ts)
+      CREATE TABLE IF NOT EXISTS "job_queue" (
+        "id" serial PRIMARY KEY,
+        "job_type" text NOT NULL,
+        "payload" jsonb DEFAULT '{}' NOT NULL,
+        "status" text DEFAULT 'pending' NOT NULL,
+        "attempts" integer DEFAULT 0 NOT NULL,
+        "max_attempts" integer DEFAULT 3 NOT NULL,
+        "scheduled_at" timestamp DEFAULT now() NOT NULL,
+        "started_at" timestamp,
+        "completed_at" timestamp,
+        "last_error" text,
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS "idx_job_queue_type_status" ON "job_queue" ("job_type", "status", "scheduled_at");
+
       -- social_posts media columns (idempotent)
       ALTER TABLE IF EXISTS "social_posts" ADD COLUMN IF NOT EXISTS "media_required" boolean NOT NULL DEFAULT false;
       ALTER TABLE IF EXISTS "social_posts" ADD COLUMN IF NOT EXISTS "media_status" "media_status" NOT NULL DEFAULT 'NOT_REQUIRED';
