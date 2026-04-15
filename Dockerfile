@@ -10,6 +10,9 @@ ENV NODE_ENV=production
 # Set working directory
 WORKDIR /app
 
+# Cache-bust: 2026-04-15
+LABEL build-date="2026-04-15"
+
 # Copy package files
 COPY package*.json ./
 
