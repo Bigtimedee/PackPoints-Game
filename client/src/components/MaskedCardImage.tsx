@@ -134,7 +134,6 @@ export function MaskedCardImage({
         onError={handleImageError}
         onDragStart={handleDragStart}
         draggable={false}
-        crossOrigin="anonymous"
         referrerPolicy="no-referrer"
         data-testid="masked-card-image"
       />

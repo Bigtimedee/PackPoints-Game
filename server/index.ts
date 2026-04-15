@@ -74,7 +74,7 @@ app.use(express.urlencoded({ extended: false }));
 // --- CORS Middleware (native, no external package required) ---
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['http://localhost:5000', 'http://localhost:3000'];
+  : ['http://localhost:5000', 'http://localhost:3000', 'https://packpts.com'];
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;

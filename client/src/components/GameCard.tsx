@@ -477,7 +477,6 @@ export function GameCard({
         src={cdnImageUrl}
         alt={[team, "sports card"].filter(Boolean).join(" ")}
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-        crossOrigin="anonymous"
         loading="eager"
         decoding="async"
         style={{
