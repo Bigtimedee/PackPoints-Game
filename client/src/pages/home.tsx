@@ -466,6 +466,20 @@ export default function Home() {
           </a>
         </div>
       )}
+
+      <footer className="border-t mt-8 py-6">
+        <div className="container mx-auto px-4 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+          <Link href="/terms-of-service" className="hover:text-foreground transition-colors">
+            Terms of Service
+          </Link>
+          <Link href="/privacy-policy" className="hover:text-foreground transition-colors">
+            Privacy Policy
+          </Link>
+          <a href="mailto:support@packpts.com" className="hover:text-foreground transition-colors">
+            support@packpts.com
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }
