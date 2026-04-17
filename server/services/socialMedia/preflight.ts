@@ -19,8 +19,16 @@ const VISUAL_REFERENCE_PATTERNS = [
   /\blook at (this|that)\b/i,
 ];
 
-// Content types that require an attached media asset to be coherent
-const VISUAL_CONTENT_TYPES = new Set(["TRIVIA_CARD", "MARKET_PRICE_SPOTLIGHT"]);
+// All content types now produce composed images via gameImageRenderer
+const VISUAL_CONTENT_TYPES = new Set([
+  "TRIVIA_CARD",
+  "MARKET_PRICE_SPOTLIGHT",
+  "LEADERBOARD_HIGHLIGHT",
+  "STREAK_MILESTONE",
+  "CHALLENGE",
+  "NEW_USER_ACQUISITION",
+  "REWARD_ANNOUNCEMENT",
+]);
 
 export function detectsVisualReference(copyText: string): boolean {
   return VISUAL_REFERENCE_PATTERNS.some((re) => re.test(copyText));
