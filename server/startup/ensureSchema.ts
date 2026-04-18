@@ -169,6 +169,60 @@ export async function ensureSchema(): Promise<void> {
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "media_asset_count" integer NOT NULL DEFAULT 0;
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "publish_block_reason" text;
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "preflight_passed" boolean;
+
+      -- card_set_masks (CSS mask regions per card set)
+      CREATE TABLE IF NOT EXISTS "card_set_masks" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "set_key" text NOT NULL UNIQUE,
+        "provider_set_id" text,
+        "mask_version" integer DEFAULT 1 NOT NULL,
+        "regions" jsonb NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      );
+
+      -- card_image_mask_cache (server-side masked image cache)
+      CREATE TABLE IF NOT EXISTS "card_image_mask_cache" (
+        "card_id" text PRIMARY KEY,
+        "raw_image_url" text NOT NULL,
+        "masked_image_path" text NOT NULL,
+        "mask_version" text NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS "idx_card_mask_cache_version" ON "card_image_mask_cache" ("mask_version");
+
+      -- global_growth_rollups (growth flywheel daily rollup)
+      CREATE TABLE IF NOT EXISTS "global_growth_rollups" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "day_key" varchar(10) NOT NULL UNIQUE,
+        "dau" integer DEFAULT 0 NOT NULL,
+        "matches_played" integer DEFAULT 0 NOT NULL,
+        "daily5_entries" integer DEFAULT 0 NOT NULL,
+        "shares_total" integer DEFAULT 0 NOT NULL,
+        "invites_sent" integer DEFAULT 0 NOT NULL,
+        "signups_from_invites" integer DEFAULT 0 NOT NULL,
+        "first_matches_from_invites" integer DEFAULT 0 NOT NULL,
+        "first_purchases_from_invites" integer DEFAULT 0 NOT NULL,
+        "k_factor" real,
+        "computed_at" timestamp DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_global_growth_rollups_day" ON "global_growth_rollups" ("day_key");
+
+      -- user_growth_rollups (per-user growth flywheel daily rollup)
+      CREATE TABLE IF NOT EXISTS "user_growth_rollups" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "user_id" varchar NOT NULL,
+        "day_key" varchar(10) NOT NULL,
+        "matches_played" integer DEFAULT 0 NOT NULL,
+        "daily5_entries" integer DEFAULT 0 NOT NULL,
+        "shares_total" integer DEFAULT 0 NOT NULL,
+        "invites_sent" integer DEFAULT 0 NOT NULL,
+        "signups_from_invites" integer DEFAULT 0 NOT NULL,
+        "computed_at" timestamp DEFAULT now(),
+        UNIQUE ("user_id", "day_key")
+      );
+      CREATE INDEX IF NOT EXISTS "idx_user_growth_rollup_day" ON "user_growth_rollups" ("day_key");
+      CREATE INDEX IF NOT EXISTS "idx_user_growth_rollup_user" ON "user_growth_rollups" ("user_id");
     `);
 
     console.log("[ensureSchema] Schema verified/created successfully.");

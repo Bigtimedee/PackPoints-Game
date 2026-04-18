@@ -72,7 +72,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
   if (baseballCard?.imageUrl) {
     imageUrl = baseballCard.imageUrl;
     playerName = baseballCard.playerName;
-    setName = baseballCard.set;
+    setName = baseballCard.setName;
   } else {
     const [playableCard] = await db
       .select()

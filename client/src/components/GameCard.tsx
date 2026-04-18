@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { logger } from "@/lib/logger";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,13 +10,6 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
-
-interface MaskConfig {
-  setKey: string;
-  regions: MaskRegion[];
-  maskVersion: number;
-}
 
 const PLACEHOLDER_URL_PATTERNS = [
   /placeholder/i,
@@ -224,6 +216,7 @@ export function GameCard({
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
+  const activeImageUrl = !isRevealed && cardId ? `/api/cards/${cardId}/masked-image` : cdnImageUrl;
 
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(() => {
@@ -237,39 +230,10 @@ export function GameCard({
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const { toast } = useToast();
 
-  const { data: maskConfig } = useQuery<MaskConfig>({
-    queryKey: ["/api/card-sets/mask", setKey || setLabel || "__default__"],
-    queryFn: async () => {
-      const key = setKey || setLabel || "";
-      if (!key) {
-        return {
-          setKey: "__default__",
-          regions: DEFAULT_MASK_REGIONS,
-          maskVersion: 1,
-        };
-      }
-      try {
-        const res = await fetch(`/api/card-sets/${encodeURIComponent(key)}/mask`);
-        if (!res.ok) {
-          return {
-            setKey: key,
-            regions: DEFAULT_MASK_REGIONS,
-            maskVersion: 1,
-          };
-        }
-        return res.json();
-      } catch {
-        return {
-          setKey: key,
-          regions: DEFAULT_MASK_REGIONS,
-          maskVersion: 1,
-        };
-      }
-    },
-    staleTime: 0,
-  });
 
-  const regions = maskConfig?.regions || DEFAULT_MASK_REGIONS;
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [activeImageUrl]);
 
   useEffect(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl) && cardId) {
@@ -462,7 +426,7 @@ export function GameCard({
       {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
       {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
       <img
-        src={cdnImageUrl}
+        src={activeImageUrl}
         alt={[team, "sports card"].filter(Boolean).join(" ")}
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         loading="eager"
@@ -480,26 +444,6 @@ export function GameCard({
         data-testid="img-card"
       />
       
-      {!isRevealed && !imageError && regions.map((region, index) => (
-        <div
-          key={index}
-          className="absolute pointer-events-none transition-opacity duration-300"
-          style={{
-            left: `${region.xPct}%`,
-            top: `${region.yPct}%`,
-            width: `${region.wPct}%`,
-            height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(0,0,0,0.15)",
-            borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
-            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
-            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
-            zIndex: 20,
-          }}
-          data-testid={`mask-region-${index}`}
-        />
-      ))}
       
       {cardId && !imageError && (
         <div className="absolute top-2 right-2 z-30">
