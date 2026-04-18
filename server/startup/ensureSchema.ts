@@ -190,6 +190,39 @@ export async function ensureSchema(): Promise<void> {
         "updated_at" timestamp DEFAULT now() NOT NULL
       );
       CREATE INDEX IF NOT EXISTS "idx_card_mask_cache_version" ON "card_image_mask_cache" ("mask_version");
+
+      -- global_growth_rollups (growth flywheel daily rollup)
+      CREATE TABLE IF NOT EXISTS "global_growth_rollups" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "day_key" varchar(10) NOT NULL UNIQUE,
+        "dau" integer DEFAULT 0 NOT NULL,
+        "matches_played" integer DEFAULT 0 NOT NULL,
+        "daily5_entries" integer DEFAULT 0 NOT NULL,
+        "shares_total" integer DEFAULT 0 NOT NULL,
+        "invites_sent" integer DEFAULT 0 NOT NULL,
+        "signups_from_invites" integer DEFAULT 0 NOT NULL,
+        "first_matches_from_invites" integer DEFAULT 0 NOT NULL,
+        "first_purchases_from_invites" integer DEFAULT 0 NOT NULL,
+        "k_factor" real,
+        "computed_at" timestamp DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_global_growth_rollups_day" ON "global_growth_rollups" ("day_key");
+
+      -- user_growth_rollups (per-user growth flywheel daily rollup)
+      CREATE TABLE IF NOT EXISTS "user_growth_rollups" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "user_id" varchar NOT NULL,
+        "day_key" varchar(10) NOT NULL,
+        "matches_played" integer DEFAULT 0 NOT NULL,
+        "daily5_entries" integer DEFAULT 0 NOT NULL,
+        "shares_total" integer DEFAULT 0 NOT NULL,
+        "invites_sent" integer DEFAULT 0 NOT NULL,
+        "signups_from_invites" integer DEFAULT 0 NOT NULL,
+        "computed_at" timestamp DEFAULT now(),
+        UNIQUE ("user_id", "day_key")
+      );
+      CREATE INDEX IF NOT EXISTS "idx_user_growth_rollup_day" ON "user_growth_rollups" ("day_key");
+      CREATE INDEX IF NOT EXISTS "idx_user_growth_rollup_user" ON "user_growth_rollups" ("user_id");
     `);
 
     console.log("[ensureSchema] Schema verified/created successfully.");
