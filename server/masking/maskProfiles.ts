@@ -7,34 +7,34 @@ export interface MaskProfile {
 }
 
 const defaultProfile: MaskProfile = {
-  topBandPct: 0.18,
-  bottomBandPct: 0.22,
+  topBandPct: 0.0,
+  bottomBandPct: 0.18,
   leftBandPct: 0.0,
   rightBandPct: 0.0,
-  blurSigma: 15,
+  blurSigma: 25,
 };
 
 const setProfiles: Record<string, MaskProfile> = {
   "1987 Topps": {
-    topBandPct: 0.20,
-    bottomBandPct: 0.25,
+    topBandPct: 0.0,
+    bottomBandPct: 0.22,
     leftBandPct: 0.0,
     rightBandPct: 0.0,
-    blurSigma: 15,
+    blurSigma: 25,
   },
   "1989 Upper Deck": {
-    topBandPct: 0.15,
-    bottomBandPct: 0.20,
+    topBandPct: 0.0,
+    bottomBandPct: 0.18,
     leftBandPct: 0.0,
     rightBandPct: 0.0,
-    blurSigma: 15,
+    blurSigma: 25,
   },
   "1952 Topps": {
-    topBandPct: 0.12,
-    bottomBandPct: 0.35,
+    topBandPct: 0.0,
+    bottomBandPct: 0.28,
     leftBandPct: 0.0,
     rightBandPct: 0.0,
-    blurSigma: 15,
+    blurSigma: 25,
   },
 };
 
@@ -56,4 +56,4 @@ export function getMaskProfile(setName: string | null | undefined): MaskProfile 
   return defaultProfile;
 }
 
-export const CURRENT_MASK_VERSION = "v2.0";
+export const CURRENT_MASK_VERSION = "v3.0";

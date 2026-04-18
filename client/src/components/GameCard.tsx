@@ -11,25 +11,13 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-interface MaskRegion {
-  xPct: number;
-  yPct: number;
-  wPct: number;
-  hPct: number;
-  type: "solid" | "blur" | "pixelate";
-  radiusPct?: number;
-}
+import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 
 interface MaskConfig {
   setKey: string;
   regions: MaskRegion[];
   maskVersion: number;
 }
-
-const DEFAULT_MASK_REGIONS: MaskRegion[] = [
-  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
-  { xPct: 0, yPct: 68, wPct: 100, hPct: 32, type: "blur", radiusPct: 0 },
-];
 
 const PLACEHOLDER_URL_PATTERNS = [
   /placeholder/i,
@@ -501,10 +489,12 @@ export function GameCard({
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(0,0,0,0.25)",
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(0,0,0,0.15)",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(18px) saturate(0.7)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(18px) saturate(0.7)" : undefined,
+            backdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
+            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
+            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
