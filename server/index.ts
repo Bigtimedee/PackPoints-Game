@@ -9,7 +9,6 @@ import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
 import { verifyEmailConfig } from "./services/emailService";
 import { registerWorkosRoutes } from "./services/workosAuth";
 import { initializeStripeConnection, getStripeSync } from "./stripeClient";
-import { runMigrations } from "stripe-replit-sync";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
 import { seedRewardPolicy } from "./services/rewardEngine";
 import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
@@ -209,7 +208,8 @@ app.use((req, res, next) => {
     const stripeConfigured = await initializeStripeConnection();
     if (stripeConfigured && process.env.DATABASE_URL) {
       console.log('Initializing Stripe schema...');
-      await runMigrations({ 
+      const { runMigrations } = await import("stripe-replit-sync");
+      await runMigrations({
         databaseUrl: process.env.DATABASE_URL
       });
       console.log('Stripe schema ready');

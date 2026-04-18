@@ -10,4 +10,9 @@ npx drizzle-kit push --force
 echo "[Startup] Migrations complete."
 
 echo "[Startup] Starting Node server..."
-exec node /app/dist/index.cjs
+node /app/dist/index.cjs
+EXIT_CODE=$?
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "[Startup] FATAL: Node process exited with code $EXIT_CODE" >&2
+fi
+exit $EXIT_CODE
