@@ -59,7 +59,7 @@ async function applyTemplateMasks(
         width,
         height: topHeight,
         channels: 4,
-        background: { r: 30, g: 30, b: 30, alpha: 0.92 },
+        background: { r: 20, g: 20, b: 20, alpha: 0.15 },
       },
     })
       .blur(profile.blurSigma || 10)
@@ -77,7 +77,7 @@ async function applyTemplateMasks(
         width,
         height: bottomHeight,
         channels: 4,
-        background: { r: 30, g: 30, b: 30, alpha: 0.92 },
+        background: { r: 20, g: 20, b: 20, alpha: 0.15 },
       },
     })
       .blur(profile.blurSigma || 10)
@@ -94,7 +94,7 @@ async function applyTemplateMasks(
         width: leftWidth,
         height,
         channels: 4,
-        background: { r: 30, g: 30, b: 30, alpha: 0.92 },
+        background: { r: 20, g: 20, b: 20, alpha: 0.15 },
       },
     })
       .blur(profile.blurSigma || 10)
@@ -112,7 +112,7 @@ async function applyTemplateMasks(
         width: rightWidth,
         height,
         channels: 4,
-        background: { r: 30, g: 30, b: 30, alpha: 0.92 },
+        background: { r: 20, g: 20, b: 20, alpha: 0.15 },
       },
     })
       .blur(profile.blurSigma || 10)
