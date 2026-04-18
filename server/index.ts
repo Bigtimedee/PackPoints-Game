@@ -248,8 +248,13 @@ app.use((req, res, next) => {
   } catch (err) {
     console.error("[Startup] setupAuth() failed (non-fatal, Replit auth will be unavailable):", err);
   }
-  registerAuthRoutes(app);
-  registerWorkosRoutes(app);
+  try {
+    registerAuthRoutes(app);
+    registerWorkosRoutes(app);
+  } catch (err) {
+    console.error("[Startup] Auth route registration failed:", err);
+    throw err;
+  }
   
   // Register OpenAPI docs (dev only or when SHOW_API_DOCS=true)
   try {
@@ -278,8 +283,13 @@ app.use((req, res, next) => {
     console.log('[Notion] Skipping sync job — NOTION_API_KEY or NOTION_DATABASE_ID not set');
   }
 
-  setupWebSocket(httpServer);
-  await registerRoutes(httpServer, app);
+  try {
+    setupWebSocket(httpServer);
+    await registerRoutes(httpServer, app);
+  } catch (err) {
+    console.error("[Startup] Route/WebSocket setup failed:", err);
+    throw err;
+  }
 
   // Start the risk pipeline job worker
   if (process.env.RISK_PIPELINE_ENABLED !== "false") {

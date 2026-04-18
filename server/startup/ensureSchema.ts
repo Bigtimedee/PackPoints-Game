@@ -169,6 +169,27 @@ export async function ensureSchema(): Promise<void> {
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "media_asset_count" integer NOT NULL DEFAULT 0;
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "publish_block_reason" text;
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "preflight_passed" boolean;
+
+      -- card_set_masks (CSS mask regions per card set)
+      CREATE TABLE IF NOT EXISTS "card_set_masks" (
+        "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "set_key" text NOT NULL UNIQUE,
+        "provider_set_id" text,
+        "mask_version" integer DEFAULT 1 NOT NULL,
+        "regions" jsonb NOT NULL,
+        "created_at" timestamp DEFAULT now() NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      );
+
+      -- card_image_mask_cache (server-side masked image cache)
+      CREATE TABLE IF NOT EXISTS "card_image_mask_cache" (
+        "card_id" text PRIMARY KEY,
+        "raw_image_url" text NOT NULL,
+        "masked_image_path" text NOT NULL,
+        "mask_version" text NOT NULL,
+        "updated_at" timestamp DEFAULT now() NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS "idx_card_mask_cache_version" ON "card_image_mask_cache" ("mask_version");
     `);
 
     console.log("[ensureSchema] Schema verified/created successfully.");
