@@ -10,7 +10,7 @@ npx drizzle-kit push --force
 echo "[Startup] Migrations complete."
 
 echo "[Startup] Starting Node server..."
-node /app/dist/index.cjs
+NODE_OPTIONS="--stack-trace-limit=3" node /app/dist/index.cjs
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   echo "[Startup] FATAL: Node process exited with code $EXIT_CODE" >&2
