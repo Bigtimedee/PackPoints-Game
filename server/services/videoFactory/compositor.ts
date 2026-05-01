@@ -80,7 +80,7 @@ export async function compositeVideo(
           "-movflags", "+faststart",
         ])
         .output(outputPath)
-        .on("end", resolve)
+        .on("end", () => resolve())
         .on("error", (err: Error) => reject(new Error(`FFmpeg error: ${err.message}`)))
         .run();
     });

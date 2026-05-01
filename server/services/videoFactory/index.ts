@@ -101,7 +101,7 @@ async function setMetadata(
   const updated: VideoMetadata = { ...existing, ...patch };
   await db
     .update(growthContentItems)
-    .set({ metadata: updated as Record<string, unknown> })
+    .set({ metadata: updated as unknown as Record<string, unknown> })
     .where(eq(growthContentItems.id, itemId));
 }
 

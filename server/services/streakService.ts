@@ -22,8 +22,7 @@ async function isUserFrozen(userId: string): Promise<boolean> {
       .from(userRiskState)
       .where(eq(userRiskState.userId, userId))
       .limit(1);
-    // Block earning if FROZEN or UNDER_REVIEW (consistent with walletService and rewardEngine)
-    return state?.status === "FROZEN" || state?.status === "UNDER_REVIEW";
+    return state?.status === "FROZEN";
   } catch (e) {
     return false;
   }
@@ -686,8 +685,8 @@ class StreakService {
       dayNumber: parseInt(day),
       baseReward: schedule[day] || 0,
       milestoneBonus: milestones[day] || 0,
-      createdAt: config.createdAt,
-      updatedAt: config.updatedAt,
+      createdAt: config.createdAt ?? new Date(),
+      updatedAt: config.updatedAt ?? new Date(),
     })).sort((a, b) => a.dayNumber - b.dayNumber);
   }
 

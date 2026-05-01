@@ -2215,6 +2215,9 @@ export const externalPurchaseIntent = pgTable("external_purchase_intent", {
     v: number; // USD per PackPTS
     Cmax: number; // max credit USD
     Rmax: number; // max redeemable PackPTS
+    marginPoolCents?: number;
+    txMarginCents?: number;
+    allowedCapCents?: number;
   }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -4163,4 +4166,21 @@ export const userGrowthRollups = pgTable("user_growth_rollups", {
   index("idx_user_growth_rollup_day").on(t.dayKey),
   index("idx_user_growth_rollup_user").on(t.userId),
 ]);
+
+// ── Chat integration tables ────────────────────────────────────────────────
+
+export const conversations = pgTable("conversations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const messages = pgTable("messages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  conversationId: integer("conversation_id").notNull().references(() => conversations.id),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 export type UserGrowthRollup = typeof userGrowthRollups.$inferSelect;
