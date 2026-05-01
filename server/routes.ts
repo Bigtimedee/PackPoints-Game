@@ -6561,9 +6561,14 @@ export async function registerRoutes(
         .select()
         .from(playableCards)
         .where(
-          or(
-            eq(playableCards.imageReviewStatus, "flagged"),
-            gte(playableCards.reportCount, 3)
+          and(
+            or(
+              eq(playableCards.imageReviewStatus, "flagged"),
+              gte(playableCards.reportCount, 3)
+            ),
+            ne(playableCards.imageReviewStatus, "rejected"),
+            ne(playableCards.imageReviewStatus, "approved"),
+            eq(playableCards.isPlayable, true)
           )
         )
         .orderBy(desc(playableCards.reportCount))
@@ -6582,7 +6587,12 @@ export async function registerRoutes(
       const { reportId } = req.params;
       const { action, resolution } = req.body;
       const { cardImageReports } = await import("@shared/schema");
-      
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
+
       if (!["approve", "reject", "dismiss"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve, reject, dismiss" });
       }
@@ -6601,12 +6611,12 @@ export async function registerRoutes(
         .update(cardImageReports)
         .set({
           status: "resolved",
-          resolvedBy: req.user.id,
+          resolvedBy: adminUserId,
           resolvedAt: new Date(),
           resolution: resolution || action,
         })
         .where(eq(cardImageReports.id, reportId));
-      
+
       if (action === "approve") {
         await db
           .update(playableCards)
@@ -6620,7 +6630,7 @@ export async function registerRoutes(
         assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
-          actorUserId: req.user.id,
+          actorUserId: adminUserId,
           reason: `Report ${reportId} rejected - image mismatch confirmed`,
         });
         await db
@@ -6635,7 +6645,7 @@ export async function registerRoutes(
           .where(eq(playableCards.id, report.cardId));
       }
       
-      console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${req.user.id}`);
+      console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${adminUserId}`);
       
       res.json({ success: true, action });
     } catch (error) {
@@ -6742,12 +6752,17 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors[0].message });
       }
       const { cardIds } = parsed.data;
-      
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
+
       const { assertMutationAllowed } = await import("./services/mutationGuard");
       assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
-        actorUserId: req.user.id,
+        actorUserId: adminUserId,
         reason: `Bulk flag ${cardIds.length} cards as multi-player`,
       });
       
@@ -6762,7 +6777,7 @@ export async function registerRoutes(
         .where(inArray(playableCards.id, cardIds))
         .returning({ id: playableCards.id });
       
-      console.log(`[Card Flag] ${results.length} cards flagged as multi-player by admin ${req.user.id}`);
+      console.log(`[Card Flag] ${results.length} cards flagged as multi-player by admin ${adminUserId}`);
       
       res.json({ 
         success: true, 
@@ -6783,7 +6798,12 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors[0].message });
       }
       const { cardIds } = parsed.data;
-      
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
+
       const results = await db
         .update(playableCards)
         .set({
@@ -6793,8 +6813,8 @@ export async function registerRoutes(
         })
         .where(inArray(playableCards.id, cardIds))
         .returning({ id: playableCards.id });
-      
-      console.log(`[Card Unflag] ${results.length} cards restored by admin ${req.user.id}`);
+
+      console.log(`[Card Unflag] ${results.length} cards restored by admin ${adminUserId}`);
       
       res.json({ 
         success: true, 
@@ -6817,26 +6837,31 @@ export async function registerRoutes(
       const { cardId } = req.params;
       const { reason } = req.body;
       const { assertMutationAllowed } = await import("./services/mutationGuard");
-      
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
+
       const [card] = await db
         .select()
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
-      
+
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-      
+
       if (!card.isPlayable) {
         return res.status(400).json({ error: "Card is already excluded", blockedReason: card.blockedReason });
       }
-      
+
       // Use mutation guard to ensure this is allowed (ADMIN_MANUAL can always SET_UNPLAYABLE)
       assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
-        actorUserId: req.user.id,
+        actorUserId: adminUserId,
         reason: reason || "Manual admin exclusion",
       });
       
@@ -6851,7 +6876,7 @@ export async function registerRoutes(
         })
         .where(eq(playableCards.id, cardId));
       
-      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${req.user.id}: ${reason || "no reason"}`);
+      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${adminUserId}: ${reason || "no reason"}`);
       
       res.json({ success: true, cardId, excluded: true });
     } catch (error) {
@@ -6864,7 +6889,12 @@ export async function registerRoutes(
   app.post("/api/admin/cards/:cardId/restore", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
+
       const [card] = await db
         .select()
         .from(playableCards)
@@ -6892,7 +6922,7 @@ export async function registerRoutes(
         })
         .where(eq(playableCards.id, cardId));
       
-      console.log(`[Card Restore] Card ${cardId} restored to gameplay by admin ${req.user.id}`);
+      console.log(`[Card Restore] Card ${cardId} restored to gameplay by admin ${adminUserId}`);
       
       res.json({ success: true, cardId, restored: true });
     } catch (error) {
@@ -6906,6 +6936,11 @@ export async function registerRoutes(
     try {
       const { setId, dryRun = true } = req.body;
       const { writeAuditLog } = await import("./services/mutationGuard");
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
       
       const conditions = [
         sql`is_playable = false`,
@@ -6965,13 +7000,13 @@ export async function registerRoutes(
         setId: setId || undefined,
         actionType: "BULK_RESTORE",
         operationSource: "ADMIN_MANUAL",
-        actorUserId: req.user.id,
+        actorUserId: adminUserId,
         beforePlayableCards: 0,
         afterPlayableCards: restoredCount,
         reason: `Bulk restored ${restoredCount} cards auto-excluded by background validation`,
       });
-      
-      console.log(`[Bulk Restore] Admin ${req.user.id} restored ${restoredCount} cards${setId ? ` in set ${setId}` : ' globally'}`);
+
+      console.log(`[Bulk Restore] Admin ${adminUserId} restored ${restoredCount} cards${setId ? ` in set ${setId}` : ' globally'}`);
       
       res.json({ success: true, restoredCount, message: `Restored ${restoredCount} cards to gameplay` });
     } catch (error) {
@@ -6984,6 +7019,11 @@ export async function registerRoutes(
   app.post("/api/admin/cards/reset-failure-counts", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { writeAuditLog } = await import("./services/mutationGuard");
+
+      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
       
       const result = await db.execute(
         sql`UPDATE playable_cards SET 
@@ -6998,11 +7038,11 @@ export async function registerRoutes(
       await writeAuditLog({
         actionType: "RESET_FAILURE_COUNTS",
         operationSource: "ADMIN_MANUAL",
-        actorUserId: req.user.id,
+        actorUserId: adminUserId,
         reason: `Reset image_failure_count to 0 for ${resetCount} cards to prevent backdoor pruning`,
       });
-      
-      console.log(`[Reset Failure Counts] Admin ${req.user.id} reset image_failure_count for ${resetCount} cards`);
+
+      console.log(`[Reset Failure Counts] Admin ${adminUserId} reset image_failure_count for ${resetCount} cards`);
       
       res.json({ success: true, resetCount, message: `Reset failure counts for ${resetCount} cards` });
     } catch (error) {

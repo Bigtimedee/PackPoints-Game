@@ -2026,7 +2026,7 @@ export type InsertGeoRollupsDaily = z.infer<typeof insertGeoRollupsDailySchema>;
 export type GeoRollupsDaily = typeof geoRollupsDaily.$inferSelect;
 
 // Playable Cards - cards imported from Card Hedge for gameplay
-export const imageReviewStatuses = ["unreviewed", "reported", "approved", "rejected"] as const;
+export const imageReviewStatuses = ["unreviewed", "reported", "flagged", "approved", "rejected"] as const;
 export type ImageReviewStatus = typeof imageReviewStatuses[number];
 
 export const quarantineStatuses = ["OK", "SUSPECT_TRANSIENT", "SUSPECT_PERSISTENT", "QUARANTINED_ADMIN_REVIEW"] as const;
