@@ -6650,26 +6650,32 @@ export async function registerRoutes(
       const { cardId } = req.params;
       const { action, resolution, imageRotation } = req.body;
       const { cardImageReports } = await import("@shared/schema");
-      
+
+      // Resolve the admin's user ID — works for both Replit Auth and local-auth sessions
+      const adminUserId: string = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      if (!adminUserId) {
+        return res.status(401).json({ error: "Unable to determine admin user ID" });
+      }
+
       if (!["approve", "reject"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve or reject" });
       }
-      
+
       const [card] = await db
         .select()
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
-      
+
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-      
+
       await db
         .update(cardImageReports)
         .set({
           status: "resolved",
-          resolvedBy: req.user.id,
+          resolvedBy: adminUserId,
           resolvedAt: new Date(),
           resolution: resolution || `Bulk ${action} by admin`,
         })
@@ -6677,7 +6683,7 @@ export async function registerRoutes(
           eq(cardImageReports.cardId, cardId),
           eq(cardImageReports.status, "pending")
         ));
-      
+
       if (action === "approve") {
         // Build update object - include rotation if provided
         const updateData: any = {
@@ -6693,26 +6699,29 @@ export async function registerRoutes(
           .where(eq(playableCards.id, cardId));
       } else if (action === "reject") {
         const { assertMutationAllowed } = await import("./services/mutationGuard");
-        assertMutationAllowed({
+        const guard = assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
-          actorUserId: req.user.id,
+          actorUserId: adminUserId,
           reason: resolution || "Image mismatch confirmed via admin review",
         });
+        if (!guard.allowed) {
+          return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
+        }
         await db
           .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: resolution || "Image mismatch confirmed via admin review",
-            quarantineStatus: "REMOVED_BY_ADMIN",
+            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
           .where(eq(playableCards.id, cardId));
       }
-      
-      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${req.user.id}`);
-      
+
+      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${adminUserId}`);
+
       res.json({ success: true, action, cardId });
     } catch (error) {
       console.error("Error reviewing card:", error);

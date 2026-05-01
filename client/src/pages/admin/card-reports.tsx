@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Flag, Check, X, AlertTriangle, Loader2, Image, RefreshCw, RotateCw } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface PlayableCard {
@@ -67,6 +68,7 @@ const REASON_LABELS: Record<string, string> = {
 export default function AdminCardReports() {
   const [, navigate] = useLocation();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("flagged");
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState<PlayableCard | null>(null);
@@ -106,6 +108,13 @@ export default function AdminCardReports() {
       setSelectedCard(null);
       setResolution("");
       setPreviewRotation(0);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Review failed",
+        description: error?.message || "An error occurred while reviewing this card. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
