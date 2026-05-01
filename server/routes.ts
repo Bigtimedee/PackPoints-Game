@@ -4532,7 +4532,7 @@ export async function registerRoutes(
                       blockedReason: "player_mismatch",
                       imageReviewStatus: "excluded",
                       imageLastError: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
-                      quarantineStatus: "REMOVED_BY_ADMIN",
+                      quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
                       updatedAt: new Date(),
                     })
                     .where(eq(playableCards.id, card.id));
@@ -4600,7 +4600,7 @@ export async function registerRoutes(
               isPlayable: false,
               blockedReason: "player_mismatch",
               imageReviewStatus: "excluded",
-              quarantineStatus: "REMOVED_BY_ADMIN",
+              quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
@@ -6588,7 +6588,7 @@ export async function registerRoutes(
       const { action, resolution } = req.body;
       const { cardImageReports } = await import("@shared/schema");
 
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
@@ -6627,19 +6627,22 @@ export async function registerRoutes(
           .where(eq(playableCards.id, report.cardId));
       } else if (action === "reject") {
         const { assertMutationAllowed } = await import("./services/mutationGuard");
-        assertMutationAllowed({
+        const guard = assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
           actorUserId: adminUserId,
           reason: `Report ${reportId} rejected - image mismatch confirmed`,
         });
+        if (!guard.allowed) {
+          return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
+        }
         await db
           .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: "Image mismatch confirmed via report",
-            quarantineStatus: "REMOVED_BY_ADMIN",
+            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
           .where(eq(playableCards.id, report.cardId));
@@ -6662,7 +6665,7 @@ export async function registerRoutes(
       const { cardImageReports } = await import("@shared/schema");
 
       // Resolve the admin's user ID — works for both Replit Auth and local-auth sessions
-      const adminUserId: string = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId: string = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
@@ -6753,25 +6756,28 @@ export async function registerRoutes(
       }
       const { cardIds } = parsed.data;
 
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
 
       const { assertMutationAllowed } = await import("./services/mutationGuard");
-      assertMutationAllowed({
+      const guardFlag = assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
         actorUserId: adminUserId,
         reason: `Bulk flag ${cardIds.length} cards as multi-player`,
       });
-      
+      if (!guardFlag.allowed) {
+        return res.status(403).json({ error: guardFlag.reason || "Operation not permitted by mutation guard" });
+      }
+
       const results = await db
         .update(playableCards)
         .set({
           isPlayable: false,
           blockedReason: "multi-player",
-          quarantineStatus: "REMOVED_BY_ADMIN",
+          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
           updatedAt: new Date(),
         })
         .where(inArray(playableCards.id, cardIds))
@@ -6799,7 +6805,7 @@ export async function registerRoutes(
       }
       const { cardIds } = parsed.data;
 
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
@@ -6838,7 +6844,7 @@ export async function registerRoutes(
       const { reason } = req.body;
       const { assertMutationAllowed } = await import("./services/mutationGuard");
 
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
@@ -6858,20 +6864,23 @@ export async function registerRoutes(
       }
 
       // Use mutation guard to ensure this is allowed (ADMIN_MANUAL can always SET_UNPLAYABLE)
-      assertMutationAllowed({
+      const guardExclude = assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
         actorUserId: adminUserId,
         reason: reason || "Manual admin exclusion",
       });
-      
+      if (!guardExclude.allowed) {
+        return res.status(403).json({ error: guardExclude.reason || "Operation not permitted by mutation guard" });
+      }
+
       await db
         .update(playableCards)
         .set({
           isPlayable: false,
           blockedReason: reason || "admin_manual_exclusion",
           imageReviewStatus: "excluded",
-          quarantineStatus: "REMOVED_BY_ADMIN",
+          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
           updatedAt: new Date(),
         })
         .where(eq(playableCards.id, cardId));
@@ -6890,7 +6899,7 @@ export async function registerRoutes(
     try {
       const { cardId } = req.params;
 
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
@@ -6900,11 +6909,11 @@ export async function registerRoutes(
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
-      
+
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-      
+
       if (card.isPlayable) {
         return res.status(400).json({ error: "Card is already playable" });
       }
@@ -6937,11 +6946,11 @@ export async function registerRoutes(
       const { setId, dryRun = true } = req.body;
       const { writeAuditLog } = await import("./services/mutationGuard");
 
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
+      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
         return res.status(401).json({ error: "Unable to determine admin user ID" });
       }
-      
+
       const conditions = [
         sql`is_playable = false`,
         sql`image_url IS NOT NULL`,
