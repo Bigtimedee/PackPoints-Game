@@ -88,22 +88,27 @@ function formatZodError(zodError: ZodError): string {
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
-  const user = req.user as any;
-  const session = req.session as any;
-  
-  // Get user ID from either Replit Auth or local session
-  const userId = user?.claims?.sub || session?.localUserId;
-  
-  if (!userId) {
-    return res.status(401).json({ message: "Unauthorized" });
+  try {
+    const user = req.user as any;
+    const session = req.session as any;
+
+    // Get user ID from either Replit Auth or local session
+    const userId = user?.claims?.sub || session?.localUserId;
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const dbUser = await storage.getUser(userId);
+    if (!dbUser?.isAdmin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    next();
+  } catch (error) {
+    console.error("[requireAdmin] Error checking admin status:", error);
+    return res.status(500).json({ message: "Internal server error checking authorization" });
   }
-  
-  const dbUser = await storage.getUser(userId);
-  if (!dbUser?.isAdmin) {
-    return res.status(403).json({ message: "Admin access required" });
-  }
-  
-  next();
 };
 
 // Middleware to require ACTIVE user status (Founders Cap enforcement)
