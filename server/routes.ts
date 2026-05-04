@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, contentAssets, cardImageReports, createCardImageReportSchema, baseballCards, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -5679,7 +5679,6 @@ export async function registerRoutes(
       
       try {
         // First, delete any card_image_reports for cards in this set (to avoid FK constraint)
-        const { cardImageReports } = await import("@shared/schema");
         const cardIdsInSet = await db
           .select({ id: playableCards.id })
           .from(playableCards)
@@ -6324,8 +6323,7 @@ export async function registerRoutes(
   app.post("/api/cards/:cardId/report", async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      const { createCardImageReportSchema, cardImageReports, baseballCards } = await import("@shared/schema");
-      
+
       const parsed = createCardImageReportSchema.safeParse({ cardId, ...req.body });
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid report data", details: parsed.error.flatten() });
@@ -6529,7 +6527,6 @@ export async function registerRoutes(
   // Admin: List pending card image reports
   app.get("/api/admin/card-reports", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const { cardImageReports } = await import("@shared/schema");
       const { status = "pending", limit: limitParam = "50", offset: offsetParam = "0" } = req.query;
       
       const limitNum = Math.min(parseInt(limitParam as string, 10) || 50, 100);
@@ -6591,7 +6588,6 @@ export async function registerRoutes(
     try {
       const { reportId } = req.params;
       const { action, resolution } = req.body;
-      const { cardImageReports } = await import("@shared/schema");
 
       const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
       if (!adminUserId) {
@@ -6667,7 +6663,6 @@ export async function registerRoutes(
     try {
       const { cardId } = req.params;
       const { action, resolution, imageRotation } = req.body;
-      const { cardImageReports } = await import("@shared/schema");
 
       // Resolve the admin's user ID — works for both Replit Auth and local-auth sessions
       const adminUserId: string = (req.session as any)?.localUserId || req.user?.claims?.sub;
