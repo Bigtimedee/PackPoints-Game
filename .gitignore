@@ -16,3 +16,4 @@ replit.nix
 *.patch
 push_*.cjs
 push_*.js
+data/masked-cards/
