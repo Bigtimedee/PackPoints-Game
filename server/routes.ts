@@ -71,6 +71,7 @@ import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
 import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panicService";
 import { isStripeConfiguredSync } from "./stripeClient";
+import { assertMutationAllowed, writeAuditLog } from "./services/mutationGuard";
 import type { ZodError } from "zod";
 
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
@@ -6675,7 +6676,6 @@ export async function registerRoutes(
 
       // Check mutation guard before opening a transaction
       if (action === "reject") {
-        const { assertMutationAllowed } = await import("./services/mutationGuard");
         const guard = assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
@@ -6736,7 +6736,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Card not found" });
       }
       console.error("[Card Review] Error:", error);
-      res.status(500).json({ error: "Failed to review card" });
+      res.status(500).json({ error: "Failed to review card", _debug: error?.message, _stack: error?.stack?.split("\n").slice(0, 5) });
     }
   });
 
