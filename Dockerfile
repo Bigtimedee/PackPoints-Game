@@ -31,15 +31,16 @@ EXPOSE 5000
 # Make startup script executable
 RUN chmod +x /app/start.sh
 
+# Pre-download Tesseract language data at build time (avoids runtime network + permission issues)
+RUN node -e "const {createWorker}=require('tesseract.js');createWorker('eng',1,{logger:()=>{}}).then(w=>w.terminate()).catch(()=>{})" || true
+
+# Run as non-root user for security (must happen before chown so the user exists)
+RUN addgroup -S packpts && adduser -S packpts -G packpts
+
 # Create runtime data directory with correct ownership before user switch
 RUN mkdir -p /app/data/masked-cards && \
     chown -R packpts:packpts /app/data
 
-# Pre-download Tesseract language data at build time (avoids runtime network + permission issues)
-RUN node -e "const {createWorker}=require('tesseract.js');createWorker('eng',1,{logger:()=>{}}).then(w=>w.terminate()).catch(()=>{})" || true
-
-# Run as non-root user for security
-RUN addgroup -S packpts && adduser -S packpts -G packpts
 USER packpts
 
 # Health check using the existing /health endpoint
