@@ -4537,7 +4537,7 @@ export async function registerRoutes(
                       blockedReason: "player_mismatch",
                       imageReviewStatus: "excluded",
                       imageLastError: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
-                      quarantineStatus: "REMOVED_BY_ADMIN",
+                      quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
                       updatedAt: new Date(),
                     })
                     .where(eq(playableCards.id, card.id));
@@ -4605,7 +4605,7 @@ export async function registerRoutes(
               isPlayable: false,
               blockedReason: "player_mismatch",
               imageReviewStatus: "excluded",
-              quarantineStatus: "REMOVED_BY_ADMIN",
+              quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
@@ -6634,7 +6634,7 @@ export async function registerRoutes(
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: "Image mismatch confirmed via report",
-            quarantineStatus: "REMOVED_BY_ADMIN",
+            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
           .where(eq(playableCards.id, report.cardId));
@@ -6710,12 +6710,12 @@ export async function registerRoutes(
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: resolution || "Image mismatch confirmed via admin review",
-            quarantineStatus: "REMOVED_BY_ADMIN",
+            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
           .where(eq(playableCards.id, cardId));
       }
-      
+
       console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${req.user.id}`);
       
       res.json({ success: true, action, cardId });
@@ -6752,7 +6752,7 @@ export async function registerRoutes(
         .set({
           isPlayable: false,
           blockedReason: "multi-player",
-          quarantineStatus: "REMOVED_BY_ADMIN",
+          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
           updatedAt: new Date(),
         })
         .where(inArray(playableCards.id, cardIds))
@@ -6842,7 +6842,7 @@ export async function registerRoutes(
           isPlayable: false,
           blockedReason: reason || "admin_manual_exclusion",
           imageReviewStatus: "excluded",
-          quarantineStatus: "REMOVED_BY_ADMIN",
+          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
           updatedAt: new Date(),
         })
         .where(eq(playableCards.id, cardId));
