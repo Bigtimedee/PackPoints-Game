@@ -11,14 +11,19 @@
 
 ### Running DB migrations against production
 
-After any schema change or new migration file:
+`psql` is not in PATH on this machine. Use the full path. `railway run` doesn't resolve the file correctly either. The working approach:
+
 ```bash
-railway run psql $DATABASE_URL -f migrations/<filename>.sql
+# 1. Get the public DB URL from the Postgres service (not the app service)
+railway variables --service Postgres --json | python3 -c "import sys,json; print(json.load(sys.stdin)['DATABASE_PUBLIC_URL'])"
+
+# 2. Run the migration
+/opt/homebrew/Cellar/libpq/18.1_1/bin/psql "<DATABASE_PUBLIC_URL>" -f migrations/<filename>.sql
 ```
 
-Or for a drizzle-kit schema push (syncs entire schema):
+Or for a drizzle-kit schema push (syncs entire schema to match shared/schema.ts):
 ```bash
-railway run npm run db:push
+railway variables --service Postgres --json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['DATABASE_PUBLIC_URL'])" | xargs -I{} sh -c 'DATABASE_URL="{}" npm run db:push'
 ```
 
 **Always run migrations immediately after pushing code that references new columns.** The app will 500 on any UPDATE/SELECT that touches a column not yet in the production DB.
