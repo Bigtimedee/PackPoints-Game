@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
+    "db:migrate:prod": "railway run psql $DATABASE_URL -f",
     "agent:social": "tsx server/services/socialMedia/index.ts"
   },
   "dependencies": {

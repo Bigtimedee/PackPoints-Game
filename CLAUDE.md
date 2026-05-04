@@ -1,5 +1,30 @@
 # CLAUDE.md
 
+## Project: PackPoints (packpts.com)
+
+### Deployment — Railway
+
+- **Project**: `marvelous-freedom` on Railway
+- **Production auto-deploy**: every `git push` to `main` triggers a Railway build and deploy. No extra steps needed — commit + push = shipped.
+- **Railway CLI**: installed at `/opt/homebrew/bin/railway`, already linked and authenticated. Run `railway status` to confirm.
+- **Production DATABASE_URL**: injected by Railway at runtime. To get it locally: `railway run printenv DATABASE_URL`
+
+### Running DB migrations against production
+
+After any schema change or new migration file:
+```bash
+railway run psql $DATABASE_URL -f migrations/<filename>.sql
+```
+
+Or for a drizzle-kit schema push (syncs entire schema):
+```bash
+railway run npm run db:push
+```
+
+**Always run migrations immediately after pushing code that references new columns.** The app will 500 on any UPDATE/SELECT that touches a column not yet in the production DB.
+
+---
+
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
