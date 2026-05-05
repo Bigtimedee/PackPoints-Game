@@ -6573,24 +6573,22 @@ export async function registerRoutes(
     try {
       const flaggedCards = await db
         .select()
-        .from(baseballCards)
+        .from(playableCards)
         .where(
           and(
             or(
-              eq(baseballCards.imageReviewStatus, "flagged"),
-              gte(baseballCards.reportCount, 3)
+              eq(playableCards.imageReviewStatus, "flagged"),
+              gte(playableCards.reportCount, 3)
             ),
-            ne(baseballCards.imageReviewStatus, "rejected"),
-            ne(baseballCards.imageReviewStatus, "approved"),
-            eq(baseballCards.isPlayable, true)
+            ne(playableCards.imageReviewStatus, "rejected"),
+            ne(playableCards.imageReviewStatus, "approved"),
+            eq(playableCards.isPlayable, true)
           )
         )
-        .orderBy(desc(baseballCards.reportCount))
+        .orderBy(desc(playableCards.reportCount))
         .limit(100);
 
-      // Alias playerName → player so the frontend PlayableCard interface is satisfied
-      process.stderr.write(`[FlaggedCards] Returning ${flaggedCards.length} cards from baseball_cards\n`);
-      res.json({ cards: flaggedCards.map(c => ({ ...c, player: c.playerName, setId: 0 })), _debug_count: flaggedCards.length });
+      res.json({ cards: flaggedCards });
     } catch (error) {
       console.error("Error fetching flagged cards:", error);
       res.status(500).json({ error: "Failed to fetch flagged cards" });
@@ -6634,12 +6632,12 @@ export async function registerRoutes(
 
       if (action === "approve") {
         await db
-          .update(baseballCards)
+          .update(playableCards)
           .set({
             imageReviewStatus: "approved",
             updatedAt: new Date(),
           })
-          .where(eq(baseballCards.id, report.cardId));
+          .where(eq(playableCards.id, report.cardId));
       } else if (action === "reject") {
         const guard = assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
@@ -6651,7 +6649,7 @@ export async function registerRoutes(
           return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
         }
         await db
-          .update(baseballCards)
+          .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
@@ -6659,7 +6657,7 @@ export async function registerRoutes(
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
-          .where(eq(baseballCards.id, report.cardId));
+          .where(eq(playableCards.id, report.cardId));
       }
       
       console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${adminUserId}`);
@@ -6701,9 +6699,9 @@ export async function registerRoutes(
 
       // Verify card exists before opening a transaction (avoids error-swallowing in tx rollback)
       const [existingCard] = await db
-        .select({ id: baseballCards.id })
-        .from(baseballCards)
-        .where(eq(baseballCards.id, cardId))
+        .select({ id: playableCards.id })
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
         .limit(1);
 
       if (!existingCard) {
@@ -6713,18 +6711,18 @@ export async function registerRoutes(
       await db.transaction(async (tx) => {
         // Update the card
         if (action === "approve") {
-          await tx.update(baseballCards).set({
+          await tx.update(playableCards).set({
             imageReviewStatus: "approved",
             updatedAt: new Date(),
-          }).where(eq(baseballCards.id, cardId));
+          }).where(eq(playableCards.id, cardId));
         } else {
-          await tx.update(baseballCards).set({
+          await tx.update(playableCards).set({
             isPlayable: false,
             imageReviewStatus: "rejected",
             blockedReason: resolutionNotes || "Image mismatch confirmed via admin review",
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
-          }).where(eq(baseballCards.id, cardId));
+          }).where(eq(playableCards.id, cardId));
         }
 
         // Resolve all open reports — removes card from the flagged list
