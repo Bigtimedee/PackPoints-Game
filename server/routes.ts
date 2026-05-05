@@ -6589,6 +6589,7 @@ export async function registerRoutes(
         .limit(100);
 
       // Alias playerName → player so the frontend PlayableCard interface is satisfied
+      console.log(`[FlaggedCards] Returning ${flaggedCards.length} cards from baseball_cards`);
       res.json({ cards: flaggedCards.map(c => ({ ...c, player: c.playerName, setId: 0 })) });
     } catch (error) {
       console.error("Error fetching flagged cards:", error);
