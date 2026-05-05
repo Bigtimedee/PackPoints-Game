@@ -6573,22 +6573,23 @@ export async function registerRoutes(
     try {
       const flaggedCards = await db
         .select()
-        .from(playableCards)
+        .from(baseballCards)
         .where(
           and(
             or(
-              eq(playableCards.imageReviewStatus, "flagged"),
-              gte(playableCards.reportCount, 3)
+              eq(baseballCards.imageReviewStatus, "flagged"),
+              gte(baseballCards.reportCount, 3)
             ),
-            ne(playableCards.imageReviewStatus, "rejected"),
-            ne(playableCards.imageReviewStatus, "approved"),
-            eq(playableCards.isPlayable, true)
+            ne(baseballCards.imageReviewStatus, "rejected"),
+            ne(baseballCards.imageReviewStatus, "approved"),
+            eq(baseballCards.isPlayable, true)
           )
         )
-        .orderBy(desc(playableCards.reportCount))
+        .orderBy(desc(baseballCards.reportCount))
         .limit(100);
 
-      res.json({ cards: flaggedCards });
+      // Map playerName → player for frontend PlayableCard interface compatibility
+      res.json({ cards: flaggedCards.map(c => ({ ...c, player: c.playerName, setId: 0 })) });
     } catch (error) {
       console.error("Error fetching flagged cards:", error);
       res.status(500).json({ error: "Failed to fetch flagged cards" });
@@ -6632,12 +6633,12 @@ export async function registerRoutes(
 
       if (action === "approve") {
         await db
-          .update(playableCards)
+          .update(baseballCards)
           .set({
             imageReviewStatus: "approved",
             updatedAt: new Date(),
           })
-          .where(eq(playableCards.id, report.cardId));
+          .where(eq(baseballCards.id, report.cardId));
       } else if (action === "reject") {
         const guard = assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
@@ -6649,7 +6650,7 @@ export async function registerRoutes(
           return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
         }
         await db
-          .update(playableCards)
+          .update(baseballCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
@@ -6657,7 +6658,7 @@ export async function registerRoutes(
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
-          .where(eq(playableCards.id, report.cardId));
+          .where(eq(baseballCards.id, report.cardId));
       }
       
       console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${adminUserId}`);
@@ -6699,9 +6700,9 @@ export async function registerRoutes(
 
       // Verify card exists before opening a transaction (avoids error-swallowing in tx rollback)
       const [existingCard] = await db
-        .select({ id: playableCards.id })
-        .from(playableCards)
-        .where(eq(playableCards.id, cardId))
+        .select({ id: baseballCards.id })
+        .from(baseballCards)
+        .where(eq(baseballCards.id, cardId))
         .limit(1);
 
       if (!existingCard) {
@@ -6711,18 +6712,18 @@ export async function registerRoutes(
       await db.transaction(async (tx) => {
         // Update the card
         if (action === "approve") {
-          await tx.update(playableCards).set({
+          await tx.update(baseballCards).set({
             imageReviewStatus: "approved",
             updatedAt: new Date(),
-          }).where(eq(playableCards.id, cardId));
+          }).where(eq(baseballCards.id, cardId));
         } else {
-          await tx.update(playableCards).set({
+          await tx.update(baseballCards).set({
             isPlayable: false,
             imageReviewStatus: "rejected",
             blockedReason: resolutionNotes || "Image mismatch confirmed via admin review",
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
-          }).where(eq(playableCards.id, cardId));
+          }).where(eq(baseballCards.id, cardId));
         }
 
         // Resolve all open reports — removes card from the flagged list
