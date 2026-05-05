@@ -6698,19 +6698,18 @@ export async function registerRoutes(
         }
       }
 
+      // Verify card exists before opening a transaction (avoids error-swallowing in tx rollback)
+      const [existingCard] = await db
+        .select({ id: baseballCards.id })
+        .from(baseballCards)
+        .where(eq(baseballCards.id, cardId))
+        .limit(1);
+
+      if (!existingCard) {
+        return res.status(404).json({ error: "Card not found" });
+      }
+
       await db.transaction(async (tx) => {
-        const [card] = await tx
-          .select({ id: baseballCards.id })
-          .from(baseballCards)
-          .where(eq(baseballCards.id, cardId))
-          .limit(1);
-
-        if (!card) {
-          const err = new Error("Card not found");
-          (err as any).statusCode = 404;
-          throw err;
-        }
-
         // Update the card
         if (action === "approve") {
           await tx.update(baseballCards).set({
@@ -6742,9 +6741,6 @@ export async function registerRoutes(
       console.log(`[Card Review] ${cardId} ${action}ed by admin ${adminUserId}`);
       res.json({ success: true, action, cardId });
     } catch (error: any) {
-      if (error?.statusCode === 404) {
-        return res.status(404).json({ error: "Card not found" });
-      }
       console.error("[Card Review] Error:", error);
       res.status(500).json({ error: "Failed to review card", _debug: error?.message, _stack: error?.stack?.split("\n").slice(0, 5) });
     }
