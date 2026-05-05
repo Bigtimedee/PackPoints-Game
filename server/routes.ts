@@ -6358,30 +6358,36 @@ export async function registerRoutes(
       // Get user ID if authenticated, otherwise null for anonymous report
       const reporterId = (req as any).user?.id || null;
       
-      // For legacy cards (1v1 mode), we can't store in cardImageReports (FK constraint)
-      // But we CAN exclude them by setting imageVerified=false (match service filters by this)
+      // For baseball_cards, store the report in card_image_reports (FK constraint dropped via ensureSchema)
+      // and update the card's review counters so it appears in the admin flagged queue.
       if (isLegacyCard) {
-        console.log(`[Card Report] LEGACY CARD ${cardId} reported for ${parsed.data.reason} by ${reporterId || "guest"}`);
-        
-        // For multi_player or wrong_player reports on legacy cards, immediately exclude by setting imageVerified=false
-        // This prevents them from appearing in future 1v1 matches (match service filters by imageVerified=true)
-        const shouldExclude = parsed.data.reason === "multi_player" || parsed.data.reason === "wrong_player";
-        if (shouldExclude) {
-          await db
-            .update(baseballCards)
-            .set({ imageVerified: false })
-            .where(eq(baseballCards.id, cardId));
-          
-          console.log(`[Card Report] LEGACY CARD ${cardId} EXCLUDED from 1v1 matches: ${parsed.data.reason} report`);
-        }
-        
-        return res.json({ 
-          success: true, 
-          reportId: null, 
-          excluded: shouldExclude,
-          message: shouldExclude
-            ? "Card has been flagged and will be removed from future matches."
-            : "Report logged for legacy card. These cards are from a curated set and will be reviewed." 
+        const [report] = await db
+          .insert(cardImageReports)
+          .values({
+            cardId,
+            reporterId,
+            sessionId: parsed.data.sessionId,
+            reason: parsed.data.reason,
+            description: parsed.data.description,
+            status: "pending",
+          })
+          .returning();
+
+        await db
+          .update(baseballCards)
+          .set({
+            reportCount: sql`${baseballCards.reportCount} + 1`,
+            imageReviewStatus: sql`CASE WHEN ${baseballCards.reportCount} + 1 >= 3 THEN 'flagged'::varchar ELSE ${baseballCards.imageReviewStatus} END`,
+            updatedAt: new Date(),
+          })
+          .where(eq(baseballCards.id, cardId));
+
+        console.log(`[Card Report] ${cardId} reported (${parsed.data.reason}) by ${reporterId || "guest"} — queued for admin review`);
+        return res.json({
+          success: true,
+          reportId: report.id,
+          excluded: false,
+          message: "Report submitted. This card will be reviewed by an admin.",
         });
       }
       
@@ -6536,21 +6542,26 @@ export async function registerRoutes(
       const reports = await db
         .select({
           report: cardImageReports,
-          card: playableCards,
+          card: baseballCards,
         })
         .from(cardImageReports)
-        .leftJoin(playableCards, eq(cardImageReports.cardId, playableCards.id))
+        .leftJoin(baseballCards, eq(cardImageReports.cardId, baseballCards.id))
         .where(eq(cardImageReports.status, status as string))
         .orderBy(desc(cardImageReports.createdAt))
         .limit(limitNum)
         .offset(offsetNum);
-      
+
       const [{ count }] = await db
         .select({ count: sql<number>`count(*)` })
         .from(cardImageReports)
         .where(eq(cardImageReports.status, status as string));
-      
-      res.json({ reports, total: Number(count), limit: limitNum, offset: offsetNum });
+
+      // Alias playerName → player for frontend PlayableCard interface compatibility
+      const mapped = reports.map(r => ({
+        report: r.report,
+        card: r.card ? { ...r.card, player: r.card.playerName, setId: 0 } : null,
+      }));
+      res.json({ reports: mapped, total: Number(count), limit: limitNum, offset: offsetNum });
     } catch (error) {
       console.error("Error fetching card reports:", error);
       res.status(500).json({ error: "Failed to fetch card reports" });
@@ -6562,22 +6573,23 @@ export async function registerRoutes(
     try {
       const flaggedCards = await db
         .select()
-        .from(playableCards)
+        .from(baseballCards)
         .where(
           and(
             or(
-              eq(playableCards.imageReviewStatus, "flagged"),
-              gte(playableCards.reportCount, 3)
+              eq(baseballCards.imageReviewStatus, "flagged"),
+              gte(baseballCards.reportCount, 3)
             ),
-            ne(playableCards.imageReviewStatus, "rejected"),
-            ne(playableCards.imageReviewStatus, "approved"),
-            eq(playableCards.isPlayable, true)
+            ne(baseballCards.imageReviewStatus, "rejected"),
+            ne(baseballCards.imageReviewStatus, "approved"),
+            eq(baseballCards.isPlayable, true)
           )
         )
-        .orderBy(desc(playableCards.reportCount))
+        .orderBy(desc(baseballCards.reportCount))
         .limit(100);
-      
-      res.json({ cards: flaggedCards });
+
+      // Alias playerName → player so the frontend PlayableCard interface is satisfied
+      res.json({ cards: flaggedCards.map(c => ({ ...c, player: c.playerName, setId: 0 })) });
     } catch (error) {
       console.error("Error fetching flagged cards:", error);
       res.status(500).json({ error: "Failed to fetch flagged cards" });
@@ -6621,14 +6633,13 @@ export async function registerRoutes(
 
       if (action === "approve") {
         await db
-          .update(playableCards)
+          .update(baseballCards)
           .set({
             imageReviewStatus: "approved",
             updatedAt: new Date(),
           })
-          .where(eq(playableCards.id, report.cardId));
+          .where(eq(baseballCards.id, report.cardId));
       } else if (action === "reject") {
-        const { assertMutationAllowed } = await import("./services/mutationGuard");
         const guard = assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
@@ -6639,7 +6650,7 @@ export async function registerRoutes(
           return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
         }
         await db
-          .update(playableCards)
+          .update(baseballCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
@@ -6647,7 +6658,7 @@ export async function registerRoutes(
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
-          .where(eq(playableCards.id, report.cardId));
+          .where(eq(baseballCards.id, report.cardId));
       }
       
       console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${adminUserId}`);
@@ -6689,9 +6700,9 @@ export async function registerRoutes(
 
       await db.transaction(async (tx) => {
         const [card] = await tx
-          .select({ id: playableCards.id })
-          .from(playableCards)
-          .where(eq(playableCards.id, cardId))
+          .select({ id: baseballCards.id })
+          .from(baseballCards)
+          .where(eq(baseballCards.id, cardId))
           .limit(1);
 
         if (!card) {
@@ -6702,19 +6713,18 @@ export async function registerRoutes(
 
         // Update the card
         if (action === "approve") {
-          const updateData: any = { imageReviewStatus: "approved", updatedAt: new Date() };
-          if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
-            updateData.imageRotation = imageRotation;
-          }
-          await tx.update(playableCards).set(updateData).where(eq(playableCards.id, cardId));
+          await tx.update(baseballCards).set({
+            imageReviewStatus: "approved",
+            updatedAt: new Date(),
+          }).where(eq(baseballCards.id, cardId));
         } else {
-          await tx.update(playableCards).set({
+          await tx.update(baseballCards).set({
             isPlayable: false,
             imageReviewStatus: "rejected",
             blockedReason: resolutionNotes || "Image mismatch confirmed via admin review",
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
-          }).where(eq(playableCards.id, cardId));
+          }).where(eq(baseballCards.id, cardId));
         }
 
         // Resolve all open reports — removes card from the flagged list
@@ -6738,6 +6748,21 @@ export async function registerRoutes(
       console.error("[Card Review] Error:", error);
       res.status(500).json({ error: "Failed to review card", _debug: error?.message, _stack: error?.stack?.split("\n").slice(0, 5) });
     }
+  });
+
+  // Debug endpoint — admin session state for diagnosing auth failures
+  app.get("/api/admin/debug/auth", isAuthenticated, requireAdmin, async (req: any, res) => {
+    const localUserId = (req.session as any)?.localUserId;
+    const claimsId = req.user?.claims?.sub;
+    const user = localUserId ? await storage.getUser(localUserId) : null;
+    res.json({
+      localUserId,
+      claimsId,
+      sessionId: (req.session as any)?.id || null,
+      isAdmin: user?.isAdmin ?? false,
+      userFound: !!user,
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // Schema for bulk card flag/unflag operations

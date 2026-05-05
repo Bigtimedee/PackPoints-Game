@@ -170,6 +170,15 @@ export async function ensureSchema(): Promise<void> {
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "publish_block_reason" text;
       ALTER TABLE IF EXISTS "growth_content_items" ADD COLUMN IF NOT EXISTS "preflight_passed" boolean;
 
+      -- baseball_cards admin review columns (idempotent)
+      ALTER TABLE IF EXISTS "baseball_cards" ADD COLUMN IF NOT EXISTS "image_review_status" varchar(20) NOT NULL DEFAULT 'unreviewed';
+      ALTER TABLE IF EXISTS "baseball_cards" ADD COLUMN IF NOT EXISTS "report_count" integer NOT NULL DEFAULT 0;
+      ALTER TABLE IF EXISTS "baseball_cards" ADD COLUMN IF NOT EXISTS "blocked_reason" text;
+
+      -- Drop FK that incorrectly ties card_image_reports to the empty playable_cards table.
+      -- Reports are filed against baseball_cards IDs; application-layer lookup enforces validity.
+      ALTER TABLE IF EXISTS "card_image_reports" DROP CONSTRAINT IF EXISTS "card_image_reports_card_id_playable_cards_id_fk";
+
       -- card_set_masks (CSS mask regions per card set)
       CREATE TABLE IF NOT EXISTS "card_set_masks" (
         "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

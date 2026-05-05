@@ -206,6 +206,14 @@ export const baseballCards = pgTable("baseball_cards", {
   lastImageCheck: timestamp("last_image_check"),
   imageFailureCount: integer("image_failure_count").notNull().default(0),
   imageLastError: text("image_last_error"),
+  // Playability + quarantine (columns already exist in production DB via prior migrations)
+  isPlayable: boolean("is_playable").notNull().default(true),
+  quarantineStatus: varchar("quarantine_status", { length: 30 }).notNull().default("OK"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  // Admin review fields (new columns added via ensureSchema on boot)
+  imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"),
+  reportCount: integer("report_count").notNull().default(0),
+  blockedReason: text("blocked_reason"),
 }, (table) => [
   index("idx_baseball_cards_last_check").on(table.lastImageCheck),
 ]);
