@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { logger } from "@/lib/logger";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,25 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+interface MaskRegion {
+  xPct: number;
+  yPct: number;
+  wPct: number;
+  hPct: number;
+  type: "solid" | "blur" | "pixelate";
+  radiusPct?: number;
+}
+
+interface MaskConfig {
+  setKey: string;
+  regions: MaskRegion[];
+  maskVersion: number;
+}
+
+const DEFAULT_MASK_REGIONS: MaskRegion[] = [
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "blur", radiusPct: 0 },
+];
 
 const PLACEHOLDER_URL_PATTERNS = [
   /placeholder/i,
@@ -34,7 +54,7 @@ function isPlaceholderUrl(url: string): boolean {
   return false;
 }
 
-const CLIENT_SIDE_IMAGE_VALIDATION = import.meta.env.VITE_CLIENT_SIDE_IMAGE_VALIDATION === 'true';
+const CLIENT_SIDE_IMAGE_VALIDATION = import.meta.env.VITE_CLIENT_SIDE_IMAGE_VALIDATION !== 'false';
 
 /**
  * Canvas-based image validation — detects blank/placeholder card images.
@@ -216,7 +236,6 @@ export function GameCard({
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
-  const activeImageUrl = !isRevealed && cardId ? `/api/cards/${cardId}/masked-image` : cdnImageUrl;
 
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(() => {
@@ -230,10 +249,39 @@ export function GameCard({
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const { toast } = useToast();
 
+  const { data: maskConfig } = useQuery<MaskConfig>({
+    queryKey: ["/api/card-sets/mask", setKey || setLabel || "__default__"],
+    queryFn: async () => {
+      const key = setKey || setLabel || "";
+      if (!key) {
+        return {
+          setKey: "__default__",
+          regions: DEFAULT_MASK_REGIONS,
+          maskVersion: 1,
+        };
+      }
+      try {
+        const res = await fetch(`/api/card-sets/${encodeURIComponent(key)}/mask`);
+        if (!res.ok) {
+          return {
+            setKey: key,
+            regions: DEFAULT_MASK_REGIONS,
+            maskVersion: 1,
+          };
+        }
+        return res.json();
+      } catch {
+        return {
+          setKey: key,
+          regions: DEFAULT_MASK_REGIONS,
+          maskVersion: 1,
+        };
+      }
+    },
+    staleTime: 10 * 60 * 1000,
+  });
 
-  useEffect(() => {
-    setImageLoaded(false);
-  }, [activeImageUrl]);
+  const regions = maskConfig?.regions || DEFAULT_MASK_REGIONS;
 
   useEffect(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl) && cardId) {
@@ -426,9 +474,10 @@ export function GameCard({
       {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
       {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
       <img
-        src={activeImageUrl}
+        src={cdnImageUrl}
         alt={[team, "sports card"].filter(Boolean).join(" ")}
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+        crossOrigin="anonymous"
         loading="eager"
         decoding="async"
         style={{
@@ -444,6 +493,45 @@ export function GameCard({
         data-testid="img-card"
       />
       
+      {!isRevealed && !imageError && regions.map((region, index) => (
+        <div
+          key={index}
+          className="absolute pointer-events-none transition-opacity duration-300 overflow-hidden"
+          style={{
+            left: `${region.xPct}%`,
+            top: `${region.yPct}%`,
+            width: `${region.wPct}%`,
+            height: `${region.hPct}%`,
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "transparent",
+            borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
+            backdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
+            zIndex: 20,
+          }}
+          data-testid={`mask-region-${index}`}
+        >
+          {index === 0 && region.type === "solid" && (
+            <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
+              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
+            </div>
+          )}
+          {index === 0 && region.type === "blur" && (
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(15, 23, 42, 0.45)" }}>
+              <span className="text-xs font-bold text-slate-100 tracking-widest drop-shadow-lg">{setLabel || "MYSTERY CARD"}</span>
+            </div>
+          )}
+          {index === 1 && region.type === "solid" && (
+            <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
+              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
+            </div>
+          )}
+          {index === 1 && region.type === "blur" && (
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(120, 53, 15, 0.4)" }}>
+              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
+            </div>
+          )}
+        </div>
+      ))}
       
       {cardId && !imageError && (
         <div className="absolute top-2 right-2 z-30">

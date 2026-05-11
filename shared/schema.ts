@@ -206,14 +206,6 @@ export const baseballCards = pgTable("baseball_cards", {
   lastImageCheck: timestamp("last_image_check"),
   imageFailureCount: integer("image_failure_count").notNull().default(0),
   imageLastError: text("image_last_error"),
-  // Playability + quarantine (columns already exist in production DB via prior migrations)
-  isPlayable: boolean("is_playable").notNull().default(true),
-  quarantineStatus: varchar("quarantine_status", { length: 30 }).notNull().default("OK"),
-  updatedAt: timestamp("updated_at").defaultNow(),
-  // Admin review fields (new columns added via ensureSchema on boot)
-  imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"),
-  reportCount: integer("report_count").notNull().default(0),
-  blockedReason: text("blocked_reason"),
 }, (table) => [
   index("idx_baseball_cards_last_check").on(table.lastImageCheck),
 ]);
@@ -336,6 +328,7 @@ export const lobbies = pgTable("lobbies", {
   mode: text("mode").notNull().default("1v1_friend"),
   totalQuestions: integer("total_questions").notNull().default(10),
   gameSetId: varchar("game_set_id"),
+  wagerAmount: integer("wager_amount").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -392,6 +385,8 @@ export const matches = pgTable("matches", {
   hostCorrect: integer("host_correct").notNull().default(0),
   guestCorrect: integer("guest_correct").notNull().default(0),
   progressApplied: boolean("progress_applied").notNull().default(false),
+  wagerAmount: integer("wager_amount").notNull().default(0),
+  wagerSettled: boolean("wager_settled").notNull().default(false),
 }, (table) => [
   index("idx_matches_status").on(table.status),
   index("idx_matches_host").on(table.hostUserId),
@@ -437,6 +432,70 @@ export const insertMatchParticipantSchema = createInsertSchema(matchParticipants
 
 export type InsertMatchParticipant = z.infer<typeof insertMatchParticipantSchema>;
 export type MatchParticipant = typeof matchParticipants.$inferSelect;
+
+// --- Ranked Competitive System (ELO) ---
+
+export const rankedTierEnum = pgEnum("ranked_tier", [
+  "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "LEGEND",
+]);
+
+export const playerRatings = pgTable("player_ratings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id).unique(),
+  rating: integer("rating").notNull().default(1200),
+  peakRating: integer("peak_rating").notNull().default(1200),
+  tier: rankedTierEnum("tier").notNull().default("BRONZE"),
+  wins: integer("wins").notNull().default(0),
+  losses: integer("losses").notNull().default(0),
+  draws: integer("draws").notNull().default(0),
+  winStreak: integer("win_streak").notNull().default(0),
+  bestWinStreak: integer("best_win_streak").notNull().default(0),
+  seasonId: integer("season_id").notNull().default(1),
+  lastMatchAt: timestamp("last_match_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_player_ratings_user").on(table.userId),
+  index("idx_player_ratings_rating").on(table.rating),
+  index("idx_player_ratings_tier").on(table.tier),
+  index("idx_player_ratings_season").on(table.seasonId),
+]);
+
+export type PlayerRating = typeof playerRatings.$inferSelect;
+
+export const ratingHistory = pgTable("rating_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  matchId: varchar("match_id").notNull(),
+  ratingBefore: integer("rating_before").notNull(),
+  ratingAfter: integer("rating_after").notNull(),
+  ratingChange: integer("rating_change").notNull(),
+  opponentRating: integer("opponent_rating").notNull(),
+  result: varchar("result", { length: 10 }).notNull(), // WIN, LOSS, DRAW
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_rating_history_user").on(table.userId),
+  index("idx_rating_history_match").on(table.matchId),
+]);
+
+export type RatingHistoryEntry = typeof ratingHistory.$inferSelect;
+
+// Tier thresholds
+export const RANKED_TIER_THRESHOLDS = {
+  BRONZE:   { min: 0,    max: 1199, label: "Bronze",   color: "#CD7F32" },
+  SILVER:   { min: 1200, max: 1399, label: "Silver",   color: "#C0C0C0" },
+  GOLD:     { min: 1400, max: 1599, label: "Gold",     color: "#FFD700" },
+  PLATINUM: { min: 1600, max: 1799, label: "Platinum", color: "#E5E4E2" },
+  DIAMOND:  { min: 1800, max: 1999, label: "Diamond",  color: "#B9F2FF" },
+  LEGEND:   { min: 2000, max: 9999, label: "Legend",   color: "#FF4500" },
+} as const;
+
+export type RankedTierName = keyof typeof RANKED_TIER_THRESHOLDS;
+
+// ── Wager Match constants ──
+export const WAGER_MIN_PACKPTS = 100;
+export const WAGER_MAX_PACKPTS = 5_000;
+export const WAGER_HOUSE_RAKE_PCT = 10; // 10% house rake on winnings
 
 export const matchQuestions = pgTable("match_questions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -546,6 +605,7 @@ export interface MatchState {
   winnerUserId?: string;
   hostCorrect?: number;
   guestCorrect?: number;
+  wagerAmount?: number;
 }
 
 export const createLobbySchema = z.object({
@@ -557,6 +617,7 @@ export const createLobbySchema = z.object({
 export const createLobbyRequestSchema = z.object({
   totalQuestions: z.coerce.number({ invalid_type_error: "Number of questions must be a number" }).min(5, "Minimum 5 questions").max(20, "Maximum 20 questions").default(10),
   gameSetId: z.string().uuid("Please select a valid card set").nullish(),
+  wagerAmount: z.coerce.number().int().min(0).max(WAGER_MAX_PACKPTS).default(0),
 });
 
 export const joinLobbySchema = z.object({
@@ -1392,11 +1453,18 @@ export const DEFAULT_STREAK_SCHEDULE: Record<string, number> = {
 
 export const DEFAULT_MILESTONE_BONUSES: Record<string, number> = {
   "7": 500,
-  "14": 1250,
-  "30": 5000,
+  "14": 1_250,
+  "30": 3_000,
+  "60": 7_500,
+  "100": 15_000,
+  "200": 50_000,
+  "365": 100_000,
 };
 
 export const MAX_DAILY_STREAK_REWARD = 250; // cap for day > 30
+
+// Streak insurance: cost in PackPTS to purchase one streak freeze
+export const STREAK_FREEZE_COST_PACKPTS = 500;
 
 // ============================================
 // IDENTITY LINKING SYSTEM - Multi-provider Auth Security
@@ -2034,7 +2102,7 @@ export type InsertGeoRollupsDaily = z.infer<typeof insertGeoRollupsDailySchema>;
 export type GeoRollupsDaily = typeof geoRollupsDaily.$inferSelect;
 
 // Playable Cards - cards imported from Card Hedge for gameplay
-export const imageReviewStatuses = ["unreviewed", "reported", "flagged", "approved", "rejected"] as const;
+export const imageReviewStatuses = ["unreviewed", "reported", "approved", "rejected"] as const;
 export type ImageReviewStatus = typeof imageReviewStatuses[number];
 
 export const quarantineStatuses = ["OK", "SUSPECT_TRANSIENT", "SUSPECT_PERSISTENT", "QUARANTINED_ADMIN_REVIEW"] as const;
@@ -2223,9 +2291,6 @@ export const externalPurchaseIntent = pgTable("external_purchase_intent", {
     v: number; // USD per PackPTS
     Cmax: number; // max credit USD
     Rmax: number; // max redeemable PackPTS
-    marginPoolCents?: number;
-    txMarginCents?: number;
-    allowedCapCents?: number;
   }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -3255,14 +3320,16 @@ export const insertCardSetMaskSchema = createInsertSchema(cardSetMasks).omit({
 export type InsertCardSetMask = z.infer<typeof insertCardSetMaskSchema>;
 export type CardSetMask = typeof cardSetMasks.$inferSelect;
 
-// Default mask regions — single bottom band covering the name strip only
+// Default mask regions for unknown sets - covers top 18% AND bottom 38% to hide names in all positions
 export const DEFAULT_MASK_REGIONS: MaskRegion[] = [
-  { xPct: 0, yPct: 82, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "blur", radiusPct: 0 },
 ];
 
-// Slabbed card variant — slightly inset to follow the slab border
+// Slabbed card variant (name may sit higher)
 export const SLABBED_MASK_REGIONS: MaskRegion[] = [
-  { xPct: 5, yPct: 83, wPct: 90, hPct: 14, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "blur", radiusPct: 0 },
 ];
 
 // Cards - Local canonical catalog of imported cards
@@ -3888,6 +3955,31 @@ export const insertReferralAttributionSchema = createInsertSchema(referralAttrib
 export type InsertReferralAttribution = z.infer<typeof insertReferralAttributionSchema>;
 export type ReferralAttribution = typeof referralAttributions.$inferSelect;
 
+// --- Referral Tier Milestones ---
+
+export const referralMilestoneTypeEnum = pgEnum("referral_milestone_type", [
+  "TIER_1", "TIER_2", "TIER_3", "TIER_4",
+]);
+
+export const referralMilestones = pgTable("referral_milestones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  milestoneType: referralMilestoneTypeEnum("milestone_type").notNull(),
+  referralCountAtGrant: integer("referral_count_at_grant").notNull(),
+  bonusAwarded: integer("bonus_awarded").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("uq_referral_milestone_user").on(table.userId, table.milestoneType),
+  index("idx_referral_milestones_user").on(table.userId),
+]);
+
+export const insertReferralMilestoneSchema = createInsertSchema(referralMilestones).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertReferralMilestone = z.infer<typeof insertReferralMilestoneSchema>;
+export type ReferralMilestone = typeof referralMilestones.$inferSelect;
+
 export const contentAssetTypeEnum = pgEnum("content_asset_type", [
   "SCORE_CARD", "DAILY5_RANK_CARD", "STREAK_BADGE", "LEADERBOARD_SPOTLIGHT",
 ]);
@@ -3918,10 +4010,7 @@ export type ContentAsset = typeof contentAssets.$inferSelect;
 
 export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK"]);
 export const socialPostStatusEnum = pgEnum("social_post_status", [
-  "DRAFT", "QUEUED", "MEDIA_PENDING", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED", "BLOCKED",
-]);
-export const mediaStatusEnum = pgEnum("media_status", [
-  "NOT_REQUIRED", "PENDING", "GENERATED", "UPLOADED", "FAILED",
+  "DRAFT", "QUEUED", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED",
 ]);
 export const socialContentTypeEnum = pgEnum("social_content_type", [
   "TRIVIA_CARD", "LEADERBOARD_HIGHLIGHT", "STREAK_MILESTONE",
@@ -3953,10 +4042,6 @@ export const socialPosts = pgTable("social_posts", {
   errorMessage: text("error_message"),
   factCheckPassed: boolean("fact_check_passed").notNull().default(false),
   factCheckLog: jsonb("fact_check_log"),
-  mediaRequired: boolean("media_required").notNull().default(false),
-  mediaStatus: mediaStatusEnum("media_status").notNull().default("NOT_REQUIRED"),
-  publishBlockReason: text("publish_block_reason"),
-  preflightPassed: boolean("preflight_passed"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -4030,165 +4115,3 @@ export const campaignRewards = pgTable("campaign_rewards", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [index("idx_campaign_rewards_active").on(t.isActive)]);
 export type CampaignReward = typeof campaignRewards.$inferSelect;
-
-// ── Growth Agent ──────────────────────────────────────────────────────────────
-
-export const growthPlanStatusEnum = pgEnum("growth_plan_status", [
-  "PENDING", "GENERATING", "COMPLETE", "FAILED",
-]);
-export const growthItemStatusEnum = pgEnum("growth_item_status", [
-  "DRAFT", "QUEUED", "POSTED", "SKIPPED", "FAILED",
-]);
-export const growthJobStatusEnum = pgEnum("growth_job_status", [
-  "RUNNING", "COMPLETE", "FAILED",
-]);
-export const queueItemStatusEnum = pgEnum("queue_item_status", [
-  "PENDING", "POSTED", "SKIPPED", "FAILED",
-]);
-export const growthPlatformEnum = pgEnum("growth_platform", [
-  "TIKTOK", "INSTAGRAM", "X", "REDDIT",
-]);
-export const growthContentTypeEnum = pgEnum("growth_content_type", [
-  "SCORE_HIGHLIGHT", "STREAK_MILESTONE", "CHALLENGE_RECAP", "GENERAL",
-]);
-
-export const growthContentPlans = pgTable("growth_content_plans", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
-  status: growthPlanStatusEnum("status").notNull().default("PENDING"),
-  platformTargets: jsonb("platform_targets").notNull().default({}), // { TIKTOK: true, ... }
-  themes: jsonb("themes").notNull().default([]), // string[]
-  goals: text("goals"),
-  summary: text("summary"), // AI-generated plan summary
-  errorMessage: text("error_message"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (t) => [
-  uniqueIndex("idx_growth_plans_date").on(t.date),
-  index("idx_growth_plans_status").on(t.status),
-]);
-export type GrowthContentPlan = typeof growthContentPlans.$inferSelect;
-export type InsertGrowthContentPlan = typeof growthContentPlans.$inferInsert;
-
-export const growthContentItems = pgTable("growth_content_items", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  planId: varchar("plan_id").notNull().references(() => growthContentPlans.id),
-  platform: growthPlatformEnum("platform").notNull(),
-  contentType: growthContentTypeEnum("content_type").notNull(),
-  status: growthItemStatusEnum("status").notNull().default("DRAFT"),
-  caption: text("caption"),
-  hashtags: jsonb("hashtags").notNull().default([]), // string[]
-  hook: text("hook"), // opening line
-  script: text("script"), // full TikTok script
-  overlayText: text("overlay_text"),
-  cta: text("cta"), // call to action
-  assetRefs: jsonb("asset_refs").notNull().default([]), // { assetId, imageUrl }[]
-  metadata: jsonb("metadata").notNull().default({}),
-  errorMessage: text("error_message"),
-  mediaRequired: boolean("media_required").notNull().default(false),
-  mediaStatus: mediaStatusEnum("media_status").notNull().default("NOT_REQUIRED"),
-  mediaAssetCount: integer("media_asset_count").notNull().default(0),
-  publishBlockReason: text("publish_block_reason"),
-  preflightPassed: boolean("preflight_passed"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (t) => [
-  index("idx_growth_items_plan").on(t.planId),
-  index("idx_growth_items_status").on(t.status),
-  index("idx_growth_items_platform").on(t.platform),
-]);
-export type GrowthContentItem = typeof growthContentItems.$inferSelect;
-export type InsertGrowthContentItem = typeof growthContentItems.$inferInsert;
-
-export const publishingQueue = pgTable("publishing_queue", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  contentItemId: varchar("content_item_id").notNull().references(() => growthContentItems.id),
-  platform: growthPlatformEnum("platform").notNull(),
-  status: queueItemStatusEnum("status").notNull().default("PENDING"),
-  scheduledFor: timestamp("scheduled_for"),
-  postedAt: timestamp("posted_at"),
-  postedBy: varchar("posted_by"), // admin userId
-  notes: text("notes"),
-  retryCount: integer("retry_count").notNull().default(0),
-  errorMessage: text("error_message"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (t) => [
-  index("idx_publishing_queue_status").on(t.status),
-  index("idx_publishing_queue_item").on(t.contentItemId),
-  index("idx_publishing_queue_platform").on(t.platform),
-]);
-export type PublishingQueueItem = typeof publishingQueue.$inferSelect;
-
-export const growthJobRuns = pgTable("growth_job_runs", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  jobType: varchar("job_type", { length: 50 }).notNull(), // "DAILY_PLAN" | "CONTENT_GENERATION"
-  status: growthJobStatusEnum("status").notNull().default("RUNNING"),
-  targetDate: varchar("target_date", { length: 10 }), // YYYY-MM-DD
-  planId: varchar("plan_id"),
-  itemsGenerated: integer("items_generated").notNull().default(0),
-  log: text("log"),
-  errorMessage: text("error_message"),
-  startedAt: timestamp("started_at").defaultNow(),
-  completedAt: timestamp("completed_at"),
-}, (t) => [
-  index("idx_growth_job_runs_type").on(t.jobType, t.status),
-  index("idx_growth_job_runs_date").on(t.targetDate),
-]);
-export type GrowthJobRun = typeof growthJobRuns.$inferSelect;
-
-// ============================================
-// GROWTH FLYWHEEL ROLLUPS
-// ============================================
-
-export const globalGrowthRollups = pgTable("global_growth_rollups", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  dayKey: varchar("day_key", { length: 10 }).notNull().unique(), // YYYY-MM-DD
-  dau: integer("dau").notNull().default(0),
-  matchesPlayed: integer("matches_played").notNull().default(0),
-  daily5Entries: integer("daily5_entries").notNull().default(0),
-  sharesTotal: integer("shares_total").notNull().default(0),
-  invitesSent: integer("invites_sent").notNull().default(0),
-  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
-  firstMatchesFromInvites: integer("first_matches_from_invites").notNull().default(0),
-  firstPurchasesFromInvites: integer("first_purchases_from_invites").notNull().default(0),
-  kFactor: real("k_factor"), // signupsFromInvites / dau (if dau > 0)
-  computedAt: timestamp("computed_at").defaultNow(),
-}, (t) => [
-  index("idx_global_growth_rollups_day").on(t.dayKey),
-]);
-export type GlobalGrowthRollup = typeof globalGrowthRollups.$inferSelect;
-
-export const userGrowthRollups = pgTable("user_growth_rollups", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id),
-  dayKey: varchar("day_key", { length: 10 }).notNull(), // YYYY-MM-DD
-  matchesPlayed: integer("matches_played").notNull().default(0),
-  daily5Entries: integer("daily5_entries").notNull().default(0),
-  sharesTotal: integer("shares_total").notNull().default(0),
-  invitesSent: integer("invites_sent").notNull().default(0),
-  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
-  computedAt: timestamp("computed_at").defaultNow(),
-}, (t) => [
-  unique("uq_user_growth_rollup").on(t.userId, t.dayKey),
-  index("idx_user_growth_rollup_day").on(t.dayKey),
-  index("idx_user_growth_rollup_user").on(t.userId),
-]);
-
-// ── Chat integration tables ────────────────────────────────────────────────
-
-export const conversations = pgTable("conversations", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-export const messages = pgTable("messages", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  conversationId: integer("conversation_id").notNull().references(() => conversations.id),
-  role: text("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-export type UserGrowthRollup = typeof userGrowthRollups.$inferSelect;

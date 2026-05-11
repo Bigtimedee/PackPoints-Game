@@ -6,7 +6,7 @@ import { walletService } from "./walletService";
 import { storage } from "../storage";
 import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku, isPackPtsSubscription } from "./productMap";
 import { analyticsService } from "./analyticsService";
-import { getStripeClient, getStripeSync, isStripeConfiguredSync, isStripeConfiguredAsync, getWebhookSecret, getStripeMode } from "../stripeClient";
+import { getStripeClient, isStripeConfiguredSync, isStripeConfiguredAsync, getWebhookSecret, getStripeMode } from "../stripeClient";
 import { marginLedgerService } from "./marginLedgerService";
 
 export function isStripeConfigured(): boolean {
@@ -49,18 +49,7 @@ class StripePurchaseService {
       return event;
     }
 
-    try {
-      const stripeSync = await getStripeSync(host);
-      if (typeof stripeSync.constructWebhookEvent === 'function') {
-        const event = await stripeSync.constructWebhookEvent(payload, signature);
-        console.log(`[Stripe] Webhook verified via stripeSync managed secret (mode=${mode})`);
-        return event;
-      }
-    } catch (syncErr) {
-      console.warn(`[Stripe] stripeSync webhook verification failed: ${(syncErr as Error).message}`);
-    }
-
-    // No webhook secret configured and stripeSync verification unavailable.
+    // No webhook secret configured.
     // In production, this is a critical security failure — reject the event.
     // In development, re-fetch from Stripe API as a fallback.
     const isProduction = process.env.NODE_ENV === 'production';

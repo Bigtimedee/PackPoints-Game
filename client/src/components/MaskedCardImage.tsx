@@ -2,13 +2,25 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
-import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
+interface MaskRegion {
+  xPct: number;
+  yPct: number;
+  wPct: number;
+  hPct: number;
+  type: "solid" | "blur" | "pixelate";
+  radiusPct?: number;
+}
 
 interface MaskConfig {
   setKey: string;
   regions: MaskRegion[];
   maskVersion: number;
 }
+
+const DEFAULT_MASK_REGIONS: MaskRegion[] = [
+  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 80, wPct: 100, hPct: 20, type: "blur", radiusPct: 0 },
+];
 
 interface MaskedCardImageProps {
   src: string;
@@ -122,6 +134,7 @@ export function MaskedCardImage({
         onError={handleImageError}
         onDragStart={handleDragStart}
         draggable={false}
+        crossOrigin="anonymous"
         referrerPolicy="no-referrer"
         data-testid="masked-card-image"
       />
@@ -129,18 +142,16 @@ export function MaskedCardImage({
       {showMasks && regions.map((region, index) => (
         <div
           key={index}
-          className="absolute pointer-events-auto"
+          className="absolute pointer-events-auto overflow-hidden"
           style={{
             left: `${region.xPct}%`,
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? maskColor : "rgba(0,0,0,0.15)",
+            backgroundColor: region.type === "solid" ? maskColor : "transparent",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
-            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
-            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
+            backdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
             zIndex: 20,
           }}
           onContextMenu={handleContextMenu}
@@ -151,4 +162,5 @@ export function MaskedCardImage({
   );
 }
 
+export { DEFAULT_MASK_REGIONS };
 export type { MaskRegion, MaskConfig };

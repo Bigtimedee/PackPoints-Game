@@ -2,7 +2,6 @@ import Stripe from 'stripe';
 
 const PROD_HOSTS = ["packpts.com", "www.packpts.com"];
 
-let connectionSettings: any;
 let cachedStripeConfigured: boolean | null = null;
 let credentialSource: string = 'none';
 let cachedStripeMode: "live" | "test" | null = null;
@@ -20,10 +19,6 @@ export function getStripeMode(host?: string): "live" | "test" {
   if (process.env.NODE_ENV === "production") {
     return "live";
   }
-  const isReplitDeployment = process.env.REPLIT_DEPLOYMENT === '1';
-  if (isReplitDeployment) {
-    return "live";
-  }
   return "test";
 }
 
@@ -35,58 +30,6 @@ export function isProductionHost(host?: string): boolean {
 function maskKey(key: string): string {
   if (key.length <= 12) return key.substring(0, 7) + "...";
   return key.substring(0, 12) + "****";
-}
-
-async function fetchConnectorCredentials(environment: string): Promise<{ publishableKey: string; secretKey: string } | null> {
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? 'repl ' + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-      ? 'depl ' + process.env.WEB_REPL_RENEWAL
-      : null;
-
-  console.log(`[Stripe] Attempting connector (${environment}): hostname=${hostname ? 'set' : 'unset'}, token=${xReplitToken ? xReplitToken.substring(0, 8) + '...' : 'unset'}, REPL_IDENTITY=${process.env.REPL_IDENTITY ? 'set' : 'unset'}, WEB_REPL_RENEWAL=${process.env.WEB_REPL_RENEWAL ? 'set' : 'unset'}, REPLIT_DEPLOYMENT=${process.env.REPLIT_DEPLOYMENT || 'unset'}`);
-
-  if (!xReplitToken || !hostname) {
-    console.log(`[Stripe] Skipping connector (${environment}): missing ${!xReplitToken ? 'token' : 'hostname'}`);
-    return null;
-  }
-
-  try {
-    const url = new URL(`https://${hostname}/api/v2/connection`);
-    url.searchParams.set('include_secrets', 'true');
-    url.searchParams.set('connector_names', 'stripe');
-    url.searchParams.set('environment', environment);
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
-      }
-    });
-
-    const data = await response.json();
-    console.log(`[Stripe] Connector response (${environment}): status=${response.status}, items=${data.items?.length || 0}`);
-    
-    const settings = data.items?.[0];
-
-    if (settings?.settings?.publishable && settings?.settings?.secret) {
-      const keyPrefix = settings.settings.secret.substring(0, 7);
-      console.log(`[Stripe] Found credentials via connector (${environment}), key prefix: ${keyPrefix}...`);
-      connectionSettings = settings;
-      credentialSource = `connector-${environment}`;
-      return {
-        publishableKey: settings.settings.publishable,
-        secretKey: settings.settings.secret,
-      };
-    } else {
-      console.log(`[Stripe] Connector (${environment}) returned item but missing keys. Has publishable: ${!!settings?.settings?.publishable}, Has secret: ${!!settings?.settings?.secret}`);
-    }
-  } catch (err) {
-    console.log(`[Stripe] Connector fetch failed for ${environment}:`, (err as Error).message);
-  }
-
-  return null;
 }
 
 async function getCredentials(host?: string) {
@@ -118,16 +61,9 @@ async function getCredentials(host?: string) {
       return { publishableKey: envPublishable, secretKey: envSecret };
     }
 
-    const creds = await fetchConnectorCredentials('production');
-    if (creds) {
-      validateKeyPrefix(creds.secretKey, "sk_live_", "Connector production credentials");
-      validateKeyPrefix(creds.publishableKey, "pk_live_", "Connector production publishable key");
-      return creds;
-    }
-
     throw new Error(
       `[Stripe] FATAL: Live mode required but no LIVE Stripe credentials found. ` +
-      `Set STRIPE_secret and STRIPE_publishable, or configure the Stripe connector for production. ` +
+      `Set STRIPE_secret and STRIPE_publishable env vars. ` +
       `Will NOT fall back to test keys in production.`
     );
   }
@@ -148,13 +84,7 @@ async function getCredentials(host?: string) {
     return { publishableKey: envPublishable, secretKey: envSecret };
   }
 
-  const creds = await fetchConnectorCredentials('development');
-  if (creds) {
-    validateKeyPrefix(creds.secretKey, "sk_test_", "Connector development credentials (test mode)");
-    return creds;
-  }
-
-  throw new Error(`Stripe connection not found (tried: env vars, connector development). REPLIT_DEPLOYMENT=${process.env.REPLIT_DEPLOYMENT}, CONNECTORS_HOSTNAME=${process.env.REPLIT_CONNECTORS_HOSTNAME ? 'set' : 'unset'}`);
+  throw new Error(`[Stripe] FATAL: Test mode Stripe credentials not found. Set STRIPE_SECRET_KEY_TEST and STRIPE_PUBLISHABLE_KEY_TEST env vars.`);
 }
 
 function validateKeyPrefix(key: string, expectedPrefix: string, label: string) {
@@ -204,11 +134,8 @@ export function getStripeDiagnostics(): Record<string, any> {
     configured: cachedStripeConfigured,
     credentialSource,
     mode,
-    isProduction: process.env.REPLIT_DEPLOYMENT === '1',
+    isProduction: process.env.NODE_ENV === 'production',
     appEnv: process.env.APP_ENV || 'not set',
-    hasConnectorHostname: !!process.env.REPLIT_CONNECTORS_HOSTNAME,
-    hasReplIdentity: !!process.env.REPL_IDENTITY,
-    hasWebReplRenewal: !!process.env.WEB_REPL_RENEWAL,
     hasEnvSecretKey: !!process.env.STRIPE_SECRET_KEY,
     hasEnvPublishableKey: !!process.env.STRIPE_PUBLISHABLE_KEY,
     hasStripeSecret: !!process.env.STRIPE_secret,
@@ -265,7 +192,7 @@ export async function initializeStripeConnection(): Promise<boolean> {
   console.log(`[Stripe] ========================================`);
   console.log(`[Stripe] Stripe mode active: ${mode.toUpperCase()}`);
   console.log(`[Stripe] APP_ENV: ${process.env.APP_ENV || 'not set'}`);
-  console.log(`[Stripe] REPLIT_DEPLOYMENT: ${process.env.REPLIT_DEPLOYMENT || 'not set'}`);
+  console.log(`[Stripe] NODE_ENV: ${process.env.NODE_ENV || 'not set'}`);
   console.log(`[Stripe] ========================================`);
 
   cachedStripeConfigured = await isStripeConfiguredAsync();
@@ -292,24 +219,6 @@ export async function initializeStripeConnection(): Promise<boolean> {
     }
   }
   return cachedStripeConfigured;
-}
-
-let stripeSync: any = null;
-
-export async function getStripeSync(host?: string) {
-  if (!stripeSync) {
-    const { StripeSync } = await import('stripe-replit-sync');
-    const secretKey = await getStripeSecretKey(host);
-
-    stripeSync = new StripeSync({
-      poolConfig: {
-        connectionString: process.env.DATABASE_URL!,
-        max: 2,
-      },
-      stripeSecretKey: secretKey,
-    });
-  }
-  return stripeSync;
 }
 
 export async function getStripeConfig(host?: string): Promise<{ mode: "live" | "test"; publishableKey: string }> {

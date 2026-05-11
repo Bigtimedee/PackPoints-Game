@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, contentAssets, cardImageReports, createCardImageReportSchema, baseballCards, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -65,13 +65,11 @@ import { registerHealthRoutes } from "./routes/health.routes";
 import { registerWalletRoutes } from "./routes/wallet.routes";
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerIosRoutes } from "./routes/ios.routes";
-import { registerGrowthRoutes } from "./routes/growth.routes";
 import * as matchEngine from "./services/matches/engine";
 import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
 import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panicService";
 import { isStripeConfiguredSync } from "./stripeClient";
-import { assertMutationAllowed, writeAuditLog } from "./services/mutationGuard";
 import type { ZodError } from "zod";
 
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
@@ -89,32 +87,27 @@ function formatZodError(zodError: ZodError): string {
 
 // Middleware to require admin role
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const user = req.user as any;
-    const session = req.session as any;
-
-    // Get user ID from either Replit Auth or local session
-    const userId = user?.claims?.sub || session?.localUserId;
-
-    if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const dbUser = await storage.getUser(userId);
-    if (!dbUser?.isAdmin) {
-      return res.status(403).json({ message: "Admin access required" });
-    }
-
-    next();
-  } catch (error) {
-    console.error("[requireAdmin] Error checking admin status:", error);
-    return res.status(500).json({ message: "Internal server error checking authorization" });
+  const user = req.user as any;
+  const session = req.session as any;
+  
+  // Get user ID from either Replit Auth or local session
+  const userId = user?.claims?.sub || session?.localUserId;
+  
+  if (!userId) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
+  
+  const dbUser = await storage.getUser(userId);
+  if (!dbUser?.isAdmin) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  next();
 };
 
 // Middleware to require ACTIVE user status (Founders Cap enforcement)
 const requireActiveUser = async (req: any, res: Response, next: NextFunction) => {
-  const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+  const userId = req.user?.claims?.sub || req.session?.localUserId;
   if (!userId) {
     return res.status(401).json({ message: "Authentication required" });
   }
@@ -154,7 +147,6 @@ export async function registerRoutes(
   registerWalletRoutes(app);
   registerAdminRoutes(app);
   registerIosRoutes(app);
-  registerGrowthRoutes(app);
 
   // ============================================
   // HOME STATS (public, cached)
@@ -276,7 +268,7 @@ export async function registerRoutes(
         return res.status(503).json({ error: "This card set is temporarily disabled." });
       }
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const isGuest = !userId;
       
       // Debug logging for mobile auth issues
@@ -892,7 +884,7 @@ export async function registerRoutes(
 
   app.get("/api/daily5/status", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       const status = await daily5Service.getStatus(userId || undefined);
       res.json(status);
     } catch (error) {
@@ -903,7 +895,7 @@ export async function registerRoutes(
 
   app.post("/api/daily5/start", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const result = await daily5Service.startChallenge(userId);
       res.json(result);
@@ -921,7 +913,7 @@ export async function registerRoutes(
 
   app.post("/api/daily5/answer", isAuthenticated, answerSubmitLimiter, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       
       const parsed = daily5AnswerSchema.safeParse(req.body);
@@ -943,7 +935,7 @@ export async function registerRoutes(
 
   app.post("/api/daily5/finish", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       
       const parsed = daily5FinishSchema.safeParse(req.body);
@@ -956,7 +948,6 @@ export async function registerRoutes(
       try {
         const { onDaily5Finished } = await import("./contentFactory/index");
         const date = new Date().toISOString().slice(0, 10);
-        const streakResult = await streakService.processMatchCompletion(userId, parsed.data.challengeId).catch(() => null);
         onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -964,7 +955,6 @@ export async function registerRoutes(
           correctCount: result.correctCount || 0,
           totalQuestions: 5,
           rank: result.rank,
-          streak: streakResult?.streakInfo?.currentDays,
           date,
         }).catch(err => console.error("[ContentFactory] Daily5 background error:", err?.message));
       } catch (cfErr) {
@@ -986,68 +976,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Daily5] Error getting leaderboard:", error);
       res.status(500).json({ error: "Failed to get leaderboard" });
-    }
-  });
-
-  // ============================================
-  // CONTENT ASSETS ROUTES
-  // ============================================
-
-  // GET /api/content-assets/latest?matchId=<id> or ?challengeId=<id>
-  app.get("/api/content-assets/latest", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
-      if (!userId) return res.status(401).json({ error: "Not authenticated" });
-
-      const { matchId, challengeId } = req.query as Record<string, string>;
-      if (!matchId && !challengeId) {
-        return res.status(400).json({ error: "matchId or challengeId is required" });
-      }
-
-      const sourceEventId = matchId ? `match_${matchId}` : `daily5_${challengeId}`;
-
-      const assets = await db
-        .select()
-        .from(contentAssets)
-        .where(
-          and(
-            eq(contentAssets.userId, userId),
-            eq(contentAssets.sourceEventId, sourceEventId),
-          ),
-        )
-        .orderBy(desc(contentAssets.createdAt))
-        .limit(5);
-
-      res.json({ assets });
-    } catch (error) {
-      console.error("[ContentAssets] Error fetching latest:", error);
-      res.status(500).json({ error: "Failed to fetch content assets" });
-    }
-  });
-
-  // GET /api/content-assets/:id
-  app.get("/api/content-assets/:id", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
-      if (!userId) return res.status(401).json({ error: "Not authenticated" });
-
-      const [asset] = await db
-        .select()
-        .from(contentAssets)
-        .where(
-          and(
-            eq(contentAssets.id, req.params.id),
-            eq(contentAssets.userId, userId),
-          ),
-        )
-        .limit(1);
-
-      if (!asset) return res.status(404).json({ error: "Asset not found" });
-
-      res.json(asset);
-    } catch (error) {
-      console.error("[ContentAssets] Error fetching asset:", error);
-      res.status(500).json({ error: "Failed to fetch content asset" });
     }
   });
 
@@ -1073,16 +1001,16 @@ export async function registerRoutes(
 
   app.get("/api/profile/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
-      
+
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      
+
       // Get wallet balance as authoritative PackPTS source
       const walletRow = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId)).limit(1);
       const walletBalance = walletRow[0]?.balance ?? 0;
@@ -1090,12 +1018,70 @@ export async function registerRoutes(
       // Calculate rank from leaderboard (uses wallet balance)
       const leaderboard = await storage.getLeaderboard(100);
       const rank = leaderboard.findIndex(e => e.points <= walletBalance) + 1 || leaderboard.length + 1;
-      
+
       // Calculate level (every 1000 points = 1 level)
       const level = Math.floor(walletBalance / 1000) + 1;
       const pointsToNextLevel = 1000 - (walletBalance % 1000);
       const levelProgress = Math.round(((walletBalance % 1000) / 1000) * 100);
-      
+
+      // Extended stats for achievement badges (non-blocking — defaults to 0 on error)
+      let matchesWon = 0;
+      let matchesPlayed = 0;
+      let streakDays = 0;
+      let longestStreak = 0;
+      let referralCount = 0;
+      let daily5Completed = 0;
+
+      try {
+        const { matches, referralLinks, referralAttributions, streakState } = await import("@shared/schema");
+
+        // Match stats: wins and total played
+        const matchStats = await db.execute(
+          sql`SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE winner_user_id = ${userId})::int AS wins
+          FROM matches
+          WHERE (host_user_id = ${userId} OR guest_user_id = ${userId})
+            AND result != 'PENDING'`
+        );
+        matchesPlayed = matchStats.rows[0]?.total ?? 0;
+        matchesWon = matchStats.rows[0]?.wins ?? 0;
+
+        // Streak stats
+        const [streak] = await db.select({
+          currentDays: streakState.currentDays,
+          longestDays: streakState.longestDays,
+        }).from(streakState).where(eq(streakState.userId, userId)).limit(1);
+        streakDays = streak?.currentDays ?? 0;
+        longestStreak = streak?.longestDays ?? 0;
+
+        // Referral count
+        const refLinks = await db.select({ id: referralLinks.id })
+          .from(referralLinks)
+          .where(eq(referralLinks.createdByUserId, userId));
+        if (refLinks.length > 0) {
+          const linkIds = refLinks.map(l => l.id);
+          const [refCount] = await db.select({
+            count: sql<number>`COUNT(*)::int`,
+          })
+            .from(referralAttributions)
+            .where(and(
+              sql`${referralAttributions.referralLinkId} IN (${sql.join(linkIds.map(id => sql`${id}`), sql`, `)})`,
+              eq(referralAttributions.eventType, "SIGNUP"),
+            ));
+          referralCount = refCount?.count ?? 0;
+        }
+
+        // Daily 5 completed count
+        const d5Result = await db.execute(
+          sql`SELECT COUNT(*)::int AS total FROM game_sessions
+            WHERE user_id = ${userId} AND game_mode = 'daily5' AND status = 'completed'`
+        );
+        daily5Completed = d5Result.rows[0]?.total ?? 0;
+      } catch (extErr) {
+        console.warn("[Profile] Extended stats error (non-fatal):", (extErr as Error)?.message);
+      }
+
       res.json({
         username: user.username,
         email: user.email,
@@ -1108,6 +1094,13 @@ export async function registerRoutes(
         pointsToNextLevel,
         levelProgress,
         createdAt: user.createdAt,
+        // Extended stats for achievement system
+        matchesWon,
+        matchesPlayed,
+        streakDays,
+        longestStreak,
+        referralCount,
+        daily5Completed,
       });
     } catch (error) {
       console.error("Error getting profile stats:", error);
@@ -1467,9 +1460,7 @@ export async function registerRoutes(
       const resetToken = await storage.createPasswordResetToken(user.id);
       
       // Determine base URL for reset link
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
-        : (process.env.REPLIT_DEPLOYMENT_URL || 'https://packpts.com');
+      const baseUrl = process.env.APP_URL || 'https://packpts.com';
       
       // Send password reset email
       const emailSent = await sendPasswordResetEmail(email, resetToken.token, baseUrl);
@@ -1582,7 +1573,7 @@ export async function registerRoutes(
   // Confirm link after user proves ownership (logged in)
   app.post("/api/auth/link/confirm", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1803,7 +1794,7 @@ export async function registerRoutes(
   // Get user's linked identities
   app.get("/api/auth/identities", async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1829,7 +1820,7 @@ export async function registerRoutes(
       }
 
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
-      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1844,12 +1835,33 @@ export async function registerRoutes(
         return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
-      const { totalQuestions, gameSetId } = parsed.data;
-      
-      const lobby = await matchService.createLobby(userId, user.username, totalQuestions, gameSetId ?? null);
-      
+      const { totalQuestions, gameSetId, wagerAmount } = parsed.data;
+
+      // If wager match, validate and escrow host's stake
+      if (wagerAmount > 0) {
+        const { validateWagerAmount, escrowWager } = await import("./services/wagerService");
+        const validation = validateWagerAmount(wagerAmount);
+        if (!validation.valid) {
+          return res.status(400).json({ error: validation.error });
+        }
+        // Escrow will happen after match is created — we need the matchId
+      }
+
+      const lobby = await matchService.createLobby(userId, user.username, totalQuestions, gameSetId ?? null, wagerAmount);
+
+      // Escrow host wager now that lobby exists
+      if (wagerAmount > 0) {
+        const { escrowWager } = await import("./services/wagerService");
+        const escrowResult = await escrowWager(userId, lobby.id, wagerAmount, "host");
+        if (!escrowResult.success) {
+          // Clean up the lobby since we can't escrow
+          await db.delete(lobbies).where(eq(lobbies.id, lobby.id));
+          return res.status(400).json({ error: escrowResult.error });
+        }
+      }
+
       const { guestSecret: _, ...lobbyForHost } = lobby;
-      res.json({ ...lobbyForHost, membershipSecret: lobby.hostSecret });
+      res.json({ ...lobbyForHost, membershipSecret: lobby.hostSecret, wagerAmount });
     } catch (error) {
       console.error("Error creating lobby:", error);
       res.status(500).json({ error: "Failed to create lobby" });
@@ -1859,7 +1871,7 @@ export async function registerRoutes(
   app.post("/api/lobby/join", isAuthenticated, requireActiveUser, async (req: any, res) => {
     try {
       // Get authenticated user ID and username from session - server-side derivation, not client-provided
-      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -1874,8 +1886,22 @@ export async function registerRoutes(
         return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
+      // Pre-check: if wager lobby, verify guest can afford it before joining
+      const lobbyPreCheck = await matchService.getLobbyByCode(parsed.data.joinCode.toUpperCase());
+      if (lobbyPreCheck && lobbyPreCheck.wagerAmount > 0) {
+        const { validateWagerAmount, escrowWager } = await import("./services/wagerService");
+        const { getBalance } = await import("./services/packpts/ledgerService");
+        const balance = await getBalance(userId);
+        if (balance.balancePackpts < lobbyPreCheck.wagerAmount) {
+          return res.status(400).json({
+            error: `This is a wager match for ${lobbyPreCheck.wagerAmount} PackPTS. You only have ${balance.balancePackpts}.`,
+            code: "INSUFFICIENT_BALANCE",
+          });
+        }
+      }
+
       const result = await matchService.joinLobby(parsed.data.joinCode.toUpperCase(), userId, user.username);
-      
+
       if ("error" in result) {
         const statusCode = result.code === "NOT_FOUND" ? 404
           : result.code === "SELF_JOIN" ? 409
@@ -1884,9 +1910,24 @@ export async function registerRoutes(
           : 400;
         return res.status(statusCode).json({ error: result.error, code: result.code });
       }
-      
+
+      // Escrow guest wager after successful join
+      if (result.lobby.wagerAmount > 0) {
+        const { escrowWager } = await import("./services/wagerService");
+        const escrowResult = await escrowWager(userId, result.lobby.id, result.lobby.wagerAmount, "guest");
+        if (!escrowResult.success) {
+          // Undo the join — remove guest from lobby
+          await db.update(lobbies).set({
+            guestId: null,
+            guestUsername: null,
+            guestSecret: null,
+          }).where(eq(lobbies.id, result.lobby.id));
+          return res.status(400).json({ error: escrowResult.error, code: "ESCROW_FAILED" });
+        }
+      }
+
       const { hostSecret: _, guestSecret: __, ...safeLobby } = result.lobby;
-      res.json({ ...safeLobby, membershipSecret: result.lobby.guestSecret });
+      res.json({ ...safeLobby, membershipSecret: result.lobby.guestSecret, wagerAmount: result.lobby.wagerAmount });
     } catch (error) {
       console.error("Error joining lobby:", error);
       res.status(500).json({ error: "Failed to join lobby" });
@@ -1928,7 +1969,7 @@ export async function registerRoutes(
   app.post("/api/lobby/:id/leave", isAuthenticated, async (req: any, res) => {
     try {
       // Get authenticated user ID from session - server-side derivation, not client-provided
-      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId: string | undefined = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2004,7 +2045,7 @@ export async function registerRoutes(
   // POST /api/redeem - Redeem PackPTS for store credit
   app.post("/api/redeem", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2060,7 +2101,7 @@ export async function registerRoutes(
   // GET /api/redemption/history - Get user's redemption history
   app.get("/api/redemption/history", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2170,7 +2211,7 @@ export async function registerRoutes(
   // POST /api/admin/redemptions/:id/approve - Approve a pending redemption
   app.post("/api/admin/redemptions/:id/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
 
       const result = await redemptionService.approveRedemption(id, adminUserId);
@@ -2199,7 +2240,7 @@ export async function registerRoutes(
   // POST /api/admin/redemptions/:id/reject - Reject a pending redemption
   app.post("/api/admin/redemptions/:id/reject", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
       const { reason } = req.body;
 
@@ -2233,7 +2274,7 @@ export async function registerRoutes(
   // POST /api/admin/redemptions/:id/reverse - Reverse a completed redemption (fraud)
   app.post("/api/admin/redemptions/:id/reverse", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
       const { reason } = req.body;
 
@@ -2281,7 +2322,7 @@ export async function registerRoutes(
   // POST /api/admin/redemption-tiers - Create a new tier
   app.post("/api/admin/redemption-tiers", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { name, packptsRequired, usdCapCents, effectiveRatePct, description, sortOrder, isActive } = req.body;
 
       if (!name || !packptsRequired || !usdCapCents || !description) {
@@ -2328,7 +2369,7 @@ export async function registerRoutes(
   // PATCH /api/admin/redemption-tiers/:id - Update a tier
   app.patch("/api/admin/redemption-tiers/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
       const updates = req.body;
 
@@ -2372,7 +2413,7 @@ export async function registerRoutes(
   // DELETE /api/admin/redemption-tiers/:id - Delete a tier
   app.delete("/api/admin/redemption-tiers/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
 
       const tier = await redemptionService.getTierById(id);
@@ -2398,7 +2439,7 @@ export async function registerRoutes(
   // POST /api/admin/redemption-tiers/seed - Seed default tiers
   app.post("/api/admin/redemption-tiers/seed", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await redemptionService.seedDefaultTiers();
 
       await adminService.logAction(adminUserId, "seed_redemption_tiers", null, {});
@@ -2418,7 +2459,7 @@ export async function registerRoutes(
   // GET /api/streak - Get current user's streak info
   app.get("/api/streak", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -2428,6 +2469,70 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching streak info:", error);
       res.status(500).json({ error: "Failed to fetch streak info" });
+    }
+  });
+
+  // POST /api/streak/buy-freeze - Purchase a streak freeze with PackPTS
+  app.post("/api/streak/buy-freeze", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { STREAK_FREEZE_COST_PACKPTS } = await import("@shared/schema");
+      const cost = STREAK_FREEZE_COST_PACKPTS;
+
+      // Check wallet balance
+      const [wallet] = await db.select()
+        .from(wallets)
+        .where(eq(wallets.userId, userId))
+        .limit(1);
+
+      if (!wallet || wallet.balance < cost) {
+        return res.status(400).json({
+          error: "Insufficient PackPTS",
+          required: cost,
+          balance: wallet?.balance ?? 0,
+        });
+      }
+
+      if (wallet.status !== "active") {
+        return res.status(400).json({ error: "Wallet is not active" });
+      }
+
+      const idempotencyKey = `streak_freeze_purchase:${userId}:${Date.now()}`;
+
+      // Debit PackPTS
+      const { applyLedgerEntry } = await import("./services/packpts/ledgerService");
+      const debitResult = await applyLedgerEntry({
+        userId,
+        direction: "debit",
+        amountPackpts: cost,
+        source: "streak",
+        eventType: "streak_freeze_purchase",
+        refType: "streak_freeze",
+        refId: userId,
+        idempotencyKey,
+        metadata: { cost, freezeCount: 1 },
+      });
+
+      if (!debitResult.success) {
+        return res.status(400).json({ error: debitResult.error || "Failed to debit PackPTS" });
+      }
+
+      // Grant the freeze
+      const updatedState = await streakService.grantStreakFreeze(userId, 1);
+
+      res.json({
+        success: true,
+        cost,
+        freezesAvailable: updatedState.freezesAvailable,
+        newBalance: (wallet.balance - cost),
+      });
+    } catch (error) {
+      console.error("Error purchasing streak freeze:", error);
+      res.status(500).json({ error: "Failed to purchase streak freeze" });
     }
   });
 
@@ -2451,6 +2556,101 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching streak config:", error);
       res.status(500).json({ error: "Failed to fetch streak config" });
+    }
+  });
+
+  // ============================================
+  // RANKED COMPETITIVE ENDPOINTS
+  // ============================================
+
+  // GET /api/ranked/my-rating - Get current user's rating and tier
+  app.get("/api/ranked/my-rating", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+      const { getOrCreateRating, getUserRatingHistory } = await import("./services/ratingService");
+      const { RANKED_TIER_THRESHOLDS } = await import("@shared/schema");
+
+      const rating = await getOrCreateRating(userId);
+      const history = await getUserRatingHistory(userId, 10);
+      const tierInfo = RANKED_TIER_THRESHOLDS[rating.tier as keyof typeof RANKED_TIER_THRESHOLDS];
+
+      const totalMatches = rating.wins + rating.losses + rating.draws;
+      const winRate = totalMatches > 0 ? Math.round((rating.wins / totalMatches) * 100) : 0;
+
+      res.json({
+        rating: rating.rating,
+        peakRating: rating.peakRating,
+        tier: rating.tier,
+        tierLabel: tierInfo?.label ?? rating.tier,
+        tierColor: tierInfo?.color ?? "#888",
+        wins: rating.wins,
+        losses: rating.losses,
+        draws: rating.draws,
+        totalMatches,
+        winRate,
+        winStreak: rating.winStreak,
+        bestWinStreak: rating.bestWinStreak,
+        recentHistory: history.map(h => ({
+          matchId: h.matchId,
+          ratingChange: h.ratingChange,
+          result: h.result,
+          opponentRating: h.opponentRating,
+          createdAt: h.createdAt,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching rating:", error);
+      res.status(500).json({ error: "Failed to fetch rating" });
+    }
+  });
+
+  // GET /api/ranked/leaderboard - Ranked leaderboard by ELO
+  app.get("/api/ranked/leaderboard", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const { getRankedLeaderboard } = await import("./services/ratingService");
+      const result = await getRankedLeaderboard(limit);
+      res.json({ leaderboard: result.rows });
+    } catch (error) {
+      console.error("Error fetching ranked leaderboard:", error);
+      res.status(500).json({ error: "Failed to fetch ranked leaderboard" });
+    }
+  });
+
+  // ============================================
+  // WAGER MATCH ENDPOINTS
+  // ============================================
+
+  // POST /api/wager/validate - Check if user can place a wager
+  app.post("/api/wager/validate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+      const { amount } = req.body;
+      const { validateWagerAmount } = await import("./services/wagerService");
+      const { getBalance } = await import("./services/packpts/ledgerService");
+
+      const validation = validateWagerAmount(amount);
+      if (!validation.valid) {
+        return res.json({ canWager: false, error: validation.error });
+      }
+
+      const balance = await getBalance(userId);
+      if (balance.balancePackpts < amount) {
+        return res.json({
+          canWager: false,
+          error: `Insufficient balance. You have ${balance.balancePackpts} PackPTS`,
+          balance: balance.balancePackpts,
+        });
+      }
+
+      res.json({ canWager: true, balance: balance.balancePackpts });
+    } catch (error) {
+      console.error("Error validating wager:", error);
+      res.status(500).json({ error: "Failed to validate wager" });
     }
   });
 
@@ -2483,7 +2683,7 @@ export async function registerRoutes(
   // POST /api/admin/streak/configs - Create a new streak config
   app.post("/api/admin/streak/configs", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { jsonSchedule, milestoneBonuses, dailyCap, effectiveFrom, effectiveUntil } = req.body;
 
       if (!jsonSchedule || !milestoneBonuses) {
@@ -2513,7 +2713,7 @@ export async function registerRoutes(
   // PATCH /api/admin/streak/configs/:id - Update a streak config
   app.patch("/api/admin/streak/configs/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
       const updates = req.body;
 
@@ -2534,7 +2734,7 @@ export async function registerRoutes(
   // DELETE /api/admin/streak/configs/:id - Delete a streak config
   app.delete("/api/admin/streak/configs/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { id } = req.params;
 
       await streakService.deleteConfig(id);
@@ -2551,7 +2751,7 @@ export async function registerRoutes(
   // POST /api/admin/streak/configs/seed - Seed default streak config
   app.post("/api/admin/streak/configs/seed", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
 
       const config = await streakService.createConfig(
         DEFAULT_STREAK_SCHEDULE,
@@ -2583,7 +2783,7 @@ export async function registerRoutes(
   // POST /api/admin/users/:userId/streak/freeze - Grant streak freezes
   app.post("/api/admin/users/:userId/streak/freeze", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { userId } = req.params;
       const { count } = req.body;
 
@@ -2609,7 +2809,7 @@ export async function registerRoutes(
   // POST /api/admin/users/:userId/streak/adjust - Adjust user's streak
   app.post("/api/admin/users/:userId/streak/adjust", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { userId } = req.params;
       const { newCurrentDays, reason } = req.body;
 
@@ -2719,7 +2919,7 @@ export async function registerRoutes(
       }
       
       // If user is authenticated, try to activate them directly
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (userId) {
         const activationResult = await accessService.tryActivateUser(userId, {
           inviteCode: code.toUpperCase(),
@@ -2814,7 +3014,7 @@ export async function registerRoutes(
       
       // If no email provided, try to get from authenticated user
       if (!email) {
-        const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+        const userId = req.user?.claims?.sub || req.session?.localUserId;
         if (userId) {
           const user = await storage.getUser(userId);
           if (user?.email) {
@@ -2876,7 +3076,7 @@ export async function registerRoutes(
         return res.status(400).json({ ok: false, error: "No pass token in session" });
       }
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (userId) {
         const user = await storage.getUser(userId);
         if (user && user.status === "ACTIVE") {
@@ -2924,7 +3124,7 @@ export async function registerRoutes(
   // GET /api/founders-pass/mine - Get authenticated user's pass (if they have one)
   app.get("/api/founders-pass/mine", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2970,7 +3170,7 @@ export async function registerRoutes(
   // POST /api/founders-pass/issue - Issue a new pass to authenticated user (force re-issue)
   app.post("/api/founders-pass/issue", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3026,7 +3226,7 @@ export async function registerRoutes(
   // Admin: Deactivate all active passes (kill switch)
   app.post("/api/admin/founders/deactivate-all", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const count = await foundersPassService.deactivateAllPasses();
       
       await accessService.logAccessAudit("ABUSE_BLOCKED", {
@@ -3046,7 +3246,7 @@ export async function registerRoutes(
     try {
       const { passId } = req.params;
       const { reason } = req.body;
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       
       const success = await foundersPassService.deactivatePass(passId, reason);
       
@@ -3097,7 +3297,7 @@ export async function registerRoutes(
   // Admin: Update founders cap config
   app.post("/api/admin/access/cap", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       // Accept both naming conventions from frontend
       const { 
         maxActiveUsers, maxActive, 
@@ -3131,7 +3331,7 @@ export async function registerRoutes(
   // Admin: Create invite codes
   app.post("/api/admin/invites/create", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { count, maxUses, expiresAt, reservedSeat, note } = req.body;
       
       const inviteCount = Math.min(parseInt(count) || 1, 100);
@@ -3193,7 +3393,7 @@ export async function registerRoutes(
   // Admin: Invite waitlist entry (send them an invite code)
   app.post("/api/admin/waitlist/:waitlistId/invite", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { waitlistId } = req.params;
       
       const result = await accessService.inviteWaitlistEntry(waitlistId, adminUserId);
@@ -3214,7 +3414,7 @@ export async function registerRoutes(
   // Admin: Approve a waitlisted user to active
   app.post("/api/admin/users/:userId/approve", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       const { userId } = req.params;
       
       const result = await accessService.approveWaitlistedUser(userId, adminUserId);
@@ -3347,7 +3547,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid or expired token" });
       }
 
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const sessionId = req.sessionID || null;
       const ip = req.ip || req.headers["x-forwarded-for"] || null;
       const userAgent = req.headers["user-agent"] || null;
@@ -3405,7 +3605,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid or expired token" });
       }
 
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const sessionId = req.sessionID || null;
       const ip = req.ip || req.headers["x-forwarded-for"] || null;
       const userAgent = req.headers["user-agent"] || null;
@@ -3443,7 +3643,7 @@ export async function registerRoutes(
   app.get("/api/marketplace/contexts", async (req: any, res) => {
     try {
       const { getUserActiveContexts, getActiveGameSets } = await import("./services/marketplace/context");
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const contexts = await getUserActiveContexts(userId);
       const allSets = await getActiveGameSets();
       
@@ -3464,7 +3664,7 @@ export async function registerRoutes(
       const { updateUserActiveSets } = await import("./services/marketplace/context");
       const { updateActiveGameSetsSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3499,7 +3699,7 @@ export async function registerRoutes(
         gameSetToContext,
       } = await import("./services/marketplace/context");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId || null;
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
       const q = (req.query.q as string)?.trim() || "";
       const source = (req.query.source as string) || "all";
       const setId = req.query.setId as string | undefined;
@@ -4538,7 +4738,7 @@ export async function registerRoutes(
                       blockedReason: "player_mismatch",
                       imageReviewStatus: "excluded",
                       imageLastError: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
-                      quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+                      quarantineStatus: "REMOVED_BY_ADMIN",
                       updatedAt: new Date(),
                     })
                     .where(eq(playableCards.id, card.id));
@@ -4606,7 +4806,7 @@ export async function registerRoutes(
               isPlayable: false,
               blockedReason: "player_mismatch",
               imageReviewStatus: "excluded",
-              quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+              quarantineStatus: "REMOVED_BY_ADMIN",
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
@@ -5680,6 +5880,7 @@ export async function registerRoutes(
       
       try {
         // First, delete any card_image_reports for cards in this set (to avoid FK constraint)
+        const { cardImageReports } = await import("@shared/schema");
         const cardIdsInSet = await db
           .select({ id: playableCards.id })
           .from(playableCards)
@@ -6324,7 +6525,8 @@ export async function registerRoutes(
   app.post("/api/cards/:cardId/report", async (req: any, res) => {
     try {
       const { cardId } = req.params;
-
+      const { createCardImageReportSchema, cardImageReports, baseballCards } = await import("@shared/schema");
+      
       const parsed = createCardImageReportSchema.safeParse({ cardId, ...req.body });
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid report data", details: parsed.error.flatten() });
@@ -6358,36 +6560,30 @@ export async function registerRoutes(
       // Get user ID if authenticated, otherwise null for anonymous report
       const reporterId = (req as any).user?.id || null;
       
-      // For baseball_cards, store the report in card_image_reports (FK constraint dropped via ensureSchema)
-      // and update the card's review counters so it appears in the admin flagged queue.
+      // For legacy cards (1v1 mode), we can't store in cardImageReports (FK constraint)
+      // But we CAN exclude them by setting imageVerified=false (match service filters by this)
       if (isLegacyCard) {
-        const [report] = await db
-          .insert(cardImageReports)
-          .values({
-            cardId,
-            reporterId,
-            sessionId: parsed.data.sessionId,
-            reason: parsed.data.reason,
-            description: parsed.data.description,
-            status: "pending",
-          })
-          .returning();
-
-        await db
-          .update(baseballCards)
-          .set({
-            reportCount: sql`${baseballCards.reportCount} + 1`,
-            imageReviewStatus: sql`CASE WHEN ${baseballCards.reportCount} + 1 >= 3 THEN 'flagged'::varchar ELSE ${baseballCards.imageReviewStatus} END`,
-            updatedAt: new Date(),
-          })
-          .where(eq(baseballCards.id, cardId));
-
-        console.log(`[Card Report] ${cardId} reported (${parsed.data.reason}) by ${reporterId || "guest"} — queued for admin review`);
-        return res.json({
-          success: true,
-          reportId: report.id,
-          excluded: false,
-          message: "Report submitted. This card will be reviewed by an admin.",
+        console.log(`[Card Report] LEGACY CARD ${cardId} reported for ${parsed.data.reason} by ${reporterId || "guest"}`);
+        
+        // For multi_player or wrong_player reports on legacy cards, immediately exclude by setting imageVerified=false
+        // This prevents them from appearing in future 1v1 matches (match service filters by imageVerified=true)
+        const shouldExclude = parsed.data.reason === "multi_player" || parsed.data.reason === "wrong_player";
+        if (shouldExclude) {
+          await db
+            .update(baseballCards)
+            .set({ imageVerified: false })
+            .where(eq(baseballCards.id, cardId));
+          
+          console.log(`[Card Report] LEGACY CARD ${cardId} EXCLUDED from 1v1 matches: ${parsed.data.reason} report`);
+        }
+        
+        return res.json({ 
+          success: true, 
+          reportId: null, 
+          excluded: shouldExclude,
+          message: shouldExclude
+            ? "Card has been flagged and will be removed from future matches."
+            : "Report logged for legacy card. These cards are from a curated set and will be reviewed." 
         });
       }
       
@@ -6534,6 +6730,7 @@ export async function registerRoutes(
   // Admin: List pending card image reports
   app.get("/api/admin/card-reports", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
+      const { cardImageReports } = await import("@shared/schema");
       const { status = "pending", limit: limitParam = "50", offset: offsetParam = "0" } = req.query;
       
       const limitNum = Math.min(parseInt(limitParam as string, 10) || 50, 100);
@@ -6542,26 +6739,21 @@ export async function registerRoutes(
       const reports = await db
         .select({
           report: cardImageReports,
-          card: baseballCards,
+          card: playableCards,
         })
         .from(cardImageReports)
-        .leftJoin(baseballCards, eq(cardImageReports.cardId, baseballCards.id))
+        .leftJoin(playableCards, eq(cardImageReports.cardId, playableCards.id))
         .where(eq(cardImageReports.status, status as string))
         .orderBy(desc(cardImageReports.createdAt))
         .limit(limitNum)
         .offset(offsetNum);
-
+      
       const [{ count }] = await db
         .select({ count: sql<number>`count(*)` })
         .from(cardImageReports)
         .where(eq(cardImageReports.status, status as string));
-
-      // Alias playerName → player for frontend PlayableCard interface compatibility
-      const mapped = reports.map(r => ({
-        report: r.report,
-        card: r.card ? { ...r.card, player: r.card.playerName, setId: 0 } : null,
-      }));
-      res.json({ reports: mapped, total: Number(count), limit: limitNum, offset: offsetNum });
+      
+      res.json({ reports, total: Number(count), limit: limitNum, offset: offsetNum });
     } catch (error) {
       console.error("Error fetching card reports:", error);
       res.status(500).json({ error: "Failed to fetch card reports" });
@@ -6573,23 +6765,17 @@ export async function registerRoutes(
     try {
       const flaggedCards = await db
         .select()
-        .from(baseballCards)
+        .from(playableCards)
         .where(
-          and(
-            or(
-              eq(baseballCards.imageReviewStatus, "flagged"),
-              gte(baseballCards.reportCount, 3)
-            ),
-            ne(baseballCards.imageReviewStatus, "rejected"),
-            ne(baseballCards.imageReviewStatus, "approved"),
-            eq(baseballCards.isPlayable, true)
+          or(
+            eq(playableCards.imageReviewStatus, "flagged"),
+            gte(playableCards.reportCount, 3)
           )
         )
-        .orderBy(desc(baseballCards.reportCount))
+        .orderBy(desc(playableCards.reportCount))
         .limit(100);
-
-      // Map playerName → player for frontend PlayableCard interface compatibility
-      res.json({ cards: flaggedCards.map(c => ({ ...c, player: c.playerName, setId: 0 })) });
+      
+      res.json({ cards: flaggedCards });
     } catch (error) {
       console.error("Error fetching flagged cards:", error);
       res.status(500).json({ error: "Failed to fetch flagged cards" });
@@ -6601,12 +6787,8 @@ export async function registerRoutes(
     try {
       const { reportId } = req.params;
       const { action, resolution } = req.body;
-
-      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      const { cardImageReports } = await import("@shared/schema");
+      
       if (!["approve", "reject", "dismiss"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve, reject, dismiss" });
       }
@@ -6625,43 +6807,41 @@ export async function registerRoutes(
         .update(cardImageReports)
         .set({
           status: "resolved",
-          resolvedBy: adminUserId,
+          resolvedBy: req.user.id,
           resolvedAt: new Date(),
           resolution: resolution || action,
         })
         .where(eq(cardImageReports.id, reportId));
-
+      
       if (action === "approve") {
         await db
-          .update(baseballCards)
+          .update(playableCards)
           .set({
             imageReviewStatus: "approved",
             updatedAt: new Date(),
           })
-          .where(eq(baseballCards.id, report.cardId));
+          .where(eq(playableCards.id, report.cardId));
       } else if (action === "reject") {
-        const guard = assertMutationAllowed({
+        const { assertMutationAllowed } = await import("./services/mutationGuard");
+        assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
-          actorUserId: adminUserId,
+          actorUserId: req.user.id,
           reason: `Report ${reportId} rejected - image mismatch confirmed`,
         });
-        if (!guard.allowed) {
-          return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
-        }
         await db
-          .update(baseballCards)
+          .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: "Image mismatch confirmed via report",
-            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+            quarantineStatus: "REMOVED_BY_ADMIN",
             updatedAt: new Date(),
           })
-          .where(eq(baseballCards.id, report.cardId));
+          .where(eq(playableCards.id, report.cardId));
       }
       
-      console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${adminUserId}`);
+      console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${req.user.id}`);
       
       res.json({ success: true, action });
     } catch (error) {
@@ -6670,95 +6850,80 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Review a flagged card — approve (keep) or reject (remove from gameplay)
+  // Admin: Bulk resolve all pending reports for a card
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      const { action, resolutionNotes, imageRotation } = req.body;
-
-      const adminUserId: string = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      const { action, resolution, imageRotation } = req.body;
+      const { cardImageReports } = await import("@shared/schema");
+      
       if (!["approve", "reject"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve or reject" });
       }
-
-      // Check mutation guard before opening a transaction
-      if (action === "reject") {
-        const guard = assertMutationAllowed({
-          operationSource: "ADMIN_MANUAL",
-          action: "SET_UNPLAYABLE",
-          actorUserId: adminUserId,
-          reason: resolutionNotes || "Image mismatch confirmed via admin review",
-        });
-        if (!guard.allowed) {
-          return res.status(403).json({ error: guard.reason || "Operation not permitted by mutation guard" });
-        }
-      }
-
-      // Verify card exists before opening a transaction (avoids error-swallowing in tx rollback)
-      const [existingCard] = await db
-        .select({ id: baseballCards.id })
-        .from(baseballCards)
-        .where(eq(baseballCards.id, cardId))
+      
+      const [card] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
         .limit(1);
-
-      if (!existingCard) {
+      
+      if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-
-      await db.transaction(async (tx) => {
-        // Update the card
-        if (action === "approve") {
-          await tx.update(baseballCards).set({
-            imageReviewStatus: "approved",
-            updatedAt: new Date(),
-          }).where(eq(baseballCards.id, cardId));
-        } else {
-          await tx.update(baseballCards).set({
-            isPlayable: false,
-            imageReviewStatus: "rejected",
-            blockedReason: resolutionNotes || "Image mismatch confirmed via admin review",
-            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
-            updatedAt: new Date(),
-          }).where(eq(baseballCards.id, cardId));
-        }
-
-        // Resolve all open reports — removes card from the flagged list
-        await tx.update(cardImageReports).set({
+      
+      await db
+        .update(cardImageReports)
+        .set({
           status: "resolved",
-          resolvedBy: adminUserId,
+          resolvedBy: req.user.id,
           resolvedAt: new Date(),
-          resolution: resolutionNotes || `Admin ${action}ed via review`,
-        }).where(and(
+          resolution: resolution || `Bulk ${action} by admin`,
+        })
+        .where(and(
           eq(cardImageReports.cardId, cardId),
-          eq(cardImageReports.status, "pending"),
+          eq(cardImageReports.status, "pending")
         ));
-      });
-
-      console.log(`[Card Review] ${cardId} ${action}ed by admin ${adminUserId}`);
+      
+      if (action === "approve") {
+        // Build update object - include rotation if provided
+        const updateData: any = {
+          imageReviewStatus: "approved",
+          updatedAt: new Date(),
+        };
+        if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
+          updateData.imageRotation = imageRotation;
+        }
+        await db
+          .update(playableCards)
+          .set(updateData)
+          .where(eq(playableCards.id, cardId));
+      } else if (action === "reject") {
+        const { assertMutationAllowed } = await import("./services/mutationGuard");
+        assertMutationAllowed({
+          operationSource: "ADMIN_MANUAL",
+          action: "SET_UNPLAYABLE",
+          actorUserId: req.user.id,
+          reason: resolution || "Image mismatch confirmed via admin review",
+        });
+        await db
+          .update(playableCards)
+          .set({
+            imageReviewStatus: "rejected",
+            isPlayable: false,
+            blockedReason: resolution || "Image mismatch confirmed via admin review",
+            quarantineStatus: "REMOVED_BY_ADMIN",
+            updatedAt: new Date(),
+          })
+          .where(eq(playableCards.id, cardId));
+      }
+      
+      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${req.user.id}`);
+      
       res.json({ success: true, action, cardId });
-    } catch (error: any) {
-      console.error("[Card Review] Error:", error);
-      res.status(500).json({ error: "Failed to review card", _debug: error?.message, _stack: error?.stack?.split("\n").slice(0, 5) });
+    } catch (error) {
+      console.error("Error reviewing card:", error);
+      res.status(500).json({ error: "Failed to review card" });
     }
-  });
-
-  // Debug endpoint — admin session state for diagnosing auth failures
-  app.get("/api/admin/debug/auth", isAuthenticated, requireAdmin, async (req: any, res) => {
-    const localUserId = (req.session as any)?.localUserId;
-    const claimsId = req.user?.claims?.sub;
-    const user = localUserId ? await storage.getUser(localUserId) : null;
-    res.json({
-      localUserId,
-      claimsId,
-      sessionId: (req.session as any)?.id || null,
-      isAdmin: user?.isAdmin ?? false,
-      userFound: !!user,
-      timestamp: new Date().toISOString(),
-    });
   });
 
   // Schema for bulk card flag/unflag operations
@@ -6774,35 +6939,27 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors[0].message });
       }
       const { cardIds } = parsed.data;
-
-      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      
       const { assertMutationAllowed } = await import("./services/mutationGuard");
-      const guardFlag = assertMutationAllowed({
+      assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
-        actorUserId: adminUserId,
+        actorUserId: req.user.id,
         reason: `Bulk flag ${cardIds.length} cards as multi-player`,
       });
-      if (!guardFlag.allowed) {
-        return res.status(403).json({ error: guardFlag.reason || "Operation not permitted by mutation guard" });
-      }
-
+      
       const results = await db
         .update(playableCards)
         .set({
           isPlayable: false,
           blockedReason: "multi-player",
-          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+          quarantineStatus: "REMOVED_BY_ADMIN",
           updatedAt: new Date(),
         })
         .where(inArray(playableCards.id, cardIds))
         .returning({ id: playableCards.id });
       
-      console.log(`[Card Flag] ${results.length} cards flagged as multi-player by admin ${adminUserId}`);
+      console.log(`[Card Flag] ${results.length} cards flagged as multi-player by admin ${req.user.id}`);
       
       res.json({ 
         success: true, 
@@ -6823,12 +6980,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors[0].message });
       }
       const { cardIds } = parsed.data;
-
-      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      
       const results = await db
         .update(playableCards)
         .set({
@@ -6838,8 +6990,8 @@ export async function registerRoutes(
         })
         .where(inArray(playableCards.id, cardIds))
         .returning({ id: playableCards.id });
-
-      console.log(`[Card Unflag] ${results.length} cards restored by admin ${adminUserId}`);
+      
+      console.log(`[Card Unflag] ${results.length} cards restored by admin ${req.user.id}`);
       
       res.json({ 
         success: true, 
@@ -6862,49 +7014,41 @@ export async function registerRoutes(
       const { cardId } = req.params;
       const { reason } = req.body;
       const { assertMutationAllowed } = await import("./services/mutationGuard");
-
-      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      
       const [card] = await db
         .select()
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
-
+      
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-
+      
       if (!card.isPlayable) {
         return res.status(400).json({ error: "Card is already excluded", blockedReason: card.blockedReason });
       }
-
+      
       // Use mutation guard to ensure this is allowed (ADMIN_MANUAL can always SET_UNPLAYABLE)
-      const guardExclude = assertMutationAllowed({
+      assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
-        actorUserId: adminUserId,
+        actorUserId: req.user.id,
         reason: reason || "Manual admin exclusion",
       });
-      if (!guardExclude.allowed) {
-        return res.status(403).json({ error: guardExclude.reason || "Operation not permitted by mutation guard" });
-      }
-
+      
       await db
         .update(playableCards)
         .set({
           isPlayable: false,
           blockedReason: reason || "admin_manual_exclusion",
           imageReviewStatus: "excluded",
-          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+          quarantineStatus: "REMOVED_BY_ADMIN",
           updatedAt: new Date(),
         })
         .where(eq(playableCards.id, cardId));
       
-      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${adminUserId}: ${reason || "no reason"}`);
+      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${req.user.id}: ${reason || "no reason"}`);
       
       res.json({ success: true, cardId, excluded: true });
     } catch (error) {
@@ -6917,22 +7061,17 @@ export async function registerRoutes(
   app.post("/api/admin/cards/:cardId/restore", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { cardId } = req.params;
-
-      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      
       const [card] = await db
         .select()
         .from(playableCards)
         .where(eq(playableCards.id, cardId))
         .limit(1);
-
+      
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-
+      
       if (card.isPlayable) {
         return res.status(400).json({ error: "Card is already playable" });
       }
@@ -6950,7 +7089,7 @@ export async function registerRoutes(
         })
         .where(eq(playableCards.id, cardId));
       
-      console.log(`[Card Restore] Card ${cardId} restored to gameplay by admin ${adminUserId}`);
+      console.log(`[Card Restore] Card ${cardId} restored to gameplay by admin ${req.user.id}`);
       
       res.json({ success: true, cardId, restored: true });
     } catch (error) {
@@ -6964,12 +7103,7 @@ export async function registerRoutes(
     try {
       const { setId, dryRun = true } = req.body;
       const { writeAuditLog } = await import("./services/mutationGuard");
-
-      const adminUserId = (req.session as any)?.localUserId || req.user?.claims?.sub;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
-
+      
       const conditions = [
         sql`is_playable = false`,
         sql`image_url IS NOT NULL`,
@@ -7028,13 +7162,13 @@ export async function registerRoutes(
         setId: setId || undefined,
         actionType: "BULK_RESTORE",
         operationSource: "ADMIN_MANUAL",
-        actorUserId: adminUserId,
+        actorUserId: req.user.id,
         beforePlayableCards: 0,
         afterPlayableCards: restoredCount,
         reason: `Bulk restored ${restoredCount} cards auto-excluded by background validation`,
       });
-
-      console.log(`[Bulk Restore] Admin ${adminUserId} restored ${restoredCount} cards${setId ? ` in set ${setId}` : ' globally'}`);
+      
+      console.log(`[Bulk Restore] Admin ${req.user.id} restored ${restoredCount} cards${setId ? ` in set ${setId}` : ' globally'}`);
       
       res.json({ success: true, restoredCount, message: `Restored ${restoredCount} cards to gameplay` });
     } catch (error) {
@@ -7047,11 +7181,6 @@ export async function registerRoutes(
   app.post("/api/admin/cards/reset-failure-counts", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { writeAuditLog } = await import("./services/mutationGuard");
-
-      const adminUserId = req.user?.claims?.sub || (req.session as any)?.localUserId;
-      if (!adminUserId) {
-        return res.status(401).json({ error: "Unable to determine admin user ID" });
-      }
       
       const result = await db.execute(
         sql`UPDATE playable_cards SET 
@@ -7066,11 +7195,11 @@ export async function registerRoutes(
       await writeAuditLog({
         actionType: "RESET_FAILURE_COUNTS",
         operationSource: "ADMIN_MANUAL",
-        actorUserId: adminUserId,
+        actorUserId: req.user.id,
         reason: `Reset image_failure_count to 0 for ${resetCount} cards to prevent backdoor pruning`,
       });
-
-      console.log(`[Reset Failure Counts] Admin ${adminUserId} reset image_failure_count for ${resetCount} cards`);
+      
+      console.log(`[Reset Failure Counts] Admin ${req.user.id} reset image_failure_count for ${resetCount} cards`);
       
       res.json({ success: true, resetCount, message: `Reset failure counts for ${resetCount} cards` });
     } catch (error) {
@@ -7664,8 +7793,7 @@ export async function registerRoutes(
       const { getMaskConfig } = await import("./services/maskConfig");
       
       const config = await getMaskConfig(setKey || "");
-
-      res.setHeader("Cache-Control", "no-store");
+      
       res.json(config);
     } catch (error) {
       console.error("Error getting mask config:", error);
@@ -7689,21 +7817,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error saving mask config:", error);
       res.status(500).json({ error: "Failed to save mask configuration" });
-    }
-  });
-
-  // ============================================
-  // DEBUG: MASK STATE DUMP
-  // ============================================
-
-  app.get("/api/debug/mask-state", async (_req, res) => {
-    try {
-      const { db } = await import("./db");
-      const { cardSetMasks } = await import("@shared/schema");
-      const rows = await db.select().from(cardSetMasks);
-      res.json({ count: rows.length, rows });
-    } catch (error) {
-      res.status(500).json({ error: String(error) });
     }
   });
 
@@ -7734,7 +7847,7 @@ export async function registerRoutes(
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       const { redemptionQuoteRequestSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7769,7 +7882,7 @@ export async function registerRoutes(
       const { walletService } = await import("./services/walletService");
       const { riskEngine } = await import("./services/riskEngine");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7879,7 +7992,7 @@ export async function registerRoutes(
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       const { redemptionApplyRequestSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7910,7 +8023,7 @@ export async function registerRoutes(
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       const { purchaseConfirmRequestSchema } = await import("@shared/schema");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -7940,7 +8053,7 @@ export async function registerRoutes(
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8224,7 +8337,7 @@ export async function registerRoutes(
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8322,7 +8435,7 @@ export async function registerRoutes(
 
       const updatedPolicy = await packageGuardrailService.updatePolicy(parsed.data);
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(
         adminUserId,
         "store_package_policy_updated",
@@ -8363,7 +8476,7 @@ export async function registerRoutes(
         parsed.data
       );
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(
         adminUserId,
         "store_fee_profile_updated",
@@ -8389,7 +8502,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8454,7 +8567,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8522,7 +8635,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8634,7 +8747,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8692,7 +8805,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       if (!adminUserId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8789,7 +8902,7 @@ export async function registerRoutes(
   // POST /api/store/checkout - Create a Stripe checkout session for a PackPTS bundle
   app.post("/api/store/checkout", isAuthenticated, checkoutLimiter, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8836,7 +8949,7 @@ export async function registerRoutes(
   // POST /api/store/subscribe - Create a Stripe subscription checkout session
   app.post("/api/store/subscribe", isAuthenticated, checkoutLimiter, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8883,7 +8996,7 @@ export async function registerRoutes(
   // GET /api/store/checkout/status/:sessionId - Check checkout session status
   app.get("/api/store/checkout/status/:sessionId", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -8916,7 +9029,7 @@ export async function registerRoutes(
   app.get("/api/internal/risk/snapshot", isAuthenticated, async (req: any, res) => {
     try {
       const { getPublicRiskInfo } = await import("./services/risk/riskAPI");
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -8938,7 +9051,7 @@ export async function registerRoutes(
   app.post("/api/internal/risk/recompute", isAuthenticated, async (req: any, res) => {
     try {
       const { enqueueRiskRecalc } = await import("./services/risk/jobQueue");
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
       
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -9007,7 +9120,7 @@ export async function registerRoutes(
         reason
       );
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(
         adminUserId,
         "risk_suppression_created",
@@ -9044,7 +9157,7 @@ export async function registerRoutes(
 
       const snapshot = await updateRiskSnapshot(userId);
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(
         adminUserId,
         "risk_recompute_forced",
@@ -9117,7 +9230,7 @@ export async function registerRoutes(
         })
         .returning();
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(adminUserId, "card_set_created", newSet.id, { setName, sport, year });
 
       res.json({ success: true, set: newSet });
@@ -9189,7 +9302,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Card set not found" });
       }
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(adminUserId, "card_set_updated", id, updates);
 
       res.json({ success: true, set: updated });
@@ -9206,7 +9319,7 @@ export async function registerRoutes(
 
       await db.delete(cardSets).where(eq(cardSets.id, id));
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(adminUserId, "card_set_deleted", id, {});
 
       res.json({ success: true });
@@ -9237,7 +9350,7 @@ export async function registerRoutes(
         console.error(`Import job ${jobId} failed:`, error);
       });
 
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
       await adminService.logAction(adminUserId, "card_set_import_started", id, { jobId });
 
       res.json({ success: true, jobId });
@@ -9566,7 +9679,7 @@ export async function registerRoutes(
     try {
       const { matchId } = req.params;
       const { idx } = req.body;
-      const userId = req.user?.claims?.sub || req.session?.localUserId || (req.session as any)?.userId;
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
 
       if (!userId) {
         return res.status(401).json({ ok: false, error: "Authentication required" });
