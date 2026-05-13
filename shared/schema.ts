@@ -206,6 +206,12 @@ export const baseballCards = pgTable("baseball_cards", {
   lastImageCheck: timestamp("last_image_check"),
   imageFailureCount: integer("image_failure_count").notNull().default(0),
   imageLastError: text("image_last_error"),
+  isPlayable: boolean("is_playable").notNull().default(true),
+  quarantineStatus: varchar("quarantine_status", { length: 30 }).notNull().default("OK"),
+  imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"),
+  reportCount: integer("report_count").notNull().default(0),
+  blockedReason: text("blocked_reason"),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_baseball_cards_last_check").on(table.lastImageCheck),
 ]);
@@ -4010,7 +4016,10 @@ export type ContentAsset = typeof contentAssets.$inferSelect;
 
 export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK"]);
 export const socialPostStatusEnum = pgEnum("social_post_status", [
-  "DRAFT", "QUEUED", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED",
+  "DRAFT", "QUEUED", "MEDIA_PENDING", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED", "BLOCKED",
+]);
+export const mediaStatusEnum = pgEnum("media_status", [
+  "NOT_REQUIRED", "PENDING", "GENERATED", "UPLOADED", "FAILED",
 ]);
 export const socialContentTypeEnum = pgEnum("social_content_type", [
   "TRIVIA_CARD", "LEADERBOARD_HIGHLIGHT", "STREAK_MILESTONE",
@@ -4042,6 +4051,10 @@ export const socialPosts = pgTable("social_posts", {
   errorMessage: text("error_message"),
   factCheckPassed: boolean("fact_check_passed").notNull().default(false),
   factCheckLog: jsonb("fact_check_log"),
+  mediaRequired: boolean("media_required").notNull().default(false),
+  mediaStatus: mediaStatusEnum("media_status").notNull().default("NOT_REQUIRED"),
+  publishBlockReason: text("publish_block_reason"),
+  preflightPassed: boolean("preflight_passed"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
