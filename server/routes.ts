@@ -6853,18 +6853,26 @@ export async function registerRoutes(
   });
 
   // Admin: Bulk resolve all pending reports for a card
-  // NOTE: The flagged cards endpoint (/api/admin/card-reports/flagged) uses playableCards,
-  // so this endpoint must also use playableCards to match the same card IDs.
+  // CRITICAL: The flagged cards endpoint (/api/admin/card-reports/flagged) queries playableCards,
+  // so this endpoint MUST also use playableCards — card IDs come from that table.
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
-    const { cardId } = req.params;
-    const { action, resolution, imageRotation } = req.body;
-    const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
-
     try {
+      const cardId = req.params?.cardId;
+      const action = req.body?.action;
+      const resolution = req.body?.resolution;
+      const imageRotation = req.body?.imageRotation;
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+
+      console.log(`[CardReview3] START action=${action} card=${cardId} admin=${adminUserId}`);
+
+      if (!cardId) {
+        return res.status(400).json({ error: "Missing cardId", v: 3 });
+      }
       if (!["approve", "reject"].includes(action)) {
-        return res.status(400).json({ error: "Invalid action. Must be: approve or reject" });
+        return res.status(400).json({ error: "Invalid action. Must be: approve or reject", v: 3 });
       }
 
+      // Step 1: Look up card in playableCards (same table the admin UI loads from)
       const [card] = await db
         .select()
         .from(playableCards)
@@ -6872,54 +6880,54 @@ export async function registerRoutes(
         .limit(1);
 
       if (!card) {
-        return res.status(404).json({ error: "Card not found" });
+        console.log(`[CardReview3] Card ${cardId} NOT FOUND in playableCards`);
+        return res.status(404).json({ error: "Card not found in playableCards", v: 3 });
       }
+      console.log(`[CardReview3] Found card: player=${card.player}, set=${card.set}`);
 
-      // Resolve pending reports for this card
-      const { cardImageReports } = await import("@shared/schema");
-      await db
-        .update(cardImageReports)
-        .set({
-          status: "resolved",
-          resolvedBy: adminUserId || null,
-          resolvedAt: new Date(),
-          resolution: resolution || `Bulk ${action} by admin`,
-        })
-        .where(and(
-          eq(cardImageReports.cardId, cardId),
-          eq(cardImageReports.status, "pending")
-        ));
-
+      // Step 2: Update the card (primary action — do this first)
       if (action === "approve") {
-        const updateData: any = {
+        const updateData: Record<string, any> = {
           imageReviewStatus: "approved",
           updatedAt: new Date(),
         };
         if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
           updateData.imageRotation = imageRotation;
         }
-        await db
-          .update(playableCards)
-          .set(updateData)
-          .where(eq(playableCards.id, cardId));
-      } else if (action === "reject") {
-        await db
-          .update(playableCards)
-          .set({
-            imageReviewStatus: "rejected",
-            isPlayable: false,
-            blockedReason: resolution || "Image mismatch confirmed via admin review",
-            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
-            updatedAt: new Date(),
-          })
-          .where(eq(playableCards.id, cardId));
+        await db.update(playableCards).set(updateData).where(eq(playableCards.id, cardId));
+      } else {
+        await db.update(playableCards).set({
+          imageReviewStatus: "rejected",
+          isPlayable: false,
+          blockedReason: resolution || "Image mismatch confirmed via admin review",
+          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+          updatedAt: new Date(),
+        }).where(eq(playableCards.id, cardId));
+      }
+      console.log(`[CardReview3] Card UPDATE succeeded`);
+
+      // Step 3: Resolve pending reports (non-blocking — wrapped in its own try/catch)
+      try {
+        const { cardImageReports } = await import("@shared/schema");
+        await db.update(cardImageReports).set({
+          status: "resolved",
+          resolvedBy: null,
+          resolvedAt: new Date(),
+          resolution: resolution || `Bulk ${action} by admin`,
+        }).where(and(
+          eq(cardImageReports.cardId, cardId),
+          eq(cardImageReports.status, "pending")
+        ));
+        console.log(`[CardReview3] Reports resolved`);
+      } catch (reportErr: any) {
+        console.error("[CardReview3] Reports update failed (non-blocking):", reportErr?.message);
       }
 
-      console.log(`[Card Review] Card ${cardId} ${action}ed by admin ${adminUserId}`);
-      res.json({ success: true, action, cardId });
+      console.log(`[CardReview3] DONE card=${cardId} action=${action}`);
+      return res.json({ success: true, action, cardId, v: 3 });
     } catch (error: any) {
-      console.error("[Card Review] ERROR:", error?.message, error?.code, error?.detail);
-      res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error) });
+      console.error("[CardReview3] FATAL:", error?.message, error?.stack?.slice(0, 300));
+      return res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error), v: 3 });
     }
   });
 
