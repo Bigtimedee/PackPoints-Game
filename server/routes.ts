@@ -6918,9 +6918,9 @@ export async function registerRoutes(
       console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${adminUserId}`);
 
       res.json({ success: true, action, cardId });
-    } catch (error) {
-      console.error("Error reviewing card:", error);
-      res.status(500).json({ error: "Failed to review card" });
+    } catch (error: any) {
+      console.error("[Card Review] ERROR:", error?.message || error, JSON.stringify({ stack: error?.stack, code: error?.code, detail: error?.detail, table: error?.table, column: error?.column }));
+      res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error) });
     }
   });
 
