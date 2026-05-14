@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -149,6 +149,11 @@ export async function registerRoutes(
   registerAdminRoutes(app);
   registerIosRoutes(app);
   registerGrowthRoutes(app);
+
+  // Deployment version canary (no auth, lightweight)
+  app.get("/api/version", (_req, res) => {
+    res.json({ v: 4, deployed: "2026-05-14", build: "card-review-fix" });
+  });
 
   // ============================================
   // HOME STATS (public, cached)
@@ -6852,49 +6857,37 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Bulk resolve all pending reports for a card
-  // CRITICAL: The flagged cards endpoint (/api/admin/card-reports/flagged) queries playableCards,
-  // so this endpoint MUST also use playableCards — card IDs come from that table.
+  // Admin: Bulk resolve all pending reports for a card (v4 — 2026-05-14)
+  // Uses playableCards (same table as /api/admin/card-reports/flagged)
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
+    const V = 4;
     try {
-      const cardId = req.params?.cardId;
-      const action = req.body?.action;
-      const resolution = req.body?.resolution;
+      const cardId = String(req.params?.cardId || "");
+      const action = String(req.body?.action || "");
+      const resolution = req.body?.resolution || "";
       const imageRotation = req.body?.imageRotation;
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
 
-      console.log(`[CardReview3] START action=${action} card=${cardId} admin=${adminUserId}`);
+      console.log(`[CardReview v${V}] START action=${action} card=${cardId}`);
 
-      if (!cardId) {
-        return res.status(400).json({ error: "Missing cardId", v: 3 });
-      }
-      if (!["approve", "reject"].includes(action)) {
-        return res.status(400).json({ error: "Invalid action. Must be: approve or reject", v: 3 });
+      if (!cardId) return res.status(400).json({ error: "Missing cardId", v: V });
+      if (action !== "approve" && action !== "reject") {
+        return res.status(400).json({ error: "Invalid action", v: V });
       }
 
-      // Step 1: Look up card in playableCards (same table the admin UI loads from)
-      const [card] = await db
-        .select()
-        .from(playableCards)
-        .where(eq(playableCards.id, cardId))
-        .limit(1);
-
+      // Look up card
+      const [card] = await db.select().from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
       if (!card) {
-        console.log(`[CardReview3] Card ${cardId} NOT FOUND in playableCards`);
-        return res.status(404).json({ error: "Card not found in playableCards", v: 3 });
+        console.log(`[CardReview v${V}] NOT FOUND ${cardId}`);
+        return res.status(404).json({ error: "Card not found", v: V });
       }
-      console.log(`[CardReview3] Found card: player=${card.player}, set=${card.set}`);
 
-      // Step 2: Update the card (primary action — do this first)
+      // Update card
       if (action === "approve") {
-        const updateData: Record<string, any> = {
-          imageReviewStatus: "approved",
-          updatedAt: new Date(),
-        };
+        const upd: Record<string, any> = { imageReviewStatus: "approved", updatedAt: new Date() };
         if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
-          updateData.imageRotation = imageRotation;
+          upd.imageRotation = imageRotation;
         }
-        await db.update(playableCards).set(updateData).where(eq(playableCards.id, cardId));
+        await db.update(playableCards).set(upd).where(eq(playableCards.id, cardId));
       } else {
         await db.update(playableCards).set({
           imageReviewStatus: "rejected",
@@ -6904,30 +6897,24 @@ export async function registerRoutes(
           updatedAt: new Date(),
         }).where(eq(playableCards.id, cardId));
       }
-      console.log(`[CardReview3] Card UPDATE succeeded`);
 
-      // Step 3: Resolve pending reports (non-blocking — wrapped in its own try/catch)
+      // Resolve pending reports (non-blocking)
       try {
-        const { cardImageReports } = await import("@shared/schema");
         await db.update(cardImageReports).set({
           status: "resolved",
           resolvedBy: null,
           resolvedAt: new Date(),
           resolution: resolution || `Bulk ${action} by admin`,
-        }).where(and(
-          eq(cardImageReports.cardId, cardId),
-          eq(cardImageReports.status, "pending")
-        ));
-        console.log(`[CardReview3] Reports resolved`);
-      } catch (reportErr: any) {
-        console.error("[CardReview3] Reports update failed (non-blocking):", reportErr?.message);
+        }).where(and(eq(cardImageReports.cardId, cardId), eq(cardImageReports.status, "pending")));
+      } catch (rptErr: any) {
+        console.error(`[CardReview v${V}] reports update failed:`, rptErr?.message);
       }
 
-      console.log(`[CardReview3] DONE card=${cardId} action=${action}`);
-      return res.json({ success: true, action, cardId, v: 3 });
+      console.log(`[CardReview v${V}] DONE action=${action} card=${cardId}`);
+      return res.json({ success: true, action, cardId, v: V });
     } catch (error: any) {
-      console.error("[CardReview3] FATAL:", error?.message, error?.stack?.slice(0, 300));
-      return res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error), v: 3 });
+      console.error(`[CardReview v${V}] FATAL:`, error?.message, error?.stack?.slice(0, 500));
+      return res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error), v: V });
     }
   });
 
