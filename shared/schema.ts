@@ -4012,6 +4012,111 @@ export const insertContentAssetSchema = createInsertSchema(contentAssets).omit({
 export type InsertContentAsset = z.infer<typeof insertContentAssetSchema>;
 export type ContentAsset = typeof contentAssets.$inferSelect;
 
+// ---- Growth Agent Tables ----
+
+export const growthContentPlans = pgTable("growth_content_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  date: varchar("date", { length: 10 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("GENERATING"),
+  platformTargets: jsonb("platform_targets"),
+  themes: text("themes").array(),
+  goals: text("goals"),
+  summary: text("summary"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type GrowthContentPlan = typeof growthContentPlans.$inferSelect;
+
+export const growthContentItems = pgTable("growth_content_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").notNull(),
+  platform: varchar("platform", { length: 20 }).notNull(),
+  contentType: varchar("content_type", { length: 30 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("DRAFT"),
+  caption: text("caption"),
+  hashtags: text("hashtags").array().default([]),
+  hook: text("hook"),
+  script: text("script"),
+  overlayText: text("overlay_text"),
+  cta: text("cta"),
+  assetRefs: jsonb("asset_refs").default([]),
+  metadata: jsonb("metadata").default({}),
+  errorMessage: text("error_message"),
+  mediaRequired: boolean("media_required").notNull().default(false),
+  mediaStatus: varchar("media_status", { length: 20 }).notNull().default("NOT_REQUIRED"),
+  mediaAssetCount: integer("media_asset_count").notNull().default(0),
+  publishBlockReason: text("publish_block_reason"),
+  preflightPassed: boolean("preflight_passed"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export const insertGrowthContentItemSchema = createInsertSchema(growthContentItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertGrowthContentItem = z.infer<typeof insertGrowthContentItemSchema>;
+export type GrowthContentItem = typeof growthContentItems.$inferSelect;
+
+export const publishingQueue = pgTable("publishing_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contentItemId: varchar("content_item_id").notNull(),
+  platform: varchar("platform", { length: 20 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+  retryCount: integer("retry_count").notNull().default(0),
+  postedAt: timestamp("posted_at"),
+  postedBy: varchar("posted_by"),
+  notionPageId: text("notion_page_id"),
+  notionSyncStatus: varchar("notion_sync_status", { length: 20 }).default("PENDING"),
+  notionSyncedAt: timestamp("notion_synced_at"),
+  notionSyncError: text("notion_sync_error"),
+  postingStatus: varchar("posting_status", { length: 20 }).default("MANUAL_QUEUE"),
+  scheduledFor: timestamp("scheduled_for"),
+  platformPostId: text("platform_post_id"),
+  publishingMetadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const growthJobRuns = pgTable("growth_job_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobType: varchar("job_type", { length: 30 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("PENDING"),
+  targetDate: varchar("target_date", { length: 10 }),
+  planId: varchar("plan_id"),
+  itemsGenerated: integer("items_generated").notNull().default(0),
+  errorMessage: text("error_message"),
+  log: text("log"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const globalGrowthRollups = pgTable("global_growth_rollups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dayKey: varchar("day_key", { length: 10 }).notNull().unique(),
+  dau: integer("dau").notNull().default(0),
+  matchesPlayed: integer("matches_played").notNull().default(0),
+  daily5Entries: integer("daily5_entries").notNull().default(0),
+  sharesTotal: integer("shares_total").notNull().default(0),
+  invitesSent: integer("invites_sent").notNull().default(0),
+  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
+  firstMatchesFromInvites: integer("first_matches_from_invites").notNull().default(0),
+  firstPurchasesFromInvites: integer("first_purchases_from_invites").notNull().default(0),
+  kFactor: real("k_factor"),
+  computedAt: timestamp("computed_at").defaultNow(),
+});
+
+export const userGrowthRollups = pgTable("user_growth_rollups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  dayKey: varchar("day_key", { length: 10 }).notNull(),
+  matchesPlayed: integer("matches_played").notNull().default(0),
+  daily5Entries: integer("daily5_entries").notNull().default(0),
+  sharesTotal: integer("shares_total").notNull().default(0),
+  invitesSent: integer("invites_sent").notNull().default(0),
+  signupsFromInvites: integer("signups_from_invites").notNull().default(0),
+  computedAt: timestamp("computed_at").defaultNow(),
+}, (table) => [
+  index("idx_user_growth_rollup_day").on(table.dayKey),
+  index("idx_user_growth_rollup_user").on(table.userId),
+]);
+
 // ---- Social Media Agent ----
 
 export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK"]);

@@ -328,6 +328,12 @@ export async function replaceMatchQuestion(
         lastImageCheck: availableCard.lastImageCheck,
         imageFailureCount: availableCard.imageFailureCount,
         imageLastError: availableCard.imageLastError,
+        isPlayable: true,
+        quarantineStatus: "OK",
+        imageReviewStatus: "unreviewed",
+        reportCount: 0,
+        blockedReason: null,
+        updatedAt: null,
       };
       questions[idx] = {
         card: proxiedCard,

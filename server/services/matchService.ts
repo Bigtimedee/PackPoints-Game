@@ -55,6 +55,12 @@ function playableCardToBaseballCard(pc: PlayableCard): BaseballCard {
     lastImageCheck: pc.lastImageCheck,
     imageFailureCount: pc.imageFailureCount,
     imageLastError: pc.imageLastError,
+    isPlayable: pc.isPlayable,
+    quarantineStatus: "OK",
+    imageReviewStatus: "unreviewed",
+    reportCount: 0,
+    blockedReason: null,
+    updatedAt: null,
   };
 }
 

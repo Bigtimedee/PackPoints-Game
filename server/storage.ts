@@ -800,6 +800,12 @@ export class DatabaseStorage implements IStorage {
       lastImageCheck: card.lastImageCheck || null,
       imageFailureCount: card.imageFailureCount || 0,
       imageLastError: card.imageLastError || null,
+      isPlayable: card.isPlayable,
+      quarantineStatus: card.quarantineStatus || "OK",
+      imageReviewStatus: card.imageReviewStatus || "unreviewed",
+      reportCount: card.reportCount || 0,
+      blockedReason: card.blockedReason || null,
+      updatedAt: card.updatedAt || null,
     };
     
     return {
