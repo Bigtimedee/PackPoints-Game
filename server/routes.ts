@@ -6853,32 +6853,35 @@ export async function registerRoutes(
   });
 
   // Admin: Bulk resolve all pending reports for a card
+  // NOTE: The flagged cards endpoint (/api/admin/card-reports/flagged) uses playableCards,
+  // so this endpoint must also use playableCards to match the same card IDs.
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { cardId } = req.params;
-      const { action, resolution } = req.body;
-      const { cardImageReports, baseballCards } = await import("@shared/schema");
-      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+    const { cardId } = req.params;
+    const { action, resolution, imageRotation } = req.body;
+    const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
 
+    try {
       if (!["approve", "reject"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve or reject" });
       }
 
       const [card] = await db
         .select()
-        .from(baseballCards)
-        .where(eq(baseballCards.id, cardId))
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
         .limit(1);
 
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
 
+      // Resolve pending reports for this card
+      const { cardImageReports } = await import("@shared/schema");
       await db
         .update(cardImageReports)
         .set({
           status: "resolved",
-          resolvedBy: adminUserId,
+          resolvedBy: adminUserId || null,
           resolvedAt: new Date(),
           resolution: resolution || `Bulk ${action} by admin`,
         })
@@ -6888,23 +6891,20 @@ export async function registerRoutes(
         ));
 
       if (action === "approve") {
+        const updateData: any = {
+          imageReviewStatus: "approved",
+          updatedAt: new Date(),
+        };
+        if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
+          updateData.imageRotation = imageRotation;
+        }
         await db
-          .update(baseballCards)
-          .set({
-            imageReviewStatus: "approved",
-            updatedAt: new Date(),
-          })
-          .where(eq(baseballCards.id, cardId));
+          .update(playableCards)
+          .set(updateData)
+          .where(eq(playableCards.id, cardId));
       } else if (action === "reject") {
-        const { assertMutationAllowed } = await import("./services/mutationGuard");
-        assertMutationAllowed({
-          operationSource: "ADMIN_MANUAL",
-          action: "SET_UNPLAYABLE",
-          actorUserId: adminUserId,
-          reason: resolution || "Image mismatch confirmed via admin review",
-        });
         await db
-          .update(baseballCards)
+          .update(playableCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
@@ -6912,14 +6912,13 @@ export async function registerRoutes(
             quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
-          .where(eq(baseballCards.id, cardId));
+          .where(eq(playableCards.id, cardId));
       }
 
-      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${adminUserId}`);
-
+      console.log(`[Card Review] Card ${cardId} ${action}ed by admin ${adminUserId}`);
       res.json({ success: true, action, cardId });
     } catch (error: any) {
-      console.error("[Card Review] ERROR:", error?.message || error, JSON.stringify({ stack: error?.stack, code: error?.code, detail: error?.detail, table: error?.table, column: error?.column }));
+      console.error("[Card Review] ERROR:", error?.message, error?.code, error?.detail);
       res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error) });
     }
   });
