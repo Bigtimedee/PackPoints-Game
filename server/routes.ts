@@ -6856,28 +6856,29 @@ export async function registerRoutes(
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      const { action, resolution, imageRotation } = req.body;
-      const { cardImageReports } = await import("@shared/schema");
-      
+      const { action, resolution } = req.body;
+      const { cardImageReports, baseballCards } = await import("@shared/schema");
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+
       if (!["approve", "reject"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve or reject" });
       }
-      
+
       const [card] = await db
         .select()
-        .from(playableCards)
-        .where(eq(playableCards.id, cardId))
+        .from(baseballCards)
+        .where(eq(baseballCards.id, cardId))
         .limit(1);
-      
+
       if (!card) {
         return res.status(404).json({ error: "Card not found" });
       }
-      
+
       await db
         .update(cardImageReports)
         .set({
           status: "resolved",
-          resolvedBy: req.user.id,
+          resolvedBy: adminUserId,
           resolvedAt: new Date(),
           resolution: resolution || `Bulk ${action} by admin`,
         })
@@ -6885,42 +6886,37 @@ export async function registerRoutes(
           eq(cardImageReports.cardId, cardId),
           eq(cardImageReports.status, "pending")
         ));
-      
+
       if (action === "approve") {
-        // Build update object - include rotation if provided
-        const updateData: any = {
-          imageReviewStatus: "approved",
-          updatedAt: new Date(),
-        };
-        if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
-          updateData.imageRotation = imageRotation;
-        }
         await db
-          .update(playableCards)
-          .set(updateData)
-          .where(eq(playableCards.id, cardId));
+          .update(baseballCards)
+          .set({
+            imageReviewStatus: "approved",
+            updatedAt: new Date(),
+          })
+          .where(eq(baseballCards.id, cardId));
       } else if (action === "reject") {
         const { assertMutationAllowed } = await import("./services/mutationGuard");
         assertMutationAllowed({
           operationSource: "ADMIN_MANUAL",
           action: "SET_UNPLAYABLE",
-          actorUserId: req.user.id,
+          actorUserId: adminUserId,
           reason: resolution || "Image mismatch confirmed via admin review",
         });
         await db
-          .update(playableCards)
+          .update(baseballCards)
           .set({
             imageReviewStatus: "rejected",
             isPlayable: false,
             blockedReason: resolution || "Image mismatch confirmed via admin review",
-            quarantineStatus: "REMOVED_BY_ADMIN",
+            quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
             updatedAt: new Date(),
           })
-          .where(eq(playableCards.id, cardId));
+          .where(eq(baseballCards.id, cardId));
       }
-      
-      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${req.user.id}`);
-      
+
+      console.log(`[Card Review] Card ${cardId} reviewed with action: ${action} by admin ${adminUserId}`);
+
       res.json({ success: true, action, cardId });
     } catch (error) {
       console.error("Error reviewing card:", error);
