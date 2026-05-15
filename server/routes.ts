@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -152,7 +152,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 4, deployed: "2026-05-14", build: "card-review-fix" });
+    res.json({ v: 5, deployed: "2026-05-15", build: "static-imports-fix" });
   });
 
   // ============================================
@@ -1040,7 +1040,7 @@ export async function registerRoutes(
       let daily5Completed = 0;
 
       try {
-        const { matches, referralLinks, referralAttributions, streakState } = await import("@shared/schema");
+        // @shared/schema imports moved to top of file
 
         // Match stats: wins and total played
         const matchStats = await db.execute(
@@ -2487,7 +2487,7 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Not authenticated" });
       }
 
-      const { STREAK_FREEZE_COST_PACKPTS } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       const cost = STREAK_FREEZE_COST_PACKPTS;
 
       // Check wallet balance
@@ -2577,7 +2577,7 @@ export async function registerRoutes(
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
       const { getOrCreateRating, getUserRatingHistory } = await import("./services/ratingService");
-      const { RANKED_TIER_THRESHOLDS } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
 
       const rating = await getOrCreateRating(userId);
       const history = await getUserRatingHistory(userId, 10);
@@ -3669,7 +3669,7 @@ export async function registerRoutes(
   app.post("/api/game/active-sets", isAuthenticated, async (req: any, res) => {
     try {
       const { updateUserActiveSets } = await import("./services/marketplace/context");
-      const { updateActiveGameSetsSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -5887,7 +5887,7 @@ export async function registerRoutes(
       
       try {
         // First, delete any card_image_reports for cards in this set (to avoid FK constraint)
-        const { cardImageReports } = await import("@shared/schema");
+        // @shared/schema imports moved to top of file
         const cardIdsInSet = await db
           .select({ id: playableCards.id })
           .from(playableCards)
@@ -6532,7 +6532,7 @@ export async function registerRoutes(
   app.post("/api/cards/:cardId/report", async (req: any, res) => {
     try {
       const { cardId } = req.params;
-      const { createCardImageReportSchema, cardImageReports, baseballCards } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       
       const parsed = createCardImageReportSchema.safeParse({ cardId, ...req.body });
       if (!parsed.success) {
@@ -6737,7 +6737,7 @@ export async function registerRoutes(
   // Admin: List pending card image reports
   app.get("/api/admin/card-reports", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const { cardImageReports } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       const { status = "pending", limit: limitParam = "50", offset: offsetParam = "0" } = req.query;
       
       const limitNum = Math.min(parseInt(limitParam as string, 10) || 50, 100);
@@ -6794,7 +6794,7 @@ export async function registerRoutes(
     try {
       const { reportId } = req.params;
       const { action, resolution } = req.body;
-      const { cardImageReports } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       
       if (!["approve", "reject", "dismiss"].includes(action)) {
         return res.status(400).json({ error: "Invalid action. Must be: approve, reject, dismiss" });
@@ -6860,7 +6860,7 @@ export async function registerRoutes(
   // Admin: Bulk resolve all pending reports for a card (v4 — 2026-05-14)
   // Uses playableCards (same table as /api/admin/card-reports/flagged)
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
-    const V = 4;
+    const V = 5;
     try {
       const cardId = String(req.params?.cardId || "");
       const action = String(req.body?.action || "");
@@ -7265,7 +7265,7 @@ export async function registerRoutes(
   // Admin: Create new reward policy
   app.post("/api/admin/rewards/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const { createRewardPolicySchema, rewardPolicy: rewardPolicyTable } = await import("@shared/schema");
+      const rewardPolicyTable = rewardPolicy; // @shared/schema imports moved to top of file
       const parsed = createRewardPolicySchema.safeParse(req.body);
       
       if (!parsed.success) {
@@ -7304,7 +7304,7 @@ export async function registerRoutes(
   app.get("/api/admin/rewards/player-fame", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { q, sport, limit = "50" } = req.query;
-      const { playerFame: playerFameTable } = await import("@shared/schema");
+      const playerFameTable = playerFame; // @shared/schema imports moved to top of file
       
       const conditions = [];
       
@@ -7330,7 +7330,7 @@ export async function registerRoutes(
   // Admin: Update player fame (override)
   app.post("/api/admin/rewards/player-fame", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const { updatePlayerFameSchema, playerFame: playerFameTable } = await import("@shared/schema");
+      const playerFameTable = playerFame; // @shared/schema imports moved to top of file
       const parsed = updatePlayerFameSchema.safeParse(req.body);
       
       if (!parsed.success) {
@@ -7375,7 +7375,7 @@ export async function registerRoutes(
   app.get("/api/admin/rewards/audits", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { userId, from, to, limit = "100" } = req.query;
-      const { pointsAwards: pointsAwardsTable } = await import("@shared/schema");
+      const pointsAwardsTable = pointsAwards; // @shared/schema imports moved to top of file
       
       let conditions = [];
       
@@ -7837,7 +7837,7 @@ export async function registerRoutes(
   app.post("/api/marketplace/redemption/quote", isAuthenticated, async (req: any, res) => {
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      const { redemptionQuoteRequestSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -7982,7 +7982,7 @@ export async function registerRoutes(
   app.post("/api/marketplace/redemption/apply", isAuthenticated, async (req: any, res) => {
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      const { redemptionApplyRequestSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -8013,7 +8013,7 @@ export async function registerRoutes(
   app.post("/api/marketplace/purchase/confirm", isAuthenticated, async (req: any, res) => {
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      const { purchaseConfirmRequestSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -8356,7 +8356,7 @@ export async function registerRoutes(
   app.post("/api/admin/store/packages/preview", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
-      const { evaluatePackageSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
 
       const parsed = evaluatePackageSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -8487,7 +8487,7 @@ export async function registerRoutes(
   app.post("/api/admin/store/packages", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { packageGuardrailService, BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
-      const { createStorePackageSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
 
       const parsed = createStorePackageSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -8550,7 +8550,7 @@ export async function registerRoutes(
   app.put("/api/admin/store/packages/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { packageGuardrailService, BlockedPackageError, WarnPackageError } = await import("./services/store/packageGuardrailService");
-      const { updateStorePackageSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
 
       const { id } = req.params;
 
@@ -8618,7 +8618,7 @@ export async function registerRoutes(
   app.post("/api/admin/store/packages/:id/override", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
-      const { overridePackageSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
 
       const { id } = req.params;
 
@@ -9202,7 +9202,7 @@ export async function registerRoutes(
   // POST /api/admin/card-sets - Create a new card set
   app.post("/api/admin/card-sets", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
-      const { createCardSetSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       const parsed = createCardSetSchema.safeParse(req.body);
       
       if (!parsed.success) {
@@ -9267,7 +9267,7 @@ export async function registerRoutes(
   app.put("/api/admin/card-sets/:id", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { updateCardSetSchema } = await import("@shared/schema");
+      // @shared/schema imports moved to top of file
       const parsed = updateCardSetSchema.safeParse(req.body);
       
       if (!parsed.success) {
