@@ -152,7 +152,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 5, deployed: "2026-05-15", build: "static-imports-fix" });
+    res.json({ v: 6, deployed: "2026-05-15", build: "lazy-growth-imports" });
   });
 
   // ============================================

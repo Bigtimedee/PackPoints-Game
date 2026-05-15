@@ -228,7 +228,9 @@ app.use((req, res, next) => {
   }
 
   setupWebSocket(httpServer);
+  console.log("[Startup] Registering routes...");
   await registerRoutes(httpServer, app);
+  console.log("[Startup] Routes registered successfully");
 
   // Start the risk pipeline job worker
   if (process.env.RISK_PIPELINE_ENABLED !== "false") {

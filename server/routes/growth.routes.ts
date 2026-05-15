@@ -19,9 +19,13 @@ import {
   users,
 } from "@shared/schema";
 import { eq, desc, and, sum, sql, asc } from "drizzle-orm";
-import { runDailyGrowthJob } from "../services/growthAgent";
-import { renderVideo } from "../services/videoFactory";
-import { computeRollup } from "../services/growthFlywheel/rollup";
+// Lazy-import heavy services that depend on native binaries (sharp, ffmpeg-static).
+// Static imports here would crash the server on startup if the native binaries
+// fail to load, preventing ALL routes from registering.
+// These are only needed in specific admin endpoints, so we import on demand.
+const getGrowthAgent = () => import("../services/growthAgent");
+const getVideoFactory = () => import("../services/videoFactory");
+const getRollup = () => import("../services/growthFlywheel/rollup");
 import { z } from "zod";
 
 const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
@@ -117,6 +121,7 @@ export function registerGrowthRoutes(app: Express): void {
       if (!parsed.success) return res.status(400).json({ message: "date must be YYYY-MM-DD" });
 
       try {
+        const { runDailyGrowthJob } = await getGrowthAgent();
         const result = await runDailyGrowthJob(parsed.data.date);
         res.json(result);
       } catch (err) {
@@ -214,6 +219,7 @@ export function registerGrowthRoutes(app: Express): void {
           return res.status(404).json({ message: "Queue entry not found" });
         }
 
+        const { renderVideo } = await getVideoFactory();
         const result = await renderVideo(queueRow.contentItemId);
         res.json(result);
       } catch (err) {
@@ -267,6 +273,7 @@ export function registerGrowthRoutes(app: Express): void {
         parsed.data.dayKey ??
         new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
       try {
+        const { computeRollup } = await getRollup();
         const result = await computeRollup(dayKey);
         res.json(result);
       } catch (err) {
