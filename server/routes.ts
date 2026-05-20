@@ -152,7 +152,43 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 6, deployed: "2026-05-15", build: "lazy-growth-imports" });
+    res.json({ v: 7, deployed: "2026-05-19", build: "card-review-diagnostics" });
+  });
+
+  // Diagnostic: test DB connectivity and playableCards table
+  app.get("/api/diag/card-review-test", async (_req, res) => {
+    const steps: Record<string, any> = { v: 7 };
+    try {
+      // Step 1: basic DB connectivity
+      const timeResult = await db.select({ now: sql<string>`now()` }).from(playableCards).limit(0);
+      steps.dbConnected = true;
+
+      // Step 2: count playable cards
+      const countResult = await db.select({ cnt: sql<number>`count(*)` }).from(playableCards);
+      steps.playableCardsCount = Number(countResult[0]?.cnt ?? 0);
+
+      // Step 3: pick a sample card and test SELECT
+      if (steps.playableCardsCount > 0) {
+        const [sample] = await db.select({
+          id: playableCards.id,
+          player: playableCards.player,
+          status: playableCards.imageReviewStatus,
+          isPlayable: playableCards.isPlayable,
+          quarantine: playableCards.quarantineStatus,
+        }).from(playableCards).limit(1);
+        steps.sampleCard = sample;
+      }
+
+      // Step 4: count card_image_reports
+      const rptCount = await db.select({ cnt: sql<number>`count(*)` }).from(cardImageReports);
+      steps.cardImageReportsCount = Number(rptCount[0]?.cnt ?? 0);
+
+      res.json({ ok: true, steps });
+    } catch (err: any) {
+      steps.error = err?.message;
+      steps.stack = err?.stack?.slice(0, 500);
+      res.status(500).json({ ok: false, steps });
+    }
   });
 
   // ============================================
@@ -6857,31 +6893,37 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Bulk resolve all pending reports for a card (v4 — 2026-05-14)
+  // Admin: Bulk resolve all pending reports for a card (v7 — 2026-05-19)
   // Uses playableCards (same table as /api/admin/card-reports/flagged)
   app.post("/api/admin/cards/:cardId/review", isAuthenticated, requireAdmin, async (req: any, res) => {
-    const V = 5;
+    const V = 7;
+    const steps: string[] = [];
     try {
+      steps.push("parsing_params");
       const cardId = String(req.params?.cardId || "");
       const action = String(req.body?.action || "");
       const resolution = req.body?.resolution || "";
       const imageRotation = req.body?.imageRotation;
 
-      console.log(`[CardReview v${V}] START action=${action} card=${cardId}`);
+      console.log(`[CardReview v${V}] START action=${action} card=${cardId} body=${JSON.stringify(req.body)}`);
 
       if (!cardId) return res.status(400).json({ error: "Missing cardId", v: V });
       if (action !== "approve" && action !== "reject") {
-        return res.status(400).json({ error: "Invalid action", v: V });
+        return res.status(400).json({ error: "Invalid action", v: V, receivedAction: action, bodyType: typeof req.body });
       }
 
       // Look up card
+      steps.push("db_select");
       const [card] = await db.select().from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
       if (!card) {
         console.log(`[CardReview v${V}] NOT FOUND ${cardId}`);
         return res.status(404).json({ error: "Card not found", v: V });
       }
+      steps.push("card_found");
+      console.log(`[CardReview v${V}] card found: player=${card.player}, status=${card.imageReviewStatus}`);
 
       // Update card
+      steps.push("db_update_card");
       if (action === "approve") {
         const upd: Record<string, any> = { imageReviewStatus: "approved", updatedAt: new Date() };
         if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
@@ -6897,8 +6939,10 @@ export async function registerRoutes(
           updatedAt: new Date(),
         }).where(eq(playableCards.id, cardId));
       }
+      steps.push("card_updated");
 
       // Resolve pending reports (non-blocking)
+      steps.push("db_update_reports");
       try {
         await db.update(cardImageReports).set({
           status: "resolved",
@@ -6906,15 +6950,17 @@ export async function registerRoutes(
           resolvedAt: new Date(),
           resolution: resolution || `Bulk ${action} by admin`,
         }).where(and(eq(cardImageReports.cardId, cardId), eq(cardImageReports.status, "pending")));
+        steps.push("reports_updated");
       } catch (rptErr: any) {
+        steps.push("reports_failed:" + rptErr?.message);
         console.error(`[CardReview v${V}] reports update failed:`, rptErr?.message);
       }
 
-      console.log(`[CardReview v${V}] DONE action=${action} card=${cardId}`);
+      console.log(`[CardReview v${V}] DONE action=${action} card=${cardId} steps=${steps.join(",")}`);
       return res.json({ success: true, action, cardId, v: V });
     } catch (error: any) {
-      console.error(`[CardReview v${V}] FATAL:`, error?.message, error?.stack?.slice(0, 500));
-      return res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error), v: V });
+      console.error(`[CardReview v${V}] FATAL at step [${steps[steps.length - 1]}]:`, error?.message, error?.stack?.slice(0, 800));
+      return res.status(500).json({ error: "Failed to review card", detail: error?.message || String(error), v: V, failedAt: steps[steps.length - 1], steps });
     }
   });
 
