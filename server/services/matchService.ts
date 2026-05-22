@@ -928,6 +928,32 @@ class MatchService {
   getMatchStateForBroadcast(matchId: string): MatchState | undefined {
     return this.matchStates.get(matchId);
   }
+
+  async setLobbyGameSet(lobbyId: string, gameSetId: string, requesterUserId: string, totalQuestions?: number): Promise<Lobby> {
+    const lobby = await this.getLobby(lobbyId);
+    if (!lobby) throw new Error("Lobby not found");
+    if (lobby.hostId !== requesterUserId) throw new Error("Only the host can change the card set");
+    if (lobby.status !== "waiting") throw new Error("Lobby is not in waiting state");
+
+    const [updated] = await db
+      .update(lobbies)
+      .set(totalQuestions !== undefined ? { gameSetId, totalQuestions } : { gameSetId })
+      .where(eq(lobbies.id, lobbyId))
+      .returning();
+    return updated;
+  }
+
+  async resetLobbyForRematch(lobbyId: string): Promise<Lobby> {
+    const lobby = await this.getLobby(lobbyId);
+    if (!lobby) throw new Error("Lobby not found");
+
+    const [updated] = await db
+      .update(lobbies)
+      .set({ status: "waiting" })
+      .where(eq(lobbies.id, lobbyId))
+      .returning();
+    return updated;
+  }
 }
 
 export const matchService = new MatchService();
