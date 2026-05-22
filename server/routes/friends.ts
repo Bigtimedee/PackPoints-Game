@@ -6,9 +6,15 @@ import { z } from "zod";
 const router = Router();
 
 function isAuthenticated(req: any, res: Response, next: Function) {
-  if (!req.user?.id) {
+  // Support both Replit OAuth (req.user.claims.sub) and local-login
+  // (req.session.localUserId). Without this, local-login users 401 on
+  // every friend endpoint even though they are correctly authenticated.
+  const userId = req.user?.id || req.user?.claims?.sub || req.session?.localUserId;
+  if (!userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+  if (!req.user) req.user = { id: userId };
+  else if (!req.user.id) req.user.id = userId;
   next();
 }
 
