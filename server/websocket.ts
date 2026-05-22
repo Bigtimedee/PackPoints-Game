@@ -296,6 +296,9 @@ async function handleMessage(ws: WebSocket, message: any) {
     case "start_match":
       await handleStartMatch(ws, payload);
       break;
+    case "set_lobby_card_set":
+      await handleSetLobbyCardSet(ws, payload);
+      break;
     case "submit_answer":
       await handleSubmitAnswer(ws, payload);
       break;
@@ -556,6 +559,35 @@ async function handleStartMatch(ws: WebSocket, payload: { lobbyId: string; hostI
     type: "match_started",
     payload: clientMatchState,
   });
+}
+
+async function handleSetLobbyCardSet(ws: WebSocket, payload: { lobbyId: string; gameSetId: string; totalQuestions?: number }) {
+  const { lobbyId, gameSetId, totalQuestions } = payload;
+  const client = clients.get(ws);
+  if (!client || !client.isAuthenticated) {
+    ws.send(JSON.stringify({ type: "set_lobby_card_set_error", message: "Unauthorized" }));
+    return;
+  }
+
+  try {
+    const updated = await matchService.setLobbyGameSet(lobbyId, gameSetId, client.userId, totalQuestions);
+    const safeLobby = {
+      id: updated.id,
+      joinCode: updated.joinCode,
+      hostId: updated.hostId,
+      hostUsername: updated.hostUsername,
+      guestId: updated.guestId,
+      guestUsername: updated.guestUsername,
+      status: updated.status,
+      mode: updated.mode,
+      totalQuestions: updated.totalQuestions,
+      createdAt: updated.createdAt,
+      gameSetId: updated.gameSetId,
+    };
+    broadcastToLobby(lobbyId, { type: "lobby_update", payload: safeLobby });
+  } catch (err: any) {
+    ws.send(JSON.stringify({ type: "set_lobby_card_set_error", message: err?.message || "Failed to update card set" }));
+  }
 }
 
 const ANSWER_RATE_LIMIT_WINDOW = 2000; // 2 seconds
