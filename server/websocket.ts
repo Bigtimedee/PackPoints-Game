@@ -5,8 +5,9 @@ import { dbMatchmakingQueue } from "./services/matchmaking/dbQueue";
 import { presenceService } from "./services/presenceService";
 import { streakService } from "./services/streakService";
 import { friendMatchInviteService } from "./services/friends/friendMatchInviteService";
+import { battleSessionService } from "./services/battles/battleSessionService";
 import { log } from "./index";
-import { MatchStatus, type MatchState, matchQuestions } from "@shared/schema";
+import { BattleSessionStatus, MatchStatus, type MatchState, matchQuestions } from "@shared/schema";
 import { getSession } from "./replit_integrations/auth/replitAuth";
 import { isMatchParticipantByState, isMatchParticipant } from "./services/auth/isMatchParticipant";
 import { validateActiveUser } from "./services/auth/validateActiveUser";
@@ -69,6 +70,35 @@ const clients = new Map<WebSocket, ClientConnection>();
 const userSockets = new Map<string, WebSocket>(); // userId -> WebSocket for quick lookup
 const lobbyConnections = new Map<string, Set<WebSocket>>();
 const matchConnections = new Map<string, Set<WebSocket>>();
+
+// --- Persistent 1v1 Battle Session state ---
+// Track which matches belong to which Battle Session (a higher-level grouping of
+// sequential matches between the same two players). All entries are in-memory
+// only because any disconnect ends the Battle by spec.
+const matchToSession = new Map<string, string>(); // matchId -> sessionId
+const sessionToMatches = new Map<string, Set<string>>(); // sessionId -> matchIds (for cleanup)
+const battleRematchReady = new Map<string, Set<string>>(); // sessionId -> userIds who clicked Play Again
+const battleRematchStarting = new Set<string>(); // sessionIds for which the next match is being started (idempotency)
+
+function trackSessionMatch(sessionId: string, matchId: string) {
+  matchToSession.set(matchId, sessionId);
+  if (!sessionToMatches.has(sessionId)) {
+    sessionToMatches.set(sessionId, new Set());
+  }
+  sessionToMatches.get(sessionId)!.add(matchId);
+}
+
+function untrackSession(sessionId: string) {
+  battleRematchReady.delete(sessionId);
+  battleRematchStarting.delete(sessionId);
+  const matchIds = sessionToMatches.get(sessionId);
+  if (matchIds) {
+    for (const mid of Array.from(matchIds)) {
+      matchToSession.delete(mid);
+    }
+  }
+  sessionToMatches.delete(sessionId);
+}
 
 interface RematchVoteEntry {
   hostVote?: "accept" | "decline";
@@ -215,6 +245,13 @@ export function setupWebSocket(httpServer: HttpServer) {
         if (client.lobbyId) {
           await handleDisconnectFromLobby(ws, client);
         }
+        // End any active Battle Session this client belonged to before processing
+        // the match disconnect, so the opponent gets the battle_ended notification
+        // even if the underlying match was already FINISHED (between-match state).
+        const sessionId = client.matchId ? matchToSession.get(client.matchId) : undefined;
+        if (sessionId) {
+          await handleDisconnectFromBattle(client, sessionId);
+        }
         if (client.matchId) {
           await handleDisconnectFromMatch(ws, client);
         }
@@ -336,6 +373,12 @@ async function handleMessage(ws: WebSocket, message: any) {
       break;
     case "leave_match":
       await handleLeaveMatch(ws, payload);
+      break;
+    case "battle_rematch_request":
+      await handleBattleRematchRequest(ws, payload);
+      break;
+    case "battle_leave":
+      await handleBattleLeave(ws, payload);
       break;
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
@@ -768,12 +811,17 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
           }
         }
 
-        log(`[SubmitAnswer] Broadcasting match_end to match ${matchId}`, "ws");
+        const enriched = await enrichMatchEndForBattle(matchId, matchEnd, true);
+
+        log(`[SubmitAnswer] Broadcasting match_end to match ${matchId}, sessionId=${enriched.sessionId || 'none'}, battleContinues=${enriched.battleContinues}`, "ws");
         broadcastToMatch(matchId, {
           type: "match_end",
-          payload: matchEnd,
+          payload: enriched,
         });
-        if (matchEnd.reason === "completed") {
+
+        if (enriched.sessionId && enriched.battleContinues) {
+          battleRematchReady.set(enriched.sessionId, new Set());
+        } else if (matchEnd.reason === "completed") {
           const allParts = await matchEngine.getParticipants(matchId);
           const hostPart = allParts.find(p => p.role === "HOST");
           const guestPart = allParts.find(p => p.role === "GUEST");
@@ -1084,26 +1132,62 @@ async function handleJoinMatch(ws: WebSocket, payload: { matchId: string; userId
   }
   
   clients.set(ws, { userId, username, matchId, membershipSecret, isAuthenticated: true, sessionUserId });
-  
+
   if (!matchConnections.has(matchId)) {
     matchConnections.set(matchId, new Set());
   }
   matchConnections.get(matchId)?.add(ws);
-  
+
   cancelDisconnectTimer(matchId, userId);
   cancelAutoSubmit(matchId, userId);
   await matchEngine.markConnected(matchId, userId);
-  
+
+  // Resolve and track Battle Session for this match (if any) so the disconnect
+  // handler can end the session when the player leaves the game.
+  let sessionForMatch: { id: string; hostUserId: string; guestUserId: string; matchCount: number; hostWins: number; guestWins: number; ties: number } | null = null;
+  try {
+    const session = await battleSessionService.getActiveSessionForMatch(matchId);
+    if (session) {
+      sessionForMatch = {
+        id: session.id,
+        hostUserId: session.hostUserId,
+        guestUserId: session.guestUserId,
+        matchCount: session.matchCount,
+        hostWins: session.hostWins,
+        guestWins: session.guestWins,
+        ties: session.ties,
+      };
+      trackSessionMatch(session.id, matchId);
+    }
+  } catch (err) {
+    console.error(`[JoinMatch] Failed to resolve session for match ${matchId}:`, err);
+  }
+
   const seedVersion = await getSeedVersionForQuestion(matchId, matchState.currentQuestionIndex);
   const clientMatchState = sanitizeMatchStateForClient(matchState, seedVersion);
-  
-  log(`[JoinMatch] Sending match_started to ${username}, currentQuestion exists: ${!!clientMatchState.currentQuestion}`, "ws");
-  
+
+  log(`[JoinMatch] Sending match_started to ${username}, currentQuestion exists: ${!!clientMatchState.currentQuestion}, sessionId=${sessionForMatch?.id || 'none'}`, "ws");
+
+  const startedPayload: any = clientMatchState;
+  if (sessionForMatch) {
+    startedPayload.battleSession = {
+      sessionId: sessionForMatch.id,
+      hostUserId: sessionForMatch.hostUserId,
+      guestUserId: sessionForMatch.guestUserId,
+      matchCount: sessionForMatch.matchCount,
+      seriesRecord: {
+        hostWins: sessionForMatch.hostWins,
+        guestWins: sessionForMatch.guestWins,
+        ties: sessionForMatch.ties,
+      },
+    };
+  }
+
   ws.send(JSON.stringify({
     type: "match_started",
-    payload: clientMatchState,
+    payload: startedPayload,
   }));
-  
+
   log(`${username} joined match ${matchId}`, "ws");
 }
 
@@ -1246,6 +1330,194 @@ async function handleRematchVote(ws: WebSocket, payload: { matchId: string; vote
     matchConnections.delete(matchId);
     rematchVotes.delete(matchId);
   }
+}
+
+// --- Persistent Battle Session helpers ---
+
+async function enrichMatchEndForBattle(
+  matchId: string,
+  matchEnd: any,
+  matchEndedNaturally: boolean
+): Promise<any> {
+  let sessionId = matchToSession.get(matchId);
+  if (!sessionId) {
+    const session = await battleSessionService.getActiveSessionForMatch(matchId);
+    if (session) {
+      sessionId = session.id;
+      trackSessionMatch(session.id, matchId);
+    }
+  }
+  if (!sessionId) {
+    return matchEnd;
+  }
+  const session = await battleSessionService.getBattleSession(sessionId);
+  if (!session || session.status !== BattleSessionStatus.ACTIVE) {
+    return { ...matchEnd, sessionId, battleContinues: false };
+  }
+  if (matchEndedNaturally && matchEnd.result) {
+    try {
+      await battleSessionService.recordMatchResult(sessionId, matchEnd.result);
+    } catch (err) {
+      console.error(`[Battle] Failed to record match result for session ${sessionId}:`, err);
+    }
+  }
+  const refreshed = await battleSessionService.getBattleSession(sessionId);
+  return {
+    ...matchEnd,
+    sessionId,
+    battleContinues: matchEndedNaturally,
+    sequenceNumber: session.matchCount,
+    seriesRecord: {
+      hostUserId: session.hostUserId,
+      guestUserId: session.guestUserId,
+      hostWins: refreshed?.hostWins ?? session.hostWins,
+      guestWins: refreshed?.guestWins ?? session.guestWins,
+      ties: refreshed?.ties ?? session.ties,
+    },
+  };
+}
+
+async function endBattleAndNotify(
+  sessionId: string,
+  reason: string,
+  endedByUserId: string | null
+) {
+  const before = await battleSessionService.getBattleSession(sessionId);
+  if (!before || before.status !== BattleSessionStatus.ACTIVE) {
+    untrackSession(sessionId);
+    return;
+  }
+  const session = await battleSessionService.endBattleSession(sessionId, reason, endedByUserId);
+  if (!session) return;
+  const refreshed = await battleSessionService.getBattleSession(sessionId);
+  const payload = {
+    sessionId,
+    reason,
+    endedByUserId,
+    seriesRecord: refreshed
+      ? {
+          hostUserId: refreshed.hostUserId,
+          guestUserId: refreshed.guestUserId,
+          hostWins: refreshed.hostWins,
+          guestWins: refreshed.guestWins,
+          ties: refreshed.ties,
+        }
+      : undefined,
+  };
+  sendToUser(session.hostUserId, { type: "battle_ended", payload });
+  sendToUser(session.guestUserId, { type: "battle_ended", payload });
+  untrackSession(sessionId);
+}
+
+async function handleBattleRematchRequest(ws: WebSocket, payload: { sessionId: string }) {
+  const client = clients.get(ws);
+  if (!client || !client.isAuthenticated || !client.userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
+    return;
+  }
+  const { sessionId } = payload;
+  if (!sessionId) {
+    ws.send(JSON.stringify({ type: "error", message: "Missing sessionId" }));
+    return;
+  }
+  const session = await battleSessionService.getBattleSession(sessionId);
+  if (!session) {
+    ws.send(JSON.stringify({ type: "battle_ended", payload: { sessionId, reason: "NOT_FOUND" } }));
+    return;
+  }
+  if (session.status !== BattleSessionStatus.ACTIVE) {
+    sendToUser(client.userId, {
+      type: "battle_ended",
+      payload: { sessionId, reason: session.endReason || "ENDED", endedByUserId: session.endedByUserId || null },
+    });
+    return;
+  }
+  if (client.userId !== session.hostUserId && client.userId !== session.guestUserId) {
+    ws.send(JSON.stringify({ type: "error", message: "Not a participant in this battle" }));
+    return;
+  }
+  if (battleRematchStarting.has(sessionId)) {
+    return;
+  }
+  let ready = battleRematchReady.get(sessionId);
+  if (!ready) {
+    ready = new Set();
+    battleRematchReady.set(sessionId, ready);
+  }
+  ready.add(client.userId);
+  const readyUserIds = Array.from(ready);
+
+  sendToUser(session.hostUserId, {
+    type: "battle_rematch_pending",
+    payload: { sessionId, readyUserIds },
+  });
+  sendToUser(session.guestUserId, {
+    type: "battle_rematch_pending",
+    payload: { sessionId, readyUserIds },
+  });
+
+  if (ready.has(session.hostUserId) && ready.has(session.guestUserId)) {
+    battleRematchStarting.add(sessionId);
+    battleRematchReady.delete(sessionId);
+    try {
+      const result = await battleSessionService.startNextMatchInSession(sessionId);
+      if ("error" in result) {
+        log(`[Battle] startNextMatchInSession failed for ${sessionId}: ${result.error}`, "ws");
+        await endBattleAndNotify(sessionId, "REMATCH_FAILED", null);
+        return;
+      }
+      trackSessionMatch(sessionId, result.matchId);
+      sendToUser(session.hostUserId, {
+        type: "battle_next_match_started",
+        payload: {
+          sessionId,
+          matchId: result.matchId,
+          sequenceNumber: result.sequenceNumber,
+          membershipSecret: result.hostSecret,
+        },
+      });
+      sendToUser(session.guestUserId, {
+        type: "battle_next_match_started",
+        payload: {
+          sessionId,
+          matchId: result.matchId,
+          sequenceNumber: result.sequenceNumber,
+          membershipSecret: result.guestSecret,
+        },
+      });
+    } finally {
+      battleRematchStarting.delete(sessionId);
+    }
+  }
+}
+
+async function handleBattleLeave(ws: WebSocket, payload: { sessionId: string }) {
+  const client = clients.get(ws);
+  if (!client || !client.isAuthenticated || !client.userId) {
+    ws.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
+    return;
+  }
+  const { sessionId } = payload;
+  if (!sessionId) return;
+  const session = await battleSessionService.getBattleSession(sessionId);
+  if (!session) return;
+  if (client.userId !== session.hostUserId && client.userId !== session.guestUserId) {
+    return;
+  }
+  if (session.status !== BattleSessionStatus.ACTIVE) return;
+  const reason = client.userId === session.hostUserId ? "HOST_LEFT" : "GUEST_LEFT";
+  await endBattleAndNotify(sessionId, reason, client.userId);
+}
+
+async function handleDisconnectFromBattle(client: ClientConnection, sessionId: string) {
+  const session = await battleSessionService.getBattleSession(sessionId);
+  if (!session) return;
+  if (session.status !== BattleSessionStatus.ACTIVE) {
+    untrackSession(sessionId);
+    return;
+  }
+  const reason = client.userId === session.hostUserId ? "HOST_DISCONNECTED" : "GUEST_DISCONNECTED";
+  await endBattleAndNotify(sessionId, reason, client.userId);
 }
 
 async function handleLeaveMatch(ws: WebSocket, payload: { matchId: string }) {
@@ -1525,13 +1797,17 @@ async function handleDisconnectFromMatch(ws: WebSocket, client: ClientConnection
     }
     
     const matchEnd = await matchEngine.cancelMatchForDisconnect(matchId, userId);
-    
+
     if (matchEnd) {
+      const enriched = await enrichMatchEndForBattle(matchId, matchEnd, false);
       broadcastToMatch(matchId, {
         type: "match_end",
-        payload: matchEnd,
+        payload: enriched,
       });
       matchConnections.delete(matchId);
+      if (enriched.sessionId) {
+        await endBattleAndNotify(enriched.sessionId, "PLAYER_DISCONNECTED", userId);
+      }
       log(`Player ${username} timed out from match ${matchId} after ${DISCONNECT_GRACE_PERIOD / 1000}s, match cancelled`, "ws");
     }
   }, DISCONNECT_GRACE_PERIOD);
@@ -1654,8 +1930,11 @@ async function scheduleAutoSubmit(matchId: string, userId: string, username: str
                 console.error("Failed to process streak:", e);
               }
             }
-            broadcastToMatch(matchId, { type: "match_end", payload: matchEnd });
-            if (matchEnd.reason === "completed") {
+            const enriched = await enrichMatchEndForBattle(matchId, matchEnd, true);
+            broadcastToMatch(matchId, { type: "match_end", payload: enriched });
+            if (enriched.sessionId && enriched.battleContinues) {
+              battleRematchReady.set(enriched.sessionId, new Set());
+            } else if (matchEnd.reason === "completed") {
               const hostPart = allParticipants.find(p => p.role === "HOST");
               const guestPart = allParticipants.find(p => p.role === "GUEST");
               if (hostPart && guestPart) {
