@@ -52,6 +52,7 @@ export function getSession() {
     console.error("[Session] Session store connection error:", error.message);
   });
   
+  const isDev = process.env.NODE_ENV === "development";
   sessionMiddlewareInstance = session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -59,8 +60,10 @@ export function getSession() {
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      // In development (HTTP localhost) cookies must not require HTTPS.
+      // In production the app is always served over HTTPS via Railway/proxy.
+      secure: !isDev,
+      sameSite: isDev ? "lax" : "none",
       maxAge: sessionTtl,
     },
   });

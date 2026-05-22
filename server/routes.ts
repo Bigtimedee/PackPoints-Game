@@ -1483,6 +1483,52 @@ export async function registerRoutes(
     }
   });
 
+  // Dev-only test login endpoint — NEVER runs in production.
+  // Guarded by NODE_ENV !== 'development' and E2E_TEST_AUTH !== 'enabled'.
+  // Purpose: lets Playwright tests log in as a specific user without WorkOS/OAuth.
+  // Creates the user idempotently if they don't exist, then sets session.localUserId.
+  app.post("/api/test/login", async (req: any, res) => {
+    if (process.env.NODE_ENV !== "development" || process.env.E2E_TEST_AUTH !== "enabled") {
+      return res.status(404).json({ error: "Not found" });
+    }
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ error: "email required" });
+      }
+      let user = await storage.getUserByEmail(email);
+      if (!user) {
+        const username = email.split("@")[0].replace(/[^a-z0-9_]/gi, "") + "_e2e";
+        let uniqueUsername = username;
+        let counter = 1;
+        while (await storage.getUserByUsername(uniqueUsername)) {
+          uniqueUsername = `${username}${counter}`;
+          counter++;
+        }
+        user = await storage.createUser({
+          username: uniqueUsername,
+          email,
+          firstName: uniqueUsername,
+          status: "ACTIVE",
+        });
+      } else if (user.status !== "ACTIVE") {
+        await db.update(users).set({ status: "ACTIVE" }).where(eq(users.id, user.id));
+        user = (await storage.getUser(user.id))!;
+      }
+      req.session.localUserId = user.id;
+      req.session.save((err: any) => {
+        if (err) {
+          console.error("[TestLogin] Session save error:", err);
+          return res.status(500).json({ error: "Session save failed" });
+        }
+        res.json({ id: user!.id, username: user!.username, email: user!.email });
+      });
+    } catch (error) {
+      console.error("[TestLogin] Error:", error);
+      res.status(500).json({ error: "Failed to log in test user" });
+    }
+  });
+
   // Password reset - request reset link
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {

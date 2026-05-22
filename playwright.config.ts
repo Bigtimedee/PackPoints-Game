@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const BASE_URL = process.env.BASE_URL || "http://localhost:5000";
+const BASE_URL = process.env.BASE_URL || "http://localhost:5001";
 
 export default defineConfig({
   testDir: "./tests/e2e",
