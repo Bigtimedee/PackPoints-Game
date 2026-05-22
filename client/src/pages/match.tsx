@@ -54,6 +54,22 @@ interface MatchState {
   endReason?: string;
 }
 
+interface SeriesRecord {
+  hostUserId: string;
+  guestUserId: string;
+  hostWins: number;
+  guestWins: number;
+  ties: number;
+}
+
+interface BattleSessionInfo {
+  sessionId: string;
+  hostUserId: string;
+  guestUserId: string;
+  matchCount: number;
+  seriesRecord: { hostWins: number; guestWins: number; ties: number };
+}
+
 interface MatchEndEvent {
   matchId: string;
   lobbyId: string;
@@ -70,6 +86,17 @@ interface MatchEndEvent {
     score: number;
     correctAnswers: number;
   }[];
+  sessionId?: string;
+  battleContinues?: boolean;
+  sequenceNumber?: number;
+  seriesRecord?: SeriesRecord;
+}
+
+interface BattleEndedEvent {
+  sessionId: string;
+  reason: string;
+  endedByUserId: string | null;
+  seriesRecord?: SeriesRecord;
 }
 
 interface AnswerStatus {
@@ -110,6 +137,18 @@ export default function Match() {
   // Set once when match_end arrives and used to map rematch_vote_update host/guest fields to my vote vs opponent's.
   const isMatchHostRef = useRef<boolean | null>(null);
 
+  // --- Persistent Battle Session state ---
+  // When a match belongs to a Battle Session, the end-of-match UI shows
+  // "Play Again" / "Leave Battle" instead of navigating to /lobby. The
+  // session persists across multiple matches until either player disconnects.
+  const [battleSession, setBattleSession] = useState<BattleSessionInfo | null>(null);
+  const [battleAwaitingRematch, setBattleAwaitingRematch] = useState(false);
+  const [myRematchClicked, setMyRematchClicked] = useState(false);
+  const [opponentRematchReady, setOpponentRematchReady] = useState(false);
+  const [battleEnded, setBattleEnded] = useState<BattleEndedEvent | null>(null);
+  const battleSessionRef = useRef<BattleSessionInfo | null>(null);
+  battleSessionRef.current = battleSession;
+
   const { toast } = useToast();
   
   const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -128,6 +167,21 @@ export default function Match() {
       case "match_started":
       case "match_state":
       case "next_question":
+        // Capture/refresh Battle Session info if the server included it in the payload
+        if (message.payload.battleSession) {
+          const bs = message.payload.battleSession;
+          setBattleSession({
+            sessionId: bs.sessionId,
+            hostUserId: bs.hostUserId,
+            guestUserId: bs.guestUserId,
+            matchCount: bs.matchCount,
+            seriesRecord: {
+              hostWins: bs.seriesRecord?.hostWins ?? 0,
+              guestWins: bs.seriesRecord?.guestWins ?? 0,
+              ties: bs.seriesRecord?.ties ?? 0,
+            },
+          });
+        }
         // Clear waiting state - server says we're moving to next question
         setMatchState(message.payload);
         setSelectedChoice(null);
@@ -312,9 +366,36 @@ export default function Match() {
         }
         break;
       case "match_completed":
-      case "match_end":
-        clearMatchSecret();
-        setMatchEnded(message.payload);
+      case "match_end": {
+        const endPayload = message.payload as MatchEndEvent;
+        const inActiveBattle = !!endPayload.sessionId && endPayload.battleContinues === true;
+        if (!inActiveBattle) {
+          clearMatchSecret();
+        }
+        setMatchEnded(endPayload);
+        if (endPayload.seriesRecord && endPayload.sessionId) {
+          const sr = endPayload.seriesRecord;
+          setBattleSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  matchCount: endPayload.sequenceNumber ?? prev.matchCount,
+                  seriesRecord: { hostWins: sr.hostWins, guestWins: sr.guestWins, ties: sr.ties },
+                }
+              : {
+                  sessionId: endPayload.sessionId!,
+                  hostUserId: sr.hostUserId,
+                  guestUserId: sr.guestUserId,
+                  matchCount: endPayload.sequenceNumber ?? 1,
+                  seriesRecord: { hostWins: sr.hostWins, guestWins: sr.guestWins, ties: sr.ties },
+                }
+          );
+        }
+        if (inActiveBattle) {
+          setBattleAwaitingRematch(true);
+          setMyRematchClicked(false);
+          setOpponentRematchReady(false);
+        }
         setMatchState((prev) => {
           if (!prev) return prev;
           // Capture host role: participants[0] is always HOST per server insertion order.
@@ -323,10 +404,10 @@ export default function Match() {
           }
           return {
             ...prev,
-            status: message.payload.status,
-            winner: message.payload.winner,
-            endReason: message.payload.reason,
-            participants: message.payload.participants.map((p: any) => ({
+            status: endPayload.status,
+            winner: endPayload.winner,
+            endReason: endPayload.reason,
+            participants: endPayload.participants.map((p: any) => ({
               ...prev.participants.find((pp) => pp.userId === p.userId) || {},
               ...p,
             })),
@@ -334,6 +415,79 @@ export default function Match() {
         });
         queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
         break;
+      }
+      case "battle_rematch_pending": {
+        const readyIds: string[] = message.payload?.readyUserIds || [];
+        const session = battleSessionRef.current;
+        const opponentId = session
+          ? (userId === session.hostUserId ? session.guestUserId : session.hostUserId)
+          : null;
+        if (opponentId && readyIds.includes(opponentId)) {
+          setOpponentRematchReady(true);
+        }
+        if (userId && readyIds.includes(userId)) {
+          setMyRematchClicked(true);
+        }
+        break;
+      }
+      case "battle_next_match_started": {
+        const payload = message.payload as {
+          sessionId: string;
+          matchId: string;
+          sequenceNumber: number;
+          membershipSecret: string;
+        };
+        localStorage.setItem("packpoints_match_secret", payload.membershipSecret);
+        setMatchEnded(null);
+        setMatchState(null);
+        setBattleAwaitingRematch(false);
+        setMyRematchClicked(false);
+        setOpponentRematchReady(false);
+        setSelectedChoice(null);
+        setSubmitting(false);
+        submittingRef.current = false;
+        setLockedIn(false);
+        lockedInRef.current = false;
+        setAnswerResult(null);
+        setSubmitError(null);
+        setPendingClientMsgId(null);
+        pendingClientMsgIdRef.current = null;
+        setImageError(false);
+        setImageLoaded(false);
+        setImageRetryCount(0);
+        setShowReplaceButton(false);
+        setReplacementPending(false);
+        setAnswerStatus(null);
+        processedAnswerForIdx.current = -1;
+        hasJoinedMatchRef.current = false;
+        if (fallbackTimeoutRef.current) {
+          clearTimeout(fallbackTimeoutRef.current);
+          fallbackTimeoutRef.current = null;
+        }
+        if (resyncTimeoutRef.current) {
+          clearTimeout(resyncTimeoutRef.current);
+          resyncTimeoutRef.current = null;
+        }
+        navigate(`/match/${payload.matchId}`);
+        break;
+      }
+      case "battle_ended": {
+        const payload = message.payload as BattleEndedEvent;
+        clearMatchSecret();
+        setBattleEnded(payload);
+        setBattleAwaitingRematch(false);
+        setMyRematchClicked(false);
+        setOpponentRematchReady(false);
+        if (payload.seriesRecord) {
+          const sr = payload.seriesRecord;
+          setBattleSession((prev) =>
+            prev
+              ? { ...prev, seriesRecord: { hostWins: sr.hostWins, guestWins: sr.guestWins, ties: sr.ties } }
+              : null
+          );
+        }
+        break;
+      }
       case "rematch_vote_update": {
         const { hostVote, guestVote } = message.payload;
         const amHost = isMatchHostRef.current;
@@ -586,6 +740,72 @@ export default function Match() {
     );
   }
 
+  if (battleEnded) {
+    const reasonText: Record<string, string> = {
+      HOST_LEFT: "Your opponent left the Battle.",
+      GUEST_LEFT: "Your opponent left the Battle.",
+      HOST_DISCONNECTED: "Your opponent disconnected.",
+      GUEST_DISCONNECTED: "Your opponent disconnected.",
+      PLAYER_DISCONNECTED: "Your opponent disconnected.",
+      REMATCH_FAILED: "Could not start the next match.",
+      NOT_FOUND: "Battle ended.",
+    };
+    const isMe = battleEnded.endedByUserId === userId;
+    const headline = isMe ? "Battle Ended" : "Battle Ended";
+    const subline = isMe ? "You left the Battle." : (reasonText[battleEnded.reason] || "Battle ended.");
+    const sr = battleEnded.seriesRecord || battleSession?.seriesRecord;
+    const myWins = battleSession
+      ? (userId === battleSession.hostUserId ? (sr ? (sr as any).hostWins ?? 0 : 0) : (sr ? (sr as any).guestWins ?? 0 : 0))
+      : 0;
+    const opponentWins = battleSession
+      ? (userId === battleSession.hostUserId ? (sr ? (sr as any).guestWins ?? 0 : 0) : (sr ? (sr as any).hostWins ?? 0 : 0))
+      : 0;
+    const ties = sr ? ((sr as any).ties ?? 0) : 0;
+
+    return (
+      <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
+        <div className="container mx-auto px-4 max-w-lg">
+          <Card>
+            <CardContent className="p-8 text-center space-y-6">
+              <div className="mx-auto p-4 rounded-full w-fit bg-muted">
+                <Trophy className="h-12 w-12 text-muted-foreground" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold mb-2" data-testid="text-battle-result">{headline}</h1>
+                <p className="text-muted-foreground" data-testid="text-battle-reason">{subline}</p>
+              </div>
+              {sr && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">You</p>
+                    <p className="text-2xl font-bold font-mono" data-testid="text-battle-my-wins">{myWins}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Ties</p>
+                    <p className="text-2xl font-bold font-mono" data-testid="text-battle-ties">{ties}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Opponent</p>
+                    <p className="text-2xl font-bold font-mono" data-testid="text-battle-opponent-wins">{opponentWins}</p>
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col gap-3">
+                <Button onClick={() => navigate("/friends")} className="gap-2" data-testid="button-back-friends">
+                  Back to Friends
+                </Button>
+                <Button variant="outline" onClick={() => navigate("/")} className="gap-2" data-testid="button-home">
+                  <Home className="h-4 w-4" />
+                  Home
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   if (matchEnded && matchEnded.status === "CANCELLED") {
     const cancelReasonText: Record<string, string> = {
       no_ack: "A player failed to acknowledge the match",
@@ -594,7 +814,7 @@ export default function Match() {
       forfeit: "A player forfeited the match",
       disconnect: "A player disconnected",
     };
-    
+
     return (
       <div className="min-h-[100dvh] pb-20 md:pb-8 pt-8">
         <div className="container mx-auto px-4 max-w-lg">
@@ -603,7 +823,7 @@ export default function Match() {
               <div className="mx-auto p-4 rounded-full w-fit bg-destructive/20">
                 <X className="h-12 w-12 text-destructive" />
               </div>
-              
+
               <div>
                 <h1 className="text-3xl font-bold mb-2" data-testid="text-match-result">
                   Match Cancelled
@@ -612,7 +832,7 @@ export default function Match() {
                   {cancelReasonText[matchEnded.reason] || matchEnded.reason}
                 </p>
               </div>
-              
+
               <div className="flex flex-col gap-3">
                 <Button onClick={() => navigate("/lobby")} className="gap-2" data-testid="button-return-lobby">
                   <RotateCcw className="h-4 w-4" />
@@ -720,66 +940,138 @@ export default function Match() {
                 </div>
               </div>
               
+              {battleSession && (matchEnded.sessionId || battleAwaitingRematch) && (() => {
+                const sr = battleSession.seriesRecord;
+                const myWins = userId === battleSession.hostUserId ? sr.hostWins : sr.guestWins;
+                const opponentWins = userId === battleSession.hostUserId ? sr.guestWins : sr.hostWins;
+                const ties = sr.ties;
+                return (
+                  <div className="grid grid-cols-3 gap-3 -mt-2" data-testid="battle-scoreboard">
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <p className="text-xs text-muted-foreground">You</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="text-series-my-wins">{myWins}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <p className="text-xs text-muted-foreground">Ties</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="text-series-ties">{ties}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/50">
+                      <p className="text-xs text-muted-foreground">Opponent</p>
+                      <p className="text-2xl font-bold font-mono" data-testid="text-series-opponent-wins">{opponentWins}</p>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="flex flex-col gap-3">
-                {/* Rematch prompt — only shown for normal FINISHED matches (not cancelled/forfeit) */}
-                <div className="space-y-3">
-                  {opponentVote === "decline" ? (
-                    <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                      <UserX className="h-4 w-4 shrink-0" />
-                      <span>{opponentResult?.username || "Opponent"} declined rematch</span>
+                {matchEnded.sessionId && battleAwaitingRematch ? (
+                  /* Persistent Battle Session — Play Again continues the series, no new invite needed */
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-center">
+                      Play another match with {opponentResult?.username || "opponent"}?
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1 gap-2"
+                        onClick={() => {
+                          if (!matchEnded.sessionId) return;
+                          send("battle_rematch_request", { sessionId: matchEnded.sessionId });
+                          setMyRematchClicked(true);
+                        }}
+                        disabled={myRematchClicked}
+                        data-testid="button-play-again"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        {myRematchClicked && opponentRematchReady
+                          ? "Starting next match..."
+                          : myRematchClicked
+                            ? "Waiting for opponent..."
+                            : opponentRematchReady
+                              ? "Opponent is ready — Play Again"
+                              : "Play Again"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="flex-1 gap-2"
+                        onClick={() => {
+                          if (!matchEnded.sessionId) return;
+                          send("battle_leave", { sessionId: matchEnded.sessionId });
+                          clearMatchSecret();
+                          navigate("/");
+                        }}
+                        data-testid="button-leave-battle"
+                      >
+                        <X className="h-4 w-4" />
+                        Leave Battle
+                      </Button>
                     </div>
-                  ) : rematchState === "idle" || rematchState === "opponent_voted" ? (
-                    <>
-                      <p className="text-sm font-medium text-center">
-                        Play again with {opponentResult?.username || "opponent"}?
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          className="flex-1 gap-2"
-                          onClick={() => {
-                            if (!matchEnded?.matchId) return;
-                            send("rematch_vote", { matchId: matchEnded.matchId, vote: "accept" });
-                            setMyVote("accept");
-                            setRematchState("voted");
-                          }}
-                          disabled={myVote !== null}
-                          data-testid="button-play-again"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                          {rematchState === "opponent_voted" && opponentVote === "accept"
-                            ? "Opponent accepted - Play Again!"
-                            : "Play Again"}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="flex-1 gap-2"
-                          onClick={() => {
-                            if (!matchEnded?.matchId) return;
-                            send("rematch_vote", { matchId: matchEnded.matchId, vote: "decline" });
-                            setMyVote("decline");
-                            setRematchState("voted");
-                            setTimeout(() => navigate("/"), 500);
-                          }}
-                          disabled={myVote !== null}
-                          data-testid="button-rematch-decline"
-                        >
-                          <X className="h-4 w-4" />
-                          Decline
-                        </Button>
+                    {myRematchClicked && !opponentRematchReady && (
+                      <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                        <span>Waiting for {opponentResult?.username || "opponent"} to click Play Again...</span>
                       </div>
-                    </>
-                  ) : rematchState === "voted" ? (
-                    <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                      <span>Waiting for {opponentResult?.username || "opponent"}...</span>
-                    </div>
-                  ) : rematchState === "both_voted_waiting" ? (
-                    <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                      <span>Starting rematch...</span>
-                    </div>
-                  ) : null}
-                </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Legacy rematch-vote flow for non-Battle (random matchmaking) matches */
+                  <div className="space-y-3">
+                    {opponentVote === "decline" ? (
+                      <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                        <UserX className="h-4 w-4 shrink-0" />
+                        <span>{opponentResult?.username || "Opponent"} declined rematch</span>
+                      </div>
+                    ) : rematchState === "idle" || rematchState === "opponent_voted" ? (
+                      <>
+                        <p className="text-sm font-medium text-center">
+                          Play again with {opponentResult?.username || "opponent"}?
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            className="flex-1 gap-2"
+                            onClick={() => {
+                              if (!matchEnded?.matchId) return;
+                              send("rematch_vote", { matchId: matchEnded.matchId, vote: "accept" });
+                              setMyVote("accept");
+                              setRematchState("voted");
+                            }}
+                            disabled={myVote !== null}
+                            data-testid="button-play-again"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                            {rematchState === "opponent_voted" && opponentVote === "accept"
+                              ? "Opponent accepted - Play Again!"
+                              : "Play Again"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="flex-1 gap-2"
+                            onClick={() => {
+                              if (!matchEnded?.matchId) return;
+                              send("rematch_vote", { matchId: matchEnded.matchId, vote: "decline" });
+                              setMyVote("decline");
+                              setRematchState("voted");
+                              setTimeout(() => navigate("/"), 500);
+                            }}
+                            disabled={myVote !== null}
+                            data-testid="button-rematch-decline"
+                          >
+                            <X className="h-4 w-4" />
+                            Decline
+                          </Button>
+                        </div>
+                      </>
+                    ) : rematchState === "voted" ? (
+                      <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                        <span>Waiting for {opponentResult?.username || "opponent"}...</span>
+                      </div>
+                    ) : rematchState === "both_voted_waiting" ? (
+                      <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                        <span>Starting rematch...</span>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
                 <Button
                   variant="outline"
                   onClick={() => handleShare(`I scored ${meResult?.correctAnswers ?? 0}/${matchState.totalQuestions} on PackPTS!`)}
@@ -805,9 +1097,27 @@ export default function Match() {
   const currentQuestion = matchState.currentQuestion;
   const progress = ((matchState.currentQuestionIndex + 1) / matchState.totalQuestions) * 100;
 
+  const battleSeries = battleSession?.seriesRecord;
+  const mySeriesWins = battleSession
+    ? (userId === battleSession.hostUserId ? battleSeries!.hostWins : battleSeries!.guestWins)
+    : 0;
+  const opponentSeriesWins = battleSession
+    ? (userId === battleSession.hostUserId ? battleSeries!.guestWins : battleSeries!.hostWins)
+    : 0;
+
   return (
     <div className="min-h-[100dvh] pt-4" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 96px)' }}>
       <div className="container mx-auto px-4 max-w-lg">
+        {battleSession && (
+          <div className="mb-3 flex items-center justify-center gap-2" data-testid="battle-header">
+            <Badge variant="outline" className="font-mono">
+              Battle {battleSession.matchCount > 0 ? `· Match ${battleSession.matchCount}` : ""}
+            </Badge>
+            <Badge variant="secondary" className="font-mono" data-testid="battle-series-tally">
+              {mySeriesWins}–{opponentSeriesWins}{battleSeries && battleSeries.ties > 0 ? `–${battleSeries.ties}T` : ""}
+            </Badge>
+          </div>
+        )}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
@@ -824,7 +1134,7 @@ export default function Match() {
               </Badge>
             )}
           </div>
-          
+
           <div className="text-center">
             <Badge variant="outline">
               {matchState.currentQuestionIndex + 1} / {matchState.totalQuestions}
