@@ -1,11 +1,12 @@
 import { db } from "../../db";
-import { friendMatchInvites, users, lobbies, type FriendMatchInvite } from "@shared/schema";
+import { friendMatchInvites, users, lobbies, matches, type FriendMatchInvite } from "@shared/schema";
 import { eq, and, sql, gt, lt } from "drizzle-orm";
 import { isAcceptedFriend } from "./friendshipService";
 import { matchService } from "../matchService";
+import { battleSessionService } from "../battles/battleSessionService";
 import { randomUUID } from "crypto";
-import { 
-  notifyFriendMatchInvite, 
+import {
+  notifyFriendMatchInvite,
   notifyFriendMatchInviteCancelled,
   notifyFriendMatchInviteExpired,
   notifyFriendMatchAccepted,
@@ -164,6 +165,7 @@ export interface RespondResult {
   success: boolean;
   matchId?: string;
   lobbyId?: string;
+  sessionId?: string;
   hostSecret?: string;
   guestSecret?: string;
   error?: string;
@@ -263,10 +265,21 @@ export async function respondToFriendMatchInvite(
     createdAt: new Date(),
   });
 
-  const result = await matchService.startMatchForRandom(lobbyId);
+  const session = await battleSessionService.createBattleSession({
+    lobbyId,
+    hostUserId: invite.fromUserId,
+    guestUserId: invite.toUserId,
+    firstMatchId: "pending",
+  });
+
+  const result = await matchService.startMatchForRandom(lobbyId, {
+    sessionId: session.id,
+    sequenceNumber: 1,
+  });
 
   if (!result.matchState) {
     console.error(`[FriendMatchInvite] Failed to create match: ${result.error}`);
+    await battleSessionService.endBattleSession(session.id, "match_create_failed", null);
     return { success: false, error: result.error || "Failed to create match" };
   }
 
@@ -277,10 +290,17 @@ export async function respondToFriendMatchInvite(
     .set({ status: "ACCEPTED", matchId: match.matchId })
     .where(eq(friendMatchInvites.id, inviteId));
 
+  await db.execute(sql`
+    UPDATE battle_sessions
+    SET current_match_id = ${match.matchId}
+    WHERE id = ${session.id}
+  `);
+
   notifyFriendMatchAccepted(invite.fromUserId, {
     inviteId,
     matchId: match.matchId,
     lobbyId,
+    sessionId: session.id,
     membershipSecret: hostSecret,
   });
 
@@ -288,13 +308,15 @@ export async function respondToFriendMatchInvite(
     inviteId,
     matchId: match.matchId,
     lobbyId,
+    sessionId: session.id,
     membershipSecret: guestSecret,
   });
 
-  return { 
-    success: true, 
-    matchId: match.matchId, 
+  return {
+    success: true,
+    matchId: match.matchId,
     lobbyId,
+    sessionId: session.id,
     hostSecret,
     guestSecret,
   };

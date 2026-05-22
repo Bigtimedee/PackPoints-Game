@@ -273,6 +273,7 @@ export function notifyFriendMatchAccepted(toUserId: string, data: {
   inviteId: string;
   matchId: string;
   lobbyId: string;
+  sessionId?: string;
   membershipSecret: string;
 }) {
   return sendToUser(toUserId, {

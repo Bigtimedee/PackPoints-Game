@@ -261,7 +261,10 @@ class MatchService {
     return { matchState };
   }
 
-  async startMatchForRandom(lobbyId: string): Promise<{ matchState: MatchState | null; error?: string }> {
+  async startMatchForRandom(
+    lobbyId: string,
+    opts?: { sessionId?: string; sequenceNumber?: number }
+  ): Promise<{ matchState: MatchState | null; error?: string }> {
     const lobby = await this.getLobby(lobbyId);
     if (!lobby) {
       console.error(`[MatchService] startMatchForRandom failed: lobby not found ${lobbyId}`);
@@ -271,27 +274,31 @@ class MatchService {
       console.error(`[MatchService] startMatchForRandom failed: no guest in lobby ${lobbyId}`);
       return { matchState: null, error: "No guest in lobby" };
     }
-    
-    console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}, set=${lobby.gameSetId || 'all'}`);
-    
+
+    console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}, set=${lobby.gameSetId || 'all'}, sessionId=${opts?.sessionId || 'none'}, seq=${opts?.sequenceNumber ?? 1}`);
+
     const matchId = randomUUID();
     const questions = await this.generateQuestions(lobby.totalQuestions, matchId, lobby.gameSetId || undefined);
-    
+
     if (!questions || questions.length === 0) {
       console.error(`[MatchService] startMatchForRandom failed: no questions generated for lobby ${lobbyId}. Need verified cards.`);
       return { matchState: null, error: "Not enough cards available" };
     }
-    
+
     console.log(`[MatchService] Generated ${questions.length} questions for random match lobby ${lobbyId}`);
-    
+
     await db.update(lobbies).set({ status: "playing" }).where(eq(lobbies.id, lobbyId));
-    
+
     const [match] = await db.insert(matches).values({
       id: matchId,
       lobbyId,
       status: MatchStatus.ACTIVE,
+      hostUserId: lobby.hostId,
+      guestUserId: lobby.guestId,
       totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
+      sessionId: opts?.sessionId ?? null,
+      sequenceNumber: opts?.sequenceNumber ?? 1,
     }).returning();
     
     await db.insert(matchParticipants).values([
