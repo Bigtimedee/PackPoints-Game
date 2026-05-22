@@ -70,6 +70,16 @@ const userSockets = new Map<string, WebSocket>(); // userId -> WebSocket for qui
 const lobbyConnections = new Map<string, Set<WebSocket>>();
 const matchConnections = new Map<string, Set<WebSocket>>();
 
+interface RematchVoteEntry {
+  hostVote?: "accept" | "decline";
+  guestVote?: "accept" | "decline";
+  timeoutHandle: NodeJS.Timeout;
+  lobbyId: string;
+  hostUserId: string;
+  guestUserId: string;
+}
+const rematchVotes = new Map<string, RematchVoteEntry>();
+
 // Periodic heartbeat checker
 let heartbeatChecker: NodeJS.Timeout | null = null;
 
@@ -319,6 +329,12 @@ async function handleMessage(ws: WebSocket, message: any) {
       break;
     case "question_replace_request":
       await handleQuestionReplaceRequest(ws, payload);
+      break;
+    case "rematch_vote":
+      await handleRematchVote(ws, payload);
+      break;
+    case "leave_match":
+      await handleLeaveMatch(ws, payload);
       break;
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
@@ -756,6 +772,14 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
           type: "match_end",
           payload: matchEnd,
         });
+        if (matchEnd.reason === "completed") {
+          const allParts = await matchEngine.getParticipants(matchId);
+          const hostPart = allParts.find(p => p.role === "HOST");
+          const guestPart = allParts.find(p => p.role === "GUEST");
+          if (hostPart && guestPart) {
+            initRematchWindow(matchId, matchEnd.lobbyId, hostPart.userId, guestPart.userId);
+          }
+        }
       }
     } else if (result.advance.nextQuestion) {
       // Advance to next question - broadcast to BOTH players
@@ -1128,6 +1152,116 @@ function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number
   };
 }
 
+function initRematchWindow(matchId: string, lobbyId: string, hostUserId: string, guestUserId: string) {
+  const timeoutHandle = setTimeout(() => {
+    if (rematchVotes.has(matchId)) {
+      broadcastToMatch(matchId, { type: "rematch_cancelled", payload: { matchId, reason: "timeout" } });
+      rematchVotes.delete(matchId);
+      matchConnections.delete(matchId);
+    }
+  }, 30000);
+  rematchVotes.set(matchId, { timeoutHandle, lobbyId, hostUserId, guestUserId });
+}
+
+async function handleRematchVote(ws: WebSocket, payload: { matchId: string; vote: "accept" | "decline" }) {
+  const { matchId, vote } = payload;
+  const client = clients.get(ws);
+  if (!client || !client.isAuthenticated) {
+    ws.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
+    return;
+  }
+  const entry = rematchVotes.get(matchId);
+  if (!entry) {
+    ws.send(JSON.stringify({ type: "error", message: "Rematch window expired", code: "REMATCH_EXPIRED" }));
+    return;
+  }
+  const { hostUserId, guestUserId, lobbyId } = entry;
+  const isHost = client.userId === hostUserId;
+  const isGuest = client.userId === guestUserId;
+  if (!isHost && !isGuest) {
+    ws.send(JSON.stringify({ type: "error", message: "You are not a participant in this match" }));
+    return;
+  }
+  if (isHost) entry.hostVote = vote;
+  else entry.guestVote = vote;
+
+  broadcastToMatch(matchId, {
+    type: "rematch_vote_update",
+    payload: {
+      matchId,
+      hostVoted: entry.hostVote !== undefined,
+      guestVoted: entry.guestVote !== undefined,
+      hostVote: entry.hostVote,
+      guestVote: entry.guestVote,
+    },
+  });
+
+  if (entry.hostVote === "accept" && entry.guestVote === "accept") {
+    clearTimeout(entry.timeoutHandle);
+    const updatedLobby = await matchService.resetLobbyForRematch(lobbyId);
+    broadcastToMatch(matchId, { type: "rematch_ready", payload: { matchId, lobbyId } });
+    // Migrate sockets from matchConnections to lobbyConnections
+    const matchClients = matchConnections.get(matchId);
+    if (matchClients) {
+      if (!lobbyConnections.has(lobbyId)) lobbyConnections.set(lobbyId, new Set());
+      const lobbySet = lobbyConnections.get(lobbyId)!;
+      Array.from(matchClients).forEach(clientWs => {
+        const ci = clients.get(clientWs);
+        if (ci) {
+          ci.lobbyId = lobbyId;
+          ci.matchId = undefined;
+        }
+        lobbySet.add(clientWs);
+      });
+      matchConnections.delete(matchId);
+    }
+    rematchVotes.delete(matchId);
+    // Broadcast lobby_update so clients know lobby state
+    const safeLobby = {
+      id: updatedLobby.id,
+      joinCode: updatedLobby.joinCode,
+      hostId: updatedLobby.hostId,
+      hostUsername: updatedLobby.hostUsername,
+      guestId: updatedLobby.guestId,
+      guestUsername: updatedLobby.guestUsername,
+      status: updatedLobby.status,
+      mode: updatedLobby.mode,
+      totalQuestions: updatedLobby.totalQuestions,
+      createdAt: updatedLobby.createdAt,
+      gameSetId: updatedLobby.gameSetId,
+    };
+    broadcastToLobby(lobbyId, { type: "lobby_update", payload: safeLobby });
+  } else if (entry.hostVote === "decline" || entry.guestVote === "decline") {
+    clearTimeout(entry.timeoutHandle);
+    broadcastToMatch(matchId, { type: "rematch_cancelled", payload: { matchId, reason: "declined" } });
+    matchConnections.delete(matchId);
+    rematchVotes.delete(matchId);
+  }
+}
+
+async function handleLeaveMatch(ws: WebSocket, payload: { matchId: string }) {
+  const { matchId } = payload;
+  const client = clients.get(ws);
+  if (!client) return;
+
+  if (rematchVotes.has(matchId)) {
+    const entry = rematchVotes.get(matchId)!;
+    const isHost = client.userId === entry.hostUserId;
+    const isGuest = client.userId === entry.guestUserId;
+    if (isHost || isGuest) {
+      if (isHost) entry.hostVote = "decline";
+      else entry.guestVote = "decline";
+      clearTimeout(entry.timeoutHandle);
+      broadcastToMatch(matchId, { type: "rematch_cancelled", payload: { matchId, reason: "declined" } });
+      matchConnections.delete(matchId);
+      rematchVotes.delete(matchId);
+    }
+  } else {
+    matchConnections.get(matchId)?.delete(ws);
+  }
+  if (client.matchId === matchId) client.matchId = undefined;
+}
+
 function broadcastToLobby(lobbyId: string, message: any) {
   const lobbyClients = lobbyConnections.get(lobbyId);
   if (!lobbyClients) return;
@@ -1328,10 +1462,20 @@ function cancelLobbyDisconnectTimer(lobbyId: string, userId: string): boolean {
 async function handleDisconnectFromMatch(ws: WebSocket, client: ClientConnection) {
   const { matchId, userId, username } = client;
   if (!matchId || !userId) return;
-  
+
+  // If a rematch vote is open for this match, treat disconnect as decline
+  const voteEntry = rematchVotes.get(matchId);
+  if (voteEntry && (userId === voteEntry.hostUserId || userId === voteEntry.guestUserId)) {
+    clearTimeout(voteEntry.timeoutHandle);
+    broadcastToMatch(matchId, { type: "rematch_cancelled", payload: { matchId, reason: "opponent_left" } });
+    matchConnections.delete(matchId);
+    rematchVotes.delete(matchId);
+    return;
+  }
+
   const matchClients = matchConnections.get(matchId);
   matchClients?.delete(ws);
-  
+
   await matchEngine.markDisconnected(matchId, userId);
   
   broadcastToMatch(matchId, {
@@ -1502,6 +1646,13 @@ async function scheduleAutoSubmit(matchId: string, userId: string, username: str
               }
             }
             broadcastToMatch(matchId, { type: "match_end", payload: matchEnd });
+            if (matchEnd.reason === "completed") {
+              const hostPart = allParticipants.find(p => p.role === "HOST");
+              const guestPart = allParticipants.find(p => p.role === "GUEST");
+              if (hostPart && guestPart) {
+                initRematchWindow(matchId, matchEnd.lobbyId, hostPart.userId, guestPart.userId);
+              }
+            }
           }
         } else if (result.advance.nextQuestion) {
           const advancedState = await matchEngine.buildMatchState(matchId);
