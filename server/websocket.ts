@@ -1152,6 +1152,14 @@ function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number
   };
 }
 
+// --- Rematch vote lifecycle ---
+// Entry added: when match_end broadcasts with reason="completed" (normal finish only).
+// Entry removed: on both-accept (migrates sockets to lobby), either-decline, timeout, or opponent disconnect.
+// Map invariant: key is matchId; entry always has timeoutHandle, lobbyId, hostUserId, guestUserId.
+// Votes are recorded per role (host/guest); a second vote by same user overwrites the first.
+// Sockets remain in matchConnections until accept (migrated to lobbyConnections) or decline/timeout (deleted).
+// Only normal completion initializes a window — disconnect_timeout, forfeit, no_ack do NOT.
+// On socket close, handleDisconnectFromMatch checks rematchVotes before normal disconnect logic.
 function initRematchWindow(matchId: string, lobbyId: string, hostUserId: string, guestUserId: string) {
   const timeoutHandle = setTimeout(() => {
     if (rematchVotes.has(matchId)) {
