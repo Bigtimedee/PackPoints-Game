@@ -17,6 +17,17 @@ import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PlayableSet } from "@shared/schema";
 
+// Returns the membershipSecret stored for a given lobbyId.
+// Written by match.tsx before navigating to /lobby/:id for a rematch.
+function getStoredMembershipSecret(lobbyId: string): string | null {
+  return sessionStorage.getItem(`lobby:${lobbyId}:membershipSecret`);
+}
+
+// True if the string looks like a UUID (lobby IDs are UUIDs, actions like "create"/"join" are not).
+function looksLikeLobbyId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 interface LobbyState {
   id: string;
   joinCode: string;
@@ -34,7 +45,12 @@ export default function Lobby() {
   const [, navigate] = useLocation();
   const [, params] = useRoute("/lobby/:action");
   const action = params?.action;
-  
+
+  // When navigating to /lobby/:id after a rematch, :id is a UUID lobby ID (not an action like "create").
+  // The /lobby/:id route in App.tsx is defined BEFORE /lobby/:action, so Wouter will match it first.
+  // However both routes share the same :action param slot name here; we disambiguate by UUID shape.
+  const rematchLobbyId = action && looksLikeLobbyId(action) ? action : null;
+
   // Check for code in URL query params (from shared invite link)
   const urlParams = new URLSearchParams(window.location.search);
   const codeFromUrl = urlParams.get("code")?.toUpperCase() || "";
@@ -148,6 +164,39 @@ export default function Lobby() {
       send("join_lobby", { userId, username, lobbyId: lobby.id, membershipSecret: lobby.membershipSecret });
     }
   }, [lobby, isConnected, send, userId, username]);
+
+  // Re-entry path for rematch: /lobby/:id
+  // When match.tsx navigates here after rematch_ready, it stores the membershipSecret in
+  // sessionStorage under `lobby:${lobbyId}:membershipSecret` before navigating.
+  // We read that secret here, seed the lobby state enough to connect, and let the first
+  // lobby_update event (broadcast by the server when we join) fill in the full lobby state.
+  useEffect(() => {
+    if (!rematchLobbyId || authLoading || !isAuthenticated) return;
+    // Only bootstrap once (if lobbyState is already set, skip)
+    if (lobbyRef.current) return;
+
+    const secret = getStoredMembershipSecret(rematchLobbyId);
+    if (!secret) {
+      toast({ title: "Session expired", description: "Lobby session expired. Please start a new lobby.", variant: "destructive" });
+      navigate("/lobby");
+      return;
+    }
+
+    // Seed minimal state so the WS connect + join_lobby effect fires.
+    // The real lobby state will arrive via lobby_update after the socket joins.
+    setLobby({
+      id: rematchLobbyId,
+      joinCode: "",
+      hostId: "",
+      hostUsername: "",
+      guestId: null,
+      guestUsername: null,
+      status: "waiting",
+      totalQuestions: 10,
+      gameSetId: null,
+      membershipSecret: secret,
+    });
+  }, [rematchLobbyId, authLoading, isAuthenticated, navigate, toast]);
 
   const createLobby = async () => {
     if (!selectedSetId) {

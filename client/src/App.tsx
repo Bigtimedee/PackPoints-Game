@@ -82,6 +82,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/game/:mode" component={Game} />
       <Route path="/lobby" component={Lobby} />
+      <Route path="/lobby/:id" component={Lobby} />
       <Route path="/lobby/:action" component={Lobby} />
       <Route path="/queue" component={Queue} />
       <Route path="/match/:matchId" component={Match} />
