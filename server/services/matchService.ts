@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { db } from "../db";
 import { lobbies, matches, matchParticipants, matchAnswers, baseballCards, playableCards, matchCardQueue, MatchStatus, type Lobby, type Match, type MatchParticipant, type GameQuestion, type MatchState, type BaseballCard, type PlayableCard } from "@shared/schema";
 import { eq, and, sql, notInArray, inArray } from "drizzle-orm";
@@ -28,7 +28,7 @@ export interface SubmitAnswerResult {
 
 function generateJoinCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = require('crypto').randomBytes(6);
+  const bytes = randomBytes(6);
   let code = "";
   for (let i = 0; i < 6; i++) {
     code += chars.charAt(bytes[i] % chars.length);
@@ -37,7 +37,8 @@ function generateJoinCode(): string {
 }
 
 function generateSecret(): string {
-  return require('crypto').randomBytes(24).toString('hex');
+  // varchar(32) in DB schema — 16 random bytes = 32 hex chars
+  return randomBytes(16).toString('hex');
 }
 
 function playableCardToBaseballCard(pc: PlayableCard): BaseballCard {
