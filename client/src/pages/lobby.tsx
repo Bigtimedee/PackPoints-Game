@@ -138,7 +138,12 @@ export default function Lobby() {
       setHostDisconnected(false);
       toast({ title: "Host Reconnected", description: "The host is back!" });
     });
-    
+
+    const cleanup8 = on("set_lobby_card_set_error", (data: { message: string } | string) => {
+      const message = typeof data === "string" ? data : (data?.message || "Failed to update card set");
+      toast({ title: "Card Set Error", description: message, variant: "destructive" });
+    });
+
     return () => {
       cleanup1();
       cleanup2();
@@ -147,6 +152,7 @@ export default function Lobby() {
       cleanup5();
       cleanup6();
       cleanup7();
+      cleanup8();
     };
   }, [on, toast, navigate]);
 
@@ -476,24 +482,66 @@ export default function Lobby() {
                 </div>
               )}
               
-              {lobby.gameSetId && (
-                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm" data-testid="text-lobby-set">
-                  <span className="text-muted-foreground">Card Set</span>
-                  <span className="font-medium">
-                    {playableSets?.find(s => s.id === lobby.gameSetId)?.setName || "Selected Set"}
-                  </span>
+              {/* Card set: host with guest present gets an interactive picker; guest gets read-only */}
+              {isHost && lobby.guestId && lobby.status === "waiting" ? (
+                <div className="space-y-2" data-testid="text-lobby-set">
+                  <Label htmlFor="lobby-card-set">Card Set</Label>
+                  <CardSetPicker
+                    sets={playableSets || []}
+                    value={lobby.gameSetId || "random"}
+                    onValueChange={(value) => {
+                      const gameSetId = value === "random" ? null : value;
+                      send("set_lobby_card_set", { lobbyId: lobby.id, gameSetId });
+                    }}
+                    placeholder="Choose a card set"
+                    isLoading={setsLoading}
+                    showRandomOption={true}
+                    randomOptionLabel="Random (All Sets)"
+                    id="lobby-card-set"
+                  />
+                  <div className="space-y-2 pt-1">
+                    <Label htmlFor="lobby-card-count">Number of Cards</Label>
+                    <Select
+                      value={String(lobby.totalQuestions)}
+                      onValueChange={(value) => {
+                        send("set_lobby_card_set", { lobbyId: lobby.id, gameSetId: lobby.gameSetId, totalQuestions: parseInt(value) });
+                      }}
+                    >
+                      <SelectTrigger id="lobby-card-count">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 Cards</SelectItem>
+                        <SelectItem value="10">10 Cards</SelectItem>
+                        <SelectItem value="15">15 Cards</SelectItem>
+                        <SelectItem value="20">20 Cards</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
+              ) : (
+                <>
+                  {/* Guest: show "choosing" indicator when gameSetId is null but both players are present */}
+                  {!isHost && lobby.guestId && !lobby.gameSetId && (
+                    <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground" data-testid="text-host-choosing">
+                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      <span>Host is choosing settings...</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm" data-testid="text-lobby-set">
+                    <span className="text-muted-foreground">Card Set</span>
+                    <span className="font-medium">
+                      {lobby.gameSetId
+                        ? (playableSets?.find(s => s.id === lobby.gameSetId)?.setName || "Selected Set")
+                        : "Random (All Sets)"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm">
+                    <span className="text-muted-foreground">Questions</span>
+                    <span className="font-medium">{lobby.totalQuestions}</span>
+                  </div>
+                </>
               )}
-              {!lobby.gameSetId && (
-                <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm" data-testid="text-lobby-set">
-                  <span className="text-muted-foreground">Card Set</span>
-                  <span className="font-medium">Random (All Sets)</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between p-3 rounded-md bg-muted/50 text-sm">
-                <span className="text-muted-foreground">Questions</span>
-                <span className="font-medium">{lobby.totalQuestions}</span>
-              </div>
             </CardContent>
           </Card>
         </div>
