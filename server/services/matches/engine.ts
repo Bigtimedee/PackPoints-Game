@@ -22,6 +22,7 @@ import { awardDailyBaseForCorrectCard } from "../rewards/dailyGameplayBase";
 
 export interface MatchEndResult {
   matchId: string;
+  lobbyId: string;
   reason: string;
   status: MatchStatusType;
   winner?: string;
@@ -517,6 +518,7 @@ export async function submitAnswer(
 export async function completeMatchFinish(matchId: string, participants: MatchParticipant[], totalQuestions: number): Promise<MatchEndResult | undefined> {
   const computed = await computeAndPersistMatchResult(matchId);
   const updatedParticipants = await getParticipants(matchId);
+  const matchRow = await getMatchFromDb(matchId);
   
   const hostParticipant = updatedParticipants.find(p => p.role === "HOST");
   const guestParticipant = updatedParticipants.find(p => p.role === "GUEST");
@@ -598,6 +600,7 @@ export async function completeMatchFinish(matchId: string, participants: MatchPa
 
   return {
     matchId,
+    lobbyId: matchRow?.lobbyId ?? "",
     reason: "completed",
     status: MatchStatus.FINISHED,
     winner,
@@ -682,6 +685,7 @@ export async function forfeitMatch(matchId: string, forfeitingUserId: string): P
 
   return {
     matchId,
+    lobbyId: match.lobbyId,
     reason: "forfeit",
     status: MatchStatus.FINISHED,
     winner: winner?.username,
@@ -729,6 +733,7 @@ export async function cancelMatchForDisconnect(matchId: string, disconnectedUser
 
   return {
     matchId,
+    lobbyId: match.lobbyId,
     reason: "disconnect_timeout",
     status: MatchStatus.CANCELLED,
     winner: winner?.username,
@@ -768,6 +773,7 @@ export async function cancelMatchForNoAck(matchId: string): Promise<MatchEndResu
 
   return {
     matchId,
+    lobbyId: match.lobbyId,
     reason: "no_ack",
     status: MatchStatus.CANCELLED,
     participants: participants.map(p => ({

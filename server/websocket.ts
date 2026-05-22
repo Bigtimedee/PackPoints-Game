@@ -858,6 +858,7 @@ async function handleMatchResync(ws: WebSocket, payload: { matchId: string }) {
       type: "match_end",
       payload: {
         matchId,
+        lobbyId: matchState.lobbyId,
         reason: matchState.endReason || (matchState.status === MatchStatus.FINISHED ? "completed" : "unknown"),
         status: matchState.status,
         winner: matchState.winner,

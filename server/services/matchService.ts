@@ -178,6 +178,7 @@ class MatchService {
     
     const matchEnd: MatchEndResult = {
       matchId,
+      lobbyId: matchState.lobbyId,
       reason: "forfeit",
       status: MatchStatus.FINISHED,
       winner: winner?.username,

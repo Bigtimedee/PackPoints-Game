@@ -4,6 +4,7 @@ import { eq, and, count } from "drizzle-orm";
 
 export interface MatchEndResult {
   matchId: string;
+  lobbyId: string;
   reason: string;
   status: MatchStatusType;
   winner?: string;
@@ -65,6 +66,7 @@ export async function maybeFinish(matchState: MatchState): Promise<MatchEndResul
   
   return {
     matchId: matchState.matchId,
+    lobbyId: matchState.lobbyId,
     reason: "completed",
     status: MatchStatus.FINISHED,
     winner,
@@ -107,6 +109,7 @@ export async function cancelMatch(matchId: string, reason: string, lobbyId?: str
   
   return {
     matchId,
+    lobbyId: actualLobbyId ?? "",
     reason,
     status: MatchStatus.CANCELLED,
     participants: participants.map(p => ({
