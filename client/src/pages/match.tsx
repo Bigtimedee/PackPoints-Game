@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, User, Check, X, Loader2, Home, RotateCcw, Share2 } from "lucide-react";
+import { Trophy, User, Check, X, Loader2, Home, RotateCcw, Share2, UserX } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
@@ -56,6 +56,7 @@ interface MatchState {
 
 interface MatchEndEvent {
   matchId: string;
+  lobbyId: string;
   reason: string;
   status: "FINISHED" | "CANCELLED";
   winner?: string;
@@ -99,6 +100,16 @@ export default function Match() {
   const [imageRetryCount, setImageRetryCount] = useState(0);
   const [replacementPending, setReplacementPending] = useState(false);
   const [showReplaceButton, setShowReplaceButton] = useState(false);
+
+  // Rematch state — only relevant in the FINISHED branch
+  type RematchState = "idle" | "voted" | "opponent_voted" | "both_voted_waiting";
+  const [rematchState, setRematchState] = useState<RematchState>("idle");
+  const [myVote, setMyVote] = useState<"accept" | "decline" | null>(null);
+  const [opponentVote, setOpponentVote] = useState<"accept" | "decline" | null>(null);
+  // isMatchHost: participants[0] is always HOST per server insertion order in startMatch().
+  // Set once when match_end arrives and used to map rematch_vote_update host/guest fields to my vote vs opponent's.
+  const isMatchHostRef = useRef<boolean | null>(null);
+
   const { toast } = useToast();
   
   const fallbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -306,6 +317,10 @@ export default function Match() {
         setMatchEnded(message.payload);
         setMatchState((prev) => {
           if (!prev) return prev;
+          // Capture host role: participants[0] is always HOST per server insertion order.
+          if (isMatchHostRef.current === null && prev.participants.length > 0) {
+            isMatchHostRef.current = prev.participants[0].userId === userId;
+          }
           return {
             ...prev,
             status: message.payload.status,
@@ -319,6 +334,46 @@ export default function Match() {
         });
         queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
         break;
+      case "rematch_vote_update": {
+        const { hostVote, guestVote } = message.payload;
+        const amHost = isMatchHostRef.current;
+        const theirVote: "accept" | "decline" | undefined = amHost ? guestVote : hostVote;
+        if (theirVote) {
+          setOpponentVote(theirVote);
+          if (theirVote === "decline") {
+            // opponent_voted state will show the decline message; navigation happens via rematch_cancelled
+            setRematchState("opponent_voted");
+          } else if (myVote === "accept") {
+            setRematchState("both_voted_waiting");
+          } else {
+            setRematchState("opponent_voted");
+          }
+        }
+        break;
+      }
+      case "rematch_ready": {
+        // Both accepted. Store the membershipSecret for the re-entered lobby then navigate.
+        // The secret was stored in localStorage as packpoints_match_secret when join_match was called;
+        // it identifies this user's session. We forward it so lobby.tsx can re-join the lobby socket room.
+        const { lobbyId } = message.payload;
+        const secret = localStorage.getItem("packpoints_match_secret") || "";
+        if (secret && lobbyId) {
+          sessionStorage.setItem(`lobby:${lobbyId}:membershipSecret`, secret);
+        }
+        navigate(`/lobby/${lobbyId}`);
+        break;
+      }
+      case "rematch_cancelled": {
+        const reasonMessages: Record<string, string> = {
+          declined: "Opponent declined rematch",
+          opponent_left: "Opponent left",
+          timeout: "Rematch timed out",
+        };
+        const msg = reasonMessages[message.payload.reason] || "Rematch cancelled";
+        toast({ title: "Rematch Cancelled", description: msg, variant: "destructive" });
+        setTimeout(() => navigate("/"), 1500);
+        break;
+      }
       case "participant_disconnected":
         toast({ 
           title: "Opponent Disconnected", 
@@ -330,7 +385,7 @@ export default function Match() {
         toast({ title: "Error", description: message.message, variant: "destructive" });
         break;
     }
-  }, [toast]);
+  }, [toast, userId, myVote, navigate]);
   
   const handleWsClose = useCallback(() => {
     hasJoinedMatchRef.current = false;
@@ -666,10 +721,65 @@ export default function Match() {
               </div>
               
               <div className="flex flex-col gap-3">
-                <Button onClick={() => navigate("/lobby")} className="gap-2" data-testid="button-play-again">
-                  <RotateCcw className="h-4 w-4" />
-                  Play Again
-                </Button>
+                {/* Rematch prompt — only shown for normal FINISHED matches (not cancelled/forfeit) */}
+                <div className="space-y-3">
+                  {opponentVote === "decline" ? (
+                    <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                      <UserX className="h-4 w-4 shrink-0" />
+                      <span>{opponentResult?.username || "Opponent"} declined rematch</span>
+                    </div>
+                  ) : rematchState === "idle" || rematchState === "opponent_voted" ? (
+                    <>
+                      <p className="text-sm font-medium text-center">
+                        Play again with {opponentResult?.username || "opponent"}?
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1 gap-2"
+                          onClick={() => {
+                            if (!matchEnded?.matchId) return;
+                            send("rematch_vote", { matchId: matchEnded.matchId, vote: "accept" });
+                            setMyVote("accept");
+                            setRematchState("voted");
+                          }}
+                          disabled={myVote !== null}
+                          data-testid="button-play-again"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          {rematchState === "opponent_voted" && opponentVote === "accept"
+                            ? "Opponent accepted - Play Again!"
+                            : "Play Again"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="flex-1 gap-2"
+                          onClick={() => {
+                            if (!matchEnded?.matchId) return;
+                            send("rematch_vote", { matchId: matchEnded.matchId, vote: "decline" });
+                            setMyVote("decline");
+                            setRematchState("voted");
+                            setTimeout(() => navigate("/"), 500);
+                          }}
+                          disabled={myVote !== null}
+                          data-testid="button-rematch-decline"
+                        >
+                          <X className="h-4 w-4" />
+                          Decline
+                        </Button>
+                      </div>
+                    </>
+                  ) : rematchState === "voted" ? (
+                    <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      <span>Waiting for {opponentResult?.username || "opponent"}...</span>
+                    </div>
+                  ) : rematchState === "both_voted_waiting" ? (
+                    <div className="flex items-center gap-2 p-3 rounded-md bg-muted/50 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                      <span>Starting rematch...</span>
+                    </div>
+                  ) : null}
+                </div>
                 <Button
                   variant="outline"
                   onClick={() => handleShare(`I scored ${meResult?.correctAnswers ?? 0}/${matchState.totalQuestions} on PackPTS!`)}
