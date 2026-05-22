@@ -393,10 +393,13 @@ export const matches = pgTable("matches", {
   progressApplied: boolean("progress_applied").notNull().default(false),
   wagerAmount: integer("wager_amount").notNull().default(0),
   wagerSettled: boolean("wager_settled").notNull().default(false),
+  sessionId: varchar("session_id"),
+  sequenceNumber: integer("sequence_number").notNull().default(1),
 }, (table) => [
   index("idx_matches_status").on(table.status),
   index("idx_matches_host").on(table.hostUserId),
   index("idx_matches_guest").on(table.guestUserId),
+  index("idx_matches_session").on(table.sessionId),
 ]);
 
 export const insertMatchSchema = createInsertSchema(matches).omit({
@@ -438,6 +441,50 @@ export const insertMatchParticipantSchema = createInsertSchema(matchParticipants
 
 export type InsertMatchParticipant = z.infer<typeof insertMatchParticipantSchema>;
 export type MatchParticipant = typeof matchParticipants.$inferSelect;
+
+// --- Persistent 1v1 Battle Sessions ---
+// A Battle Session groups multiple sequential matches between the same two players
+// (the originating "host" who sent the invite and the "guest" who accepted). The
+// session persists until either player disconnects, at which point the opponent is
+// notified and the session ends. Each match within the session is its own row in
+// the matches table, linked via matches.sessionId + matches.sequenceNumber.
+
+export const BattleSessionStatus = {
+  ACTIVE: "ACTIVE",
+  ENDED: "ENDED",
+} as const;
+export type BattleSessionStatusType = typeof BattleSessionStatus[keyof typeof BattleSessionStatus];
+
+export const battleSessions = pgTable("battle_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  lobbyId: varchar("lobby_id").notNull(),
+  hostUserId: varchar("host_user_id").notNull(),
+  guestUserId: varchar("guest_user_id").notNull(),
+  status: text("status").notNull().default("ACTIVE"),
+  endReason: text("end_reason"),
+  endedByUserId: varchar("ended_by_user_id"),
+  currentMatchId: varchar("current_match_id"),
+  matchCount: integer("match_count").notNull().default(0),
+  hostWins: integer("host_wins").notNull().default(0),
+  guestWins: integer("guest_wins").notNull().default(0),
+  ties: integer("ties").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  endedAt: timestamp("ended_at"),
+}, (table) => [
+  index("idx_battle_sessions_status").on(table.status),
+  index("idx_battle_sessions_host").on(table.hostUserId),
+  index("idx_battle_sessions_guest").on(table.guestUserId),
+  index("idx_battle_sessions_lobby").on(table.lobbyId),
+]);
+
+export const insertBattleSessionSchema = createInsertSchema(battleSessions).omit({
+  id: true,
+  createdAt: true,
+  endedAt: true,
+});
+
+export type InsertBattleSession = z.infer<typeof insertBattleSessionSchema>;
+export type BattleSession = typeof battleSessions.$inferSelect;
 
 // --- Ranked Competitive System (ELO) ---
 
