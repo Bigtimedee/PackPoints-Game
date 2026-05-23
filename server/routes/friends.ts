@@ -11,7 +11,10 @@ function isAuthenticated(req: any, res: Response, next: Function) {
   // every friend endpoint even though they are correctly authenticated.
   const userId = req.user?.id || req.user?.claims?.sub || req.session?.localUserId;
   if (!userId) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      debug_v: "battles-auth-fix-v2",
+    });
   }
   if (!req.user) req.user = { id: userId };
   else if (!req.user.id) req.user.id = userId;
