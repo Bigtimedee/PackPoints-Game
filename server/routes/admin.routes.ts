@@ -1,5 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated } from "../auth";
 import { storage } from "../storage";
 import { adminService } from "../services/adminService";
 import { streakService } from "../services/streakService";

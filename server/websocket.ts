@@ -8,7 +8,7 @@ import { friendMatchInviteService } from "./services/friends/friendMatchInviteSe
 import { battleSessionService } from "./services/battles/battleSessionService";
 import { log } from "./index";
 import { BattleSessionStatus, MatchStatus, type MatchState, matchQuestions } from "@shared/schema";
-import { getSession } from "./replit_integrations/auth/replitAuth";
+import { getSession } from "./auth";
 import { isMatchParticipantByState, isMatchParticipant } from "./services/auth/isMatchParticipant";
 import { validateActiveUser } from "./services/auth/validateActiveUser";
 import passport from "passport";

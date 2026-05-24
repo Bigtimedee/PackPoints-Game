@@ -5,7 +5,7 @@ import { createServer } from "http";
 import { storage } from "./storage";
 import { setupWebSocket } from "./websocket";
 import { matchService } from "./services/matchService";
-import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes } from "./auth";
 import { verifyEmailConfig } from "./services/emailService";
 import { registerWorkosRoutes } from "./services/workosAuth";
 import { initializeStripeConnection } from "./stripeClient";

@@ -1,9 +1,7 @@
 import { users, type User, type UpsertUser } from "@shared/schema";
-import { db } from "../../db";
+import { db } from "../db";
 import { eq } from "drizzle-orm";
 
-// Interface for auth storage operations
-// (IMPORTANT) These user operations are mandatory for Replit Auth.
 export interface IAuthStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByWorkosId(workosUserId: string): Promise<User | undefined>;
@@ -23,7 +21,7 @@ class AuthStorage implements IAuthStorage {
 
   async upsertUser(userData: UpsertUser): Promise<User> {
     const existingUser = await this.getUser(userData.id as string);
-    
+
     let username = existingUser?.username || userData.username;
     if (!username) {
       const randomSuffix = require('crypto').randomBytes(2).toString('hex');
@@ -37,7 +35,7 @@ class AuthStorage implements IAuthStorage {
         username = `player_${randomSuffix}`;
       }
     }
-    
+
     const [user] = await db
       .insert(users)
       .values({ ...userData, username })

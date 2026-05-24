@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { walletService } from "../services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "../services/packpts/ledgerService";
 import { reconcileAllWallets, reconcileCrossSystem } from "../services/walletReconciliation";
-import { isAuthenticated } from "../replit_integrations/auth";
+import { isAuthenticated } from "../auth";
 import { bucketService } from "../services/bucketService";
 import { expirationEngine } from "../services/expirationEngine";
 import { analyticsService } from "../services/analyticsService";

@@ -29,7 +29,7 @@ import {
 import { stripePurchaseService, isStripeConfigured, checkStripeConfigured } from "./services/stripePurchaseService";
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { getStripeDiagnostics, getStripeMode, assertLiveModeForHost, getStripeConfig, isProductionHost } from "./stripeClient";
-import { isAuthenticated } from "./replit_integrations/auth";
+import { isAuthenticated } from "./auth";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
