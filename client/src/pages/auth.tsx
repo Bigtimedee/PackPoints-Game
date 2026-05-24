@@ -16,7 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
-import { SiReplit } from "react-icons/si";
 
 const signupSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
@@ -153,19 +152,6 @@ export default function AuthPage() {
       });
     },
   });
-
-  const handleReplitLogin = () => {
-    // Check if we're in an iframe
-    if (window.self !== window.top) {
-      toast({
-        title: "Open in new tab",
-        description: "Replit login requires opening the app in a new browser tab.",
-        variant: "destructive",
-      });
-      return;
-    }
-    window.location.href = "/api/login";
-  };
 
   const handleWorkOSLogin = () => {
     if (window.self !== window.top) {
@@ -432,19 +418,9 @@ export default function AuthPage() {
           </div>
 
           <div className="space-y-3">
-            <Button 
-              variant="outline" 
-              className="w-full" 
-              onClick={handleReplitLogin}
-              data-testid="button-replit-login"
-            >
-              <SiReplit className="mr-2 h-4 w-4" />
-              Continue with Replit
-            </Button>
-
-            <Button 
-              variant="outline" 
-              className="w-full" 
+            <Button
+              variant="outline"
+              className="w-full"
               onClick={handleWorkOSLogin}
               data-testid="button-workos-login"
             >

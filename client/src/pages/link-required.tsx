@@ -191,7 +191,7 @@ export default function LinkRequiredPage() {
     );
   }
 
-  const providerName = provider === "workos" ? "WorkOS" : provider === "replit" ? "Replit" : provider;
+  const providerName = provider === "workos" ? "WorkOS" : provider;
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

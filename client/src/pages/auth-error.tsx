@@ -120,7 +120,7 @@ export default function AuthError() {
           {isInvalidDomain ? (
             <>
               <p className="text-center text-muted-foreground">
-                Login is only available when accessing this app from the Replit preview.
+                Login is only available from the official app URL.
               </p>
               <div className="bg-muted/50 rounded-lg p-4 text-sm space-y-2">
                 <p className="font-medium flex items-center gap-2">
@@ -128,9 +128,7 @@ export default function AuthError() {
                   How to Log In
                 </p>
                 <ol className="text-muted-foreground space-y-1 list-decimal pl-4">
-                  <li>Open this Repl in the Replit editor</li>
-                  <li>Look for the "Preview" or "Webview" panel</li>
-                  <li>Use the app from within that preview panel</li>
+                  <li>Navigate to the official PackPoints app URL</li>
                   <li>Click "Log in" from there</li>
                 </ol>
               </div>
