@@ -15,7 +15,8 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
   const user = req.user as any;
   const session = req.session as any;
 
-  // Get user ID from either Replit Auth or local session
+  // Resolve user id from either an OAuth claim (req.user.claims.sub) or
+  // the local-login session (session.localUserId).
   const userId = user?.claims?.sub || session?.localUserId;
 
   if (!userId) {

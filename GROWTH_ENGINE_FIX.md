@@ -7,7 +7,7 @@ Your logs show:
 [GrowthJobRunner] Job generate_daily_plan failed: Connection error.
 ```
 
-**Problem:** The Growth Engine uses OpenAI (GPT-4o-mini) to generate content. On Replit, it used the **Replit AI Integration** which doesn't exist on Railway.
+**Problem:** The Growth Engine uses OpenAI (GPT-4o-mini) to generate content. The legacy host's managed AI integration is not available on Railway.
 
 **Solution:** Add your OpenAI API key to Railway environment variables.
 

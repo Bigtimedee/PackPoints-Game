@@ -142,9 +142,9 @@ Already fixed in `package.json` ✅
 
 ### Issue 2: "Stripe connection not found"
 
-**Cause:** Replit-specific Stripe connector doesn't work on Railway
+**Cause:** The legacy host's managed Stripe connector is not available on Railway
 
-**Fix:** Use direct Stripe API keys instead of connector:
+**Fix:** Use direct Stripe API keys instead of any managed connector:
 ```bash
 STRIPE_SECRET_KEY=sk_live_...  # NOT using connector
 STRIPE_PUBLISHABLE_KEY=pk_live_...
@@ -242,32 +242,16 @@ requiredEnvVars.forEach(varName => {
 
 ---
 
-## 🔧 Railway-Specific Adjustments Needed
+## 🔧 Railway-Specific Adjustments
 
-### 1. Remove Replit-Specific Code
+### 1. Stripe Mode Detection
 
-The Stripe connector code needs to be updated to skip Replit connector on Railway:
+Stripe mode resolution lives in `server/stripeClient.ts`. The selector
+prefers (in order): the production hostname allowlist
+(`packpts.com` / `www.packpts.com`) → the `APP_ENV=production` env var
+→ otherwise test mode. No legacy-host detection is required.
 
-**File: `server/stripeClient.ts`**
-
-Find this section (around line 20):
-```typescript
-const isReplitDeployment = process.env.REPLIT_DEPLOYMENT === '1';
-```
-
-Add Railway detection:
-```typescript
-const isRailway = process.env.RAILWAY_ENVIRONMENT !== undefined;
-const isReplitDeployment = process.env.REPLIT_DEPLOYMENT === '1';
-
-// Skip Replit connector on Railway
-if (isRailway) {
-  console.log('[Stripe] Railway environment detected, using direct env vars');
-  // Skip to direct environment variable section
-}
-```
-
-### 2. Update Session Store Configuration
+### 2. Session Store Configuration
 
 **File: `server/index.ts`** (if not already Railway-compatible)
 
@@ -313,19 +297,18 @@ app.use(session({
 
 ---
 
-## 🎯 Railway vs Replit Feature Comparison
+## 🎯 Railway Configuration Notes
 
-| Feature | Replit | Railway |
-|---------|--------|---------|
-| Database | Built-in Postgres | Add Postgres service |
-| Stripe Integration | Connector | Direct API keys |
-| Environment Vars | GUI + Secrets | GUI + Variables |
-| Build System | Nix | Nixpacks |
-| FFmpeg | Pre-installed | Add via nixpacks.toml |
-| Auto-scaling | ✅ | ✅ |
-| Custom domains | ✅ | ✅ |
-| WebSockets | ✅ | ✅ |
-| Pricing | Usage-based | Usage-based |
+| Concern | Railway Setup |
+|---------|---------------|
+| Database | Add Postgres service to project |
+| Stripe Integration | Direct API keys in Variables |
+| Environment Vars | Service → Variables |
+| Build System | Nixpacks |
+| FFmpeg | Add via `nixpacks.toml` |
+| Auto-scaling | Supported |
+| Custom domains | Supported |
+| WebSockets | Supported |
 
 ---
 

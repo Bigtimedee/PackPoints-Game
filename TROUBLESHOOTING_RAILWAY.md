@@ -42,7 +42,7 @@ FATAL: Live mode required but no LIVE Stripe credentials found
 ```
 
 ### Cause:
-Railway doesn't have the Replit Stripe connector. Need direct API keys.
+Railway uses direct Stripe API keys; the prior host's managed Stripe connector is not present.
 
 ### Fix:
 In Railway dashboard → Your service → **Variables**, add:
@@ -328,27 +328,24 @@ LOG_LEVEL=debug
 
 Then send me the logs.
 
-### Option 3: Compare with Working Replit
+### Option 3: Compare with a working environment
 ```bash
-# On Replit, check what env vars are set:
-env | grep -E "STRIPE|DATABASE|WORKOS|REPLIT" | sort
+# In the previously-working environment:
+env | grep -E "STRIPE|DATABASE|WORKOS" | sort
 ```
 
-Copy those (except REPLIT_* ones) to Railway.
+Copy those (vendor-prefixed envs excluded) to Railway.
 
 ---
 
-## Railway-Specific Gotchas
+## Railway-Specific Notes
 
-| Replit Feature | Railway Equivalent |
-|----------------|-------------------|
-| Secrets Tab | Variables Tab |
-| PostgreSQL (built-in) | Add as service |
-| Stripe Connector | Direct API keys in variables |
-| `REPLIT_DB_URL` | Use `${{Postgres.DATABASE_URL}}` |
-| Auto-restart | Automatic (with health checks) |
-| `.replit` file | Use `railway.json` |
-| Nix packages | Use `nixpacks.toml` |
+- Use the **Variables** tab for secrets
+- Add PostgreSQL as a Railway service
+- Use direct Stripe API keys in environment variables
+- Database URL: `${{Postgres.DATABASE_URL}}`
+- Restarts are automatic via health checks
+- Build config lives in `railway.json` or `nixpacks.toml`
 
 ---
 

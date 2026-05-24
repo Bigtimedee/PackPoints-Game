@@ -1,7 +1,7 @@
 # PackPTS Launch-Readiness Audit
 
 **Date:** February 9, 2026  
-**Auditor:** Replit Agent  
+**Auditor:** Automated launch-readiness audit  
 **Scope:** Full-stack audit of PackPTS before public GTM spend
 
 ---
@@ -171,7 +171,7 @@ All critical money-safety, gameplay reliability, and security items pass. The sy
 ### 4.1 Authentication & Authorization
 **Status: PASS**
 
-- Multi-provider: Replit Auth (OIDC), WorkOS, local credentials
+- Multi-provider: WorkOS, local credentials
 - Admin routes: `isAuthenticated` + `requireAdmin` middleware (server-side role check)
 - Match routes validate session token and user belongs to match
 - Session cookies configured with httpOnly, secure flags

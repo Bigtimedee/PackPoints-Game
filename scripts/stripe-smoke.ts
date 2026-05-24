@@ -9,10 +9,6 @@ function getStripeMode(host?: string): "live" | "test" {
   if (appEnv === "production") {
     return "live";
   }
-  const isReplitDeployment = process.env.REPLIT_DEPLOYMENT === '1';
-  if (isReplitDeployment) {
-    return "live";
-  }
   return "test";
 }
 
@@ -51,8 +47,8 @@ assert(getStripeMode("localhost") === "test", "localhost should be test");
 console.log("Test 5: localhost:5000 => TEST mode");
 assert(getStripeMode("localhost:5000") === "test", "localhost:5000 should be test");
 
-console.log("Test 6: Replit dev domain => TEST mode");
-assert(getStripeMode("some-repl.replit.dev") === "test", "replit.dev should be test");
+console.log("Test 6: Arbitrary non-prod domain => TEST mode");
+assert(getStripeMode("dev.example.com") === "test", "non-prod domain should be test");
 
 console.log("Test 7: No host => TEST mode (default)");
 assert(getStripeMode() === "test", "no host should be test");

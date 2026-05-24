@@ -13,7 +13,7 @@ Enable Notion to manage all PackPTS social media posting across TikTok, Instagra
 
 ### ❌ What's Broken
 - **Growth Engine failing with "Connection error"**
-- Root cause: No OpenAI API key configured (moved from Replit, lost AI Integration)
+- Root cause: No OpenAI API key configured after migrating away from the legacy host's managed AI integration
 - Cascading failures: `generate_daily_plan` → `generate_content_items` → All downstream jobs
 
 ---

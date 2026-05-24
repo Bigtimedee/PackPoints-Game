@@ -4,7 +4,7 @@ This document describes how to set up and configure WorkOS authentication for Pa
 
 ## Overview
 
-WorkOS has been integrated as a third authentication method alongside existing Replit OAuth and local username/password authentication. This integration uses WorkOS AuthKit (User Management) with the redirect-based OAuth flow.
+WorkOS has been integrated as an authentication method alongside local username/password authentication. This integration uses WorkOS AuthKit (User Management) with the redirect-based OAuth flow.
 
 ## Prerequisites
 
@@ -13,21 +13,21 @@ WorkOS has been integrated as a third authentication method alongside existing R
 
 ## Environment Variables
 
-Add the following secrets to your Replit project:
+Add the following secrets to the host's environment variables:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `WORKOS_API_KEY` | Your WorkOS API key (starts with `sk_`) | `sk_live_xxx...` |
 | `WORKOS_CLIENT_ID` | Your WorkOS Client ID (starts with `client_`) | `client_xxx...` |
-| `WORKOS_REDIRECT_URI` | Callback URL for OAuth (optional, auto-detected) | `https://your-domain.replit.app/api/auth/workos/callback` |
+| `WORKOS_REDIRECT_URI` | Callback URL for OAuth (optional, auto-detected) | `https://packpts.com/api/auth/workos/callback` |
 
 ## WorkOS Dashboard Configuration
 
 1. Go to [WorkOS Dashboard](https://dashboard.workos.com)
 2. Navigate to **User Management** > **Authentication**
 3. Under **Redirect URIs**, add:
-   - `https://your-domain.replit.app/api/auth/workos/callback`
-   - For development: `https://your-repl-name.your-username.repl.co/api/auth/workos/callback`
+   - `https://packpts.com/api/auth/workos/callback`
+   - For development: `http://localhost:5001/api/auth/workos/callback`
 
 4. Configure your authentication methods (Email + Password, Google, etc.)
 
@@ -36,8 +36,8 @@ Add the following secrets to your Replit project:
 ### Backend
 - `server/services/workosAuth.ts` - WorkOS route handlers (start, callback, logout)
 - `server/storage.ts` - Added `getUserByWorkosId`, `createWorkosUser`, `linkWorkosUser` methods
-- `server/replit_integrations/auth/storage.ts` - Added `getUserByWorkosId` to AuthStorage
-- `server/replit_integrations/auth/routes.ts` - Updated `/api/auth/user` to check WorkOS sessions
+- `server/auth/storage.ts` - Added `getUserByWorkosId` to AuthStorage
+- `server/auth/routes.ts` - Updated `/api/auth/user` to check WorkOS sessions
 - `server/index.ts` - Registered WorkOS routes
 - `shared/schema.ts` - Added `workosUserId` column to users table
 
@@ -98,7 +98,7 @@ The `isAuthenticated` middleware checks for `localUserId` first, so WorkOS users
 ## Troubleshooting
 
 ### "WorkOS is not configured" error
-- Ensure `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set in Replit secrets
+- Ensure `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set in the host's environment variables
 
 ### State mismatch error
 - This indicates a potential CSRF attack or session issue
