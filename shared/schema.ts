@@ -3,7 +3,7 @@ import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uni
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Session storage table for Replit Auth
+// Session storage table for the express-session postgres store
 export const sessions = pgTable(
   "sessions",
   {
@@ -18,7 +18,7 @@ export const sessions = pgTable(
 export const userStatuses = ["PENDING", "ACTIVE", "WAITLISTED", "BANNED"] as const;
 export type UserStatus = typeof userStatuses[number];
 
-// User table - combines Replit Auth fields with game stats
+// User table — primary account record (id, profile, game stats)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: varchar("username").unique(),
@@ -47,7 +47,7 @@ export const users = pgTable("users", {
   index("idx_users_username_normalized").on(table.usernameNormalized),
 ]);
 
-// Local credentials for username/password auth (separate from Replit OAuth)
+// Local credentials for username/password auth (bcrypt hash per userId)
 export const localCredentials = pgTable("local_credentials", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
@@ -1524,14 +1524,14 @@ export const STREAK_FREEZE_COST_PACKPTS = 500;
 // ============================================
 
 // Identity provider types
-export const identityProviders = ["local", "replit", "workos"] as const;
+export const identityProviders = ["local", "workos"] as const;
 export type IdentityProvider = typeof identityProviders[number];
 
 // User identities - links provider accounts to PackPoints users
 export const userIdentities = pgTable("user_identities", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id),
-  provider: varchar("provider", { length: 20 }).notNull(), // local, replit, workos
+  provider: varchar("provider", { length: 20 }).notNull(), // local, workos
   providerUserId: varchar("provider_user_id", { length: 255 }).notNull(), // external ID from provider
   email: varchar("email", { length: 255 }), // email as reported by provider
   emailVerified: boolean("email_verified").notNull().default(false),
