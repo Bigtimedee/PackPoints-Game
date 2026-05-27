@@ -4166,7 +4166,7 @@ export const userGrowthRollups = pgTable("user_growth_rollups", {
 
 // ---- Social Media Agent ----
 
-export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK"]);
+export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK", "DISCORD"]);
 export const socialPostStatusEnum = pgEnum("social_post_status", [
   "DRAFT", "QUEUED", "MEDIA_PENDING", "PUBLISHING", "PUBLISHED", "FAILED", "SKIPPED", "BLOCKED",
 ]);

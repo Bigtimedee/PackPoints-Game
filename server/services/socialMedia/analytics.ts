@@ -3,6 +3,7 @@ import { socialPosts, postAnalytics } from "@shared/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { fetchMetrics as twitterFetchMetrics } from "./publisher/twitter";
 import { fetchMetrics as tiktokFetchMetrics } from "./publisher/tiktok";
+import { fetchMetrics as discordFetchMetrics } from "./publisher/discord";
 import { analyzeReadyTests } from "./abTesting/analyzer";
 import { createLogger } from "./logger";
 
@@ -29,6 +30,8 @@ export async function fetchAnalyticsForRecentPosts(): Promise<void> {
     try {
       const metrics = post.platform === "TWITTER"
         ? await twitterFetchMetrics(post.platformPostId)
+        : post.platform === "DISCORD"
+        ? await discordFetchMetrics(post.platformPostId)
         : await tiktokFetchMetrics(post.platformPostId);
 
       if (Object.keys(metrics).length === 0) continue;

@@ -11,7 +11,7 @@ const logger = createLogger("ImageComposer");
 const OUTPUT_BASE = path.join(os.tmpdir(), "packpts-social");
 
 export interface ImageComposeParams {
-  platform: "TWITTER" | "TIKTOK";
+  platform: "TWITTER" | "TIKTOK" | "DISCORD";
   contentType: string;
   cardQuery?: { category?: string; player?: string; sortBy?: "sales_7day" | "gain" };
   overlayText?: string;

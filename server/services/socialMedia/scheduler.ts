@@ -8,6 +8,7 @@ import { composePostImage } from "./imageComposer";
 import { getOrCreateAbTest } from "./abTesting/manager";
 import { publishTweet } from "./publisher/twitter";
 import { publishPhoto } from "./publisher/tiktok";
+import { publishDiscordMessage } from "./publisher/discord";
 import { validatePostForPublishing, isVisualContentType } from "./preflight";
 import { fetchAnalyticsForRecentPosts } from "./analytics";
 import { newUserAcquisitionCampaign } from "./campaigns/newUserAcquisition";
@@ -191,6 +192,11 @@ export function startDailyQueueBuilder(): void {
     } catch (err) {
       logger.error("queue_build_tiktok_failed", { error: String(err) });
     }
+    try {
+      await buildQueueForPlatform("DISCORD");
+    } catch (err) {
+      logger.error("queue_build_discord_failed", { error: String(err) });
+    }
 
     logger.info("daily_queue_build_complete", { date: today });
   };
@@ -308,6 +314,14 @@ export function startPublisherLoop(): void {
             }
           }
           platformPostId = await publishTweet(post.copyText, post.hashtags ?? [], imageBuffer, post.mediaRequired ?? false);
+        } else if (post.platform === "DISCORD") {
+          // Discord uses webhook — pass image URL directly (no buffer needed)
+          const imageUrl = post.composedImagePath?.startsWith("http")
+            ? post.composedImagePath
+            : post.composedImagePath
+              ? `${agentConfig.siteUrl}${post.composedImagePath}`
+              : undefined;
+          platformPostId = await publishDiscordMessage(post.copyText, post.hashtags ?? [], imageUrl, post.mediaRequired ?? false);
         } else {
           // Use stored URL directly when it's already absolute (R2 CDN URL);
           // fall back to constructing from siteUrl for local dev paths.

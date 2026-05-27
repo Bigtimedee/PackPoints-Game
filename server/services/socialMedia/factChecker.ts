@@ -6,7 +6,7 @@ import { agentConfig } from "./config";
 const logger = createLogger("FactChecker");
 
 export interface DraftPost {
-  platform: "TWITTER" | "TIKTOK";
+  platform: "TWITTER" | "TIKTOK" | "DISCORD";
   contentType: string;
   copyText: string;
   hashtags: string[];

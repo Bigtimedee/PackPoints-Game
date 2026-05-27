@@ -4,6 +4,7 @@ import { agentConfig } from "./config";
 import { createLogger } from "./logger";
 import { cardSearchSorted } from "../../services/cardhedge/client";
 import { verifyCreatorInfo } from "./publisher/tiktok";
+import { verifyWebhook as verifyDiscordWebhook } from "./publisher/discord";
 import { startDailyQueueBuilder, startPublisherLoop, startAnalyticsFetcher, startPromptEvolutionLoop } from "./scheduler";
 import { campaignRewards, socialPosts } from "@shared/schema";
 import { count } from "drizzle-orm";
@@ -12,6 +13,7 @@ const logger = createLogger("SocialMediaAgent");
 
 let twitterEnabled = false;
 let tiktokEnabled = false;
+let discordEnabled = false;
 let agentRunning = false;
 let startedAt: Date | null = null;
 
@@ -20,6 +22,7 @@ export interface AgentStatusResponse {
   dryRun: boolean;
   twitter: boolean;
   tiktok: boolean;
+  discord: boolean;
   startedAt: string | null;
 }
 
@@ -103,11 +106,25 @@ export async function initSocialMediaAgent(): Promise<void> {
     logger.warn("tiktok_verify_error", { error: String(err) });
   }
 
+  // 4b. Verify Discord — SOFT FAIL
+  try {
+    if (agentConfig.discord.webhookUrl) {
+      const ok = await verifyDiscordWebhook();
+      discordEnabled = ok;
+      if (!ok) logger.warn("discord_check_failed");
+    } else {
+      logger.warn("discord_webhook_missing");
+    }
+  } catch (err) {
+    logger.warn("discord_verify_error", { error: String(err) });
+  }
+
   logger.info("startup_summary", {
     db: "✓",
     cardhedge: "✓",
     twitter: twitterEnabled ? "✓" : "✗",
     tiktok: tiktokEnabled ? "✓" : "✗",
+    discord: discordEnabled ? "✓" : "✗",
     dryRun: agentConfig.dryRun,
   });
 
@@ -154,6 +171,7 @@ export function getSocialAgentStatus(): AgentStatusResponse {
     dryRun: agentConfig.dryRun,
     twitter: twitterEnabled,
     tiktok: tiktokEnabled,
+    discord: discordEnabled,
     startedAt: startedAt?.toISOString() ?? null,
   };
 }

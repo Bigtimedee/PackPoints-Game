@@ -30,6 +30,7 @@ const C = {
 const DIMENSIONS = {
   TWITTER: { width: 1080, height: 1080 },
   TIKTOK: { width: 1080, height: 1920 },
+  DISCORD: { width: 1080, height: 1080 },
 };
 
 export interface GameImageResult {
@@ -442,7 +443,7 @@ async function renderCardImage(
 
 export async function renderGameImage(
   contentType: string,
-  platform: "TWITTER" | "TIKTOK",
+  platform: "TWITTER" | "TIKTOK" | "DISCORD",
   cardQuery?: { category?: string; player?: string; sortBy?: "sales_7day" | "gain" },
   overlayText?: string,
 ): Promise<GameImageResult> {

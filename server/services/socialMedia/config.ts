@@ -19,6 +19,9 @@ export interface AgentConfig {
     accessToken: string;
     refreshToken: string;
   };
+  discord: {
+    webhookUrl: string;
+  };
   abTest: {
     minImpressions: number;
     minDurationHours: number;
@@ -46,6 +49,9 @@ export const agentConfig: AgentConfig = {
     clientSecret: process.env.TIKTOK_CLIENT_SECRET ?? "",
     accessToken: process.env.TIKTOK_ACCESS_TOKEN ?? "",
     refreshToken: process.env.TIKTOK_REFRESH_TOKEN ?? "",
+  },
+  discord: {
+    webhookUrl: process.env.DISCORD_WEBHOOK_URL ?? "",
   },
   abTest: {
     minImpressions: parseInt(process.env.AGENT_AB_TEST_MIN_IMPRESSIONS ?? "20"),

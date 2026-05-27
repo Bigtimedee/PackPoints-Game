@@ -36,7 +36,7 @@ function generateFallbackContent(type: string): string {
   }
 }
 
-export type Platform = "TWITTER" | "TIKTOK";
+export type Platform = "TWITTER" | "TIKTOK" | "DISCORD";
 
 export interface CardContext {
   player?: string;
@@ -117,7 +117,7 @@ async function buildCopy(
     const evolved = await loadEvolvedVariants(type);
     if (evolved?.[abGroup]) {
       const { siteUrl } = agentConfig;
-      const maxChars = platform === "TWITTER" ? 280 : 2200;
+      const maxChars = platform === "TWITTER" ? 280 : platform === "DISCORD" ? 2000 : 2200;
       const hashtags = pickHashtags(abGroup);
       const trimmed = fitToLength(evolved[abGroup], siteUrl, hashtags, maxChars);
       logger.info("evolved_variant_used", { type, abGroup, generation: "active" });
@@ -133,7 +133,7 @@ async function buildCopy(
   }
 
   const { siteUrl } = agentConfig;
-  const maxChars = platform === "TWITTER" ? 280 : 2200;
+  const maxChars = platform === "TWITTER" ? 280 : platform === "DISCORD" ? 2000 : 2200;
   let copy = "";
   let cardQueryParams: Record<string, unknown> = { sortBy: "sales_7day" };
 
