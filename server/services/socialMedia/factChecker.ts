@@ -57,7 +57,8 @@ async function getTopScore(): Promise<number | null> {
 async function getMaxStreak(): Promise<number | null> {
   try {
     const result = await (await getDb()).execute(sql`SELECT MAX(current_days) as mx FROM streak_state`);
-    return parseInt(String((result.rows[0] as any)?.mx ?? "0"));
+    const val = parseInt(String((result.rows[0] as any)?.mx ?? "0"));
+    return val > 0 ? val : null; // null = no data; don't replace copy with 0
   } catch { return null; }
 }
 

@@ -19,15 +19,10 @@ const VISUAL_REFERENCE_PATTERNS = [
   /\blook at (this|that)\b/i,
 ];
 
-// All content types now produce composed images via gameImageRenderer
+// Only content types that require a card image to make sense — all others publish as text-only tweets.
 const VISUAL_CONTENT_TYPES = new Set([
   "TRIVIA_CARD",
   "MARKET_PRICE_SPOTLIGHT",
-  "LEADERBOARD_HIGHLIGHT",
-  "STREAK_MILESTONE",
-  "CHALLENGE",
-  "NEW_USER_ACQUISITION",
-  "REWARD_ANNOUNCEMENT",
 ]);
 
 export function detectsVisualReference(copyText: string): boolean {
