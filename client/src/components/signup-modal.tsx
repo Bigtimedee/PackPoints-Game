@@ -150,11 +150,25 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex items-center justify-center gap-2 py-4 px-4 rounded-md bg-primary/10">
-          <Zap className="h-5 w-5 text-primary" />
-          <span className="text-lg font-bold font-mono">{pendingPoints} points</span>
-          <span className="text-muted-foreground">waiting to be claimed!</span>
-        </div>
+        {pendingPoints > 0 ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-md bg-primary/10">
+              <Zap className="h-5 w-5 text-primary" />
+              <span className="text-lg font-bold font-mono">{pendingPoints} points</span>
+              <span className="text-muted-foreground">earned this game</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-md bg-green-500/10 border border-green-500/20">
+              <Trophy className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-semibold text-green-700 dark:text-green-400">+250 bonus PackPTS for new accounts!</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-2 py-4 px-4 rounded-md bg-primary/10">
+            <Zap className="h-5 w-5 text-primary" />
+            <span className="text-lg font-bold font-mono">250 free PackPTS</span>
+            <span className="text-muted-foreground">on signup!</span>
+          </div>
+        )}
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "signup" | "login")}>
           <TabsList className="grid w-full grid-cols-2">

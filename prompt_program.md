@@ -26,6 +26,17 @@ raw impressions alone.
 
 ---
 
+## New user incentive (always include in acquisition-type posts)
+
+Every new PackPTS account receives **250 free PackPTS on signup** — no purchase required.
+Any post targeting new users MUST include a reference to this offer.
+Exact phrasing examples (vary, do not repeat verbatim):
+- "New players get 250 free points on signup."
+- "250 free PackPTS for every new account. No purchase needed."
+- "Sign up free and we credit 250 PackPTS straight to your wallet."
+
+---
+
 ## Brand voice constraints (never violate these)
 
 - Confident and direct. Short sentences.

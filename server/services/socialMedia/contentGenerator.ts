@@ -29,7 +29,7 @@ function generateFallbackContent(type: string): string {
     case 'REWARD_ANNOUNCEMENT':
       return `Earn real rewards for your card knowledge! Join PackPTS free and start collecting points at ${siteUrl} #PackPTS #Collectibles`;
     case 'NEW_USER_ACQUISITION':
-      return `Free to play. Real rewards. PackPTS turns your sports card knowledge into points you can actually use. Start at ${siteUrl} #PackPTS #SportsCards`;
+      return `New players get 250 free PackPTS on signup. No purchase needed. Identify cards, earn points, redeem for real card discounts. Start at ${siteUrl} #PackPTS #SportsCards`;
     case 'TRIVIA_CARD':
     default:
       return `Think you know your baseball cards? Test yourself with today's trivia and earn PackPTS! Play free at ${siteUrl} #PackPTS #TradingCards`;
@@ -234,26 +234,21 @@ async function buildCopy(
       } catch { /* use default */ }
       const countStr = userCount > 0 ? `${userCount.toLocaleString()} players` : "thousands of players";
       if (abGroup === "A") {
-        copy = `Join ${countStr} already competing on PackPTS — the baseball card trivia game where your knowledge pays off. Sign up free at ${siteUrl}`;
+        copy = `New players get 250 free PackPTS on signup. Join ${countStr} competing on the baseball card trivia game where your knowledge pays off. Free at ${siteUrl}`;
       } else if (abGroup === "B") {
-        copy = `Free to play. Real rewards. PackPTS turns your baseball card knowledge into points you can actually use. Start at ${siteUrl}`;
+        copy = `If you collect cards, you already know these players. Prove it. New accounts get 250 free points. No purchase needed. Start at ${siteUrl}`;
       } else {
-        copy = `If you collect cards, you should be playing PackPTS. Identify cards, earn points, win rewards. Free signup at ${siteUrl}`;
+        copy = `250 free PackPTS for every new account. No catch. Identify cards, earn more, redeem for real card discounts. Free signup at ${siteUrl}`;
       }
       break;
     }
     case "REWARD_ANNOUNCEMENT": {
-      let rewardValue = "500";
-      try {
-        const r = await (await getDb()).execute(sql`SELECT reward_value FROM campaign_rewards WHERE is_active = TRUE LIMIT 1`);
-        if (r.rows.length > 0) rewardValue = String((r.rows[0] as any)?.reward_value ?? "500");
-      } catch { /* use default */ }
       if (abGroup === "A") {
-        copy = `New players earn ${rewardValue} bonus PackPTS on signup. Plus daily rewards for streaks and wins. Start earning at ${siteUrl}`;
+        copy = `New players get 250 free PackPTS on signup. Daily challenges earn more. Refer a friend and you both win. Start at ${siteUrl}`;
       } else if (abGroup === "B") {
-        copy = `Signup bonus. Streak rewards. Referral points. PackPTS pays you to play. Claim your ${rewardValue} pts today at ${siteUrl}`;
+        copy = `Signup bonus. Daily streak rewards. Referral points. PackPTS pays you to play. Claim your 250 free pts today at ${siteUrl}`;
       } else {
-        copy = `Your card knowledge is worth real rewards. New to PackPTS? You get ${rewardValue} bonus points just for joining at ${siteUrl}`;
+        copy = `Your card knowledge is worth real rewards. New to PackPTS? You get 250 bonus points just for joining. Free at ${siteUrl}`;
       }
       break;
     }

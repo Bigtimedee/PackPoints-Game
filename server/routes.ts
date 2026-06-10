@@ -1238,6 +1238,14 @@ export async function registerRoutes(
 
       try {
         await walletService.getOrCreateWallet(user.id);
+        // Welcome bonus for every new account
+        await walletService.earn(
+          user.id,
+          250,
+          "Welcome bonus — free PackPTS for new players",
+          `welcome_bonus:${user.id}`,
+          { source: "signup_bonus" }
+        );
       } catch (walletErr) {
         console.error("[Register] Error ensuring wallet exists (non-fatal):", walletErr);
       }

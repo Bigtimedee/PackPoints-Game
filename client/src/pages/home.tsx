@@ -4,7 +4,8 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
@@ -207,6 +208,50 @@ function FAQ() {
   );
 }
 
+function Daily5Urgency() {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setUTCHours(24, 0, 0, 0);
+  const msLeft = midnight.getTime() - now.getTime();
+  const hoursLeft = Math.floor(msLeft / (1000 * 60 * 60));
+  const minutesLeft = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
+
+  const urgentColor = hoursLeft < 3 ? "text-red-500" : hoursLeft < 6 ? "text-orange-500" : "text-primary";
+  const urgentBg = hoursLeft < 3 ? "border-red-500/30 bg-red-500/5" : hoursLeft < 6 ? "border-orange-500/30 bg-orange-500/5" : "border-primary/20";
+
+  return (
+    <Card className={`mb-8 border-2 ${urgentBg}`}>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-md bg-primary/10">
+              <Calendar className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">Daily 5 Challenge</p>
+              <p className="text-sm text-muted-foreground">Same 5 cards for everyone. Compete for the top spot!</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="text-right">
+              <p className={`text-lg font-bold font-mono ${urgentColor}`}>
+                {hoursLeft}h {minutesLeft}m left
+              </p>
+              <p className="text-xs text-muted-foreground">Resets at midnight UTC</p>
+            </div>
+            <Link href="/daily5">
+              <Button className="gap-2" size="sm">
+                <Zap className="h-4 w-4" />
+                Play Daily 5
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CardOfTheDay() {
   const { data: card } = useQuery<{
     cardId: number;
@@ -263,6 +308,7 @@ function CardOfTheDay() {
 }
 
 export default function Home() {
+  const { isAuthenticated } = useAuth();
   const { data: homeStats } = useQuery<{ totalGames: number; totalCards: number }>({
     queryKey: ["/api/home-stats"],
     staleTime: 5 * 60 * 1000,
@@ -303,9 +349,15 @@ export default function Home() {
               <span className="text-primary">Earn Your Points.</span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-hero-description">
-              The ultimate trivia game for sports card collectors. Guess the player on classic cards from your favorite sets, 
+              The ultimate trivia game for sports card collectors. Guess the player on classic cards from your favorite sets,
               earn PackPTS, and use them as a discount toward cards on Goldin and eBay.
             </p>
+            {!isAuthenticated && (
+              <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/30 text-primary rounded-full px-5 py-2 text-sm font-semibold">
+                <Gift className="h-4 w-4" />
+                New players get 250 free PackPTS on signup — no purchase needed
+              </div>
+            )}
             <div className="flex flex-wrap justify-center gap-4 pt-4">
               <Link href="/game/solo">
                 <Button
@@ -319,12 +371,22 @@ export default function Home() {
                   {variant.current === "B" ? "Start Earning — It's Free" : "Play Now"}
                 </Button>
               </Link>
-              <Link href="/leaderboard">
-                <Button size="lg" variant="outline" className="gap-2" data-testid="button-view-leaderboard">
-                  <Trophy className="h-5 w-5" />
-                  View Leaderboard
-                </Button>
-              </Link>
+              {!isAuthenticated && (
+                <Link href="/auth">
+                  <Button size="lg" variant="outline" className="gap-2" data-testid="button-claim-bonus">
+                    <Gift className="h-5 w-5" />
+                    Claim 250 Free Points
+                  </Button>
+                </Link>
+              )}
+              {isAuthenticated && (
+                <Link href="/leaderboard">
+                  <Button size="lg" variant="outline" className="gap-2" data-testid="button-view-leaderboard">
+                    <Trophy className="h-5 w-5" />
+                    View Leaderboard
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -335,6 +397,7 @@ export default function Home() {
       </section>
 
       <section className="container mx-auto px-4 pt-4">
+        <Daily5Urgency />
         <CardOfTheDay />
       </section>
 
@@ -446,6 +509,38 @@ export default function Home() {
           </CardContent>
         </Card>
       </section>
+
+      {!isAuthenticated && (
+        <section className="container mx-auto px-4 py-8">
+          <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-background">
+            <CardContent className="p-6 md:p-8 text-center space-y-4">
+              <div className="mx-auto p-3 rounded-full bg-primary/10 w-fit">
+                <Gift className="h-8 w-8 text-primary" />
+              </div>
+              <h2 className="text-2xl font-bold">Start with 250 Free PackPTS</h2>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Create a free account today and we'll credit 250 PackPTS straight to your wallet.
+                Use them toward real cards on Goldin and eBay.
+              </p>
+              <div className="flex flex-wrap justify-center gap-3 pt-2">
+                <Link href="/auth">
+                  <Button size="lg" className="gap-2" data-testid="button-signup-bonus">
+                    <UserPlus className="h-5 w-5" />
+                    Create Free Account
+                  </Button>
+                </Link>
+                <Link href="/game/solo">
+                  <Button size="lg" variant="outline" className="gap-2">
+                    <Play className="h-5 w-5" />
+                    Try Without Signing Up
+                  </Button>
+                </Link>
+              </div>
+              <p className="text-xs text-muted-foreground pt-1">No credit card required. Free forever.</p>
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       <section className="container mx-auto px-4 py-4">
         <FAQ />
