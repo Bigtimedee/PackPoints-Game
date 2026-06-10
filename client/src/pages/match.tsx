@@ -158,6 +158,7 @@ export default function Match() {
   const pendingClientMsgIdRef = useRef<string | null>(null);
   const hasJoinedMatchRef = useRef(false);
   const processedAnswerForIdx = useRef<number>(-1);
+  const currentQuestionIndexRef = useRef<number>(-1);
   
   const userId = user?.id || "";
   const username = user?.username || user?.firstName || "Player";
@@ -199,6 +200,7 @@ export default function Match() {
         setShowReplaceButton(false);
         setReplacementPending(false);
         processedAnswerForIdx.current = -1;
+        currentQuestionIndexRef.current = message.payload.currentQuestionIndex ?? -1;
         // Extract seedVersion from currentQuestion if available, default to 1
         if (message.payload.currentQuestion?.seedVersion) {
           setSeedVersion(message.payload.currentQuestion.seedVersion);
@@ -336,6 +338,14 @@ export default function Match() {
         const ackIdx = message.payload.idx ?? matchState?.currentQuestionIndex ?? -1;
         if (processedAnswerForIdx.current === ackIdx) {
           logger.debug(`[Match] Ignoring duplicate answer_result for idx=${ackIdx}`);
+          break;
+        }
+        // Discard stale answer_result that arrives after next_question advanced the match.
+        // This happens when two players submit simultaneously: the second player's DB write
+        // completes first and the server sends next_question before the first player's
+        // answer_result is delivered, resulting in out-of-order WS messages.
+        if (ackIdx < currentQuestionIndexRef.current) {
+          logger.debug(`[Match] Ignoring stale answer_result for idx=${ackIdx}, current=${currentQuestionIndexRef.current}`);
           break;
         }
         processedAnswerForIdx.current = ackIdx;
@@ -1136,7 +1146,7 @@ export default function Match() {
           </div>
 
           <div className="text-center">
-            <Badge variant="outline">
+            <Badge variant="outline" data-testid="badge-question-progress" data-question-index={matchState.currentQuestionIndex}>
               {matchState.currentQuestionIndex + 1} / {matchState.totalQuestions}
             </Badge>
           </div>

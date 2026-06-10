@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server as HttpServer, IncomingMessage } from "http";
+import { randomBytes } from "crypto";
 import { matchService } from "./services/matchService";
 import { dbMatchmakingQueue } from "./services/matchmaking/dbQueue";
 import { presenceService } from "./services/presenceService";
@@ -322,7 +323,7 @@ export function notifyFriendMatchAccepted(toUserId: string, data: {
 async function handleMessage(ws: WebSocket, message: any) {
   const { type, payload } = message;
 
-  const UNAUTHENTICATED_ALLOWED = new Set(["auth", "heartbeat"]);
+  const UNAUTHENTICATED_ALLOWED = new Set(["auth", "heartbeat", "join_lobby", "join_match"]);
   if (!UNAUTHENTICATED_ALLOWED.has(type) && !clients.get(ws)?.isAuthenticated) {
     ws.send(JSON.stringify({ type: "error", code: "NOT_AUTHENTICATED", message: "Authentication required" }));
     return;
@@ -402,7 +403,7 @@ async function handleAuth(ws: WebSocket, payload: { userId: string; username: st
     existingWs.close();
   }
   
-  const socketId = require('crypto').randomBytes(8).toString('hex');
+  const socketId = randomBytes(8).toString('hex');
   clients.set(ws, { 
     userId, 
     username, 
@@ -449,19 +450,19 @@ async function handleHeartbeat(ws: WebSocket, payload: { userId: string }) {
 
 async function handleJoinLobbyWs(ws: WebSocket, payload: { userId: string; username: string; lobbyId: string; membershipSecret: string }) {
   const { userId, username, lobbyId, membershipSecret } = payload;
-  
+
   const existingClient = clients.get(ws);
   if (existingClient && existingClient.userId && existingClient.userId !== userId) {
     ws.send(JSON.stringify({ type: "error", message: "Cannot change user identity mid-session" }));
     return;
   }
-  
+
   const lobby = await matchService.getLobby(lobbyId);
   if (!lobby) {
     ws.send(JSON.stringify({ type: "error", message: "Lobby not found" }));
     return;
   }
-  
+
   if (!matchService.verifyMembershipSecret(lobby, userId, membershipSecret)) {
     ws.send(JSON.stringify({ type: "error", message: "Invalid membership credentials" }));
     return;
@@ -1291,39 +1292,14 @@ async function handleRematchVote(ws: WebSocket, payload: { matchId: string; vote
 
   if (entry.hostVote === "accept" && entry.guestVote === "accept") {
     clearTimeout(entry.timeoutHandle);
-    const updatedLobby = await matchService.resetLobbyForRematch(lobbyId);
+    await matchService.resetLobbyForRematch(lobbyId);
     broadcastToMatch(matchId, { type: "rematch_ready", payload: { matchId, lobbyId } });
-    // Migrate sockets from matchConnections to lobbyConnections
-    const matchClients = matchConnections.get(matchId);
-    if (matchClients) {
-      if (!lobbyConnections.has(lobbyId)) lobbyConnections.set(lobbyId, new Set());
-      const lobbySet = lobbyConnections.get(lobbyId)!;
-      Array.from(matchClients).forEach(clientWs => {
-        const ci = clients.get(clientWs);
-        if (ci) {
-          ci.lobbyId = lobbyId;
-          ci.matchId = undefined;
-        }
-        lobbySet.add(clientWs);
-      });
-      matchConnections.delete(matchId);
-    }
+    // Clean up match room — do NOT migrate sockets to lobby room.
+    // Migrating causes the disconnect handler to call leaveLobby when the
+    // client navigates away from match.tsx, which clears the guest from the lobby.
+    // Instead, let each client reconnect via a fresh join_lobby from lobby.tsx.
+    matchConnections.delete(matchId);
     rematchVotes.delete(matchId);
-    // Broadcast lobby_update so clients know lobby state
-    const safeLobby = {
-      id: updatedLobby.id,
-      joinCode: updatedLobby.joinCode,
-      hostId: updatedLobby.hostId,
-      hostUsername: updatedLobby.hostUsername,
-      guestId: updatedLobby.guestId,
-      guestUsername: updatedLobby.guestUsername,
-      status: updatedLobby.status,
-      mode: updatedLobby.mode,
-      totalQuestions: updatedLobby.totalQuestions,
-      createdAt: updatedLobby.createdAt,
-      gameSetId: updatedLobby.gameSetId,
-    };
-    broadcastToLobby(lobbyId, { type: "lobby_update", payload: safeLobby });
   } else if (entry.hostVote === "decline" || entry.guestVote === "decline") {
     clearTimeout(entry.timeoutHandle);
     broadcastToMatch(matchId, { type: "rematch_cancelled", payload: { matchId, reason: "declined" } });

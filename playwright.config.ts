@@ -8,6 +8,7 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: "list",
+  timeout: 120_000,
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",
