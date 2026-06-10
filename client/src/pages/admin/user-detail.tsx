@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Wallet, Shield, Plus, Minus, Loader2, UserCog, Ban, CheckCircle } from "lucide-react";
+import { ArrowLeft, Wallet, Shield, Plus, Minus, Loader2, UserCog, Ban, CheckCircle, User, Mail, Calendar } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -49,6 +49,23 @@ interface AdminStatus {
   username: string | null;
 }
 
+interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string | null;
+  email: string | null;
+  status: string;
+  isAdmin: boolean;
+  authProvider: string;
+  createdAt: string | null;
+  points: number;
+  gamesPlayed: number;
+  correctAnswers: number;
+  totalAnswers: number;
+  accuracy: number;
+  avgPointsPerGame: number;
+}
+
 export default function AdminUserDetail() {
   const [, navigate] = useLocation();
   const params = useParams();
@@ -76,6 +93,18 @@ export default function AdminUserDetail() {
     }
   }, [authLoading, isAuthenticated, user, navigate]);
   
+  const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
+    queryKey: ["/api/admin/users", userId],
+    queryFn: async () => {
+      const response = await fetch(`/api/admin/users/${userId}`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to fetch user profile");
+      return response.json();
+    },
+    enabled: !!userId && isAuthenticated && user?.isAdmin,
+  });
+
   const { data: walletData, isLoading: walletLoading } = useQuery<WalletData>({
     queryKey: ["/api/admin/users", userId, "wallet"],
     queryFn: async () => {
@@ -367,6 +396,64 @@ export default function AdminUserDetail() {
           <p className="text-muted-foreground font-mono text-sm">{userId}</p>
         </div>
       </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          {profileLoading ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : profile ? (
+            <div className="flex flex-col sm:flex-row gap-6">
+              <div className="flex items-center gap-4">
+                <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <User className="h-7 w-7 text-primary" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl font-bold">{profile.username}</h2>
+                    {profile.isAdmin && <Badge variant="default" className="text-xs">Admin</Badge>}
+                    <Badge variant={
+                      profile.status === "ACTIVE" ? "default" :
+                      profile.status === "BANNED" ? "destructive" :
+                      "secondary"
+                    } className="text-xs">{profile.status}</Badge>
+                  </div>
+                  {profile.displayName && <p className="text-sm text-muted-foreground">{profile.displayName}</p>}
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5 text-sm sm:border-l sm:pl-6">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span className="font-mono">{profile.email || <span className="text-muted-foreground italic">No email on file</span>}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Shield className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span className="capitalize">{profile.authProvider} auth</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span>Joined {profile.createdAt ? format(new Date(profile.createdAt), "MMM d, yyyy") : "unknown"}</span>
+                </div>
+              </div>
+              <div className="flex gap-6 sm:border-l sm:pl-6 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Points</p>
+                  <p className="font-mono font-bold">{profile.points.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Games</p>
+                  <p className="font-mono font-bold">{profile.gamesPlayed}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Accuracy</p>
+                  <p className="font-mono font-bold">{profile.accuracy}%</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>

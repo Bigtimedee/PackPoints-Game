@@ -258,6 +258,7 @@ export function registerAdminRoutes(app: Express): void {
       if (search) {
         const searchLower = search.toLowerCase();
         allUsers = allUsers.filter((u: User) =>
+          (u.username || '').toLowerCase().includes(searchLower) ||
           (u.firstName || '').toLowerCase().includes(searchLower) ||
           (u.lastName || '').toLowerCase().includes(searchLower) ||
           (u.email || '').toLowerCase().includes(searchLower)
@@ -270,7 +271,13 @@ export function registerAdminRoutes(app: Express): void {
 
       const usersWithStats = paginatedUsers.map((u: User) => ({
         id: u.id,
-        username: u.firstName || u.email?.split('@')[0] || 'Anonymous',
+        username: u.username || u.firstName || u.email?.split('@')[0] || 'Anonymous',
+        displayName: u.firstName ? `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}` : null,
+        email: u.email || null,
+        status: u.status,
+        isAdmin: u.isAdmin,
+        authProvider: u.workosUserId ? 'workos' : 'local',
+        createdAt: u.createdAt,
         points: u.points,
         gamesPlayed: u.gamesPlayed,
         correctAnswers: u.correctAnswers,
@@ -312,7 +319,13 @@ export function registerAdminRoutes(app: Express): void {
 
       res.json({
         id: user.id,
-        username: user.firstName || user.email?.split('@')[0] || 'Anonymous',
+        username: user.username || user.firstName || user.email?.split('@')[0] || 'Anonymous',
+        displayName: user.firstName ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}` : null,
+        email: user.email || null,
+        status: user.status,
+        isAdmin: user.isAdmin,
+        authProvider: user.workosUserId ? 'workos' : 'local',
+        createdAt: user.createdAt,
         points: user.points,
         gamesPlayed: user.gamesPlayed,
         correctAnswers: user.correctAnswers,

@@ -7,12 +7,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, ChevronLeft, ChevronRight, User, Loader2 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, User, Loader2, Mail, Shield, Calendar } from "lucide-react";
+import { format } from "date-fns";
 import { useAuth } from "@/hooks/use-auth";
 
 interface UserData {
   id: string;
   username: string;
+  displayName: string | null;
+  email: string | null;
+  status: string;
+  isAdmin: boolean;
+  authProvider: string;
+  createdAt: string | null;
   points: number;
   gamesPlayed: number;
   correctAnswers: number;
@@ -140,6 +147,8 @@ export default function AdminUsers() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Username</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead className="text-right">Points</TableHead>
                       <TableHead className="text-right">Games</TableHead>
                       <TableHead className="text-right">Accuracy</TableHead>
@@ -149,7 +158,26 @@ export default function AdminUsers() {
                   <TableBody>
                     {data.users.map((u) => (
                       <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
-                        <TableCell className="font-medium">{u.username}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{u.username}</div>
+                          {u.displayName && <div className="text-xs text-muted-foreground">{u.displayName}</div>}
+                          {u.isAdmin && <Badge variant="default" className="text-xs mt-0.5">Admin</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm">
+                            <Mail className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                            <span className="font-mono text-xs">{u.email || <span className="text-muted-foreground italic">—</span>}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            u.status === "ACTIVE" ? "default" :
+                            u.status === "BANNED" ? "destructive" :
+                            "secondary"
+                          } className="text-xs">
+                            {u.status}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right font-mono">{u.points.toLocaleString()}</TableCell>
                         <TableCell className="text-right">{u.gamesPlayed}</TableCell>
                         <TableCell className="text-right">
@@ -158,8 +186,8 @@ export default function AdminUsers() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="sm"
                             onClick={() => setSelectedUser(u.id)}
                             data-testid={`button-view-user-${u.id}`}
@@ -225,8 +253,31 @@ export default function AdminUsers() {
                   <User className="h-8 w-8 text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold">{userDetails.username}</h3>
-                  <p className="text-sm text-muted-foreground">User ID: {userDetails.id.slice(0, 8)}...</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold">{userDetails.username}</h3>
+                    {userDetails.isAdmin && <Badge variant="default" className="text-xs">Admin</Badge>}
+                    <Badge variant={
+                      userDetails.status === "ACTIVE" ? "default" :
+                      userDetails.status === "BANNED" ? "destructive" :
+                      "secondary"
+                    } className="text-xs">{userDetails.status}</Badge>
+                  </div>
+                  {userDetails.displayName && <p className="text-sm text-muted-foreground">{userDetails.displayName}</p>}
+                </div>
+              </div>
+
+              <div className="space-y-2 text-sm border rounded-md p-3 bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span className="font-mono">{userDetails.email || <span className="text-muted-foreground italic">No email on file</span>}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Shield className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span className="capitalize">{userDetails.authProvider} auth</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                  <span>{userDetails.createdAt ? format(new Date(userDetails.createdAt), "MMM d, yyyy") : "Unknown join date"}</span>
                 </div>
               </div>
 
