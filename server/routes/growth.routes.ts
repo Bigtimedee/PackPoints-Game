@@ -17,8 +17,11 @@ import {
   userGrowthRollups,
   shareEvents,
   users,
+  socialPosts,
+  postAnalytics,
+  abTests,
 } from "@shared/schema";
-import { eq, desc, and, sum, sql, asc } from "drizzle-orm";
+import { eq, desc, and, sum, sql, asc, avg, count, max } from "drizzle-orm";
 // Lazy-import heavy services that depend on native binaries (sharp, ffmpeg-static).
 // Static imports here would crash the server on startup if the native binaries
 // fail to load, preventing ALL routes from registering.
@@ -363,6 +366,163 @@ export function registerGrowthRoutes(app: Express): void {
           .orderBy(desc(growthJobRuns.startedAt))
           .limit(50);
         res.json(runs);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // GET /api/admin/social/analytics
+  app.get(
+    "/api/admin/social/analytics",
+    isAuthenticated,
+    requireAdmin,
+    async (_req: Request, res: Response) => {
+      try {
+        // Most-recent analytics row per post via a lateral subquery approach:
+        // use a CTE to rank rows by fetchedAt descending, then keep rank = 1.
+        const latestAnalytics = db
+          .select({
+            postId: postAnalytics.postId,
+            impressions: postAnalytics.impressions,
+            likes: postAnalytics.likes,
+            shares: postAnalytics.shares,
+            comments: postAnalytics.comments,
+            clicks: postAnalytics.clicks,
+            conversionRate: postAnalytics.conversionRate,
+            rn: sql<number>`row_number() over (partition by ${postAnalytics.postId} order by ${postAnalytics.fetchedAt} desc)`.as("rn"),
+          })
+          .from(postAnalytics)
+          .as("latest_analytics");
+
+        // Summary
+        const [summaryRow] = await db
+          .select({
+            totalImpressions: sql<number>`cast(coalesce(sum(${latestAnalytics.impressions}), 0) as int)`,
+            totalLikes: sql<number>`cast(coalesce(sum(${latestAnalytics.likes}), 0) as int)`,
+            publishedPosts: sql<number>`cast(count(distinct ${socialPosts.id}) as int)`,
+          })
+          .from(socialPosts)
+          .leftJoin(latestAnalytics, and(eq(socialPosts.id, latestAnalytics.postId), sql`${latestAnalytics.rn} = 1`))
+          .where(eq(socialPosts.status, "PUBLISHED" as any));
+
+        const publishedPosts = summaryRow.publishedPosts ?? 0;
+        const totalImpressions = summaryRow.totalImpressions ?? 0;
+        const summary = {
+          totalImpressions,
+          totalLikes: summaryRow.totalLikes ?? 0,
+          publishedPosts,
+          avgImpressionsPerPost: publishedPosts > 0 ? Math.round(totalImpressions / publishedPosts) : 0,
+        };
+
+        // By content type + ab_group
+        const byContentType = await db
+          .select({
+            contentType: socialPosts.contentType,
+            abGroup: socialPosts.abGroup,
+            postCount: sql<number>`cast(count(distinct ${socialPosts.id}) as int)`,
+            totalImpressions: sql<number>`cast(coalesce(sum(${latestAnalytics.impressions}), 0) as int)`,
+            totalLikes: sql<number>`cast(coalesce(sum(${latestAnalytics.likes}), 0) as int)`,
+            avgImpressions: sql<number>`cast(coalesce(avg(${latestAnalytics.impressions}), 0) as int)`,
+            avgLikes: sql<number>`cast(coalesce(avg(${latestAnalytics.likes}), 0) as int)`,
+          })
+          .from(socialPosts)
+          .leftJoin(latestAnalytics, and(eq(socialPosts.id, latestAnalytics.postId), sql`${latestAnalytics.rn} = 1`))
+          .where(eq(socialPosts.status, "PUBLISHED" as any))
+          .groupBy(socialPosts.contentType, socialPosts.abGroup)
+          .orderBy(desc(sql`sum(${latestAnalytics.impressions})`));
+
+        // Recent posts
+        const recentPosts = await db
+          .select({
+            id: socialPosts.id,
+            platform: socialPosts.platform,
+            contentType: socialPosts.contentType,
+            abGroup: socialPosts.abGroup,
+            publishedAt: socialPosts.publishedAt,
+            copyPreview: sql<string>`substring(${socialPosts.copyText}, 1, 100)`,
+            impressions: latestAnalytics.impressions,
+            likes: latestAnalytics.likes,
+            shares: latestAnalytics.shares,
+            clicks: latestAnalytics.clicks,
+            conversionRate: latestAnalytics.conversionRate,
+          })
+          .from(socialPosts)
+          .leftJoin(latestAnalytics, and(eq(socialPosts.id, latestAnalytics.postId), sql`${latestAnalytics.rn} = 1`))
+          .where(eq(socialPosts.status, "PUBLISHED" as any))
+          .orderBy(desc(socialPosts.publishedAt))
+          .limit(50);
+
+        res.json({ summary, byContentType, recentPosts });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // GET /api/admin/social/ab-tests
+  app.get(
+    "/api/admin/social/ab-tests",
+    isAuthenticated,
+    requireAdmin,
+    async (_req: Request, res: Response) => {
+      try {
+        const tests = await db
+          .select()
+          .from(abTests)
+          .orderBy(desc(abTests.startedAt))
+          .limit(50);
+
+        const latestAnalytics = db
+          .select({
+            postId: postAnalytics.postId,
+            impressions: postAnalytics.impressions,
+            likes: postAnalytics.likes,
+            rn: sql<number>`row_number() over (partition by ${postAnalytics.postId} order by ${postAnalytics.fetchedAt} desc)`.as("rn"),
+          })
+          .from(postAnalytics)
+          .as("latest_analytics");
+
+        const variantRows = await db
+          .select({
+            abTestId: socialPosts.abTestId,
+            abGroup: socialPosts.abGroup,
+            postCount: sql<number>`cast(count(distinct ${socialPosts.id}) as int)`,
+            totalImpressions: sql<number>`cast(coalesce(sum(${latestAnalytics.impressions}), 0) as int)`,
+            totalLikes: sql<number>`cast(coalesce(sum(${latestAnalytics.likes}), 0) as int)`,
+          })
+          .from(socialPosts)
+          .leftJoin(latestAnalytics, and(eq(socialPosts.id, latestAnalytics.postId), sql`${latestAnalytics.rn} = 1`))
+          .where(sql`${socialPosts.abTestId} is not null`)
+          .groupBy(socialPosts.abTestId, socialPosts.abGroup);
+
+        const variantsByTest: Record<string, Record<string, { postCount: number; totalImpressions: number; totalLikes: number }>> = {};
+        for (const row of variantRows) {
+          if (!row.abTestId) continue;
+          if (!variantsByTest[row.abTestId]) variantsByTest[row.abTestId] = {};
+          variantsByTest[row.abTestId][row.abGroup ?? "?"] = {
+            postCount: row.postCount,
+            totalImpressions: row.totalImpressions,
+            totalLikes: row.totalLikes,
+          };
+        }
+
+        const result = tests.map((t) => ({
+          id: t.id,
+          contentType: t.contentType,
+          testName: t.testName,
+          status: t.status,
+          winner: t.winner,
+          winningMetric: t.winningMetric,
+          hypothesis: t.hypothesis,
+          startedAt: t.startedAt,
+          endedAt: t.endedAt,
+          variants: variantsByTest[t.id] ?? {},
+        }));
+
+        res.json(result);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         res.status(500).json({ message: msg });

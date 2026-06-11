@@ -966,6 +966,276 @@ function FlywheelTab() {
 }
 
 // ──────────────────────────────────────────────
+// Post Analytics Tab
+// ──────────────────────────────────────────────
+
+interface AnalyticsSummary {
+  totalImpressions: number;
+  totalLikes: number;
+  publishedPosts: number;
+  avgImpressionsPerPost: number;
+}
+
+interface ByContentTypeRow {
+  contentType: string;
+  abGroup: string | null;
+  postCount: number;
+  totalImpressions: number;
+  totalLikes: number;
+  avgImpressions: number;
+  avgLikes: number;
+}
+
+interface RecentPostRow {
+  id: string;
+  platform: string;
+  contentType: string;
+  abGroup: string | null;
+  publishedAt: string | null;
+  copyPreview: string;
+  impressions: number | null;
+  likes: number | null;
+  shares: number | null;
+  clicks: number | null;
+  conversionRate: number | null;
+}
+
+interface AnalyticsData {
+  summary: AnalyticsSummary;
+  byContentType: ByContentTypeRow[];
+  recentPosts: RecentPostRow[];
+}
+
+function PostAnalyticsTab() {
+  const { data, isPending } = useQuery<AnalyticsData>({
+    queryKey: ["/api/admin/social/analytics"],
+    queryFn: () => fetch("/api/admin/social/analytics").then((r) => r.json()),
+  });
+
+  if (isPending) return <p className="text-sm text-muted-foreground p-4">Loading…</p>;
+  if (!data) return <p className="text-sm text-muted-foreground p-4">No data.</p>;
+
+  const { summary, byContentType, recentPosts } = data;
+  const displayPosts = recentPosts.slice(0, 20);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard label="Total Impressions" value={summary.totalImpressions.toLocaleString()} />
+        <MetricCard label="Total Likes" value={summary.totalLikes.toLocaleString()} />
+        <MetricCard label="Published Posts" value={summary.publishedPosts.toLocaleString()} />
+        <MetricCard label="Avg Impressions / Post" value={summary.avgImpressionsPerPost.toLocaleString()} />
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Performance by Content Type</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {byContentType.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No published posts yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium">Content Type</th>
+                    <th className="text-left p-3 font-medium">A/B Group</th>
+                    <th className="text-right p-3 font-medium">Posts</th>
+                    <th className="text-right p-3 font-medium">Total Impressions</th>
+                    <th className="text-right p-3 font-medium">Avg Impressions</th>
+                    <th className="text-right p-3 font-medium">Total Likes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {byContentType.map((row, i) => (
+                    <tr key={i} className="hover:bg-muted/20">
+                      <td className="p-3">{row.contentType.replace(/_/g, " ")}</td>
+                      <td className="p-3">{row.abGroup ?? "—"}</td>
+                      <td className="text-right p-3">{row.postCount}</td>
+                      <td className="text-right p-3">{row.totalImpressions.toLocaleString()}</td>
+                      <td className="text-right p-3">{row.avgImpressions.toLocaleString()}</td>
+                      <td className="text-right p-3">{row.totalLikes.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Recent Posts</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {displayPosts.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No published posts yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium">Date</th>
+                    <th className="text-left p-3 font-medium">Type</th>
+                    <th className="text-left p-3 font-medium">Group</th>
+                    <th className="text-left p-3 font-medium">Preview</th>
+                    <th className="text-right p-3 font-medium">Impressions</th>
+                    <th className="text-right p-3 font-medium">Likes</th>
+                    <th className="text-right p-3 font-medium">Clicks</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {displayPosts.map((post) => (
+                    <tr key={post.id} className="hover:bg-muted/20">
+                      <td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
+                        {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="p-3 text-xs">{post.contentType.replace(/_/g, " ")}</td>
+                      <td className="p-3">{post.abGroup ?? "—"}</td>
+                      <td className="p-3 max-w-[200px] truncate text-muted-foreground text-xs">
+                        {post.copyPreview.slice(0, 60)}
+                      </td>
+                      <td className="text-right p-3">{(post.impressions ?? 0).toLocaleString()}</td>
+                      <td className="text-right p-3">{(post.likes ?? 0).toLocaleString()}</td>
+                      <td className="text-right p-3">{(post.clicks ?? 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// A/B Tests Tab
+// ──────────────────────────────────────────────
+
+interface AbTestVariant {
+  postCount: number;
+  totalImpressions: number;
+  totalLikes: number;
+}
+
+interface AbTestRow {
+  id: string;
+  contentType: string;
+  testName: string;
+  status: string;
+  winner: string | null;
+  winningMetric: string | null;
+  hypothesis: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  variants: Record<string, AbTestVariant>;
+}
+
+const AB_STATUS_COLORS: Record<string, string> = {
+  RUNNING: "bg-yellow-100 text-yellow-800",
+  CONCLUDED: "bg-green-100 text-green-800",
+  INCONCLUSIVE: "bg-gray-100 text-gray-600",
+};
+
+function AbTestsTab() {
+  const { data: tests = [], isPending } = useQuery<AbTestRow[]>({
+    queryKey: ["/api/admin/social/ab-tests"],
+    queryFn: () => fetch("/api/admin/social/ab-tests").then((r) => r.json()),
+  });
+
+  if (isPending) return <p className="text-sm text-muted-foreground p-4">Loading…</p>;
+  if (tests.length === 0) return <p className="text-sm text-muted-foreground p-4">No A/B tests found.</p>;
+
+  return (
+    <div className="space-y-4">
+      {tests.map((test) => {
+        const variantKeys = ["A", "B", "C"];
+        const totalImpressions = variantKeys.reduce((acc, k) => acc + (test.variants[k]?.totalImpressions ?? 0), 0);
+        const hasData = totalImpressions > 0;
+
+        return (
+          <Card key={test.id}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CardTitle className="text-base">{test.contentType.replace(/_/g, " ")}</CardTitle>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${AB_STATUS_COLORS[test.status] ?? "bg-slate-100 text-slate-700"}`}
+                >
+                  {test.status}
+                </span>
+                {test.winner && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                    Winner: {test.winner}
+                  </span>
+                )}
+                {test.startedAt && (
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    Started {new Date(test.startedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+              {test.hypothesis && (
+                <p className="text-xs text-muted-foreground mt-1">{test.hypothesis}</p>
+              )}
+            </CardHeader>
+            <CardContent>
+              {!hasData ? (
+                <p className="text-sm text-muted-foreground">No data yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left p-3 font-medium">Metric</th>
+                        {variantKeys.map((k) => (
+                          <th key={k} className="text-right p-3 font-medium">
+                            Variant {k}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      <tr className="hover:bg-muted/20">
+                        <td className="p-3 text-muted-foreground">Posts</td>
+                        {variantKeys.map((k) => (
+                          <td key={k} className="text-right p-3">
+                            {test.variants[k]?.postCount ?? 0}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr className="hover:bg-muted/20">
+                        <td className="p-3 text-muted-foreground">Impressions</td>
+                        {variantKeys.map((k) => (
+                          <td key={k} className="text-right p-3">
+                            {(test.variants[k]?.totalImpressions ?? 0).toLocaleString()}
+                          </td>
+                        ))}
+                      </tr>
+                      <tr className="hover:bg-muted/20">
+                        <td className="p-3 text-muted-foreground">Likes</td>
+                        {variantKeys.map((k) => (
+                          <td key={k} className="text-right p-3">
+                            {(test.variants[k]?.totalLikes ?? 0).toLocaleString()}
+                          </td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Main Page
 // ──────────────────────────────────────────────
 
@@ -1033,6 +1303,8 @@ export default function AdminGrowth() {
           <TabsTrigger value="plans">Content Plans</TabsTrigger>
           <TabsTrigger value="runs">Job Runs</TabsTrigger>
           <TabsTrigger value="flywheel">Growth Flywheel</TabsTrigger>
+          <TabsTrigger value="analytics">Post Analytics</TabsTrigger>
+          <TabsTrigger value="abtests">A/B Tests</TabsTrigger>
         </TabsList>
 
         <TabsContent value="queue" className="mt-4">
@@ -1049,6 +1321,14 @@ export default function AdminGrowth() {
 
         <TabsContent value="flywheel" className="mt-4">
           <FlywheelTab />
+        </TabsContent>
+
+        <TabsContent value="analytics" className="mt-4">
+          <PostAnalyticsTab />
+        </TabsContent>
+
+        <TabsContent value="abtests" className="mt-4">
+          <AbTestsTab />
         </TabsContent>
       </Tabs>
     </div>
