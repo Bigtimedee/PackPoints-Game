@@ -1,12 +1,14 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { randomUUID } from "crypto";
 import { createLogger } from "./logger";
 import { uploadImageToStorage } from "./imageStorage";
 import { renderGameImage } from "./gameImageRenderer";
 
 const logger = createLogger("ImageComposer");
-const OUTPUT_BASE = path.resolve("public/generated/social");
+// Use /tmp so Railway containers (read-only app/) can write generated images
+const OUTPUT_BASE = path.join(os.tmpdir(), "packpts-social");
 
 export interface ImageComposeParams {
   platform: "TWITTER" | "TIKTOK";
@@ -45,7 +47,7 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
   const r2Key = `social/${date}/${filename}`;
   const r2Url = await uploadImageToStorage(result.buffer, r2Key);
 
-  const imagePath = r2Url ?? `/generated/social/${date}/${filename}`;
+  const imagePath = r2Url ?? localPath;
 
   logger.info("image_composed", {
     platform,
