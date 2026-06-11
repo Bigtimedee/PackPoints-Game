@@ -48,7 +48,7 @@ export const agentConfig: AgentConfig = {
     refreshToken: process.env.TIKTOK_REFRESH_TOKEN ?? "",
   },
   abTest: {
-    minImpressions: parseInt(process.env.AGENT_AB_TEST_MIN_IMPRESSIONS ?? "100"),
+    minImpressions: parseInt(process.env.AGENT_AB_TEST_MIN_IMPRESSIONS ?? "20"),
     minDurationHours: parseInt(process.env.AGENT_AB_TEST_MIN_DURATION_HOURS ?? "24"),
     significanceThreshold: parseFloat(process.env.AGENT_AB_TEST_SIGNIFICANCE_THRESHOLD ?? "0.15"),
   },
