@@ -1007,12 +1007,13 @@ interface AnalyticsData {
 }
 
 function PostAnalyticsTab() {
-  const { data, isPending } = useQuery<AnalyticsData>({
+  const { data, isPending, error } = useQuery<AnalyticsData>({
     queryKey: ["/api/admin/social/analytics"],
-    queryFn: () => fetch("/api/admin/social/analytics").then((r) => r.json()),
+    queryFn: () => fetch("/api/admin/social/analytics").then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
   });
 
   if (isPending) return <p className="text-sm text-muted-foreground p-4">Loading…</p>;
+  if (error) return <p className="text-sm text-destructive p-4">Failed to load analytics: {error.message}</p>;
   if (!data) return <p className="text-sm text-muted-foreground p-4">No data.</p>;
 
   const { summary, byContentType, recentPosts } = data;
@@ -1142,13 +1143,14 @@ const AB_STATUS_COLORS: Record<string, string> = {
 };
 
 function AbTestsTab() {
-  const { data: tests = [], isPending } = useQuery<AbTestRow[]>({
+  const { data: tests, isPending, error } = useQuery<AbTestRow[]>({
     queryKey: ["/api/admin/social/ab-tests"],
-    queryFn: () => fetch("/api/admin/social/ab-tests").then((r) => r.json()),
+    queryFn: () => fetch("/api/admin/social/ab-tests").then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
   });
 
   if (isPending) return <p className="text-sm text-muted-foreground p-4">Loading…</p>;
-  if (tests.length === 0) return <p className="text-sm text-muted-foreground p-4">No A/B tests found.</p>;
+  if (error) return <p className="text-sm text-destructive p-4">Failed to load A/B tests: {error.message}</p>;
+  if (!tests || tests.length === 0) return <p className="text-sm text-muted-foreground p-4">No A/B tests found.</p>;
 
   return (
     <div className="space-y-4">
