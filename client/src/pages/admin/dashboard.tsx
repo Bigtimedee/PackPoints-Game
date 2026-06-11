@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Gamepad2, Star, Target, CreditCard, CheckCircle, Loader2 } from "lucide-react";
+import { Users, Gamepad2, Star, Target, CreditCard, TrendingUp, Loader2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +13,8 @@ interface DashboardData {
     totalPoints: number;
     totalGames: number;
     avgAccuracy: number;
-    totalCards: number;
-    verifiedCards: number;
+    activeSubscriptions: number;
+    newSignups: number;
   };
   topPlayers: { username: string; points: number; gamesPlayed: number }[];
   mostActive: { username: string; gamesPlayed: number; points: number }[];
@@ -62,8 +62,8 @@ export default function AdminDashboard() {
     { title: "Total Games", value: data.overview.totalGames.toLocaleString(), icon: Gamepad2, color: "text-green-500" },
     { title: "Total Points", value: data.overview.totalPoints.toLocaleString(), icon: Star, color: "text-yellow-500" },
     { title: "Avg Accuracy", value: `${data.overview.avgAccuracy}%`, icon: Target, color: "text-purple-500" },
-    { title: "Total Cards", value: data.overview.totalCards.toString(), icon: CreditCard, color: "text-orange-500" },
-    { title: "Verified Cards", value: data.overview.verifiedCards.toString(), icon: CheckCircle, color: "text-emerald-500" },
+    { title: "Active Subscriptions", value: data.overview.activeSubscriptions.toLocaleString(), icon: CreditCard, color: "text-orange-500" },
+    { title: "New Signups (7d)", value: data.overview.newSignups.toLocaleString(), icon: TrendingUp, color: "text-emerald-500" },
   ];
 
   return (

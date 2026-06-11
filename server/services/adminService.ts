@@ -10,7 +10,7 @@ import {
   eventLog,
   type InsertAdminAuditLog 
 } from "@shared/schema";
-import { eq, sql, desc, ilike, and, gte, lte, count } from "drizzle-orm";
+import { eq, sql, desc, ilike, and, gte, lte, count, gt } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
 
@@ -562,6 +562,7 @@ class AdminService {
     grossPurchaseCount: number;
     packptsLiability: number;
     redemptionRate: number;
+    activeSubscriptions: number;
   }> {
     const targetDate = date ? new Date(date) : new Date();
     const startOfDay = new Date(targetDate);
@@ -578,6 +579,7 @@ class AdminService {
       liabilityResult,
       redeemStartedResult,
       redeemCompletedResult,
+      activeSubsResult,
     ] = await Promise.all([
       db.select({ count: sql<number>`COUNT(DISTINCT user_id)` })
         .from(eventLog)
@@ -629,6 +631,12 @@ class AdminService {
           gte(eventLog.createdAt, startOfDay),
           lte(eventLog.createdAt, endOfDay)
         )),
+      db.select({ count: sql<number>`COUNT(*)` })
+        .from(userEntitlements)
+        .where(and(
+          eq(userEntitlements.entitlementKey, "pro_subscription"),
+          gt(userEntitlements.expiresAt, new Date()),
+        )),
     ]);
 
     const dau = Number(dauResult[0]?.count || 0);
@@ -639,6 +647,7 @@ class AdminService {
     const liability = Number(liabilityResult[0]?.total || 0);
     const redeemsStarted = Number(redeemStartedResult[0]?.count || 0);
     const redeemsCompleted = Number(redeemCompletedResult[0]?.count || 0);
+    const activeSubscriptions = Number(activeSubsResult[0]?.count ?? 0);
 
     return {
       dau,
@@ -647,6 +656,7 @@ class AdminService {
       grossPurchaseCount: purchasesCompleted,
       packptsLiability: liability,
       redemptionRate: redeemsStarted > 0 ? redeemsCompleted / redeemsStarted : 0,
+      activeSubscriptions,
     };
   }
 }

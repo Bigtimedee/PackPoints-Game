@@ -4,8 +4,8 @@ import { storage } from "../storage";
 import { adminService } from "../services/adminService";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
-import { eq, sql, desc } from "drizzle-orm";
-import { users, purchaseEvents, products } from "@shared/schema";
+import { eq, sql, desc, and, gt, gte } from "drizzle-orm";
+import { users, purchaseEvents, products, userEntitlements } from "@shared/schema";
 import type { User } from "@shared/schema";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "../services/cardHedge";
 import { z } from "zod";
@@ -34,9 +34,20 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
 export function registerAdminRoutes(app: Express): void {
   app.get("/api/admin/dashboard", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const allUsers: User[] = await db.select().from(users);
-      const allCards = await storage.getCards();
-      const verifiedCards = allCards.filter(c => c.imageVerified).length;
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const [allUsers, activeSubsResult, newSignupsResult] = await Promise.all([
+        db.select().from(users),
+        db.select({ count: sql<number>`COUNT(*)` })
+          .from(userEntitlements)
+          .where(and(
+            eq(userEntitlements.entitlementKey, "pro_subscription"),
+            gt(userEntitlements.expiresAt, new Date()),
+          )),
+        db.select({ count: sql<number>`COUNT(*)` })
+          .from(users)
+          .where(gte(users.createdAt, sevenDaysAgo)),
+      ]);
 
       const totalUsers = allUsers.length;
       const totalPoints = allUsers.reduce((sum: number, u: User) => sum + u.points, 0);
@@ -44,6 +55,8 @@ export function registerAdminRoutes(app: Express): void {
       const totalCorrect = allUsers.reduce((sum: number, u: User) => sum + u.correctAnswers, 0);
       const totalAnswers = allUsers.reduce((sum: number, u: User) => sum + u.totalAnswers, 0);
       const avgAccuracy = totalAnswers > 0 ? Math.round((totalCorrect / totalAnswers) * 100) : 0;
+      const activeSubscriptions = Number(activeSubsResult[0]?.count ?? 0);
+      const newSignups = Number(newSignupsResult[0]?.count ?? 0);
 
       const topPlayers = [...allUsers]
         .sort((a: User, b: User) => b.points - a.points)
@@ -69,8 +82,8 @@ export function registerAdminRoutes(app: Express): void {
           totalPoints,
           totalGames,
           avgAccuracy,
-          totalCards: allCards.length,
-          verifiedCards,
+          activeSubscriptions,
+          newSignups,
         },
         topPlayers,
         mostActive,
