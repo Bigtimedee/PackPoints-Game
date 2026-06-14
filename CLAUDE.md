@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **Before performing any work on PackPTS, read `PACKPTS_PROJECT_CONTEXT.md`.** Treat it as the canonical project context file. `PACKPTS_PROJECT_CONTEXT.md` is tracked in git and must be committed in the same change as any behavior change. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update `PACKPTS_PROJECT_CONTEXT.md` in the same session and include it in the same commit.
+
 ## Project: PackPoints (packpts.com)
 
 ### Deployment — Railway
