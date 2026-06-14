@@ -14,6 +14,7 @@ import { seedRewardPolicy } from "./services/rewardEngine";
 import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
 import { errorMonitor } from './services/errorMonitor';
 import { validateStripeEnvVars } from "./services/productMap";
+import { enforceProductionSecrets } from "./utils/secretsCheck";
 
 // --- Environment validation ---
 function validateEnvironment() {
@@ -45,6 +46,7 @@ function validateEnvironment() {
 }
 
 validateEnvironment();
+enforceProductionSecrets();
 validateStripeEnvVars();
 
 const app = express();

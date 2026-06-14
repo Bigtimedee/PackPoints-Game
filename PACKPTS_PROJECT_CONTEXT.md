@@ -1069,18 +1069,27 @@ The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM
 
 ## 20. Environment Variables and Secrets
 
-### Required (App will not start without these)
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `SESSION_SECRET` | Express-session signing key |
+> **Production secret enforcement**: `server/utils/secretsCheck.ts` runs at startup. In `NODE_ENV=production` or `APP_ENV=production`, the server exits with a fatal error if any secret marked ✗ REQUIRED is missing **or** equals its known development default. In development the same check fires as loud warnings. Secret values are never printed in logs — only presence/absence.
+
+### Required in production — startup will exit(1) if these are absent or default
+| Variable | Purpose | Required in prod | Known dev default (NEVER ship) |
+|----------|---------|:---:|---|
+| `DATABASE_URL` | PostgreSQL connection string | ✗ | — |
+| `SESSION_SECRET` | Express-session signing key (≥32 chars) | ✗ | — |
+| `JWT_SECRET` | JWT signing for iOS tokens | ✗ | `packpoints-dev-secret-change-me-in-production-2026` |
+| `IP_HASH_SALT` | IP anonymization salt | ✗ | `default-ip-salt-change-in-production` |
+| `DEVICE_HASH_SALT` | Device fingerprint hashing salt | ✗ | `default-device-salt-change-in-production` |
+| `FOUNDERS_PASS_PEPPER` | Founders pass token hashing pepper | ✗ | `default-pepper-change-in-production` |
+| `SECRET_SALT` (or `GROWTH_AGENT_SECRET_SALT`) | Daily-5 challenge signing salt | ✗ | `packpts-daily5-default-salt-change-me` |
+| `STRIPE_secret` or `STRIPE_SECRET_KEY` | Stripe API secret key | ✗ | — |
+| `STRIPE_WEBHOOK_SECRET_LIVE` or `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification | ✗ | — |
+
+Generate unique values with `openssl rand -hex 32`. Set in Railway → Service → Variables tab.
 
 ### Payments (Required for store/marketplace functionality)
 | Variable | Purpose |
 |----------|---------|
-| `STRIPE_SECRET_KEY` | Stripe API secret key |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe public key (client-side) |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
 | `INTERNAL_API_KEY` | Internal API authentication for wallet operations |
 | `OUTBOUND_SECRET` | HMAC signing for affiliate outbound links |
 
@@ -1090,7 +1099,6 @@ The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM
 | `WORKOS_API_KEY` | WorkOS OAuth API key | (optional) |
 | `WORKOS_CLIENT_ID` | WorkOS client ID | "" |
 | `WORKOS_REDIRECT_URI` | OAuth callback URL | (optional) |
-| `JWT_SECRET` | JWT signing for iOS tokens | DEV_SECRET fallback |
 
 ### Card Data
 | Variable | Purpose | Default |
@@ -1114,10 +1122,7 @@ The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM
 ### Security & Hashing
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `IP_HASH_SALT` | IP anonymization | "default-ip-salt-change-in-production" |
-| `DEVICE_HASH_SALT` | Device fingerprint hashing | "default-device-salt-change-in-production" |
-| `FOUNDERS_PASS_PEPPER` | Founders pass token hashing | "default-pepper-change-in-production" |
-| `GEO_SALT` | Geo data hashing | random if not set |
+| `GEO_SALT` | Geo data hashing | random if not set (fine for dev) |
 
 ### Geolocation
 | Variable | Purpose | Default |
@@ -1421,8 +1426,8 @@ Hit `GET /api/version` after deploy to confirm new code is live before testing.
 - [ ] No hold period on purchased points before redemption eligibility
 - [ ] No multi-account detection automation
 - [ ] No device-level banning
-- [ ] Default hash salts in code (`"default-ip-salt-change-in-production"`) — must be overridden in production
-- [ ] `JWT_SECRET` has a dev fallback — must be set in production
+- [x] Default hash salts in code — `enforceProductionSecrets()` now fails fast in prod if defaults are present (Prompt 6, 2026-06-14)
+- [x] `JWT_SECRET` dev fallback — `enforceProductionSecrets()` now fails fast in prod if JWT_SECRET equals the dev constant (Prompt 6, 2026-06-14)
 
 ### Payments
 - [ ] Apple IAP receipt verification endpoint exists but full iOS payment flow untested in production
