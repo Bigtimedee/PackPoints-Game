@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:5001";
+const IS_REMOTE = /^https?:\/\//i.test(BASE_URL) && !BASE_URL.startsWith("http://localhost");
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -19,7 +20,7 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
+  webServer: IS_REMOTE ? undefined : {
     command: "npm run dev",
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,

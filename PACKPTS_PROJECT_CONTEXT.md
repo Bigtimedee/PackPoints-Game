@@ -498,24 +498,34 @@ Affiliate redirect URLs and marketplace links MUST preserve tracking parameters.
 
 ## 13. User Accounts and Authentication
 
+> **Verified 2026-06-14 (Plan Prompt 5)** — auth surface audited end-to-end after the OIDC purge. No dead references to the removed third-party provider remain in `server/`, `client/`, or `shared/`. Local-credential and WorkOS paths are both wired. E2E coverage in `tests/e2e/auth.spec.ts` (signup → /api/friends gate → logout → re-login → forgot-password) runs green against production.
+
 ### Implemented Auth Methods
 
-**Local Auth (Primary):**
-- Registration: `POST /api/auth/register` — username, email, password (bcrypt hashed in `localCredentials` table)
-- Login: `POST /api/auth/local-login` — email + password → express-session
+**Local Auth (Primary) — verified green:**
+- Registration: `POST /api/auth/register` — username, email, password (bcrypt hashed in `localCredentials` table); rate-limited; sets `req.session.localUserId`; issues 250 PackPTS welcome bonus
+- Login: `POST /api/auth/local-login` — `usernameOrEmail` + password → express-session; rate-limited (5/15min)
+- Logout: `POST /api/auth/local-logout`
+- Password reset: `POST /api/auth/forgot-password` → token email → `GET /api/auth/validate-reset-token?token=…` → `POST /api/auth/reset-password`
+- Magic-link account linking: `/api/auth/link/{challenge,confirm,send-magic,verify,cancel}`
 - Sessions stored in PostgreSQL via `sessions` table (sid, sess JSONB, expire)
 - Session management: Passport.js with local strategy
+- Canonical guard: `server/auth/middleware.ts:isAuthenticated` returns `{ message: "Unauthorized" }` on 401 (no internals)
+- Session inspector: `GET /api/auth/user`
 
-**WorkOS OAuth (SSO):**
-- `WORKOS_API_KEY` + `WORKOS_CLIENT_ID` configure OIDC flow
-- Redirect-based authentication
-- Maps to `userIdentities` table (provider: "workos", providerUserId, email)
+**WorkOS OAuth (SSO) — wired, package installed:**
+- `WORKOS_API_KEY` + `WORKOS_CLIENT_ID` configure OIDC flow (`@workos-inc/node`)
+- Routes: `GET /api/auth/workos/start`, `GET /api/auth/workos/callback`, `POST /api/auth/workos/logout`
+- Client trigger: `client/src/pages/auth.tsx` "Continue with WorkOS" button posts to `/api/auth/workos/start`
+- Maps to `userIdentities` table (provider: "workos", providerUserId, email); enum allowlist in `shared/schema.ts:identityProviders` = `["local", "workos"]`
 - Email collision handling via `pendingLinkChallenges` (magic link verification)
+- Sets `req.session.workosUserId`
 
 **iOS JWT Auth:**
 - `POST /api/auth/token` — exchange email/password for JWT access token (15-min) + refresh token (30-day)
 - `POST /api/auth/refresh` — rotate refresh token
 - `POST /api/auth/apple` — Sign in with Apple identity token verification
+- `POST /api/auth/logout` — JWT logout
 - Refresh tokens stored in `refreshTokens` table with device hint and revocation tracking
 
 ### User Model

@@ -17,3 +17,5 @@ replit.nix
 push_*.cjs
 push_*.js
 data/masked-cards/
+test-results/
+playwright-report/
