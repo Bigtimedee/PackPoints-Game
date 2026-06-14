@@ -153,7 +153,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 7, deployed: "2026-05-19", build: "card-review-diagnostics" });
+    res.json({ v: 8, deployed: "2026-06-14", build: "prompt-1-typecheck-gate" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
