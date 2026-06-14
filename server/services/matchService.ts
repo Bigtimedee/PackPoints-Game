@@ -80,19 +80,19 @@ class MatchService {
     console.log(`[MatchService] Loaded ${this.playerNames.length} player names for answer options`);
   }
 
-  async createLobby(hostId: string, hostUsername: string, totalQuestions: number = 10, gameSetId: string | null = null): Promise<Lobby> {
+  async createLobby(hostId: string, hostUsername: string, totalQuestions: number = 10, gameSetId: string | null = null, wagerAmount: number = 0): Promise<Lobby> {
     let joinCode = generateJoinCode();
     let attempts = 0;
-    
+
     while (attempts < 10) {
       const existing = await db.select().from(lobbies).where(eq(lobbies.joinCode, joinCode)).limit(1);
       if (existing.length === 0) break;
       joinCode = generateJoinCode();
       attempts++;
     }
-    
+
     const hostSecret = generateSecret();
-    
+
     const [lobby] = await db.insert(lobbies).values({
       joinCode,
       hostId,
@@ -102,8 +102,9 @@ class MatchService {
       mode: "1v1_friend",
       totalQuestions,
       gameSetId,
+      wagerAmount,
     }).returning();
-    
+
     return lobby;
   }
 

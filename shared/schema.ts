@@ -2344,6 +2344,9 @@ export const externalPurchaseIntent = pgTable("external_purchase_intent", {
     v: number; // USD per PackPTS
     Cmax: number; // max credit USD
     Rmax: number; // max redeemable PackPTS
+    marginPoolCents?: number; // treasury available-margin pool at quote time
+    txMarginCents?: number; // per-transaction margin contribution at quote time
+    allowedCapCents?: number; // margin-backed cap (marginPoolCents + txMarginCents)
   }>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

@@ -28,6 +28,10 @@ railway variables --service Postgres --json | python3 -c "import sys,json; d=jso
 
 **Always run migrations immediately after pushing code that references new columns.** The app will 500 on any UPDATE/SELECT that touches a column not yet in the production DB.
 
+### Build pipeline — typecheck is a required gate
+
+`npm run build` runs `npm run check` (`tsc`, with `noEmit: true` in `tsconfig.json`) before `tsx script/build.ts`. Any type error fails the build before esbuild bundles. Do not bypass this gate; fix type errors at the root cause instead of casting to `any` or adding `@ts-ignore`. Railway runs `npm run build` on every deploy, so a type error blocks production.
+
 ---
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.

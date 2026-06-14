@@ -1080,7 +1080,7 @@ export async function registerRoutes(
         // @shared/schema imports moved to top of file
 
         // Match stats: wins and total played
-        const matchStats = await db.execute(
+        const matchStats = await db.execute<{ total: number; wins: number }>(
           sql`SELECT
             COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE winner_user_id = ${userId})::int AS wins
@@ -1117,7 +1117,7 @@ export async function registerRoutes(
         }
 
         // Daily 5 completed count
-        const d5Result = await db.execute(
+        const d5Result = await db.execute<{ total: number }>(
           sql`SELECT COUNT(*)::int AS total FROM game_sessions
             WHERE user_id = ${userId} AND game_mode = 'daily5' AND status = 'completed'`
         );
