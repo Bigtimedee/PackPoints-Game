@@ -153,7 +153,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 10, deployed: "2026-06-14", build: "prompt-3-brain-in-git" });
+    res.json({ v: 11, deployed: "2026-06-14", build: "prompt-4-expiration-scheduled" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table

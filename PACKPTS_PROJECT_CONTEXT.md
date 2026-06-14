@@ -352,7 +352,7 @@ Configurable in `packptsExpirationPolicy`:
 | Wallet with balance tracking | ✅ Implemented |
 | Append-only ledger | ✅ Implemented |
 | Idempotency on all entries | ✅ Implemented |
-| FIFO bucket expiration | ⚠️ Fully implemented in code (`server/services/expirationEngine.ts` with `runExpirationJob()` and `runInactivityExpiration()`), admin endpoints exist (`POST /api/admin/expiration/run`), standalone job script exists (`server/jobs/runExpiration.ts`), but **no automated background schedule** — must be triggered manually or scheduled externally |
+| FIFO bucket expiration | ✅ Implemented + scheduled. `server/services/expirationEngine.ts` (`runExpirationJob()` and `runInactivityExpiration()`); admin endpoint `POST /api/admin/expiration/run`; standalone script `server/jobs/runExpiration.ts`. Daily date-based run wired into pgJobQueue via `scheduleRecurringJob('packpts_expiration', …)` in `server/index.ts`, runs at `EXPIRATION_RUN_HOUR_UTC` (default 6 UTC = 1 AM EST). Set `EXPIRATION_ENABLED=false` to disable. Inactivity expiration is not yet on a recurring schedule. |
 | Liability snapshots | ✅ Schema exists |
 | Chargeback reversal | ⚠️ Schema supports it (REVERSAL entry type), but automated Stripe chargeback → reversal flow needs verification |
 | Multi-currency support | ❌ Not implemented (USD only) |
@@ -1430,7 +1430,7 @@ Hit `GET /api/version` after deploy to confirm new code is live before testing.
 
 ### Testing
 - [ ] No unit test suite exists (known gap; Vitest installed but no tests written)
-- [ ] FIFO bucket expiration job exists in code but is NOT scheduled to run automatically — must be added to server startup or external scheduler
+- [x] FIFO bucket expiration job is scheduled via pgJobQueue (`packpts_expiration`) and runs daily at `EXPIRATION_RUN_HOUR_UTC` (default 6 UTC). Inactivity expiration still runs only via manual trigger / standalone script.
 - [ ] No automated masking verification tests
 - [ ] No load testing for WebSocket concurrent matches
 - [ ] No payment webhook replay tests in CI
@@ -1465,7 +1465,6 @@ Hit `GET /api/version` after deploy to confirm new code is live before testing.
 ## 27. Future Roadmap
 
 ### Immediate Fixes
-- Schedule the FIFO bucket expiration job to run automatically (code exists in `server/services/expirationEngine.ts` and `server/jobs/runExpiration.ts`, just needs a recurring schedule in `server/index.ts`)
 - Wire ELO ratings to matchmaking queue (schema exists, needs logic)
 - Implement automated chargeback → wallet freeze flow
 - Add hold period on purchased points before redemption eligibility

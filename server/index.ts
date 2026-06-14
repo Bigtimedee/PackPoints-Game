@@ -293,6 +293,29 @@ app.use((req, res, next) => {
     );
   }
 
+  if (process.env.EXPIRATION_ENABLED !== "false") {
+    const { expirationEngine } = await import("./services/expirationEngine");
+    const runHourUTC = parseInt(process.env.EXPIRATION_RUN_HOUR_UTC || "6", 10);
+    console.log(`[Expiration] Registering with persistent job queue (daily at ${runHourUTC}:00 UTC; hourly check)`);
+    scheduleRecurringJob(
+      'packpts_expiration',
+      async () => {
+        const now = new Date();
+        if (now.getUTCHours() !== runHourUTC) return;
+        const result = await expirationEngine.runExpirationJob(false);
+        const errSuffix = result.errors.length > 0 ? `, errors=${result.errors.length}` : '';
+        console.log(`[Expiration] Date-based run complete: buckets=${result.expiredBuckets}, points=${result.totalPointsExpired}${errSuffix}`);
+        if (result.errors.length > 0) {
+          for (const err of result.errors.slice(0, 5)) {
+            console.error(`[Expiration] error: ${err}`);
+          }
+        }
+      },
+      60 * 60 * 1000,
+      false
+    );
+  }
+
   // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
   // Using daily check pattern to avoid relying on exact 7-day timing
   if (process.env.NEWSLETTER_ENABLED === 'true') {
