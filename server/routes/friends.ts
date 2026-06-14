@@ -8,19 +8,7 @@ const router = Router();
 function isAuthenticated(req: any, res: Response, next: Function) {
   const userId = req.user?.id || req.user?.claims?.sub || req.session?.localUserId;
   if (!userId) {
-    return res.status(401).json({
-      error: "Unauthorized",
-      _probe: {
-        sentinel: "friends-auth-2026-05-24",
-        hasReqUser: !!req.user,
-        hasReqUserId: !!req.user?.id,
-        hasClaimsSub: !!req.user?.claims?.sub,
-        hasSession: !!req.session,
-        hasLocalUserId: !!req.session?.localUserId,
-        hasWorkosUserId: !!req.session?.workosUserId,
-        sessionKeys: req.session ? Object.keys(req.session) : null,
-      },
-    });
+    return res.status(401).json({ message: "Unauthorized" });
   }
   if (!req.user) req.user = { id: userId };
   else if (!req.user.id) req.user.id = userId;
