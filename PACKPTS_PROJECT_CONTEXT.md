@@ -1522,7 +1522,7 @@ railway variables --service Postgres --json | python3 -c \
 ## 25. Known Bugs, Gaps, and Risks
 
 ### Gameplay
-- [ ] No ELO-based matchmaking (schema exists, not wired to queue logic)
+- [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
 - [ ] No AI fallback opponent when queue is empty
 - [ ] Wager match settlement is still in progress (confirmed not complete)
 - [ ] Adaptive difficulty (personalized card selection) not implemented

@@ -3563,6 +3563,7 @@ export const matchmakingTickets = pgTable("matchmaking_tickets", {
   bucket: varchar("bucket").notNull(),
   status: ticketStatusEnum("status").notNull().default("WAITING"),
   socketId: varchar("socket_id"),
+  eloRating: integer("elo_rating").default(1200),
   lastHeartbeatAt: timestamp("last_heartbeat_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
