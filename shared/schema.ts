@@ -2418,6 +2418,7 @@ export const redemptionQuoteRequestSchema = z.object({
   listingUrl: z.string().url(),
   priceCents: z.number().int().positive(),
   currency: z.string().default("usd"),
+  cardhedgeCardId: z.string().optional(), // optional: enables price validation vs market data
 });
 
 export type RedemptionQuoteRequest = z.infer<typeof redemptionQuoteRequestSchema>;

@@ -1569,7 +1569,7 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] No automated refund processing
 
 ### Marketplace
-- [ ] No listing price validation against market data (users could potentially manipulate)
+- [x] Listing price validation against CardHedge market data (Prompt 23): POST /api/marketplace/validate-price takes cardhedgeCardId + claimedPriceCents, compares to raw (ungraded) CardHedge price from cache or API; rejects if ratio > 2.5x; redemptionQuoteRequestSchema accepts optional cardhedgeCardId, redemption quote endpoint validates and rejects inflated prices before quote creation
 - [ ] Goldin integration appears to use curated/manual listings vs. live API
 - [ ] Redemption admin review queue exists but no notification system for pending reviews
 

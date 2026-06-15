@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 30, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-22-north-star-scorecard" });
+    res.json({ v: 31, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-23-price-validation" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -8059,8 +8059,44 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
 
-      const { source, listingId, listingUrl, priceCents, currency } = parsed.data;
-      
+      const { source, listingId, listingUrl, priceCents, currency, cardhedgeCardId } = parsed.data;
+
+      // Price validation against CardHedge market data (non-blocking; advisory flag)
+      let priceValidation: { valid: boolean; marketPriceCents: number | null; ratio: number | null } = {
+        valid: true,
+        marketPriceCents: null,
+        ratio: null,
+      };
+      if (cardhedgeCardId) {
+        try {
+          const [cached] = await db
+            .select()
+            .from(cardDetailsCache)
+            .where(and(eq(cardDetailsCache.cardId, cardhedgeCardId), sql`${cardDetailsCache.expiresAt} > NOW()`))
+            .limit(1);
+
+          if (cached?.payload) {
+            const prices: Array<{ grade: string; price: string }> = (cached.payload as any)?.prices || [];
+            const rawPrice = prices.find(p => /^raw$/i.test(p.grade)) || prices[0];
+            if (rawPrice?.price) {
+              const marketPriceCents = Math.round(parseFloat(rawPrice.price) * 100);
+              const ratio = priceCents / marketPriceCents;
+              priceValidation = { valid: ratio <= PRICE_TOLERANCE_MULTIPLIER, marketPriceCents, ratio };
+            }
+          }
+        } catch (pvErr) {
+          console.error("[PriceValidation] non-fatal error:", pvErr);
+        }
+      }
+
+      if (!priceValidation.valid) {
+        return res.status(400).json({
+          error: "price_exceeds_market",
+          message: `Claimed price is ${priceValidation.ratio?.toFixed(1)}x the market price. Maximum allowed is ${PRICE_TOLERANCE_MULTIPLIER}x.`,
+          marketPriceCents: priceValidation.marketPriceCents,
+        });
+      }
+
       const quote = await profitGuardrailService.createQuote(
         userId,
         source,
@@ -8069,8 +8105,8 @@ export async function registerRoutes(
         priceCents,
         currency
       );
-      
-      res.json(quote);
+
+      res.json({ ...quote, priceValidation });
     } catch (error: any) {
       console.error("Error creating redemption quote:", error);
       res.status(500).json({ error: error.message || "Failed to create redemption quote" });
@@ -10453,6 +10489,74 @@ export async function registerRoutes(
     } catch (err) {
       console.error('[Feedback] Admin list error:', err);
       res.status(500).json({ message: 'Failed to get feedback' });
+    }
+  });
+
+  // ── Marketplace Price Validation (Prompt 23) ────────────────────────────────
+
+  const PRICE_TOLERANCE_MULTIPLIER = 2.5; // reject if claimed price > 2.5x market
+
+  // POST /api/marketplace/validate-price - validate listing price vs CardHedge market data
+  app.post("/api/marketplace/validate-price", isAuthenticated, async (req: any, res) => {
+    try {
+      const { cardhedgeCardId, claimedPriceCents } = req.body || {};
+      if (!cardhedgeCardId || !claimedPriceCents) {
+        return res.status(400).json({ error: "cardhedgeCardId and claimedPriceCents required" });
+      }
+
+      // Check cache first
+      const [cached] = await db
+        .select()
+        .from(cardDetailsCache)
+        .where(
+          and(
+            eq(cardDetailsCache.cardId, cardhedgeCardId),
+            sql`${cardDetailsCache.expiresAt} > NOW()`
+          )
+        )
+        .limit(1);
+
+      let rawPriceCents: number | null = null;
+      let source = "cache";
+
+      if (cached?.payload) {
+        const payload = cached.payload as any;
+        const prices: Array<{ grade: string; price: string }> = payload?.prices || [];
+        const rawPrice = prices.find(p => /^raw$/i.test(p.grade)) || prices[0];
+        if (rawPrice?.price) {
+          rawPriceCents = Math.round(parseFloat(rawPrice.price) * 100);
+        }
+      } else if (isCardHedgeConfigured()) {
+        const { fetchCardDetailsNormalized } = await import("./services/cardhedge/client");
+        const details = await fetchCardDetailsNormalized(cardhedgeCardId);
+        if (details) {
+          const rawPrice = details.prices.find(p => /^raw$/i.test(p.grade)) || details.prices[0];
+          if (rawPrice?.price) {
+            rawPriceCents = Math.round(parseFloat(rawPrice.price) * 100);
+          }
+        }
+        source = "api";
+      }
+
+      if (rawPriceCents === null) {
+        return res.json({ valid: true, reason: "no_market_data", marketPriceCents: null });
+      }
+
+      const ratio = claimedPriceCents / rawPriceCents;
+      const valid = ratio <= PRICE_TOLERANCE_MULTIPLIER;
+
+      res.json({
+        valid,
+        marketPriceCents: rawPriceCents,
+        claimedPriceCents,
+        ratio: Math.round(ratio * 100) / 100,
+        tolerance: PRICE_TOLERANCE_MULTIPLIER,
+        source,
+        reason: valid ? "within_tolerance" : "price_exceeds_market",
+      });
+    } catch (error) {
+      console.error("[PriceValidation] error:", error);
+      res.status(500).json({ error: "Price validation failed" });
     }
   });
 
