@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../db';
-import { wallets, ledgerEntries, users, userEntitlements, purchaseEvents } from '@shared/schema';
+import { wallets, ledgerEntries, users, userEntitlements, purchaseEvents, packptsBucket, packptsSpendAllocation } from '@shared/schema';
 import { walletService } from '../services/walletService';
 import { storage } from '../storage';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 describe('Purchase Fulfillment', () => {
@@ -26,6 +26,11 @@ describe('Purchase Fulfillment', () => {
   afterAll(async () => {
     const wallet = await walletService.getWallet(testUserId);
     if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, testUserId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, testUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.delete(wallets).where(eq(wallets.userId, testUserId));
     }
@@ -36,6 +41,11 @@ describe('Purchase Fulfillment', () => {
   beforeEach(async () => {
     const wallet = await walletService.getWallet(testUserId);
     if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, testUserId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, testUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.update(wallets).set({ balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 }).where(eq(wallets.id, wallet.id));
     }

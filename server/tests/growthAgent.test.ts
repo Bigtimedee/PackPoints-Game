@@ -189,6 +189,7 @@ describe("runDailyGrowthJob", () => {
   it("records a FAILED job run when plan generation throws", async () => {
     const openaiModule = await import("openai");
     const mockCreate = (openaiModule as any).__mockCreate as ReturnType<typeof vi.fn>;
+    mockCreate.mockReset();
     mockCreate.mockRejectedValueOnce(new Error("AI service unavailable"));
 
     const result = await runDailyGrowthJob(testDate);

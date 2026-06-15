@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../db';
-import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters, packptsBucket } from '@shared/schema';
+import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters, packptsBucket, packptsSpendAllocation } from '@shared/schema';
 import { walletService } from '../services/walletService';
 import { awardPoints, seedRewardPolicy, type CardContext } from '../services/rewardEngine';
-import { eq, sql, and } from 'drizzle-orm';
+import { eq, sql, and, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 describe('WalletService', () => {
@@ -26,6 +26,10 @@ describe('WalletService', () => {
   afterAll(async () => {
     const wallet = await walletService.getWallet(testUserId);
     if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, testUserId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
       await db.delete(packptsBucket).where(eq(packptsBucket.userId, testUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.delete(wallets).where(eq(wallets.userId, testUserId));
@@ -36,6 +40,10 @@ describe('WalletService', () => {
   beforeEach(async () => {
     const wallet = await walletService.getWallet(testUserId);
     if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, testUserId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
       await db.delete(packptsBucket).where(eq(packptsBucket.userId, testUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.update(wallets).set({ balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 }).where(eq(wallets.id, wallet.id));
@@ -229,6 +237,10 @@ describe('duplicate gameplay award prevention', () => {
     await db.delete(matchPointsCounters).where(eq(matchPointsCounters.matchId, matchId));
     const wallet = await walletService.getWallet(gpUserId);
     if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, gpUserId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
       await db.delete(packptsBucket).where(eq(packptsBucket.userId, gpUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.delete(wallets).where(eq(wallets.id, wallet.id));
