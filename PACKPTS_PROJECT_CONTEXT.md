@@ -1340,6 +1340,14 @@ PostgreSQL service: `postgres:16`, DB name `packpoints_test`, user/pass `postgre
 
 Playwright E2E is **not yet wired** into CI (requires live server + real env). A stub `e2e-stub` job exists in the workflow with `if: false` as a placeholder.
 
+**Known CI fixes applied (prompt 8):**
+- `wallet.test.ts`: delete `packptsBucket` before `ledgerEntries` in cleanup (FK: `bucket.created_from_ledger_entry_id → ledger_entries.id`); call `seedRewardPolicy()` before `awardPoints` tests
+- `walletService.ts`: pass `tx` to `createBucket` in `adjust()` and `purchaseCredit()` so bucket insert and ledger insert share the same transaction
+- `growthFlywheel` / `shared/schema.ts`: added `uniqueIndex` on `(userId, dayKey)` to `userGrowthRollups` table (required for `onConflictDoUpdate`)
+- `growthAgent.test.ts`: changed arrow function mock to `function()` so it can be called with `new OpenAI()`
+- `contentFactory.test.ts`: changed `toEndWith(".png")` to `toMatch(/\.png$/)` (not a valid Vitest matcher)
+- `card-image-pipeline.test.ts`: wrapped server-dependent describe blocks with `describe.skipIf(!process.env.TEST_BASE_URL)` so CI (no running server) skips them
+
 ### Required Tests (Proposed)
 
 **Card Masking (Critical):**

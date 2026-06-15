@@ -76,7 +76,7 @@ describe("generateScoreCard()", () => {
 
     // imagePath is the absolute disk path
     expect(result.imagePath).toContain(assetId);
-    expect(result.imagePath).toEndWith(".png");
+    expect(result.imagePath).toMatch(/\.png$/);
     expect(fs.existsSync(result.imagePath)).toBe(true);
 
     // imageUrl is the Express-served relative path
@@ -147,7 +147,7 @@ describe("onMatchFinished()", () => {
 
     expect(result).not.toBeNull();
     expect(result!.imageUrl).toMatch(/^\/generated\/share\//);
-    expect(result!.imageUrl).toEndWith(".png");
+    expect(result!.imageUrl).toMatch(/\.png$/);
 
     // Verify DB record
     const [asset] = await db

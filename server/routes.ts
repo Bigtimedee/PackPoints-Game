@@ -153,7 +153,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 15, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-14", build: "prompt-8-ci-workflow" });
+    res.json({ v: 16, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-14", build: "prompt-8-ci-fixes" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table

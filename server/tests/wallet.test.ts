@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../db';
-import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters } from '@shared/schema';
+import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters, packptsBucket } from '@shared/schema';
 import { walletService } from '../services/walletService';
-import { awardPoints, type CardContext } from '../services/rewardEngine';
+import { awardPoints, seedRewardPolicy, type CardContext } from '../services/rewardEngine';
 import { eq, sql, and } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -26,6 +26,7 @@ describe('WalletService', () => {
   afterAll(async () => {
     const wallet = await walletService.getWallet(testUserId);
     if (wallet) {
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, testUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.delete(wallets).where(eq(wallets.userId, testUserId));
     }
@@ -35,6 +36,7 @@ describe('WalletService', () => {
   beforeEach(async () => {
     const wallet = await walletService.getWallet(testUserId);
     if (wallet) {
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, testUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.update(wallets).set({ balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 }).where(eq(wallets.id, wallet.id));
     }
@@ -207,6 +209,7 @@ describe('duplicate gameplay award prevention', () => {
   const card: CardContext = { playerName: 'Test Player', rarityType: 'base' };
 
   beforeAll(async () => {
+    await seedRewardPolicy();
     gpUserId = randomUUID();
     await db.insert(users).values({
       id: gpUserId,
@@ -226,6 +229,7 @@ describe('duplicate gameplay award prevention', () => {
     await db.delete(matchPointsCounters).where(eq(matchPointsCounters.matchId, matchId));
     const wallet = await walletService.getWallet(gpUserId);
     if (wallet) {
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, gpUserId));
       await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
       await db.delete(wallets).where(eq(wallets.id, wallet.id));
     }

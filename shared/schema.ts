@@ -4165,6 +4165,7 @@ export const userGrowthRollups = pgTable("user_growth_rollups", {
 }, (table) => [
   index("idx_user_growth_rollup_day").on(table.dayKey),
   index("idx_user_growth_rollup_user").on(table.userId),
+  uniqueIndex("idx_user_growth_rollups_user_day").on(table.userId, table.dayKey),
 ]);
 
 // ---- Social Media Agent ----

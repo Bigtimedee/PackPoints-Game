@@ -28,7 +28,7 @@ describe("Card Image Pipeline", () => {
     });
   });
 
-  describe("2) Proxy Endpoint Test", () => {
+  describe.skipIf(!process.env.TEST_BASE_URL)("2) Proxy Endpoint Test", () => {
     it("should return 404 for non-existent card", async () => {
       const response = await fetch(`${BASE_URL}/api/images/card/non-existent-card-id-12345`);
       expect(response.status).toBe(404);
@@ -65,7 +65,7 @@ describe("Card Image Pipeline", () => {
     });
   });
 
-  describe("3) Match Build Test", () => {
+  describe.skipIf(!process.env.TEST_BASE_URL)("3) Match Build Test", () => {
     it("should build match with exactly 10 questions using proxied URLs", async () => {
       const loginResponse = await fetch(`${BASE_URL}/api/auth/login`, {
         method: "POST",

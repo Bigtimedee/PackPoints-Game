@@ -414,7 +414,9 @@ class WalletService {
           amount,
           "ADJUSTMENT",
           insertedEntries[0].id,
-          metadata
+          metadata,
+          undefined,
+          tx
         );
       } else if (amount < 0) {
         const allocationResult = await bucketService.allocateSpend(
@@ -550,7 +552,9 @@ class WalletService {
         amount,
         "PURCHASED",
         insertedEntries[0].id,
-        metadata
+        metadata,
+        undefined,
+        tx
       );
 
       const updatedWallet = { ...wallet, balance: newBalance, lifetimeEarned: newLifetimeEarned };
