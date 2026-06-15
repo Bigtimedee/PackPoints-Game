@@ -1523,7 +1523,7 @@ railway variables --service Postgres --json | python3 -c \
 
 ### Gameplay
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
-- [ ] No AI fallback opponent when queue is empty
+- [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
 - [ ] Wager match settlement is still in progress (confirmed not complete)
 - [ ] Adaptive difficulty (personalized card selection) not implemented
 - [ ] Tournament mode not implemented (UI shows "coming soon")

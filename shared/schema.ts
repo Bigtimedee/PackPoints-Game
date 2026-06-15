@@ -33,6 +33,7 @@ export const users = pgTable("users", {
   correctAnswers: integer("correct_answers").notNull().default(0),
   totalAnswers: integer("total_answers").notNull().default(0),
   isAdmin: boolean("is_admin").notNull().default(false),
+  isBot: boolean("is_bot").notNull().default(false),
   workosUserId: varchar("workos_user_id").unique(),
   status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
   activatedAt: timestamp("activated_at"),

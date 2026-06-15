@@ -60,8 +60,9 @@ class DbMatchmakingQueue {
   private cleanupInterval: NodeJS.Timeout | null = null;
   private matchCheckInterval: NodeJS.Timeout | null = null;
   
-  private userSockets: Map<string, { ws: any; username: string; socketId: string; gameSetId: string | null; totalQuestions: number }> = new Map();
+  private userSockets: Map<string, { ws: any; username: string; socketId: string; gameSetId: string | null; totalQuestions: number; eloRating: number; joinedAt: Date }> = new Map();
   private onMatchCallback: ((result: MatchResult) => void) | null = null;
+  private botPendingUsers: Set<string> = new Set();
 
   constructor() {
     this.startMatchmaking();
@@ -78,7 +79,60 @@ class DbMatchmakingQueue {
       this.attemptPair().catch(err => {
         console.error("[DbQueue] Pairing error:", err);
       });
+      this.checkBotFallback().catch(err => {
+        console.error("[DbQueue] Bot fallback error:", err);
+      });
     }, 500);
+  }
+
+  private async checkBotFallback(): Promise<void> {
+    const { BOT_QUEUE_TIMEOUT_S, createBotMatch } = await import("./botOpponent");
+    const now = Date.now();
+    for (const [userId, userData] of Array.from(this.userSockets.entries())) {
+      if (this.botPendingUsers.has(userId)) continue;
+      const waitedMs = now - userData.joinedAt.getTime();
+      if (waitedMs < BOT_QUEUE_TIMEOUT_S * 1000) continue;
+
+      this.botPendingUsers.add(userId);
+      this.leaveQueue(userId).catch(() => {});
+
+      const botResult = await createBotMatch({
+        humanUserId: userId,
+        humanElo: userData.eloRating,
+        humanUsername: userData.username,
+        gameSetId: userData.gameSetId,
+        totalQuestions: userData.totalQuestions,
+      });
+
+      this.botPendingUsers.delete(userId);
+      this.userSockets.delete(userId);
+
+      if (botResult && userData.ws?.readyState === 1) {
+        userData.ws.send(JSON.stringify({
+          type: "matched",
+          payload: {
+            matchId: botResult.matchId,
+            lobbyId: botResult.lobbyId,
+            opponent: "PackPTS Bot",
+            membershipSecret: botResult.humanSecret,
+            isBot: true,
+          },
+        }));
+        if (this.onMatchCallback) {
+          this.onMatchCallback({
+            matchId: botResult.matchId,
+            lobbyId: botResult.lobbyId,
+            player1: { userId, secret: botResult.humanSecret },
+            player2: { userId: "packpts-bot-00000000-0000-0000-0000-000000000001", secret: "" },
+          });
+        }
+      } else if (!botResult && userData.ws?.readyState === 1) {
+        userData.ws.send(JSON.stringify({
+          type: "bot_unavailable",
+          payload: { reason: "Daily bot game limit reached. Try again tomorrow or wait for a human opponent." },
+        }));
+      }
+    }
   }
 
   private startStatusBroadcasts() {
@@ -129,7 +183,7 @@ class DbMatchmakingQueue {
       VALUES (${ticketId}, ${userId}, ${mode}::matchmaking_mode, ${bucket}, 'WAITING'::ticket_status, ${socketId}, ${eloRating}, NOW(), NOW(), NOW())
     `);
 
-    this.userSockets.set(userId, { ws, username, socketId, gameSetId, totalQuestions });
+    this.userSockets.set(userId, { ws, username, socketId, gameSetId, totalQuestions, eloRating, joinedAt: new Date() });
 
     await presenceService.setSearching(userId);
 
@@ -156,6 +210,7 @@ class DbMatchmakingQueue {
 
     const userSocket = this.userSockets.get(userId);
     this.userSockets.delete(userId);
+    this.botPendingUsers.delete(userId);
 
     if (userSocket?.socketId) {
       await presenceService.setOnline(userId, userSocket.socketId);
