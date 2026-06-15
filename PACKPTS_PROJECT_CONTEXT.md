@@ -1545,7 +1545,7 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] Card masking regions must be configured per card set — new sets without masks will leak player names
 
 ### Testing
-- [x] Unit test suite exists (Vitest): masking (21 tests), reward engine pure (30 tests), reward engine DB integration (6 tests), wallet, purchase fulfillment, and more
+- [x] Unit test suite exists (Vitest): masking (21 tests), reward engine pure (30 tests), reward engine DB integration (6 tests), wallet (strengthened Prompt 11: ledger invariant, frozen account, FIFO bucket depletion, EXPIRE reconciliation), purchase fulfillment, and more
 - [x] FIFO bucket expiration job is scheduled via pgJobQueue (`packpts_expiration`) and runs daily at `EXPIRATION_RUN_HOUR_UTC` (default 6 UTC). Inactivity expiration still runs only via manual trigger / standalone script.
 - [x] Automated masking verification tests (server/tests/masking.test.ts — 21 tests, Prompt 9)
 - [ ] No load testing for WebSocket concurrent matches

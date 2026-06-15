@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../db';
-import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters, packptsBucket, packptsSpendAllocation } from '@shared/schema';
+import { wallets, ledgerEntries, users, pointsAwards, userPointsCounters, matchPointsCounters, packptsBucket, packptsSpendAllocation, userRiskState } from '@shared/schema';
 import { walletService } from '../services/walletService';
 import { awardPoints, seedRewardPolicy, type CardContext } from '../services/rewardEngine';
-import { eq, sql, and, inArray } from 'drizzle-orm';
+import { expirationEngine } from '../services/expirationEngine';
+import { eq, sql, and, inArray, asc } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
 describe('WalletService', () => {
@@ -294,5 +295,273 @@ describe('duplicate gameplay award prevention', () => {
         ),
       );
     expect(rows).toHaveLength(1);
+  });
+});
+
+// ── Ledger balance invariant ──────────────────────────────────────────────────
+
+describe('ledger balance invariant', () => {
+  let userId: string;
+
+  beforeAll(async () => {
+    userId = `ledger-inv-${randomUUID()}`;
+    await db.insert(users).values({
+      id: userId,
+      username: `ledger_inv_${Date.now()}`,
+      points: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      isAdmin: false,
+    });
+  });
+
+  afterAll(async () => {
+    const wallet = await walletService.getWallet(userId);
+    if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, userId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, userId));
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.delete(wallets).where(eq(wallets.userId, userId));
+    }
+    await db.delete(users).where(eq(users.id, userId));
+  });
+
+  it('wallet.balance equals sum of all ledger entry amounts after mixed operations', async () => {
+    await walletService.earn(userId, 500, 'Earn 1', `earn1-${randomUUID()}`);
+    await walletService.earn(userId, 300, 'Earn 2', `earn2-${randomUUID()}`);
+    await walletService.spend(userId, 200, 'Spend 1', `spend1-${randomUUID()}`);
+    await walletService.adjust(userId, -50, 'Admin deduct', `adj1-${randomUUID()}`);
+    await walletService.adjust(userId, 100, 'Promo', `adj2-${randomUUID()}`);
+
+    const wallet = await walletService.getWallet(userId);
+    expect(wallet).not.toBeNull();
+
+    const entries = await db.select().from(ledgerEntries).where(eq(ledgerEntries.walletId, wallet!.id));
+    const sumFromLedger = entries.reduce((acc, e) => acc + e.amount, 0);
+    expect(wallet!.balance).toBe(sumFromLedger);
+    // 500 + 300 - 200 - 50 + 100 = 650
+    expect(wallet!.balance).toBe(650);
+  });
+});
+
+// ── Frozen account cannot earn or spend ──────────────────────────────────────
+
+describe('frozen account cannot earn or spend', () => {
+  let userId: string;
+
+  beforeAll(async () => {
+    userId = `frozen-${randomUUID()}`;
+    await db.insert(users).values({
+      id: userId,
+      username: `frozen_${Date.now()}`,
+      points: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      isAdmin: false,
+    });
+  });
+
+  afterAll(async () => {
+    const wallet = await walletService.getWallet(userId);
+    if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, userId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, userId));
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.delete(wallets).where(eq(wallets.userId, userId));
+    }
+    await db.delete(userRiskState).where(eq(userRiskState.userId, userId));
+    await db.delete(users).where(eq(users.id, userId));
+  });
+
+  beforeEach(async () => {
+    await db.delete(userRiskState).where(eq(userRiskState.userId, userId));
+    await db.update(wallets).set({ status: 'active' }).where(eq(wallets.userId, userId));
+  });
+
+  it('earn fails when userRiskState is FROZEN', async () => {
+    await db.insert(userRiskState).values({ userId, status: 'FROZEN', reason: 'fraud test' });
+    const result = await walletService.earn(userId, 100, 'Test', `earn-frozen-${randomUUID()}`);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/frozen/i);
+  });
+
+  it('spend fails when userRiskState is FROZEN', async () => {
+    // Fund the wallet first while unfrozen
+    await walletService.earn(userId, 200, 'Setup', `setup-frozen-${randomUUID()}`);
+    await db.insert(userRiskState).values({ userId, status: 'FROZEN', reason: 'fraud test' });
+    const result = await walletService.spend(userId, 50, 'Test', `spend-frozen-${randomUUID()}`);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/frozen/i);
+  });
+
+  it('earn fails when wallet.status is not active', async () => {
+    const wallet = await walletService.getOrCreateWallet(userId);
+    await db.update(wallets).set({ status: 'frozen' }).where(eq(wallets.id, wallet.id));
+    const result = await walletService.earn(userId, 100, 'Test', `earn-inactive-${randomUUID()}`);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/frozen/i);
+  });
+
+  it('spend fails when wallet.status is not active', async () => {
+    const wallet = await walletService.getOrCreateWallet(userId);
+    await db.update(wallets).set({ balance: 500, status: 'frozen' }).where(eq(wallets.id, wallet.id));
+    const result = await walletService.spend(userId, 100, 'Test', `spend-inactive-${randomUUID()}`);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/frozen/i);
+  });
+});
+
+// ── FIFO bucket depletion ─────────────────────────────────────────────────────
+
+describe('FIFO bucket depletion', () => {
+  let userId: string;
+
+  beforeAll(async () => {
+    userId = `fifo-${randomUUID()}`;
+    await db.insert(users).values({
+      id: userId,
+      username: `fifo_${Date.now()}`,
+      points: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      isAdmin: false,
+    });
+  });
+
+  afterAll(async () => {
+    const wallet = await walletService.getWallet(userId);
+    if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, userId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, userId));
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.delete(wallets).where(eq(wallets.userId, userId));
+    }
+    await db.delete(users).where(eq(users.id, userId));
+  });
+
+  it('spend depletes oldest (first-earned) bucket first', async () => {
+    // Two sequential earns — DB round-trip guarantees different earnedAt
+    await walletService.earn(userId, 200, 'Bucket A', `fifo-a-${randomUUID()}`);
+    await walletService.earn(userId, 100, 'Bucket B', `fifo-b-${randomUUID()}`);
+
+    const spendKey = `fifo-spend-${randomUUID()}`;
+    const result = await walletService.spend(userId, 250, 'FIFO spend', spendKey);
+    expect(result.success).toBe(true);
+    expect(result.wallet?.balance).toBe(50);
+
+    const buckets = await db.select().from(packptsBucket)
+      .where(eq(packptsBucket.userId, userId))
+      .orderBy(asc(packptsBucket.earnedAt));
+
+    expect(buckets).toHaveLength(2);
+    // Oldest bucket (A=200) depleted first
+    expect(buckets[0].remainingAmount).toBe(0);
+    expect(buckets[0].status).toBe('DEPLETED');
+    // Newest bucket (B=100) partially used: 50 spent from it
+    expect(buckets[1].remainingAmount).toBe(50);
+    expect(buckets[1].status).toBe('OPEN');
+  });
+
+  it('spend allocations sum to the total amount spent', async () => {
+    // Earn 100 more (previous spend left 50 in wallet)
+    const earnKey = `fifo-extra-${randomUUID()}`;
+    await walletService.earn(userId, 100, 'Extra', earnKey);
+
+    const spendKey = `fifo-alloc-${randomUUID()}`;
+    await walletService.spend(userId, 100, 'Alloc check', spendKey);
+
+    const wallet = await walletService.getWallet(userId);
+    const spendEntry = await db.select().from(ledgerEntries)
+      .where(eq(ledgerEntries.idempotencyKey, spendKey))
+      .limit(1);
+    expect(spendEntry).toHaveLength(1);
+
+    const allocations = await db.select().from(packptsSpendAllocation)
+      .where(eq(packptsSpendAllocation.spendLedgerEntryId, spendEntry[0].id));
+    const totalAllocated = allocations.reduce((sum, a) => sum + a.amount, 0);
+    expect(totalAllocated).toBe(100);
+  });
+});
+
+// ── EXPIRE entry reconciliation ───────────────────────────────────────────────
+
+describe('EXPIRE entry reconciliation', () => {
+  let userId: string;
+
+  beforeAll(async () => {
+    userId = `expire-${randomUUID()}`;
+    await db.insert(users).values({
+      id: userId,
+      username: `expire_${Date.now()}`,
+      points: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      isAdmin: false,
+    });
+  });
+
+  afterAll(async () => {
+    const wallet = await walletService.getWallet(userId);
+    if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, userId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, userId));
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.delete(wallets).where(eq(wallets.userId, userId));
+    }
+    await db.delete(users).where(eq(users.id, userId));
+  });
+
+  it('expiration engine creates EXPIRE ledger entry and balance invariant holds', async () => {
+    await walletService.earn(userId, 150, 'Expires soon', `expire-earn-${randomUUID()}`);
+    const walletBefore = await walletService.getWallet(userId);
+    expect(walletBefore!.balance).toBe(150);
+
+    // Force bucket to appear expired by backdating expiresAt
+    await db.update(packptsBucket)
+      .set({ expiresAt: new Date('2020-01-01') })
+      .where(eq(packptsBucket.userId, userId));
+
+    const result = await expirationEngine.runExpirationJob(false);
+    expect(result.success).toBe(true);
+    expect(result.totalPointsExpired).toBeGreaterThanOrEqual(150);
+
+    const walletAfter = await walletService.getWallet(userId);
+    expect(walletAfter!.balance).toBe(0);
+
+    // EXPIRE ledger entry must exist
+    const entries = await db.select().from(ledgerEntries)
+      .where(eq(ledgerEntries.walletId, walletBefore!.id));
+    const expireEntry = entries.find(e => e.entryType === 'EXPIRE');
+    expect(expireEntry).toBeDefined();
+    expect(expireEntry!.amount).toBe(-150);
+
+    // Balance invariant: wallet.balance === sum(ledger amounts)
+    const sumFromLedger = entries.reduce((acc, e) => acc + e.amount, 0);
+    expect(walletAfter!.balance).toBe(sumFromLedger);
+  });
+
+  it('expirationEngine is idempotent: re-running does not double-expire', async () => {
+    // The same bucket is already EXPIRED from the previous test.
+    // Running again should produce no new expirations for this user.
+    const walletBefore = await walletService.getWallet(userId);
+    await expirationEngine.runExpirationJob(false);
+    const walletAfter = await walletService.getWallet(userId);
+    expect(walletAfter!.balance).toBe(walletBefore!.balance);
   });
 });
