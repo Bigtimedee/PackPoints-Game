@@ -1533,6 +1533,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] Chargeback → wallet freeze + REVERSAL ledger entry wired (Prompt 13): `charge.dispute.created` → `handleChargeDispute()` now calls `walletService.reversal()` after freezing user, mirrors `handleChargeRefunded` pattern
 - [x] Hold period on PURCHASED bucket points (Prompt 14): `packpts_bucket.redeemable_at` column + `packpts_expiration_policy.purchased_hold_days` config; `getUserOpenBuckets()` and `getUserOpenBucketsFIFO()` filter out buckets in hold; migration applied to prod
 - [x] Full attribution loop instrumented (Prompt 15): card_views table + POST /api/attribution/card-view; attributed_purchases table + GET /api/webhooks/epn-postback resolves EPN customId → outbound_click → user; migration applied to prod
+- [x] Admin retention cohort dashboard (Prompt 16): GET /api/admin/retention returns DAU/WAU/MAU (from user_presence.last_seen_at) + weekly D1/D7/D30 cohort retention rates (last 13 weeks); no new schema needed
 - [ ] No multi-account detection automation
 - [ ] No device-level banning
 - [x] Default hash salts in code — `enforceProductionSecrets()` now fails fast in prod if defaults are present (Prompt 6, 2026-06-14)

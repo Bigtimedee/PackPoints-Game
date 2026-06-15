@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 23, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-15-attribution-loop" });
+    res.json({ v: 24, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-16-retention-dashboard" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -10429,6 +10429,83 @@ export async function registerRoutes(
     } catch (err) {
       console.error('[Feedback] Admin list error:', err);
       res.status(500).json({ message: 'Failed to get feedback' });
+    }
+  });
+
+  // GET /api/admin/retention - DAU/WAU/MAU + D1/D7/D30 cohort retention
+  app.get("/api/admin/retention", requireAdmin, async (_req, res) => {
+    try {
+      const { pool: dbPool } = await import("./db");
+
+      // DAU / WAU / MAU based on user_presence.last_seen_at
+      const activeCountsResult = await dbPool.query<{ period: string; count: string }>(`
+        SELECT period, COUNT(*) AS count FROM (
+          SELECT 'dau' AS period, user_id FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '1 day'
+          UNION ALL
+          SELECT 'wau', user_id FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '7 days'
+          UNION ALL
+          SELECT 'mau', user_id FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '30 days'
+        ) t GROUP BY period
+      `);
+
+      const activeCounts: Record<string, number> = { dau: 0, wau: 0, mau: 0 };
+      for (const row of activeCountsResult.rows) {
+        activeCounts[row.period] = Number(row.count);
+      }
+
+      // Cohort retention: weekly signup cohorts, D1/D7/D30 return rates
+      // A user "returned on day N" means they appeared in user_presence with last_seen_at >= signup + N days
+      const cohortResult = await dbPool.query<{
+        cohort_week: string;
+        cohort_size: string;
+        d1: string;
+        d7: string;
+        d30: string;
+      }>(`
+        WITH cohorts AS (
+          SELECT
+            id AS user_id,
+            DATE_TRUNC('week', created_at) AS cohort_week,
+            created_at AS signup_at
+          FROM users
+          WHERE created_at >= NOW() - INTERVAL '90 days'
+        ),
+        activity AS (
+          SELECT user_id, last_seen_at FROM user_presence
+        )
+        SELECT
+          TO_CHAR(c.cohort_week, 'YYYY-MM-DD') AS cohort_week,
+          COUNT(DISTINCT c.user_id)::text AS cohort_size,
+          COUNT(DISTINCT CASE WHEN a.last_seen_at >= c.signup_at + INTERVAL '1 day' THEN c.user_id END)::text AS d1,
+          COUNT(DISTINCT CASE WHEN a.last_seen_at >= c.signup_at + INTERVAL '7 days' THEN c.user_id END)::text AS d7,
+          COUNT(DISTINCT CASE WHEN a.last_seen_at >= c.signup_at + INTERVAL '30 days' THEN c.user_id END)::text AS d30
+        FROM cohorts c
+        LEFT JOIN activity a ON a.user_id = c.user_id
+        GROUP BY c.cohort_week
+        ORDER BY c.cohort_week DESC
+        LIMIT 13
+      `);
+
+      const cohorts = cohortResult.rows.map((row) => {
+        const size = Number(row.cohort_size);
+        return {
+          cohortWeek: row.cohort_week,
+          cohortSize: size,
+          d1: size > 0 ? Math.round((Number(row.d1) / size) * 100) : 0,
+          d7: size > 0 ? Math.round((Number(row.d7) / size) * 100) : 0,
+          d30: size > 0 ? Math.round((Number(row.d30) / size) * 100) : 0,
+        };
+      });
+
+      res.json({
+        dau: activeCounts.dau,
+        wau: activeCounts.wau,
+        mau: activeCounts.mau,
+        cohorts,
+      });
+    } catch (error) {
+      console.error("[Admin] retention error:", error);
+      res.status(500).json({ error: "Failed to get retention data" });
     }
   });
 
