@@ -102,7 +102,7 @@ class ProfitGuardrailService {
       r,
       f,
       v,
-      Cmax: Math.max(0, Cmax),
+      Cmax: Math.max(0, Math.round(Cmax * 100) / 100),
       Rmax,
     };
   }

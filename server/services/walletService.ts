@@ -224,7 +224,7 @@ class WalletService {
 
     const frozenCheck = await isUserFrozen(userId);
     if (frozenCheck.frozen) {
-      return { success: false, error: frozenCheck.reason || "Account frozen" };
+      return { success: false, error: "Account frozen" };
     }
 
     const executeSpend = async (tx: any): Promise<WalletOperationResult> => {

@@ -355,11 +355,31 @@ describe('Stripe webhook eventId idempotency (purchaseEvents table)', () => {
 
   afterAll(async () => {
     await db.delete(purchaseEvents).where(eq(purchaseEvents.userId, userId));
+    const wallet = await walletService.getWallet(userId);
+    if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, userId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, userId));
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.delete(wallets).where(eq(wallets.userId, userId));
+    }
     await db.delete(users).where(eq(users.id, userId));
   });
 
   beforeEach(async () => {
     await db.delete(purchaseEvents).where(eq(purchaseEvents.userId, userId));
+    const wallet = await walletService.getWallet(userId);
+    if (wallet) {
+      const bucketIds = await db.select({ id: packptsBucket.id }).from(packptsBucket).where(eq(packptsBucket.userId, userId));
+      if (bucketIds.length > 0) {
+        await db.delete(packptsSpendAllocation).where(inArray(packptsSpendAllocation.bucketId, bucketIds.map(b => b.id)));
+      }
+      await db.delete(packptsBucket).where(eq(packptsBucket.userId, userId));
+      await db.delete(ledgerEntries).where(eq(ledgerEntries.walletId, wallet.id));
+      await db.update(wallets).set({ balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 }).where(eq(wallets.id, wallet.id));
+    }
   });
 
   it('inserting the same eventId twice violates the unique constraint', async () => {
