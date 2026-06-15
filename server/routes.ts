@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 24, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-16-retention-dashboard" });
+    res.json({ v: 25, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-17-onboarding-tutorial" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -10429,6 +10429,128 @@ export async function registerRoutes(
     } catch (err) {
       console.error('[Feedback] Admin list error:', err);
       res.status(500).json({ message: 'Failed to get feedback' });
+    }
+  });
+
+  // ── Onboarding (Prompt 17) ────────────────────────────────────────────────
+
+  const ONBOARDING_REWARD_PTS = 50;
+
+  // GET /api/onboarding/status - check onboarding state for current user
+  app.get("/api/onboarding/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const [record] = await db
+        .select()
+        .from(userOnboarding)
+        .where(eq(userOnboarding.userId, userId))
+        .limit(1);
+
+      res.json({
+        started: !!record,
+        completed: !!record?.completedAt,
+        pointsAwarded: record?.pointsAwarded ?? false,
+      });
+    } catch (error) {
+      console.error("[Onboarding] status error:", error);
+      res.status(500).json({ error: "Failed to get onboarding status" });
+    }
+  });
+
+  // POST /api/onboarding/start - start onboarding, returns a guided card
+  app.post("/api/onboarding/start", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      // Upsert onboarding record
+      await db
+        .insert(userOnboarding)
+        .values({ userId })
+        .onConflictDoNothing();
+
+      // Pick a guided card: playable, content-verified, lowest image failure count, random
+      const [card] = await db
+        .select({
+          id: playableCards.id,
+          player: playableCards.player,
+          set: playableCards.set,
+          imageUrl: playableCards.imageUrl,
+          cardhedgeCardId: playableCards.cardhedgeCardId,
+        })
+        .from(playableCards)
+        .where(
+          and(
+            eq(playableCards.isPlayable, true),
+            eq(playableCards.quarantineStatus, "OK"),
+            eq(playableCards.imageFailureCount, 0)
+          )
+        )
+        .orderBy(sql`RANDOM()`)
+        .limit(1);
+
+      res.json({
+        guidedCard: card || null,
+        rewardPts: ONBOARDING_REWARD_PTS,
+        message: "Guess the player name to earn your first PackPTS!",
+      });
+    } catch (error) {
+      console.error("[Onboarding] start error:", error);
+      res.status(500).json({ error: "Failed to start onboarding" });
+    }
+  });
+
+  // POST /api/onboarding/complete - mark complete, award reward, return next action
+  app.post("/api/onboarding/complete", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const [existing] = await db
+        .select()
+        .from(userOnboarding)
+        .where(eq(userOnboarding.userId, userId))
+        .limit(1);
+
+      if (existing?.completedAt) {
+        return res.json({ alreadyCompleted: true, pointsAwarded: 0 });
+      }
+
+      // Mark complete
+      await db
+        .insert(userOnboarding)
+        .values({ userId, completedAt: new Date(), pointsAwarded: true })
+        .onConflictDoUpdate({
+          target: userOnboarding.userId,
+          set: { completedAt: new Date(), pointsAwarded: true },
+        });
+
+      // Award reward points (idempotency key prevents double-award)
+      const idempotencyKey = `onboarding_reward_${userId}`;
+      let awardedPts = 0;
+      if (!existing?.pointsAwarded) {
+        const earnResult = await walletService.earn(userId, ONBOARDING_REWARD_PTS, idempotencyKey, "onboarding_bonus");
+        if (earnResult.success) awardedPts = ONBOARDING_REWARD_PTS;
+      }
+
+      console.log("[Onboarding] completed", { userId: userId.substring(0, 8), awardedPts });
+
+      res.json({
+        alreadyCompleted: false,
+        pointsAwarded: awardedPts,
+        nextAction: {
+          type: "play_match",
+          message: `You earned ${awardedPts} PackPTS! Ready for your first real match?`,
+          cta: "Find a Match",
+          route: "/play",
+        },
+        event: "onboarding_completed",
+      });
+    } catch (error) {
+      console.error("[Onboarding] complete error:", error);
+      res.status(500).json({ error: "Failed to complete onboarding" });
     }
   });
 

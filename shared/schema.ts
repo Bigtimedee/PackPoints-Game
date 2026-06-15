@@ -4296,6 +4296,16 @@ export const campaignRewards = pgTable("campaign_rewards", {
 }, (t) => [index("idx_campaign_rewards_active").on(t.isActive)]);
 export type CampaignReward = typeof campaignRewards.$inferSelect;
 
+export const userOnboarding = pgTable("user_onboarding", {
+  userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  pointsAwarded: boolean("points_awarded").notNull().default(false),
+}, (t) => [
+  index("idx_user_onboarding_completed").on(t.completedAt),
+]);
+export type UserOnboarding = typeof userOnboarding.$inferSelect;
+
 export const cardViews = pgTable("card_views", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
