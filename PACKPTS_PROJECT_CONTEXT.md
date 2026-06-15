@@ -1303,8 +1303,42 @@ See Section 18 for the full route listing. Key endpoints grouped by domain:
 ## 23. Testing Strategy
 
 ### Existing Tests
-- **Playwright E2E:** `tests/` directory with end-to-end tests. Run via `npm run test:e2e`.
-- **Vitest:** Dev dependency installed (`vitest 4.0.16`), but there is no meaningful unit test suite. This is a known gap.
+
+**Vitest integration tests** (`server/tests/` — 11 specs, all require a live PostgreSQL connection):
+| File | What it covers |
+|------|---------------|
+| `wallet.test.ts` | WalletService: credit/debit, idempotency, frozen-wallet guard, ledger balance consistency |
+| `antiPruning.test.ts` | Anti-pruning logic for card exclusion |
+| `card-image-pipeline.test.ts` | Card image validation pipeline |
+| `cardhedge.smoke.ts` | Card hedge smoke tests |
+| `contentFactory.test.ts` | Score card / streak badge generation, DB idempotency |
+| `gameplayGating.test.ts` | Gameplay gate enforcement |
+| `growthAgent.test.ts` | Growth agent: schema validation, deduplication, job tracking (OpenAI mocked) |
+| `growthFlywheel.test.ts` | Growth flywheel logic |
+| `purchaseFulfillment.test.ts` | Purchase fulfillment flow |
+| `socialPublishing.test.ts` | Social publishing pipeline |
+| `videoFactory.test.ts` | Video asset generation |
+
+Run locally: `npx vitest run` (requires `DATABASE_URL` pointing to a local or dev Postgres instance).
+
+**Playwright E2E** (`tests/e2e/` — 2 specs):
+- `auth.spec.ts` — login/logout/session persistence
+- `battle-session.spec.ts` — 1v1 battle session flow
+
+Run via `npm run test:e2e`. Requires a running server and `TEST_BASE_URL`.
+
+### CI — GitHub Actions (`.github/workflows/ci.yml`)
+
+Runs on every push and PR to `main`. Steps:
+1. `npm ci` — clean install (all platforms' optional rollup native binaries are in the lockfile)
+2. `npm run check` — tsc type check (zero-error gate)
+3. `npx drizzle-kit push` — set up fresh test schema (uses PostgreSQL service container)
+4. `npx vitest run` — all 11 integration tests against the CI postgres
+5. `npm run build` — esbuild bundle (confirms the server builds without type or bundler errors)
+
+PostgreSQL service: `postgres:16`, DB name `packpoints_test`, user/pass `postgres/postgres`.
+
+Playwright E2E is **not yet wired** into CI (requires live server + real env). A stub `e2e-stub` job exists in the workflow with `if: false` as a placeholder.
 
 ### Required Tests (Proposed)
 
