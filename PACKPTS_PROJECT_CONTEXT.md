@@ -492,6 +492,13 @@ The PackPTS Marketplace lets users spend earned or purchased PackPTS toward real
 ### ⚠️ Affiliate Attribution Warning
 Affiliate redirect URLs and marketplace links MUST preserve tracking parameters. Any change to outbound URL construction, the `/out/ebay/:listingId` route, or the EPN parameter assembly must be tested to confirm affiliate attribution is not broken. Lost attribution = lost revenue.
 
+### Attribution Loop (Prompt 15 — complete)
+Full funnel instrumented: card_view → outbound_click → affiliate postback → attributed_purchase.
+- **card_views** table: logged via `POST /api/attribution/card-view`. Captures userId, cardId, cardSetId, sessionId, ipHash, userAgent, pagePath, viewDurationMs.
+- **outbound_clicks** table: existing, written on `/out/ebay/:listingId` redirect with EPN customId.
+- **attributed_purchases** table: written by `GET /api/webhooks/epn-postback` when eBay EPN sends conversion confirmation. Links `customId` → `outbound_clicks.id` → `users.id`. Idempotent via unique constraint on `transaction_id`.
+- EPN customId format: `packpts:u_<userId12>:i_<itemId16>:t_<timestamp>` — ties postback back to click.
+
 ---
 
 ## 12. Matchmaking and 1v1 Gameplay
@@ -1525,6 +1532,7 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] No automated risk scoring engine (event logging exists, scoring/auto-action does not)
 - [x] Chargeback → wallet freeze + REVERSAL ledger entry wired (Prompt 13): `charge.dispute.created` → `handleChargeDispute()` now calls `walletService.reversal()` after freezing user, mirrors `handleChargeRefunded` pattern
 - [x] Hold period on PURCHASED bucket points (Prompt 14): `packpts_bucket.redeemable_at` column + `packpts_expiration_policy.purchased_hold_days` config; `getUserOpenBuckets()` and `getUserOpenBucketsFIFO()` filter out buckets in hold; migration applied to prod
+- [x] Full attribution loop instrumented (Prompt 15): card_views table + POST /api/attribution/card-view; attributed_purchases table + GET /api/webhooks/epn-postback resolves EPN customId → outbound_click → user; migration applied to prod
 - [ ] No multi-account detection automation
 - [ ] No device-level banning
 - [x] Default hash salts in code — `enforceProductionSecrets()` now fails fast in prod if defaults are present (Prompt 6, 2026-06-14)
