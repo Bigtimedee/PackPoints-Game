@@ -41,10 +41,13 @@ const allowlist = [
 
 function getCommitSha(): string {
   try {
-    return execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
-  } catch {
-    return (process.env.RAILWAY_GIT_COMMIT_SHA ?? "").slice(0, 7) || "dev";
-  }
+    const sha = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+    if (sha) return sha;
+  } catch {}
+  const railwaySha = process.env.RAILWAY_GIT_COMMIT_SHA;
+  if (railwaySha) return railwaySha.slice(0, 7);
+  // Fallback: build timestamp ensures the value always changes per deploy
+  return `t${Date.now()}`;
 }
 
 async function buildAll() {
