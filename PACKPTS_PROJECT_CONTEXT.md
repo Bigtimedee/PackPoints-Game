@@ -1524,7 +1524,7 @@ railway variables --service Postgres --json | python3 -c \
 ### Security & Fraud
 - [ ] No automated risk scoring engine (event logging exists, scoring/auto-action does not)
 - [x] Chargeback → wallet freeze + REVERSAL ledger entry wired (Prompt 13): `charge.dispute.created` → `handleChargeDispute()` now calls `walletService.reversal()` after freezing user, mirrors `handleChargeRefunded` pattern
-- [ ] No hold period on purchased points before redemption eligibility
+- [x] Hold period on PURCHASED bucket points (Prompt 14): `packpts_bucket.redeemable_at` column + `packpts_expiration_policy.purchased_hold_days` config; `getUserOpenBuckets()` and `getUserOpenBucketsFIFO()` filter out buckets in hold; migration applied to prod
 - [ ] No multi-account detection automation
 - [ ] No device-level banning
 - [x] Default hash salts in code — `enforceProductionSecrets()` now fails fast in prod if defaults are present (Prompt 6, 2026-06-14)

@@ -96,6 +96,19 @@ class BucketService {
     return expiresAt;
   }
 
+  calculateRedeemableAt(
+    sourceType: BucketSourceType,
+    earnedAt: Date,
+    policy: PackptsExpirationPolicy
+  ): Date | null {
+    if (sourceType !== "PURCHASED") return null;
+    const holdDays = policy.purchasedHoldDays;
+    if (!holdDays || holdDays <= 0) return null;
+    const redeemableAt = new Date(earnedAt);
+    redeemableAt.setDate(redeemableAt.getDate() + holdDays);
+    return redeemableAt;
+  }
+
   async createBucket(
     userId: string,
     amount: number,
@@ -114,6 +127,7 @@ class BucketService {
     const policy = await this.getCurrentPolicy();
     const earnedAt = new Date();
     let expiresAt: Date | null = null;
+    let redeemableAt: Date | null = null;
 
     if (policy) {
       expiresAt = this.calculateExpirationDate(
@@ -122,6 +136,7 @@ class BucketService {
         policy,
         overrideExpireDays
       );
+      redeemableAt = this.calculateRedeemableAt(sourceType, earnedAt, policy);
     }
 
     const [bucket] = await executor
@@ -133,6 +148,7 @@ class BucketService {
         remainingAmount: amount,
         earnedAt,
         expiresAt,
+        redeemableAt,
         createdFromLedgerEntryId: ledgerEntryId,
         status: "OPEN",
         metadata: metadata || null,
@@ -143,6 +159,7 @@ class BucketService {
   }
 
   async getUserOpenBuckets(userId: string): Promise<PackptsBucket[]> {
+    const now = new Date();
     return await db
       .select()
       .from(packptsBucket)
@@ -150,7 +167,8 @@ class BucketService {
         and(
           eq(packptsBucket.userId, userId),
           eq(packptsBucket.status, "OPEN"),
-          gt(packptsBucket.remainingAmount, 0)
+          gt(packptsBucket.remainingAmount, 0),
+          sql`(${packptsBucket.redeemableAt} IS NULL OR ${packptsBucket.redeemableAt} <= ${now})`
         )
       )
       .orderBy(
@@ -160,6 +178,9 @@ class BucketService {
   }
 
   async getUserOpenBucketsFIFO(userId: string): Promise<PackptsBucket[]> {
+    const now = new Date();
+    const redeemableFilter = sql`(${packptsBucket.redeemableAt} IS NULL OR ${packptsBucket.redeemableAt} <= ${now})`;
+
     const bucketsWithExpiry = await db
       .select()
       .from(packptsBucket)
@@ -168,7 +189,8 @@ class BucketService {
           eq(packptsBucket.userId, userId),
           eq(packptsBucket.status, "OPEN"),
           gt(packptsBucket.remainingAmount, 0),
-          sql`${packptsBucket.expiresAt} IS NOT NULL`
+          sql`${packptsBucket.expiresAt} IS NOT NULL`,
+          redeemableFilter
         )
       )
       .orderBy(asc(packptsBucket.expiresAt), asc(packptsBucket.earnedAt));
@@ -181,7 +203,8 @@ class BucketService {
           eq(packptsBucket.userId, userId),
           eq(packptsBucket.status, "OPEN"),
           gt(packptsBucket.remainingAmount, 0),
-          isNull(packptsBucket.expiresAt)
+          isNull(packptsBucket.expiresAt),
+          redeemableFilter
         )
       )
       .orderBy(asc(packptsBucket.earnedAt));

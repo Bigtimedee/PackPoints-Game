@@ -1388,6 +1388,7 @@ export const packptsBucket = pgTable("packpts_bucket", {
   remainingAmount: integer("remaining_amount").notNull(),
   earnedAt: timestamp("earned_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at"), // null = never expires
+  redeemableAt: timestamp("redeemable_at"), // null = immediately redeemable; PURCHASED buckets may have a hold
   createdFromLedgerEntryId: varchar("created_from_ledger_entry_id").references(() => ledgerEntries.id),
   status: varchar("status", { length: 20 }).notNull().default("OPEN"), // OPEN, DEPLETED, EXPIRED
   metadata: jsonb("metadata"),
@@ -1416,6 +1417,7 @@ export const packptsExpirationPolicy = pgTable("packpts_expiration_policy", {
   earnedDaysToExpire: integer("earned_days_to_expire").notNull().default(365), // days after earning
   purchasedDaysToExpire: integer("purchased_days_to_expire"), // null = never expires
   bonusDefaultDaysToExpire: integer("bonus_default_days_to_expire").notNull().default(90),
+  purchasedHoldDays: integer("purchased_hold_days"), // null or 0 = no hold; e.g. 7 = 7-day hold before PURCHASED points are redeemable
   inactivityEnabled: boolean("inactivity_enabled").notNull().default(false),
   inactivityDays: integer("inactivity_days").notNull().default(90), // days of inactivity before trigger
   inactivityMinAgeDays: integer("inactivity_min_age_days").notNull().default(90), // min age of points to expire
