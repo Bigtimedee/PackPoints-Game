@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-06-14
+**Last verified against codebase:** 2026-06-15
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -256,6 +256,25 @@ Added in Prompt 9. These run in CI and guard:
 - Post-submission reveal contract: top-level `correctAnswer` in answer response, absent inside `session.questions`
 - Replacement card masking: `replace-card` endpoint also sanitizes
 
+### Automated Reward Engine Tests (Prompt 10)
+
+Two test files added covering the entire reward computation stack:
+
+**`server/tests/rewardEnginePure.test.ts` (30 tests — no DB required, runs anywhere):**
+- `computeBasePts`: fame=0→maxPts(200), fame=1→minPts(100), fame=0.5→175, extremes clamped, result always integer
+- `getVintageMultiplier`: all 4 year buckets (pre-1980: 1.15; 1980-1999: 1.05; 2000-2019: 1.0; 2020+: 0.9) + undefined→1.0
+- `getRarityMultiplier`: base→1.0, insert→1.1, parallel→1.2, sp→1.3, unknown→1.0, undefined→1.0
+- `computeFinalPts`: maxAwardCap clamp (200×1.15×1.3=299→250), minPts floor (30→100), integer result
+- Uses `vi.mock('../db')` to neutralize the DATABASE_URL guard at module load time
+
+**`server/tests/rewardEngine.test.ts` (6 tests — requires CI DATABASE_URL):**
+- Frozen user: `awardPoints` returns `finalPts=0`, `capped=true`, `cappedReason` matches `account_frozen`
+- Idempotency: second call with same matchId+questionId returns `null`
+- Daily cap reached: pre-populate `userPointsCounters` at 5000 → `daily_cap_reached`
+- Daily cap partial: 10 pts remaining → award trimmed, `daily_cap_partial` reason
+- Match cap reached: pre-populate `matchPointsCounters` at 1000 → `match_cap_reached`
+- Normal award: `finalPts` in `[100, 250]`, `capped=false`
+
 ### Test Cases Future Agents Must Run Before Changing Card Display Logic
 1. Load a game and inspect the network tab — verify no API response contains the correct answer before submission. (Automated: masking.test.ts)
 2. Inspect the DOM — verify no element contains the player name before answer submission. (Playwright — deferred, requires TEST_BASE_URL)
@@ -272,13 +291,15 @@ Added in Prompt 9. These run in CI and guard:
 
 Points are calculated by the **reward engine** (`server/services/rewardEngine.ts`) using a policy-driven system stored in the `rewardPolicy` table.
 
-**Formula:**
+**Formula (as implemented in `computeBasePts`):**
 ```
-basePts = minPts + (maxPts - minPts) × (1 - fameScore)^gamma
-vintageMultiplier = lookup by card year (pre-1980: 1.15, 1980-1999: 1.10, 2000-2019: 1.0, 2020+: 0.9)
-rarityMultiplier = lookup by card variant (base: 1.0, SP: 1.3, etc.)
-finalPts = min(basePts × vintageMultiplier × rarityMultiplier, maxAwardCap)
+basePts = minPts + (maxPts - minPts) × (1 - fameScore^gamma)
+vintageMultiplier = lookup by card year (pre-1980: 1.15, 1980-1999: 1.05, 2000-2019: 1.0, 2020+: 0.9)
+rarityMultiplier = lookup by card variant (base: 1.0, insert: 1.1, parallel: 1.2, sp: 1.3)
+finalPts = clamp(round(basePts × vintageMultiplier × rarityMultiplier), minPts, maxAwardCap)
 ```
+
+**Note:** The formula uses `1 - fame^gamma` (not `(1-fame)^gamma`). Both satisfy boundary conditions (fame=0→maxPts, fame=1→minPts) but produce different curves — the implemented formula is steeper at low fame values.
 
 **Default policy values:**
 | Parameter | Default | Purpose |
@@ -1524,9 +1545,9 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] Card masking regions must be configured per card set — new sets without masks will leak player names
 
 ### Testing
-- [ ] No unit test suite exists (known gap; Vitest installed but no tests written)
+- [x] Unit test suite exists (Vitest): masking (21 tests), reward engine pure (30 tests), reward engine DB integration (6 tests), wallet, purchase fulfillment, and more
 - [x] FIFO bucket expiration job is scheduled via pgJobQueue (`packpts_expiration`) and runs daily at `EXPIRATION_RUN_HOUR_UTC` (default 6 UTC). Inactivity expiration still runs only via manual trigger / standalone script.
-- [ ] No automated masking verification tests
+- [x] Automated masking verification tests (server/tests/masking.test.ts — 21 tests, Prompt 9)
 - [ ] No load testing for WebSocket concurrent matches
 - [ ] No payment webhook replay tests in CI
 
@@ -1564,7 +1585,7 @@ railway variables --service Postgres --json | python3 -c \
 - Implement automated chargeback → wallet freeze flow
 - Add hold period on purchased points before redemption eligibility
 - Ensure all production hash salts are non-default
-- Build a unit test suite (Vitest installed, no tests written — start with masking, scoring, wallet, webhook idempotency)
+- Expand unit test suite (masking, reward engine, wallet done — remaining: webhook idempotency, marketplace, ELO)
 
 ### Near-Term Product Improvements
 - Tournament mode (brackets, entry fees, prize pools)
