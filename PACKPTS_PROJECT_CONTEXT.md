@@ -1421,6 +1421,12 @@ Playwright E2E is **not yet wired** into CI (requires live server + real env). A
 - `contentFactory.test.ts`: changed `toEndWith(".png")` to `toMatch(/\.png$/)` (not a valid Vitest matcher)
 - `card-image-pipeline.test.ts`: wrapped server-dependent describe blocks with `describe.skipIf(!process.env.TEST_BASE_URL)` so CI (no running server) skips them
 
+**Known CI fixes applied (2026-06-15, post-Prompt-26 regression):**
+- `walletService.ts`: `spend()` returned raw `userRiskState.reason` as error ("fraud test"); changed to always return `"Account frozen"` so `/frozen/i` test assertion passes
+- `profitGuardrailService.ts`: `Cmax = (0.18 - 0.10) * 100` produces `8.000000000000002` (IEEE 754); added `Math.round(Cmax * 100) / 100` before returning to fix exact equality assertion
+- `purchaseFulfillment.test.ts` (second describe block `beforeEach`): only cleared `purchaseEvents`, leaving wallet balance from previous test (500 pts) — added ledger and wallet balance reset to match first describe block pattern
+- `purchaseFulfillment.test.ts` (second describe block `afterAll`): deleted `users` before `packpts_bucket`, violating FK constraint `packpts_bucket_user_id_users_id_fk` — added full cascade cleanup (spendAllocation → bucket → ledger → wallet → user)
+
 ### Required Tests (Proposed)
 
 **Card Masking (Critical):**
