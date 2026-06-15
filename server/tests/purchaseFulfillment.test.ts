@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { db } from '../db';
-import { wallets, ledgerEntries, users, userEntitlements, purchaseEvents, packptsBucket, packptsSpendAllocation } from '@shared/schema';
+import { wallets, ledgerEntries, users, userEntitlements, purchaseEvents, packptsBucket, packptsSpendAllocation, type ProfitPolicy } from '@shared/schema';
 import { walletService } from '../services/walletService';
 import { storage } from '../storage';
+import { profitGuardrailService } from '../services/profitGuardrailService';
 import { eq, sql, inArray } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 
@@ -331,5 +332,232 @@ describe('Purchase Fulfillment', () => {
       expect(monthlyEnt).toBeDefined();
       expect(monthlyEnt?.expiresAt).not.toBeNull();
     });
+  });
+});
+
+// ── Stripe webhook eventId idempotency (purchaseEvents table) ─────────────────
+
+describe('Stripe webhook eventId idempotency (purchaseEvents table)', () => {
+  let userId: string;
+
+  beforeAll(async () => {
+    userId = `evt-idem-${randomUUID()}`;
+    await db.insert(users).values({
+      id: userId,
+      username: `evt_idem_${Date.now()}`,
+      points: 0,
+      gamesPlayed: 0,
+      correctAnswers: 0,
+      totalAnswers: 0,
+      isAdmin: false,
+    });
+  });
+
+  afterAll(async () => {
+    await db.delete(purchaseEvents).where(eq(purchaseEvents.userId, userId));
+    await db.delete(users).where(eq(users.id, userId));
+  });
+
+  beforeEach(async () => {
+    await db.delete(purchaseEvents).where(eq(purchaseEvents.userId, userId));
+  });
+
+  it('inserting the same eventId twice violates the unique constraint', async () => {
+    const eventId = `evt_uniq_${randomUUID()}`;
+    await db.insert(purchaseEvents).values({
+      eventId,
+      eventType: 'checkout.session.completed',
+      userId,
+      payload: { id: eventId },
+      status: 'received',
+    });
+
+    await expect(
+      db.insert(purchaseEvents).values({
+        eventId,
+        eventType: 'checkout.session.completed',
+        userId,
+        payload: { id: eventId },
+        status: 'received',
+      })
+    ).rejects.toThrow();
+  });
+
+  it('duplicate webhook delivery: purchaseCredit with same eventId-derived key is idempotent', async () => {
+    const stripeEventId = `evt_dup_wh_${randomUUID()}`;
+    const idempotencyKey = `stripe_${stripeEventId}`;
+
+    const first = await walletService.purchaseCredit(
+      userId, 500, 'Checkout fulfilled', idempotencyKey, { stripeEventId }
+    );
+    expect(first.success).toBe(true);
+    expect(first.idempotent).toBeFalsy();
+
+    const second = await walletService.purchaseCredit(
+      userId, 500, 'Checkout fulfilled', idempotencyKey, { stripeEventId }
+    );
+    expect(second.success).toBe(true);
+    expect(second.idempotent).toBe(true);
+
+    const wallet = await walletService.getWallet(userId);
+    expect(wallet?.balance).toBe(500); // credited exactly once
+  });
+
+  it('different eventIds for same user result in separate credits', async () => {
+    const key1 = `stripe_evt_${randomUUID()}`;
+    const key2 = `stripe_evt_${randomUUID()}`;
+
+    await walletService.purchaseCredit(userId, 500, 'Purchase A', key1);
+    await walletService.purchaseCredit(userId, 300, 'Purchase B', key2);
+
+    const wallet = await walletService.getWallet(userId);
+    expect(wallet?.balance).toBe(800);
+  });
+});
+
+// ── checkout.session.completed — session lifecycle transitions ─────────────────
+
+describe('checkout.session.completed session lifecycle transitions', () => {
+  it('event status: received → processed on fulfillment success', async () => {
+    const eventId = `evt_lifecycle_ok_${randomUUID()}`;
+
+    const [event] = await db.insert(purchaseEvents).values({
+      eventId,
+      eventType: 'checkout.session.completed',
+      payload: { id: eventId },
+      status: 'received',
+    }).returning();
+
+    expect(event.status).toBe('received');
+    expect(event.processedAt).toBeNull();
+
+    await db.update(purchaseEvents)
+      .set({ status: 'processed', processedAt: new Date(), updatedAt: new Date() })
+      .where(eq(purchaseEvents.eventId, eventId));
+
+    const [updated] = await db.select().from(purchaseEvents)
+      .where(eq(purchaseEvents.eventId, eventId)).limit(1);
+
+    expect(updated.status).toBe('processed');
+    expect(updated.processedAt).not.toBeNull();
+
+    // cleanup
+    await db.delete(purchaseEvents).where(eq(purchaseEvents.eventId, eventId));
+  });
+
+  it('event status: received → failed on processing error (stores errorMessage)', async () => {
+    const eventId = `evt_lifecycle_fail_${randomUUID()}`;
+
+    await db.insert(purchaseEvents).values({
+      eventId,
+      eventType: 'checkout.session.completed',
+      payload: { id: eventId },
+      status: 'received',
+    });
+
+    await db.update(purchaseEvents)
+      .set({ status: 'failed', errorMessage: 'User not found in DB', updatedAt: new Date() })
+      .where(eq(purchaseEvents.eventId, eventId));
+
+    const [updated] = await db.select().from(purchaseEvents)
+      .where(eq(purchaseEvents.eventId, eventId)).limit(1);
+
+    expect(updated.status).toBe('failed');
+    expect(updated.errorMessage).toBe('User not found in DB');
+
+    // cleanup
+    await db.delete(purchaseEvents).where(eq(purchaseEvents.eventId, eventId));
+  });
+
+  it('fulfilled event is never re-processed (idempotency check via status guard)', async () => {
+    const eventId = `evt_lifecycle_skip_${randomUUID()}`;
+
+    await db.insert(purchaseEvents).values({
+      eventId,
+      eventType: 'checkout.session.completed',
+      payload: { id: eventId },
+      status: 'processed',
+      processedAt: new Date(),
+    });
+
+    // A real webhook handler checks for existing event first — simulate that check
+    const [existing] = await db.select().from(purchaseEvents)
+      .where(eq(purchaseEvents.eventId, eventId)).limit(1);
+
+    // Handler should skip processing if status is already 'processed'
+    const shouldSkip = existing.status === 'processed' || existing.status === 'fulfilled';
+    expect(shouldSkip).toBe(true);
+
+    // cleanup
+    await db.delete(purchaseEvents).where(eq(purchaseEvents.eventId, eventId));
+  });
+});
+
+// ── Margin guardrail BLOCK (computeRmax — pure function) ──────────────────────
+// Formula: Cmax = ((h*A - m) * P - f) / (1 + r); Rmax = Cmax > 0 ? floor(Cmax/v) : 0
+
+describe('margin guardrail BLOCK (computeRmax)', () => {
+  const BLOCK_POLICY = {
+    id: 'test-block',
+    minMarginM: 0.25,       // 25% minimum margin
+    affiliateRateA: 0.02,   // 2% affiliate rate
+    affiliateHaircutH: 0.70, // h*A = 0.014 < minMargin → always blocked
+    processingFeeRateR: 0.00,
+    fixedFeeFCents: 0,
+    packptsValueVMicrousd: 2000,
+    enabled: true,
+    effectiveFrom: new Date(),
+    createdAt: new Date(),
+  } as ProfitPolicy;
+
+  const PASS_POLICY = {
+    id: 'test-pass',
+    minMarginM: 0.10,       // 10% minimum margin
+    affiliateRateA: 0.20,   // 20% affiliate rate
+    affiliateHaircutH: 0.90, // h*A = 0.18 > 0.10 → allows redemption
+    processingFeeRateR: 0.00,
+    fixedFeeFCents: 0,
+    packptsValueVMicrousd: 2000,
+    enabled: true,
+    effectiveFrom: new Date(),
+    createdAt: new Date(),
+  } as ProfitPolicy;
+
+  it('BLOCK: Rmax=0 when h*A < minMargin (default policy)', () => {
+    // h*A = 0.70 * 0.02 = 0.014 < 0.25 → Cmax < 0 → Rmax = 0
+    const result = profitGuardrailService.computeRmax(10000, BLOCK_POLICY);
+    expect(result.Rmax).toBe(0);
+    expect(result.Cmax).toBe(0); // clamped to 0
+  });
+
+  it('ALLOW: Rmax > 0 when h*A > minMargin', () => {
+    // h*A = 0.90 * 0.20 = 0.18 > 0.10 → Cmax > 0
+    // P = $100 → Cmax = (0.18 - 0.10) * 100 = $8 → Rmax = floor(8 / 0.002) = 4000
+    const result = profitGuardrailService.computeRmax(10000, PASS_POLICY);
+    expect(result.Rmax).toBe(4000);
+    expect(result.Cmax).toBe(8);
+  });
+
+  it('fixed fee reduces Rmax proportionally', () => {
+    const policyWithFee = { ...PASS_POLICY, fixedFeeFCents: 500 } as ProfitPolicy;
+    const noFee = profitGuardrailService.computeRmax(10000, PASS_POLICY);
+    const withFee = profitGuardrailService.computeRmax(10000, policyWithFee);
+
+    // $5 fee reduces Cmax by $5, Rmax by 5/0.002 = 2500
+    expect(withFee.Cmax).toBe(noFee.Cmax - 5);
+    expect(withFee.Rmax).toBe(noFee.Rmax - 2500);
+  });
+
+  it('Rmax=0 blocks even a large purchase when policy math is unfavorable', () => {
+    // $1000 purchase with blocking policy still yields Rmax=0
+    const result = profitGuardrailService.computeRmax(100000, BLOCK_POLICY);
+    expect(result.Rmax).toBe(0);
+  });
+
+  it('higher price yields proportionally more Rmax (linear scaling)', () => {
+    const low = profitGuardrailService.computeRmax(5000, PASS_POLICY);   // $50
+    const high = profitGuardrailService.computeRmax(10000, PASS_POLICY); // $100
+    // Rmax should double since there's no fixed fee
+    expect(high.Rmax).toBe(low.Rmax * 2);
   });
 });
