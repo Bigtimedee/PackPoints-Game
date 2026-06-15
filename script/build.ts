@@ -1,6 +1,7 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
+import { execSync } from "child_process";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -38,6 +39,14 @@ const allowlist = [
   "zod-validation-error",
 ];
 
+function getCommitSha(): string {
+  try {
+    return execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+  } catch {
+    return (process.env.RAILWAY_GIT_COMMIT_SHA ?? "").slice(0, 7) || "dev";
+  }
+}
+
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
 
@@ -60,6 +69,7 @@ async function buildAll() {
     outfile: "dist/index.cjs",
     define: {
       "process.env.NODE_ENV": '"production"',
+      "process.env.BUILD_COMMIT_SHA": JSON.stringify(getCommitSha()),
     },
     minify: true,
     external: externals,

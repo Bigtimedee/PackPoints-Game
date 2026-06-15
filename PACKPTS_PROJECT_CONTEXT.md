@@ -1407,7 +1407,24 @@ railway variables --service Postgres --json | python3 -c \
 **⚠️ Always run migrations immediately after pushing code that references new columns. The app will 500 on any query touching a column not yet in production.**
 
 ### API Version Canary
-Hit `GET /api/version` after deploy to confirm new code is live before testing.
+
+`GET /api/version` is the deploy verification canary. As of Prompt 7, the response includes a git commit SHA baked in at build time:
+
+```json
+{ "v": 14, "sha": "a1b2c3d", "deployed": "2026-06-14", "build": "prompt-7-sha-canary" }
+```
+
+**Deploy verification checklist** (run after every `git push main`):
+1. Wait for Railway to show deployment status → **SUCCESS**
+2. `curl -s https://www.packpts.com/api/version` — confirm `sha` matches `git rev-parse --short HEAD`
+3. If `sha` is `"dev"`, the build did not inject correctly — check `script/build.ts` define block
+4. If `v` is stale, Railway may still be deploying — wait 30s and retry
+
+**How the SHA is injected:**
+- `script/build.ts` calls `git rev-parse --short HEAD` at build time (Railway runs this during build)
+- Falls back to `RAILWAY_GIT_COMMIT_SHA` env var (Railway injects this automatically)
+- Final fallback: `"dev"` (local dev where git may not be available)
+- esbuild `define` replaces `process.env.BUILD_COMMIT_SHA` with the literal SHA string in the bundle
 
 ---
 
