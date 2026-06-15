@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 22, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-14-purchased-hold-period" });
+    res.json({ v: 23, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-15-attribution-loop" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -3723,6 +3723,90 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error processing Goldin outbound redirect:", error);
       res.status(500).json({ error: "Redirect failed" });
+    }
+  });
+
+  // POST /api/attribution/card-view - Log a card view event for attribution
+  app.post("/api/attribution/card-view", async (req: any, res) => {
+    try {
+      const { cardId, cardSetId, pagePath, viewDurationMs } = req.body || {};
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const sessionId = req.sessionID || null;
+      const ip = (req.ip || req.headers["x-forwarded-for"] || null) as string | null;
+      const userAgent = (req.headers["user-agent"] || null) as string | null;
+
+      const { hashIp } = await import("./services/marketplace/outbound");
+      await db.insert(cardViews).values({
+        userId,
+        cardId: cardId || null,
+        cardSetId: cardSetId || null,
+        sessionId,
+        ipHash: ip ? hashIp(ip) : null,
+        userAgent,
+        pagePath: pagePath || null,
+        viewDurationMs: viewDurationMs ? Number(viewDurationMs) : null,
+      });
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Attribution] card-view error:", error);
+      res.status(500).json({ error: "Failed to log card view" });
+    }
+  });
+
+  // GET /api/webhooks/epn-postback - Receive eBay EPN affiliate conversion postbacks
+  // eBay sends: customid, item_id, transaction_id, sale_price, commission, transaction_date
+  app.get("/api/webhooks/epn-postback", async (req: any, res) => {
+    try {
+      const {
+        customid,
+        item_id,
+        transaction_id,
+        sale_price,
+        commission,
+        transaction_date,
+      } = req.query as Record<string, string>;
+
+      if (!customid || !transaction_id) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      // Resolve the outbound click that originated this purchase
+      const [click] = await db
+        .select()
+        .from(outboundClicks)
+        .where(eq(outboundClicks.customId, customid))
+        .limit(1);
+
+      const salePriceCents = sale_price ? Math.round(parseFloat(sale_price) * 100) : null;
+      const commissionCents = commission ? Math.round(parseFloat(commission) * 100) : null;
+      const conversionDate = transaction_date ? new Date(transaction_date) : new Date();
+
+      // Idempotent: unique constraint on transactionId prevents duplicate records
+      await db.insert(attributedPurchases).values({
+        customId: customid,
+        outboundClickId: click?.id || null,
+        userId: click?.userId || null,
+        transactionId: transaction_id,
+        itemId: item_id || null,
+        salePriceCents,
+        commissionCents,
+        conversionDate,
+        rawPayload: req.query,
+      }).onConflictDoNothing();
+
+      console.log("[EPN postback]", {
+        customid,
+        transaction_id,
+        salePriceCents,
+        commissionCents,
+        resolvedUserId: click?.userId?.substring(0, 8) || "unknown",
+      });
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Attribution] EPN postback error:", error);
+      res.status(500).json({ error: "Postback processing failed" });
     }
   });
 

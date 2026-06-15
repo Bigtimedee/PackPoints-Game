@@ -4295,3 +4295,40 @@ export const campaignRewards = pgTable("campaign_rewards", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [index("idx_campaign_rewards_active").on(t.isActive)]);
 export type CampaignReward = typeof campaignRewards.$inferSelect;
+
+export const cardViews = pgTable("card_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  cardId: varchar("card_id"),
+  cardSetId: varchar("card_set_id"),
+  sessionId: text("session_id"),
+  ipHash: varchar("ip_hash", { length: 64 }),
+  userAgent: text("user_agent"),
+  pagePath: text("page_path"),
+  viewDurationMs: integer("view_duration_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("idx_card_views_user").on(t.userId),
+  index("idx_card_views_card").on(t.cardId),
+  index("idx_card_views_created").on(t.createdAt),
+]);
+export type CardView = typeof cardViews.$inferSelect;
+
+export const attributedPurchases = pgTable("attributed_purchases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customId: text("custom_id").notNull(),
+  outboundClickId: varchar("outbound_click_id").references(() => outboundClicks.id),
+  userId: varchar("user_id").references(() => users.id),
+  transactionId: text("transaction_id").notNull(),
+  itemId: text("item_id"),
+  salePriceCents: integer("sale_price_cents"),
+  commissionCents: integer("commission_cents"),
+  conversionDate: timestamp("conversion_date"),
+  rawPayload: jsonb("raw_payload"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("idx_attributed_purchases_custom_id").on(t.customId),
+  index("idx_attributed_purchases_user").on(t.userId),
+  index("idx_attributed_purchases_created").on(t.createdAt),
+  uniqueIndex("idx_attributed_purchases_transaction").on(t.transactionId),
+]);
