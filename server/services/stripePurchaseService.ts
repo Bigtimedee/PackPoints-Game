@@ -1001,12 +1001,77 @@ class StripePurchaseService {
     // CRITICAL: Freeze user account immediately on chargeback
     await this.freezeUser(userId, `Chargeback: ${dispute.id} - Reason: ${dispute.reason}`);
 
+    // REVERSAL: Claw back PackPTS from the disputed charge (mirrors handleChargeRefunded)
+    const paymentIntentId = typeof dispute.payment_intent === "string"
+      ? dispute.payment_intent
+      : (dispute.payment_intent as any)?.id;
+
+    let reversedAmount = 0;
+    const reversalErrors: string[] = [];
+
+    if (paymentIntentId) {
+      try {
+        const stripeClient = await getStripeClient();
+        const sessions = await stripeClient.checkout.sessions.list({
+          payment_intent: paymentIntentId,
+          limit: 1,
+        });
+
+        if (sessions.data.length > 0) {
+          const session = sessions.data[0];
+          const lineItems = await this.getSessionLineItems(session.id);
+
+          if (lineItems) {
+            for (const item of lineItems) {
+              const priceId = item.price?.id;
+              if (!priceId) continue;
+
+              const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+              const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+              if (!productDef || productDef.type !== "CONSUMABLE" || !("packptsGrant" in productDef)) continue;
+
+              const quantity = item.quantity || 1;
+              const amount = productDef.packptsGrant * quantity;
+              const chargeId = typeof dispute.charge === "string" ? dispute.charge : (dispute.charge as any)?.id;
+
+              const originalEntry = await this.findOriginalPurchaseEntry(userId, priceId, session.id);
+              if (!originalEntry) {
+                console.warn(`[Dispute] No original purchase found: userId=${userId}, priceId=${priceId}, sessionId=${session.id}`);
+                continue;
+              }
+
+              const reversalIdempotencyKey = `stripe_dispute_reversal_${dispute.id}_${priceId}`;
+              const reversalResult = await walletService.reversal(
+                userId,
+                amount,
+                `Chargeback reversal: dispute ${dispute.id}`,
+                reversalIdempotencyKey,
+                originalEntry.idempotencyKey,
+                { disputeId: dispute.id, chargeId, priceId, stripeEventId: event.id }
+              );
+
+              if (reversalResult.success && !reversalResult.idempotent) {
+                reversedAmount += amount;
+              } else if (!reversalResult.success) {
+                reversalErrors.push(reversalResult.error || "Unknown reversal error");
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("[Stripe] Error processing dispute reversal:", error);
+        reversalErrors.push(error instanceof Error ? error.message : "Unknown error");
+      }
+    }
+
     // Record high-severity risk signal
     await this.recordRiskSignal(userId, "HIGH_VOLUME", 5, {
       type: "chargeback",
       disputeId: dispute.id,
       reason: dispute.reason,
       amount: dispute.amount,
+      reversedPackpts: reversedAmount,
       stripeEventId: event.id,
     });
 
@@ -1024,11 +1089,17 @@ class StripePurchaseService {
       console.error("[RiskPipeline] Failed to log dispute event:", riskError);
     }
 
-    console.error(`CHARGEBACK: User ${userId} frozen due to dispute ${dispute.id}`);
+    const reversalNote = reversedAmount > 0
+      ? ` Reversed ${reversedAmount} PackPTS.`
+      : reversalErrors.length > 0
+        ? ` Reversal errors: ${reversalErrors.join(", ")}.`
+        : " No consumable credits to reverse.";
+
+    console.error(`CHARGEBACK: User ${userId} frozen due to dispute ${dispute.id}.${reversalNote}`);
 
     return {
       status: "processed",
-      message: `User frozen due to chargeback dispute ${dispute.id}`,
+      message: `User frozen due to chargeback dispute ${dispute.id}.${reversalNote}`,
       userId,
     };
   }

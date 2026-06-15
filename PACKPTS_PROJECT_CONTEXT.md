@@ -1523,7 +1523,7 @@ railway variables --service Postgres --json | python3 -c \
 
 ### Security & Fraud
 - [ ] No automated risk scoring engine (event logging exists, scoring/auto-action does not)
-- [ ] No automated chargeback → wallet freeze flow
+- [x] Chargeback → wallet freeze + REVERSAL ledger entry wired (Prompt 13): `charge.dispute.created` → `handleChargeDispute()` now calls `walletService.reversal()` after freezing user, mirrors `handleChargeRefunded` pattern
 - [ ] No hold period on purchased points before redemption eligibility
 - [ ] No multi-account detection automation
 - [ ] No device-level banning
