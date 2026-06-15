@@ -5,9 +5,11 @@ import {
   paymentEvents,
   redemptionEvents,
   riskSnapshots,
+  userRiskState,
 } from "@shared/schema";
 import { computeSignalsForUser24h, writeSignals, getSignalWeight, getSignalHumanReason, ComputedSignal } from "./signals";
 import { computeUserRollup24h, getTodayWindowStart } from "./rollups24h";
+import { riskEngine } from "../riskEngine";
 
 export interface RiskSnapshotData {
   tierSuggestion: "LOW" | "MEDIUM" | "HIGH";
@@ -156,6 +158,19 @@ export async function updateRiskSnapshot(userId: string): Promise<RiskSnapshotDa
         lastCountry: context.ipCountry,
       },
     });
+
+  if (tierSuggestion === "HIGH") {
+    const existing = await db
+      .select({ status: userRiskState.status })
+      .from(userRiskState)
+      .where(eq(userRiskState.userId, userId))
+      .limit(1);
+
+    if (!existing[0] || existing[0].status !== "FROZEN") {
+      await riskEngine.applyAction(userId, "FREEZE", `Auto-freeze: risk score ${score} (tier HIGH)`);
+      console.log(`[RiskSnapshot] Auto-froze user ${userId.substring(0, 8)}... score=${score}`);
+    }
+  }
 
   return {
     tierSuggestion,

@@ -236,8 +236,9 @@ app.use((req, res, next) => {
 
   // Start the risk pipeline job worker
   if (process.env.RISK_PIPELINE_ENABLED !== "false") {
-    const { startRiskJobWorker } = await import("./services/risk/jobQueue");
+    const { startRiskJobWorker, startHourlyRiskScan } = await import("./services/risk/jobQueue");
     startRiskJobWorker();
+    startHourlyRiskScan();
   }
   
   // Initialize persistent job queue

@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 33, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-25-baseball-cards-decision" });
+    res.json({ v: 34, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-26-auto-risk-scoring" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -8555,18 +8555,42 @@ export async function registerRoutes(
     try {
       const userId = req.params.userId;
       const limit = parseInt(req.query.limit) || 50;
-      
+
       const signals = await db
         .select()
         .from(riskSignals)
         .where(eq(riskSignals.userId, userId))
         .orderBy(desc(riskSignals.createdAt))
         .limit(limit);
-      
+
       res.json(signals);
     } catch (error: any) {
       console.error("Error getting risk signals:", error);
       res.status(500).json({ error: error.message || "Failed to get risk signals" });
+    }
+  });
+
+  // Trigger risk snapshot scan for all users active in the last N hours
+  app.post("/api/admin/risk/run-scan", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { enqueueRiskJob } = await import("./services/risk/jobQueue");
+      const windowHours = parseInt(req.query.hours as string) || 1;
+      const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+
+      const recentUsers = await db
+        .select({ userId: userPresence.userId })
+        .from(userPresence)
+        .where(gte(userPresence.lastSeenAt, since));
+
+      for (const { userId } of recentUsers) {
+        await enqueueRiskJob("UPDATE_SNAPSHOT", { userId });
+      }
+
+      console.log(`[RiskScan] Admin triggered scan: enqueued ${recentUsers.length} jobs (window=${windowHours}h)`);
+      res.json({ enqueued: recentUsers.length, windowHours });
+    } catch (error: any) {
+      console.error("Error running risk scan:", error);
+      res.status(500).json({ error: error.message || "Failed to run risk scan" });
     }
   });
 

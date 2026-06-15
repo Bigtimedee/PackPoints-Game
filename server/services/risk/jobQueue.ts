@@ -1,6 +1,6 @@
 import { db } from "../../db";
-import { eq, and, lte, sql } from "drizzle-orm";
-import { riskJobs, InsertRiskJob } from "@shared/schema";
+import { eq, and, lte, sql, gte } from "drizzle-orm";
+import { riskJobs, InsertRiskJob, userPresence } from "@shared/schema";
 import { computeUserRollup24h, computeDeviceRollup24h, computeIpRollup24h, getTodayWindowStart } from "./rollups24h";
 import { updateRiskSnapshot } from "./snapshot";
 
@@ -188,4 +188,26 @@ export function stopRiskJobWorker(): void {
 
 export function isRiskJobWorkerRunning(): boolean {
   return isRunning;
+}
+
+const HOURLY_SCAN_MS = 60 * 60 * 1000;
+
+async function runHourlyRiskScan(): Promise<void> {
+  try {
+    const since = new Date(Date.now() - HOURLY_SCAN_MS);
+    const recentUsers = await db
+      .select({ userId: userPresence.userId })
+      .from(userPresence)
+      .where(gte(userPresence.lastSeenAt, since));
+    for (const { userId } of recentUsers) {
+      await enqueueRiskJob("UPDATE_SNAPSHOT", { userId });
+    }
+    console.log(`[RiskScan] Hourly scan: enqueued ${recentUsers.length} UPDATE_SNAPSHOT jobs`);
+  } catch (err) {
+    console.error("[RiskScan] Hourly scan error:", err);
+  }
+}
+
+export function startHourlyRiskScan(): void {
+  setInterval(runHourlyRiskScan, HOURLY_SCAN_MS);
 }
