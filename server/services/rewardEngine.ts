@@ -304,16 +304,7 @@ export async function awardPoints(
       .limit(1);
     
     if (existing) {
-      return {
-        basePts: existing.basePts,
-        finalPts: existing.finalPts,
-        fameScore: existing.fameScore || 0.5,
-        vintageMultiplier: existing.vintageMultiplier,
-        rarityMultiplier: existing.rarityMultiplier,
-        policyId: existing.policyId || "",
-        capped: false,
-        cappedReason: "already_awarded",
-      };
+      return null;
     }
   }
 
