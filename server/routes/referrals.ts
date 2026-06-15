@@ -327,4 +327,73 @@ router.get("/api/content-assets/latest", async (req: Request, res: Response) => 
   }
 });
 
+// POST /api/share/generate - create a referral link + return share asset copy
+// Combines link creation + share text in one call for the viral loop
+router.post("/api/share/generate", async (req: Request, res: Response) => {
+  try {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const userId = getUserId(req)!;
+    const { purpose = "INVITE", context } = req.body || {};
+
+    // Re-use existing INVITE link if one was created recently (24h window)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [existing] = await db
+      .select()
+      .from(referralLinks)
+      .where(
+        and(
+          eq(referralLinks.createdByUserId, userId),
+          eq(referralLinks.purpose, "INVITE"),
+          eq(referralLinks.isActive, true),
+          gte(referralLinks.createdAt, oneDayAgo)
+        )
+      )
+      .orderBy(desc(referralLinks.createdAt))
+      .limit(1);
+
+    let code: string;
+    if (existing) {
+      code = existing.code;
+    } else {
+      code = generateShortCode();
+      let attempts = 0;
+      while (attempts < 5) {
+        const clash = await db.select({ id: referralLinks.id }).from(referralLinks).where(eq(referralLinks.code, code)).limit(1);
+        if (clash.length === 0) break;
+        code = generateShortCode();
+        attempts++;
+      }
+      await db.insert(referralLinks).values({
+        code,
+        createdByUserId: userId,
+        purpose: "INVITE",
+        destinationPath: "/",
+        isActive: true,
+      });
+    }
+
+    const baseUrl = (req as any).protocol + "://" + req.get("host");
+    const referralUrl = `${baseUrl}/r/${code}`;
+
+    // Compose share text variants
+    const shareText = {
+      twitter: `I'm playing PackPoints — guess the baseball card player and earn PackPTS! Use my link to join: ${referralUrl} #PackPoints #BaseballCards`,
+      general: `Join me on PackPoints! Guess baseball card players and earn rewards. Sign up with my link: ${referralUrl}`,
+      sms: `Play PackPoints with me — guess the card! ${referralUrl}`,
+    };
+
+    return res.json({
+      code,
+      referralUrl,
+      shareText,
+      context: context || null,
+    });
+  } catch (err: any) {
+    console.error("[Share] generate error:", err?.message);
+    return res.status(500).json({ message: "Failed to generate share link" });
+  }
+});
+
 export default router;

@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 28, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-20-bot-opponent" });
+    res.json({ v: 29, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-21-viral-loop" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -1274,6 +1274,30 @@ export async function registerRoutes(
         } catch (err) {
           // Non-fatal — don't fail registration if attribution fails
           console.error('[UTM] Attribution capture failed:', err);
+        }
+      }
+
+      // Auto-attribute referral SIGNUP event (fast path — non-fatal)
+      const referredByCode = req.body.referredByCode || req.body.referralSource;
+      if (referredByCode) {
+        try {
+          const [refLink] = await db
+            .select()
+            .from(referralLinks)
+            .where(and(eq(referralLinks.code, referredByCode), eq(referralLinks.isActive, true)))
+            .limit(1);
+
+          if (refLink && refLink.createdByUserId !== user.id) {
+            await db
+              .insert(referralAttributions)
+              .values({ referralLinkId: refLink.id, invitedUserId: user.id, eventType: "SIGNUP" })
+              .onConflictDoNothing();
+
+            const { grantReferralWelcomeBonus } = await import("./services/referralRewards");
+            await grantReferralWelcomeBonus(user.id, refLink.id);
+          }
+        } catch (refErr) {
+          console.error("[Register] Referral attribution failed (non-fatal):", refErr);
         }
       }
 
