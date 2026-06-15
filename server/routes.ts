@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 29, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-21-viral-loop" });
+    res.json({ v: 30, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-22-north-star-scorecard" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -10641,6 +10641,130 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Push] send-test error:", error);
       res.status(500).json({ error: "Failed to send test notification" });
+    }
+  });
+
+  // GET /api/admin/scorecard - Weekly north-star scorecard (admin only)
+  // North-Star: Weekly Active Players who completed ≥1 match
+  app.get("/api/admin/scorecard", requireAdmin, async (_req, res) => {
+    try {
+      const { pool: dbPool } = await import("./db");
+
+      const now = new Date();
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Sunday
+      weekStart.setHours(0, 0, 0, 0);
+      const prevWeekStart = new Date(weekStart);
+      prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+      const prevWeekEnd = weekStart;
+
+      // Parallel queries
+      const [nsResult, growthResult, retentionResult, revenueResult, engagementResult, viralResult] =
+        await Promise.all([
+          // North-Star: WAP with ≥1 completed match this week
+          dbPool.query<{ wap: string }>(`
+            SELECT COUNT(DISTINCT m.host_id) + COUNT(DISTINCT m.guest_id) AS wap
+            FROM matches m
+            WHERE m.status = 'FINISHED' AND m.created_at >= $1
+          `, [weekStart]),
+
+          // Growth: signups this week vs last week
+          dbPool.query<{ this_week: string; last_week: string }>(`
+            SELECT
+              COUNT(*) FILTER (WHERE created_at >= $1) AS this_week,
+              COUNT(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS last_week
+            FROM users WHERE is_bot = FALSE
+          `, [weekStart, prevWeekStart]),
+
+          // D7 retention: users who signed up 7-14 days ago and came back this week
+          dbPool.query<{ cohort_size: string; returned: string }>(`
+            WITH cohort AS (
+              SELECT id FROM users
+              WHERE created_at >= $1 AND created_at < $2 AND is_bot = FALSE
+            )
+            SELECT
+              COUNT(*) AS cohort_size,
+              COUNT(DISTINCT up.user_id) AS returned
+            FROM cohort c
+            LEFT JOIN user_presence up ON up.user_id = c.id AND up.last_seen_at >= $3
+          `, [prevWeekStart, prevWeekEnd, weekStart]),
+
+          // Revenue: purchase events this week (PURCHASE_CREDIT type = real purchase)
+          dbPool.query<{ purchase_count: string; total_cents: string }>(`
+            SELECT COUNT(*) AS purchase_count,
+                   COALESCE(SUM(amount_cents), 0) AS total_cents
+            FROM purchase_events
+            WHERE event_type = 'checkout.session.completed'
+              AND created_at >= $1
+          `, [weekStart]),
+
+          // Engagement: matches, correct answers, pts awarded this week
+          dbPool.query<{ matches_played: string; pts_awarded: string }>(`
+            SELECT
+              COUNT(*) AS matches_played,
+              COALESCE((
+                SELECT SUM(amount) FROM ledger_entries
+                WHERE entry_type = 'EARN' AND created_at >= $1
+              ), 0) AS pts_awarded
+            FROM matches WHERE status = 'FINISHED' AND created_at >= $1
+          `, [weekStart]),
+
+          // Viral: new users attributed via referral this week
+          dbPool.query<{ referral_signups: string }>(`
+            SELECT COUNT(DISTINCT invited_user_id) AS referral_signups
+            FROM referral_attributions
+            WHERE event_type = 'SIGNUP' AND created_at >= $1
+          `, [weekStart]),
+        ]);
+
+      const wap = Number(nsResult.rows[0]?.wap || 0);
+      const thisWeekSignups = Number(growthResult.rows[0]?.this_week || 0);
+      const lastWeekSignups = Number(growthResult.rows[0]?.last_week || 0);
+      const cohortSize = Number(retentionResult.rows[0]?.cohort_size || 0);
+      const retained = Number(retentionResult.rows[0]?.returned || 0);
+      const purchaseCount = Number(revenueResult.rows[0]?.purchase_count || 0);
+      const revenueCents = Number(revenueResult.rows[0]?.total_cents || 0);
+      const matchesPlayed = Number(engagementResult.rows[0]?.matches_played || 0);
+      const ptsAwarded = Number(engagementResult.rows[0]?.pts_awarded || 0);
+      const referralSignups = Number(viralResult.rows[0]?.referral_signups || 0);
+
+      res.json({
+        weekStarting: weekStart.toISOString().split("T")[0],
+        northStar: {
+          label: "Weekly Active Players (completed ≥1 match)",
+          value: wap,
+        },
+        growth: {
+          newSignupsThisWeek: thisWeekSignups,
+          newSignupsLastWeek: lastWeekSignups,
+          weekOverWeekPct: lastWeekSignups > 0
+            ? Math.round(((thisWeekSignups - lastWeekSignups) / lastWeekSignups) * 100)
+            : null,
+        },
+        retention: {
+          cohortSize,
+          retained,
+          d7Pct: cohortSize > 0 ? Math.round((retained / cohortSize) * 100) : null,
+        },
+        revenue: {
+          purchaseCount,
+          revenueCents,
+          revenueUsd: (revenueCents / 100).toFixed(2),
+        },
+        engagement: {
+          matchesPlayed,
+          ptsAwarded,
+        },
+        viral: {
+          referralSignups,
+          referralPct: thisWeekSignups > 0
+            ? Math.round((referralSignups / thisWeekSignups) * 100)
+            : null,
+        },
+      });
+    } catch (error) {
+      console.error("[Admin] scorecard error:", error);
+      res.status(500).json({ error: "Failed to get scorecard" });
     }
   });
 

@@ -1315,7 +1315,28 @@ See Section 18 for the full route listing. Key endpoints grouped by domain:
 
 ---
 
-## 22. Data Integrity and Idempotency Rules
+## 22. North-Star Metric and Admin Scorecard
+
+### North-Star Metric
+**Weekly Active Players who completed ≥1 match (WAP)**
+
+Rationale: WAP captures both acquisition (new users) and the core engagement loop (actually playing). A user who signs up but never plays doesn't count. A user who plays contributes to matchmaking liquidity and potential affiliate conversions. This metric aligns the entire product — growth, retention, ELO system, bot fallback, and referral loop — toward a single measurable goal.
+
+### Admin Weekly Scorecard
+Endpoint: `GET /api/admin/scorecard` (admin-only)
+
+Returns for the current week (Sun–Sat):
+| Field | Source | Description |
+|-------|--------|-------------|
+| `northStar.value` | `matches WHERE status=FINISHED` | WAP — unique players with ≥1 finished match |
+| `growth.newSignupsThisWeek` | `users` | Signups this week vs last week + WoW % |
+| `retention.d7Pct` | `users + user_presence` | D7 return rate for last week's cohort |
+| `revenue.revenueUsd` | `purchase_events` | Stripe checkout completions sum |
+| `engagement.matchesPlayed` | `matches` | Total finished matches this week |
+| `engagement.ptsAwarded` | `ledger_entries` | Total EARN ledger credits this week |
+| `viral.referralSignups` | `referral_attributions` | Signups via referral link this week |
+
+## 23. Data Integrity and Idempotency Rules
 
 ### Where Idempotency Is Required and Implemented
 
