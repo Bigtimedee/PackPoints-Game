@@ -228,6 +228,8 @@ describe('duplicate gameplay award prevention', () => {
       totalAnswers: 0,
       isAdmin: false,
     });
+    // awardPoints only credits an existing wallet, not creates one
+    await db.insert(wallets).values({ userId: gpUserId, balance: 0, lifetimeEarned: 0, lifetimeSpent: 0 });
   });
 
   afterAll(async () => {
