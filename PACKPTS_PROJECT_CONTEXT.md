@@ -1535,6 +1535,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] Full attribution loop instrumented (Prompt 15): card_views table + POST /api/attribution/card-view; attributed_purchases table + GET /api/webhooks/epn-postback resolves EPN customId → outbound_click → user; migration applied to prod
 - [x] Admin retention cohort dashboard (Prompt 16): GET /api/admin/retention returns DAU/WAU/MAU (from user_presence.last_seen_at) + weekly D1/D7/D30 cohort retention rates (last 13 weeks); no new schema needed
 - [x] First-session onboarding tutorial (Prompt 17): user_onboarding table; GET /api/onboarding/status, POST /api/onboarding/start (returns random playable guided card), POST /api/onboarding/complete (marks done, awards 50 PackPTS via idempotency key `onboarding_reward_${userId}`, returns nextAction hint); migration applied to prod
+- [x] Web push + email re-engagement (Prompt 18): push_subscriptions table; GET /api/push/vapid-public-key, POST/DELETE /api/push/subscribe, POST /api/admin/push/send-test; pushNotificationService.ts handles streak_at_risk / daily5_live / match_invite via VAPID (env: VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY); graceful no-op if VAPID unconfigured; web-push v3 package added
 - [ ] No multi-account detection automation
 - [ ] No device-level banning
 - [x] Default hash salts in code — `enforceProductionSecrets()` now fails fast in prod if defaults are present (Prompt 6, 2026-06-14)

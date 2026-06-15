@@ -4296,6 +4296,20 @@ export const campaignRewards = pgTable("campaign_rewards", {
 }, (t) => [index("idx_campaign_rewards_active").on(t.isActive)]);
 export type CampaignReward = typeof campaignRewards.$inferSelect;
 
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_push_subscriptions_user").on(t.userId),
+]);
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
 export const userOnboarding = pgTable("user_onboarding", {
   userId: varchar("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   startedAt: timestamp("started_at").defaultNow(),

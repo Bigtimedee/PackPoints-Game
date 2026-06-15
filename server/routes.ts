@@ -11,7 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -154,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 25, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-17-onboarding-tutorial" });
+    res.json({ v: 26, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-15", build: "prompt-18-push-notifications" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -10551,6 +10551,72 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Onboarding] complete error:", error);
       res.status(500).json({ error: "Failed to complete onboarding" });
+    }
+  });
+
+  // ── Web Push Notifications (Prompt 18) ──────────────────────────────────────
+
+  // GET /api/push/vapid-public-key - return VAPID public key for client subscription
+  app.get("/api/push/vapid-public-key", (_req, res) => {
+    const key = process.env.VAPID_PUBLIC_KEY;
+    if (!key) return res.status(503).json({ error: "Push notifications not configured" });
+    res.json({ publicKey: key });
+  });
+
+  // POST /api/push/subscribe - save a push subscription for the current user
+  app.post("/api/push/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const { endpoint, keys } = req.body || {};
+      if (!endpoint || !keys?.p256dh || !keys?.auth) {
+        return res.status(400).json({ error: "Invalid subscription object" });
+      }
+
+      const { saveSubscription } = await import("./services/pushNotificationService");
+      await saveSubscription(
+        userId,
+        endpoint,
+        keys.p256dh,
+        keys.auth,
+        (req.headers["user-agent"] as string) || null
+      );
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Push] subscribe error:", error);
+      res.status(500).json({ error: "Failed to save subscription" });
+    }
+  });
+
+  // DELETE /api/push/subscribe - remove a push subscription
+  app.delete("/api/push/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const { endpoint } = req.body || {};
+      if (!endpoint) return res.status(400).json({ error: "endpoint required" });
+
+      const { removeSubscription } = await import("./services/pushNotificationService");
+      await removeSubscription(endpoint);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Push] unsubscribe error:", error);
+      res.status(500).json({ error: "Failed to remove subscription" });
+    }
+  });
+
+  // POST /api/push/send-test - admin endpoint to test push delivery
+  app.post("/api/push/send-test", requireAdmin, async (req: any, res) => {
+    try {
+      const { userId, type } = req.body || {};
+      if (!userId || !type) return res.status(400).json({ error: "userId and type required" });
+
+      const { sendReengagementNotification } = await import("./services/pushNotificationService");
+      await sendReengagementNotification({ type, userId, extra: req.body.extra });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Push] send-test error:", error);
+      res.status(500).json({ error: "Failed to send test notification" });
     }
   });
 
