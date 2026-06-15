@@ -1574,7 +1574,7 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] Redemption admin review queue exists but no notification system for pending reviews
 
 ### Data Model
-- [ ] Two card tables exist: `baseballCards` is legacy/fallback only (not used for active gameplay); `playableCards` is the authoritative table. `baseballCards` is a deprecation candidate but fallback references remain in matchService, maskingService, and storage.
+- [x] baseballCards table decision (Prompt 25): KEEP as intentional fallback. playableCards is authoritative; baseballCards provides player-name options pool when playableCards is empty (cold-start / between imports). Decision documented in server/tests/baseballCardsLegacy.test.ts (5 tests). Deprecation criteria: 1) playableCards always ≥50 rows in prod, 2) matchService.initialize() refactored, 3) imageValidation.ts branch removed, 4) storage.ts seeding removed.
 - [ ] Card masking regions must be configured per card set — new sets without masks will leak player names
 
 ### Testing
