@@ -765,16 +765,19 @@ Idempotent — safe to re-run for the same day.
 | **Device manipulation** | Factory reset to create new accounts | `deviceFingerprint` tracking | No device-level ban enforcement |
 | **Marketplace manipulation** | Inflate listing prices to extract more redemption value | `profitPolicy` margin floor, per-source affiliate rates | No listing price validation against market data |
 
-### Risk Pipeline (Implemented Schema, Partially Implemented Logic)
+### Risk Pipeline (Prompt 26 — Automated Scoring Live)
 - **Event logging:** `authEvents`, `deviceEvents`, `paymentEvents`, `redemptionEvents`, `gameplayEvents` tables capture signals
 - **Rollups:** `userRollup24h`, `deviceRollup24h`, `ipRollup24h` aggregate suspicious activity
 - **Risk state:** `userRiskState` per user (NORMAL, UNDER_REVIEW, FROZEN)
 - **Risk jobs:** `riskJobs` table for background processing
 - **Risk suppression:** `riskSuppressions` for false-positive management
 - **Feature flag:** `RISK_PIPELINE_ENABLED` (defaults to true)
+- **Auto-freeze (Prompt 26):** `updateRiskSnapshot()` now calls `riskEngine.applyAction(FREEZE)` whenever `tierSuggestion === "HIGH"` and user is not already frozen
+- **Hourly scan (Prompt 26):** `startHourlyRiskScan()` in `jobQueue.ts` runs every 60 min, queries `user_presence` for active users, enqueues `UPDATE_SNAPSHOT` job for each
+- **Admin on-demand scan:** `POST /api/admin/risk/run-scan?hours=N` triggers immediate batch scan of recently active users
 
 ### What Must Be Added
-1. **Automated risk scoring** — consume rollup data → compute risk score → auto-freeze high-risk accounts
+1. ~~**Automated risk scoring** — consume rollup data → compute risk score → auto-freeze high-risk accounts~~ ✅ Done (Prompt 26)
 2. **Hold periods** — purchased points should have a cooldown before becoming redeemable (e.g., 72 hours)
 3. **Velocity checks** — flag unusual patterns (many redemptions in short period, sudden point spikes)
 4. **Admin review queue** — UI for reviewing flagged accounts with risk context
@@ -1660,7 +1663,112 @@ railway variables --service Postgres --json | python3 -c \
 
 ---
 
-## 28. Instructions for Future Claude Code Sessions
+## 28. Acquisition-Readiness Assessment
+
+This section documents what a potential acquirer would evaluate in technical and financial due diligence, what is already in place, and what would need to be addressed before a sale process.
+
+### Ownership and IP
+
+| Item | Status |
+|---|---|
+| Domain `packpts.com` | Owned — registered under dtmaloney@gmail.com |
+| Codebase | Private GitHub repo, single owner |
+| Brand / trademark | Not registered (risk item — register "PackPTS" before a process) |
+| Card data | Licensed via eBay EPN affiliate + CardHedge API (neither grants IP ownership; player names/stats are not protectable) |
+| User data | Owned by operator; governed by platform TOS |
+
+### Revenue Infrastructure
+
+| Item | Status |
+|---|---|
+| Payment processor | Stripe (live mode, test mode both wired) |
+| Subscription tiers | Multiple tiers in `subscriptionProducts` table; lifecycle webhooks live |
+| Affiliate revenue | eBay EPN (custom ID attribution, postback confirmed) |
+| Revenue recognition | Stripe `invoice.paid` → `paymentEvents` ledger entry — auditable |
+| Dunning | Implemented: email on attempt 1, entitlement revoke on attempt 3+ |
+| Chargeback handling | `charge.disputed` → needs manual review; auto-freeze not yet implemented |
+
+### Key Metrics a Buyer Will Request
+
+These can all be derived from the production DB at the time of sale:
+
+| Metric | How to Compute |
+|---|---|
+| Weekly Active Players (WAP) | Users with ≥1 finished match in last 7d — north-star metric |
+| DAU / WAU / MAU | `user_presence.last_seen_at` window queries |
+| D7 / D30 Retention | Cohort SQL on `users.createdAt` vs `user_presence.last_seen_at` |
+| MRR | Sum of active `subscriptionProducts.priceCents` per billing cycle |
+| ARPU | MRR ÷ MAU |
+| Affiliate GMV | Sum of `attributedPurchases.salePriceCents` in trailing 90d |
+| Signup conversion | `users` created → first match completed (funnel via `userOnboarding`) |
+
+### Technical Diligence Checklist
+
+| Item | Status | Notes |
+|---|---|---|
+| TypeScript strict mode | Pass | `tsc --noEmit` runs clean |
+| Unit test coverage | 73 tests passing | Covers wallet, masking, rewards, fraud, legacy fallback |
+| E2E test coverage | None | Playwright suite exists but empty — gap |
+| Database migrations | Drizzle ORM, 19 migrations | All applied to prod |
+| Secrets management | Railway env vars only | No secrets in git |
+| Secret rotation process | Manual (Railway dashboard) | Not automated |
+| Rate limiting | Per-route Express middleware | Login, checkout, game start, registration |
+| Fraud controls | Risk pipeline live (auto-freeze on HIGH tier) | Chargeback auto-freeze not yet wired |
+| Admin panel | Full admin routes (user mgmt, risk, wallet, content) | No dedicated admin UI — API only |
+| Logging | Structured JSON request logger + error monitor | No centralized log aggregation (Railway logs only) |
+| Monitoring | None | No APM, no uptime alerting, no error budget |
+| GDPR / CCPA | No data deletion endpoint | Gap — must implement before scale |
+| Terms of Service | Not verified present | Must confirm ToS and Privacy Policy pages exist |
+| Accessibility | Not assessed | Gap for any regulated-market buyer |
+
+### Technology Stack (for Buyer Diligence)
+
+- **Runtime:** Node.js + Express, TypeScript end-to-end
+- **Database:** PostgreSQL via Railway (Drizzle ORM, no raw SQL in app code)
+- **Frontend:** React + Vite, Tailwind CSS
+- **Auth:** WorkOS (SSO) + local username/password sessions
+- **Payments:** Stripe (subscriptions + one-time purchases)
+- **Hosting:** Railway (app + DB — single provider dependency)
+- **CDN / Static:** None — Railway serves static assets directly
+- **Push Notifications:** web-push (VAPID), no mobile push
+- **AI / LLM:** OpenAI (social media content agent — optional, feature-flagged)
+
+### Single-Provider Dependencies (Risk Items)
+
+| Dependency | Risk | Mitigation |
+|---|---|---|
+| Railway (hosting + DB) | Single point of failure; vendor lock-in | Export DB and containerize to migrate; no Railway-specific APIs used |
+| Stripe | Payment processor lock-in | Standard Stripe — portable to Stripe on any host |
+| WorkOS | Auth provider | Sessions also support local auth; WorkOS is additive |
+| CardHedge API | Card price data source | API keys in env; no proprietary integration |
+| eBay EPN | Sole affiliate revenue source | Add secondary affiliate (Fanatics, PSA, COMC) to diversify |
+| OpenAI | Social agent | Feature-flagged; disabling is a one-env-var change |
+
+### What Must Be Resolved Before a Sale Process
+
+1. **GDPR/CCPA data deletion** — implement `DELETE /api/account` that purges PII from all tables
+2. **Chargeback auto-freeze** — `charge.disputed` webhook → instant wallet freeze + reversal ledger entry
+3. **Trademark registration** — file "PackPTS" and the lightning-bolt logo before any LOI
+4. **Uptime monitoring** — add Datadog / Sentry / Uptime Robot so a buyer sees SLA history
+5. **E2E test suite** — at minimum a Playwright smoke test covering signup → game → marketplace
+6. **ToS / Privacy Policy** — legal review to confirm COPPA, state gambling law compliance (trivia ≠ gambling, but document the analysis)
+7. **Point-in-time DB backups** — verify Railway PITR is enabled and tested
+
+### Acquirer Fit
+
+| Buyer Profile | Rationale |
+|---|---|
+| **Fanatics / Topps** | Direct strategic fit — baseball cards + trivia + marketplace |
+| **Penn Interactive / DraftKings** | Engaged user base with points economy — tuck-in for sports trivia vertical |
+| **Collectors Universe / PSA** | Marketplace + card-valuation angle |
+| **Candy Digital / Dapper Labs** | Web3 pivot: NFT-backed card ownership layer |
+| **Private equity roll-up** | Sports memorabilia + gaming platforms are active roll-up targets |
+
+Long-term stated target: **Fanatics ecosystem at $1B valuation.**
+
+---
+
+## 29. Instructions for Future Claude Code Sessions
 
 **Read this file before making any changes to PackPTS.**
 
