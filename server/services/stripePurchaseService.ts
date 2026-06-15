@@ -356,14 +356,20 @@ class StripePurchaseService {
       case "invoice.paid":
         return this.handleInvoicePaid(event);
       
+      case "customer.subscription.created":
+        return this.handleSubscriptionUpdated(event);
+
       case "customer.subscription.updated":
         return this.handleSubscriptionUpdated(event);
-      
+
       case "customer.subscription.deleted":
         return this.handleSubscriptionDeleted(event);
 
       case "customer.subscription.trial_will_end":
         return this.handleTrialWillEnd(event);
+
+      case "invoice.payment_failed":
+        return this.handleInvoicePaymentFailed(event);
 
       case "charge.refunded":
         return this.handleChargeRefunded(event);
@@ -787,11 +793,96 @@ class StripePurchaseService {
       };
     }
 
+    // Explicitly revoke all entitlements for this subscription
+    const subscriptionId = typeof subscription.id === "string" ? subscription.id : null;
+    const priceId = subscription.items?.data[0]?.price?.id;
+    const internalSku = priceId ? (getInternalSku(priceId) || this.extractSkuFromPriceId(priceId)) : null;
+    const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+    if (productDef && productDef.type === "SUBSCRIPTION" && "entitlementKey" in productDef) {
+      await storage.revokeEntitlement(
+        userId,
+        productDef.entitlementKey,
+        `subscription_deleted:${subscriptionId}`
+      );
+    }
+
     return {
       status: "processed",
-      message: "Subscription canceled - entitlement will expire naturally",
+      message: "Subscription canceled and entitlement revoked",
       userId,
     };
+  }
+
+  private async handleInvoicePaymentFailed(event: Stripe.Event): Promise<{
+    status: PurchaseEventStatus;
+    message?: string;
+    error?: string;
+    userId?: string;
+  }> {
+    try {
+      const invoice = event.data.object as Stripe.Invoice;
+      const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
+      const userId = (invoice as any).subscription_details?.metadata?.userId
+        || await this.getUserIdFromStripeCustomer(customerId);
+
+      if (!userId) {
+        return { status: "ignored", message: "No userId found for failed payment" };
+      }
+
+      const attemptCount = (invoice as any).attempt_count ?? 1;
+      const subscriptionId = typeof (invoice as any).subscription === "string"
+        ? (invoice as any).subscription
+        : null;
+
+      console.warn(`[Stripe] invoice.payment_failed for userId=${userId}, attempt=${attemptCount}, subscription=${subscriptionId}`);
+
+      // Send dunning email on first failure
+      if (attemptCount === 1) {
+        const user = await storage.getUser(userId);
+        if (user?.email) {
+          const { sendEmail } = await import("./emailService");
+          await sendEmail({
+            to: user.email,
+            subject: "PackPTS: Payment failed — update your billing info",
+            html: `
+              <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h1>Payment failed</h1>
+                <p>Hi ${user.username || "there"},</p>
+                <p>We couldn't process your recent PackPTS payment. Please update your payment method to keep your subscription active.</p>
+                <p><a href="${process.env.APP_BASE_URL || "https://www.packpts.com"}/settings/billing" style="background:#2563eb;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Update Payment Method</a></p>
+                <p>If you have questions, reply to this email.</p>
+              </div>
+            `,
+          });
+        }
+      }
+
+      // After 3 failures, revoke entitlement proactively
+      if (attemptCount >= 3) {
+        const priceId = (invoice as any).lines?.data?.[0]?.price?.id;
+        const internalSku = priceId ? (getInternalSku(priceId) || this.extractSkuFromPriceId(priceId)) : null;
+        const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
+
+        if (productDef && productDef.type === "SUBSCRIPTION" && "entitlementKey" in productDef) {
+          await storage.revokeEntitlement(
+            userId,
+            productDef.entitlementKey,
+            `invoice_payment_failed_attempts:${attemptCount}`
+          );
+          return {
+            status: "processed",
+            message: `Payment failed ${attemptCount}x — entitlement revoked`,
+            userId,
+          };
+        }
+      }
+
+      return { status: "processed", message: `Payment failed (attempt ${attemptCount}) — dunning email sent`, userId };
+    } catch (err: any) {
+      console.error("[Stripe] invoice.payment_failed error:", err?.message);
+      return { status: "failed", error: err?.message };
+    }
   }
 
   private async handleTrialWillEnd(event: Stripe.Event): Promise<{

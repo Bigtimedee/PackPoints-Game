@@ -1565,7 +1565,7 @@ railway variables --service Postgres --json | python3 -c \
 
 ### Payments
 - [ ] Apple IAP receipt verification endpoint exists but full iOS payment flow untested in production
-- [ ] Subscription renewal/cancellation webhook handling needs verification
+- [x] Subscription lifecycle webhooks verified and completed (Prompt 24): customer.subscription.deleted now explicitly calls storage.revokeEntitlement() instead of "expire naturally"; invoice.payment_failed added — sends dunning email on attempt 1, revokes entitlement after 3 failures; customer.subscription.created wired to handleSubscriptionUpdated
 - [ ] No automated refund processing
 
 ### Marketplace
