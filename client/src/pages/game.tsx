@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { CardSetPicker } from "@/components/CardSetPicker";
 import { MobileSelect } from "@/components/MobileSelect";
 import { SiX, SiFacebook } from "react-icons/si";
-import type { GameSession, GameQuestion, GameSet, PlayableSet } from "@shared/schema";
+import type { ClientGameSession, ClientGameQuestion, GameSet, PlayableSet } from "@shared/schema";
 import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -138,6 +138,7 @@ export default function Game() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
+  const [revealedCorrectAnswer, setRevealedCorrectAnswer] = useState<string | null>(null);
   const [earnedPoints, setEarnedPoints] = useState(0);
   const [showPointsAnimation, setShowPointsAnimation] = useState(false);
   const [rewardDetails, setRewardDetails] = useState<{
@@ -160,7 +161,7 @@ export default function Game() {
   const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
   const shownMilestones = useRef<Set<string>>(new Set());
 
-  const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<GameSession>({
+  const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<ClientGameSession>({
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
   });
@@ -198,6 +199,7 @@ export default function Game() {
       setSessionId(data.id);
       setSelectedAnswer(null);
       setIsRevealed(false);
+      setRevealedCorrectAnswer(null);
       setEarnedPoints(0);
       setStartError(null);
       setHasStartedGame(true);
@@ -257,7 +259,7 @@ export default function Game() {
       if (!sessionId) {
         throw new Error("Cannot submit answer: game session has not started.");
       }
-      const freshSession = queryClient.getQueryData<GameSession>(["/api/game/session", sessionId]);
+      const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
       const questionIndex = freshSession?.currentQuestionIndex ?? session?.currentQuestionIndex ?? 0;
       const res = await apiRequest("POST", "/api/game/answer", {
         sessionId,
@@ -267,6 +269,7 @@ export default function Game() {
       return res.json();
     },
     onSuccess: (data) => {
+      setRevealedCorrectAnswer(data.correctAnswer ?? null);
       if (data.correct) {
         setEarnedPoints(data.pointsEarned);
         setRewardDetails(data.reward || null);
@@ -321,6 +324,7 @@ export default function Game() {
     },
     onError: (error: Error) => {
       setIsRevealed(false); // BUG-15: roll back optimistic state on submission error
+      setRevealedCorrectAnswer(null);
       const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
       if (isSessionExpired) {
         toast({
@@ -348,6 +352,7 @@ export default function Game() {
     onSuccess: (data) => {
       setSelectedAnswer(null);
       setIsRevealed(false);
+      setRevealedCorrectAnswer(null);
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
@@ -1168,7 +1173,7 @@ export default function Game() {
                     key={option}
                     option={option}
                     isSelected={selectedAnswer === option}
-                    isCorrect={option === currentQuestion.correctAnswer}
+                    isCorrect={option === revealedCorrectAnswer}
                     isRevealed={isRevealed}
                     onSelect={() => handleSelectAnswer(option)}
                     disabled={submitAnswerMutation.isPending}

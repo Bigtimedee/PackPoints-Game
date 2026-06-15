@@ -235,11 +235,32 @@ The entire game depends on the player not knowing who is on the card before subm
 - Any new card set import must include mask configuration before cards become playable.
 - Image URLs should be opaque (CardHedge IDs, not player-name-based filenames).
 
+### P0 Masking Leak Found and Fixed (Prompt 9)
+
+**Root cause:** `GET /api/game/session/:id`, `POST /api/game/start`, `POST /api/game/next`, and `POST /api/game/session/:id/replace-card` were returning the full `GameSession` object, which includes `correctAnswer` and `card.playerName` on **every question** in the session. Any user could open DevTools and see all correct answers before submitting a single answer.
+
+**Fix:** `server/utils/questionSanitizer.ts` exports `sanitizeQuestionForClient()` and `sanitizeSessionForClient()`. These strip `correctAnswer` and `card.playerName` from all question payloads. Applied at all 6 API response sites in `routes.ts`. The `POST /api/game/answer` response still sends `correctAnswer` at the **top level** (intentional post-submission reveal). The session embedded in that response is sanitized.
+
+**Client change:** `game.tsx` no longer reads `currentQuestion.correctAnswer` (which is now absent). Instead, `revealedCorrectAnswer` state is populated from `data.correctAnswer` in `submitAnswerMutation.onSuccess`.
+
+**New shared types:** `ClientGameQuestion` and `ClientGameSession` in `@shared/schema` (type-only exports — no schema/table changes). The 1v1 REST match state endpoint (`GET /api/matches/:matchId/state`) was also fixed.
+
+### Automated Masking Tests (server/tests/masking.test.ts — 21 tests)
+
+Added in Prompt 9. These run in CI and guard:
+- `sanitizeQuestionForClient` strips `correctAnswer` and `card.playerName`, preserves all other fields
+- `sanitizeSessionForClient` strips both from every question in a session, preserves session metadata
+- Does NOT mutate the original question/session (server-side state intact for answer checking)
+- Correct answer appears exactly once in the options list
+- Options are randomized (not always in a fixed position)
+- Post-submission reveal contract: top-level `correctAnswer` in answer response, absent inside `session.questions`
+- Replacement card masking: `replace-card` endpoint also sanitizes
+
 ### Test Cases Future Agents Must Run Before Changing Card Display Logic
-1. Load a game and inspect the network tab — verify no API response contains the correct answer before submission.
-2. Inspect the DOM — verify no element contains the player name before answer submission.
+1. Load a game and inspect the network tab — verify no API response contains the correct answer before submission. (Automated: masking.test.ts)
+2. Inspect the DOM — verify no element contains the player name before answer submission. (Playwright — deferred, requires TEST_BASE_URL)
 3. Verify mask regions fully cover the name area for each active card set.
-4. Test card replacement flow — verify replacement card also has proper masking.
+4. Test card replacement flow — verify replacement card also has proper masking. (Automated: masking.test.ts)
 5. Test with browser dev tools — verify no console output reveals the answer.
 6. Test image loading failure path — verify fallback/skip behavior doesn't reveal the answer.
 

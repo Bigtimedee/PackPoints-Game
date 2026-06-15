@@ -72,6 +72,7 @@ import { reconcileAllWallets } from "./services/walletReconciliation";
 import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panicService";
 import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
+import { sanitizeQuestionForClient, sanitizeSessionForClient } from "./utils/questionSanitizer";
 
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
 const sessionAnswerLocks = new Map<string, Promise<void>>();
@@ -153,7 +154,7 @@ export async function registerRoutes(
 
   // Deployment version canary (no auth, lightweight)
   app.get("/api/version", (_req, res) => {
-    res.json({ v: 16, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-14", build: "prompt-8-ci-fixes" });
+    res.json({ v: 17, sha: process.env.BUILD_COMMIT_SHA || "dev", deployed: "2026-06-14", build: "prompt-9-masking-fix" });
   });
 
   // Diagnostic: test DB connectivity and playableCards table
@@ -462,7 +463,7 @@ export async function registerRoutes(
       }
 
       res.json({
-        ...session,
+        ...sanitizeSessionForClient(session),
         matchToken,
         tokenSignature,
         tier,
@@ -482,8 +483,8 @@ export async function registerRoutes(
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
       }
-      
-      res.json(session);
+
+      res.json(sanitizeSessionForClient(session));
     } catch (error) {
       console.error("Error getting session:", error);
       res.status(500).json({ error: "Failed to get session" });
@@ -532,7 +533,7 @@ export async function registerRoutes(
 
       res.json({
         success: true,
-        question: result.question,
+        question: sanitizeQuestionForClient(result.question),
         flagged: result.flagged
       });
     } catch (error) {
@@ -733,10 +734,10 @@ export async function registerRoutes(
       
       res.json({
         correct: isCorrect,
-        correctAnswer: currentQuestion.correctAnswer,
+        correctAnswer: currentQuestion.correctAnswer, // post-submission reveal — intentionally sent
         pointsEarned,
         totalScore: session.score,
-        session,
+        session: sanitizeSessionForClient(session),
         reward: rewardResult ? {
           basePts: rewardResult.basePts,
           finalPts: rewardResult.finalPts,
@@ -900,8 +901,8 @@ export async function registerRoutes(
       }
       
       await storage.updateGameSession(session);
-      
-      res.json(session);
+
+      res.json(sanitizeSessionForClient(session));
     } catch (error: any) {
       console.error("[Game Next] Error moving to next question:", {
         sessionId: req.body?.sessionId?.substring(0, 8),
@@ -9748,11 +9749,7 @@ export async function registerRoutes(
         status: matchState.status,
         currentIndex: matchState.currentQuestionIndex,
         totalQuestions: matchState.totalQuestions,
-        question: currentQuestion ? {
-          card: currentQuestion.card,
-          options: currentQuestion.options,
-          pointValue: currentQuestion.pointValue,
-        } : null,
+        question: currentQuestion ? sanitizeQuestionForClient(currentQuestion) : null,
         participants: matchState.participants.map(p => ({
           userId: p.userId,
           username: p.username,

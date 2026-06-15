@@ -252,6 +252,15 @@ export interface GameSession {
   completedAt?: string;
 }
 
+// Client-safe question type — correctAnswer and card.playerName stripped before API response
+export type ClientGameQuestion = Omit<GameQuestion, 'correctAnswer' | 'card'> & {
+  card: Omit<GameplayCard, 'playerName'>;
+};
+
+export type ClientGameSession = Omit<GameSession, 'questions'> & {
+  questions: ClientGameQuestion[];
+};
+
 export const gameSessionsTable = pgTable("game_sessions", {
   id: varchar("id").primaryKey(),
   mode: varchar("mode", { length: 20 }).notNull(),
