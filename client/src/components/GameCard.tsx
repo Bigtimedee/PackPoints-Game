@@ -484,41 +484,20 @@ export function GameCard({
       {!isRevealed && !imageError && regions.map((region, index) => (
         <div
           key={index}
-          className="absolute pointer-events-none transition-opacity duration-300 overflow-hidden"
+          className="absolute pointer-events-none transition-opacity duration-300 flex items-center justify-center"
           style={{
             left: `${region.xPct}%`,
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(5, 10, 20, 0.78)",
+            backgroundColor: "#0a0e16",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(20px) brightness(0.5) saturate(0)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(20px) brightness(0.5) saturate(0)" : undefined,
-            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)" : undefined,
-            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
         >
-          {index === 0 && region.type === "solid" && (
-            <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
-              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
-            </div>
-          )}
-          {index === 0 && region.type === "blur" && (
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="text-sm font-bold text-white tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
-            </div>
-          )}
-          {index === 1 && region.type === "solid" && (
-            <div className="w-full h-full bg-gradient-to-t from-amber-800 via-amber-700 to-amber-600 flex items-center justify-center border-t-2 border-amber-900">
-              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-md">WHO IS THIS PLAYER?</span>
-            </div>
-          )}
-          {index === 1 && region.type === "blur" && (
-            <div className="w-full h-full flex items-center justify-center">
-              <span className="text-sm font-bold text-white tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
-            </div>
+          {index === 0 && (
+            <span className="text-sm font-bold text-white tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
           )}
         </div>
       ))}
