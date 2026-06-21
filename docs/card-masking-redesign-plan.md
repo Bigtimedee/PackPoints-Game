@@ -357,4 +357,25 @@ Everything downstream (CSS parameters, server masking, tests) depends on this si
 
 ---
 
-*Analysis completed: 2026-04-17. Design completed: 2026-04-17. No application behavior was modified.*
+---
+
+## Implementation Status
+
+**Implemented: 2026-06-20. All four agents' scopes complete. 12 new unit tests added.**
+
+### What changed
+
+| File | Change |
+|---|---|
+| `shared/schema.ts` | `DEFAULT_MASK_REGIONS` → single bottom band `{ yPct: 82, hPct: 18 }`; `SLABBED_MASK_REGIONS` → inset variant `{ xPct: 5, wPct: 90, yPct: 83, hPct: 14 }` |
+| `client/src/components/GameCard.tsx` | Removed local `MaskRegion`/`DEFAULT_MASK_REGIONS`; imports from `@shared/schema`; CSS updated to `blur(24px) brightness(0.85) saturate(0.5)`, `rgba(0,0,0,0.15)`, `maskImage` gradient for soft edges; inner content div backgrounds made transparent |
+| `client/src/components/MaskedCardImage.tsx` | Same imports, same CSS update; removed re-export of `DEFAULT_MASK_REGIONS` (now comes from schema) |
+| `server/masking/maskProfiles.ts` | 1989 Upper Deck: `0.18 → 0.20`; 1952 Topps: `0.28 → 0.35` |
+| `server/masking/maskCardImage.ts` | Sharp overlay background: `r:20,g:20,b:20 → r:0,g:0,b:0` |
+| `server/tests/masking.test.ts` | 12 new unit tests covering schema constants, per-set profiles, version, and no-solid-color invariant (merged with existing server-side answer masking tests) |
+
+### Coverage: 50% → 18%
+
+The default mask now covers the bottom 18% of the card only. Old two-band 50% coverage (18% top + 32% bottom) is gone. Per-set configs can add a top band for vintage sets via `cardSetMasks` DB entries.
+
+*Analysis completed: 2026-04-17. Design completed: 2026-04-17. Implementation completed: 2026-06-20.*
