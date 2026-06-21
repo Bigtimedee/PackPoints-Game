@@ -291,7 +291,7 @@ class DbMatchmakingQueue {
             AND ABS(t1.elo_rating - t2.elo_rating) <=
                 LEAST(${ELO_MAX_BAND}, ${ELO_INITIAL_BAND} + ${ELO_BAND_EXPAND} * FLOOR(GREATEST(t1.wait_seconds, t2.wait_seconds) / ${ELO_EXPAND_INTERVAL_S}))
           )
-          ORDER BY t1.created_at ASC
+          ORDER BY t1.wait_seconds DESC
           LIMIT 1
         ),
         updated AS (
