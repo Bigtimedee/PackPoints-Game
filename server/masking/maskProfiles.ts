@@ -24,14 +24,14 @@ const setProfiles: Record<string, MaskProfile> = {
   },
   "1989 Upper Deck": {
     topBandPct: 0.0,
-    bottomBandPct: 0.18,
+    bottomBandPct: 0.20,
     leftBandPct: 0.0,
     rightBandPct: 0.0,
     blurSigma: 25,
   },
   "1952 Topps": {
     topBandPct: 0.0,
-    bottomBandPct: 0.28,
+    bottomBandPct: 0.35,
     leftBandPct: 0.0,
     rightBandPct: 0.0,
     blurSigma: 25,

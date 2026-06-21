@@ -10,26 +10,14 @@ import {
 } from "@/components/ui/popover";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-
-interface MaskRegion {
-  xPct: number;
-  yPct: number;
-  wPct: number;
-  hPct: number;
-  type: "solid" | "blur" | "pixelate";
-  radiusPct?: number;
-}
+import { DEFAULT_MASK_REGIONS } from "@shared/schema";
+import type { MaskRegion } from "@shared/schema";
 
 interface MaskConfig {
   setKey: string;
   regions: MaskRegion[];
   maskVersion: number;
 }
-
-const DEFAULT_MASK_REGIONS: MaskRegion[] = [
-  { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
-  { xPct: 0, yPct: 62, wPct: 100, hPct: 38, type: "blur", radiusPct: 0 },
-];
 
 const PLACEHOLDER_URL_PATTERNS = [
   /placeholder/i,
@@ -502,10 +490,12 @@ export function GameCard({
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "transparent",
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(0, 0, 0, 0.15)",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
+            backdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
+            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
+            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
@@ -516,8 +506,8 @@ export function GameCard({
             </div>
           )}
           {index === 0 && region.type === "blur" && (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(15, 23, 42, 0.45)" }}>
-              <span className="text-xs font-bold text-slate-100 tracking-widest drop-shadow-lg">{setLabel || "MYSTERY CARD"}</span>
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="text-sm font-bold text-white tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
             </div>
           )}
           {index === 1 && region.type === "solid" && (
@@ -526,8 +516,8 @@ export function GameCard({
             </div>
           )}
           {index === 1 && region.type === "blur" && (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(120, 53, 15, 0.4)" }}>
-              <span className="text-sm font-bold text-amber-100 tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="text-sm font-bold text-white tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
             </div>
           )}
         </div>

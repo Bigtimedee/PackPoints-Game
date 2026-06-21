@@ -1,18 +1,17 @@
 /**
- * masking.test.ts — Prompt 9
+ * masking.test.ts
  *
- * Guards the non-negotiable masking contract: the API must never send
- * correctAnswer or card.playerName to the client before answer submission.
- *
- * P0 leak found in Prompt 9: GET /api/game/session and POST /api/game/start
- * were returning the full GameSession, including correctAnswer and
- * card.playerName on every question, before the user submitted an answer.
- * Fixed by sanitizeQuestionForClient / sanitizeSessionForClient applied at
- * every API response site in routes.ts.
+ * Two test suites:
+ * 1. Server-side answer masking (Prompt 9 contract) — API must never send
+ *    correctAnswer or card.playerName to the client before answer submission.
+ * 2. Visual masking redesign (v3.0) — DEFAULT_MASK_REGIONS and maskProfiles
+ *    must match the frosted-glass spec (single bottom band, no colored overlays).
  */
 import { describe, it, expect } from 'vitest';
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from '../utils/questionSanitizer';
 import type { GameQuestion, GameSession } from '@shared/schema';
+import { DEFAULT_MASK_REGIONS, SLABBED_MASK_REGIONS } from "@shared/schema";
+import { getMaskProfile, CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 
 // ── Shared mock data ─────────────────────────────────────────────────────────
 
@@ -145,7 +144,6 @@ describe('sanitizeSessionForClient', () => {
   });
 
   it('the raw server session DOES have correctAnswer (server-side invariant)', () => {
-    // Verifies the server always has correctAnswer in its internal state for answer-checking.
     expect(MOCK_SESSION.questions[0].correctAnswer).toBeTruthy();
     expect(MOCK_SESSION.questions[0].card.playerName).toBeTruthy();
   });
@@ -164,8 +162,6 @@ describe('answer options randomization', () => {
   });
 
   it('correct answer is not deterministically first across shuffles', () => {
-    // Statistical test: sort(() => Math.random() - 0.5) used in generateQuestion.
-    // Over 50 shuffles, the correct answer should appear at multiple positions.
     const correctAnswer = 'A';
     const base = ['A', 'B', 'C', 'D'];
     const positionsSeen = new Set<number>();
@@ -193,20 +189,13 @@ describe('post-submission reveal contract', () => {
   });
 
   it('original question retains correctAnswer for server-side answer checking', () => {
-    // The server always checks answers against the DB-loaded session, not the
-    // sanitized client copy. This verifies the raw question has what the
-    // server needs.
     expect(MOCK_QUESTION.correctAnswer).toBe('Mike Trout');
   });
 
   it('the post-submission API response shape must include correctAnswer at top level', () => {
-    // This is a contract test: documents that POST /api/game/answer returns
-    // { correct, correctAnswer, session: <sanitized>, ... }
-    // The correctAnswer at the TOP level is intentional (post-submission reveal).
-    // The session.questions inside must NOT have correctAnswer.
     const submitResponseShape = {
       correct: true,
-      correctAnswer: MOCK_QUESTION.correctAnswer, // revealed after submission
+      correctAnswer: MOCK_QUESTION.correctAnswer,
       session: sanitizeSessionForClient(MOCK_SESSION),
     };
 
@@ -220,8 +209,6 @@ describe('post-submission reveal contract', () => {
 
 describe('card replacement masking contract', () => {
   it('replacement card question is sanitized before sending to client', () => {
-    // POST /api/game/session/:id/replace-card applies sanitizeQuestionForClient
-    // to result.question. This verifies the sanitizer output is safe.
     const replacementQuestion: GameQuestion = {
       ...MOCK_QUESTION,
       card: { ...MOCK_QUESTION.card, id: 'replacement-card-1', playerName: 'Babe Ruth' },
@@ -231,5 +218,90 @@ describe('card replacement masking contract', () => {
     expect(sanitized).not.toHaveProperty('correctAnswer');
     expect(sanitized.card).not.toHaveProperty('playerName');
     expect(sanitized.card.id).toBe('replacement-card-1');
+  });
+});
+
+// ── Visual masking redesign v3.0 — schema constants ──────────────────────────
+
+describe("Masking redesign — schema constants", () => {
+  it("DEFAULT_MASK_REGIONS is a single bottom band at yPct:82, hPct:18", () => {
+    expect(DEFAULT_MASK_REGIONS).toHaveLength(1);
+    const region = DEFAULT_MASK_REGIONS[0];
+    expect(region.yPct).toBe(82);
+    expect(region.hPct).toBe(18);
+    expect(region.xPct).toBe(0);
+    expect(region.wPct).toBe(100);
+    expect(region.type).toBe("blur");
+  });
+
+  it("DEFAULT_MASK_REGIONS has no top band", () => {
+    const topBands = DEFAULT_MASK_REGIONS.filter(r => r.yPct < 20);
+    expect(topBands).toHaveLength(0);
+  });
+
+  it("SLABBED_MASK_REGIONS is a single inset bottom band", () => {
+    expect(SLABBED_MASK_REGIONS).toHaveLength(1);
+    const region = SLABBED_MASK_REGIONS[0];
+    expect(region.xPct).toBe(5);
+    expect(region.wPct).toBe(90);
+    expect(region.yPct).toBe(83);
+    expect(region.hPct).toBe(14);
+    expect(region.type).toBe("blur");
+  });
+});
+
+// ── Visual masking redesign v3.0 — maskProfiles ───────────────────────────────
+
+describe("Masking redesign — maskProfiles", () => {
+  it("CURRENT_MASK_VERSION is v3.0", () => {
+    expect(CURRENT_MASK_VERSION).toBe("v3.0");
+  });
+
+  it("default profile has 18% bottom band and no top band", () => {
+    const profile = getMaskProfile(null);
+    expect(profile.bottomBandPct).toBe(0.18);
+    expect(profile.topBandPct).toBe(0.0);
+  });
+
+  it("1987 Topps profile has 22% bottom band", () => {
+    const profile = getMaskProfile("1987 Topps");
+    expect(profile.bottomBandPct).toBe(0.22);
+    expect(profile.topBandPct).toBe(0.0);
+  });
+
+  it("1989 Upper Deck profile has 20% bottom band", () => {
+    const profile = getMaskProfile("1989 Upper Deck");
+    expect(profile.bottomBandPct).toBe(0.20);
+    expect(profile.topBandPct).toBe(0.0);
+  });
+
+  it("1952 Topps profile has 35% bottom band", () => {
+    const profile = getMaskProfile("1952 Topps");
+    expect(profile.bottomBandPct).toBe(0.35);
+    expect(profile.topBandPct).toBe(0.0);
+  });
+
+  it("unknown set returns default profile", () => {
+    const profile = getMaskProfile("2024 Bowman Chrome");
+    expect(profile.bottomBandPct).toBe(0.18);
+  });
+
+  it("partial set name match works (case-insensitive)", () => {
+    const profile = getMaskProfile("Vintage 1952 Topps Heritage");
+    expect(profile.bottomBandPct).toBe(0.35);
+  });
+});
+
+// ── Visual masking redesign v3.0 — no solid colored fallback ─────────────────
+
+describe("Masking redesign — no solid colored fallback in default regions", () => {
+  it("DEFAULT_MASK_REGIONS contains no solid-type regions", () => {
+    const solidRegions = DEFAULT_MASK_REGIONS.filter(r => r.type === "solid");
+    expect(solidRegions).toHaveLength(0);
+  });
+
+  it("SLABBED_MASK_REGIONS contains no solid-type regions", () => {
+    const solidRegions = SLABBED_MASK_REGIONS.filter(r => r.type === "solid");
+    expect(solidRegions).toHaveLength(0);
   });
 });
