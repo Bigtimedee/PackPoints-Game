@@ -490,12 +490,12 @@ export function GameCard({
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(0, 0, 0, 0.15)",
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "rgba(5, 10, 20, 0.78)",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(24px) brightness(0.85) saturate(0.5)" : undefined,
-            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
-            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%)" : undefined,
+            backdropFilter: region.type === "blur" ? "blur(20px) brightness(0.5) saturate(0)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(20px) brightness(0.5) saturate(0)" : undefined,
+            maskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)" : undefined,
+            WebkitMaskImage: region.type === "blur" ? "linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
