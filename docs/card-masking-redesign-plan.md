@@ -378,4 +378,19 @@ Everything downstream (CSS parameters, server masking, tests) depends on this si
 
 The default mask now covers the bottom 18% of the card only. Old two-band 50% coverage (18% top + 32% bottom) is gone. Per-set configs can add a top band for vintage sets via `cardSetMasks` DB entries.
 
-*Analysis completed: 2026-04-17. Design completed: 2026-04-17. Implementation completed: 2026-06-20.*
+### Root cause of delayed production deployment (post-mortem)
+
+Several sprints of commits (including this masking redesign) never reached Railway because of a silent build-gate failure:
+
+- `@types/web-push` and `@types/fluent-ffmpeg` were listed in `package.json` but **absent from `package-lock.json`**
+- Railway uses `npm ci`, which installs only what is in `package-lock.json`
+- Without those packages, `tsc` (`npm run check`) exited non-zero
+- `"build": "npm run check && tsx script/build.ts"` short-circuited at the check step
+- The Docker build step failed silently; Railway kept serving the last successful image
+- The symptom: production was running code with `DEFAULT_MASK_REGIONS` having `type: "solid"` (amber gradient orange box), several sprints old
+
+**Fix (2026-06-20):** `npm install --save-dev @types/fluent-ffmpeg @types/web-push` updated `package-lock.json` with proper resolved entries. `tsc` now exits 0 and `npm run build` succeeds end-to-end.
+
+**CSS fix (2026-06-20):** `saturate(0.5)` was insufficient to prevent orange card art bleed on vibrant designs (1986 Fleer orange border). Changed to `saturate(0)` + `rgba(5,10,20,0.78)` background for reliable color-neutral frosted glass regardless of card design.
+
+*Analysis completed: 2026-04-17. Design completed: 2026-04-17. Implementation completed: 2026-06-20. Build gate fixed and deployed: 2026-06-20.*
