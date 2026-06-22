@@ -245,9 +245,27 @@ The entire game depends on the player not knowing who is on the card before subm
 
 **New shared types:** `ClientGameQuestion` and `ClientGameSession` in `@shared/schema` (type-only exports — no schema/table changes). The 1v1 REST match state endpoint (`GET /api/matches/:matchId/state`) was also fixed.
 
-### Automated Masking Tests (server/tests/masking.test.ts — 21 tests)
+### DEFAULT_MASK_REGIONS Geometry — DO NOT REVERT
 
-Added in Prompt 9. These run in CI and guard:
+`DEFAULT_MASK_REGIONS` in `shared/schema.ts` is **`yPct:54, hPct:46`** (covers bottom 46%, from 54% to 100% of card height). It was intentionally extended from `yPct:82, hPct:18` because:
+
+- Vintage Topps cards (1987 Topps, etc.) have a team-color band occupying roughly **yPct:54–92**. The player's name sits in this band at ~yPct:65–80.
+- The old `yPct:82` mask only covered the very bottom edge — the name was fully visible in the orange/colored band above it.
+- The new `yPct:54` mask covers the entire team-color band and the name.
+
+**Never reduce `yPct` below 54 or `hPct` below 46 in `DEFAULT_MASK_REGIONS` without verifying the player name is still covered on all active card sets.**
+
+The test `"DEFAULT_MASK_REGIONS is a single bottom band at yPct:54, hPct:46"` in `server/tests/masking.test.ts` enforces this. It will fail CI if the values regress.
+
+### Chrome backdropFilter + maskImage Compositing Bug — DO NOT USE
+
+**Never combine `backdropFilter` and `mask-image` (or `WebkitMaskImage`) on the same DOM element in the card overlay.** Chrome's compositor fails to render `backgroundColor` when both are present, causing the underlying card art (which may be vivid orange/red for certain team-color cards) to bleed through even an opaque `rgba` background. The fix is a simple solid `backgroundColor: "#0a0e16"` with no `backdropFilter` at all. This was debugged across multiple deploys in June 2026.
+
+Files affected: `client/src/components/GameCard.tsx` and `client/src/components/MaskedCardImage.tsx`.
+
+### Automated Masking Tests (server/tests/masking.test.ts — 33 tests)
+
+Added in Prompt 9, extended through June 2026. These run in CI and guard:
 - `sanitizeQuestionForClient` strips `correctAnswer` and `card.playerName`, preserves all other fields
 - `sanitizeSessionForClient` strips both from every question in a session, preserves session metadata
 - Does NOT mutate the original question/session (server-side state intact for answer checking)

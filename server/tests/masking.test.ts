@@ -224,11 +224,11 @@ describe('card replacement masking contract', () => {
 // ── Visual masking redesign v3.0 — schema constants ──────────────────────────
 
 describe("Masking redesign — schema constants", () => {
-  it("DEFAULT_MASK_REGIONS is a single bottom band at yPct:82, hPct:18", () => {
+  it("DEFAULT_MASK_REGIONS is a single bottom band at yPct:54, hPct:46", () => {
     expect(DEFAULT_MASK_REGIONS).toHaveLength(1);
     const region = DEFAULT_MASK_REGIONS[0];
-    expect(region.yPct).toBe(82);
-    expect(region.hPct).toBe(18);
+    expect(region.yPct).toBe(54);
+    expect(region.hPct).toBe(46);
     expect(region.xPct).toBe(0);
     expect(region.wPct).toBe(100);
     expect(region.type).toBe("blur");
