@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-06-15
+**Last verified against codebase:** 2026-06-22
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -1395,20 +1395,23 @@ Returns for the current week (Sun–Sat):
 
 ### Existing Tests
 
-**Vitest integration tests** (`server/tests/` — 11 specs, all require a live PostgreSQL connection):
-| File | What it covers |
-|------|---------------|
-| `wallet.test.ts` | WalletService: credit/debit, idempotency, frozen-wallet guard, ledger balance consistency |
-| `antiPruning.test.ts` | Anti-pruning logic for card exclusion |
-| `card-image-pipeline.test.ts` | Card image validation pipeline |
-| `cardhedge.smoke.ts` | Card hedge smoke tests |
-| `contentFactory.test.ts` | Score card / streak badge generation, DB idempotency |
-| `gameplayGating.test.ts` | Gameplay gate enforcement |
-| `growthAgent.test.ts` | Growth agent: schema validation, deduplication, job tracking (OpenAI mocked) |
-| `growthFlywheel.test.ts` | Growth flywheel logic |
-| `purchaseFulfillment.test.ts` | Purchase fulfillment flow |
-| `socialPublishing.test.ts` | Social publishing pipeline |
-| `videoFactory.test.ts` | Video asset generation |
+**Vitest integration tests** (`server/tests/` — 14 test files, 223+ tests, most require a live PostgreSQL connection):
+| File | Tests | What it covers |
+|------|-------|---------------|
+| `wallet.test.ts` | 23 | WalletService: credit/debit, idempotency, frozen-wallet guard, ledger balance consistency |
+| `antiPruning.test.ts` | 19 | Anti-pruning logic for card exclusion |
+| `card-image-pipeline.test.ts` | 7 | Card image validation pipeline |
+| `baseballCardsLegacy.test.ts` | 5 | Legacy baseballCards fallback table decision (see Data Model section) |
+| `contentFactory.test.ts` | 9 | Score card / streak badge generation, DB idempotency |
+| `gameplayGating.test.ts` | 15 | Gameplay gate enforcement |
+| `growthAgent.test.ts` | 4 | Growth agent: schema validation, deduplication, job tracking (OpenAI mocked) |
+| `growthFlywheel.test.ts` | 8 | Growth flywheel logic |
+| `masking.test.ts` | 33 | Sanitization, DEFAULT_MASK_REGIONS geometry, answer leak prevention |
+| `purchaseFulfillment.test.ts` | 27 | Purchase fulfillment flow |
+| `rewardEngine.test.ts` | 6 | Reward engine DB integration (frozen account, idempotency, caps) |
+| `rewardEnginePure.test.ts` | 30 | Reward engine pure logic (no DB required) |
+| `socialPublishing.test.ts` | 17 | Social publishing pipeline |
+| `videoFactory.test.ts` | 20 | Video asset generation |
 
 Run locally: `npx vitest run` (requires `DATABASE_URL` pointing to a local or dev Postgres instance).
 
@@ -1424,10 +1427,10 @@ Runs on every push and PR to `main`. Steps:
 1. `npm ci` — clean install (all platforms' optional rollup native binaries are in the lockfile)
 2. `npm run check` — tsc type check (zero-error gate)
 3. `npx drizzle-kit push` — set up fresh test schema (uses PostgreSQL service container)
-4. `npx vitest run` — all 11 integration tests against the CI postgres
+4. `npx vitest run` — all 14 integration test files (223+ tests) against the CI postgres
 5. `npm run build` — esbuild bundle (confirms the server builds without type or bundler errors)
 
-PostgreSQL service: `postgres:16`, DB name `packpoints_test`, user/pass `postgres/postgres`.
+PostgreSQL service: `postgres:16`, DB name `packpoints_test`, user/pass `postgres/postgres`. Node.js version: **24** (updated from 20 in June 2026; 20 is deprecated on GitHub-hosted runners).
 
 Playwright E2E is **not yet wired** into CI (requires live server + real env). A stub `e2e-stub` job exists in the workflow with `if: false` as a placeholder.
 
@@ -1605,9 +1608,9 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] Card masking regions must be configured per card set — new sets without masks will leak player names
 
 ### Testing
-- [x] Unit test suite exists (Vitest): masking (21 tests), reward engine pure (30 tests), reward engine DB integration (6 tests), wallet (strengthened Prompt 11: ledger invariant, frozen account, FIFO bucket depletion, EXPIRE reconciliation), purchase fulfillment, and more
+- [x] Unit test suite exists (Vitest): 14 test files, 223+ tests total — masking (33 tests), reward engine pure (30 tests), reward engine DB integration (6 tests), wallet (23 tests, strengthened Prompt 11: ledger invariant, frozen account, FIFO bucket depletion, EXPIRE reconciliation), purchase fulfillment (27 tests), and more
 - [x] FIFO bucket expiration job is scheduled via pgJobQueue (`packpts_expiration`) and runs daily at `EXPIRATION_RUN_HOUR_UTC` (default 6 UTC). Inactivity expiration still runs only via manual trigger / standalone script.
-- [x] Automated masking verification tests (server/tests/masking.test.ts — 21 tests, Prompt 9)
+- [x] Automated masking verification tests (server/tests/masking.test.ts — 33 tests, Prompt 9, extended June 2026)
 - [ ] No load testing for WebSocket concurrent matches
 - [ ] No payment webhook replay tests in CI
 
