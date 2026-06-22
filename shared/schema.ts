@@ -3389,9 +3389,9 @@ export const insertCardSetMaskSchema = createInsertSchema(cardSetMasks).omit({
 export type InsertCardSetMask = z.infer<typeof insertCardSetMaskSchema>;
 export type CardSetMask = typeof cardSetMasks.$inferSelect;
 
-// Default mask regions — covers bottom 18% where player name appears on most modern sets
+// Default mask regions — covers bottom 46% to hide team-color band and player name
 export const DEFAULT_MASK_REGIONS: MaskRegion[] = [
-  { xPct: 0, yPct: 82, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
+  { xPct: 0, yPct: 54, wPct: 100, hPct: 46, type: "blur", radiusPct: 0 },
 ];
 
 // Slabbed card variant — inset horizontally to avoid masking the slab holder border
