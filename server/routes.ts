@@ -641,6 +641,7 @@ export async function registerRoutes(
                 playerName: freshCurrentQuestion.correctAnswer,
                 year: card?.year || undefined,
                 rarityType: card?.rarityType || undefined,
+                gameSetId: (card as any)?.gameSetId || undefined,
               });
 
               pointsEarned = dailyBaseResult.deltaPts;
@@ -10360,6 +10361,16 @@ export async function registerRoutes(
     } catch (err) {
       console.error('[Promotions] Error:', err);
       res.status(500).json({ message: 'Failed to get promotion' });
+    }
+  });
+
+  app.get("/api/set-of-week/active", async (_req, res) => {
+    try {
+      const { getActiveSetOfWeek } = await import("./services/setOfTheWeek");
+      const active = await getActiveSetOfWeek();
+      res.json({ active });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message });
     }
   });
 

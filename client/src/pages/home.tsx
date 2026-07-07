@@ -1,14 +1,40 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
+
+function SetOfWeekBanner() {
+  const [dismissed, setDismissed] = useState(false);
+  const { data } = useQuery<{ active: { setName?: string; brand?: string; year?: number; multiplier: number } | null }>({
+    queryKey: ["/api/set-of-week/active"],
+    staleTime: 60_000,
+  });
+
+  if (dismissed || !data?.active) return null;
+
+  const { setName, brand, year, multiplier } = data.active;
+  const label = [year, brand, setName].filter(Boolean).join(" ");
+
+  return (
+    <div className="bg-gradient-to-r from-yellow-500 to-amber-500 text-white px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2">
+      <span>⭐ SET OF THE WEEK: {label} — {multiplier}x PTS</span>
+      <button
+        onClick={() => setDismissed(true)}
+        className="ml-2 opacity-70 hover:opacity-100 transition-opacity"
+        aria-label="Dismiss"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
 
 // A/B test: hero CTA variants
 const AB_STORAGE_KEY = "pp_hero_cta_variant";
@@ -335,6 +361,7 @@ export default function Home() {
   return (
     <div className="min-h-screen pb-20 md:pb-8">
       <PromotionBanner />
+      <SetOfWeekBanner />
       <OnboardingModal />
       <section className="relative overflow-hidden py-16 px-4">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />

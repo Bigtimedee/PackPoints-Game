@@ -200,6 +200,8 @@ interface GameCardProps {
   cardId?: string;
   sessionId?: string;
   onReportSubmitted?: () => void;
+  isSetOfWeek?: boolean;
+  setOfWeekMultiplier?: number;
 }
 
 export function GameCard({
@@ -220,7 +222,9 @@ export function GameCard({
   team,
   cardId,
   sessionId,
-  onReportSubmitted
+  onReportSubmitted,
+  isSetOfWeek = false,
+  setOfWeekMultiplier,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
@@ -516,6 +520,13 @@ export function GameCard({
         </div>
       ))}
       
+      {isSetOfWeek && !imageError && (
+        <div className="absolute top-2 left-2 z-30 pointer-events-none">
+          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold bg-yellow-400 text-yellow-900 shadow">
+            ⭐ FEATURED{setOfWeekMultiplier ? ` — ${setOfWeekMultiplier}x PTS` : ""}
+          </span>
+        </div>
+      )}
       {cardId && !imageError && (
         <div className="absolute top-2 right-2 z-30">
           <Popover open={reportOpen} onOpenChange={setReportOpen}>

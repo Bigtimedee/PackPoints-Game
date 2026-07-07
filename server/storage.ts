@@ -797,6 +797,7 @@ export class DatabaseStorage implements IStorage {
       position: "",
       imageRotation: card.imageRotation || 0,
       playableCardId: card.id,
+      gameSetId: card.gameSetId || undefined,
       lastImageCheck: card.lastImageCheck || null,
       imageFailureCount: card.imageFailureCount || 0,
       imageLastError: card.imageLastError || null,

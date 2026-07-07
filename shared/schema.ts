@@ -228,6 +228,7 @@ export type BaseballCard = typeof baseballCards.$inferSelect;
 export interface GameplayCard extends BaseballCard {
   imageRotation?: number; // 0, 90, 180, 270 degrees
   playableCardId?: string; // Original playable_cards id for reporting
+  gameSetId?: string; // game_sets.id for Set of the Week multiplier
 }
 
 export interface GameQuestion {
@@ -4357,3 +4358,21 @@ export const attributedPurchases = pgTable("attributed_purchases", {
   index("idx_attributed_purchases_created").on(t.createdAt),
   uniqueIndex("idx_attributed_purchases_transaction").on(t.transactionId),
 ]);
+
+// Set of the Week — admin-selectable featured set with points multiplier
+export const setOfTheWeek = pgTable("set_of_week", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  setId: varchar("set_id").notNull().references(() => gameSets.id),
+  multiplier: real("multiplier").notNull().default(1.5),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_set_of_week_dates").on(table.startsAt, table.endsAt),
+  index("idx_set_of_week_set").on(table.setId),
+]);
+
+export const insertSetOfTheWeekSchema = createInsertSchema(setOfTheWeek).omit({ id: true, createdAt: true });
+export type SetOfTheWeek = typeof setOfTheWeek.$inferSelect;
+export type InsertSetOfTheWeek = z.infer<typeof insertSetOfTheWeekSchema>;

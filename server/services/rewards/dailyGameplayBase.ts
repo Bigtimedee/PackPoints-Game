@@ -1,12 +1,13 @@
 import { db } from "../../db";
-import { 
-  userGameplayDailyCounters, 
+import {
+  userGameplayDailyCounters,
   gameplayCardDailyEvents,
   ledgerEntries,
   wallets,
   pointsAwards,
   userDailyProgress,
 } from "@shared/schema";
+import { getActiveSetOfWeek } from "../setOfTheWeek";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { DAILY_GAMEPLAY_BASE } from "../../config/rewards";
 import { isUserFrozen, computeReward, type CardContext } from "../rewardEngine";
@@ -46,6 +47,7 @@ export async function awardDailyBaseForCorrectCard(params: {
   playerName?: string;
   year?: number;
   rarityType?: "base" | "insert" | "parallel" | "sp";
+  gameSetId?: string;
 }): Promise<DailyBaseAwardResult> {
   const { userId, matchId, cardId } = params;
   const dayKey = DAILY_GAMEPLAY_BASE.dayKeyUTC(params.now ?? new Date());
@@ -162,7 +164,18 @@ export async function awardDailyBaseForCorrectCard(params: {
       rewardVintageMultiplier = reward.vintageMultiplier;
       rewardRarityMultiplier = reward.rarityMultiplier;
       rewardBasePts = reward.basePts;
-      delta = isDailyCapped ? 0 : Math.min(reward.finalPts, DAILY_GAMEPLAY_BASE.PTS_MAX_PER_DAY - oldP);
+
+      // Apply Set of the Week multiplier if this card's set is featured
+      let setMultiplier = 1.0;
+      if (params.gameSetId) {
+        const activeSet = await getActiveSetOfWeek(params.now);
+        if (activeSet && activeSet.setId === params.gameSetId) {
+          setMultiplier = activeSet.multiplier;
+        }
+      }
+      const finalPtsWithSetBonus = Math.round(reward.finalPts * setMultiplier);
+
+      delta = isDailyCapped ? 0 : Math.min(finalPtsWithSetBonus, DAILY_GAMEPLAY_BASE.PTS_MAX_PER_DAY - oldP);
       delta = Math.max(0, delta);
     } else {
       const targetP = DAILY_GAMEPLAY_BASE.pointsForCardsCompleted(newC);

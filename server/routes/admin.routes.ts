@@ -1114,4 +1114,66 @@ export function registerAdminRoutes(app: Express): void {
       res.status(500).json({ error: "Failed to delete streak configuration" });
     }
   });
+
+  // --- Set of the Week ---
+
+  app.get("/api/admin/set-of-week", isAuthenticated, requireAdmin, async (_req: any, res: Response) => {
+    try {
+      const { setOfTheWeek: sotw, gameSets: gs } = await import("@shared/schema");
+      const { desc } = await import("drizzle-orm");
+      const rows = await db
+        .select({
+          id: sotw.id,
+          setId: sotw.setId,
+          multiplier: sotw.multiplier,
+          startsAt: sotw.startsAt,
+          endsAt: sotw.endsAt,
+          createdAt: sotw.createdAt,
+          setName: gs.setName,
+          brand: gs.brand,
+          year: gs.year,
+        })
+        .from(sotw)
+        .innerJoin(gs, eq(sotw.setId, gs.id))
+        .orderBy(desc(sotw.startsAt));
+      res.json({ entries: rows });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  app.post("/api/admin/set-of-week", isAuthenticated, requireAdmin, async (req: any, res: Response) => {
+    try {
+      const { setId, multiplier = 1.5, startsAt, endsAt } = req.body;
+      if (!setId || !startsAt || !endsAt) {
+        return res.status(400).json({ message: "setId, startsAt, endsAt required" });
+      }
+      const { setOfTheWeek: sotw } = await import("@shared/schema");
+      const { clearSetOfWeekCache } = await import("../services/setOfTheWeek");
+      const [row] = await db.insert(sotw).values({
+        setId,
+        multiplier: Number(multiplier),
+        startsAt: new Date(startsAt),
+        endsAt: new Date(endsAt),
+        createdByUserId: req.session?.localUserId ?? null,
+      }).returning();
+      clearSetOfWeekCache();
+      res.json({ entry: row });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  app.delete("/api/admin/set-of-week/:id", isAuthenticated, requireAdmin, async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { setOfTheWeek: sotw } = await import("@shared/schema");
+      const { clearSetOfWeekCache } = await import("../services/setOfTheWeek");
+      await db.delete(sotw).where(eq(sotw.id, id));
+      clearSetOfWeekCache();
+      res.json({ deleted: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message });
+    }
+  });
 }

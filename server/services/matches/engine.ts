@@ -397,6 +397,7 @@ export async function submitAnswer(
               playerName: question.correctAnswer ?? undefined,
               year: (question.card as any)?.year ?? undefined,
               rarityType: (question.card as any)?.rarityType ?? undefined,
+              gameSetId: (question.card as any)?.gameSetId ?? undefined,
             });
             if (rewardResult.frozen) {
               console.warn(`[Match] Reward skipped — user ${userId} is frozen: ${rewardResult.frozenReason}`);
