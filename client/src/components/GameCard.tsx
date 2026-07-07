@@ -490,14 +490,28 @@ export function GameCard({
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: "#0a0e16",
+            backgroundColor: region.type === "solid" && index !== 1 ? "#0b0f16" : "transparent",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
+            backdropFilter: index === 1 ? "blur(24px)" : region.type === "blur" ? "blur(12px)" : undefined,
+            WebkitBackdropFilter: index === 1 ? "blur(24px)" : region.type === "blur" ? "blur(12px)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
         >
-          {index === 0 && (
-            <span className="text-sm font-bold text-white tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
+          {index === 0 && region.type === "solid" && (
+            <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
+              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
+            </div>
+          )}
+          {index === 0 && region.type === "blur" && (
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(15, 23, 42, 0.45)" }}>
+              <span className="text-xs font-bold text-slate-100 tracking-widest drop-shadow-lg">{setLabel || "MYSTERY CARD"}</span>
+            </div>
+          )}
+          {index === 1 && (
+            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(15, 23, 42, 0.2)" }}>
+              <span className="text-sm font-bold text-slate-100 tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
+            </div>
           )}
         </div>
       ))}

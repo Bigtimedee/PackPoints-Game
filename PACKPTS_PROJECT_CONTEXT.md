@@ -209,6 +209,7 @@ The entire game depends on the player not knowing who is on the card before subm
 
 ### How Masking Works Today
 - **Client-side canvas masking:** The `MaskedCardImage` component applies blur/pixelate effects to configurable rectangular regions on the card image. Mask regions are defined per card set in the `cardSetMasks` table.
+- **Name-band rendering is pure blur (2026-07-06):** In `GameCard.tsx` (the card renderer used by solo, Daily 5, and 1v1 match), the bottom name-band region (index 1) always renders as a heavy `backdrop-filter: blur(24px)` with a neutral dark-slate tint (`rgba(15, 23, 42, 0.2)`) and the "WHO IS THIS PLAYER?" label — regardless of whether the region's configured `type` is `solid` or `blur`. The previous amber/orange gradient (`amber-600→800`) and orange-brown tint (`rgba(120, 53, 15, 0.4)`) were removed for UX quality. Server-side baked blur (`server/masking/maskCardImage.ts`, sigma 25) remains the anti-cheat backstop; the client blur is presentational.
 - **Image validation:** Canvas-based analysis checks color diversity and dominant color percentage to detect blank/silhouette placeholder images that shouldn't be served.
 - **Card replacement:** If an image fails to load or is detected as a placeholder, the client requests a replacement card from the server (`POST /api/game/session/:id/replace-card` or WebSocket `question_replace_request`). Maximum 2 replacements before skipping.
 
