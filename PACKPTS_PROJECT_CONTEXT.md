@@ -258,6 +258,14 @@ The entire game depends on the player not knowing who is on the card before subm
 
 The test `"DEFAULT_MASK_REGIONS is a single bottom band at yPct:54, hPct:46"` in `server/tests/masking.test.ts` enforces this. It will fail CI if the values regress.
 
+### "WHO IS THIS PLAYER?" Band Is Unconditional — DO NOT Move Back Into regions.map()
+
+The "WHO IS THIS PLAYER?" blur overlay in `GameCard.tsx` is rendered **outside** the `regions.map()` loop, anchored unconditionally to `bottom: 0, height: 46%` with `zIndex: 21`. It is **not** driven by mask region config.
+
+**Why:** `DEFAULT_MASK_REGIONS` defines only one region (index 0). When the name band text was gated behind `{index === 1 && ...}` inside the map, any set using the default config (or any single-region custom config) silently dropped the overlay, exposing the player's printed name on the card image below. This was a data-exposure bug.
+
+**Rule:** The name band must always render when `!isRevealed && !imageError` regardless of how many mask regions are configured. It is not a cosmetic region — it is a security invariant. The `regions.map()` renders cosmetic set-label overlays only; the name band stands alone.
+
 ### Chrome backdropFilter + maskImage Compositing Bug — DO NOT USE
 
 **Never combine `backdropFilter` and `mask-image` (or `WebkitMaskImage`) on the same DOM element in the card overlay.** Chrome's compositor fails to render `backgroundColor` when both are present, causing the underlying card art (which may be vivid orange/red for certain team-color cards) to bleed through even an opaque `rgba` background. The fix is a simple solid `backgroundColor: "#0a0e16"` with no `backdropFilter` at all. This was debugged across multiple deploys in June 2026.

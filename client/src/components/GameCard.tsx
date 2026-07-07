@@ -494,10 +494,10 @@ export function GameCard({
             top: `${region.yPct}%`,
             width: `${region.wPct}%`,
             height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" && index !== 1 ? "#0b0f16" : "transparent",
+            backgroundColor: region.type === "solid" ? "#0b0f16" : "transparent",
             borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: index === 1 ? "blur(24px)" : region.type === "blur" ? "blur(12px)" : undefined,
-            WebkitBackdropFilter: index === 1 ? "blur(24px)" : region.type === "blur" ? "blur(12px)" : undefined,
+            backdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
+            WebkitBackdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
             zIndex: 20,
           }}
           data-testid={`mask-region-${index}`}
@@ -512,13 +512,24 @@ export function GameCard({
               <span className="text-xs font-bold text-slate-100 tracking-widest drop-shadow-lg">{setLabel || "MYSTERY CARD"}</span>
             </div>
           )}
-          {index === 1 && (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(15, 23, 42, 0.2)" }}>
-              <span className="text-sm font-bold text-slate-100 tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
-            </div>
-          )}
         </div>
       ))}
+
+      {!isRevealed && !imageError && (
+        <div
+          className="absolute pointer-events-none left-0 right-0 bottom-0 flex items-center justify-center"
+          style={{
+            height: "46%",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            backgroundColor: "rgba(15, 23, 42, 0.2)",
+            zIndex: 21,
+          }}
+          data-testid="mask-name-band"
+        >
+          <span className="text-sm font-bold text-slate-100 tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
+        </div>
+      )}
       
       {isSetOfWeek && !imageError && (
         <div className="absolute top-2 left-2 z-30 pointer-events-none">
