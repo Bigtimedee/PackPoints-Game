@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { wallets, ledgerEntries, referralAttributions, referralLinks } from "@shared/schema";
-import { eq, and, sql, gte } from "drizzle-orm";
+import { wallets, ledgerEntries, referralAttributions, referralLinks, appConfig } from "@shared/schema";
+import { eq, and, sql, gte, or } from "drizzle-orm";
 import { bucketService } from "./bucketService";
 
 /**
@@ -90,9 +90,24 @@ export function calculateAmbassadorTier(referralCount: number): AmbassadorTier {
   };
 }
 
-const REFERRAL_BONUS_POINTS = 200;
-const DAILY_REFERRAL_BONUS_CAP = 1000;
+// Default bonus amounts — overridable at runtime via appConfig keys:
+//   "referral_referrer_bonus_pts"  → points credited to the referrer on FIRST_MATCH
+//   "referral_referred_bonus_pts"  → points credited to the invited user on FIRST_MATCH
+const DEFAULT_REFERRER_BONUS = 500;
+const DEFAULT_REFERRED_BONUS = 250;
 const REFERRAL_WELCOME_BONUS_POINTS = 100;
+const DAILY_REFERRAL_BONUS_CAP = 1000;
+
+async function getReferralBonusConfig(): Promise<{ referrerBonus: number; referredBonus: number }> {
+  const [referrerRow, referredRow] = await Promise.all([
+    db.query.appConfig.findFirst({ where: eq(appConfig.key, "referral_referrer_bonus_pts") }),
+    db.query.appConfig.findFirst({ where: eq(appConfig.key, "referral_referred_bonus_pts") }),
+  ]);
+  return {
+    referrerBonus: typeof referrerRow?.value === "number" ? referrerRow.value : DEFAULT_REFERRER_BONUS,
+    referredBonus: typeof referredRow?.value === "number" ? referredRow.value : DEFAULT_REFERRED_BONUS,
+  };
+}
 
 export async function grantReferralBonus(invitedUserId: string, eventType: "FIRST_MATCH"): Promise<{ granted: boolean; reason?: string }> {
   try {
@@ -118,12 +133,22 @@ export async function grantReferralBonus(invitedUserId: string, eventType: "FIRS
     }
 
     const referrerId = link.createdByUserId;
-    const idempotencyKey = `referral_bonus:${referrerId}:${invitedUserId}:${eventType}`;
+    const { referrerBonus, referredBonus } = await getReferralBonusConfig();
+
+    const referrerKey = `referral_first_match_referrer:${referrerId}:${invitedUserId}`;
+    const referredKey = `referral_first_match_referred:${invitedUserId}:${referrerId}`;
+    // Legacy key guard: prevents a second grant if the old one-sided bonus already ran
+    const legacyKey = `referral_bonus:${referrerId}:${invitedUserId}:${eventType}`;
 
     return await db.transaction(async (tx) => {
+      // If any credit for this pair has already been recorded, the whole event is done
       const existing = await tx.select({ id: ledgerEntries.id })
         .from(ledgerEntries)
-        .where(eq(ledgerEntries.idempotencyKey, idempotencyKey))
+        .where(or(
+          eq(ledgerEntries.idempotencyKey, referrerKey),
+          eq(ledgerEntries.idempotencyKey, referredKey),
+          eq(ledgerEntries.idempotencyKey, legacyKey),
+        ))
         .limit(1);
 
       if (existing.length > 0) {
@@ -133,13 +158,14 @@ export async function grantReferralBonus(invitedUserId: string, eventType: "FIRS
       const todayStart = new Date();
       todayStart.setUTCHours(0, 0, 0, 0);
 
-      let [wallet] = await tx.select()
+      // --- Credit referrer ---
+      let [referrerWallet] = await tx.select()
         .from(wallets)
         .where(eq(wallets.userId, referrerId))
         .for("update")
         .limit(1);
 
-      if (!wallet) {
+      if (!referrerWallet) {
         const [newWallet] = await tx.insert(wallets).values({
           userId: referrerId,
           balance: 0,
@@ -147,69 +173,107 @@ export async function grantReferralBonus(invitedUserId: string, eventType: "FIRS
           lifetimeSpent: 0,
           status: "active",
         }).returning();
-        wallet = newWallet;
+        referrerWallet = newWallet;
       }
 
-      if (wallet.status !== "active") {
-        return { granted: false, reason: "wallet_inactive" };
+      if (referrerWallet.status === "active") {
+        const todayBonuses = await tx.select({
+          total: sql<number>`COALESCE(SUM(${ledgerEntries.amount}), 0)`,
+        })
+          .from(ledgerEntries)
+          .where(and(
+            eq(ledgerEntries.walletId, referrerWallet.id),
+            eq(ledgerEntries.source, "referral"),
+            gte(ledgerEntries.createdAt, todayStart),
+          ));
+
+        const todayTotal = Number(todayBonuses[0]?.total || 0);
+        if (todayTotal < DAILY_REFERRAL_BONUS_CAP) {
+          const newReferrerBalance = referrerWallet.balance + referrerBonus;
+          const [referrerEntry] = await tx.insert(ledgerEntries).values({
+            walletId: referrerWallet.id,
+            entryType: "EARN",
+            amount: referrerBonus,
+            balanceAfter: newReferrerBalance,
+            reason: `Referral reward: your invited player completed their first game`,
+            source: "referral",
+            eventType: "referral_first_match_referrer",
+            refType: "referral",
+            refId: invitedUserId,
+            metadata: { invitedUserId, attributionId: attribution.id, referralLinkId: link.id },
+            idempotencyKey: referrerKey,
+          }).returning();
+
+          await tx.update(wallets).set({
+            balance: newReferrerBalance,
+            lifetimeEarned: referrerWallet.lifetimeEarned + referrerBonus,
+            updatedAt: new Date(),
+          }).where(eq(wallets.id, referrerWallet.id));
+
+          await bucketService.createBucket(
+            referrerId,
+            referrerBonus,
+            "BONUS",
+            referrerEntry.id,
+            { source: "referral_first_match_referrer", invitedUserId, eventType },
+            undefined,
+            tx,
+          );
+        }
       }
 
-      const todayBonuses = await tx.select({
-        total: sql<number>`COALESCE(SUM(${ledgerEntries.amount}), 0)`,
-      })
-        .from(ledgerEntries)
-        .where(and(
-          eq(ledgerEntries.walletId, wallet.id),
-          eq(ledgerEntries.source, "referral"),
-          gte(ledgerEntries.createdAt, todayStart),
-        ));
+      // --- Credit invited user ---
+      let [referredWallet] = await tx.select()
+        .from(wallets)
+        .where(eq(wallets.userId, invitedUserId))
+        .for("update")
+        .limit(1);
 
-      const todayTotal = Number(todayBonuses[0]?.total || 0);
-      if (todayTotal >= DAILY_REFERRAL_BONUS_CAP) {
-        return { granted: false, reason: "daily_cap_reached" };
+      if (!referredWallet) {
+        const [newWallet] = await tx.insert(wallets).values({
+          userId: invitedUserId,
+          balance: 0,
+          lifetimeEarned: 0,
+          lifetimeSpent: 0,
+          status: "active",
+        }).returning();
+        referredWallet = newWallet;
       }
 
-      const newBalance = wallet.balance + REFERRAL_BONUS_POINTS;
+      if (referredWallet.status === "active") {
+        const newReferredBalance = referredWallet.balance + referredBonus;
+        const [referredEntry] = await tx.insert(ledgerEntries).values({
+          walletId: referredWallet.id,
+          entryType: "EARN",
+          amount: referredBonus,
+          balanceAfter: newReferredBalance,
+          reason: `Referral reward: bonus for completing your first game via referral`,
+          source: "referral",
+          eventType: "referral_first_match_referred",
+          refType: "referral",
+          refId: referrerId,
+          metadata: { referrerId, attributionId: attribution.id, referralLinkId: link.id },
+          idempotencyKey: referredKey,
+        }).returning();
 
-      const [entry] = await tx.insert(ledgerEntries).values({
-        walletId: wallet.id,
-        entryType: "EARN",
-        amount: REFERRAL_BONUS_POINTS,
-        balanceAfter: newBalance,
-        reason: `Referral bonus: invited user completed first match`,
-        source: "referral",
-        eventType: "referral_first_match",
-        refType: "referral",
-        refId: invitedUserId,
-        metadata: {
+        await tx.update(wallets).set({
+          balance: newReferredBalance,
+          lifetimeEarned: referredWallet.lifetimeEarned + referredBonus,
+          updatedAt: new Date(),
+        }).where(eq(wallets.id, referredWallet.id));
+
+        await bucketService.createBucket(
           invitedUserId,
-          attributionId: attribution.id,
-          referralLinkId: link.id,
-        },
-        idempotencyKey,
-      }).returning();
+          referredBonus,
+          "BONUS",
+          referredEntry.id,
+          { source: "referral_first_match_referred", referrerId, eventType },
+          undefined,
+          tx,
+        );
+      }
 
-      await tx.update(wallets).set({
-        balance: newBalance,
-        lifetimeEarned: wallet.lifetimeEarned + REFERRAL_BONUS_POINTS,
-        updatedAt: new Date(),
-      }).where(eq(wallets.id, wallet.id));
-
-      await bucketService.createBucket(
-        referrerId,
-        REFERRAL_BONUS_POINTS,
-        "BONUS",
-        entry.id,
-        {
-          source: "referral_bonus",
-          invitedUserId,
-          eventType,
-        },
-        undefined,
-        tx,
-      );
-
-      console.log(`[ReferralRewards] Granted ${REFERRAL_BONUS_POINTS} pts to ${referrerId} for referring ${invitedUserId}`);
+      console.log(`[ReferralRewards] Double-sided grant: referrer ${referrerId} +${referrerBonus}pts, invited ${invitedUserId} +${referredBonus}pts`);
       return { granted: true };
     });
   } catch (err: any) {

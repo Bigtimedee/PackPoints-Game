@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Users, UserPlus, Search, Check, X, Gamepad2, Clock } from "lucide-react";
+import { Users, UserPlus, Search, Check, X, Gamepad2, Clock, Gift, Copy } from "lucide-react";
 
 interface Friend {
   friendshipId: string;
@@ -155,6 +155,64 @@ function FriendsSkeleton() {
   );
 }
 
+function ReferAndEarnCard() {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<{ code: string; referralUrl: string }>({
+    queryKey: ["/api/share/generate"],
+    queryFn: async () => {
+      const res = await apiRequest("POST", "/api/share/generate", { purpose: "INVITE" });
+      return res.json();
+    },
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const handleCopy = () => {
+    if (data?.referralUrl) {
+      navigator.clipboard.writeText(data.referralUrl);
+      toast({ title: "Link copied!" });
+    }
+  };
+
+  return (
+    <Card className="border-primary/30 bg-primary/5">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Gift className="h-4 w-4 text-primary" />
+          Refer a Friend — You Both Earn
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-4 text-sm">
+          <div className="flex-1 rounded-md border border-primary/20 bg-background p-3 text-center">
+            <p className="text-2xl font-bold text-primary">500</p>
+            <p className="text-xs text-muted-foreground">PackPTS you earn</p>
+          </div>
+          <div className="flex-1 rounded-md border border-primary/20 bg-background p-3 text-center">
+            <p className="text-2xl font-bold text-primary">250</p>
+            <p className="text-xs text-muted-foreground">PackPTS they earn</p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Bonuses are credited to both wallets when your friend completes their first game — on top of the standard 250 PackPTS signup bonus.
+        </p>
+        {!isLoading && data?.referralUrl && (
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={data.referralUrl}
+              className="text-xs font-mono"
+              data-testid="referral-link-input"
+            />
+            <Button size="sm" variant="outline" onClick={handleCopy} data-testid="button-copy-referral-link">
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Friends() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -241,7 +299,9 @@ export default function Friends() {
           <h1 className="text-2xl font-bold">Friends</h1>
         </div>
 
-        <Card className="mb-6">
+        <ReferAndEarnCard />
+
+        <Card className="mt-6 mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <UserPlus className="h-5 w-5" />

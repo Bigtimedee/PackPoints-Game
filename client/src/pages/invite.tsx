@@ -269,6 +269,13 @@ export default function InvitePage() {
             </Button>
           )}
 
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm text-center space-y-1">
+            <p className="font-semibold text-primary">Joining via a friend's link?</p>
+            <p className="text-muted-foreground">
+              You'll earn <span className="font-medium text-foreground">250 bonus PackPTS</span> when you complete your first game — and your friend earns <span className="font-medium text-foreground">500 PackPTS</span> too.
+            </p>
+          </div>
+
           <div className="text-center text-sm text-muted-foreground">
             <p>Don't have an invite code?</p>
             <Button
