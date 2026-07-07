@@ -520,9 +520,7 @@ export function GameCard({
           className="absolute pointer-events-none left-0 right-0 bottom-0 flex items-center justify-center"
           style={{
             height: "46%",
-            backdropFilter: "blur(24px)",
-            WebkitBackdropFilter: "blur(24px)",
-            backgroundColor: "rgba(15, 23, 42, 0.2)",
+            backgroundColor: "rgba(11, 15, 22, 0.92)",
             zIndex: 21,
           }}
           data-testid="mask-name-band"
