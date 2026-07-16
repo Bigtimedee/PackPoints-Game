@@ -1,5 +1,10 @@
 import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter, wallets, gameSessionsTable } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
+
+function hashResetToken(rawToken: string): string {
+  return createHash("sha256").update(rawToken).digest("hex");
+}
+
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
@@ -463,23 +468,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPasswordResetToken(userId: string): Promise<PasswordResetToken> {
-    const token = randomUUID();
+    const rawToken = randomUUID();
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-    
+
     const [resetToken] = await db.insert(passwordResetTokens).values({
       id: randomUUID(),
       userId,
-      token,
+      token: hashResetToken(rawToken),
       expiresAt,
     }).returning();
-    
-    return resetToken;
+
+    // Return raw token to be emailed — never recoverable from storage after this.
+    return { ...resetToken, token: rawToken };
   }
 
   async getPasswordResetToken(token: string): Promise<PasswordResetToken | null> {
     const [resetToken] = await db.select()
       .from(passwordResetTokens)
-      .where(eq(passwordResetTokens.token, token));
+      .where(eq(passwordResetTokens.token, hashResetToken(token)));
     
     if (!resetToken) return null;
     
