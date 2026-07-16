@@ -14,6 +14,12 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)]
 );
 
+export const rateLimitCounters = pgTable("rate_limit_counters", {
+  key: varchar("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  resetAt: timestamp("reset_at").notNull(),
+}, (table) => [index("IDX_rate_limit_reset_at").on(table.resetAt)]);
+
 // User status enum for Founders Cap
 export const userStatuses = ["PENDING", "ACTIVE", "WAITLISTED", "BANNED"] as const;
 export type UserStatus = typeof userStatuses[number];
@@ -301,7 +307,7 @@ export type StartGameRequest = z.infer<typeof startGameSchema>;
 export const registerSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or fewer").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
   email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters").max(100, "Password is too long"),
+  password: z.string().min(8, "Password must be at least 8 characters").max(100, "Password is too long"),
 });
 
 export type RegisterRequest = z.infer<typeof registerSchema>;

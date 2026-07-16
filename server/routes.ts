@@ -10,8 +10,9 @@ import {
   checkoutLimiter,
   gameStartLimiter,
   registrationLimiter,
+  forgotPasswordLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -1432,8 +1433,14 @@ export async function registerRoutes(
 
   app.post("/api/auth/local-logout", async (req: any, res) => {
     try {
-      delete req.session.localUserId;
-      res.json({ success: true });
+      req.session.destroy((err: any) => {
+        if (err) {
+          console.error("Error destroying session:", err);
+          return res.status(500).json({ error: "Failed to logout" });
+        }
+        res.clearCookie("connect.sid");
+        res.json({ success: true });
+      });
     } catch (error) {
       console.error("Error logging out:", error);
       res.status(500).json({ error: "Failed to logout" });
@@ -1441,7 +1448,7 @@ export async function registerRoutes(
   });
 
   // Password reset - request reset link
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", forgotPasswordLimiter, async (req, res) => {
     try {
       const { email } = req.body;
       if (!email || typeof email !== 'string') {
@@ -1521,7 +1528,16 @@ export async function registerRoutes(
       
       // Mark token as used
       await storage.markPasswordResetTokenUsed(resetToken.id);
-      
+
+      // SEC-01: Invalidate every existing session for this user.
+      try {
+        await db.delete(sessions).where(
+          sql`sess->>'localUserId' = ${resetToken.userId}`
+        );
+      } catch (sweepErr) {
+        console.error("[ResetPassword] Session sweep failed:", sweepErr);
+      }
+
       res.json({ success: true, message: "Password has been reset successfully" });
     } catch (error) {
       console.error("Error resetting password:", error);
