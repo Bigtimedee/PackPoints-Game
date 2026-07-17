@@ -61,6 +61,7 @@ import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
 import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
+import collabRouter from "./routes/collab";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import { registerHealthRoutes } from "./routes/health.routes";
@@ -140,6 +141,9 @@ export async function registerRoutes(
   
   // Friends and match invite routes
   app.use(friendsRouter);
+
+  // Collab co-creation routes
+  app.use(collabRouter);
 
   // Referral and share event routes
   app.use(referralsRouter);
@@ -455,9 +459,11 @@ export async function registerRoutes(
         makerNote: gameSets.makerNote,
         isUserCreated: gameSets.isUserCreated,
         createdByUserId: gameSets.createdByUserId,
+        coCreatorUserId: gameSets.coCreatorUserId,
         cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
         playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
         makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
+        coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
       }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
 
       if (!set) return res.status(404).json({ error: "Set not found" });

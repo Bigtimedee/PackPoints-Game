@@ -1962,6 +1962,7 @@ export const gameSets = pgTable("game_sets", {
   createdAt: timestamp("created_at").defaultNow(),
   // Making Layer — user-created sets
   createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  coCreatorUserId: varchar("co_creator_user_id").references(() => users.id),
   makerNote: text("maker_note"),
   isUserCreated: boolean("is_user_created").notNull().default(false),
 }, (table) => [
@@ -2004,6 +2005,25 @@ export type PlayableSet = {
   makerNote?: string | null;
   createdByUserId?: string | null;
 };
+
+// Collaboration Sessions - two-player co-creation sessions
+export const collaborationSessions = pgTable("collaboration_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  hostUserId: varchar("host_user_id").notNull().references(() => users.id),
+  guestUserId: varchar("guest_user_id").references(() => users.id),
+  status: text("status").notNull().default("waiting"), // waiting | active | published | abandoned
+  nominatedCards: jsonb("nominated_cards").$type<any[]>().notNull().default([]),
+  approvedCards: jsonb("approved_cards").$type<any[]>().notNull().default([]),
+  setName: text("set_name"),
+  makerNote: text("maker_note"),
+  publishedSetId: varchar("published_set_id").references(() => gameSets.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_collab_sessions_host").on(table.hostUserId),
+  index("idx_collab_sessions_status").on(table.status),
+]);
+
+export type CollaborationSession = typeof collaborationSessions.$inferSelect;
 
 // User Active Sets - which game sets a user has selected
 export const userActiveSets = pgTable("user_active_sets", {

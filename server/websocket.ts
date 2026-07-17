@@ -53,6 +53,7 @@ interface ClientConnection {
   username: string;
   lobbyId?: string;
   matchId?: string;
+  collabId?: string;
   membershipSecret?: string;
   isAuthenticated?: boolean;
   inQueue?: boolean;
@@ -71,6 +72,7 @@ const clients = new Map<WebSocket, ClientConnection>();
 const userSockets = new Map<string, WebSocket>(); // userId -> WebSocket for quick lookup
 const lobbyConnections = new Map<string, Set<WebSocket>>();
 const matchConnections = new Map<string, Set<WebSocket>>();
+const collabConnections = new Map<string, Set<WebSocket>>(); // collabId -> sockets
 
 // --- Persistent 1v1 Battle Session state ---
 // Track which matches belong to which Battle Session (a higher-level grouping of
@@ -279,6 +281,16 @@ export function sendToUser(userId: string, message: any): boolean {
   return false;
 }
 
+// Broadcast to all sockets in a collab session
+export function broadcastToCollab(collabId: string, message: any) {
+  const sockets = collabConnections.get(collabId);
+  if (!sockets) return;
+  const payload = JSON.stringify(message);
+  for (const ws of Array.from(sockets)) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+  }
+}
+
 // Friend match invite notifications
 export function notifyFriendMatchInvite(toUserId: string, invite: {
   inviteId: string;
@@ -381,9 +393,42 @@ async function handleMessage(ws: WebSocket, message: any) {
     case "battle_leave":
       await handleBattleLeave(ws, payload);
       break;
+    case "collab:join":
+      handleCollabJoin(ws, payload);
+      break;
+    case "collab:leave":
+      handleCollabLeave(ws);
+      break;
     default:
       ws.send(JSON.stringify({ type: "error", message: "Unknown message type" }));
   }
+}
+
+function handleCollabJoin(ws: WebSocket, payload: { collabId: string }) {
+  const { collabId } = payload;
+  if (!collabId) return;
+  const client = clients.get(ws);
+  if (!client) return;
+
+  // Leave previous collab room if switching
+  if (client.collabId && client.collabId !== collabId) {
+    const prev = collabConnections.get(client.collabId);
+    if (prev) prev.delete(ws);
+  }
+
+  client.collabId = collabId;
+  if (!collabConnections.has(collabId)) collabConnections.set(collabId, new Set());
+  collabConnections.get(collabId)!.add(ws);
+
+  ws.send(JSON.stringify({ type: "collab:joined", payload: { collabId } }));
+}
+
+function handleCollabLeave(ws: WebSocket) {
+  const client = clients.get(ws);
+  if (!client?.collabId) return;
+  const sockets = collabConnections.get(client.collabId);
+  if (sockets) sockets.delete(ws);
+  client.collabId = undefined;
 }
 
 // Auth handler for initial connection

@@ -18,7 +18,9 @@ interface SetDetail {
   makerNote: string | null;
   isUserCreated: boolean;
   createdByUserId: string | null;
+  coCreatorUserId: string | null;
   makerUsername: string | null;
+  coCreatorUsername: string | null;
   cardCount: number;
   playCount: number;
 }
@@ -93,7 +95,10 @@ export default function SetPage() {
             )}
           </div>
           {set.makerUsername && (
-            <p className="text-sm text-muted-foreground">by {set.makerUsername}</p>
+            <p className="text-sm text-muted-foreground">
+              by {set.makerUsername}
+              {set.coCreatorUsername && ` & ${set.coCreatorUsername}`}
+            </p>
           )}
         </div>
 
