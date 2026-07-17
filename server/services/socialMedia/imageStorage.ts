@@ -33,12 +33,13 @@ function getR2Client(): S3Client | null {
 }
 
 /**
- * Upload a PNG buffer to R2.
+ * Upload an image buffer to R2 (PNG by default).
  * Returns the public HTTPS URL on success, or null if R2 is not configured.
  */
 export async function uploadImageToStorage(
   buffer: Buffer,
   key: string,
+  contentType: string = "image/png",
 ): Promise<string | null> {
   const client = getR2Client();
   if (!client) {
@@ -57,7 +58,7 @@ export async function uploadImageToStorage(
     Bucket: bucket,
     Key: key,
     Body: buffer,
-    ContentType: "image/png",
+    ContentType: contentType,
     CacheControl: "public, max-age=31536000, immutable",
   }));
 

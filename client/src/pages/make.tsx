@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Upload, X, Check, Copy, Paintbrush } from "lucide-react";
+import { Loader2, Upload, X, Check, Copy, Paintbrush, Users2 } from "lucide-react";
 
 interface IdentifiedCard {
   playerName: string;
@@ -18,6 +18,7 @@ interface IdentifiedCard {
   setName: string;
   confidence: "high" | "medium" | "low";
   rawText: string;
+  imageUrl?: string | null;
 }
 
 interface CardEntry {
@@ -61,6 +62,19 @@ export default function MakePage() {
     mutationFn: async (imageBase64: string) => {
       const res = await apiRequest("POST", "/api/sets/identify-card", { imageBase64 });
       return res.json();
+    },
+  });
+
+  const startCollabMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/collab/create", {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setLocation(`/collab/${data.id}`);
+    },
+    onError: () => {
+      toast({ title: "Couldn't start a collab session", variant: "destructive" });
     },
   });
 
@@ -182,6 +196,28 @@ export default function MakePage() {
               className="hidden"
               onChange={e => e.target.files && handleFiles(e.target.files)}
             />
+
+            {entries.length === 0 && (
+              <Card className="bg-primary/5 border-primary/20">
+                <CardContent className="flex items-center justify-between gap-3 py-4">
+                  <div className="flex items-center gap-3">
+                    <Users2 className="h-5 w-5 text-primary shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">Make it together</p>
+                      <p className="text-xs text-muted-foreground">Invite a friend — you nominate cards, they approve.</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => startCollabMutation.mutate()}
+                    disabled={startCollabMutation.isPending}
+                  >
+                    {startCollabMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
 
             {entries.length > 0 && (
               <div className="grid grid-cols-2 gap-3">
