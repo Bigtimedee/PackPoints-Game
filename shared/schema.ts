@@ -1960,9 +1960,14 @@ export const gameSets = pgTable("game_sets", {
   cardsImportedCount: integer("cards_imported_count").notNull().default(0),
   lastImportAt: timestamp("last_import_at"),
   createdAt: timestamp("created_at").defaultNow(),
+  // Making Layer — user-created sets
+  createdByUserId: varchar("created_by_user_id").references(() => users.id),
+  makerNote: text("maker_note"),
+  isUserCreated: boolean("is_user_created").notNull().default(false),
 }, (table) => [
   index("idx_game_sets_active").on(table.isActive),
   index("idx_game_sets_sport_year").on(table.sport, table.year),
+  index("idx_game_sets_user_created").on(table.isUserCreated),
 ]);
 
 export const insertGameSetSchema = createInsertSchema(gameSets).omit({
@@ -1979,6 +1984,8 @@ export const updateGameSetSchema = z.object({
   isActive: z.boolean().optional(),
   cardhedgeSetQuery: z.string().optional(),
   cardhedgeCategory: z.string().optional(),
+  makerNote: z.string().max(140).optional(),
+  isUserCreated: z.boolean().optional(),
 });
 
 export type InsertGameSet = z.infer<typeof insertGameSetSchema>;
