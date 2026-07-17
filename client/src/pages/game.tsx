@@ -271,6 +271,14 @@ export default function Game() {
     onSuccess: (data) => {
       setRevealedCorrectAnswer(data.correctAnswer ?? null);
       if (data.correct) {
+        // Trigger marketplace listing fetch for user-created sets
+        const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
+        const card = freshSession?.questions?.[freshSession.currentQuestionIndex]?.card;
+        const setId = (card as any)?.gameSetId;
+        const cardId = (card as any)?.playableCardId || card?.id;
+        if (setId && cardId && currentGameSet?.isUserCreated) {
+          setListingTarget({ setId, cardId });
+        }
         setEarnedPoints(data.pointsEarned);
         setRewardDetails(data.reward || null);
         setShowPointsAnimation(true);
@@ -353,6 +361,7 @@ export default function Game() {
       setSelectedAnswer(null);
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
+      setListingTarget(null);
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
@@ -381,6 +390,20 @@ export default function Game() {
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [reportReason, setReportReason] = useState<string>("wrong_sport");
   const [reportedCardIds, setReportedCardIds] = useState<Set<string>>(new Set());
+
+  // Commerce: track which card to show listings for after a correct answer on a user-created set
+  const [listingTarget, setListingTarget] = useState<{ setId: string; cardId: string } | null>(null);
+
+  const { data: listingsData } = useQuery<{ listings: { listingId: string; title: string; price: string | null; platform: string; url: string }[] }>({
+    queryKey: ["/api/sets/listings", listingTarget?.setId, listingTarget?.cardId],
+    queryFn: async () => {
+      const res = await fetch(`/api/sets/${listingTarget!.setId}/cards/${listingTarget!.cardId}/listings`);
+      return res.json();
+    },
+    enabled: !!listingTarget,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
   const reportCardMutation = useMutation({
     mutationFn: async ({ cardId, reason }: { cardId: string; reason: string }) => {
@@ -1213,7 +1236,41 @@ export default function Game() {
                         "Next Question"
                       )}
                     </Button>
-                    
+
+                    {/* Commerce: "Find this card" tiles after a correct answer on a user-created set */}
+                    {listingTarget && listingsData && listingsData.listings.length > 0 && (
+                      <div className="rounded-lg border bg-card p-3 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                          <ShoppingBag className="h-3.5 w-3.5" />
+                          Find this card
+                        </p>
+                        <div className="space-y-1.5">
+                          {listingsData.listings.map((listing) => (
+                            <a
+                              key={listing.listingId}
+                              href={listing.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                apiRequest("POST", `/api/sets/${listingTarget.setId}/cards/${listingTarget.cardId}/log-click`, {
+                                  listingId: listing.listingId,
+                                  destinationUrl: listing.url,
+                                  platform: listing.platform,
+                                }).catch(() => {});
+                              }}
+                              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
+                            >
+                              <span className="truncate flex-1 text-foreground">{listing.title}</span>
+                              <span className="shrink-0 font-mono font-semibold text-primary">
+                                {listing.price ?? "—"}
+                              </span>
+                              <Badge variant="outline" className="shrink-0 text-[10px] capitalize">{listing.platform}</Badge>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {currentQuestion?.card?.id && !reportedCardIds.has(currentQuestion.card.id) && (
                       <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
                         <DialogTrigger asChild>

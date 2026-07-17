@@ -27,7 +27,9 @@ interface MakingLayerMetrics {
     makerNote: string | null;
     makerUsername: string | null;
     playCount: number;
+    outboundClicks: number;
   }[];
+  clicksBySet?: { setId: string; clicks: number }[];
 }
 
 export default function AdminMetrics() {
@@ -224,6 +226,7 @@ export default function AdminMetrics() {
                         <th className="text-left px-4 py-2 font-medium">Set Name</th>
                         <th className="text-left px-4 py-2 font-medium">Maker</th>
                         <th className="text-right px-4 py-2 font-medium">Plays</th>
+                        <th className="text-right px-4 py-2 font-medium">Clicks</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -238,6 +241,7 @@ export default function AdminMetrics() {
                           </td>
                           <td className="px-4 py-2 text-muted-foreground">{set.makerUsername ?? "—"}</td>
                           <td className="px-4 py-2 text-right font-mono font-bold">{Number(set.playCount)}</td>
+                          <td className="px-4 py-2 text-right font-mono text-muted-foreground">{set.outboundClicks ?? 0}</td>
                         </tr>
                       ))}
                     </tbody>

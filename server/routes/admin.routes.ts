@@ -5,7 +5,7 @@ import { adminService } from "../services/adminService";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
 import { eq, sql, desc, and, gt, gte } from "drizzle-orm";
-import { users, purchaseEvents, products, userEntitlements, gameSets } from "@shared/schema";
+import { users, purchaseEvents, products, userEntitlements, gameSets, outboundClicks } from "@shared/schema";
 import type { User } from "@shared/schema";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "../services/cardHedge";
 import { z } from "zod";
@@ -1005,7 +1005,7 @@ export function registerAdminRoutes(app: Express): void {
   // Admin: Making Layer metrics
   app.get("/api/admin/metrics/making-layer", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const [setsMadeByDay, makerRateRow, setPlayDepthRow, topSetsRows] = await Promise.all([
+      const [setsMadeByDay, makerRateRow, setPlayDepthRow, topSetsRows, clicksBySet] = await Promise.all([
         // Sets made per day, last 30 days
         db.execute(sql`
           SELECT DATE(created_at) AS day, COUNT(*)::int AS count
@@ -1052,7 +1052,23 @@ export function registerAdminRoutes(app: Express): void {
           ORDER BY "playCount" DESC
           LIMIT 10
         `),
+        // Click-through rate by set: outbound clicks from set-reveal surface, last 30 days
+        db.execute(sql`
+          SELECT
+            card_set_id AS "setId",
+            COUNT(*)::int AS "clicks"
+          FROM outbound_clicks
+          WHERE page_path = 'set-reveal'
+            AND created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY card_set_id
+          ORDER BY "clicks" DESC
+        `),
       ]);
+
+      const clickMap: Record<string, number> = {};
+      for (const r of (clicksBySet.rows as any[])) {
+        if (r.setId) clickMap[r.setId] = Number(r.clicks);
+      }
 
       res.json({
         setsMadeByDay: setsMadeByDay.rows.map((r: any) => ({
@@ -1061,7 +1077,14 @@ export function registerAdminRoutes(app: Express): void {
         })),
         makerRate: Number((makerRateRow.rows[0] as any)?.maker_rate ?? 0),
         setPlayDepth: Number((setPlayDepthRow.rows[0] as any)?.avg_depth ?? 0),
-        topSets: topSetsRows.rows,
+        topSets: (topSetsRows.rows as any[]).map(r => ({
+          ...r,
+          outboundClicks: clickMap[r.id] ?? 0,
+        })),
+        clicksBySet: (clicksBySet.rows as any[]).map(r => ({
+          setId: r.setId,
+          clicks: Number(r.clicks),
+        })),
       });
     } catch (error) {
       console.error("[MakingLayer] metrics error:", error);
