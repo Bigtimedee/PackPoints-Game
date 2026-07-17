@@ -68,6 +68,7 @@ const Roadmap = lazy(() => import("@/pages/roadmap"));
 const Make = lazy(() => import("@/pages/make"));
 const SetPage = lazy(() => import("@/pages/set-page"));
 const Collab = lazy(() => import("@/pages/collab"));
+const BrowseSets = lazy(() => import("@/pages/browse-sets"));
 
 function BrandedLoadingScreen() {
   return (
@@ -315,6 +316,7 @@ function Router() {
       <Route path="/partners" component={Partners} />
       <Route path="/roadmap" component={Roadmap} />
       <Route path="/make" component={Make} />
+      <Route path="/sets" component={BrowseSets} />
       <Route path="/sets/:id" component={SetPage} />
       <Route path="/collab/:id" component={Collab} />
       <Route component={NotFound} />

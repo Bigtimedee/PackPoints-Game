@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Trophy, User, ShoppingBag, Play, Coins } from "lucide-react";
+import { Trophy, User, Play, Coins, Compass } from "lucide-react";
 
 export function MobileNav() {
   const [location] = useLocation();
@@ -8,7 +8,7 @@ export function MobileNav() {
     { href: "/", label: "Play", icon: Play },
     { href: "/leaderboard", label: "Ranks", icon: Trophy },
     { href: "/store", label: "Store", icon: Coins },
-    { href: "/marketplace", label: "Redeem", icon: ShoppingBag },
+    { href: "/sets", label: "Browse", icon: Compass },
     { href: "/profile", label: "Profile", icon: User },
   ];
 
