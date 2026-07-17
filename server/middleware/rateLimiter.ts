@@ -139,3 +139,11 @@ export const forgotPasswordLimiter = rateLimit({
   keySource: "ip",
   message: "Too many password reset requests. Please wait 15 minutes and try again.",
 });
+
+export const cardIdentifyLimiter = rateLimit({
+  windowMs: 3_600_000, // 1 hour
+  max: 20,
+  keyPrefix: "card_identify",
+  keySource: "user",
+  message: "Too many card identification requests. Please try again in an hour.",
+});
