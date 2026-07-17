@@ -11,6 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
   forgotPasswordLimiter,
+  cardIdentifyLimiter,
 } from "./middleware/rateLimiter";
 import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
@@ -298,6 +299,46 @@ export async function registerRoutes(
     } catch (err) {
       console.error("[PanicSwitch] Error toggling set:", err);
       res.status(500).json({ error: "Failed to toggle panic switch" });
+    }
+  });
+
+  // ========================================
+  // MAKING LAYER — SNAP-TO-SET
+  // ========================================
+
+  app.post("/api/sets/identify-card", isAuthenticated, cardIdentifyLimiter, async (req: any, res) => {
+    try {
+      const { imageBase64 } = req.body;
+
+      if (!imageBase64 || typeof imageBase64 !== "string") {
+        return res.status(400).json({ error: "imageBase64 is required" });
+      }
+
+      // Rough size check: base64 encodes ~1.33x, so 5MB raw ≈ 6.7MB base64 ≈ 6_700_000 chars
+      if (imageBase64.length > 6_700_000) {
+        return res.status(400).json({ error: "Image too large. Maximum size is 5MB." });
+      }
+
+      const { identifyCardFromPhoto } = await import("./services/snapToSet");
+      const result = await identifyCardFromPhoto(imageBase64);
+
+      if (!result.success) {
+        return res.status(422).json({
+          error: result.reason === "not-playable"
+            ? `This card type can't be used in a game: ${result.blockedReason}`
+            : result.reason === "not-a-card"
+            ? "This image doesn't appear to be a sports card."
+            : "Couldn't read this card. Try a clearer photo.",
+          reason: result.reason,
+          blockedReason: result.blockedReason,
+          rawText: result.rawText,
+        });
+      }
+
+      res.json({ card: result.card });
+    } catch (error) {
+      console.error("[SnapToSet] identify-card error:", error);
+      res.status(500).json({ error: "Failed to identify card" });
     }
   });
 
