@@ -5,7 +5,7 @@ import { adminService } from "../services/adminService";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
 import { eq, sql, desc, and, gt, gte } from "drizzle-orm";
-import { users, purchaseEvents, products, userEntitlements } from "@shared/schema";
+import { users, purchaseEvents, products, userEntitlements, gameSets } from "@shared/schema";
 import type { User } from "@shared/schema";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "../services/cardHedge";
 import { z } from "zod";
@@ -999,6 +999,73 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       console.error("Error getting metrics:", error);
       res.status(500).json({ error: "Failed to get metrics" });
+    }
+  });
+
+  // Admin: Making Layer metrics
+  app.get("/api/admin/metrics/making-layer", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const [setsMadeByDay, makerRateRow, setPlayDepthRow, topSetsRows] = await Promise.all([
+        // Sets made per day, last 30 days
+        db.execute(sql`
+          SELECT DATE(created_at) AS day, COUNT(*)::int AS count
+          FROM game_sets
+          WHERE is_user_created = true
+            AND created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY DATE(created_at)
+          ORDER BY day ASC
+        `),
+        // Maker rate: distinct set-creators / MAU (user_presence last 30 days)
+        db.execute(sql`
+          SELECT
+            (SELECT COUNT(DISTINCT created_by_user_id) FROM game_sets WHERE is_user_created = true)::float
+            / NULLIF(
+                (SELECT COUNT(DISTINCT user_id) FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '30 days'),
+                0
+              ) AS maker_rate
+        `),
+        // Set play depth: avg plays per user-created set that has >=1 play
+        db.execute(sql`
+          SELECT AVG(play_count) AS avg_depth FROM (
+            SELECT
+              (SELECT COUNT(*) FROM game_sessions
+               WHERE (questions->0->'card'->>'gameSetId') = gs.id
+                 AND status = 'completed') AS play_count
+            FROM game_sets gs
+            WHERE gs.is_user_created = true
+          ) sub
+          WHERE play_count >= 1
+        `),
+        // Top 10 user-created sets by play count
+        db.execute(sql`
+          SELECT
+            gs.id,
+            gs.set_name AS "setName",
+            gs.maker_note AS "makerNote",
+            u.username AS "makerUsername",
+            (SELECT COUNT(*) FROM game_sessions
+             WHERE (questions->0->'card'->>'gameSetId') = gs.id
+               AND status = 'completed')::int AS "playCount"
+          FROM game_sets gs
+          LEFT JOIN users u ON u.id = gs.created_by_user_id
+          WHERE gs.is_user_created = true
+          ORDER BY "playCount" DESC
+          LIMIT 10
+        `),
+      ]);
+
+      res.json({
+        setsMadeByDay: setsMadeByDay.rows.map((r: any) => ({
+          day: r.day,
+          count: Number(r.count),
+        })),
+        makerRate: Number((makerRateRow.rows[0] as any)?.maker_rate ?? 0),
+        setPlayDepth: Number((setPlayDepthRow.rows[0] as any)?.avg_depth ?? 0),
+        topSets: topSetsRows.rows,
+      });
+    } catch (error) {
+      console.error("[MakingLayer] metrics error:", error);
+      res.status(500).json({ error: "Failed to get Making Layer metrics" });
     }
   });
 
