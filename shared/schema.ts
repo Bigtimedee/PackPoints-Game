@@ -2000,6 +2000,9 @@ export type PlayableSet = {
   setName: string;
   league: string | null;
   cardsImportedCount: number;
+  isUserCreated?: boolean;
+  makerNote?: string | null;
+  createdByUserId?: string | null;
 };
 
 // User Active Sets - which game sets a user has selected

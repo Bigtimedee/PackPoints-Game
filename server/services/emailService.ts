@@ -290,3 +290,35 @@ If you didn't request this password reset, you can safely ignore this email.
     text,
   });
 }
+
+export async function sendMakerDigestEmail(
+  email: string,
+  username: string,
+  setName: string,
+  playCount: number,
+): Promise<boolean> {
+  const siteUrl = process.env.SITE_URL || "https://packpts.com";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: sans-serif; background: #f9f9f9; margin: 0; padding: 20px;">
+      <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 32px;">
+        <h2 style="margin-top: 0; color: #111;">Your set got played today</h2>
+        <p style="color: #444;">Hey ${username},</p>
+        <p style="color: #444;">
+          Your set <strong>${setName}</strong> was played
+          <strong>${playCount} time${playCount !== 1 ? "s" : ""}</strong> today on PackPTS.
+        </p>
+        <a href="${siteUrl}" style="display: inline-block; background: #6366f1; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 8px;">
+          See your sets
+        </a>
+        <p style="color: #999; font-size: 12px; margin-top: 24px;">
+          You're getting this because you created a set on PackPTS. We send at most one digest per set per day.
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+  const text = `Hey ${username}, your set "${setName}" was played ${playCount} time${playCount !== 1 ? "s" : ""} today on PackPTS. Visit ${siteUrl} to see your sets.`;
+  return sendEmail({ to: email, subject: `Your set "${setName}" got played today`, html, text });
+}

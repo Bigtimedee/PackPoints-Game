@@ -1159,6 +1159,9 @@ export default function Game() {
         {/* Zone 3: Answers */}
         {currentQuestion && (
           <div className="pb-4">
+            {currentGameSet?.isUserCreated && currentGameSet?.makerNote && (
+              <p className="text-xs text-muted-foreground/60 italic mb-1 line-clamp-1">"{currentGameSet.makerNote}"</p>
+            )}
             <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
               <p className="text-xs sm:text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
               <Badge variant="outline" className="font-mono text-xs" data-testid="badge-point-value">

@@ -407,6 +407,94 @@ export async function registerRoutes(
     }
   });
 
+  // In-memory daily dedup for maker play notifications (clears at midnight UTC)
+  const makerNotifiedToday = new Set<string>();
+  setInterval(() => makerNotifiedToday.clear(), 86_400_000).unref();
+
+  async function notifyMakerIfUserCreated(setId: string, playedByUserId: string | null): Promise<void> {
+    const todayKey = `${setId}:${new Date().toISOString().slice(0, 10)}`;
+    if (makerNotifiedToday.has(todayKey)) return;
+
+    const [set] = await db.select({
+      setName: gameSets.setName,
+      isUserCreated: gameSets.isUserCreated,
+      createdByUserId: gameSets.createdByUserId,
+    }).from(gameSets).where(and(eq(gameSets.id, setId), eq(gameSets.isUserCreated, true))).limit(1);
+
+    if (!set?.createdByUserId || set.createdByUserId === playedByUserId) return;
+
+    const [maker] = await db.select({ email: users.email, username: users.username })
+      .from(users).where(eq(users.id, set.createdByUserId)).limit(1);
+
+    if (!maker?.email) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const countResult = await db.execute(sql`
+      SELECT COUNT(*) AS count FROM game_sessions
+      WHERE (questions->0->'card'->>'gameSetId') = ${setId}
+        AND status = 'completed'
+        AND completed_at >= ${today}
+    `);
+    const playsToday = Number((countResult.rows[0] as any)?.count ?? 1);
+
+    makerNotifiedToday.add(todayKey);
+    const { sendMakerDigestEmail } = await import("./services/emailService");
+    await sendMakerDigestEmail(maker.email, maker.username || "Maker", set.setName, playsToday);
+  }
+
+  // Public: Get a single set by id with maker metadata and play count
+  app.get("/api/sets/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const [set] = await db.select({
+        id: gameSets.id,
+        setName: gameSets.setName,
+        sport: gameSets.sport,
+        brand: gameSets.brand,
+        year: gameSets.year,
+        makerNote: gameSets.makerNote,
+        isUserCreated: gameSets.isUserCreated,
+        createdByUserId: gameSets.createdByUserId,
+        cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
+        playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
+        makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
+      }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
+
+      if (!set) return res.status(404).json({ error: "Set not found" });
+      res.json(set);
+    } catch (error) {
+      console.error("[Sets] GET /api/sets/:id error:", error);
+      res.status(500).json({ error: "Failed to get set" });
+    }
+  });
+
+  // Auth: Get all sets created by the current user
+  app.get("/api/my-sets", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const sets = await db.select({
+        id: gameSets.id,
+        setName: gameSets.setName,
+        sport: gameSets.sport,
+        brand: gameSets.brand,
+        year: gameSets.year,
+        makerNote: gameSets.makerNote,
+        cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
+        playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
+        createdAt: gameSets.createdAt,
+      }).from(gameSets)
+        .where(and(eq(gameSets.createdByUserId, userId), eq(gameSets.isUserCreated, true)))
+        .orderBy(desc(gameSets.createdAt));
+
+      res.json(sets);
+    } catch (error) {
+      console.error("[Sets] GET /api/my-sets error:", error);
+      res.status(500).json({ error: "Failed to get your sets" });
+    }
+  });
+
   app.post("/api/game/start", gameStartLimiter, collectGeo, async (req: any, res) => {
     try {
       const parsed = startGameSchema.safeParse(req.body);
@@ -982,6 +1070,12 @@ export async function registerRoutes(
                 mode: session.mode || "solo",
                 streak: streakDays,
               }).catch(err => console.error("[ContentFactory] Background error:", err?.message));
+
+              const playedSetId = (session.questions as any[])[0]?.card?.gameSetId;
+              if (playedSetId) {
+                notifyMakerIfUserCreated(playedSetId, session.userId)
+                  .catch(err => console.error("[MakerNotify] Background error:", err?.message));
+              }
             } catch (cfErr) {
               console.error("[ContentFactory] Import error:", cfErr);
             }
@@ -6666,6 +6760,9 @@ export async function registerRoutes(
           league: gameSets.league,
           cardsImportedCount: gameSets.cardsImportedCount,
           lastImportAt: gameSets.lastImportAt,
+          isUserCreated: gameSets.isUserCreated,
+          makerNote: gameSets.makerNote,
+          createdByUserId: gameSets.createdByUserId,
           // Get actual verified playable card count using correlated subquery
           // Must match getRandomCardsFromSet() logic exactly
           actualPlayableCards: sql<number>`(
@@ -6721,6 +6818,9 @@ export async function registerRoutes(
         // Use actual playable card count instead of stale cardsImportedCount
         cardsImportedCount: set.actualPlayableCards || set.cardsImportedCount,
         lastImportAt: set.lastImportAt,
+        isUserCreated: (set as any).isUserCreated ?? false,
+        makerNote: (set as any).makerNote ?? null,
+        createdByUserId: (set as any).createdByUserId ?? null,
       }));
       
       res.json(deduplicated);
