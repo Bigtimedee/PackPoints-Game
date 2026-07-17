@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play, X } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play, X, Paintbrush } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
@@ -116,6 +116,18 @@ const gameModes = [
     pointRange: "500-5000 pts",
     difficulty: "Expert",
     disabled: true,
+  },
+  {
+    id: "make",
+    title: "Make a Set",
+    description: "Upload photos of your cards and build a playable set for others to guess.",
+    icon: Paintbrush,
+    href: "/make",
+    badge: "New",
+    badgeVariant: "default" as const,
+    pointRange: "—",
+    difficulty: "Creators",
+    disabled: false,
   },
 ];
 

@@ -342,6 +342,71 @@ export async function registerRoutes(
     }
   });
 
+  const createUserSetSchema = z.object({
+    setName: z.string().min(1).max(60),
+    makerNote: z.string().min(1).max(140),
+    cards: z.array(z.object({
+      playerName: z.string(),
+      year: z.number().int(),
+      brand: z.string(),
+      sport: z.string(),
+      setName: z.string(),
+      confidence: z.enum(["high", "medium", "low"]),
+      rawText: z.string(),
+    })).min(5).max(20),
+  });
+
+  app.post("/api/sets/create", isAuthenticated, async (req: any, res) => {
+    try {
+      const parsed = createUserSetSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const { setName, makerNote, cards } = parsed.data;
+
+      // Derive sport/brand/year from majority of cards
+      const firstCard = cards[0];
+      const rawSport = firstCard.sport.toLowerCase();
+      const sport = ["baseball", "basketball", "football", "hockey"].includes(rawSport)
+        ? rawSport
+        : "baseball";
+
+      const [newSet] = await db.insert(gameSets).values({
+        sport,
+        brand: firstCard.brand || "Mixed",
+        year: firstCard.year || new Date().getFullYear(),
+        setName,
+        isActive: true,
+        isUserCreated: true,
+        createdByUserId: userId,
+        makerNote,
+        marketplaceKeywords: [],
+      }).returning({ id: gameSets.id });
+
+      const setId = newSet.id;
+
+      await db.insert(playableCards).values(
+        cards.map(card => ({
+          gameSetId: setId,
+          cardhedgeCardId: `snap2set:${randomUUID()}`,
+          player: card.playerName,
+          set: card.setName,
+          description: `${card.year} ${card.brand} ${card.setName} — ${card.playerName}`,
+          isPlayable: true,
+        }))
+      );
+
+      res.json({ setId, setUrl: `/sets/${setId}`, cardCount: cards.length });
+    } catch (error) {
+      console.error("[SnapToSet] create-set error:", error);
+      res.status(500).json({ error: "Failed to create set" });
+    }
+  });
+
   app.post("/api/game/start", gameStartLimiter, collectGeo, async (req: any, res) => {
     try {
       const parsed = startGameSchema.safeParse(req.body);

@@ -65,6 +65,7 @@ const AdminDaily5Stats = lazy(() => import("@/pages/admin/daily5-stats"));
 const AdminGrowth = lazy(() => import("@/pages/admin/growth"));
 const Creators = lazy(() => import("@/pages/creators"));
 const Roadmap = lazy(() => import("@/pages/roadmap"));
+const Make = lazy(() => import("@/pages/make"));
 
 function BrandedLoadingScreen() {
   return (
@@ -311,6 +312,7 @@ function Router() {
       <Route path="/creators" component={Creators} />
       <Route path="/partners" component={Partners} />
       <Route path="/roadmap" component={Roadmap} />
+      <Route path="/make" component={Make} />
       <Route component={NotFound} />
     </Switch>
     </Suspense>
