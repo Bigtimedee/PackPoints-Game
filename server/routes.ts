@@ -474,6 +474,73 @@ export async function registerRoutes(
     }
   });
 
+  // Public: Get marketplace listings for a card in a user-created set (for post-reveal "Find this card")
+  // Results cached by the underlying marketplace service (5-minute TTL), good enough for this surface.
+  app.get("/api/sets/:setId/cards/:cardId/listings", async (req, res) => {
+    try {
+      const { setId, cardId } = req.params;
+
+      const [card] = await db.select({
+        player: playableCards.player,
+        gameSetId: playableCards.gameSetId,
+      })
+        .from(playableCards)
+        .where(eq(playableCards.id, cardId))
+        .limit(1);
+
+      if (!card || !card.player) return res.json({ listings: [] });
+
+      const [set] = await db.select({ year: gameSets.year, brand: gameSets.brand, isUserCreated: gameSets.isUserCreated })
+        .from(gameSets).where(eq(gameSets.id, setId)).limit(1);
+
+      if (!set?.isUserCreated) return res.json({ listings: [] });
+
+      const q = `${card.player} ${set.year} ${set.brand}`;
+      const result = await marketplaceService.searchMarketplace({ q, limit: 3, sort: "priceAsc" });
+
+      res.json({
+        listings: result.listings.map(l => ({
+          listingId: l.listingId,
+          title: l.title,
+          price: l.price ? `$${(l.price.amount).toFixed(2)}` : null,
+          platform: l.source,
+          url: l.url,
+        })),
+      });
+    } catch (error) {
+      console.error("[Sets] GET listings error:", error);
+      res.json({ listings: [] }); // always fall back gracefully
+    }
+  });
+
+  // Auth (optional): Log an outbound listing click from the post-answer reveal
+  app.post("/api/sets/:setId/cards/:cardId/log-click", async (req: any, res) => {
+    try {
+      const { setId, cardId } = req.params;
+      const { listingId, destinationUrl, platform } = req.body;
+      if (!listingId || !destinationUrl || !platform) return res.status(400).json({ error: "Missing fields" });
+
+      const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+      const { logOutboundClick } = await import("./services/marketplace/outbound");
+      await logOutboundClick({
+        source: platform,
+        listingId,
+        destinationUrl,
+        userId,
+        sessionId: null,
+        ip: null,
+        userAgent: req.headers["user-agent"] || null,
+        pagePath: "set-reveal",
+        cardSetId: setId,
+        cardId,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[Sets] log-click error:", error);
+      res.json({ ok: false });
+    }
+  });
+
   // Auth: Get all sets created by the current user
   app.get("/api/my-sets", isAuthenticated, async (req: any, res) => {
     try {
