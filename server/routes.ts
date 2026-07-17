@@ -474,6 +474,38 @@ export async function registerRoutes(
     }
   });
 
+  // Public: Browse all user-created sets, sorted by play count
+  app.get("/api/sets", async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 20, 50);
+      const offset = Number(req.query.offset) || 0;
+
+      const rows = await db.execute(sql`
+        SELECT
+          gs.id,
+          gs.set_name AS "setName",
+          gs.sport,
+          gs.brand,
+          gs.year,
+          gs.maker_note AS "makerNote",
+          gs.created_at AS "createdAt",
+          u.username AS "makerUsername",
+          (SELECT COUNT(*) FROM playable_cards pc WHERE pc.game_set_id = gs.id AND pc.is_playable = true)::int AS "cardCount",
+          (SELECT COUNT(*) FROM game_sessions gs2 WHERE (gs2.questions->0->'card'->>'gameSetId') = gs.id AND gs2.status = 'completed')::int AS "playCount"
+        FROM game_sets gs
+        LEFT JOIN users u ON u.id = gs.created_by_user_id
+        WHERE gs.is_user_created = true
+        ORDER BY "playCount" DESC, gs.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+
+      res.json({ sets: rows.rows });
+    } catch (error) {
+      console.error("[Sets] GET /api/sets error:", error);
+      res.status(500).json({ error: "Failed to list sets" });
+    }
+  });
+
   // Public: Get marketplace listings for a card in a user-created set (for post-reveal "Find this card")
   // Results cached by the underlying marketplace service (5-minute TTL), good enough for this surface.
   app.get("/api/sets/:setId/cards/:cardId/listings", async (req, res) => {

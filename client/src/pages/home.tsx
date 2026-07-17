@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play, X, Paintbrush } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play, X, Paintbrush, Compass } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
@@ -127,6 +127,18 @@ const gameModes = [
     badgeVariant: "default" as const,
     pointRange: "—",
     difficulty: "Creators",
+    disabled: false,
+  },
+  {
+    id: "browse",
+    title: "Browse Sets",
+    description: "Explore sets built by the community and play the ones you love.",
+    icon: Compass,
+    href: "/sets",
+    badge: "Community",
+    badgeVariant: "secondary" as const,
+    pointRange: "—",
+    difficulty: "Discover",
     disabled: false,
   },
 ];
