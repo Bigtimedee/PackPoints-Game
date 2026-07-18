@@ -339,7 +339,25 @@ export async function registerRoutes(
         });
       }
 
-      res.json({ card: result.card });
+      // Store the photo so the card is playable in-game (masked card display).
+      // Falls back to null when R2 is not configured — the card can still be
+      // published but won't be served in gameplay until it has an image.
+      let imageUrl: string | null = null;
+      try {
+        const buffer = Buffer.from(imageBase64, "base64");
+        const isPng = buffer.length > 4 && buffer[0] === 0x89 && buffer[1] === 0x50;
+        const ext = isPng ? "png" : "jpg";
+        const { uploadImageToStorage } = await import("./services/socialMedia/imageStorage");
+        imageUrl = await uploadImageToStorage(
+          buffer,
+          `snap2set/${randomUUID()}.${ext}`,
+          isPng ? "image/png" : "image/jpeg",
+        );
+      } catch (uploadError) {
+        console.error("[SnapToSet] photo upload failed (continuing without image):", uploadError);
+      }
+
+      res.json({ card: { ...result.card, imageUrl } });
     } catch (error) {
       console.error("[SnapToSet] identify-card error:", error);
       res.status(500).json({ error: "Failed to identify card" });
@@ -357,6 +375,7 @@ export async function registerRoutes(
       setName: z.string(),
       confidence: z.enum(["high", "medium", "low"]),
       rawText: z.string(),
+      imageUrl: z.string().url().startsWith("https://").nullable().optional(),
     })).min(5).max(20),
   });
 
@@ -400,6 +419,9 @@ export async function registerRoutes(
           player: card.playerName,
           set: card.setName,
           description: `${card.year} ${card.brand} ${card.setName} — ${card.playerName}`,
+          imageUrl: card.imageUrl ?? null,
+          // category must match the set's sport or getRandomCardsFromSet filters the card out
+          category: sport,
           isPlayable: true,
         }))
       );

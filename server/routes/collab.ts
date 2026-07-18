@@ -198,14 +198,14 @@ router.post("/api/collab/:id/publish", isAuthenticated, async (req: any, res: Re
     }).returning();
 
     const cardRows = approved.map((card: any) => ({
-      id: `snap2set:${randomUUID()}`,
       gameSetId: newSet.id,
-      cardhedgeCardId: card.cardhedgeCardId || `snap2set:${randomUUID()}`,
-      playerName: card.playerName,
-      sport: card.sport || newSet.sport,
-      brand: card.brand || newSet.brand,
-      year: card.year || newSet.year,
+      cardhedgeCardId: `snap2set:${randomUUID()}`,
+      player: card.playerName,
+      set: parsed.data.setName,
+      description: `${card.year || newSet.year} ${card.brand || newSet.brand} — ${card.playerName}`,
       imageUrl: card.imageUrl ?? null,
+      // category must match the set's sport or getRandomCardsFromSet filters the card out
+      category: newSet.sport,
       isPlayable: true,
     }));
     await db.insert(playableCards).values(cardRows);

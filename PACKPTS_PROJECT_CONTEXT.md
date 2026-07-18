@@ -1806,7 +1806,59 @@ Long-term stated target: **Fanatics ecosystem at $1B valuation.**
 
 ---
 
-## 29. Instructions for Future Claude Code Sessions
+## 29. Making Layer — User-Created Sets
+
+Shipped July 2026 across seven sequential PRs (see `MAKING_LAYER_PROMPTS.md` for the original specs). Lets any user build a playable set from photos of their own cards, share it, co-create with a friend, and surface purchase links to players.
+
+### Schema
+
+- `game_sets` gained: `created_by_user_id` (FK users, null for staff sets), `co_creator_user_id` (FK users, set by collab publish), `maker_note` (text, ≤140 chars enforced at API layer), `is_user_created` (boolean, indexed).
+- New table `collaboration_sessions`: `host_user_id`, `guest_user_id` (null until joined), `status` (`waiting`/`active`/`published`/`abandoned`), `nominated_cards` + `approved_cards` (JSONB arrays), `set_name`, `maker_note`, `published_set_id` (FK game_sets), `created_at`.
+- User-created `playable_cards` rows use `cardhedgeCardId: snap2set:<uuid>` (never a real Card Hedge id). They must carry `image_url` (uploaded card photo) and `category` (= set sport) or `getRandomCardsFromSet` in `server/storage.ts` filters them out of gameplay.
+- Migrations: `migrations/add_maker_fields_to_game_sets.sql`, `migrations/add_collab_sessions.sql` — both applied to production Supabase.
+
+### Server routes
+
+- `POST /api/sets/identify-card` (auth, 20/hr/user via `cardIdentifyLimiter`) — OpenAI gpt-4o vision via `server/services/snapToSet.ts`, runs `classifyCard()` playability check, uploads the photo to Cloudflare R2 (`snap2set/<uuid>.<ext>` via `server/services/socialMedia/imageStorage.ts`, graceful null when R2 unconfigured), returns identified card + `imageUrl`.
+- `POST /api/sets/create` (auth) — 5–20 cards, creates `game_sets` row (`isUserCreated: true`) + `playable_cards` rows with `imageUrl` and `category`.
+- `GET /api/sets` (public) — browse user-created sets ordered by play count; powers `/sets`.
+- `GET /api/sets/:id` (public) — set metadata, maker + co-creator usernames, card count, play count.
+- `GET /api/my-sets` (auth) — the user's sets with play counts (profile "My Sets" tab).
+- `GET /api/sets/:setId/cards/:cardId/listings` (public) — top 3 cheapest marketplace listings for the card (player + year + brand query); always returns `{ listings: [] }` on failure, never errors.
+- `POST /api/sets/:setId/cards/:cardId/log-click` — logs to `outbound_clicks` with `pagePath: 'set-reveal'` for commerce attribution.
+- `server/routes/collab.ts` (mounted in routes.ts): `POST /api/collab/create`, `GET /api/collab/:id`, `POST /api/collab/:id/join`, `/nominate`, `/approve` (can't approve own nomination), `/publish` (host only, ≥5 approved cards; sets `coCreatorUserId`).
+- Admin: `GET /api/admin/metrics/making-layer` — sets/day (30d), maker rate (creators ÷ MAU), set play depth, top-10 sets with outbound click counts.
+
+### Play count convention
+
+`game_sessions` has no `set_id` column. Play counts are derived with the JSONB query `(questions->0->'card'->>'gameSetId') = <setId> AND status = 'completed'`. Any change to how questions embed `gameSetId` breaks every play-count surface (set page, my-sets, admin metrics, maker digest).
+
+### WebSocket (collab realtime)
+
+`server/websocket.ts`: `collabConnections` map, `collab:join`/`collab:leave` client messages, `broadcastToCollab(collabId, message)` export used by the REST routes to push `collab:guest_joined`, `collab:card_nominated`, `collab:card_approved`, `collab:published`.
+
+### Client pages
+
+- `/make` — 3-step wizard (Upload → Review → Publish) + "Make it together" button that creates a collab session.
+- `/sets` — community browse grid with search; also in mobile nav ("Browse") and home game-modes grid.
+- `/sets/:id` — public set page; shows "by {maker} & {co-creator}".
+- `/collab/:id` — host/guest co-creation with live updates.
+- Profile "My Sets" tab; in-game maker note shown above the question for user-created sets; post-reveal "Find this card" listing tiles (correct answer + user-created set only).
+
+### Maker digest email
+
+One email per set per day (in-memory dedup `Set` keyed `${setId}:${date}` in routes.ts — resets on deploy), sent via `sendMakerDigestEmail` after a completed session on a user-created set.
+
+### Known gaps
+
+- **R2 dependency:** card photos only persist when `R2_*` env vars are configured. Without R2, `identify-card` returns `imageUrl: null` and published cards are excluded from gameplay (image filter in `getRandomCardsFromSet`).
+- **Legacy user sets:** sets published before the image-upload fix (July 2026) have cards with no `image_url`/`category` and silently fall back to legacy cards during play.
+- **Maker digest dedup is in-memory** — a redeploy can cause a second same-day email.
+- **Collab swap** (`collab:swap` in the original spec) was not implemented; approve-only flow shipped.
+
+---
+
+## 30. Instructions for Future Claude Code Sessions
 
 **Read this file before making any changes to PackPTS.**
 
