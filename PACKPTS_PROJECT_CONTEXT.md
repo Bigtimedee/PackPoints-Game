@@ -1539,6 +1539,10 @@ The dev server runs on `http://localhost:5000` by default. Vite proxies the fron
 - **Auto-deploy:** `git push main` triggers Railway build and deploy
 - **Railway CLI:** `/opt/homebrew/bin/railway` (authenticated)
 - **Database:** PostgreSQL service on Railway, `DATABASE_URL` injected at runtime
+- **Volume:** `packpoints-game-volume` mounted at `/app/data/masked-cards` (masked-card cache). Railway mounts volumes root-owned, and the app runs as non-root `packpts` — so `start.sh` boots as root, chowns the mount, then drops privileges via `su-exec` (the Dockerfile has no `USER` directive for this reason). Do NOT re-add `USER packpts` to the Dockerfile or set `RAILWAY_RUN_UID=0`; either breaks the chown-then-drop pattern. Before this fix (July 2026), every new masked-card write failed with EACCES in production.
+
+### ⚠️ Known infrastructure issue — apex domain points at old Replit deploy
+`packpts.com` (apex) DNS A record (`34.111.179.208`, name.com-hosted DNS) still points at the retired Replit deployment, which serves a stale build with no working API. `www.packpts.com` correctly points at Railway and is fully functional. Fix requires a DNS change at name.com (owner credential): replace the apex A record with an ANAME/ALIAS to `packpoints-game-production.up.railway.app`. Until then, use `www.packpts.com` for all production testing.
 
 ### Running Migrations Against Production
 ```bash
