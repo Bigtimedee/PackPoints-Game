@@ -1819,12 +1819,12 @@ Shipped July 2026 across seven sequential PRs (see `MAKING_LAYER_PROMPTS.md` for
 - `game_sets` gained: `created_by_user_id` (FK users, null for staff sets), `co_creator_user_id` (FK users, set by collab publish), `maker_note` (text, ≤140 chars enforced at API layer), `is_user_created` (boolean, indexed).
 - New table `collaboration_sessions`: `host_user_id`, `guest_user_id` (null until joined), `status` (`waiting`/`active`/`published`/`abandoned`), `nominated_cards` + `approved_cards` (JSONB arrays), `set_name`, `maker_note`, `published_set_id` (FK game_sets), `created_at`.
 - User-created `playable_cards` rows use `cardhedgeCardId: snap2set:<uuid>` (never a real Card Hedge id). They must carry `image_url` (uploaded card photo) and `category` (= set sport) or `getRandomCardsFromSet` in `server/storage.ts` filters them out of gameplay.
-- New table `card_photos`: `data` (bytea, sharp-downscaled JPEG), `content_type`, `uploaded_by_user_id`, `created_at`. RLS enabled (deny-by-default; Express bypasses via DATABASE_URL).
-- Migrations: `migrations/add_maker_fields_to_game_sets.sql`, `migrations/add_collab_sessions.sql`, `migrations/add_card_photos.sql` — applied to production Supabase.
+- New table `card_photos`: `data` (bytea, sharp-downscaled JPEG), `content_type`, `uploaded_by_user_id`, `created_at`.
+- Migrations: `migrations/add_maker_fields_to_game_sets.sql`, `migrations/add_collab_sessions.sql`, `migrations/add_card_photos.sql`. **The production database is Railway Postgres** (see CLAUDE.md) — its schema is synced automatically at every deploy by `start.sh` running `drizzle-kit push --force`, so these SQL files are reference artifacts; the Supabase project holds a parallel copy the app never reads.
 
 ### Server routes
 
-- `POST /api/sets/identify-card` (auth, 20/hr/user via `cardIdentifyLimiter`) — OpenAI gpt-4o vision via `server/services/snapToSet.ts`, runs `classifyCard()` playability check, then stores the photo (sharp-downscaled to ≤1024px JPEG q80) in the `card_photos` Postgres table and returns identified card + `imageUrl` pointing at `GET /api/card-photos/:id`. **Storage is Supabase Postgres by owner directive — no external object store.**
+- `POST /api/sets/identify-card` (auth, 20/hr/user via `cardIdentifyLimiter`) — OpenAI gpt-4o vision via `server/services/snapToSet.ts`, runs `classifyCard()` playability check, then stores the photo (sharp-downscaled to ≤1024px JPEG q80) in the `card_photos` Postgres table and returns identified card + `imageUrl` pointing at `GET /api/card-photos/:id`. **Storage is the production Postgres (Railway) by owner directive — no external object store.**
 - `GET /api/card-photos/:id` (public) — serves the stored photo with `Cache-Control: immutable` (1 year).
 - `POST /api/sets/create` (auth) — 5–20 cards, creates `game_sets` row (`isUserCreated: true`) + `playable_cards` rows with `imageUrl` and `category`.
 - `GET /api/sets` (public) — browse user-created sets ordered by play count; powers `/sets`.
