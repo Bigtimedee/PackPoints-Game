@@ -9,6 +9,14 @@
 1. **Never introduce a new third-party service (or ask the owner to create an account on one) when an already-connected service can do the job.** The connected stack is: Railway (hosting/env), Supabase (Postgres + platform), Stripe, WorkOS, OpenAI, eBay/EPN, Goldin. Example: image/file storage must use the Supabase/Postgres stack, NOT Cloudflare R2 or AWS — the owner will never create a Cloudflare account.
 2. **Never guess or estimate; verify with evidence.** Never ask the owner to perform a manual task on any service that is already connected and authenticated — perform it directly.
 3. The owner has no CLI access and no Supabase editor access. Claude performs all Supabase and Railway operations.
+
+### ⚠️ THE PRODUCTION DATABASE IS RAILWAY POSTGRES — NOT the Supabase project
+
+Verified July 2026 by inspecting the app service's `DATABASE_URL` (host `postgres.railway.internal`) and by live data tests. The Supabase project (`aiwlgozwuflxfpbzrswn`) carries a parallel copy of the schema but **the app never reads or writes it** — SQL run there does NOT affect production. Consequences:
+
+- **All production data operations must target Railway Postgres** — via the psql flow below, `railway ssh` into the app container, or the app's admin API endpoints. Never "verify" or "clean up" production data through the Supabase MCP; results there prove nothing about the live app.
+- Production schema is synced on every deploy by `start.sh` running `npx drizzle-kit push --force` against Railway Postgres — new tables/columns in `shared/schema.ts` reach production automatically at boot; manual Supabase migrations are neither sufficient nor required for the app.
+- The sandboxed remote environment blocks non-HTTPS egress, so direct `pg` connections to Railway's public proxy time out from there; use the app's admin/API endpoints (admin credentials are in Railway service variables) or a machine with real TCP egress.
 4. **Railway is the only hosting platform PackPTS has, ever. Zero tolerance.** The name of any pre-Railway hosting/IDE platform, and any file, config, function, artifact, or doc reference associated with one, is banned from this codebase. If any such reference is ever found: immediately isolate it, delete it, log the deletion in the commit message, and verify the build still passes. This directive was executed in full in July 2026; the codebase is clean as of that purge.
 
 ### Deployment — Railway

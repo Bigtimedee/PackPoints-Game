@@ -536,6 +536,7 @@ export async function registerRoutes(
         FROM game_sets gs
         LEFT JOIN users u ON u.id = gs.created_by_user_id
         WHERE gs.is_user_created = true
+          AND gs.is_active = true
         ORDER BY "playCount" DESC, gs.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `);
