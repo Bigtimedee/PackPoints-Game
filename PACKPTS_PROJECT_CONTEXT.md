@@ -1906,7 +1906,7 @@ One email per set per day (in-memory dedup `Set` keyed `${setId}:${date}` in rou
 
 12. **Run `git pull --rebase` before committing and pushing.**
 
-13. **Never use Replit for PackPTS.** The project is on Railway. Replit interaction will break things.
+13. **PackPTS runs exclusively on Railway.** No other hosting platform may ever be used, referenced, or reintroduced. Any artifact from a pre-Railway host found in the codebase must be deleted on sight and the deletion logged in the commit message.
 
 ---
 
