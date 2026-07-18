@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2005,6 +2005,25 @@ export type PlayableSet = {
   makerNote?: string | null;
   createdByUserId?: string | null;
 };
+
+// Card Photos - user-uploaded card images for the Making Layer, stored in
+// Postgres (Supabase) and served via GET /api/card-photos/:id. Photos are
+// downscaled server-side before insert, so rows stay small.
+const bytea = customType<{ data: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+export const cardPhotos = pgTable("card_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  data: bytea("data").notNull(),
+  contentType: text("content_type").notNull().default("image/jpeg"),
+  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type CardPhoto = typeof cardPhotos.$inferSelect;
 
 // Collaboration Sessions - two-player co-creation sessions
 export const collaborationSessions = pgTable("collaboration_sessions", {

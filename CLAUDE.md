@@ -4,6 +4,12 @@
 
 ## Project: PackPoints (packpts.com)
 
+### Owner directives — permanent, never violate
+
+1. **Never introduce a new third-party service (or ask the owner to create an account on one) when an already-connected service can do the job.** The connected stack is: Railway (hosting/env), Supabase (Postgres + platform), Stripe, WorkOS, OpenAI, eBay/EPN, Goldin. Example: image/file storage must use the Supabase/Postgres stack, NOT Cloudflare R2 or AWS — the owner will never create a Cloudflare account.
+2. **Never guess or estimate; verify with evidence.** Never ask the owner to perform a manual task on any service that is already connected and authenticated — perform it directly.
+3. The owner has no CLI access and no Supabase editor access. Claude performs all Supabase and Railway operations.
+
 ### Deployment — Railway
 
 - **Project**: `marvelous-freedom` on Railway

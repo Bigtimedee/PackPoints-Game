@@ -13,7 +13,7 @@ import {
   forgotPasswordLimiter,
   cardIdentifyLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -339,28 +339,47 @@ export async function registerRoutes(
         });
       }
 
-      // Store the photo so the card is playable in-game (masked card display).
-      // Falls back to null when R2 is not configured — the card can still be
-      // published but won't be served in gameplay until it has an image.
+      // Store the photo (downscaled) in Postgres so the card is playable
+      // in-game. Served back via GET /api/card-photos/:id. On failure the
+      // card can still be published, but gameplay excludes imageless cards.
       let imageUrl: string | null = null;
       try {
-        const buffer = Buffer.from(imageBase64, "base64");
-        const isPng = buffer.length > 4 && buffer[0] === 0x89 && buffer[1] === 0x50;
-        const ext = isPng ? "png" : "jpg";
-        const { uploadImageToStorage } = await import("./services/socialMedia/imageStorage");
-        imageUrl = await uploadImageToStorage(
-          buffer,
-          `snap2set/${randomUUID()}.${ext}`,
-          isPng ? "image/png" : "image/jpeg",
-        );
+        const sharp = (await import("sharp")).default;
+        const userId = req.user?.claims?.sub || req.session?.localUserId || null;
+        const resized = await sharp(Buffer.from(imageBase64, "base64"))
+          .rotate() // respect EXIF orientation
+          .resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        const [photo] = await db.insert(cardPhotos).values({
+          data: resized,
+          contentType: "image/jpeg",
+          uploadedByUserId: userId,
+        }).returning({ id: cardPhotos.id });
+        const baseUrl = process.env.APP_BASE_URL || `https://${req.get("host")}`;
+        imageUrl = `${baseUrl}/api/card-photos/${photo.id}`;
       } catch (uploadError) {
-        console.error("[SnapToSet] photo upload failed (continuing without image):", uploadError);
+        console.error("[SnapToSet] photo store failed (continuing without image):", uploadError);
       }
 
       res.json({ card: { ...result.card, imageUrl } });
     } catch (error) {
       console.error("[SnapToSet] identify-card error:", error);
       res.status(500).json({ error: "Failed to identify card" });
+    }
+  });
+
+  // Public: serve a stored card photo (immutable, long-cache)
+  app.get("/api/card-photos/:id", async (req, res) => {
+    try {
+      const [photo] = await db.select().from(cardPhotos).where(eq(cardPhotos.id, req.params.id)).limit(1);
+      if (!photo) return res.status(404).end();
+      res.set("Content-Type", photo.contentType);
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      res.send(photo.data);
+    } catch (error) {
+      console.error("[SnapToSet] card-photo serve error:", error);
+      res.status(500).end();
     }
   });
 
