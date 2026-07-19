@@ -11,6 +11,7 @@ import {
   gameStartLimiter,
   registrationLimiter,
   forgotPasswordLimiter,
+  resetPasswordLimiter,
   cardIdentifyLimiter,
 } from "./middleware/rateLimiter";
 import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
@@ -1957,7 +1958,7 @@ export async function registerRoutes(
   });
 
   // Password reset - validate token
-  app.get("/api/auth/validate-reset-token", async (req, res) => {
+  app.get("/api/auth/validate-reset-token", resetPasswordLimiter, async (req, res) => {
     try {
       const token = req.query.token as string;
       if (!token) {
@@ -1977,7 +1978,7 @@ export async function registerRoutes(
   });
 
   // Password reset - reset password with token
-  app.post("/api/auth/reset-password", async (req, res) => {
+  app.post("/api/auth/reset-password", resetPasswordLimiter, async (req, res) => {
     try {
       const { token, password } = req.body;
       
@@ -6805,46 +6806,10 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Get global audit log (all sets)
-  app.get("/api/admin/audit-log", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const { operationSource } = req.query;
-      const page = parseInt(req.query.page as string) || 1;
-      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 20, 100);
-      const offset = (page - 1) * pageSize;
-
-      const whereCondition = operationSource && typeof operationSource === 'string'
-        ? eq(setAuditLog.operationSource, operationSource)
-        : undefined;
-
-      const [logs, countResult] = await Promise.all([
-        db
-          .select()
-          .from(setAuditLog)
-          .where(whereCondition)
-          .orderBy(desc(setAuditLog.createdAt))
-          .limit(pageSize)
-          .offset(offset),
-        db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(setAuditLog)
-          .where(whereCondition),
-      ]);
-
-      const total = countResult[0]?.count || 0;
-
-      res.json({
-        items: logs,
-        total,
-        page,
-        pageSize,
-        totalPages: Math.ceil(total / pageSize),
-      });
-    } catch (error) {
-      console.error("Error getting global audit log:", error);
-      res.status(500).json({ error: "Failed to get audit log" });
-    }
-  });
+  // NOTE: the global set-audit-log route that lived here was shadowed by
+  // GET /api/admin/audit-log in admin.routes.ts (registered earlier) and was
+  // therefore dead code — removed per the July 2026 audit. Per-set audit
+  // history remains available via the set-scoped audit route above.
 
   // Admin: Test card distribution - verify random selection works across full set
   app.post("/api/admin/playable-sets/:id/test-distribution", isAuthenticated, requireAdmin, async (req, res) => {
@@ -8726,41 +8691,11 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Get redemption queue
-  app.get("/api/admin/redemptions", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      
-      const status = req.query.status as "PENDING" | "GRANTED" | "REVERSED" | undefined;
-      const redemptions = await profitGuardrailService.getRedemptionQueue(status);
-      
-      res.json(redemptions);
-    } catch (error: any) {
-      console.error("Error getting redemption queue:", error);
-      res.status(500).json({ error: error.message || "Failed to get redemption queue" });
-    }
-  });
-
-  // Admin: Reverse a redemption
-  app.post("/api/admin/redemptions/:id/reverse", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      
-      const { id } = req.params;
-      const { reason } = req.body;
-      
-      if (!reason) {
-        return res.status(400).json({ error: "Reason is required" });
-      }
-      
-      const result = await profitGuardrailService.reverseRedemption(id, reason);
-      
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error reversing redemption:", error);
-      res.status(500).json({ error: error.message || "Failed to reverse redemption" });
-    }
-  });
+  // NOTE: duplicate GET /api/admin/redemptions and POST .../reverse routes
+  // that lived here were shadowed by the earlier definitions (routes.ts
+  // ~2670/~2762) and therefore dead code — removed per the July 2026 audit.
+  // The profitGuardrailService redemption queue remains reachable through
+  // the winning paginated routes.
 
   // Admin: Get treasury status
   app.get("/api/admin/treasury/status", isAuthenticated, requireAdmin, async (_req: any, res) => {

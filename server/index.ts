@@ -71,6 +71,23 @@ app.use((req, res, next) => {
 
 app.use(express.urlencoded({ extended: false }));
 
+// --- Canonical host: 301 www -> apex ---
+// Session cookies are host-only (no domain attribute), so a session minted on
+// www is invisible on the apex and vice versa. One canonical host ends the
+// split. Applies to plain GET/HEAD navigations only; API calls and other
+// methods pass through untouched so nothing in-flight breaks mid-migration.
+app.use((req, res, next) => {
+  if (
+    req.hostname === "www.packpts.com" &&
+    (req.method === "GET" || req.method === "HEAD") &&
+    !req.path.startsWith("/api/") &&
+    !req.path.startsWith("/ws")
+  ) {
+    return res.redirect(301, `https://packpts.com${req.originalUrl}`);
+  }
+  next();
+});
+
 // --- CORS Middleware (native, no external package required) ---
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
