@@ -10,7 +10,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 interface MetricsData {
   dau: number;
   matchesPerUser: number;
-  purchaseConversion: number;
+  purchaseConversionRate: number;
   packptsLiability: number;
   redemptionRate: number;
   totalRevenue?: number;
@@ -87,7 +87,7 @@ export default function AdminMetrics() {
   const metricCards = [
     { title: "Daily Active Users", value: data.dau?.toLocaleString() ?? "0", icon: Users, color: "text-blue-500", description: "Users active today" },
     { title: "Matches/User", value: data.matchesPerUser?.toFixed(2) ?? "0", icon: Gamepad2, color: "text-green-500", description: "Average matches per user" },
-    { title: "Purchase Conversion", value: `${((data.purchaseConversion ?? 0) * 100).toFixed(1)}%`, icon: TrendingUp, color: "text-yellow-500", description: "Users who made a purchase" },
+    { title: "Purchase Conversion", value: `${((data.purchaseConversionRate ?? 0) * 100).toFixed(1)}%`, icon: TrendingUp, color: "text-yellow-500", description: "Users who made a purchase" },
     { title: "PackPTS Liability", value: (data.packptsLiability ?? 0).toLocaleString(), icon: Wallet, color: "text-purple-500", description: "Total outstanding points" },
     { title: "Redemption Rate", value: `${((data.redemptionRate ?? 0) * 100).toFixed(1)}%`, icon: Activity, color: "text-orange-500", description: "Points redeemed vs earned" },
     { title: "Active Subscriptions", value: data.activeSubscriptions?.toLocaleString() ?? "0", icon: CreditCard, color: "text-emerald-500", description: "Current paid subscribers" },

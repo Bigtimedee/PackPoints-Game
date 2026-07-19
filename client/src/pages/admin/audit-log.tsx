@@ -20,12 +20,9 @@ interface AuditEntry {
 
 interface AuditLogResponse {
   entries: AuditEntry[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
+  total: number;
+  page: number;
+  totalPages: number;
 }
 
 export default function AdminAuditLog() {
@@ -135,10 +132,10 @@ export default function AdminAuditLog() {
                 </TableBody>
               </Table>
 
-              {data.pagination && data.pagination.totalPages > 1 && (
+              {data.totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4">
                   <p className="text-sm text-muted-foreground">
-                    Page {data.pagination.page} of {data.pagination.totalPages} ({data.pagination.total} entries)
+                    Page {data.page} of {data.totalPages} ({data.total} entries)
                   </p>
                   <div className="flex gap-2">
                     <Button
@@ -153,8 +150,8 @@ export default function AdminAuditLog() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setPage(p => Math.min(data.pagination.totalPages, p + 1))}
-                      disabled={page === data.pagination.totalPages}
+                      onClick={() => setPage(p => Math.min(data.totalPages, p + 1))}
+                      disabled={page === data.totalPages}
                       data-testid="button-next-page"
                     >
                       <ChevronRight className="h-4 w-4" />
