@@ -28,8 +28,8 @@ DUMP_FILE="$BACKUP_DIR/pre-push-$(date -u +%Y%m%dT%H%M%SZ).dump"
 echo "[Startup] Taking pre-migration pg_dump..."
 if pg_dump --format=custom --compress=6 --file="$DUMP_FILE" "$DATABASE_URL"; then
   echo "[Startup] Backup written: $DUMP_FILE ($(du -h "$DUMP_FILE" | cut -f1))"
-  # Keep the 7 most recent dumps
-  ls -1t "$BACKUP_DIR"/pre-push-*.dump 2>/dev/null | tail -n +8 | xargs -r rm -f
+  # Keep the 14 most recent boot dumps (daily dumps are pruned by the app)
+  ls -1t "$BACKUP_DIR"/pre-push-*.dump 2>/dev/null | tail -n +15 | xargs -r rm -f
   echo "[Startup] Running database migrations (NODE_ENV=$NODE_ENV)..."
   npx drizzle-kit push --force
   echo "[Startup] Migrations complete."

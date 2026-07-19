@@ -4797,6 +4797,38 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: list database backups (restore points in the persistent volume)
+  app.get("/api/admin/backups", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { listBackups } = await import("./services/dbBackupService");
+      res.json({ backups: await listBackups() });
+    } catch (error) {
+      console.error("[DbBackup] list error:", error);
+      res.status(500).json({ error: "Failed to list backups" });
+    }
+  });
+
+  // Admin: download a backup file (owner has no CLI — this is the retrieval path)
+  app.get("/api/admin/backups/:name/download", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { name } = req.params;
+      if (!/^[\w.-]+\.dump$/.test(name) || name.includes("..")) {
+        return res.status(400).json({ error: "Invalid backup name" });
+      }
+      const { BACKUP_DIR } = await import("./services/dbBackupService");
+      const path = await import("path");
+      const fs = await import("fs");
+      const filePath = path.join(BACKUP_DIR, name);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Backup not found" });
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+      fs.createReadStream(filePath).pipe(res);
+    } catch (error) {
+      console.error("[DbBackup] download error:", error);
+      res.status(500).json({ error: "Failed to download backup" });
+    }
+  });
+
   // Admin: Get duplicate game sets for cleanup
   app.get("/api/admin/game-sets/duplicates", isAuthenticated, requireAdmin, async (_req, res) => {
     try {

@@ -416,6 +416,13 @@ app.use((req, res, next) => {
           console.error("[WebhookRetryWorker] Failed to start:", err);
         }
 
+        try {
+          const { startDbBackupService } = await import("./services/dbBackupService");
+          startDbBackupService();
+        } catch (err) {
+          console.error("[DbBackup] Failed to start:", err);
+        }
+
         if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
           try {
             const { initSocialMediaAgent } = await import("./services/socialMedia");

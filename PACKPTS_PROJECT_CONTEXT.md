@@ -1541,6 +1541,15 @@ The dev server runs on `http://localhost:5000` by default. Vite proxies the fron
 - **Database:** PostgreSQL service on Railway, `DATABASE_URL` injected at runtime
 - **Volume:** `packpoints-game-volume` mounted at `/app/data/masked-cards` (masked-card cache). Railway mounts volumes root-owned, and the app runs as non-root `packpts` — so `start.sh` boots as root, chowns the mount, then drops privileges via `su-exec` (the Dockerfile has no `USER` directive for this reason). Do NOT re-add `USER packpts` to the Dockerfile or set `RAILWAY_RUN_UID=0`; either breaks the chown-then-drop pattern. Before this fix (July 2026), every new masked-card write failed with EACCES in production.
 
+### User-data retention (owner mandate — usernames, password hashes, PackPTS history must never be lost)
+
+Three layers, all writing compressed `pg_dump` restore points (full DB: users, wallets, ledger, everything) to `/app/data/masked-cards/.db-backups/` on the persistent volume:
+1. **Boot dumps** (`pre-push-*.dump`, `start.sh`): before every schema push; dump failure skips the push. Keep 14.
+2. **Daily dumps** (`daily-*.dump`, `server/services/dbBackupService.ts`): scheduled every 24h plus a startup catch-up when no dump is fresher than 20h. Keep 30.
+3. **Owner retrieval without CLI:** `GET /api/admin/backups` (list) and `GET /api/admin/backups/:name/download` (stream) — admin-only.
+
+Restore procedure: download a `.dump`, then `pg_restore --clean --if-exists -d <DATABASE_PUBLIC_URL> <file>` from a machine with TCP egress (pg_restore v17+).
+
 ### ⚠️ Known infrastructure issue — apex domain points at a retired pre-Railway host
 `packpts.com` (apex) DNS A record (`34.111.179.208`, name.com-hosted DNS) still points at a retired legacy deployment from before the Railway migration; it serves a stale build with no working API. `www.packpts.com` correctly points at Railway and is fully functional. Fix requires a DNS change at name.com (owner credential): replace the apex A record with an ANAME/ALIAS to `packpoints-game-production.up.railway.app`. Until then, use `www.packpts.com` for all production testing. Once DNS is corrected, the legacy deployment must also be deleted at its host.
 
