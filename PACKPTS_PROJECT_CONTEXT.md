@@ -1550,6 +1550,10 @@ Three layers, all writing compressed `pg_dump` restore points (full DB: users, w
 
 Restore procedure: download a `.dump`, then `pg_restore --clean --if-exists -d <DATABASE_PUBLIC_URL> <file>` from a machine with TCP egress (pg_restore v17+).
 
+### Canonical host (July 2026)
+
+`packpts.com` (apex) is the canonical host. The server 301-redirects `www.packpts.com` GET/HEAD page navigations to the apex (server/index.ts, before CORS middleware; `/api/*` and `/ws` are exempt so in-flight clients don't break). Session cookies are host-only, so one canonical host prevents the www/apex session split.
+
 ### Legacy-origin eviction (July 2026)
 
 Browsers that visited the pre-Railway deployment of packpts.com can carry a foreign service worker that keeps serving the old app shell indefinitely (this app registers no SW of its own, and a failed SW update-fetch does NOT unregister an existing worker). Two-layer fix: self-destructing workers served at `/sw.js`, `/service-worker.js`, `/serviceworker.js` (client/public/ — install → clear caches → unregister → reload clients), plus a boot-time purge in `client/src/main.tsx` that unregisters any registration found and reloads once (sessionStorage-guarded). Do not remove these files even though this app has no service worker — they are the eviction mechanism. Also: `ALLOWED_ORIGINS` in Railway must list BOTH `https://packpts.com` and `https://www.packpts.com` (exact-match list; the WebSocket handshake hard-403s unlisted origins).

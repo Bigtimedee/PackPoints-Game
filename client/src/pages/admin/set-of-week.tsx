@@ -62,8 +62,10 @@ export default function AdminSetOfWeek() {
     enabled: isAuthenticated && !!(user as any)?.isAdmin,
   });
 
-  const { data: setsData, isLoading: setsLoading } = useQuery<{ sets: GameSet[] }>({
-    queryKey: ["/api/admin/card-sets"],
+  // set_of_the_week.setId joins the game_sets table, so the picker must list
+  // game sets (returns a bare array), NOT card_sets — their ids don't match.
+  const { data: setsData, isLoading: setsLoading } = useQuery<GameSet[]>({
+    queryKey: ["/api/admin/game-sets"],
     enabled: isAuthenticated && !!(user as any)?.isAdmin,
   });
 
@@ -100,7 +102,7 @@ export default function AdminSetOfWeek() {
   });
 
   const entries = entriesData?.entries ?? [];
-  const sets = setsData?.sets ?? [];
+  const sets = setsData ?? [];
 
   const now = new Date();
 

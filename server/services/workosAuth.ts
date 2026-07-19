@@ -212,6 +212,11 @@ export function registerWorkosRoutes(app: Express): void {
             targetUser.id
           );
 
+          // SECURITY: deliberately NOT setting session.localUserId here.
+          // The email collides with an existing account and ownership is
+          // unproven — workosUserId is challenge context only, and
+          // isAuthenticated/requireAdmin correctly reject this session shape
+          // until the link challenge completes. Do not "fix" this.
           (req.session as any).pendingLinkChallengeId = challenge.id;
           (req.session as any).workosUserId = workosUser.id;
 

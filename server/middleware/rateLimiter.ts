@@ -140,6 +140,14 @@ export const forgotPasswordLimiter = rateLimit({
   message: "Too many password reset requests. Please wait 15 minutes and try again.",
 });
 
+export const resetPasswordLimiter = rateLimit({
+  windowMs: 900_000, // 15 minutes
+  max: 10, // covers token validation on page load plus submission retries
+  keyPrefix: "reset_pw",
+  keySource: "ip",
+  message: "Too many password reset attempts. Please wait 15 minutes and try again.",
+});
+
 export const cardIdentifyLimiter = rateLimit({
   windowMs: 3_600_000, // 1 hour
   max: 20,
