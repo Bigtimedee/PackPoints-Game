@@ -100,7 +100,7 @@ export default function AdminSetOfWeek() {
   });
 
   const entries = entriesData?.entries ?? [];
-  const sets = (setsData as any)?.cardSets ?? [];
+  const sets = setsData?.sets ?? [];
 
   const now = new Date();
 

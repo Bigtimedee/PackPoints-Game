@@ -4753,6 +4753,10 @@ export async function registerRoutes(
       if (parsed.data.brand !== undefined) updateData.brand = parsed.data.brand;
       if (parsed.data.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = parsed.data.marketplaceKeywords;
       if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
+      if (parsed.data.cardhedgeSetQuery !== undefined) updateData.cardhedgeSetQuery = parsed.data.cardhedgeSetQuery;
+      if (parsed.data.cardhedgeCategory !== undefined) updateData.cardhedgeCategory = parsed.data.cardhedgeCategory;
+      if (parsed.data.makerNote !== undefined) updateData.makerNote = parsed.data.makerNote;
+      if (parsed.data.isUserCreated !== undefined) updateData.isUserCreated = parsed.data.isUserCreated;
       
       if (Object.keys(updateData).length === 0) {
         return res.status(400).json({ error: "No valid fields to update" });
