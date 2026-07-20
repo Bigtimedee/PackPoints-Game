@@ -53,7 +53,7 @@ export default function AdminSetOfWeek() {
 
   useEffect(() => {
     if (!authLoading && (!isAuthenticated || !(user as any)?.isAdmin)) {
-      navigate("/admin/login");
+      navigate("/admin");
     }
   }, [authLoading, isAuthenticated, user, navigate]);
 

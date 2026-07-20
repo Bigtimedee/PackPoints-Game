@@ -22,7 +22,8 @@ async function logout(): Promise<void> {
     method: "POST",
     credentials: "include",
   });
-  window.location.href = "/api/logout";
+  // Hard navigation home so all in-memory auth state resets
+  window.location.href = "/";
 }
 
 export function useAuth() {

@@ -1550,6 +1550,10 @@ Three layers, all writing compressed `pg_dump` restore points (full DB: users, w
 
 Restore procedure: download a `.dump`, then `pg_restore --clean --if-exists -d <DATABASE_PUBLIC_URL> <file>` from a machine with TCP egress (pg_restore v17+).
 
+### Logout + admin-guard repairs (July 2026)
+
+Logout: the real endpoint is `POST /api/auth/local-logout` (destroys session, clears cookie). All logout buttons call `useAuth().logout` which POSTs it then hard-navigates to `/`. A compat shim `GET /api/logout` (destroy + redirect `/`) exists for stale bundles and legacy-era links — previously that URL fell into the SPA catch-all and rendered the 404 page with the session still alive. `ProtectedRoute` gates admin routes on `user.isAdmin` (the API's real field); it briefly gated on a nonexistent `role` field, which bounced every authenticated user — including real admins — from all `/admin/*` routes to the homepage. Dead client targets `/api/login`, `/game`, `/play`, and the server redirect `/settings/accounts` were repointed to real routes; `/admin/set-of-week` is now routed and in the admin sidebar.
+
 ### Canonical host (July 2026)
 
 `packpts.com` (apex) is the canonical host. The server 301-redirects `www.packpts.com` GET/HEAD page navigations to the apex (server/index.ts, before CORS middleware; `/api/*` and `/ws` are exempt so in-flight clients don't break). Session cookies are host-only, so one canonical host prevents the www/apex session split.

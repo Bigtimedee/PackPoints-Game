@@ -290,7 +290,7 @@ export default function Store() {
 
   const handlePurchase = (sku: string) => {
     if (!isAuthenticated) {
-      window.location.href = "/api/login";
+      window.location.href = "/auth";
       return;
     }
     if (!data?.stripeConfigured) {
@@ -306,7 +306,7 @@ export default function Store() {
 
   const handleSubscribe = (sku: string) => {
     if (!isAuthenticated) {
-      window.location.href = "/api/login";
+      window.location.href = "/auth";
       return;
     }
     if (!data?.stripeConfigured) {

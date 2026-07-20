@@ -348,7 +348,7 @@ function CardOfTheDay() {
             <p className="font-medium">{card.setName} {card.year}</p>
             <p className="text-sm text-muted-foreground">Play today to find out who this is!</p>
             <Button size="sm" asChild className="mt-2">
-              <a href="/game">Play Now</a>
+              <a href="/game/solo">Play Now</a>
             </Button>
           </div>
         </div>

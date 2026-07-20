@@ -500,7 +500,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
               asChild
               data-testid={`button-earn-packpts-${listing.id}`}
             >
-              <a href="/play">
+              <a href="/game/solo">
                 <Zap className="h-3 w-3" />
                 Earn PackPTS
               </a>
