@@ -63,6 +63,7 @@ const AdminCardSets = lazy(() => import("@/pages/admin/card-sets"));
 const AdminCardTelemetry = lazy(() => import("@/pages/admin/card-telemetry"));
 const AdminDaily5Stats = lazy(() => import("@/pages/admin/daily5-stats"));
 const AdminGrowth = lazy(() => import("@/pages/admin/growth"));
+const AdminSetOfWeek = lazy(() => import("@/pages/admin/set-of-week"));
 const Creators = lazy(() => import("@/pages/creators"));
 const Roadmap = lazy(() => import("@/pages/roadmap"));
 const Make = lazy(() => import("@/pages/make"));
@@ -296,6 +297,15 @@ function Router() {
           <ProtectedRoute requireAdmin>
             <AdminLayout>
               <AdminGrowth />
+            </AdminLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/admin/set-of-week">
+        {() => (
+          <ProtectedRoute requireAdmin>
+            <AdminLayout>
+              <AdminSetOfWeek />
             </AdminLayout>
           </ProtectedRoute>
         )}

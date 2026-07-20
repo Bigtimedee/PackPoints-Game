@@ -39,7 +39,9 @@ export function ProtectedRoute({
         setLocation(redirectTo || `/auth?redirect=${encodeURIComponent(location)}`);
         return;
       }
-      if (user.role !== 'admin') {
+      // The API returns `isAdmin` (users table has no `role` column) — gating
+      // on a nonexistent field bounced real admins to the homepage.
+      if (!user.isAdmin) {
         setLocation(redirectTo || "/");
         return;
       }

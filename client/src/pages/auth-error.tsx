@@ -87,7 +87,7 @@ export default function AuthError() {
             <div className="flex flex-col gap-2 pt-2">
               {errorConfig.showRetry && (
                 <Button asChild className="w-full gap-2">
-                  <a href="/api/login">
+                  <a href="/auth">
                     Try Again
                   </a>
                 </Button>
@@ -161,7 +161,7 @@ export default function AuthError() {
           <div className="flex flex-col gap-2 pt-2">
             {!isInvalidDomain && (
               <Button asChild className="w-full gap-2">
-                <a href="/api/login">
+                <a href="/auth">
                   Try Again
                 </a>
               </Button>

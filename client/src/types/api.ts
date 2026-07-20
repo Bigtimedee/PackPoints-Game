@@ -5,10 +5,10 @@
 
 // --- Auth ---
 export interface AuthUser {
-  id: number;
+  id: string;
   username: string;
   email: string;
-  role: 'user' | 'admin';
+  isAdmin: boolean;
   firstName?: string;
   lastName?: string;
   profileImageUrl?: string;

@@ -30,7 +30,7 @@ import {
 
 export function Header() {
   const [location] = useLocation();
-  const { user, isLoading, isAuthenticated } = useAuth();
+  const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { isRestricted, isFrozen, isUnderReview, restrictedReason, availablePts } = useWallet();
   const [showLoginWarning, setShowLoginWarning] = useState(false);
 
@@ -176,11 +176,12 @@ export function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <a href="/api/logout" className="cursor-pointer text-destructive">
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Log out
-                  </a>
+                <DropdownMenuItem
+                  className="cursor-pointer text-destructive"
+                  onClick={() => logout()}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

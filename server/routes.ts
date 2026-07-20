@@ -1873,6 +1873,17 @@ export async function registerRoutes(
     }
   });
 
+  // Compat shim: older client bundles (and the pre-Railway app) link logout
+  // to GET /api/logout, which previously fell through to the SPA catch-all —
+  // rendering the 404 page while leaving the session alive. Destroy the
+  // session and land on the homepage instead.
+  app.get("/api/logout", (req: any, res) => {
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      res.redirect("/");
+    });
+  });
+
   // Dev-only test login endpoint — NEVER runs in production.
   // Guarded by NODE_ENV !== 'development' and E2E_TEST_AUTH !== 'enabled'.
   // Purpose: lets Playwright tests log in as a specific user without WorkOS/OAuth.

@@ -24,6 +24,7 @@ import {
   Menu,
   X,
   Megaphone,
+  Star,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -41,6 +42,7 @@ const navGroups: NavGroup[] = [
       { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
       { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
       { href: "/admin/daily5", label: "Daily 5", icon: Calendar },
+      { href: "/admin/set-of-week", label: "Set of the Week", icon: Star },
     ],
   },
   {
@@ -102,7 +104,7 @@ function NavItem({ href, label, icon: Icon, isActive, onClick }: {
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const getInitials = () => {
@@ -181,14 +183,12 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
             <Button
               variant="outline"
               size="sm"
-              asChild
               className="gap-2"
               data-testid="button-admin-logout"
+              onClick={() => logout()}
             >
-              <a href="/api/logout">
-                <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline">Logout</span>
-              </a>
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </div>
