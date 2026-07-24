@@ -8774,7 +8774,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Valid positive amountCents required" });
       }
       
-      const validTypes = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "ADJUSTMENT"];
+      const validTypes = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "MANUAL_ADJUSTMENT"];
       if (!type || !validTypes.includes(type)) {
         return res.status(400).json({ error: `Type must be one of: ${validTypes.join(", ")}` });
       }
