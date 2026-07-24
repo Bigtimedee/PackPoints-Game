@@ -513,15 +513,19 @@ describe('checkout.session.completed session lifecycle transitions', () => {
   });
 });
 
-// ── Margin guardrail BLOCK (computeRmax — pure function) ──────────────────────
-// Formula: Cmax = ((h*A - m) * P - f) / (1 + r); Rmax = Cmax > 0 ? floor(Cmax/v) : 0
+// ── Margin guardrail (computeRmax — pure function) ────────────────────────────
+// Formula: Cmax = (h*A*P*(1-m) - f) / (1 + r); Rmax = Cmax > 0 ? floor(Cmax/v) : 0
+// Credit is funded by affiliate revenue (h*A*P); the business retains fraction
+// m of that margin. The previous formula ((h*A - m) * P) treated m as a share
+// of PRICE, which is negative for every real affiliate rate — Rmax was
+// permanently 0 and the eBay redemption feature could never grant credit.
 
-describe('margin guardrail BLOCK (computeRmax)', () => {
-  const BLOCK_POLICY = {
-    id: 'test-block',
-    minMarginM: 0.25,       // 25% minimum margin
+describe('margin guardrail (computeRmax)', () => {
+  const DEFAULT_POLICY = {
+    id: 'test-default',
+    minMarginM: 0.25,       // retain 25% of affiliate margin
     affiliateRateA: 0.02,   // 2% affiliate rate
-    affiliateHaircutH: 0.70, // h*A = 0.014 < minMargin → always blocked
+    affiliateHaircutH: 0.70,
     processingFeeRateR: 0.00,
     fixedFeeFCents: 0,
     packptsValueVMicrousd: 2000,
@@ -530,11 +534,11 @@ describe('margin guardrail BLOCK (computeRmax)', () => {
     createdAt: new Date(),
   } as ProfitPolicy;
 
-  const PASS_POLICY = {
-    id: 'test-pass',
-    minMarginM: 0.10,       // 10% minimum margin
-    affiliateRateA: 0.20,   // 20% affiliate rate
-    affiliateHaircutH: 0.90, // h*A = 0.18 > 0.10 → allows redemption
+  const RICH_POLICY = {
+    id: 'test-rich',
+    minMarginM: 0.10,
+    affiliateRateA: 0.20,
+    affiliateHaircutH: 0.90,
     processingFeeRateR: 0.00,
     fixedFeeFCents: 0,
     packptsValueVMicrousd: 2000,
@@ -543,24 +547,23 @@ describe('margin guardrail BLOCK (computeRmax)', () => {
     createdAt: new Date(),
   } as ProfitPolicy;
 
-  it('BLOCK: Rmax=0 when h*A < minMargin (default policy)', () => {
-    // h*A = 0.70 * 0.02 = 0.014 < 0.25 → Cmax < 0 → Rmax = 0
-    const result = profitGuardrailService.computeRmax(10000, BLOCK_POLICY);
-    expect(result.Rmax).toBe(0);
-    expect(result.Cmax).toBe(0); // clamped to 0
+  it('default policy yields positive Rmax on a real listing', () => {
+    // P = $100 → Cmax = 0.70*0.02*100*(1-0.25) = $1.05 → Rmax = floor(1.05/0.002) = 525
+    const result = profitGuardrailService.computeRmax(10000, DEFAULT_POLICY);
+    expect(result.Rmax).toBe(525);
+    expect(result.Cmax).toBe(1.05);
   });
 
-  it('ALLOW: Rmax > 0 when h*A > minMargin', () => {
-    // h*A = 0.90 * 0.20 = 0.18 > 0.10 → Cmax > 0
-    // P = $100 → Cmax = (0.18 - 0.10) * 100 = $8 → Rmax = floor(8 / 0.002) = 4000
-    const result = profitGuardrailService.computeRmax(10000, PASS_POLICY);
-    expect(result.Rmax).toBe(4000);
-    expect(result.Cmax).toBe(8);
+  it('rich policy yields proportionally larger Rmax', () => {
+    // P = $100 → Cmax = 0.90*0.20*100*(1-0.10) = $16.20 → Rmax = floor(16.20/0.002) = 8100
+    const result = profitGuardrailService.computeRmax(10000, RICH_POLICY);
+    expect(result.Rmax).toBe(8100);
+    expect(result.Cmax).toBe(16.2);
   });
 
   it('fixed fee reduces Rmax proportionally', () => {
-    const policyWithFee = { ...PASS_POLICY, fixedFeeFCents: 500 } as ProfitPolicy;
-    const noFee = profitGuardrailService.computeRmax(10000, PASS_POLICY);
+    const policyWithFee = { ...RICH_POLICY, fixedFeeFCents: 500 } as ProfitPolicy;
+    const noFee = profitGuardrailService.computeRmax(10000, RICH_POLICY);
     const withFee = profitGuardrailService.computeRmax(10000, policyWithFee);
 
     // $5 fee reduces Cmax by $5, Rmax by 5/0.002 = 2500
@@ -568,15 +571,15 @@ describe('margin guardrail BLOCK (computeRmax)', () => {
     expect(withFee.Rmax).toBe(noFee.Rmax - 2500);
   });
 
-  it('Rmax=0 blocks even a large purchase when policy math is unfavorable', () => {
-    // $1000 purchase with blocking policy still yields Rmax=0
-    const result = profitGuardrailService.computeRmax(100000, BLOCK_POLICY);
+  it('Rmax=0 when the credit rounds below one PackPTS (tiny listing)', () => {
+    // P = $0.10 → Cmax = 0.014*0.10*0.75 ≈ $0.00105 → floor(0.00105/0.002) = 0
+    const result = profitGuardrailService.computeRmax(10, DEFAULT_POLICY);
     expect(result.Rmax).toBe(0);
   });
 
   it('higher price yields proportionally more Rmax (linear scaling)', () => {
-    const low = profitGuardrailService.computeRmax(5000, PASS_POLICY);   // $50
-    const high = profitGuardrailService.computeRmax(10000, PASS_POLICY); // $100
+    const low = profitGuardrailService.computeRmax(5000, RICH_POLICY);   // $50
+    const high = profitGuardrailService.computeRmax(10000, RICH_POLICY); // $100
     // Rmax should double since there's no fixed fee
     expect(high.Rmax).toBe(low.Rmax * 2);
   });

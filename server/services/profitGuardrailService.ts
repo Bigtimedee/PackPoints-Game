@@ -91,8 +91,18 @@ class ProfitGuardrailService {
     const f = policy.fixedFeeFCents / 100;
     const v = policy.packptsValueVMicrousd / 1_000_000;
 
-    const Cmax = ((h * A - m) * P - f) / (1 + r);
-    const Rmax = Cmax > 0 ? Math.floor(Cmax / v) : 0;
+    // Redemption credit is funded by affiliate revenue: h*A*P is the reliable
+    // affiliate margin on the purchase, and the business retains fraction m of
+    // that margin (docs: "70% of affiliate revenue funds redemptions, 25%
+    // minimum margin"). The previous formula ((h*A - m) * P) subtracted m as a
+    // fraction of PRICE from a revenue rate of ~1.4% of price — negative for
+    // every possible listing, so Rmax was permanently 0 and no eBay redemption
+    // could ever grant credit.
+    const Cmax = (h * A * P * (1 - m) - f) / (1 + r);
+    // Integer micro-USD math for the floor: raw Cmax carries IEEE-754 noise
+    // (e.g. 1.0499999...) that would silently drop a PackPTS at the floor().
+    const cmaxMicroUsd = Math.round(Cmax * 1_000_000);
+    const Rmax = cmaxMicroUsd > 0 ? Math.floor(cmaxMicroUsd / policy.packptsValueVMicrousd) : 0;
 
     return {
       P,
