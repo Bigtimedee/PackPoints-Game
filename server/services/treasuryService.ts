@@ -13,7 +13,7 @@ import {
 } from "@shared/schema";
 import { eq, sql, and, sum } from "drizzle-orm";
 
-const VALID_SOURCE_TYPES = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "ADJUSTMENT"] as const;
+const VALID_SOURCE_TYPES = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "MANUAL_ADJUSTMENT"] as const;
 type MarginSourceType = typeof VALID_SOURCE_TYPES[number];
 
 const SAFETY_THRESHOLD_CENTS = 10000; // $100 - log alert when below this
