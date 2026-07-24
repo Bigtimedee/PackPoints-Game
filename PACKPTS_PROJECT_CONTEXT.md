@@ -508,6 +508,21 @@ The PackPTS Marketplace lets users spend earned or purchased PackPTS toward real
 - `affiliateHaircutH`: 70% (what % of affiliate revenue funds redemptions)
 - `packptsValueVMicrousd`: $0.002 per PackPTS
 
+**Meaningful discounts + solvency model (July 2026).** The affiliate Rmax formula alone caps credit at ~1% of price. Redemption credit is now the **minimum** of four ceilings, computed in `profitGuardrailService.createQuote`:
+1. **Meaningful ceiling** — `maxDiscountPct × price` (default 15%). The headline generosity dial.
+2. **Solvency ceiling** — `availableMarginPool + thisTxMargin`. Credit is only ever paid from the funded reserve (`margin_ledger` net of `margin_usage`/reservations), so aggregate payouts can never exceed funded dollars. This is the hard solvency guarantee.
+3. **Per-user velocity** — `perUserDailyCreditCents` ($25/day) and `perUserWeeklyCreditCents` ($100/week), summing PENDING+GRANTED credit in rolling windows.
+4. **Minimum** — offers below `minRedemptionPackpts` (500) show ineligible.
+Plus a **reserve-floor kill switch** (`reserveFloorCents`): if the funded reserve drops below the floor, all redemptions pause. All five knobs live on `profit_policy` and are set via `POST /api/admin/profit-policy`.
+
+**To enable meaningful discounts in production:** fund the reserve with a real marketing budget via `POST /api/admin/treasury/credit` (sourceType `MANUAL_ADJUSTMENT`). Until funded, discounts stay bounded to ~1% per-transaction affiliate margin. The code guarantees payouts never exceed the funded reserve, so generosity scales only with real dollars deposited — insolvency is impossible by construction.
+
+**Solvency invariant** — `treasuryService.getSolvencyStatus()` / `GET /api/admin/treasury/solvency`: dollar-denominated outstanding PackPTS liability (`SUM(wallets.balance) × packptsValue`) vs funded reserve, with coverage ratio. This is the number to watch.
+
+**Redemption fraud gates (hardened July 2026):** the marketplace `applyRedemption` risk-state check is now **fail-closed** (a risk-read error denies, not allows); high-value confirms (≥$25 credit) are held at `PURCHASE_CONFIRMED` for admin review via `POST /api/admin/redemption/intents/:id/grant` instead of auto-granting; the tier `POST /api/redeem` path now blocks frozen users (it previously did not).
+
+**Earning-side liability guard (July 2026):** a hard `PTS_MAX_PER_CARD = 500` ceiling is applied AFTER the Set-of-the-Week multiplier (`dailyGameplayBase.ts`) — previously the 250 per-card cap was applied before the multiplier, so a featured card could pay `250 × setMultiplier` unbounded. The dormant `riskEngine.runPeriodicScan` (collusion / bot / high-volume auto-freeze) is now scheduled hourly via `server/services/riskScanWorker.ts`.
+
 **Rmax formula (corrected July 2026):** `Cmax = (h·A·P·(1−m) − f)/(1+r)`. The original formula `((h·A − m)·P − f)` treated `m` as a fraction of PRICE — negative for every real affiliate rate, so Rmax was permanently 0 and no eBay redemption could ever grant credit; a unit test even asserted the always-zero behavior as correct. At the default policy a $100 listing now yields Rmax 525 PackPTS ($1.05 credit). Note the profit policy is a DB row — after the July 2026 data loss it had to be recreated via `POST /api/admin/profit-policy` with the documented defaults.
 
 `marketplaceMarginConfig` table allows per-source overrides (eBay vs. Goldin haircut rates).

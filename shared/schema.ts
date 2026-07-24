@@ -2364,6 +2364,16 @@ export const profitPolicy = pgTable("profit_policy", {
   processingFeeRateR: real("processing_fee_rate_r").notNull().default(0.00), // processing fee rate
   fixedFeeFCents: integer("fixed_fee_f_cents").notNull().default(0), // fixed fee in cents
   packptsValueVMicrousd: integer("packpts_value_v_microusd").notNull().default(2000), // value per PackPTS in micro-USD (2000 = $0.002)
+  // Meaningful-discount + solvency controls (July 2026). The affiliate formula
+  // above caps credit at ~1% of price; maxDiscountPct raises the HEADLINE
+  // ceiling, but every payout is still hard-gated by the funded reserve
+  // (margin pool) and the per-user caps below, so solvency is guaranteed
+  // regardless of how generous these dials are set.
+  maxDiscountPct: real("max_discount_pct").notNull().default(0.15), // max credit as fraction of purchase price (0.15 = 15%)
+  perUserDailyCreditCents: integer("per_user_daily_credit_cents").notNull().default(2500), // $25/day/user
+  perUserWeeklyCreditCents: integer("per_user_weekly_credit_cents").notNull().default(10000), // $100/week/user
+  minRedemptionPackpts: integer("min_redemption_packpts").notNull().default(500), // floor per redemption
+  reserveFloorCents: integer("reserve_floor_cents").notNull().default(0), // redemptions disabled if funded reserve below this
   enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [

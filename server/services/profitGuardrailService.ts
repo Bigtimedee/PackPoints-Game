@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import {
   profitPolicy,
   externalPurchaseIntent,
@@ -136,17 +136,65 @@ class ProfitGuardrailService {
     // Get treasury status and transaction margin
     const treasury = await treasuryService.getTreasuryStatus();
     const txMargin = await treasuryService.computeTransactionMargin(source, priceCents);
-    
-    // Compute margin-backed allowed cap
+    const solvency = await treasuryService.getSolvencyStatus();
+
+    // Compute margin-backed allowed cap (the SOLVENCY gate — never pay beyond it)
     const allowedCapCents = treasury.availableMarginPoolCents + txMargin.transactionMarginCents;
     const packptsValueCents = policy.packptsValueVMicrousd / 10000; // micro-USD to cents
-    
-    // Margin-backed Rmax is the minimum of formula Rmax and what the margin pool can support
+
+    // MEANINGFUL-DISCOUNT ceiling: up to maxDiscountPct of the purchase price.
+    // This is the headline generosity dial, decoupled from the ~1% affiliate
+    // formula. It is only ACHIEVED when the reserve + per-user caps allow it.
+    const maxDiscountPct = (policy as any).maxDiscountPct ?? 0.15;
+    const meaningfulCreditCents = Math.floor(priceCents * maxDiscountPct);
+
+    // Per-user velocity caps (rolling 24h / 7d, counts PENDING + GRANTED credit)
+    const perUserDailyCents = (policy as any).perUserDailyCreditCents ?? 2500;
+    const perUserWeeklyCents = (policy as any).perUserWeeklyCreditCents ?? 10000;
+    const [dayUsed] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${redemptionCredit.creditCents}), 0)::int` })
+      .from(redemptionCredit)
+      .where(and(
+        eq(redemptionCredit.userId, userId),
+        sql`${redemptionCredit.status} IN ('PENDING','GRANTED')`,
+        sql`${redemptionCredit.createdAt} > NOW() - INTERVAL '24 hours'`,
+      ));
+    const [weekUsed] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${redemptionCredit.creditCents}), 0)::int` })
+      .from(redemptionCredit)
+      .where(and(
+        eq(redemptionCredit.userId, userId),
+        sql`${redemptionCredit.status} IN ('PENDING','GRANTED')`,
+        sql`${redemptionCredit.createdAt} > NOW() - INTERVAL '7 days'`,
+      ));
+    const dailyRemainingCents = Math.max(0, perUserDailyCents - Number(dayUsed?.total ?? 0));
+    const weeklyRemainingCents = Math.max(0, perUserWeeklyCents - Number(weekUsed?.total ?? 0));
+
+    // Reserve-floor kill switch: if funded reserve is below the floor, redemptions
+    // are globally paused (solvency protection).
+    const reserveHealthy = solvency.redemptionsHealthy;
+
+    // Final credit = the MINIMUM of every ceiling. Meaningful up to maxDiscountPct,
+    // but never more than the reserve, the per-user caps, or the affiliate formula
+    // would each independently allow.
     const formulaCreditCents = Math.floor(calc.Rmax * packptsValueCents);
-    const marginBackedCreditCentsMax = Math.min(formulaCreditCents, allowedCapCents);
-    const marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
-    
-    const marginPoolAvailable = allowedCapCents > 0;
+    const marginBackedCreditCentsMax = reserveHealthy
+      ? Math.max(0, Math.min(
+          meaningfulCreditCents,
+          allowedCapCents,
+          dailyRemainingCents,
+          weeklyRemainingCents,
+        ))
+      : 0;
+    let marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
+
+    // Enforce the minimum-redemption floor: sub-threshold offers show as ineligible
+    const minRedemptionPackpts = (policy as any).minRedemptionPackpts ?? 500;
+    if (marginBackedRmax < minRedemptionPackpts) {
+      marginBackedRmax = 0;
+    }
+
+    const marginPoolAvailable = allowedCapCents > 0 && reserveHealthy;
 
     const [intent] = await db
       .insert(externalPurchaseIntent)
@@ -169,10 +217,14 @@ class ProfitGuardrailService {
       .returning();
 
     let explanationText: string;
-    if (!marginPoolAvailable) {
+    if (!reserveHealthy) {
+      explanationText = "PackPTS redemption is temporarily paused while the rewards reserve is replenished.";
+    } else if (!marginPoolAvailable) {
       explanationText = "PackPTS redemption temporarily unavailable for external purchases.";
+    } else if (dailyRemainingCents <= 0 || weeklyRemainingCents <= 0) {
+      explanationText = "You've reached your PackPTS redemption limit for now. Check back soon.";
     } else if (marginBackedRmax === 0) {
-      explanationText = "This listing is not eligible for PackPTS credit due to margin requirements.";
+      explanationText = "This listing is not eligible for PackPTS credit right now.";
     } else {
       const creditDollars = (marginBackedRmax * (policy.packptsValueVMicrousd / 1_000_000)).toFixed(2);
       explanationText = `You can apply up to ${marginBackedRmax.toLocaleString()} PackPTS for $${creditDollars} credit on this purchase.`;
@@ -221,7 +273,25 @@ class ProfitGuardrailService {
       throw new Error(`Cannot apply redemption: intent status is ${intent.status}`);
     }
 
-    // Pre-check: frozen user
+    // Clamp the request to the ceiling computed at quote time (intent.computedRmax
+    // already folded in the meaningful-discount cap, the reserve, and the
+    // per-user velocity caps). Prevents an apply from exceeding what the quote
+    // authorized even if the client sends a larger number.
+    if (requestedRedeemPackpts > intent.computedRmax) {
+      requestedRedeemPackpts = intent.computedRmax;
+    }
+    if (requestedRedeemPackpts <= 0) {
+      return {
+        success: false,
+        approvedRedeemPackpts: 0,
+        creditCents: 0,
+        redemptionCreditId: "",
+        message: "No redemption available for this purchase",
+      };
+    }
+
+    // Pre-check: frozen user — FAIL CLOSED. A risk-read failure must block the
+    // redemption (money movement), not silently allow it.
     try {
       const [riskState] = await db
         .select()
@@ -239,7 +309,14 @@ class ProfitGuardrailService {
         };
       }
     } catch (e) {
-      // If risk check fails, allow to continue (fail-open for reads)
+      console.error("[Redemption] risk-state check failed — denying (fail-closed):", e);
+      return {
+        success: false,
+        approvedRedeemPackpts: 0,
+        creditCents: 0,
+        redemptionCreditId: "",
+        message: "Unable to verify account status; please try again shortly",
+      };
     }
 
     // Pre-check: wallet status
@@ -454,6 +531,23 @@ class ProfitGuardrailService {
         throw new Error("Redemption credit not found for this purchase intent");
       }
 
+      // High-value confirmations require admin review before the credit is
+      // finalized (the confirm is a user self-attestation of purchase, so large
+      // credits are held pending human verification of the evidence). Low-value
+      // credits auto-grant. The wallet was already debited at apply time either
+      // way; review only gates FINALIZATION and reservation consumption.
+      const REVIEW_THRESHOLD_CENTS = 2500; // $25
+      if (credit.creditCents >= REVIEW_THRESHOLD_CENTS) {
+        await tx
+          .update(externalPurchaseIntent)
+          .set({ status: "PURCHASE_CONFIRMED", updatedAt: new Date() })
+          .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+        return {
+          success: true,
+          message: "Purchase confirmed. Your credit is pending review and will be granted shortly.",
+        };
+      }
+
       await treasuryService.consumeReservation(purchaseIntentId, credit.id, tx);
 
       await tx
@@ -473,6 +567,35 @@ class ProfitGuardrailService {
         success: true,
         message: "Purchase confirmed. Credit has been granted.",
       };
+    });
+  }
+
+  /**
+   * Admin finalizes a high-value redemption that was held at PURCHASE_CONFIRMED
+   * pending review. Consumes the reservation and grants the credit.
+   */
+  async adminGrantConfirmed(purchaseIntentId: string): Promise<{ success: boolean; message: string }> {
+    return await db.transaction(async (tx) => {
+      const [intent] = await tx
+        .select().from(externalPurchaseIntent)
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId)).for("update");
+      if (!intent) throw new Error("Purchase intent not found");
+      if (intent.status !== "PURCHASE_CONFIRMED") {
+        throw new Error(`Cannot grant: intent status is ${intent.status}`);
+      }
+      const [credit] = await tx
+        .select().from(redemptionCredit)
+        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+      if (!credit) throw new Error("Redemption credit not found");
+
+      await treasuryService.consumeReservation(purchaseIntentId, credit.id, tx);
+      await tx.update(externalPurchaseIntent)
+        .set({ status: "CREDIT_GRANTED", updatedAt: new Date() })
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+      await tx.update(redemptionCredit)
+        .set({ status: "GRANTED" })
+        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
+      return { success: true, message: "Credit granted." };
     });
   }
 
@@ -519,6 +642,11 @@ class ProfitGuardrailService {
       processingFeeRateR: number;
       fixedFeeFCents: number;
       packptsValueVMicrousd: number;
+      maxDiscountPct: number;
+      perUserDailyCreditCents: number;
+      perUserWeeklyCreditCents: number;
+      minRedemptionPackpts: number;
+      reserveFloorCents: number;
     }>
   ): Promise<ProfitPolicy> {
     await db
@@ -533,6 +661,11 @@ class ProfitGuardrailService {
       processingFeeRateR: 0.00,
       fixedFeeFCents: 0,
       packptsValueVMicrousd: 2000,
+      maxDiscountPct: 0.15,
+      perUserDailyCreditCents: 2500,
+      perUserWeeklyCreditCents: 10000,
+      minRedemptionPackpts: 500,
+      reserveFloorCents: 0,
     };
 
     const [newPolicy] = await db
