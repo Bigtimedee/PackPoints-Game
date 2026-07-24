@@ -1,12 +1,13 @@
 import { db } from "../db";
-import { 
-  marginLedger, 
-  marginUsage, 
+import {
+  marginLedger,
+  marginUsage,
   redemptionReservations,
   marketplaceMarginConfig,
   redemptionCredit,
   externalPurchaseIntent,
   profitPolicy,
+  wallets,
   InsertMarginLedger,
   InsertMarginUsage,
 } from "@shared/schema";
@@ -75,6 +76,61 @@ class TreasuryService {
       totalUsedCents,
       totalReservedCents,
       availableMarginPoolCents,
+    };
+  }
+
+  /**
+   * Solvency invariant: dollar-denominated outstanding PackPTS liability vs the
+   * funded reserve. This is the number that must stay healthy — the whole point
+   * of "meaningful discounts without insolvency". Reserve = lifetime margin
+   * booked minus margin already consumed by granted redemptions (reservations
+   * are in-flight, not yet spent, so they are excluded from FUNDED reserve).
+   */
+  async getSolvencyStatus(): Promise<{
+    outstandingPackpts: number;
+    packptsValueMicroUsd: number;
+    liabilityCents: number;
+    fundedReserveCents: number;
+    coverageRatio: number; // fundedReserve / liability; >=1 means fully backed
+    reserveFloorCents: number;
+    redemptionsHealthy: boolean;
+  }> {
+    const [liabilityRow] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${wallets.balance}), 0)::bigint` })
+      .from(wallets);
+    const [marginRow] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${marginLedger.amountCents}), 0)::bigint` })
+      .from(marginLedger);
+    const [usedRow] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${marginUsage.amountCents}), 0)::bigint` })
+      .from(marginUsage);
+
+    const [policy] = await db
+      .select()
+      .from(profitPolicy)
+      .where(eq(profitPolicy.enabled, true))
+      .orderBy(sql`${profitPolicy.effectiveFrom} DESC`)
+      .limit(1);
+
+    const packptsValueMicroUsd = policy?.packptsValueVMicrousd ?? 2000;
+    const reserveFloorCents = policy?.reserveFloorCents ?? 0;
+
+    const outstandingPackpts = Number(liabilityRow?.total ?? 0);
+    // micro-USD → cents: /10000
+    const liabilityCents = Math.round((outstandingPackpts * packptsValueMicroUsd) / 10000);
+    const fundedReserveCents = Number(marginRow?.total ?? 0) - Number(usedRow?.total ?? 0);
+
+    const coverageRatio = liabilityCents > 0 ? fundedReserveCents / liabilityCents : Infinity;
+    const redemptionsHealthy = fundedReserveCents >= reserveFloorCents;
+
+    return {
+      outstandingPackpts,
+      packptsValueMicroUsd,
+      liabilityCents,
+      fundedReserveCents,
+      coverageRatio,
+      reserveFloorCents,
+      redemptionsHealthy,
     };
   }
 

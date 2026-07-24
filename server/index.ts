@@ -440,6 +440,13 @@ app.use((req, res, next) => {
           console.error("[DbBackup] Failed to start:", err);
         }
 
+        try {
+          const { startRiskScanWorker } = await import("./services/riskScanWorker");
+          startRiskScanWorker();
+        } catch (err) {
+          console.error("[RiskScan] Failed to start:", err);
+        }
+
         if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
           try {
             const { initSocialMediaAgent } = await import("./services/socialMedia");

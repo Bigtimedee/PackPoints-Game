@@ -173,7 +173,13 @@ export async function awardDailyBaseForCorrectCard(params: {
           setMultiplier = activeSet.multiplier;
         }
       }
-      const finalPtsWithSetBonus = Math.round(reward.finalPts * setMultiplier);
+      // Re-clamp AFTER the set multiplier — the base reward's 250 cap is applied
+      // before this multiplier, so without this a featured card could pay
+      // 250 × setMultiplier unbounded. Hard ceiling protects liability.
+      const finalPtsWithSetBonus = Math.min(
+        Math.round(reward.finalPts * setMultiplier),
+        DAILY_GAMEPLAY_BASE.PTS_MAX_PER_CARD,
+      );
 
       delta = isDailyCapped ? 0 : Math.min(finalPtsWithSetBonus, DAILY_GAMEPLAY_BASE.PTS_MAX_PER_DAY - oldP);
       delta = Math.max(0, delta);

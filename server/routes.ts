@@ -2551,9 +2551,21 @@ export async function registerRoutes(
 
       const parseResult = redeemPackptsSchema.safeParse(req.body);
       if (!parseResult.success) {
-        return res.status(400).json({ 
-          error: parseResult.error.errors[0]?.message || "Invalid request" 
+        return res.status(400).json({
+          error: parseResult.error.errors[0]?.message || "Invalid request"
         });
+      }
+
+      // Block restricted/frozen accounts from tier redemption (fail-closed —
+      // the marketplace path checks this; this path previously did not).
+      try {
+        const [risk] = await db.select().from(userRiskState).where(eq(userRiskState.userId, userId)).limit(1);
+        if (risk && risk.status !== "NORMAL") {
+          return res.status(403).json({ error: "Your account is currently restricted from redemptions" });
+        }
+      } catch (riskErr) {
+        console.error("[Redeem] risk check failed — denying (fail-closed):", riskErr);
+        return res.status(503).json({ error: "Unable to verify account status; please try again shortly" });
       }
 
       const result = await redemptionService.redeem(userId, parseResult.data.packptsAmount, parseResult.data.idempotencyKey);
@@ -8709,12 +8721,41 @@ export async function registerRoutes(
   // the winning paginated routes.
 
   // Admin: Get treasury status
+  // Admin: finalize a high-value redemption held for review
+  app.post("/api/admin/redemption/intents/:id/grant", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { profitGuardrailService } = await import("./services/profitGuardrailService");
+      const result = await profitGuardrailService.adminGrantConfirmed(req.params.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error granting confirmed redemption:", error);
+      res.status(500).json({ error: error.message || "Failed to grant credit" });
+    }
+  });
+
+  // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
+  app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
+    try {
+      const { treasuryService } = await import("./services/treasuryService");
+      const s = await treasuryService.getSolvencyStatus();
+      res.json({
+        ...s,
+        liabilityUsd: (s.liabilityCents / 100).toFixed(2),
+        fundedReserveUsd: (s.fundedReserveCents / 100).toFixed(2),
+        coveragePct: s.coverageRatio === Infinity ? null : Math.round(s.coverageRatio * 100),
+      });
+    } catch (error: any) {
+      console.error("Error getting solvency status:", error);
+      res.status(500).json({ error: error.message || "Failed to get solvency status" });
+    }
+  });
+
   app.get("/api/admin/treasury/status", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {
       const { treasuryService } = await import("./services/treasuryService");
-      
+
       const status = await treasuryService.getTreasuryStatus();
-      
+
       res.json(status);
     } catch (error: any) {
       console.error("Error getting treasury status:", error);
