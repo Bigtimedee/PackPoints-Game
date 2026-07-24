@@ -503,10 +503,12 @@ The PackPTS Marketplace lets users spend earned or purchased PackPTS toward real
 
 ### Margin Rules
 `profitPolicy` table (versioned, time-effective):
-- `minMarginM`: 25% minimum margin on any redemption
+- `minMarginM`: 25% of the affiliate margin retained by the business (NOT 25% of price)
 - `affiliateRateA`: 2% (eBay affiliate commission)
 - `affiliateHaircutH`: 70% (what % of affiliate revenue funds redemptions)
 - `packptsValueVMicrousd`: $0.002 per PackPTS
+
+**Rmax formula (corrected July 2026):** `Cmax = (h·A·P·(1−m) − f)/(1+r)`. The original formula `((h·A − m)·P − f)` treated `m` as a fraction of PRICE — negative for every real affiliate rate, so Rmax was permanently 0 and no eBay redemption could ever grant credit; a unit test even asserted the always-zero behavior as correct. At the default policy a $100 listing now yields Rmax 525 PackPTS ($1.05 credit). Note the profit policy is a DB row — after the July 2026 data loss it had to be recreated via `POST /api/admin/profit-policy` with the documented defaults.
 
 `marketplaceMarginConfig` table allows per-source overrides (eBay vs. Goldin haircut rates).
 
