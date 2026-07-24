@@ -178,18 +178,37 @@ class TreasuryService {
   async createReservation(purchaseIntentId: string, reservedCents: number, txOrDb?: any): Promise<string> {
     const executor = txOrDb ?? db;
 
-    // Guard against overdraft: verify available margin covers this reservation
-    const [balanceRow] = await executor.execute(
+    // Guard against overdraft: verify available margin covers this reservation.
+    // db.execute() returns a result object with .rows, NOT an iterable — the
+    // previous `const [row] = await ...execute(...)` destructure threw
+    // "(intermediate value) is not iterable" on every call, so no redemption
+    // reservation had ever been created successfully.
+    const balanceResult = await executor.execute(
       sql`SELECT
             COALESCE((SELECT SUM(amount_cents) FROM margin_ledger), 0) -
             COALESCE((SELECT SUM(amount_cents) FROM margin_usage), 0) -
             COALESCE((SELECT SUM(reserved_cents) FROM redemption_reservations WHERE status = 'ACTIVE'), 0)
           AS available_cents`
     );
+    const balanceRow = (balanceResult as any).rows?.[0];
     const availableCents = Number(balanceRow?.available_cents ?? 0);
-    if (availableCents < reservedCents) {
+
+    // The quote/apply model backs credit with pool + THIS transaction's own
+    // expected margin (calcSnapshot.txMarginCents at quote time). The guard
+    // must use the same ceiling, or an empty pool rejects reservations the
+    // quote already approved.
+    let txMarginCents = 0;
+    try {
+      const [intent] = await executor
+        .select()
+        .from(externalPurchaseIntent)
+        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+      txMarginCents = Number((intent?.calcSnapshot as any)?.txMarginCents ?? 0);
+    } catch {}
+
+    if (availableCents + txMarginCents < reservedCents) {
       throw new Error(
-        `Insufficient margin to create reservation: need ${reservedCents} cents, only ${availableCents} available`
+        `Insufficient margin to create reservation: need ${reservedCents} cents, only ${availableCents + txMarginCents} available`
       );
     }
 
