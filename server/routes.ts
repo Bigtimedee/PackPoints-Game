@@ -8872,6 +8872,36 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Card Attention Index — leaderboard + per-player series (Prompt 3)
+  app.get("/api/admin/analytics/attention", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { getAttentionLeaderboard } = await import("./services/analytics/attentionIndex");
+      const rows = await getAttentionLeaderboard({
+        windowDays: Number(req.query.window) || 30,
+        clean: req.query.clean !== "false",
+        limit: Number(req.query.limit) || 100,
+      });
+      res.json({ rows });
+    } catch (error: any) {
+      console.error("[Analytics] attention error:", error);
+      res.status(500).json({ error: error.message || "Failed to compute attention index" });
+    }
+  });
+
+  app.get("/api/admin/analytics/attention/:playerKey", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { getAttentionSeries } = await import("./services/analytics/attentionIndex");
+      const series = await getAttentionSeries(decodeURIComponent(req.params.playerKey), {
+        windowDays: Number(req.query.window) || 90,
+        clean: req.query.clean !== "false",
+      });
+      res.json({ playerKey: req.params.playerKey, series });
+    } catch (error: any) {
+      console.error("[Analytics] attention series error:", error);
+      res.status(500).json({ error: error.message || "Failed to get attention series" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {
