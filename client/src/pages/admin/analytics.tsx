@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, TrendingDown, BarChart3 } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame } from "lucide-react";
 
 interface AttentionRow {
   playerKey: string;
@@ -15,6 +15,82 @@ interface AttentionRow {
   incorrect: number;
   recognitionRate: number | null;
   velocity7: number;
+}
+
+interface RecognitionRow {
+  playerKey: string;
+  attempts: number;
+  correct: number;
+  recognitionRate: number;
+  ciLow: number;
+  ciHigh: number;
+  velocity: number | null;
+  breakout: boolean;
+}
+
+function RecognitionPanel({ windowDays }: { windowDays: number }) {
+  const { data, isLoading } = useQuery<{ rows: RecognitionRow[]; breakouts: RecognitionRow[] }>({
+    queryKey: ["/api/admin/analytics/recognition", windowDays],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/recognition?window=${windowDays}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load recognition index");
+      return res.json();
+    },
+  });
+  const rows = data?.rows ?? [];
+  const breakouts = data?.breakouts ?? [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          Recognition Index
+          {breakouts.length > 0 && (
+            <Badge className="gap-1 bg-orange-500"><Flame className="h-3 w-3" />{breakouts.length} breakout{breakouts.length > 1 ? "s" : ""}</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-12">Not enough volume yet (needs ≥20 attempts/player).</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-muted-foreground text-xs">
+                <th className="text-left px-4 py-2 font-medium">Player</th>
+                <th className="text-right px-4 py-2 font-medium">Recognition</th>
+                <th className="text-right px-4 py-2 font-medium">95% CI</th>
+                <th className="text-right px-4 py-2 font-medium">Attempts</th>
+                <th className="text-right px-4 py-2 font-medium">Momentum</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.playerKey} className="border-b last:border-0 hover:bg-muted/40">
+                  <td className="px-4 py-2 font-medium">
+                    {r.playerKey.split(":").slice(1).join(":").replace(/\b\w/g, c => c.toUpperCase())}
+                    {r.breakout && <Flame className="inline h-3 w-3 ml-1 text-orange-500" />}
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono font-bold">{Math.round(r.recognitionRate * 100)}%</td>
+                  <td className="px-4 py-2 text-right font-mono text-xs text-muted-foreground">{Math.round(r.ciLow * 100)}–{Math.round(r.ciHigh * 100)}%</td>
+                  <td className="px-4 py-2 text-right font-mono text-muted-foreground">{r.attempts}</td>
+                  <td className="px-4 py-2 text-right">
+                    {r.velocity == null ? <span className="text-muted-foreground">—</span> : (
+                      <span className={`font-mono ${r.velocity > 0 ? "text-green-600" : r.velocity < 0 ? "text-red-600" : "text-muted-foreground"}`}>
+                        {r.velocity > 0 ? "+" : ""}{Math.round(r.velocity * 100)} pts
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function prettyPlayer(key: string): string {
@@ -111,6 +187,8 @@ export default function AdminAnalytics() {
           )}
         </CardContent>
       </Card>
+
+      <RecognitionPanel windowDays={windowDays} />
     </div>
   );
 }
