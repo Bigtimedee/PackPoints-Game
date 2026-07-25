@@ -1571,6 +1571,15 @@ Restore procedure: download a `.dump`, then `pg_restore --clean --if-exists -d <
 
 Logout: the real endpoint is `POST /api/auth/local-logout` (destroys session, clears cookie). All logout buttons call `useAuth().logout` which POSTs it then hard-navigates to `/`. A compat shim `GET /api/logout` (destroy + redirect `/`) exists for stale bundles and legacy-era links — previously that URL fell into the SPA catch-all and rendered the 404 page with the session still alive. `ProtectedRoute` gates admin routes on `user.isAdmin` (the API's real field); it briefly gated on a nonexistent `role` field, which bounced every authenticated user — including real admins — from all `/admin/*` routes to the homepage. Dead client targets `/api/login`, `/game`, `/play`, and the server redirect `/settings/accounts` were repointed to real routes; `/admin/set-of-week` is now routed and in the admin sidebar.
 
+### Collector Intelligence — analytics event spine (July 2026, Prompt 1 of ANALYTICS_PROMPTS.md)
+
+The strategic data asset (see `ANALYTICS_PROMPTS.md`). Append-only, PII-free demand-signal capture:
+- `analytics_events` — one row per high-signal action (`answer_submitted` with outcome+latency, `listing_click`, `set_started`, `set_published`, …), dimensioned by `player_key`/`game_set_id`/`year`/`sport`, keyed on `user_hash` (HMAC-SHA256, never raw id), with `is_clean` (false for flagged/frozen users, refreshed from `user_risk_state`).
+- Written ONLY via `server/services/analytics/track.ts` — fire-and-forget, batched, never blocks or throws into the request path. Do not query risk state per-event; the flagged-user set is cached and refreshed.
+- `card_price_history` — daily CardHedge price snapshots (`server/services/analytics/priceCaptureWorker.ts`, hourly-safe, idempotent per day/player/year). **Captures NOW because the Attention Alpha correlation (Prompt 6) needs price history that cannot be backfilled.**
+- Admin: `GET /api/admin/analytics/events/summary` (health/verify), `POST /api/admin/analytics/backfill` (one-time reconstruction from completed sessions, events flagged `{backfill:true}`).
+- Instrumentation must never break gameplay — every `track()` call is wrapped/guarded. This is the foundation; the indices (Prompts 3–6) are derived views, never the source of truth.
+
 ### Canonical host (July 2026)
 
 `packpts.com` (apex) is the canonical host. The server 301-redirects `www.packpts.com` GET/HEAD page navigations to the apex (server/index.ts, before CORS middleware; `/api/*` and `/ws` are exempt so in-flight clients don't break). Session cookies are host-only, so one canonical host prevents the www/apex session split.
