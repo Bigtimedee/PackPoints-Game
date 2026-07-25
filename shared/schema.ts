@@ -1953,6 +1953,54 @@ export const cardPriceHistory = pgTable("card_price_history", {
 ]);
 export type CardPriceHistory = typeof cardPriceHistory.$inferSelect;
 
+// ── Collector Intelligence: dimensional rollup marts (Prompt 2) ────────────
+// Query-optimized daily aggregates derived from analytics_events. Dashboards
+// never scan raw events. Each mart is keyed by (entity, day, is_clean) so the
+// credible (clean) and raw layers are queryable side by side. Fully recomputed
+// per day on each rollup (idempotent).
+export const cardAttentionDaily = pgTable("card_attention_daily", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  playerKey: text("player_key").notNull(),
+  day: date("day").notNull(),
+  isClean: boolean("is_clean").notNull(),
+  plays: integer("plays").notNull().default(0),
+  uniqueUsers: integer("unique_users").notNull().default(0),
+  correct: integer("correct").notNull().default(0),
+  incorrect: integer("incorrect").notNull().default(0),
+  sumLatencyMs: integer("sum_latency_ms").notNull().default(0),
+  cntLatency: integer("cnt_latency").notNull().default(0),
+}, (table) => [
+  uniqueIndex("uq_card_attention_daily").on(table.playerKey, table.day, table.isClean),
+  index("idx_card_attention_daily_day").on(table.day),
+]);
+export type CardAttentionDaily = typeof cardAttentionDaily.$inferSelect;
+
+export const setEngagementDaily = pgTable("set_engagement_daily", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  gameSetId: varchar("game_set_id").notNull(),
+  day: date("day").notNull(),
+  isClean: boolean("is_clean").notNull(),
+  starts: integer("starts").notNull().default(0),
+  plays: integer("plays").notNull().default(0),
+  uniqueUsers: integer("unique_users").notNull().default(0),
+}, (table) => [
+  uniqueIndex("uq_set_engagement_daily").on(table.gameSetId, table.day, table.isClean),
+  index("idx_set_engagement_daily_day").on(table.day),
+]);
+export type SetEngagementDaily = typeof setEngagementDaily.$inferSelect;
+
+export const commerceFunnelDaily = pgTable("commerce_funnel_daily", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  gameSetId: varchar("game_set_id").notNull(),
+  day: date("day").notNull(),
+  isClean: boolean("is_clean").notNull(),
+  listingClicks: integer("listing_clicks").notNull().default(0),
+}, (table) => [
+  uniqueIndex("uq_commerce_funnel_daily").on(table.gameSetId, table.day, table.isClean),
+  index("idx_commerce_funnel_daily_day").on(table.day),
+]);
+export type CommerceFunnelDaily = typeof commerceFunnelDaily.$inferSelect;
+
 export const externalListingsSnapshot = pgTable("external_listings_snapshot", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   source: marketplaceSourceEnum("source").notNull(),

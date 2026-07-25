@@ -454,6 +454,13 @@ app.use((req, res, next) => {
           console.error("[PriceCapture] Failed to start:", err);
         }
 
+        try {
+          const { startRollupWorker } = await import("./services/analytics/rollupWorker");
+          startRollupWorker();
+        } catch (err) {
+          console.error("[Rollup] Failed to start:", err);
+        }
+
         if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
           try {
             const { initSocialMediaAgent } = await import("./services/socialMedia");

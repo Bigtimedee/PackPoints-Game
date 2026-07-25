@@ -8828,6 +8828,32 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: rebuild the dimensional marts from the event spine (Prompt 2)
+  app.post("/api/admin/analytics/rollup", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { rollupBackfill } = await import("./services/analytics/rollupWorker");
+      const days = await rollupBackfill();
+      res.json({ ok: true, daysRebuilt: days });
+    } catch (error: any) {
+      console.error("[Analytics] rollup error:", error);
+      res.status(500).json({ error: error.message || "Rollup failed" });
+    }
+  });
+
+  // Admin: reconcile marts against raw events (Prompt 2 verify gate)
+  app.get("/api/admin/analytics/rollup/reconcile", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const [raw] = (await db.execute(sql`
+        SELECT COUNT(*) FILTER (WHERE event_type='answer_submitted' AND player_key IS NOT NULL)::int AS answers
+        FROM analytics_events`)).rows as any[];
+      const [mart] = (await db.execute(sql`SELECT COALESCE(SUM(plays),0)::int AS plays FROM card_attention_daily`)).rows as any[];
+      res.json({ rawAnswers: raw?.answers ?? 0, martPlays: mart?.plays ?? 0, reconciled: (raw?.answers ?? 0) === (mart?.plays ?? 0) });
+    } catch (error: any) {
+      console.error("[Analytics] reconcile error:", error);
+      res.status(500).json({ error: error.message || "Reconcile failed" });
+    }
+  });
+
   // Admin: analytics event-spine health (Prompt 1 verify gate)
   app.get("/api/admin/analytics/events/summary", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
