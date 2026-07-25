@@ -25,6 +25,7 @@ import {
   X,
   Megaphone,
   Star,
+  TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -40,6 +41,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
+      { href: "/admin/analytics", label: "Intelligence", icon: TrendingUp },
       { href: "/admin/audit-log", label: "Audit Log", icon: ScrollText },
       { href: "/admin/daily5", label: "Daily 5", icon: Calendar },
       { href: "/admin/set-of-week", label: "Set of the Week", icon: Star },
