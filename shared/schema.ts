@@ -1931,7 +1931,7 @@ export const analyticsEvents = pgTable("analytics_events", {
   index("idx_analytics_events_set_time").on(table.gameSetId, table.occurredAt),
   index("idx_analytics_events_time").on(table.occurredAt),
 ]);
-export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+export type AnalyticsEventRow = typeof analyticsEvents.$inferSelect;
 export type InsertAnalyticsEvent = typeof analyticsEvents.$inferInsert;
 
 // Daily market-price time-series (Prompt 1 parallel action). The Attention
