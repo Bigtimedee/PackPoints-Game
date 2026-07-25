@@ -1902,6 +1902,57 @@ export const outboundClicks = pgTable("outbound_clicks", {
 export type InsertOutboundClick = typeof outboundClicks.$inferInsert;
 export type OutboundClick = typeof outboundClicks.$inferSelect;
 
+// ── Collector Intelligence: append-only analytics event spine ──────────────
+// The foundational demand-signal capture (see ANALYTICS_PROMPTS.md, Prompt 1).
+// Append-only, PII-free (user keyed by hash), dimensioned for attention /
+// recognition / commerce analytics. Never written from the request hot path
+// except via the fire-and-forget track() service.
+export const analyticsEvents = pgTable("analytics_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: text("event_type").notNull(), // card_shown|answer_submitted|reveal_shown|listing_impression|listing_click|set_selected|set_started|set_completed|set_published
+  occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  userHash: varchar("user_hash", { length: 64 }), // sha256(userId+salt); never raw id
+  sessionId: text("session_id"),
+  isClean: boolean("is_clean").notNull().default(true), // false for flagged/frozen/bot users
+  playerKey: text("player_key"), // normalized sport:name
+  gameSetId: varchar("game_set_id"),
+  setName: text("set_name"),
+  sport: text("sport"),
+  brand: text("brand"),
+  year: integer("year"),
+  cardId: text("card_id"),
+  isUserCreatedSet: boolean("is_user_created_set"),
+  outcome: text("outcome"), // correct|incorrect|skipped (answer events)
+  latencyMs: integer("latency_ms"),
+  payload: jsonb("payload").$type<Record<string, any>>(),
+}, (table) => [
+  index("idx_analytics_events_type_time").on(table.eventType, table.occurredAt),
+  index("idx_analytics_events_player_time").on(table.playerKey, table.occurredAt),
+  index("idx_analytics_events_set_time").on(table.gameSetId, table.occurredAt),
+  index("idx_analytics_events_time").on(table.occurredAt),
+]);
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+export type InsertAnalyticsEvent = typeof analyticsEvents.$inferInsert;
+
+// Daily market-price time-series (Prompt 1 parallel action). The Attention
+// Alpha correlation (Prompt 6) needs price HISTORY, which cannot be
+// backfilled — capture starts now.
+export const cardPriceHistory = pgTable("card_price_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  capturedOn: date("captured_on").notNull(),
+  playerKey: text("player_key").notNull(),
+  cardhedgeCardId: text("cardhedge_card_id"),
+  gameSetId: varchar("game_set_id"),
+  year: integer("year"),
+  rawPriceCents: integer("raw_price_cents"),
+  source: text("source").notNull().default("cardhedge"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_card_price_history_day").on(table.capturedOn, table.playerKey, table.year),
+  index("idx_card_price_history_player").on(table.playerKey, table.capturedOn),
+]);
+export type CardPriceHistory = typeof cardPriceHistory.$inferSelect;
+
 export const externalListingsSnapshot = pgTable("external_listings_snapshot", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   source: marketplaceSourceEnum("source").notNull(),

@@ -447,6 +447,13 @@ app.use((req, res, next) => {
           console.error("[RiskScan] Failed to start:", err);
         }
 
+        try {
+          const { startPriceCaptureWorker } = await import("./services/analytics/priceCaptureWorker");
+          startPriceCaptureWorker();
+        } catch (err) {
+          console.error("[PriceCapture] Failed to start:", err);
+        }
+
         if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
           try {
             const { initSocialMediaAgent } = await import("./services/socialMedia");

@@ -60,6 +60,7 @@ import { collectGeo } from "./middleware/geoMiddleware";
 import { geoService } from "./services/geoService";
 import * as rewardEngine from "./services/rewardEngine";
 import { awardDailyBaseForCorrectCard, getDailyProgress } from "./services/rewards/dailyGameplayBase";
+import { track } from "./services/analytics/track";
 import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
@@ -446,6 +447,15 @@ export async function registerRoutes(
         }))
       );
 
+      track({
+        eventType: "set_published",
+        userId,
+        gameSetId: setId,
+        setName,
+        sport,
+        isUserCreatedSet: true,
+        payload: { cardCount: cards.length },
+      });
       res.json({ setId, setUrl: `/sets/${setId}`, cardCount: cards.length });
     } catch (error) {
       console.error("[SnapToSet] create-set error:", error);
@@ -609,6 +619,14 @@ export async function registerRoutes(
         cardSetId: setId,
         cardId,
       });
+      // Analytics: the purchase-intent signal (attention → dollars funnel)
+      track({
+        eventType: "listing_click",
+        userId,
+        gameSetId: setId,
+        cardId,
+        payload: { platform, listingId },
+      });
       res.json({ ok: true });
     } catch (error) {
       console.error("[Sets] log-click error:", error);
@@ -763,7 +781,20 @@ export async function registerRoutes(
         }
         throw createError;
       }
-      
+
+      // Analytics: set-play demand signal (which sets get played)
+      try {
+        const firstCard = session.questions?.[0]?.card as any;
+        track({
+          eventType: "set_started",
+          userId: userId || null,
+          sessionId: session.id,
+          gameSetId: firstCard?.gameSetId || setId || null,
+          sport: firstCard?.sport || null,
+          payload: { mode: normalizedMode, totalQuestions },
+        });
+      } catch { /* never break game start */ }
+
       const maxPoints = session.questions.reduce((sum, q) => sum + q.pointValue, 0);
       
       let matchToken = null;
@@ -1040,6 +1071,27 @@ export async function registerRoutes(
         if (!(freshCurrentQuestion as any).shownAt) {
           (freshCurrentQuestion as any).shownAt = new Date().toISOString();
         }
+
+        // Analytics event spine — the core recognition/attention signal.
+        // Fire-and-forget; never blocks or breaks the answer flow.
+        try {
+          const c = freshCurrentQuestion.card as any;
+          const shownAt = (freshCurrentQuestion as any).shownAt;
+          const latencyMs = shownAt ? Math.max(0, Date.now() - new Date(shownAt).getTime()) : null;
+          track({
+            eventType: "answer_submitted",
+            userId: freshSession.userId || req.session?.localUserId || null,
+            sessionId,
+            playerKey: rewardEngine.normalizePlayerKey(freshCurrentQuestion.correctAnswer, c?.sport || "baseball"),
+            gameSetId: c?.gameSetId || null,
+            sport: c?.sport || null,
+            year: c?.year || null,
+            cardId: c?.id || null,
+            outcome: isCorrect ? "correct" : "incorrect",
+            latencyMs,
+            payload: { mode: freshSession.mode, pointValue: freshCurrentQuestion.pointValue },
+          });
+        } catch { /* never break gameplay for analytics */ }
 
         await storage.updateGameSession(freshSession);
 
@@ -8730,6 +8782,67 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error granting confirmed redemption:", error);
       res.status(500).json({ error: error.message || "Failed to grant credit" });
+    }
+  });
+
+  // Admin: one-time backfill of answer events from completed session history.
+  // Bounded per call; events flagged {backfill:true} so they're distinguishable
+  // from live-captured signal. Idempotent-ish via a per-session marker.
+  app.post("/api/admin/analytics/backfill", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Number((req.body || {}).limit) || 200, 1000);
+      const rows = await db.execute(sql`
+        SELECT id, user_id, questions, started_at FROM game_sessions
+        WHERE status = 'completed'
+          AND NOT EXISTS (SELECT 1 FROM analytics_events ae WHERE ae.session_id = game_sessions.id)
+        ORDER BY started_at DESC LIMIT ${limit}
+      `);
+      let events = 0;
+      for (const s of (rows.rows as any[])) {
+        const qs = Array.isArray(s.questions) ? s.questions : [];
+        for (const q of qs) {
+          const card = q?.card || {};
+          const answered = q?.answered || q?.userAnswer != null;
+          if (!answered) continue;
+          const norm = (x: any) => String(x ?? "").trim().toLowerCase();
+          const correct = norm(q?.userAnswer) === norm(q?.correctAnswer);
+          track({
+            eventType: "answer_submitted",
+            userId: s.user_id || null,
+            sessionId: s.id,
+            playerKey: q?.correctAnswer ? `${card?.sport || "baseball"}:${norm(q.correctAnswer)}` : null,
+            gameSetId: card?.gameSetId || null,
+            sport: card?.sport || null,
+            year: card?.year || null,
+            cardId: card?.id || null,
+            outcome: correct ? "correct" : "incorrect",
+            payload: { backfill: true },
+          });
+          events++;
+        }
+      }
+      res.json({ sessionsProcessed: (rows.rows as any[]).length, eventsQueued: events });
+    } catch (error: any) {
+      console.error("[Analytics] backfill error:", error);
+      res.status(500).json({ error: error.message || "Backfill failed" });
+    }
+  });
+
+  // Admin: analytics event-spine health (Prompt 1 verify gate)
+  app.get("/api/admin/analytics/events/summary", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const byType = await db.execute(sql`
+        SELECT event_type, COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE is_clean)::int AS clean,
+               MAX(occurred_at) AS last_seen
+        FROM analytics_events
+        GROUP BY event_type ORDER BY total DESC
+      `);
+      const [prices] = (await db.execute(sql`SELECT COUNT(*)::int AS n, MAX(captured_on) AS latest FROM card_price_history`)).rows as any[];
+      res.json({ eventsByType: byType.rows, priceHistory: prices });
+    } catch (error: any) {
+      console.error("[Analytics] events summary error:", error);
+      res.status(500).json({ error: error.message || "Failed to get analytics summary" });
     }
   });
 
