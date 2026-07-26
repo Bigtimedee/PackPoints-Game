@@ -8933,6 +8933,18 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Attention Alpha — does attention lead price? (Prompt 6, crown jewel)
+  app.get("/api/admin/analytics/attention-alpha", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { getAttentionAlpha } = await import("./services/analytics/attentionAlpha");
+      const data = await getAttentionAlpha({ clean: req.query.clean !== "false" });
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Analytics] attention-alpha error:", error);
+      res.status(500).json({ error: error.message || "Failed to compute attention alpha" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {

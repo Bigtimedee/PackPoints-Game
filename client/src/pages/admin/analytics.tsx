@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame, ShoppingBag } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame, ShoppingBag, LineChart, AlertTriangle } from "lucide-react";
 
 interface AttentionRow {
   playerKey: string;
@@ -145,6 +145,83 @@ function FunnelPanel({ windowDays }: { windowDays: number }) {
   );
 }
 
+interface AlphaData {
+  players: number;
+  aggregateByLag: { lag: number; avgCorr: number; n: number }[];
+  bestLag: { lag: number; avgCorr: number } | null;
+  watchlist: { playerKey: string; attentionVelocity: number; priceChangePct: number | null }[];
+  caveat: string | null;
+}
+
+function AttentionAlphaPanel() {
+  const { data, isLoading } = useQuery<AlphaData>({
+    queryKey: ["/api/admin/analytics/attention-alpha"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/attention-alpha`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load attention alpha");
+      return res.json();
+    },
+  });
+
+  return (
+    <Card className="border-primary/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <LineChart className="h-4 w-4 text-primary" /> Attention Alpha — does attention lead price?
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : !data ? (
+          <p className="text-sm text-muted-foreground text-center py-10">No data.</p>
+        ) : (
+          <div className="space-y-4">
+            {data.caveat && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{data.caveat}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border p-3">
+                <p className="text-2xl font-bold font-mono">{data.players}</p>
+                <p className="text-xs text-muted-foreground">players with paired attention + price series</p>
+              </div>
+              <div className="rounded-lg border p-3">
+                {data.bestLag ? (
+                  <>
+                    <p className="text-2xl font-bold font-mono">+{data.bestLag.lag}d · r={data.bestLag.avgCorr.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">peak lead: attention precedes price by {data.bestLag.lag} days</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold font-mono text-muted-foreground">—</p>
+                    <p className="text-xs text-muted-foreground">lead/lag emerges as history accrues</p>
+                  </>
+                )}
+              </div>
+            </div>
+            {data.watchlist.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Attention-leading watchlist (rising attention, price not yet moved)</p>
+                <div className="flex flex-wrap gap-2">
+                  {data.watchlist.slice(0, 8).map((w) => (
+                    <Badge key={w.playerKey} variant="outline" className="gap-1">
+                      {w.playerKey.split(":").slice(1).join(":").replace(/\b\w/g, c => c.toUpperCase())}
+                      <span className="text-green-600">+{Math.round(w.attentionVelocity)}</span>
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function prettyPlayer(key: string): string {
   const name = key.includes(":") ? key.split(":").slice(1).join(":") : key;
   return name.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -242,6 +319,7 @@ export default function AdminAnalytics() {
 
       <RecognitionPanel windowDays={windowDays} />
       <FunnelPanel windowDays={windowDays} />
+      <AttentionAlphaPanel />
     </div>
   );
 }
