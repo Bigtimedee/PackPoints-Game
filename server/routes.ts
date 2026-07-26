@@ -8902,6 +8902,22 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Recognition Index — cultural-momentum signal (Prompt 4)
+  app.get("/api/admin/analytics/recognition", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { getRecognitionIndex } = await import("./services/analytics/recognitionIndex");
+      const rows = await getRecognitionIndex({
+        windowDays: Number(req.query.window) || 30,
+        clean: req.query.clean !== "false",
+        limit: Number(req.query.limit) || 100,
+      });
+      res.json({ rows, breakouts: rows.filter(r => r.breakout) });
+    } catch (error: any) {
+      console.error("[Analytics] recognition error:", error);
+      res.status(500).json({ error: error.message || "Failed to compute recognition index" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {
