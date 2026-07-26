@@ -222,6 +222,67 @@ function AttentionAlphaPanel() {
   );
 }
 
+interface Mover { key: string; label: string; current: number; previous: number; velocity: number; pctChange: number | null; }
+interface TrendingData { playersUp: Mover[]; playersDown: Mover[]; setsUp: Mover[]; eras: Mover[]; windowDays: number; }
+
+function cap(s: string) { return s.replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+function MoverList({ title, movers, dir }: { title: string; movers: Mover[]; dir: "up" | "down" }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-muted-foreground mb-2">{title}</p>
+      {movers.length === 0 ? (
+        <p className="text-xs text-muted-foreground">—</p>
+      ) : (
+        <div className="space-y-1">
+          {movers.slice(0, 6).map((m) => (
+            <div key={m.key} className="flex items-center justify-between text-sm">
+              <span className="truncate">{cap(m.label)}</span>
+              <span className={`font-mono text-xs shrink-0 ${dir === "up" ? "text-green-600" : "text-red-600"}`}>
+                {m.velocity > 0 ? "+" : ""}{m.velocity}{m.pctChange != null ? ` (${Math.round(m.pctChange * 100)}%)` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MarketPulsePanel() {
+  const { data, isLoading } = useQuery<TrendingData>({
+    queryKey: ["/api/admin/analytics/trending"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/trending?window=7`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load trending");
+      return res.json();
+    },
+  });
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-primary" /> Market Pulse — 7-day movers
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : !data ? (
+          <p className="text-sm text-muted-foreground text-center py-8">No data.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <MoverList title="Players rising" movers={data.playersUp} dir="up" />
+            <MoverList title="Players cooling" movers={data.playersDown} dir="down" />
+            <MoverList title="Sets rising" movers={data.setsUp} dir="up" />
+            <MoverList title="Eras" movers={data.eras} dir="up" />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function prettyPlayer(key: string): string {
   const name = key.includes(":") ? key.split(":").slice(1).join(":") : key;
   return name.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -258,6 +319,8 @@ export default function AdminAnalytics() {
           ))}
         </div>
       </div>
+
+      <MarketPulsePanel />
 
       <Card>
         <CardHeader className="pb-2">
