@@ -8918,6 +8918,21 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Commerce Intent Funnel — attention → dollars (Prompt 5)
+  app.get("/api/admin/analytics/funnel", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { getCommerceFunnel } = await import("./services/analytics/commerceFunnel");
+      const data = await getCommerceFunnel({
+        windowDays: Number(req.query.window) || 30,
+        clean: req.query.clean !== "false",
+      });
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Analytics] funnel error:", error);
+      res.status(500).json({ error: error.message || "Failed to compute commerce funnel" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {

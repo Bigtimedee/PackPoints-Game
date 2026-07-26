@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame, ShoppingBag } from "lucide-react";
 
 interface AttentionRow {
   playerKey: string;
@@ -87,6 +87,58 @@ function RecognitionPanel({ windowDays }: { windowDays: number }) {
               ))}
             </tbody>
           </table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface FunnelData {
+  summary: { correct: number; listingClicks: number; purchases: number; revenueCents: number; clickThroughRate: number; conversionRate: number };
+  topSets: { gameSetId: string; setName: string | null; correct: number; listingClicks: number; clickThroughRate: number }[];
+}
+
+function FunnelPanel({ windowDays }: { windowDays: number }) {
+  const { data, isLoading } = useQuery<FunnelData>({
+    queryKey: ["/api/admin/analytics/funnel", windowDays],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/funnel?window=${windowDays}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load funnel");
+      return res.json();
+    },
+  });
+  const s = data?.summary;
+  const stages = s ? [
+    { label: "Correct answers", value: s.correct },
+    { label: "Listing clicks", value: s.listingClicks, rate: s.clickThroughRate },
+    { label: "Purchases", value: s.purchases, rate: s.conversionRate },
+  ] : [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <ShoppingBag className="h-4 w-4 text-primary" /> Commerce Intent Funnel
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : !s ? (
+          <p className="text-sm text-muted-foreground text-center py-10">No funnel data yet.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              {stages.map((st) => (
+                <div key={st.label} className="rounded-lg border p-3">
+                  <p className="text-2xl font-bold font-mono">{st.value.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{st.label}</p>
+                  {st.rate != null && <p className="text-xs text-primary mt-1">{(st.rate * 100).toFixed(1)}% conv.</p>}
+                </div>
+              ))}
+            </div>
+            <p className="text-sm">Attributed revenue: <span className="font-mono font-bold">${(s.revenueCents / 100).toFixed(2)}</span></p>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -189,6 +241,7 @@ export default function AdminAnalytics() {
       </Card>
 
       <RecognitionPanel windowDays={windowDays} />
+      <FunnelPanel windowDays={windowDays} />
     </div>
   );
 }
