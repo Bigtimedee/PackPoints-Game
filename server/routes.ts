@@ -8945,6 +8945,21 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Trending & Market Pulse — rising/falling players, sets, eras (Prompt 7)
+  app.get("/api/admin/analytics/trending", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { getTrending } = await import("./services/analytics/trending");
+      const data = await getTrending({
+        windowDays: Number(req.query.window) || 7,
+        clean: req.query.clean !== "false",
+      });
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Analytics] trending error:", error);
+      res.status(500).json({ error: error.message || "Failed to compute trending" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {
