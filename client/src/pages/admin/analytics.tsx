@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame, ShoppingBag, LineChart, AlertTriangle } from "lucide-react";
+import { Loader2, TrendingUp, TrendingDown, BarChart3, Flame, ShoppingBag, LineChart, AlertTriangle, ShieldCheck, ShieldAlert } from "lucide-react";
 
 interface AttentionRow {
   playerKey: string;
@@ -283,6 +283,43 @@ function MarketPulsePanel() {
   );
 }
 
+interface GovernanceData {
+  pii: { clean: boolean; offendingColumns: { table: string; column: string }[] };
+  split: { cleanEvents: number; rawEvents: number; excludedPct: number };
+  dataQuality: { eventsToday: number; martReconciled: boolean; nullPlayerKeyPct: number; healthy: boolean };
+}
+
+function GovernancePanel() {
+  const { data } = useQuery<GovernanceData>({
+    queryKey: ["/api/admin/analytics/governance"],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/analytics/governance`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load governance");
+      return res.json();
+    },
+  });
+  if (!data) return null;
+  const ok = data.pii.clean && data.dataQuality.healthy;
+  return (
+    <Card className={ok ? "border-green-300" : "border-amber-300"}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          {ok ? <ShieldCheck className="h-4 w-4 text-green-600" /> : <ShieldAlert className="h-4 w-4 text-amber-600" />}
+          Data Governance — diligence readiness
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <div><p className="text-xs text-muted-foreground">PII-free</p><p className="font-mono font-bold">{data.pii.clean ? "✓ pass" : `✗ ${data.pii.offendingColumns.length}`}</p></div>
+          <div><p className="text-xs text-muted-foreground">Mart reconciled</p><p className="font-mono font-bold">{data.dataQuality.martReconciled ? "✓" : "✗"}</p></div>
+          <div><p className="text-xs text-muted-foreground">Bot signal excluded</p><p className="font-mono font-bold">{Math.round(data.split.excludedPct * 100)}%</p></div>
+          <div><p className="text-xs text-muted-foreground">Null player-key</p><p className="font-mono font-bold">{(data.dataQuality.nullPlayerKeyPct * 100).toFixed(1)}%</p></div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function prettyPlayer(key: string): string {
   const name = key.includes(":") ? key.split(":").slice(1).join(":") : key;
   return name.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -383,6 +420,7 @@ export default function AdminAnalytics() {
       <RecognitionPanel windowDays={windowDays} />
       <FunnelPanel windowDays={windowDays} />
       <AttentionAlphaPanel />
+      <GovernancePanel />
     </div>
   );
 }

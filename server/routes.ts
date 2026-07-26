@@ -8960,6 +8960,17 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Data Governance report — PII audit, clean/raw split, quality (Prompt 8)
+  app.get("/api/admin/analytics/governance", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getGovernanceReport } = await import("./services/analytics/governance");
+      res.json(await getGovernanceReport());
+    } catch (error: any) {
+      console.error("[Analytics] governance error:", error);
+      res.status(500).json({ error: error.message || "Failed to compute governance report" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {
