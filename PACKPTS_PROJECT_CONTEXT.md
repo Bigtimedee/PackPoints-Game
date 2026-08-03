@@ -1580,6 +1580,21 @@ The strategic data asset (see `ANALYTICS_PROMPTS.md`). Append-only, PII-free dem
 - Admin: `GET /api/admin/analytics/events/summary` (health/verify), `POST /api/admin/analytics/backfill` (one-time reconstruction from completed sessions, events flagged `{backfill:true}`).
 - Instrumentation must never break gameplay — every `track()` call is wrapped/guarded. This is the foundation; the indices (Prompts 3–6) are derived views, never the source of truth.
 
+### ⚠️ TikTok App Review — brand-name consistency (MISSION CRITICAL for social publishing)
+
+TikTok App Review rejects the app unless the **app name matches everything else exactly**. The canonical name is **PackPTS** (matches the domain `packpts.com`). All of these MUST stay equal to `PackPTS`, or TikTok re-rejects:
+
+1. **TikTok app name** (developer portal, Basic Information) = `PackPTS`. (It was mistakenly `PlayPackPTS`; that must be renamed — `PlayPackPTS` would require a `playpackpts.com` domain, which we will never buy.)
+2. **Website `<title>`** (browser tab, `client/index.html`) = exactly `PackPTS`. Do NOT re-add a marketing tagline here without renaming the TikTok app to match.
+3. **Domain** = `packpts.com` (root `packpts` == `PackPTS`).
+4. **ToS page** displayed title/H1 = `PackPTS Terms of Service`; **Privacy page** H1 = `PackPTS Privacy Policy` (both also set `document.title` accordingly).
+5. **Both policy bodies must name the app** (`PackPTS`) — they do.
+6. **TikTok portal fields**: Website URL `https://packpts.com`, Redirect domain `packpts.com`, ToS `https://packpts.com/terms-of-service`, Privacy `https://packpts.com/privacy-policy`.
+
+Also: ToS/Privacy links must be in the RAW homepage HTML (a static `#static-legal-footer` outside React's `#root` in `client/index.html`) so TikTok's crawler sees them without JS. The apex domain must serve the Railway app (not the retired host) or every link check fails — see the DNS note below.
+
+**No TikTok API exists for app-review resubmission** — the final Return-to-Draft → set fields → Resubmit is a developer-portal action requiring the owner's TikTok login; it cannot be automated from this environment. Everything on the website side is automatable and must be made correct first.
+
 ### Canonical host (July 2026)
 
 `packpts.com` (apex) is the canonical host. The server 301-redirects `www.packpts.com` GET/HEAD page navigations to the apex (server/index.ts, before CORS middleware; `/api/*` and `/ws` are exempt so in-flight clients don't break). Session cookies are host-only, so one canonical host prevents the www/apex session split.
