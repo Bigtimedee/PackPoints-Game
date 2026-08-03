@@ -8971,6 +8971,32 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Acquisition Data Room — executive summary (Prompt 9)
+  app.get("/api/admin/analytics/data-room", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { getDataRoomSummary } = await import("./services/analytics/dataRoom");
+      res.json(await getDataRoomSummary());
+    } catch (error: any) {
+      console.error("[Analytics] data-room error:", error);
+      res.status(500).json({ error: error.message || "Failed to load data room" });
+    }
+  });
+
+  // Admin: Data Room — CSV export of a whitelisted mart (Prompt 9)
+  app.get("/api/admin/analytics/export/:table.csv", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { exportMartCsv } = await import("./services/analytics/dataRoom");
+      const csv = await exportMartCsv(req.params.table);
+      if (csv == null) return res.status(404).json({ error: "Unknown or non-exportable table" });
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${req.params.table}.csv"`);
+      res.send(csv);
+    } catch (error: any) {
+      console.error("[Analytics] export error:", error);
+      res.status(500).json({ error: error.message || "Export failed" });
+    }
+  });
+
   // Admin: solvency dashboard — outstanding PackPTS liability vs funded reserve
   app.get("/api/admin/treasury/solvency", isAuthenticated, requireAdmin, async (_req: any, res) => {
     try {

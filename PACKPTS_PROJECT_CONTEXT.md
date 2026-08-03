@@ -1571,6 +1571,15 @@ Restore procedure: download a `.dump`, then `pg_restore --clean --if-exists -d <
 
 Logout: the real endpoint is `POST /api/auth/local-logout` (destroys session, clears cookie). All logout buttons call `useAuth().logout` which POSTs it then hard-navigates to `/`. A compat shim `GET /api/logout` (destroy + redirect `/`) exists for stale bundles and legacy-era links — previously that URL fell into the SPA catch-all and rendered the 404 page with the session still alive. `ProtectedRoute` gates admin routes on `user.isAdmin` (the API's real field); it briefly gated on a nonexistent `role` field, which bounced every authenticated user — including real admins — from all `/admin/*` routes to the homepage. Dead client targets `/api/login`, `/game`, `/play`, and the server redirect `/settings/accounts` were repointed to real routes; `/admin/set-of-week` is now routed and in the admin sidebar.
 
+### Collector Intelligence — COMPLETE (July 2026, all 9 prompts of ANALYTICS_PROMPTS.md)
+
+The full data asset is live in production, admin-gated under `/admin/analytics` (Intelligence) and `/admin/data-room`:
+1–2. Event spine (`analytics_events`) + daily marts (`card_attention_daily`, `set_engagement_daily`, `commerce_funnel_daily`) + `card_price_history`.
+3–7. Signature indices (all in `server/services/analytics/`, admin APIs under `/api/admin/analytics/`): Card Attention Index, Recognition Index (Wilson CI + breakouts), Commerce Intent Funnel, **Attention Alpha** (attention→price lead/lag), Market Pulse (trending).
+8. Governance: PII-free audit, clean/raw split, data-quality monitor, `ANALYTICS_DATA_DICTIONARY.md`.
+9. Acquisition Data Room: exec summary + CSV mart exports (`/api/admin/analytics/export/:table.csv`) + documented read API.
+Design invariants: capture never blocks gameplay (guarded fire-and-forget `track()`); PII-free (hashed ids); clean layer excludes flagged/frozen users; indices are reproducible from the append-only spine. The asset's value is time-depth — it compounds daily and cannot be backfilled.
+
 ### Collector Intelligence — analytics event spine (July 2026, Prompt 1 of ANALYTICS_PROMPTS.md)
 
 The strategic data asset (see `ANALYTICS_PROMPTS.md`). Append-only, PII-free demand-signal capture:
