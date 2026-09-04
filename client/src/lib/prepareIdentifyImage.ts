@@ -58,13 +58,15 @@ function blobToBase64(blob: Blob): Promise<string> {
 async function heicToJpegBlob(file: File): Promise<Blob> {
   // Dynamic import keeps the HEIC decoder out of the initial /make chunk
   // for users who never pick iOS library photos.
-  const mod = await import("heic2any");
-  const heic2any = (mod as { default?: typeof mod }).default ?? mod;
-  const result = await (heic2any as (opts: {
+  type Heic2AnyFn = (opts: {
     blob: Blob;
     toType: string;
     quality: number;
-  }) => Promise<Blob | Blob[]>)({
+  }) => Promise<Blob | Blob[]>;
+  const mod = (await import("heic2any")) as unknown as { default?: Heic2AnyFn } | Heic2AnyFn;
+  const heic2any: Heic2AnyFn =
+    typeof mod === "function" ? mod : (mod.default as Heic2AnyFn);
+  const result = await heic2any({
     blob: file,
     toType: "image/jpeg",
     quality: IDENTIFY_JPEG_QUALITY,
