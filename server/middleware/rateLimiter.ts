@@ -153,5 +153,5 @@ export const cardIdentifyLimiter = rateLimit({
   max: 20,
   keyPrefix: "card_identify",
   keySource: "user",
-  message: "Too many card identification requests. Please try again in an hour.",
+  message: "You've hit today's identify pace — try again in a bit",
 });
