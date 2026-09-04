@@ -74,13 +74,15 @@ app.use(express.urlencoded({ extended: false }));
 // --- Canonical host: 301 www -> apex ---
 // Session cookies are host-only (no domain attribute), so a session minted on
 // www is invisible on the apex and vice versa. One canonical host ends the
-// split. Applies to plain GET/HEAD navigations only; API calls and other
-// methods pass through untouched so nothing in-flight breaks mid-migration.
+// split. Applies to plain GET/HEAD navigations; most /api/* still pass through,
+// but WorkOS OAuth start/callback must land on apex (redirect_uri + session).
 app.use((req, res, next) => {
+  const isWorkosAuthPath = req.path.startsWith("/api/auth/workos/");
+  const skipApi = req.path.startsWith("/api/") && !isWorkosAuthPath;
   if (
     req.hostname === "www.packpts.com" &&
     (req.method === "GET" || req.method === "HEAD") &&
-    !req.path.startsWith("/api/") &&
+    !skipApi &&
     !req.path.startsWith("/ws")
   ) {
     return res.redirect(301, `https://packpts.com${req.originalUrl}`);

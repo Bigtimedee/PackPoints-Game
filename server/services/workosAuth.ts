@@ -50,6 +50,14 @@ export function registerWorkosRoutes(app: Express): void {
         return res.status(503).json({ error: "WorkOS is not configured" });
       }
 
+      // Session cookies are host-only. Keep start + callback on apex so www
+      // cannot mint a www callback / split session.
+      const host = (req.hostname || "").toLowerCase();
+      if (host === "www.packpts.com" || (host.endsWith(".packpts.com") && host !== "packpts.com")) {
+        const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+        return res.redirect(302, `https://packpts.com/api/auth/workos/start${qs}`);
+      }
+
       const state = crypto.randomBytes(32).toString("hex");
       (req.session as any).workosState = state;
 
@@ -57,8 +65,11 @@ export function registerWorkosRoutes(app: Express): void {
         (req.session as any).linkIntent = true;
       }
 
-      const redirectUri = process.env.WORKOS_REDIRECT_URI || 
-        `${req.protocol}://${req.hostname}/api/auth/workos/callback`;
+      // Pin OAuth redirect to apex when configured; never derive from www hostname.
+      const apexCallback = "https://packpts.com/api/auth/workos/callback";
+      const redirectUri =
+        process.env.WORKOS_REDIRECT_URI ||
+        (host === "packpts.com" ? apexCallback : `${req.protocol}://${req.hostname}/api/auth/workos/callback`);
 
       const authorizationUrl = workosInstance.userManagement.getAuthorizationUrl({
         clientId,
@@ -67,7 +78,14 @@ export function registerWorkosRoutes(app: Express): void {
         provider: "authkit",
       });
 
-      res.redirect(authorizationUrl);
+      // Persist CSRF state before leaving this origin for WorkOS.
+      req.session.save((err) => {
+        if (err) {
+          console.error("[WorkOS] Session save error before start redirect:", err);
+          return res.redirect("/auth-error?reason=session_error");
+        }
+        res.redirect(authorizationUrl);
+      });
     } catch (error) {
       console.error("[WorkOS] Error starting auth flow:", error);
       res.redirect("/auth-error?reason=workos_start_failed");

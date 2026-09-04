@@ -19,15 +19,17 @@ Add the following secrets to the host's environment variables:
 |----------|-------------|---------|
 | `WORKOS_API_KEY` | Your WorkOS API key (starts with `sk_`) | `sk_live_xxx...` |
 | `WORKOS_CLIENT_ID` | Your WorkOS Client ID (starts with `client_`) | `client_xxx...` |
-| `WORKOS_REDIRECT_URI` | Callback URL for OAuth (optional, auto-detected) | `https://packpts.com/api/auth/workos/callback` |
+| `WORKOS_REDIRECT_URI` | Callback URL for OAuth — **pin to apex** (required in production; do not derive from `www`) | `https://packpts.com/api/auth/workos/callback` |
 
 ## WorkOS Dashboard Configuration
 
 1. Go to [WorkOS Dashboard](https://dashboard.workos.com)
 2. Navigate to **User Management** > **Authentication**
 3. Under **Redirect URIs**, add:
-   - `https://packpts.com/api/auth/workos/callback`
+   - `https://packpts.com/api/auth/workos/callback` (**apex only** — do not register `www.packpts.com`)
    - For development: `http://localhost:5001/api/auth/workos/callback`
+
+   Set Railway `WORKOS_REDIRECT_URI` to the same apex URL so start never mints a www callback.
 
 4. Configure your authentication methods (Email + Password, Google, etc.)
 
@@ -52,8 +54,8 @@ Add the following secrets to the host's environment variables:
 ## Authentication Flow
 
 1. User clicks "Continue with WorkOS" on login page
-2. Browser redirects to `GET /api/auth/workos/start`
-3. Server generates CSRF state, stores in session, redirects to WorkOS hosted login
+2. Browser redirects to `GET /api/auth/workos/start` (www is 302'd to apex first)
+3. Server generates CSRF state, `session.save()`s it, then redirects to WorkOS hosted login using pinned `WORKOS_REDIRECT_URI`
 4. User authenticates via WorkOS (email/password, Google, etc.)
 5. WorkOS redirects back to `GET /api/auth/workos/callback` with authorization code
 6. Server validates state, exchanges code for user info via WorkOS SDK
