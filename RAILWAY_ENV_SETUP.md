@@ -22,6 +22,9 @@ This guide covers all environment variables needed to run PackPTS on Railway.
 |----------|-------------|-----------------|
 | `WORKOS_API_KEY` | WorkOS API key | [WorkOS Dashboard](https://dashboard.workos.com) → API Keys |
 | `WORKOS_CLIENT_ID` | WorkOS client ID | WorkOS Dashboard → Applications |
+| `WORKOS_REDIRECT_URI` | OAuth callback URL — **must be apex** (do not use `www`) | Set exactly: `https://packpts.com/api/auth/workos/callback` |
+
+**Important:** Register the same apex callback in the WorkOS Dashboard → User Management → Redirect URIs. Session cookies are host-only; a `www` callback splits sessions from apex.
 
 ## AI Content Generation (Social Media Posting)
 
