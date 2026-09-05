@@ -57,17 +57,26 @@ function imageFileReady(imagePath: string | null | undefined, imageUrl: string |
   return !!(imageUrl && imagePath && fs.existsSync(imagePath));
 }
 
+function asFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
 function scoreCardInputFromMetadata(username: string, metadata: Record<string, unknown> | null, fallbackMode: string): ScoreCardInput {
   const meta = metadata || {};
   const date = typeof meta.date === "string" ? meta.date : new Date().toISOString().slice(0, 10);
   return {
     username,
-    score: typeof meta.score === "number" ? meta.score : 0,
-    correctCount: typeof meta.correctCount === "number" ? meta.correctCount : 0,
-    totalQuestions: typeof meta.totalQuestions === "number" ? meta.totalQuestions : 0,
+    score: asFiniteNumber(meta.score) ?? 0,
+    correctCount: asFiniteNumber(meta.correctCount) ?? 0,
+    totalQuestions: asFiniteNumber(meta.totalQuestions) ?? 0,
     mode: typeof meta.mode === "string" ? meta.mode : fallbackMode,
-    streak: typeof meta.streak === "number" ? meta.streak : undefined,
-    rank: typeof meta.rank === "number" ? meta.rank : undefined,
+    streak: asFiniteNumber(meta.streak),
+    rank: asFiniteNumber(meta.rank),
     setName: typeof meta.setName === "string" ? meta.setName : undefined,
     date,
   };

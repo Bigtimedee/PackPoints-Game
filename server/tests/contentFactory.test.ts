@@ -20,9 +20,37 @@ import path from "path";
 import { db } from "../db";
 import { contentAssets, users } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, SCORE_CARD_SIZE } from "../contentFactory/generateScoreCard";
+import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, SCORE_CARD_SIZE } from "../contentFactory/generateScoreCard";
+import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 import sharp from "sharp";
 import { onMatchFinished, onDaily5Finished, ensureAssetImage } from "../contentFactory/index";
+
+function isGreen(r: number, g: number, b: number): boolean {
+  return r < 80 && g > 160 && b < 130;
+}
+
+function isNearWhite(r: number, g: number, b: number): boolean {
+  return r > 220 && g > 220 && b > 220;
+}
+
+async function regionHasColor(
+  filePath: string,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  pred: (r: number, g: number, b: number) => boolean,
+): Promise<boolean> {
+  const { data, info } = await sharp(filePath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const ch = info.channels;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * info.width + x) * ch;
+      if (pred(data[i], data[i + 1], data[i + 2])) return true;
+    }
+  }
+  return false;
+}
 
 // ── Test fixtures ─────────────────────────────────────────────────────────────
 
@@ -137,12 +165,46 @@ describe("generateScoreCard()", () => {
     expect(svg).toContain("packpts.com/daily");
     expect(svg).not.toContain("PackPoints");
     expect(svg).not.toContain("Four locked");
+    expect(svg).toContain("data:font/ttf;base64,");
+    expect(svg).toContain("@font-face");
+    expect(svg).not.toMatch(/<text[\s>]/);
 
     const result = await generateScoreCard(input, assetId);
     const meta = await sharp(result.imagePath).metadata();
     expect(meta.width).toBe(1080);
     expect(meta.height).toBe(1080);
+
+    // Outlined type must paint (missing fonts = blank navy / tofu).
+    expect(await regionHasColor(result.imagePath, 80, 200, 280, 400, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 80, 660, 720, 720, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
+
+    // First three pips filled #22C55E; fourth outline only.
+    expect(await regionHasColor(result.imagePath, 80, 560, 136, 616, isGreen)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 220, 560, 276, 616, isGreen)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 290, 560, 346, 616, isGreen)).toBe(false);
+
     createdImagePaths.push(result.imagePath);
+  });
+});
+
+describe("bundled score-card fonts", () => {
+  it("ships Inter TTFs next to the generator", () => {
+    const dir = resolveFontsDir();
+    expect(fs.existsSync(path.join(dir, FONT_FILES.regular))).toBe(true);
+    expect(fs.existsSync(path.join(dir, FONT_FILES.semibold))).toBe(true);
+    expect(fs.existsSync(path.join(dir, FONT_FILES.bold))).toBe(true);
+  });
+});
+
+describe("buildPipsSvg()", () => {
+  it("fills the first X pips green and leaves the rest as outlines", () => {
+    const svg = buildPipsSvg(3, 5);
+    const fills = svg.match(/fill="#22C55E"/g) || [];
+    const outlines = svg.match(/fill="none"/g) || [];
+    expect(fills.length).toBe(3);
+    expect(outlines.length).toBe(2);
   });
 });
 

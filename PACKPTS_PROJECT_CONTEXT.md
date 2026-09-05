@@ -1006,7 +1006,7 @@ Entry point: `server/index.ts`
 - **Admin:** `/api/admin/*` — 40+ endpoints for dashboard, users, cards, redemptions, streaks, products, access, geo, growth, panic
 - **Friends:** Friend list management, match invites
 - **Referrals:** `/api/referrals/*` — create, attribute, stats, leaderboard
-- **Share cards:** `GET /api/content-assets/latest`, `POST /api/content-assets/retry` — score-card PNG lookup + regenerate. Files live on the Railway volume at `/app/data/masked-cards/generated/share/` (the non-root `packpts` user cannot write `/app/public`). Public URL prefix `/generated/share/` is mounted from that directory in production and from `public/generated/share` in local/CI.
+- **Share cards:** `GET /api/content-assets/latest`, `POST /api/content-assets/retry` — score-card PNG lookup + regenerate. Files live on the Railway volume at `/app/data/masked-cards/generated/share/` (the non-root `packpts` user cannot write `/app/public`). Public URL prefix `/generated/share/` is mounted from that directory in production and from `public/generated/share` in local/CI. Inter TTFs ship in `server/contentFactory/assets/fonts/` and are outlined into SVG paths at generate time — Railway Alpine has no system fonts, so `<text font-family="sans-serif">` produced tofu on the live 1080 card.
 - **Health:** `/api/health`, `/api/version`
 
 ### WebSocket Server
@@ -1432,6 +1432,7 @@ Returns for the current week (Sun–Sat):
 | `card-image-pipeline.test.ts` | 7 | Card image validation pipeline |
 | `baseballCardsLegacy.test.ts` | 5 | Legacy baseballCards fallback table decision (see Data Model section) |
 | `contentFactory.test.ts` | 14 | Score card / streak badge generation, 1080 contract, DB idempotency, missing-PNG repair |
+| `scoreCardRender.test.ts` | 3 | Bundled Inter files, pip fill count, outlined 3/5 PNG pixels (no DB) |
 | `gameplayGating.test.ts` | 15 | Gameplay gate enforcement |
 | `growthAgent.test.ts` | 4 | Growth agent: schema validation, deduplication, job tracking (OpenAI mocked) |
 | `growthFlywheel.test.ts` | 8 | Growth flywheel logic |
@@ -1652,6 +1653,7 @@ railway variables --service Postgres --json | python3 -c \
 
 ### Gameplay
 - [x] Game Complete / Daily 5 score card PNG (2026-09-05): generation wrote to `/app/public/generated/share`, which the non-root `packpts` process cannot mkdir (`EACCES`). Confirmed in production deploy logs. Cards now write to the persistent volume `/app/data/masked-cards/generated/share/` and are served at `/generated/share/`. Failed rows (insert-then-EACCES) are repaired on `GET /api/content-assets/latest` and via `POST /api/content-assets/retry`. Finish handlers await generation up to 1.5s and return `shareImageUrl` so the 1080×1080 card can appear within ~2s on Safari. Locked Design contract: `docs/SCORE_CARD_CONTRACT.md` (1080 square, actual X/5, five `#22C55E` pips, “N locked. M open.”, masked-P + PackPTS, packpts.com/daily) and `docs/EMPTY_STATE.md` (no broken-image glyph; “Score card didn’t load.” + Retry `#2B6CEE` + Share without card). `/daily` is an alias for `/daily5`.
+- [x] Score card tofu / blank type (2026-09-05 follow-up): after the EACCES fix, production PNGs wrote and served but Inter was not in the Alpine image. `sans-serif` text became tofu; X/5, headline, PackPTS, and `packpts.com/daily` were unreadable; pips could look empty when metadata counts failed to coerce. Generator now bundles Inter TTFs, embeds them as `@font-face` data URIs, and outlines every label to SVG paths so Sharp never asks fontconfig for a face.
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
 - [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
 - [ ] Wager match settlement is still in progress (confirmed not complete)

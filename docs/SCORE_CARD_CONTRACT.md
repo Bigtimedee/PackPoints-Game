@@ -21,6 +21,12 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 - Spelling: **PackPTS** (never PackPoints)
 - Masked P only. No three-square mark.
 
+## Fonts
+- **Inter** (SIL OFL 1.1) ships in `server/contentFactory/assets/fonts/` and is copied into the Railway image.
+- Do **not** rely on Alpine / Railway system fonts — they are absent and render tofu.
+- Generator embeds the TTFs as `@font-face` data URIs **and** outlines every label to SVG paths so Sharp/librsvg never looks up a face.
+- Required glyphs: session `X/5`, `{score} pts`, headline, **PackPTS**, `packpts.com/daily`.
+
 ## Delivery
 - Generated server-side (SVG → PNG via sharp)
 - Public URL: `/generated/share/{YYYY-MM-DD}/{assetId}.png`
