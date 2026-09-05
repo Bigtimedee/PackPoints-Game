@@ -112,6 +112,7 @@ function Router() {
         )}
       </Route>
       <Route path="/daily5" component={Daily5} />
+      <Route path="/daily" component={Daily5} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard">
         {() => (

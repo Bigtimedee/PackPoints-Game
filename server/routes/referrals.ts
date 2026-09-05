@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db";
-import { referralLinks, referralAttributions, shareEvents, users, contentAssets } from "@shared/schema";
+import { referralLinks, referralAttributions, shareEvents, users, contentAssets, type ContentAsset } from "@shared/schema";
 import { eq, and, sql, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -290,6 +290,20 @@ router.post("/api/share-events", async (req: Request, res: Response) => {
   }
 });
 
+async function repairAssets(assets: ContentAsset[]) {
+  const { ensureAssetImage } = await import("../contentFactory/index");
+  const repaired = [];
+  for (const asset of assets) {
+    try {
+      repaired.push(await ensureAssetImage(asset));
+    } catch (err: any) {
+      console.error("[ContentAssets] Repair failed:", err?.message);
+      repaired.push(asset);
+    }
+  }
+  return repaired;
+}
+
 router.get("/api/content-assets/latest", async (req: Request, res: Response) => {
   try {
     if (!isAuthenticated(req)) {
@@ -311,7 +325,7 @@ router.get("/api/content-assets/latest", async (req: Request, res: Response) => 
         ))
         .orderBy(desc(contentAssets.createdAt))
         .limit(5);
-      return res.json({ assets });
+      return res.json({ assets: await repairAssets(assets) });
     }
 
     const assets = await db.select()
@@ -320,10 +334,51 @@ router.get("/api/content-assets/latest", async (req: Request, res: Response) => 
       .orderBy(desc(contentAssets.createdAt))
       .limit(10);
 
-    return res.json({ assets });
+    return res.json({ assets: await repairAssets(assets) });
   } catch (err: any) {
     console.error("[ContentAssets] Error:", err?.message);
     return res.status(500).json({ message: "Failed to get content assets" });
+  }
+});
+
+router.post("/api/content-assets/retry", async (req: Request, res: Response) => {
+  try {
+    if (!isAuthenticated(req)) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const userId = getUserId(req)!;
+    const { matchId, challengeId } = req.body || {};
+
+    let sourceEventId: string | undefined;
+    if (typeof matchId === "string" && matchId) sourceEventId = `match_${matchId}`;
+    if (typeof challengeId === "string" && challengeId) sourceEventId = `daily5_${challengeId}`;
+    if (!sourceEventId) {
+      return res.status(400).json({ message: "matchId or challengeId is required" });
+    }
+
+    const [asset] = await db.select()
+      .from(contentAssets)
+      .where(and(
+        eq(contentAssets.userId, userId),
+        eq(contentAssets.sourceEventId, sourceEventId),
+      ))
+      .orderBy(desc(contentAssets.createdAt))
+      .limit(1);
+
+    if (!asset) {
+      return res.status(404).json({ message: "No score card to retry" });
+    }
+
+    const { ensureAssetImage } = await import("../contentFactory/index");
+    const ready = await ensureAssetImage(asset, { force: true });
+    const imageUrl = (ready.metadata as { imageUrl?: string } | null)?.imageUrl;
+    if (!imageUrl) {
+      return res.status(500).json({ message: "Score card generation failed" });
+    }
+    return res.json({ asset: ready });
+  } catch (err: any) {
+    console.error("[ContentAssets] Retry error:", err?.message);
+    return res.status(500).json({ message: "Failed to regenerate score card" });
   }
 });
 
