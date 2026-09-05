@@ -8,7 +8,8 @@
  *   - onDaily5Finished: idempotency, DB record creation, rank/streak stored
  *
  * Generated test images are written to:
- *   public/generated/share/<date>/<assetId>.png
+ *   public/generated/share/<date>/<assetId>.png  (local / CI)
+ *   /app/data/masked-cards/generated/share/<date>/<assetId>.png  (Railway volume)
  * and deleted after each test suite.
  */
 
@@ -19,8 +20,9 @@ import path from "path";
 import { db } from "../db";
 import { contentAssets, users } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { generateScoreCard, generateStreakBadge } from "../contentFactory/generateScoreCard";
-import { onMatchFinished, onDaily5Finished } from "../contentFactory/index";
+import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, SCORE_CARD_SIZE } from "../contentFactory/generateScoreCard";
+import sharp from "sharp";
+import { onMatchFinished, onDaily5Finished, ensureAssetImage } from "../contentFactory/index";
 
 // ── Test fixtures ─────────────────────────────────────────────────────────────
 
@@ -110,6 +112,47 @@ describe("generateScoreCard()", () => {
 
     expect(fs.existsSync(result.imagePath)).toBe(true);
     createdImagePaths.push(result.imagePath);
+  });
+
+  it("renders a 1080×1080 Daily 5 contract card with the real 3/5 session", async () => {
+    const assetId = `test-contract-${randomUUID()}`;
+    const input = {
+      username: "Charter",
+      score: 525,
+      correctCount: 3,
+      totalQuestions: 5,
+      mode: "daily5",
+      date: TODAY,
+    };
+    const svg = buildScoreCardSvg(input);
+    expect(svg).toContain(`width="${SCORE_CARD_SIZE}"`);
+    expect(svg).toContain(`height="${SCORE_CARD_SIZE}"`);
+    expect(svg).toContain("#0b0f16");
+    expect(svg).toContain("#22C55E");
+    expect(svg).toContain("#F5C518");
+    expect(svg).toContain("DAILY 5");
+    expect(svg).toContain("Three locked. Two open.");
+    expect(svg).toContain("525 pts");
+    expect(svg).toContain("PackPTS");
+    expect(svg).toContain("packpts.com/daily");
+    expect(svg).not.toContain("PackPoints");
+    expect(svg).not.toContain("Four locked");
+
+    const result = await generateScoreCard(input, assetId);
+    const meta = await sharp(result.imagePath).metadata();
+    expect(meta.width).toBe(1080);
+    expect(meta.height).toBe(1080);
+    createdImagePaths.push(result.imagePath);
+  });
+});
+
+describe("buildScoreCardHeadline()", () => {
+  it("uses the real session counts and never fakes 4/5", () => {
+    expect(buildScoreCardHeadline(3, 5)).toBe("Three locked. Two open.");
+    expect(buildScoreCardHeadline(4, 5)).toBe("Four locked. One open.");
+    expect(buildScoreCardHeadline(5, 5)).toBe("Five locked.");
+    expect(buildScoreCardHeadline(0, 5)).toBe("None locked. Five open.");
+    expect(buildScoreCardHeadline(3, 5)).not.toContain("Four");
   });
 });
 
@@ -378,5 +421,77 @@ describe("onDaily5Finished()", () => {
       createdAssetIds.push(rc.id);
       if (rc.imagePath) createdImagePaths.push(rc.imagePath);
     }
+  });
+});
+
+// ── missing-PNG repair ────────────────────────────────────────────────────────
+
+describe("getShareOutputBase()", () => {
+  it("uses the local public/ path when the Railway volume is absent", () => {
+    expect(getShareOutputBase()).toMatch(/public[/\\]generated[/\\]share$/);
+  });
+});
+
+describe("ensureAssetImage() / finish-handler repair", () => {
+  it("regenerates a SCORE_CARD when onMatchFinished finds a row with no PNG", async () => {
+    const matchId = `test-repair-${randomUUID()}`;
+    const [inserted] = await db.insert(contentAssets).values({
+      assetType: "SCORE_CARD",
+      userId: testUserId,
+      sourceEventId: `match_${matchId}`,
+      metadata: {
+        score: 525,
+        correctCount: 3,
+        totalQuestions: 5,
+        mode: "solo",
+        date: TODAY,
+      },
+    }).returning();
+    createdAssetIds.push(inserted.id);
+
+    const result = await onMatchFinished({
+      matchId,
+      userId: testUserId,
+      score: 525,
+      correctCount: 3,
+      totalQuestions: 5,
+      mode: "solo",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.assetId).toBe(inserted.id);
+    expect(result!.imageUrl).toMatch(/^\/generated\/share\//);
+    expect(result!.imageUrl).toMatch(/\.png$/);
+
+    const [asset] = await db.select().from(contentAssets).where(eq(contentAssets.id, inserted.id)).limit(1);
+    expect((asset.metadata as any)?.imageUrl).toBe(result!.imageUrl);
+    expect(asset.imagePath).toBeTruthy();
+    expect(fs.existsSync(asset.imagePath!)).toBe(true);
+    createdImagePaths.push(asset.imagePath!);
+  });
+
+  it("rewrites a deleted PNG via ensureAssetImage", async () => {
+    const matchId = `test-ensure-${randomUUID()}`;
+    const first = await onMatchFinished({
+      matchId,
+      userId: testUserId,
+      score: 200,
+      correctCount: 2,
+      totalQuestions: 5,
+      mode: "solo",
+    });
+    expect(first).not.toBeNull();
+    createdAssetIds.push(first!.assetId);
+
+    const [asset] = await db.select().from(contentAssets).where(eq(contentAssets.id, first!.assetId)).limit(1);
+    expect(asset.imagePath).toBeTruthy();
+    fs.rmSync(asset.imagePath!, { force: true });
+    expect(fs.existsSync(asset.imagePath!)).toBe(false);
+
+    const repaired = await ensureAssetImage(asset);
+    expect(repaired.imagePath).toBeTruthy();
+    expect(fs.existsSync(repaired.imagePath!)).toBe(true);
+    expect((repaired.metadata as any)?.imageUrl).toMatch(/^\/generated\/share\//);
+    createdImagePaths.push(repaired.imagePath!);
   });
 });

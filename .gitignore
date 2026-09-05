@@ -14,5 +14,6 @@ vite.config.ts.*
 push_*.cjs
 push_*.js
 data/masked-cards/
+public/generated/
 test-results/
 playwright-report/

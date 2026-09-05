@@ -15,6 +15,7 @@ import { requestIdMiddleware, structuredRequestLogger } from "./middleware/reque
 import { errorMonitor } from './services/errorMonitor';
 import { validateStripeEnvVars } from "./services/productMap";
 import { enforceProductionSecrets } from "./utils/secretsCheck";
+import { getShareOutputBase, SHARE_URL_PREFIX } from "./contentFactory/generateScoreCard";
 
 // --- Environment validation ---
 function validateEnvironment() {
@@ -114,6 +115,17 @@ app.use(structuredRequestLogger);
 
 // Serve static files from public folder (card images)
 app.use(express.static("public"));
+
+// Score cards are written to the persistent volume in production (the packpts
+// user cannot mkdir under /app/public). Serve that directory at the same
+// public URL prefix used in content_assets.metadata.imageUrl.
+app.use(SHARE_URL_PREFIX, express.static(getShareOutputBase(), {
+  fallthrough: false,
+  setHeaders(res) {
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Content-Type", "image/png");
+  },
+}));
 
 const PII_KEYS = new Set(['email', 'emailAddress', 'password', 'phone', 'phoneNumber', 'ssn', 'address', 'firstName', 'lastName', 'first_name', 'last_name']);
 

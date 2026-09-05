@@ -1,9 +1,25 @@
+import fs from "fs";
 import { db } from "../db";
-import { contentAssets, users } from "@shared/schema";
+import { contentAssets, users, type ContentAsset } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { generateScoreCard, generateStreakBadge, type ScoreCardInput } from "./generateScoreCard";
 
 const STREAK_MILESTONES = [3, 7, 14, 30];
+
+const SCORE_CARD_BUDGET_MS = 1500;
+
+/** Await generation up to a budget so Game Complete can show the PNG within ~2s. */
+export async function awaitScoreCard<T>(work: Promise<T>, ms = SCORE_CARD_BUDGET_MS): Promise<T | null> {
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+    ]);
+  } catch (err: any) {
+    console.error("[ContentFactory] awaitScoreCard error:", err?.message);
+    return null;
+  }
+}
 
 export interface MatchFinishedEvent {
   matchId: string;
@@ -37,6 +53,66 @@ async function getUsername(userId: string): Promise<string> {
   }
 }
 
+function imageFileReady(imagePath: string | null | undefined, imageUrl: string | undefined): boolean {
+  return !!(imageUrl && imagePath && fs.existsSync(imagePath));
+}
+
+function scoreCardInputFromMetadata(username: string, metadata: Record<string, unknown> | null, fallbackMode: string): ScoreCardInput {
+  const meta = metadata || {};
+  const date = typeof meta.date === "string" ? meta.date : new Date().toISOString().slice(0, 10);
+  return {
+    username,
+    score: typeof meta.score === "number" ? meta.score : 0,
+    correctCount: typeof meta.correctCount === "number" ? meta.correctCount : 0,
+    totalQuestions: typeof meta.totalQuestions === "number" ? meta.totalQuestions : 0,
+    mode: typeof meta.mode === "string" ? meta.mode : fallbackMode,
+    streak: typeof meta.streak === "number" ? meta.streak : undefined,
+    rank: typeof meta.rank === "number" ? meta.rank : undefined,
+    setName: typeof meta.setName === "string" ? meta.setName : undefined,
+    date,
+  };
+}
+
+async function persistGeneratedCard(
+  asset: ContentAsset,
+  result: { imagePath: string; imageUrl: string },
+): Promise<ContentAsset> {
+  const metadata = { ...(asset.metadata as Record<string, unknown> | null), imageUrl: result.imageUrl };
+  const [updated] = await db.update(contentAssets).set({
+    imagePath: result.imagePath,
+    metadata,
+  }).where(eq(contentAssets.id, asset.id)).returning();
+  return updated ?? { ...asset, imagePath: result.imagePath, metadata };
+}
+
+/**
+ * Re-render a stored asset when the PNG is missing (typical after EACCES on
+ * `/app/public` or a container recycle that dropped an ephemeral write).
+ */
+export async function ensureAssetImage(
+  asset: ContentAsset,
+  options: { force?: boolean } = {},
+): Promise<ContentAsset> {
+  const meta = (asset.metadata || {}) as Record<string, unknown>;
+  const imageUrl = typeof meta.imageUrl === "string" ? meta.imageUrl : undefined;
+  if (!options.force && imageFileReady(asset.imagePath, imageUrl)) {
+    return asset;
+  }
+
+  const username = asset.userId ? await getUsername(asset.userId) : "Player";
+  const date = typeof meta.date === "string" ? meta.date : new Date().toISOString().slice(0, 10);
+
+  if (asset.assetType === "STREAK_BADGE") {
+    const streak = typeof meta.streak === "number" ? meta.streak : 0;
+    const result = await generateStreakBadge(username, streak, date, asset.id);
+    return persistGeneratedCard(asset, result);
+  }
+
+  const fallbackMode = asset.assetType === "DAILY5_RANK_CARD" ? "daily5" : "solo";
+  const result = await generateScoreCard(scoreCardInputFromMetadata(username, meta, fallbackMode), asset.id);
+  return persistGeneratedCard(asset, result);
+}
+
 export async function onMatchFinished(event: MatchFinishedEvent): Promise<{ assetId: string; imageUrl: string } | null> {
   try {
     const sourceEventId = `match_${event.matchId}`;
@@ -51,9 +127,11 @@ export async function onMatchFinished(event: MatchFinishedEvent): Promise<{ asse
       )).limit(1);
 
     if (existing.length > 0) {
-      const meta = await db.select({ metadata: contentAssets.metadata, imagePath: contentAssets.imagePath })
+      const [row] = await db.select()
         .from(contentAssets).where(eq(contentAssets.id, existing[0].id)).limit(1);
-      return { assetId: existing[0].id, imageUrl: (meta[0]?.metadata as any)?.imageUrl || "" };
+      if (!row) return null;
+      const ready = await ensureAssetImage(row);
+      return { assetId: ready.id, imageUrl: (ready.metadata as any)?.imageUrl || "" };
     }
 
     const username = await getUsername(event.userId);
@@ -116,9 +194,11 @@ export async function onDaily5Finished(event: Daily5FinishedEvent): Promise<{ as
       )).limit(1);
 
     if (existing.length > 0) {
-      const meta = await db.select({ metadata: contentAssets.metadata })
+      const [row] = await db.select()
         .from(contentAssets).where(eq(contentAssets.id, existing[0].id)).limit(1);
-      return { assetId: existing[0].id, imageUrl: (meta[0]?.metadata as any)?.imageUrl || "" };
+      if (!row) return null;
+      const ready = await ensureAssetImage(row);
+      return { assetId: ready.id, imageUrl: (ready.metadata as any)?.imageUrl || "" };
     }
 
     const username = await getUsername(event.userId);

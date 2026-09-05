@@ -59,6 +59,7 @@ interface FinishResult {
   flagged?: boolean;
   correctAnswers?: { position: number; correctAnswer: string }[];
   pointsCredited?: number;
+  shareImageUrl?: string;
 }
 
 interface LeaderboardEntry {
@@ -80,12 +81,13 @@ function formatTime(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
+function ShareResultCard({ score, correctCount, rank, date, challengeId, shareImageUrl }: {
   score: number;
   correctCount: number;
   rank?: number;
   date?: string;
   challengeId?: string;
+  shareImageUrl?: string;
 }) {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
@@ -103,7 +105,7 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
     `Score: ${score} pts | ${correctCount}/5 correct`,
     rank && rank > 0 ? `Rank: #${rank}` : null,
     "",
-    "Play at packpts.com",
+    "Play at packpts.com/daily",
   ].filter(Boolean).join("\n");
 
   const logShareEvent = async (shareType: string, target: string) => {
@@ -161,7 +163,7 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
     try {
       const res = await apiRequest("POST", "/api/referrals/create", {
         purpose: "SCORE_SHARE",
-        destinationPath: "/daily5",
+        destinationPath: "/daily",
       });
       const data = await res.json();
       if (data.url) {
@@ -213,9 +215,10 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId }: {
           {isAuthenticated && challengeId && (
             <ShareAssetCard
               challengeId={challengeId}
+              initialImageUrl={shareImageUrl}
               downloadFilename={`packpts-daily5-${dateStr}.png`}
-              shareUrl="https://packpts.com/daily5"
-              shareText={`I scored ${score} pts in today's PackPTS Daily 5! Play at packpts.com/daily5`}
+              shareUrl="https://packpts.com/daily"
+              shareText={`I scored ${score} pts in today's PackPTS Daily 5! Play at packpts.com/daily`}
             />
           )}
 
@@ -509,29 +512,33 @@ export default function Daily5Page() {
             <div className="inline-flex p-4 rounded-full bg-primary/10">
               <Trophy className="h-10 w-10 text-primary" />
             </div>
-            <h1 className="text-3xl font-bold" data-testid="text-d5-complete">Daily 5 Complete</h1>
-            <div className="flex justify-center gap-6">
-              <div className="text-center">
+            <h1 className="text-3xl font-bold" data-testid="text-d5-complete">Game Complete</h1>
+            <p className="text-muted-foreground uppercase tracking-wider text-sm">DAILY 5</p>
+            <div className="grid grid-cols-3 gap-3 max-w-md mx-auto">
+              <div className="p-4 rounded-md bg-muted text-center">
                 <p className="text-3xl font-bold font-mono" data-testid="text-d5-final-score">
                   {finishResult?.score ?? status?.entry?.score ?? 0}
                 </p>
-                <p className="text-sm text-muted-foreground">Points</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
               </div>
-              <div className="text-center">
-                <p className="text-3xl font-bold font-mono" data-testid="text-d5-final-correct">
-                  {finishResult?.correctCount ?? status?.entry?.correctCount ?? 0}/5
+              <div className="p-4 rounded-md bg-muted text-center">
+                <p className="text-3xl font-bold font-mono">
+                  {Math.round(((finishResult?.correctCount ?? status?.entry?.correctCount ?? 0) / 5) * 100)}%
                 </p>
-                <p className="text-sm text-muted-foreground">Correct</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
               </div>
-              {finishResult?.rank && finishResult.rank > 0 && (
-                <div className="text-center">
-                  <p className="text-3xl font-bold font-mono" data-testid="text-d5-rank">
-                    #{finishResult.rank}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Rank</p>
-                </div>
-              )}
+              <div className="p-4 rounded-md bg-muted text-center">
+                <p className="text-3xl font-bold font-mono" data-testid="text-d5-final-correct">
+                  {finishResult?.correctCount ?? status?.entry?.correctCount ?? 0} of 5
+                </p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
+              </div>
             </div>
+            {finishResult?.rank && finishResult.rank > 0 && (
+              <p className="text-sm text-muted-foreground" data-testid="text-d5-rank">
+                Rank #{finishResult.rank}
+              </p>
+            )}
             {finishResult?.totalTime && finishResult.totalTime > 0 && (
               <p className="text-sm text-muted-foreground">
                 Time: {formatDuration(finishResult.totalTime)}
@@ -545,6 +552,7 @@ export default function Daily5Page() {
             rank={finishResult?.rank}
             date={status?.challenge?.date}
             challengeId={status?.challenge?.id}
+            shareImageUrl={finishResult?.shareImageUrl}
           />
 
           <Card className="mb-6">

@@ -3,23 +3,45 @@
  *
  * Generates PNG share cards for PackPTS game results using sharp (SVG → PNG).
  *
- * Asset storage layout:
+ * Asset storage layout (production):
+ *   /app/data/masked-cards/generated/share/{YYYY-MM-DD}/{assetId}.png
+ *   (Railway persistent volume — the only path the non-root `packpts` user can write)
+ *
+ * Asset storage layout (local / CI, no volume mount):
  *   public/generated/share/{YYYY-MM-DD}/{assetId}.png
  *
- * Public URL served by Express static:
+ * Public URL served by Express (same prefix in every environment):
  *   /generated/share/{YYYY-MM-DD}/{assetId}.png
  *
- * Full disk path (resolved from project root):
- *   <project-root>/public/generated/share/{YYYY-MM-DD}/{assetId}.png
- *
- * Card dimensions: 1080 × 1920 px (9:16 portrait, optimised for Stories / Reels).
+ * Score card contract (docs/SCORE_CARD_CONTRACT.md): 1080 × 1080 px square.
+ * Streak badges remain 1080 × 1920.
  * Compression: PNG quality 90.
  */
 import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 
-const OUTPUT_BASE = path.resolve("public/generated/share");
+export const SHARE_URL_PREFIX = "/generated/share";
+
+const VOLUME_ROOT = "/app/data/masked-cards";
+const VOLUME_SHARE_DIR = path.join(VOLUME_ROOT, "generated", "share");
+const LOCAL_SHARE_DIR = path.resolve("public/generated/share");
+
+/**
+ * Production writes to the persistent volume because the app process runs as
+ * `packpts` and cannot mkdir under `/app/public` (EACCES). Local/CI keep the
+ * original public/ path so existing tests and `express.static("public")` work.
+ */
+export function getShareOutputBase(): string {
+  if (fs.existsSync(VOLUME_ROOT)) {
+    return VOLUME_SHARE_DIR;
+  }
+  return LOCAL_SHARE_DIR;
+}
+
+function safeDateDir(date: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10);
+}
 
 function escapeXml(text: string): string {
   return text
@@ -52,76 +74,83 @@ export interface ScoreCardOutput {
   imageUrl: string;
 }
 
-function buildScoreCardSvg(input: ScoreCardInput): string {
-  const W = 1080;
-  const H = 1920;
-  const username = escapeXml(truncate(input.username || "Player", 20));
-  const accuracy = input.totalQuestions > 0
-    ? Math.round((input.correctCount / input.totalQuestions) * 100)
-    : 0;
-  const modeName = input.mode === "daily5" ? "DAILY 5 CHALLENGE"
-    : input.mode === "1v1" ? "1v1 MATCH"
-    : "SOLO MATCH";
-  const dateStr = escapeXml(input.date);
-  const setInfo = input.setName ? escapeXml(truncate(input.setName, 30)) : "";
+export const SCORE_CARD_SIZE = 1080;
 
-  const streakSection = input.streak && input.streak > 0
-    ? `<text x="${W / 2}" y="1160" font-family="sans-serif" font-weight="bold" font-size="56" fill="#FFD700" text-anchor="middle">${input.streak}-Day Streak</text>`
-    : "";
+const NUMBER_WORDS = [
+  "None", "One", "Two", "Three", "Four", "Five",
+  "Six", "Seven", "Eight", "Nine", "Ten",
+];
 
-  const rankSection = input.rank
-    ? `<text x="${W / 2}" y="1240" font-family="sans-serif" font-weight="bold" font-size="48" fill="#B8B8FF" text-anchor="middle">#${input.rank} on the Leaderboard</text>`
-    : "";
+function numberWord(n: number): string {
+  if (n >= 0 && n < NUMBER_WORDS.length) return NUMBER_WORDS[n];
+  return String(n);
+}
+
+/** Session headline. Always uses the real correct/open counts — never a canned 4/5. */
+export function buildScoreCardHeadline(correctCount: number, totalQuestions: number): string {
+  const locked = Math.max(0, Math.min(correctCount, totalQuestions));
+  const open = Math.max(0, totalQuestions - locked);
+  if (totalQuestions <= 0) return "No cards played.";
+  if (locked === totalQuestions) return `${numberWord(locked)} locked.`;
+  return `${numberWord(locked)} locked. ${numberWord(open)} open.`;
+}
+
+function buildPipsSvg(correctCount: number, totalQuestions: number): string {
+  const count = Math.max(1, Math.min(totalQuestions > 0 ? totalQuestions : 5, 12));
+  const filled = Math.max(0, Math.min(correctCount, count));
+  const size = 56;
+  const gap = 14;
+  const startX = 80;
+  const y = 560;
+  return Array.from({ length: count }, (_, i) => {
+    const x = startX + i * (size + gap);
+    if (i < filled) {
+      return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="#22C55E"/>`;
+    }
+    return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
+  }).join("");
+}
+
+export function buildScoreCardSvg(input: ScoreCardInput): string {
+  const W = SCORE_CARD_SIZE;
+  const H = SCORE_CARD_SIZE;
+  const correct = Math.max(0, input.correctCount);
+  const total = Math.max(0, input.totalQuestions);
+  const headline = escapeXml(buildScoreCardHeadline(correct, total));
+  const isDaily5 = input.mode === "daily5" || total === 5;
+  const eyebrow = isDaily5 ? "DAILY 5" : input.mode === "1v1" ? "1V1 MATCH" : "SOLO";
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#0A0A2E"/>
-      <stop offset="50%" stop-color="#1A1A4E"/>
-      <stop offset="100%" stop-color="#0A0A2E"/>
-    </linearGradient>
-    <linearGradient id="scoreGlow" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#00FF88"/>
-      <stop offset="100%" stop-color="#00CC66"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#FF6B35"/>
-      <stop offset="100%" stop-color="#FFD700"/>
-    </linearGradient>
+    <radialGradient id="glow" cx="85%" cy="12%" r="55%">
+      <stop offset="0%" stop-color="#1e3a5f" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#0b0f16" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
-  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <rect width="${W}" height="${H}" fill="#0b0f16"/>
+  <rect width="${W}" height="${H}" fill="url(#glow)"/>
 
-  <rect x="40" y="40" width="${W - 80}" height="${H - 80}" rx="40" fill="none" stroke="#333366" stroke-width="3"/>
-  <rect x="60" y="60" width="${W - 120}" height="${H - 120}" rx="30" fill="none" stroke="#222244" stroke-width="1"/>
+  <text x="80" y="120" font-family="sans-serif" font-weight="700" font-size="28" fill="#9CA3AF" letter-spacing="6">${eyebrow}</text>
 
-  <text x="${W / 2}" y="200" font-family="sans-serif" font-weight="bold" font-size="42" fill="#888899" text-anchor="middle" letter-spacing="8">${modeName}</text>
-  <text x="${W / 2}" y="260" font-family="sans-serif" font-size="32" fill="#666688" text-anchor="middle">${dateStr}</text>
-  ${setInfo ? `<text x="${W / 2}" y="310" font-family="sans-serif" font-size="28" fill="#555577" text-anchor="middle">${setInfo}</text>` : ""}
+  <text x="80" y="380" font-family="sans-serif" font-weight="700" font-size="200">
+    <tspan fill="#FFFFFF">${correct}</tspan><tspan fill="#6B7280">/${total}</tspan>
+  </text>
+  <text x="80" y="460" font-family="sans-serif" font-weight="600" font-size="36" fill="#9CA3AF">${input.score} pts</text>
 
-  <text x="${W / 2}" y="500" font-family="sans-serif" font-weight="bold" font-size="48" fill="#AAAACC" text-anchor="middle">@${username}</text>
+  ${buildPipsSvg(correct, total)}
 
-  <text x="${W / 2}" y="750" font-family="sans-serif" font-weight="bold" font-size="220" fill="url(#scoreGlow)" text-anchor="middle">${input.score}</text>
-  <text x="${W / 2}" y="830" font-family="sans-serif" font-weight="bold" font-size="42" fill="#88FFAA" text-anchor="middle">POINTS</text>
+  <text x="80" y="700" font-family="sans-serif" font-weight="700" font-size="48" fill="#FFFFFF">${headline}</text>
 
-  <rect x="200" y="900" width="680" height="3" fill="#333355"/>
-
-  <text x="${W / 2 - 150}" y="1000" font-family="sans-serif" font-weight="bold" font-size="72" fill="white" text-anchor="middle">${input.correctCount}/${input.totalQuestions}</text>
-  <text x="${W / 2 - 150}" y="1050" font-family="sans-serif" font-size="30" fill="#888899" text-anchor="middle">CORRECT</text>
-
-  <text x="${W / 2 + 150}" y="1000" font-family="sans-serif" font-weight="bold" font-size="72" fill="white" text-anchor="middle">${accuracy}%</text>
-  <text x="${W / 2 + 150}" y="1050" font-family="sans-serif" font-size="30" fill="#888899" text-anchor="middle">ACCURACY</text>
-
-  ${streakSection}
-  ${rankSection}
-
-  <rect x="140" y="1500" width="800" height="100" rx="50" fill="url(#accent)"/>
-  <text x="${W / 2}" y="1565" font-family="sans-serif" font-weight="bold" font-size="40" fill="white" text-anchor="middle">Play at PackPTS.com</text>
-
-  <text x="${W / 2}" y="1720" font-family="sans-serif" font-weight="bold" font-size="56" fill="url(#accent)" text-anchor="middle">PACKPTS</text>
-  <text x="${W / 2}" y="1770" font-family="sans-serif" font-size="28" fill="#666688" text-anchor="middle">Can you beat this score?</text>
-
-  <text x="${W / 2}" y="1850" font-family="sans-serif" font-size="22" fill="#444466" text-anchor="middle">packpts.com • The Baseball Card Challenge</text>
+  <g transform="translate(80, 940)">
+    <g transform="scale(0.0546875)">
+      <rect width="1024" height="1024" fill="#0b0f16"/>
+      <path fill="#ffffff" fill-rule="evenodd" d="M292 196 H560 C720 196 820 280 820 420 C820 560 720 644 560 644 H452 V828 H292 Z M452 340 V500 H548 C620 500 668 470 668 420 C668 370 620 340 548 340 Z"/>
+      <rect x="292" y="448" width="528" height="96" fill="#F5C518"/>
+    </g>
+    <text x="72" y="38" font-family="sans-serif" font-weight="700" font-size="32" fill="#FFFFFF">PackPTS</text>
+  </g>
+  <text x="1000" y="978" font-family="sans-serif" font-weight="600" font-size="26" fill="#FFFFFF" text-anchor="end">packpts.com/daily</text>
 </svg>`;
 }
 
@@ -165,7 +194,7 @@ function buildStreakBadgeSvg(username: string, streak: number, date: string): st
 }
 
 function getOutputDir(date: string): string {
-  const dir = path.join(OUTPUT_BASE, date);
+  const dir = path.join(getShareOutputBase(), safeDateDir(date));
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -185,7 +214,7 @@ export async function generateScoreCard(
     .png({ quality: 90 })
     .toFile(imagePath);
 
-  const imageUrl = `/generated/share/${input.date}/${filename}`;
+  const imageUrl = `${SHARE_URL_PREFIX}/${safeDateDir(input.date)}/${filename}`;
   return { imagePath, imageUrl };
 }
 
@@ -204,6 +233,6 @@ export async function generateStreakBadge(
     .png({ quality: 90 })
     .toFile(imagePath);
 
-  const imageUrl = `/generated/share/${date}/${filename}`;
+  const imageUrl = `${SHARE_URL_PREFIX}/${safeDateDir(date)}/${filename}`;
   return { imagePath, imageUrl };
 }

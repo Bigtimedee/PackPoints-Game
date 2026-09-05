@@ -1201,6 +1201,7 @@ export async function registerRoutes(
       });
       
       const effectiveQuestionCount = Math.min(session.totalQuestions, session.questions.length);
+      let shareImageUrl: string | undefined;
       if (session.currentQuestionIndex >= effectiveQuestionCount - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
@@ -1259,9 +1260,9 @@ export async function registerRoutes(
             }
 
             try {
-              const { onMatchFinished } = await import("./contentFactory/index");
+              const { onMatchFinished, awaitScoreCard } = await import("./contentFactory/index");
               const streakDays = streakResult.streakInfo?.currentDays;
-              onMatchFinished({
+              const cardPromise = onMatchFinished({
                 matchId: session.id,
                 userId: session.userId,
                 score: finalScore,
@@ -1269,7 +1270,12 @@ export async function registerRoutes(
                 totalQuestions: effectiveTotal,
                 mode: session.mode || "solo",
                 streak: streakDays,
-              }).catch(err => console.error("[ContentFactory] Background error:", err?.message));
+              }).catch(err => {
+                console.error("[ContentFactory] Background error:", err?.message);
+                return null;
+              });
+              const generated = await awaitScoreCard(cardPromise);
+              shareImageUrl = generated?.imageUrl || undefined;
 
               const playedSetId = (session.questions as any[])[0]?.card?.gameSetId;
               if (playedSetId) {
@@ -1304,7 +1310,7 @@ export async function registerRoutes(
       
       await storage.updateGameSession(session);
 
-      res.json(sanitizeSessionForClient(session));
+      res.json({ ...sanitizeSessionForClient(session), shareImageUrl });
     } catch (error: any) {
       console.error("[Game Next] Error moving to next question:", {
         sessionId: req.body?.sessionId?.substring(0, 8),
@@ -1392,10 +1398,11 @@ export async function registerRoutes(
       
       const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
 
+      let shareImageUrl: string | undefined;
       try {
-        const { onDaily5Finished } = await import("./contentFactory/index");
+        const { onDaily5Finished, awaitScoreCard } = await import("./contentFactory/index");
         const date = new Date().toISOString().slice(0, 10);
-        onDaily5Finished({
+        const cardPromise = onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
           score: result.score || 0,
@@ -1403,12 +1410,17 @@ export async function registerRoutes(
           totalQuestions: 5,
           rank: result.rank,
           date,
-        }).catch(err => console.error("[ContentFactory] Daily5 background error:", err?.message));
+        }).catch(err => {
+          console.error("[ContentFactory] Daily5 background error:", err?.message);
+          return null;
+        });
+        const generated = await awaitScoreCard(cardPromise);
+        shareImageUrl = generated?.imageUrl || undefined;
       } catch (cfErr) {
         console.error("[ContentFactory] Daily5 import error:", cfErr);
       }
 
-      res.json(result);
+      res.json({ ...result, shareImageUrl });
     } catch (error: any) {
       console.error("[Daily5] Error finishing challenge:", error);
       res.status(500).json({ error: "Failed to finish Daily 5" });

@@ -136,6 +136,7 @@ export default function Game() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [shareImageUrl, setShareImageUrl] = useState<string | undefined>(undefined);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [revealedCorrectAnswer, setRevealedCorrectAnswer] = useState<string | null>(null);
@@ -362,6 +363,9 @@ export default function Game() {
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
       setListingTarget(null);
+      if (data?.shareImageUrl) {
+        setShareImageUrl(data.shareImageUrl);
+      }
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
@@ -956,29 +960,38 @@ export default function Game() {
               <Trophy className="h-10 w-10 text-primary" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-2xl font-bold" data-testid="text-game-over-title">Game Complete!</h2>
-              <p className="text-muted-foreground">Here's how well you know your {currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards</p>
+              <h2 className="text-2xl font-bold" data-testid="text-game-over-title">Game Complete</h2>
+              <p className="text-muted-foreground uppercase tracking-wider text-sm">
+                {effectiveTotal === 5 ? "DAILY 5" : `Here's how well you know your ${currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards`}
+              </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-3">
               <div className="p-4 rounded-md bg-muted">
-                <p className="text-3xl font-bold font-mono text-primary" data-testid="text-final-score">{session.score}</p>
-                <p className="text-sm text-muted-foreground">Total Points</p>
+                <p className="text-3xl font-bold font-mono" data-testid="text-final-score">{session.score}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
               </div>
               <div className="p-4 rounded-md bg-muted">
                 <p className="text-3xl font-bold font-mono" data-testid="text-accuracy">{accuracy}%</p>
-                <p className="text-sm text-muted-foreground">Accuracy</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
+              </div>
+              <div className="p-4 rounded-md bg-muted">
+                <p className="text-3xl font-bold font-mono" data-testid="text-final-correct">{session.correctAnswers} of {effectiveTotal}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
               </div>
             </div>
-            <div className="text-sm text-muted-foreground">
-              {session.correctAnswers} of {effectiveTotal} players identified correctly{(session.skippedQuestions ?? 0) > 0 && ` (${session.skippedQuestions} card${session.skippedQuestions === 1 ? '' : 's'} skipped)`}
-            </div>
+            {(session.skippedQuestions ?? 0) > 0 && (
+              <div className="text-sm text-muted-foreground">
+                {session.skippedQuestions} card{session.skippedQuestions === 1 ? "" : "s"} skipped
+              </div>
+            )}
             
             {isAuthenticated && (
               <ShareAssetCard
                 matchId={session.id}
+                initialImageUrl={shareImageUrl}
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
-                shareUrl="https://packpts.com"
-                shareText={`I scored ${session.score} points on PackPTS! Play at packpts.com`}
+                shareUrl="https://packpts.com/daily"
+                shareText={`I scored ${session.score} points on PackPTS! Play at packpts.com/daily`}
               />
             )}
 
