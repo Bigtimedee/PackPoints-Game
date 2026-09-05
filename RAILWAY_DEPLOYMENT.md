@@ -354,3 +354,8 @@ railway run node -e "console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'âœ
    - Build logs
    - Runtime logs
    - Environment variables (redacted)
+
+## Admin Maker Rate (ops note)
+
+Maker Rate on `GET /api/admin/metrics/making-layer` is `makers_30d / mau_30d` from `game_sets` and `event_log` (staff excluded). No env vars required; definition lives in `server/services/makingLayerMetrics.ts` and `ANALYTICS_DATA_DICTIONARY.md`.
+

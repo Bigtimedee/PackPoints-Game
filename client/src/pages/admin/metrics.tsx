@@ -20,6 +20,8 @@ interface MetricsData {
 interface MakingLayerMetrics {
   setsMadeByDay: { day: string; count: number }[];
   makerRate: number;
+  makers30d?: number;
+  mau30d?: number;
   setPlayDepth: number;
   topSets: {
     id: string;
@@ -152,7 +154,7 @@ export default function AdminMetrics() {
                     {(mlData.makerRate * 100).toFixed(1)}%
                   </p>
                   <CardDescription className="mt-1">
-                    % of MAU who've created at least one set
+                    % of 30d MAU who published ≥1 set in 30d
                   </CardDescription>
                 </CardContent>
               </Card>

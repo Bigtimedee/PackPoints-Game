@@ -5,6 +5,7 @@ import { collaborationSessions, gameSets, playableCards, users } from "@shared/s
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { broadcastToCollab, sendToUser } from "../websocket";
+import { track } from "../services/analytics/track";
 
 const router = Router();
 
@@ -213,6 +214,16 @@ router.post("/api/collab/:id/publish", isAuthenticated, async (req: any, res: Re
     await db.update(collaborationSessions)
       .set({ status: "published", publishedSetId: newSet.id, setName: parsed.data.setName, makerNote: parsed.data.makerNote ?? null })
       .where(eq(collaborationSessions.id, id));
+
+    track({
+      eventType: "set_published",
+      userId,
+      gameSetId: newSet.id,
+      setName: parsed.data.setName,
+      sport: newSet.sport,
+      isUserCreatedSet: true,
+      payload: { cardCount: approved.length, source: "collab", collabId: id },
+    });
 
     broadcastToCollab(id, { type: "collab:published", payload: { setId: newSet.id, setName: parsed.data.setName } });
     res.json({ setId: newSet.id });
