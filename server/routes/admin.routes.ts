@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { isAuthenticated } from "../auth";
 import { storage } from "../storage";
 import { adminService } from "../services/adminService";
+import { fetchMakerRateMetrics } from "../services/makingLayerMetrics";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
 import { eq, sql, desc, and, gt, gte } from "drizzle-orm";
@@ -1005,7 +1006,7 @@ export function registerAdminRoutes(app: Express): void {
   // Admin: Making Layer metrics
   app.get("/api/admin/metrics/making-layer", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const [setsMadeByDay, makerRateRow, setPlayDepthRow, topSetsRows, clicksBySet] = await Promise.all([
+      const [setsMadeByDay, makerRateMetrics, setPlayDepthRow, topSetsRows, clicksBySet] = await Promise.all([
         // Sets made per day, last 30 days
         db.execute(sql`
           SELECT DATE(created_at) AS day, COUNT(*)::int AS count
@@ -1015,15 +1016,8 @@ export function registerAdminRoutes(app: Express): void {
           GROUP BY DATE(created_at)
           ORDER BY day ASC
         `),
-        // Maker rate: distinct set-creators / MAU (user_presence last 30 days)
-        db.execute(sql`
-          SELECT
-            (SELECT COUNT(DISTINCT created_by_user_id) FROM game_sets WHERE is_user_created = true)::float
-            / NULLIF(
-                (SELECT COUNT(DISTINCT user_id) FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '30 days'),
-                0
-              ) AS maker_rate
-        `),
+        // Maker rate: makers_30d / mau_30d (event_log MAU, staff excluded) — see makingLayerMetrics.ts
+        fetchMakerRateMetrics(),
         // Set play depth: avg plays per user-created set that has >=1 play
         db.execute(sql`
           SELECT AVG(play_count) AS avg_depth FROM (
@@ -1075,7 +1069,10 @@ export function registerAdminRoutes(app: Express): void {
           day: r.day,
           count: Number(r.count),
         })),
-        makerRate: Number((makerRateRow.rows[0] as any)?.maker_rate ?? 0),
+        // makers_30d / mau_30d — % of 30d MAU who published ≥1 set in 30d (staff excluded)
+        makerRate: makerRateMetrics.makerRate,
+        makers30d: makerRateMetrics.makers30d,
+        mau30d: makerRateMetrics.mau30d,
         setPlayDepth: Number((setPlayDepthRow.rows[0] as any)?.avg_depth ?? 0),
         topSets: (topSetsRows.rows as any[]).map(r => ({
           ...r,
