@@ -158,6 +158,9 @@ describe("generateScoreCard()", () => {
     expect(svg).toContain("#0b0f16");
     expect(svg).toContain("#22C55E");
     expect(svg).toContain("#F5C518");
+    // Locked masked-P: dark tile + white P + gold bar (matches client/public/packpts-mark.svg)
+    expect(svg).toMatch(/<rect width="1024" height="1024" fill="#0b0f16"\/>/);
+    expect(svg).toMatch(/<path fill="#ffffff" fill-rule="evenodd"/);
     expect(svg).toContain("DAILY 5");
     expect(svg).toContain("Three locked. Two open.");
     expect(svg).toContain("525 pts");

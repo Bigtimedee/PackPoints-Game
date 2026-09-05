@@ -80,6 +80,9 @@ describe("score card PNG contract", () => {
     expect(svg).toContain("Three locked. Two open.");
     expect(svg).toContain("PackPTS");
     expect(svg).toContain("packpts.com/daily");
+    expect(svg).toMatch(/<rect width="1024" height="1024" fill="#0b0f16"\/>/);
+    expect(svg).toContain('fill="#ffffff"');
+    expect(svg).toContain("#F5C518");
     expect(svg).toContain("data:font/ttf;base64,");
     expect(svg).not.toMatch(/<text[\s>]/);
     expect(svg).not.toContain("sans-serif");

@@ -14,7 +14,7 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 - Five rounded-square pips. The first **X** pips fill `#22C55E`; the rest are dark outlines.
 - Headline from the session: `{LockedWord} locked. {OpenWord} open.`  
   Example for 3/5: `Three locked. Two open.`
-- Footer left: masked-P mark (`#F5C518` bar through the P) + **PackPTS**
+- Footer left: locked masked-P mark — **white P** + gold (`#F5C518`) bar on dark (`#0b0f16`) tile (not yellow-P-on-white) + **PackPTS**
 - Footer right: `packpts.com/daily`
 
 ## Brand
