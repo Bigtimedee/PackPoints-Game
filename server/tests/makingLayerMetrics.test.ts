@@ -104,4 +104,36 @@ describe("Maker Rate SQL fixture — period + staff exclusion", () => {
     expect(result.mau30d).toBe(2);
     expect(result.makerRate).toBe(1);
   });
+
+  it("counts co_creator_user_id as a maker (collab publish) and excludes staff co-creators", () => {
+    const result = computeMakerRateFromFixture({
+      now: NOW,
+      users,
+      sets: [
+        {
+          created_by_user_id: "player-a",
+          co_creator_user_id: "player-b",
+          is_user_created: true,
+          created_at: daysAgo(2),
+        },
+        {
+          created_by_user_id: "player-c",
+          co_creator_user_id: "staff-1",
+          is_user_created: true,
+          created_at: daysAgo(1),
+        },
+      ],
+      events: [
+        { user_id: "player-a", created_at: daysAgo(1) },
+        { user_id: "player-b", created_at: daysAgo(1) },
+        { user_id: "player-c", created_at: daysAgo(1) },
+        { user_id: "staff-1", created_at: daysAgo(1) },
+      ],
+    });
+
+    // makers = {player-a, player-b, player-c}; staff co-creator excluded
+    expect(result.makers30d).toBe(3);
+    expect(result.mau30d).toBe(3);
+    expect(result.makerRate).toBe(1);
+  });
 });

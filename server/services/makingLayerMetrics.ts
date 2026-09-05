@@ -2,7 +2,8 @@
  * Making Layer admin metrics — Maker Rate definition.
  *
  * Maker Rate = makers_30d / mau_30d
- *   makers_30d: DISTINCT non-admin creators with ≥1 is_user_created set in last 30d
+ *   makers_30d: DISTINCT non-admin creators (created_by_user_id ∪ co_creator_user_id)
+ *               with ≥1 is_user_created set in last 30d
  *   mau_30d:    DISTINCT non-admin users with ≥1 event_log row in last 30d
  *               (same activity source as admin DAU in adminService.getMetrics)
  *
@@ -28,6 +29,7 @@ export function computeMakerRate(makers30d: number, mau30d: number): number {
  */
 export interface MakerRateFixtureSet {
   created_by_user_id: string | null;
+  co_creator_user_id?: string | null;
   is_user_created: boolean;
   created_at: Date;
 }
@@ -58,10 +60,12 @@ export function computeMakerRateFromFixture(opts: {
   const makers = new Set<string>();
   for (const s of opts.sets) {
     if (!s.is_user_created) continue;
-    if (!s.created_by_user_id) continue;
     if (s.created_at < cutoff) continue;
-    if (staffIds.has(s.created_by_user_id)) continue;
-    makers.add(s.created_by_user_id);
+    for (const uid of [s.created_by_user_id, s.co_creator_user_id ?? null]) {
+      if (!uid) continue;
+      if (staffIds.has(uid)) continue;
+      makers.add(uid);
+    }
   }
 
   const mau = new Set<string>();
@@ -85,12 +89,23 @@ export function computeMakerRateFromFixture(opts: {
 export const MAKER_RATE_SQL = sql`
   SELECT
     (
-      SELECT COUNT(DISTINCT gs.created_by_user_id)::float
-      FROM game_sets gs
-      INNER JOIN users u ON u.id = gs.created_by_user_id
-      WHERE gs.is_user_created = true
-        AND gs.created_at >= NOW() - INTERVAL '30 days'
-        AND COALESCE(u.is_admin, false) = false
+      SELECT COUNT(DISTINCT maker_id)::float
+      FROM (
+        SELECT gs.created_by_user_id AS maker_id
+        FROM game_sets gs
+        INNER JOIN users u ON u.id = gs.created_by_user_id
+        WHERE gs.is_user_created = true
+          AND gs.created_at >= NOW() - INTERVAL '30 days'
+          AND COALESCE(u.is_admin, false) = false
+        UNION
+        SELECT gs.co_creator_user_id AS maker_id
+        FROM game_sets gs
+        INNER JOIN users u ON u.id = gs.co_creator_user_id
+        WHERE gs.is_user_created = true
+          AND gs.co_creator_user_id IS NOT NULL
+          AND gs.created_at >= NOW() - INTERVAL '30 days'
+          AND COALESCE(u.is_admin, false) = false
+      ) makers
     ) AS makers_30d,
     (
       SELECT COUNT(DISTINCT el.user_id)::float
