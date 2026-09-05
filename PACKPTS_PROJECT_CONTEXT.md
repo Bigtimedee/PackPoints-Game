@@ -1594,6 +1594,7 @@ TikTok App Review rejects the app unless the **app name matches everything else 
 4. **ToS page** displayed title/H1 = `PackPTS Terms of Service`; **Privacy page** H1 = `PackPTS Privacy Policy` (both also set `document.title` accordingly).
 5. **Both policy bodies must name the app** (`PackPTS`) — they do.
 6. **TikTok portal fields**: Website URL `https://packpts.com`, Redirect domain `packpts.com`, ToS `https://packpts.com/terms-of-service`, Privacy `https://packpts.com/privacy-policy`.
+7. **Campaign / social handle** in raw HTML (`<meta name="twitter:site">` in `client/index.html`) = `@packptsapp`. Do not use `@packpoints` — TikTok/crawlers see that leftover in the homepage source and treat it as a brand mismatch.
 
 Also: ToS/Privacy links must be in the RAW homepage HTML (a static `#static-legal-footer` outside React's `#root` in `client/index.html`) so TikTok's crawler sees them without JS. The apex domain must serve the Railway app (not the retired host) or every link check fails — see the DNS note below.
 
