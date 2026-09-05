@@ -71,6 +71,7 @@ const Make = lazy(() => import("@/pages/make"));
 const SetPage = lazy(() => import("@/pages/set-page"));
 const Collab = lazy(() => import("@/pages/collab"));
 const BrowseSets = lazy(() => import("@/pages/browse-sets"));
+const TiktokSandbox = lazy(() => import("@/pages/tiktok-sandbox"));
 
 function BrandedLoadingScreen() {
   return (
@@ -340,6 +341,7 @@ function Router() {
       <Route path="/sets" component={BrowseSets} />
       <Route path="/sets/:id" component={SetPage} />
       <Route path="/collab/:id" component={Collab} />
+      <Route path="/review/tiktok-sandbox" component={TiktokSandbox} />
       <Route component={NotFound} />
     </Switch>
     </Suspense>
@@ -350,17 +352,24 @@ function AppShell() {
   const [location] = useLocation();
   const isMatchRoute = location === "/match" || location.startsWith("/match/");
   const isGameRoute = location.startsWith("/game/");
+  const isReviewRoute = location.startsWith("/review/");
   const isFullscreen = isMatchRoute || isGameRoute;
 
   return (
     <div className="h-dvh flex flex-col bg-background text-foreground overflow-hidden">
-      {!isFullscreen && <Header />}
-      <main className={isFullscreen ? "flex-1 overflow-hidden" : "flex-1 overflow-y-auto pb-20 md:pb-0"}>
+      {!isFullscreen && !isReviewRoute && <Header />}
+      <main className={isFullscreen ? "flex-1 overflow-hidden" : isReviewRoute ? "flex-1 overflow-y-auto" : "flex-1 overflow-y-auto pb-20 md:pb-0"}>
         <Router />
       </main>
-      <MobileNav />
+      {!isReviewRoute && <MobileNav />}
     </div>
   );
+}
+
+function AppExtras() {
+  const [location] = useLocation();
+  if (location.startsWith("/review/")) return null;
+  return <FeedbackWidget />;
 }
 
 function App() {
@@ -408,7 +417,7 @@ function App() {
               </div>
             )}
             <AppShell />
-            <FeedbackWidget />
+            <AppExtras />
             <Toaster />
           </TooltipProvider>
         </ThemeProvider>
