@@ -163,6 +163,8 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
 
   <g transform="translate(80, 940)">
     <g transform="scale(0.0546875)">
+      <!-- Locked masked-P mark: white P + gold bar on dark (not yellow-P-on-white) -->
+      <rect width="1024" height="1024" fill="#0b0f16"/>
       <path fill="#ffffff" fill-rule="evenodd" d="M292 196 H560 C720 196 820 280 820 420 C820 560 720 644 560 644 H452 V828 H292 Z M452 340 V500 H548 C620 500 668 470 668 420 C668 370 620 340 548 340 Z"/>
       <rect x="292" y="448" width="528" height="96" fill="#F5C518"/>
     </g>
