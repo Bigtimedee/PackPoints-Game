@@ -8,6 +8,7 @@ import { matchService } from "./services/matchService";
 import { setupAuth, registerAuthRoutes } from "./auth";
 import { verifyEmailConfig } from "./services/emailService";
 import { registerWorkosRoutes } from "./services/workosAuth";
+import { registerTiktokSandboxRoutes } from "./routes/tiktokSandbox.routes";
 import { initializeStripeConnection } from "./stripeClient";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
 import { seedRewardPolicy } from "./services/rewardEngine";
@@ -76,10 +77,12 @@ app.use(express.urlencoded({ extended: false }));
 // Session cookies are host-only (no domain attribute), so a session minted on
 // www is invisible on the apex and vice versa. One canonical host ends the
 // split. Applies to plain GET/HEAD navigations; most /api/* still pass through,
-// but WorkOS OAuth start/callback must land on apex (redirect_uri + session).
+// but WorkOS / TikTok sandbox OAuth start must land on apex (redirect_uri + session).
 app.use((req, res, next) => {
-  const isWorkosAuthPath = req.path.startsWith("/api/auth/workos/");
-  const skipApi = req.path.startsWith("/api/") && !isWorkosAuthPath;
+  const isApexAuthPath =
+    req.path.startsWith("/api/auth/workos/") ||
+    req.path.startsWith("/api/auth/tiktok/");
+  const skipApi = req.path.startsWith("/api/") && !isApexAuthPath;
   if (
     req.hostname === "www.packpts.com" &&
     (req.method === "GET" || req.method === "HEAD") &&
@@ -240,6 +243,7 @@ app.use((req, res, next) => {
   }
   registerAuthRoutes(app);
   registerWorkosRoutes(app);
+  registerTiktokSandboxRoutes(app);
   
   // Register OpenAPI docs (dev only or when SHOW_API_DOCS=true)
   const { registerOpenApiRoute } = await import('./openapi');

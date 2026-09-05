@@ -890,6 +890,7 @@ PackPoints-Game/
 │   │   ├── health.routes.ts
 │   │   ├── ios.routes.ts
 │   │   ├── growth.routes.ts
+│   │   ├── tiktokSandbox.routes.ts
 │   │   ├── referrals.ts
 │   │   └── cardhedge.routes.ts
 │   ├── services/               # Business logic
@@ -942,10 +943,10 @@ PackPoints-Game/
 - **Library:** Wouter (lightweight client-side router)
 - **Split loading:** Critical paths (Home, Auth) are eagerly imported; all other pages are lazy-loaded with React.lazy + Suspense
 - **Route guards:** `ProtectedRoute` component checks auth/admin status, redirects to `/auth` if unauthorized
-- **Layout:** `AppShell` wraps all pages with Header and MobileNav (hidden on fullscreen game/match routes)
+- **Layout:** `AppShell` wraps all pages with Header and MobileNav (hidden on fullscreen game/match routes and `/review/*`)
 
 ### Pages (30+)
-Public: `/`, `/game/:mode`, `/lobby`, `/match/:matchId`, `/queue`, `/daily5`, `/leaderboard`, `/marketplace`, `/store`, `/auth`, `/waitlist`, `/invite`, `/redeem`, `/forgot-password`, `/reset-password`, `/privacy-policy`, `/terms-of-service`, `/creators`, `/partners`, `/roadmap`
+Public: `/`, `/game/:mode`, `/lobby`, `/match/:matchId`, `/queue`, `/daily5`, `/leaderboard`, `/marketplace`, `/store`, `/auth`, `/waitlist`, `/invite`, `/redeem`, `/forgot-password`, `/reset-password`, `/privacy-policy`, `/terms-of-service`, `/creators`, `/partners`, `/roadmap`, `/review/tiktok-sandbox` (TikTok App Review sandbox — not in nav)
 
 Protected: `/profile`, `/friends`
 
@@ -1359,6 +1360,11 @@ See Section 18 for the full route listing. Key endpoints grouped by domain:
 | POST | /api/referrals/create | Yes | Create referral link |
 | GET | /api/content-assets/latest | Yes | Latest score card for a match or Daily 5 challenge; repairs missing PNGs |
 | POST | /api/content-assets/retry | Yes | Force-regenerate a score card PNG |
+| GET | /api/auth/tiktok/sandbox/start | No | TikTok Login Kit OAuth start (sandbox review). Redirect URI `https://packpts.com/auth/tiktok/callback`. Scopes: `user.info.basic`, `video.publish`, `video.upload` |
+| GET | /auth/tiktok/callback | No | TikTok Login Kit callback (portal-registered). Exchanges code, stores tokens on the session, redirects to `/review/tiktok-sandbox` |
+| GET | /api/review/tiktok-sandbox/session | No | Sandbox session status (configured / connected / granted scopes). Soft-fails if `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` missing |
+| POST | /api/review/tiktok-sandbox/publish | Session | Content Posting photo init (`MEDIA_UPLOAD` or `DIRECT_POST`, PHOTO, PULL_FROM_URL `https://packpts.com/og-image.png`) |
+| GET | /api/review/tiktok-sandbox/status | Session | Poll `publish_id` until `PUBLISH_COMPLETE` / `SEND_TO_USER_INBOX` / `FAILED` |
 
 ### Admin (all require isAdmin)
 40+ endpoints covering: dashboard metrics, user management, card management, redemption approval/rejection, streak config, product CRUD, access control, geo analytics, growth agent, panic switches, audit logs.
@@ -1596,6 +1602,18 @@ TikTok App Review rejects the app unless the **app name matches everything else 
 6. **TikTok portal fields**: Website URL `https://packpts.com`, Redirect domain `packpts.com`, ToS `https://packpts.com/terms-of-service`, Privacy `https://packpts.com/privacy-policy`.
 7. **Campaign / social handle** in raw HTML (`<meta name="twitter:site">` in `client/index.html`) = `@packptsapp`. Do not use `@packpoints` — TikTok/crawlers see that leftover in the homepage source and treat it as a brand mismatch.
 8. **URL-prefix verification** (PULL_FROM_URL): keep `client/public/tiktokpiy5SPhPPkFUI7E2p74deskh9egj0WbS.txt` so `https://packpts.com/tiktokpiy5SPhPPkFUI7E2p74deskh9egj0WbS.txt` stays publicly reachable. Do not delete.
+
+### TikTok App Review sandbox demo (2026-09-05)
+
+Review-only PackPTS shell for Design to screen-record Login Kit + Content Posting. Not marketed in nav.
+
+- **Live URL:** `https://packpts.com/review/tiktok-sandbox`
+- **Page:** honest PackPTS dark UI (`#0b0f16`), masked-P mark only, Daily 5 / masked-card copy. No fake TikTok chrome. No PackPoints / three-square mark.
+- **OAuth:** `GET /api/auth/tiktok/sandbox/start` → TikTok Login Kit (`https://www.tiktok.com/v2/auth/authorize/`) requesting `user.info.basic`, `video.publish`, `video.upload`. Callback is the portal-registered `https://packpts.com/auth/tiktok/callback`. Tokens stay on the Express session (not the growth-agent `TIKTOK_ACCESS_TOKEN`).
+- **Publish:** `POST /api/review/tiktok-sandbox/publish` calls `open.tiktokapis.com/v2/post/publish/content/init/` with `media_type: PHOTO`, `source: PULL_FROM_URL`, `photo_images: [https://packpts.com/og-image.png]`, `post_mode: MEDIA_UPLOAD` or `DIRECT_POST`. Unaudited Direct Post uses `SELF_ONLY`. Status poll: `GET /api/review/tiktok-sandbox/status?publish_id=`.
+- **Soft-fail:** missing `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`, missing session token, or missing granted scopes return a visible error. Never silent-fail.
+- **Env:** uses existing Railway `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET`. No new third-party service.
+- **Code:** `server/services/tiktokSandbox.ts`, `server/routes/tiktokSandbox.routes.ts`, `client/src/pages/tiktok-sandbox.tsx`.
 
 Also: ToS/Privacy links must be in the RAW homepage HTML (a static `#static-legal-footer` outside React's `#root` in `client/index.html`) so TikTok's crawler sees them without JS. The apex domain must serve the Railway app (not the retired host) or every link check fails — see the DNS note below.
 
