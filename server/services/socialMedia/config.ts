@@ -59,3 +59,24 @@ export const agentConfig: AgentConfig = {
     significanceThreshold: parseFloat(process.env.AGENT_AB_TEST_SIGNIFICANCE_THRESHOLD ?? "0.15"),
   },
 };
+
+export type SocialPlatform = "TWITTER" | "TIKTOK" | "DISCORD";
+
+/** True when the platform has the minimum credentials required to publish. */
+export function isPlatformConfigured(platform: SocialPlatform): boolean {
+  // Read live env so checks match publisher guards (not a stale module snapshot).
+  switch (platform) {
+    case "TWITTER":
+      return !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
+    case "TIKTOK":
+      return !!process.env.TIKTOK_ACCESS_TOKEN;
+    case "DISCORD":
+      return !!process.env.DISCORD_WEBHOOK_URL;
+    default:
+      return false;
+  }
+}
+
+export function configuredPlatforms(): SocialPlatform[] {
+  return (["TWITTER", "TIKTOK", "DISCORD"] as const).filter(isPlatformConfigured);
+}

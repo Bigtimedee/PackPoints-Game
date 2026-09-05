@@ -1,6 +1,6 @@
 import { db } from "../../db";
-import { sql, eq } from "drizzle-orm";
-import { agentConfig } from "./config";
+import { sql, eq, and } from "drizzle-orm";
+import { agentConfig, isPlatformConfigured, type SocialPlatform } from "./config";
 import { createLogger } from "./logger";
 import { cardSearchSorted } from "../../services/cardhedge/client";
 import { verifyCreatorInfo } from "./publisher/tiktok";
@@ -152,6 +152,37 @@ export async function initSocialMediaAgent(): Promise<void> {
     if (blocked > 0) logger.warn("startup_audit_blocked_posts", { blocked });
   } catch (err) {
     logger.warn("startup_audit_failed", { error: String(err) });
+  }
+
+  // 5d. Mark already-queued posts SKIPPED when platform credentials are missing
+  // (prevents every-minute publish fail-loops in prod)
+  try {
+    const platforms: SocialPlatform[] = ["TWITTER", "TIKTOK", "DISCORD"];
+    for (const platform of platforms) {
+      if (isPlatformConfigured(platform)) continue;
+      const updated = await db.update(socialPosts)
+        .set({
+          status: "SKIPPED",
+          errorMessage: `platform_unconfigured: ${platform} credentials missing`,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(socialPosts.status, "QUEUED"), eq(socialPosts.platform, platform)))
+        .returning({ id: socialPosts.id });
+      if (updated.length > 0) {
+        logger.warn("startup_skipped_unconfigured_queued", {
+          platform,
+          count: updated.length,
+          message: `${platform} credentials missing — marked ${updated.length} QUEUED post(s) SKIPPED (once)`,
+        });
+      } else {
+        logger.info("startup_platform_unconfigured", {
+          platform,
+          message: `${platform} credentials missing — will not enqueue or publish`,
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn("startup_skip_unconfigured_failed", { error: String(err) });
   }
 
   // 6. Start loops

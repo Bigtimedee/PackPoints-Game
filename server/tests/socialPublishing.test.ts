@@ -9,7 +9,7 @@
  *  5. detectsVisualReference / isVisualContentType unit coverage
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock db before any module that imports it is loaded
 vi.mock("../db", () => ({ db: {} }));
@@ -180,5 +180,59 @@ describe("detectsVisualReference and isVisualContentType — unit coverage", () 
     });
     expect(result.blocked).toBe(true);
     expect(result.reason).toContain("media_required=true");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario 6: skip unconfigured platforms (no credential fail-loops)
+// ---------------------------------------------------------------------------
+describe("isPlatformConfigured — credential gates", () => {
+  const keys = [
+    "TWITTER_API_KEY",
+    "TWITTER_ACCESS_TOKEN",
+    "TIKTOK_ACCESS_TOKEN",
+    "DISCORD_WEBHOOK_URL",
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const k of keys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("returns false for Discord/TikTok/Twitter when creds missing", async () => {
+    const { isPlatformConfigured } = await import("../services/socialMedia/config");
+    expect(isPlatformConfigured("DISCORD")).toBe(false);
+    expect(isPlatformConfigured("TIKTOK")).toBe(false);
+    expect(isPlatformConfigured("TWITTER")).toBe(false);
+  });
+
+  it("returns true for Discord when DISCORD_WEBHOOK_URL is set", async () => {
+    process.env.DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/test";
+    const { isPlatformConfigured } = await import("../services/socialMedia/config");
+    expect(isPlatformConfigured("DISCORD")).toBe(true);
+    expect(isPlatformConfigured("TIKTOK")).toBe(false);
+  });
+
+  it("returns true for Twitter when API key + access token are set", async () => {
+    process.env.TWITTER_API_KEY = "k";
+    process.env.TWITTER_ACCESS_TOKEN = "t";
+    const { isPlatformConfigured } = await import("../services/socialMedia/config");
+    expect(isPlatformConfigured("TWITTER")).toBe(true);
+  });
+
+  it("returns true for TikTok when TIKTOK_ACCESS_TOKEN is set", async () => {
+    process.env.TIKTOK_ACCESS_TOKEN = "tt";
+    const { isPlatformConfigured } = await import("../services/socialMedia/config");
+    expect(isPlatformConfigured("TIKTOK")).toBe(true);
   });
 });
