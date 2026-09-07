@@ -15,7 +15,7 @@
 
 | Platform | Handle / Profile | Notes |
 |----------|-----------------|-------|
-| X/Twitter | @packptsapp | Auto-posts via growth engine (SOCIAL_MEDIA_AGENT_ENABLED) |
+| X/Twitter | @PlayPackPTS | Auto-posts via growth engine (SOCIAL_MEDIA_AGENT_ENABLED) |
 | TikTok | @packptsapp | Manual posting from Admin > Growth > Queue tab |
 | Instagram | @packptsapp | Manual posting from Admin > Growth > Queue tab |
 | Facebook | PackPTS | Manual posting via Facebook Page |

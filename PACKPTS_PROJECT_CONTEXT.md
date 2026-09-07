@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-05
+**Last verified against codebase:** 2026-09-07
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -1592,15 +1592,15 @@ The strategic data asset (see `ANALYTICS_PROMPTS.md`). Append-only, PII-free dem
 
 ### ⚠️ TikTok App Review — brand-name consistency (MISSION CRITICAL for social publishing)
 
-TikTok App Review rejects the app unless the **app name matches everything else exactly**. The canonical name is **PackPTS** (matches the domain `packpts.com`). All of these MUST stay equal to `PackPTS`, or TikTok re-rejects:
+TikTok App Review rejects the app unless the **app name matches everything else exactly**. The canonical product name is **PackPTS** (matches the domain `packpts.com`). App-facing names below MUST stay `PackPTS`. The X/Twitter handle is a separate string (`@PlayPackPTS`) and is not a product rename:
 
-1. **TikTok app name** (developer portal, Basic Information) = `PackPTS`. (It was mistakenly `PlayPackPTS`; that must be renamed — `PlayPackPTS` would require a `playpackpts.com` domain, which we will never buy.)
+1. **TikTok app name** (developer portal, Basic Information) = `PackPTS`. Do not set the TikTok app name to `PlayPackPTS` — that is the X/Twitter handle only (`@PlayPackPTS`), not the product name. `PlayPackPTS` as an app name would imply a `playpackpts.com` domain, which we will never buy.
 2. **Website `<title>`** (browser tab, `client/index.html`) = exactly `PackPTS`. Do NOT re-add a marketing tagline here without renaming the TikTok app to match.
 3. **Domain** = `packpts.com` (root `packpts` == `PackPTS`).
 4. **ToS page** displayed title/H1 = `PackPTS Terms of Service`; **Privacy page** H1 = `PackPTS Privacy Policy` (both also set `document.title` accordingly).
 5. **Both policy bodies must name the app** (`PackPTS`) — they do.
 6. **TikTok portal fields**: Website URL `https://packpts.com`, Redirect domain `packpts.com`, ToS `https://packpts.com/terms-of-service`, Privacy `https://packpts.com/privacy-policy`.
-7. **Campaign / social handle** in raw HTML (`<meta name="twitter:site">` in `client/index.html`) = `@packptsapp`. Do not use `@packpoints` — TikTok/crawlers see that leftover in the homepage source and treat it as a brand mismatch.
+7. **X/Twitter handle** in raw HTML (`<meta name="twitter:site">` in `client/index.html`) = `@PlayPackPTS`. This is the PackPTS X account only — the product/app name stays `PackPTS`. Do not use `@packptsapp` or `@packpoints`. PR #54 pointed `twitter:site` at `@packptsapp`; that was wrong.
 8. **URL-prefix verification** (PULL_FROM_URL): keep `client/public/tiktokpiy5SPhPPkFUI7E2p74deskh9egj0WbS.txt` so `https://packpts.com/tiktokpiy5SPhPPkFUI7E2p74deskh9egj0WbS.txt` stays publicly reachable. Do not delete.
 
 ### TikTok App Review sandbox demo (2026-09-05)
