@@ -165,7 +165,7 @@ Every game mode should generate shareable moments:
 
 **Share card template post:**
 ```
-Just finished today's Daily 5 on @packpts 👇
+Just finished today's Daily 5 on @PlayPackPTS 👇
 [share card screenshot]
 Can you beat [score]? Same cards for everyone until midnight.
 packpts.com/daily5
