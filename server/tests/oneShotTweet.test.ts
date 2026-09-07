@@ -10,6 +10,7 @@ import {
   assertHttpsImageUrl,
   resetOneShotTweetStateForTests,
   runOneShotTweet,
+  sanitizePublishFailedDetail,
 } from "../services/socialMedia/oneShotTweet";
 
 const TOKEN = "one-shot-test-token-32chars-min";
@@ -121,6 +122,46 @@ describe("runOneShotTweet", () => {
     expect(publishTweet).not.toHaveBeenCalled();
   });
 
+  it("returns 502 publish_failed with sanitized detail when Twitter throws", async () => {
+    process.env.ONE_SHOT_PUBLISH_TOKEN = TOKEN;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    publishTweet.mockRejectedValue(
+      new Error("Request failed with code 403: You are not permitted to perform this action."),
+    );
+    const result = await runOneShotTweet({ tokenHeader: TOKEN, ...jsonBody() });
+    expect(result.status).toBe(502);
+    expect(result.body).toEqual({
+      ok: false,
+      error: "publish_failed",
+      detail: "Request failed with code 403: You are not permitted to perform this action.",
+    });
+    expect(spy).toHaveBeenCalledWith(
+      "[OneShotTweet] publish_failed",
+      "Request failed with code 403: You are not permitted to perform this action.",
+    );
+    spy.mockRestore();
+  });
+
+  it("redacts token-like strings in publish_failed detail", async () => {
+    process.env.ONE_SHOT_PUBLISH_TOKEN = TOKEN;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const token = "AAAA" + "b".repeat(40);
+    publishTweet.mockRejectedValue(new Error(`OAuth failed Authorization: Bearer ${token}`));
+    const result = await runOneShotTweet({ tokenHeader: TOKEN, ...jsonBody() });
+    expect(result.status).toBe(502);
+    expect(result.body).toEqual({
+      ok: false,
+      error: "publish_failed",
+      detail: "OAuth failed Authorization: Bearer [redacted]",
+    });
+    expect(JSON.stringify(result.body)).not.toContain(token);
+    expect(spy).toHaveBeenCalledWith(
+      "[OneShotTweet] publish_failed",
+      "OAuth failed Authorization: Bearer [redacted]",
+    );
+    spy.mockRestore();
+  });
+
   it("no-ops subsequent calls when ONE_SHOT_PUBLISH_CONSUME=true", async () => {
     process.env.ONE_SHOT_PUBLISH_TOKEN = TOKEN;
     process.env.ONE_SHOT_PUBLISH_CONSUME = "true";
@@ -129,5 +170,18 @@ describe("runOneShotTweet", () => {
     expect(first.status).toBe(200);
     expect(second).toEqual({ status: 409, body: { ok: false, error: "already_consumed" } });
     expect(publishTweet).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sanitizePublishFailedDetail", () => {
+  it("uses err.message and truncates to 240 chars", () => {
+    const long = Array.from({ length: 80 }, (_, i) => `err-${i}`).join(" ");
+    const detail = sanitizePublishFailedDetail(new Error(long));
+    expect(detail.length).toBe(240);
+    expect(long.startsWith(detail)).toBe(true);
+  });
+
+  it("falls back to String(err) for non-Error values", () => {
+    expect(sanitizePublishFailedDetail("plain twitter 401")).toBe("plain twitter 401");
   });
 });

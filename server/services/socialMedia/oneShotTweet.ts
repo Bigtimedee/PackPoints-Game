@@ -95,8 +95,17 @@ export async function downloadHttpsImage(imageUrl: string): Promise<Buffer> {
 }
 
 export type OneShotTweetOk = { ok: true; tweetId: string; url: string };
-export type OneShotTweetErr = { ok: false; error: string };
+export type OneShotTweetErr = { ok: false; error: string; detail?: string };
 export type OneShotTweetResult = { status: number; body: OneShotTweetOk | OneShotTweetErr };
+
+const DETAIL_MAX = 240;
+
+/** Redact long token-like runs (OAuth, JWT segments, hex secrets) then truncate. */
+export function sanitizePublishFailedDetail(err: unknown): string {
+  const raw = err instanceof Error && err.message ? err.message : String(err);
+  const redacted = raw.replace(/[A-Za-z0-9_\-/=+]{24,}/g, "[redacted]");
+  return redacted.length > DETAIL_MAX ? redacted.slice(0, DETAIL_MAX) : redacted;
+}
 
 function mapError(err: unknown): OneShotTweetResult {
   if (err instanceof OneShotError) {
@@ -113,7 +122,9 @@ function mapError(err: unknown): OneShotTweetResult {
       return { status: 429, body: { ok: false, error: "rate_limited" } };
     }
   }
-  return { status: 502, body: { ok: false, error: "publish_failed" } };
+  const detail = sanitizePublishFailedDetail(err);
+  console.error("[OneShotTweet] publish_failed", detail);
+  return { status: 502, body: { ok: false, error: "publish_failed", detail } };
 }
 
 export async function runOneShotTweet(opts: {
