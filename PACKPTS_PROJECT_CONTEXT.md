@@ -734,6 +734,7 @@ Startup (`index.ts`):
 - Header `x-one-shot-token` must match `ONE_SHOT_PUBLISH_TOKEN`. If that env is unset, the route returns 503 (`one_shot_disabled`).
 - Body: `{ "copy": string, "imageUrl": string, "hashtags"?: string[] }`. `imageUrl` must be https (packpts.com preferred). Downloads the image and calls `publishTweet(..., imageBuffer, mediaRequired=true)`.
 - Success: `{ ok: true, tweetId, url }` with `url` = `https://x.com/i/web/status/${tweetId}`.
+- Generic Twitter/API failure: 502 `{ ok: false, error: "publish_failed", detail }` — `detail` is `err.message` (or `String(err)`), truncated to 240 chars, with long token-like strings redacted. Same sanitized string is `console.error`'d as `[OneShotTweet] publish_failed`.
 - If `ONE_SHOT_PUBLISH_CONSUME=true`, the first successful publish consumes the endpoint; later calls return 409 (`already_consumed`) until process restart.
 - Do not log the one-shot token or `TWITTER_*` secrets. Remove this route after D5-2 media proof.
 
