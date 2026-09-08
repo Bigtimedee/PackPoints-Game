@@ -5,13 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { logMakeClientEvent } from "@/lib/makeFunnel";
 import { prepareIdentifyImage } from "@/lib/prepareIdentifyImage";
 import { useAuth } from "@/hooks/use-auth";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
+import { MakeEmptyState } from "@/components/MakeEmptyState";
+import { MakeIdentifySlot } from "@/components/MakeIdentifySlot";
 import {
   Loader2,
   Camera,
@@ -53,12 +54,6 @@ interface CardEntry {
   error?: string;
 }
 
-const CONFIDENCE_COLOR: Record<string, string> = {
-  high: "bg-green-500/10 text-green-700",
-  medium: "bg-yellow-500/10 text-yellow-700",
-  low: "bg-red-500/10 text-red-700",
-};
-
 function friendlyIdentifyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err ?? "");
   if (/429|too many|rate|hour/i.test(msg)) {
@@ -87,9 +82,16 @@ export default function MakePage() {
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const pendingAuthIntentRef = useRef<MakeIntent | null>(null);
   const replaceEntryIdRef = useRef<string | null>(null);
+  const entriesRef = useRef<CardEntry[]>([]);
+  const identifyQueue = useRef<{ id: string; file: File }[]>([]);
+  const drainingRef = useRef(false);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
 
   const identifyMutation = useMutation({
     mutationFn: async (imageBase64: string) => {
@@ -212,7 +214,33 @@ export default function MakePage() {
       setEntries((prev) =>
         prev.map((e) => (e.id === entryId ? { ...e, status: "error", error: msg } : e)),
       );
-      toast({ title: msg, variant: "destructive" });
+      // IDENTIFY_RETRY: no toast-per-failure (rate-limit detail stays on the slot)
+    }
+  }
+
+  function enqueueIdentify(jobs: { id: string; file: File }[]) {
+    identifyQueue.current.push(...jobs);
+    void drainIdentifyQueue();
+  }
+
+  async function drainIdentifyQueue() {
+    if (drainingRef.current) return;
+    drainingRef.current = true;
+    setIdentifyingBusy(true);
+    try {
+      // Sequential identify — never parallelize (rate limit + Design IDENTIFY_RETRY)
+      while (identifyQueue.current.length > 0) {
+        const job = identifyQueue.current.shift();
+        if (!job) break;
+        if (!entriesRef.current.some((e) => e.id === job.id)) continue;
+        await identifyOne(job.id, job.file);
+      }
+    } finally {
+      drainingRef.current = false;
+      setIdentifyingBusy(false);
+    }
+    if (identifyQueue.current.length > 0) {
+      void drainIdentifyQueue();
     }
   }
 
@@ -223,19 +251,16 @@ export default function MakePage() {
     // Single-slot retry: replace the failed entry's file and re-run just that one
     if (opts?.replaceId) {
       const file = list[0];
-      setEntries((prev) =>
-        prev.map((e) =>
+      setEntries((prev) => {
+        const next = prev.map((e) =>
           e.id === opts.replaceId
-            ? { ...e, file, status: "queued", card: undefined, error: undefined }
+            ? { ...e, file, status: "queued" as const, card: undefined, error: undefined }
             : e,
-        ),
-      );
-      setIdentifyingBusy(true);
-      try {
-        await identifyOne(opts.replaceId, file);
-      } finally {
-        setIdentifyingBusy(false);
-      }
+        );
+        entriesRef.current = next;
+        return next;
+      });
+      enqueueIdentify([{ id: opts.replaceId, file }]);
       return;
     }
 
@@ -261,21 +286,23 @@ export default function MakePage() {
       status: "queued" as const,
     }));
 
-    setEntries((prev) => [...prev, ...newEntries]);
-    setIdentifyingBusy(true);
-    try {
-      // Sequential identify — never parallelize (rate limit + Design §3)
-      for (const entry of newEntries) {
-        await identifyOne(entry.id, entry.file);
-      }
-    } finally {
-      setIdentifyingBusy(false);
-    }
+    setEntries((prev) => {
+      const next = [...prev, ...newEntries];
+      entriesRef.current = next;
+      return next;
+    });
+    enqueueIdentify(newEntries.map((e) => ({ id: e.id, file: e.file })));
   }
 
   function retryEntry(entry: CardEntry) {
-    void identifyOne(entry.id, entry.file).finally(() => setIdentifyingBusy(false));
-    setIdentifyingBusy(true);
+    setEntries((prev) => {
+      const next = prev.map((e) =>
+        e.id === entry.id ? { ...e, status: "queued" as const, card: undefined, error: undefined } : e,
+      );
+      entriesRef.current = next;
+      return next;
+    });
+    enqueueIdentify([{ id: entry.id, file: entry.file }]);
   }
 
   function pickReplacementPhoto(entryId: string) {
@@ -292,7 +319,16 @@ export default function MakePage() {
   }
 
   function removeEntry(id: string) {
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+    identifyQueue.current = identifyQueue.current.filter((j) => j.id !== id);
+    setEntries((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      entriesRef.current = next;
+      return next;
+    });
+  }
+
+  function skipEntry(id: string) {
+    removeEntry(id);
   }
 
   const okCards = entries.filter((e) => e.status === "ok" && e.card);
@@ -340,15 +376,17 @@ export default function MakePage() {
   return (
     <div className="min-h-screen bg-background p-4 pb-16">
       <div className="max-w-2xl mx-auto space-y-6">
-        <div className="flex items-center gap-3 pt-4">
-          <Paintbrush className="h-6 w-6 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Snap cards. Build a set.</h1>
-            <p className="text-sm text-muted-foreground">
-              Rainy-Saturday co-create — file upload only, no live camera viewfinder.
-            </p>
+        {(step !== 1 || entries.length > 0) && (
+          <div className="flex items-center gap-3 pt-4">
+            <Paintbrush className="h-6 w-6 text-primary" />
+            <div>
+              <h1 className="text-2xl font-bold">Snap cards. Build a set.</h1>
+              <p className="text-sm text-muted-foreground">
+                Rainy-Saturday co-create — file upload only, no live camera viewfinder.
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Step indicator */}
         <div className="flex items-center gap-2 text-sm">
@@ -370,62 +408,56 @@ export default function MakePage() {
 
         {/* Step 1 — Upload (two file-input CTAs only) */}
         {step === 1 && (
-          <div className="space-y-4">
-            {!isAuthenticated && !authLoading && (
-              <Card className="border-dashed">
-                <CardContent className="py-4 text-sm text-muted-foreground">
-                  Sign in to snap cards into a set.{" "}
-                  <button
-                    type="button"
-                    className="text-primary underline-offset-2 hover:underline font-medium"
-                    onClick={() => setLocation(`/auth?redirect=${encodeURIComponent("/make")}`)}
-                  >
-                    Sign in
-                  </button>
-                </CardContent>
-              </Card>
+          <div className={`space-y-4 ${entries.length === 0 ? "pt-4" : ""}`}>
+            {entries.length === 0 ? (
+              <MakeEmptyState
+                onTakePhoto={() => requireAuthThen("camera")}
+                onChooseLibrary={() => requireAuthThen("library")}
+                photoDisabled={authLoading || identifyingBusy}
+                libraryDisabled={authLoading || identifyingBusy}
+                showSoftAuth={!isAuthenticated && !authLoading}
+                onSignIn={() => setLocation(`/auth?redirect=${encodeURIComponent("/make")}`)}
+              />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Card className="border-2">
+                  <CardContent className="flex flex-col items-center justify-center gap-3 py-6">
+                    <Camera className="h-7 w-7 text-muted-foreground" />
+                    <div className="text-center px-2">
+                      <p className="font-medium">Take photo</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Rear camera when the OS allows it. One card at a time.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => requireAuthThen("camera")}
+                      disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    >
+                      Take photo
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-2 border-dashed">
+                  <CardContent className="flex flex-col items-center justify-center gap-3 py-6">
+                    <Images className="h-7 w-7 text-muted-foreground" />
+                    <div className="text-center px-2">
+                      <p className="font-medium">Choose from library</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Up to {MAX_LIBRARY_PICK} stills. HEIC converts on device.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => requireAuthThen("library")}
+                      disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    >
+                      Choose from library
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
             )}
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Card className="border-2">
-                <CardContent className="flex flex-col items-center justify-center gap-3 py-10">
-                  <Camera className="h-9 w-9 text-muted-foreground" />
-                  <div className="text-center px-2">
-                    <p className="font-medium">Take photo</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Rear camera when the OS allows it. One card at a time.
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => requireAuthThen("camera")}
-                    disabled={identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
-                    data-testid="button-make-take-photo"
-                  >
-                    {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Take photo"}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card className="border-2 border-dashed">
-                <CardContent className="flex flex-col items-center justify-center gap-3 py-10">
-                  <Images className="h-9 w-9 text-muted-foreground" />
-                  <div className="text-center px-2">
-                    <p className="font-medium">Choose from library</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Up to {MAX_LIBRARY_PICK} stills. HEIC converts on device.
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    onClick={() => requireAuthThen("library")}
-                    disabled={identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
-                    data-testid="button-make-choose-library"
-                  >
-                    {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Choose from library"}
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
 
             {/* Take photo: capture=environment, single file — never multiple */}
             <input
@@ -496,79 +528,32 @@ export default function MakePage() {
             {entries.length > 0 && (
               <div className="grid grid-cols-2 gap-3">
                 {entries.map((entry) => (
-                  <div
+                  <MakeIdentifySlot
                     key={entry.id}
-                    className="relative rounded-lg border bg-card p-3 flex flex-col gap-1"
-                  >
-                    <button
-                      type="button"
-                      className="absolute top-2 right-2 rounded-full p-0.5 hover:bg-muted"
-                      onClick={() => removeEntry(entry.id)}
-                      aria-label="Remove card"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                    <p className="text-xs text-muted-foreground truncate pr-5">{entry.file.name}</p>
-                    {entry.status === "queued" && (
-                      <p className="text-xs text-muted-foreground">Queued</p>
-                    )}
-                    {entry.status === "loading" && (
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" /> Identifying…
-                      </div>
-                    )}
-                    {entry.status === "ok" && entry.card && (
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-semibold">{entry.card.playerName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {entry.card.year} · {entry.card.brand}
-                        </p>
-                        <Badge className={`text-xs ${CONFIDENCE_COLOR[entry.card.confidence]}`}>
-                          {entry.card.confidence} confidence
-                        </Badge>
-                      </div>
-                    )}
-                    {entry.status === "error" && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-destructive">{entry.error}</p>
-                        <div className="flex flex-wrap gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs"
-                            disabled={identifyingBusy}
-                            onClick={() => retryEntry(entry)}
-                          >
-                            Retry
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs"
-                            disabled={identifyingBusy}
-                            onClick={() => pickReplacementPhoto(entry.id)}
-                            data-testid="button-identify-new-photo"
-                          >
-                            New photo
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    fileName={entry.file.name}
+                    status={entry.status}
+                    card={entry.card}
+                    detail={entry.error}
+                    onRemove={() => removeEntry(entry.id)}
+                    onTryAgain={() => retryEntry(entry)}
+                    onSkip={() => skipEntry(entry.id)}
+                  />
                 ))}
               </div>
             )}
 
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-muted-foreground">
-                {okCards.length} card{okCards.length !== 1 ? "s" : ""} identified
-                {loadingCount > 0 && ` · ${loadingCount} in queue…`}
-                {okCards.length > 0 && okCards.length < 5 && " · need at least 5"}
-              </p>
-              <Button disabled={!canProceedToReview} onClick={() => setStep(2)}>
-                Review Cards →
-              </Button>
-            </div>
+            {entries.length > 0 && (
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-muted-foreground">
+                  {okCards.length} card{okCards.length !== 1 ? "s" : ""} identified
+                  {loadingCount > 0 && ` · ${loadingCount} in queue…`}
+                  {okCards.length > 0 && okCards.length < 5 && " · need at least 5"}
+                </p>
+                <Button disabled={!canProceedToReview} onClick={() => setStep(2)}>
+                  Review Cards →
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
