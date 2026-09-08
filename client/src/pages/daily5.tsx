@@ -15,6 +15,7 @@ import {
   formatBeatMeBanner,
   formatBeatMeCompare,
   formatBeatMeShareCaption,
+  isBeatMeShareUrl,
   mapBeatMeApiResult,
   parseBeatMeToken,
   persistBeatMeChallenge,
@@ -120,22 +121,10 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const shareCaption = formatBeatMeShareCaption(correctCount);
-  const fallbackUrl = "https://packpts.com/daily";
-  const shareUrl = beatMeUrl ?? fallbackUrl;
 
   const shareGrid = Array.from({ length: 5 }, (_, i) =>
     i < correctCount ? "[+]" : "[-]"
   ).join(" ");
-
-  const shareText = [
-    `PackPTS Daily 5 - ${dateStr}`,
-    shareGrid,
-    `${correctCount}/5`,
-    rank && rank > 0 ? `#${rank}` : null,
-    "",
-    shareCaption,
-    shareUrl,
-  ].filter(Boolean).join("\n");
 
   const logShareEvent = async (shareType: string, target: string) => {
     try {
@@ -144,17 +133,31 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
   };
 
   const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: shareText });
-        setShared(true);
-        logShareEvent("SCORE_CARD", "NATIVE_SHARE");
-        setTimeout(() => setShared(false), 3000);
-        return;
-      } catch {}
-    }
     try {
-      await navigator.clipboard.writeText(shareText);
+      const created = beatMeUrl ? { url: beatMeUrl } : await issueBeatMe();
+      if (!created?.url) {
+        toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });
+        return;
+      }
+      const text = [
+        `PackPTS Daily 5 - ${dateStr}`,
+        shareGrid,
+        `${correctCount}/5`,
+        rank && rank > 0 ? `#${rank}` : null,
+        "",
+        shareCaption,
+        created.url,
+      ].filter(Boolean).join("\n");
+      if (navigator.share) {
+        try {
+          await navigator.share({ text, url: created.url });
+          setShared(true);
+          logShareEvent("SCORE_CARD", "NATIVE_SHARE");
+          setTimeout(() => setShared(false), 3000);
+          return;
+        } catch {}
+      }
+      await navigator.clipboard.writeText(text);
       setShared(true);
       logShareEvent("SCORE_CARD", "COPY_LINK");
       toast({ title: "Copied to clipboard", description: "Share your result with friends!" });
@@ -193,7 +196,7 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
       url?: string;
       path?: string;
     };
-    if (!created.url || !created.path) return null;
+    if (!created.url || !created.path || !isBeatMeShareUrl(created.url)) return null;
     setBeatMeUrl(created.url);
     try {
       await apiRequest("POST", "/api/referrals/create", {
@@ -266,8 +269,12 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
               challengeId={challengeId}
               initialImageUrl={shareImageUrl}
               downloadFilename={`packpts-daily5-${dateStr}.png`}
-              shareUrl={shareUrl}
+              shareUrl={beatMeUrl ?? undefined}
               shareText={shareCaption}
+              resolveShareUrl={async () => {
+                const created = await issueBeatMe();
+                return created?.url ?? null;
+              }}
             />
           )}
 

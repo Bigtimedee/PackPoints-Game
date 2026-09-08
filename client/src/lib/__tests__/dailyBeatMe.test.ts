@@ -5,6 +5,7 @@ import {
   formatBeatMeBanner,
   formatBeatMeCompare,
   formatBeatMeShareCaption,
+  isBeatMeShareUrl,
   mapBeatMeApiResult,
   parseBeatMeToken,
   persistBeatMeChallenge,
@@ -56,6 +57,9 @@ describe("Daily 5 Beat-me URL contract", () => {
     expect(params.get("utm_campaign")).toBe("daily5");
     expect(params.get("challenge")).toBe(TOKEN);
     expect(buildDailyBeatMeUrl(TOKEN)).toBe(`https://packpts.com${path}`);
+    expect(isBeatMeShareUrl(`https://packpts.com${path}`)).toBe(true);
+    expect(isBeatMeShareUrl("https://packpts.com/daily")).toBe(false);
+    expect(isBeatMeShareUrl("https://packpts.com/daily?s=3&n=dave")).toBe(false);
   });
 
   it("reads the challenge token and ignores leftover query-score params", () => {

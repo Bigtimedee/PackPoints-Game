@@ -21,6 +21,8 @@ interface ShareAssetCardProps {
   downloadFilename?: string;
   shareUrl?: string;
   shareText?: string;
+  /** Resolve the live challenge URL before copy/share so we never emit bare /daily. */
+  resolveShareUrl?: () => Promise<string | null>;
 }
 
 const GENERATE_WAIT_MS = 8_000;
@@ -100,6 +102,7 @@ export function ShareAssetCard({
   downloadFilename = "packpts-score.png",
   shareUrl = "https://packpts.com/daily",
   shareText = "I just played PackPTS! Check it out at packpts.com/daily",
+  resolveShareUrl,
 }: ShareAssetCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -165,11 +168,27 @@ export function ShareAssetCard({
     }
   };
 
+  const resolveUrl = async (): Promise<string | null> => {
+    if (resolveShareUrl) {
+      try {
+        return (await resolveShareUrl()) || null;
+      } catch {
+        return null;
+      }
+    }
+    return shareUrl || null;
+  };
+
   const handleShareWithoutCard = async () => {
-    const payload = `${shareText}\n\n${shareUrl}`;
+    const url = await resolveUrl();
+    if (!url) {
+      toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });
+      return;
+    }
+    const payload = `${shareText}\n\n${url}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: "My PackPTS Score", text: shareText, url: shareUrl });
+        await navigator.share({ title: "My PackPTS Score", text: shareText, url });
         return;
       }
       await navigator.clipboard.writeText(payload);
@@ -208,8 +227,13 @@ export function ShareAssetCard({
   };
 
   const handleCopyLink = async () => {
+    const url = await resolveUrl();
+    if (!url) {
+      toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(`${shareText}\n\n${shareUrl}`);
+      await navigator.clipboard.writeText(`${shareText}\n\n${url}`);
       toast({ title: "Copied!", description: "Share link copied to clipboard" });
     } catch {
       toast({ title: "Error", description: "Failed to copy to clipboard", variant: "destructive" });
@@ -217,17 +241,26 @@ export function ShareAssetCard({
   };
 
   const handleNativeShare = async () => {
+    const url = await resolveUrl();
+    if (!url) {
+      toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });
+      return;
+    }
     try {
       if (imageUrl) {
         const imgRes = await fetch(imageUrl, { credentials: "include" });
         const blob = await imgRes.blob();
         const file = new File([blob], downloadFilename, { type: "image/png" });
         if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ files: [file], title: "My PackPTS Score", text: shareText });
+          await navigator.share({
+            files: [file],
+            title: "My PackPTS Score",
+            text: `${shareText}\n${url}`,
+          });
           return;
         }
       }
-      await navigator.share({ title: "My PackPTS Score", text: shareText, url: shareUrl });
+      await navigator.share({ title: "My PackPTS Score", text: shareText, url });
     } catch {
       // User cancelled or share failed silently
     }

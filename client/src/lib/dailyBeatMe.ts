@@ -48,6 +48,18 @@ export function buildDailyBeatMeUrl(token: string): string {
   return `${DAILY_BEAT_ME_ORIGIN}${buildDailyBeatMePath(token)}`;
 }
 
+/** True only for the durable Beat-me shape — never bare /daily. */
+export function isBeatMeShareUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, DAILY_BEAT_ME_ORIGIN);
+    if (parsed.pathname !== "/daily" && parsed.pathname !== "/daily5") return false;
+    return !!parsed.searchParams.get("challenge")
+      && parsed.searchParams.get("utm_medium") === "beatme";
+  } catch {
+    return false;
+  }
+}
+
 export function formatBeatMeBanner(challenge: DailyBeatMeChallenge): string {
   if (challenge.status === "stale") {
     return "Challenge expired — play today's five.";
