@@ -81,6 +81,7 @@ import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panic
 import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from "./utils/questionSanitizer";
+import { setIdPrefixFromShareSlug } from "./contentFactory/makerShareSlug";
 
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
 const sessionAnswerLocks = new Map<string, Promise<void>>();
@@ -534,19 +535,44 @@ export async function registerRoutes(
         coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
       }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
 
-      if (!set) return res.status(404).json({ error: "Set not found" });
+      let resolved = set;
+      if (!resolved) {
+        const prefix = setIdPrefixFromShareSlug(id);
+        if (prefix) {
+          const [bySlug] = await db.select({
+            id: gameSets.id,
+            setName: gameSets.setName,
+            sport: gameSets.sport,
+            brand: gameSets.brand,
+            year: gameSets.year,
+            makerNote: gameSets.makerNote,
+            isUserCreated: gameSets.isUserCreated,
+            createdByUserId: gameSets.createdByUserId,
+            coCreatorUserId: gameSets.coCreatorUserId,
+            cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
+            playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
+            makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
+            coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
+          }).from(gameSets)
+            .where(sql`replace(${gameSets.id}, '-', '') like ${prefix + "%"}`)
+            .limit(1);
+          resolved = bySlug;
+        }
+      }
+
+      if (!resolved) return res.status(404).json({ error: "Set not found" });
 
       let shareImageUrl: string | undefined;
-      if (set.isUserCreated) {
+      if (resolved.isUserCreated) {
         const [asset] = await db.select({ metadata: contentAssets.metadata, imagePath: contentAssets.imagePath })
           .from(contentAssets)
-          .where(eq(contentAssets.sourceEventId, `maker_set_${id}`))
+          .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
           .limit(1);
         const url = (asset?.metadata as { imageUrl?: string } | null)?.imageUrl;
         if (url) shareImageUrl = url;
       }
 
-      res.json({ ...set, shareImageUrl });
+      res.json({ ...resolved, shareImageUrl });
     } catch (error) {
       console.error("[Sets] GET /api/sets/:id error:", error);
       res.status(500).json({ error: "Failed to get set" });

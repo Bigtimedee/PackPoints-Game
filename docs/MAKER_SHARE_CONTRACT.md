@@ -1,39 +1,45 @@
-# Maker share contract (1080)
+# Maker share — locked eng spec (1080²)
 
-Locked Design spec for the PackPTS **I MADE THIS SET** share card.
+Formal engineering spec for Surface A: post-publish **I MADE THIS SET** share art.
+Do not wait on design review to implement. Collab / badge / rainy-Saturday templates are out of scope (P0 is `/make` after a successful publish).
 
-This is maker voice (Sets Made / mixtape) — never a DAU flex, never a public Maker Rate brag.
+## Trigger
+Generate **only** after set publish succeeds (`POST /api/sets/create` returns a real `game_sets` row).
+Not on draft, not mid-`/make` identify, not first DM, not collab publish (templates may remain there).
 
 ## Canvas
-- Size: **1080 × 1080** PNG
-- Background: `#0b0f16` with a soft blue radial glow from the top-right
-- Square only (same delivery path as the score card)
+- **1080 × 1080** PNG, `#0b0f16` + soft blue radial glow (same delivery path as the score card)
+- Fonts: bundled Inter, outlined to SVG paths (no Railway system fonts)
 
-## Content (actual published set — never fake)
-- Eyebrow, all-caps: `I MADE THIS SET`
-- Hero: the maker’s **identified cards**, name-masked / redacted (brand mask regions, then the gameplay name band). Up to five cards fanned from the real photos. **No stock vector crowd / fan illustration.**
-- Set name: the published `game_sets.set_name`
-- Mixtape note: the published `maker_note` when present (quoted, truncated to fit — never invented)
-- Card count: `{N} cards` where N is the real playable-card count on that set
-- Footer left: locked masked-P mark (white P + gold `#F5C518` bar on `#0b0f16`) + **PackPTS**
-- Footer right: `packpts.com/sets`
+## Layout (acceptance)
+| Zone | Content |
+|------|---------|
+| Header | `I MADE THIS SET` (all caps) |
+| Title + note | `{Set name}` + `{mixtape note}` from the published row (never invented) |
+| Stack | **3–8 of this set’s identified cards**, rendered as **masked cards in the same language as Daily 5** (`WHO IS THIS PLAYER?` name band, bottom 46%, `#0b0f16` @ 0.92). Prefer real thumbnails from published `card_photos`. |
+| Mask failure | Cream masked silhouette **per card** (`#F3E6C8` body + Daily 5 name band). **NEVER** default the whole canvas to stock fan `maker-set-1080.png`. |
+| Optional | `N sets made` — this maker’s real published-set count, **only** if the volume gate is unlocked |
+| Footer | Masked-P + **PackPTS** + `packpts.com/sets/{setSlug}` |
 
-## Honesty (hard rules)
-- Only data from the published set. No placeholder scores, no canned 4/5, no fake play counts.
-- Do **not** render Maker Rate, DAU, “N makers”, or any gated public volume claim. Public Maker Rate / volume brags stay locked until ≥10 non-staff published sets; this card is the individual’s own set, not a platform brag.
-- If a card has no photo, skip it. If none have photos, still render name + note + honest count — never substitute stock fans.
+## Stack rules
+- Take `min(8, playable card count)` slots from the published set (publish already requires ≥5).
+- Each slot is either a redacted thumbnail or a cream silhouette. Never drop a slot into a crowd/fan illustration.
+- Masking floor = gameplay `DEFAULT_MASK_REGIONS` (yPct 54 / hPct 46) + Daily 5 label `WHO IS THIS PLAYER?`.
 
-## Brand
-- Spelling: **PackPTS** (never PackPoints)
-- Masked P only. No three-square mark.
-
-## Fonts
-- **Inter** (SIL OFL 1.1) in `server/contentFactory/assets/fonts/`
-- Outline every label to SVG paths (same as the score card). Do not rely on Railway system fonts.
+## Honesty / gate
+- Only real published set data. No fake counts, no canned scores.
+- **Volume gate:** public Maker Rate / platform volume brags stay locked until **≥10 non-staff** (`users.is_admin = false`) published user-created sets.
+- When the gate is closed: omit Sets Made and every Maker Rate / DAU / “N makers” line.
+- When the gate is open: optional personal `N sets made` (this maker’s count) is allowed. Still never render Maker Rate %.
 
 ## Delivery
-- Generated server-side after `POST /api/sets/create` and collab publish (SVG → PNG via sharp)
-- Public URL: `/generated/share/{YYYY-MM-DD}/{assetId}.png`
-- Production writes to `/app/data/masked-cards/generated/share/`
 - `content_assets.asset_type = MAKER_SHARE_CARD`, `source_event_id = maker_set_{setId}`
-- Finish handlers await generation up to 1.5s and return `shareImageUrl`
+- Write to `/app/data/masked-cards/generated/share/` (prod) or `public/generated/share/` (local)
+- Public URL `/generated/share/{YYYY-MM-DD}/{assetId}.png`
+- Publish handler awaits up to 1.5s and returns `shareImageUrl`
+- `setSlug` = kebab-case set name (≤32) + `-` + first 8 hex chars of the set id (no dashes)
+
+## Non-goals (not Surface A)
+- Collab publish share art
+- Badge / rainy-Saturday campaign templates
+- Unlocking public Maker Rate on marketing surfaces

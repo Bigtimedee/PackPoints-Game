@@ -115,7 +115,7 @@ export default function SetPage() {
           </Card>
         )}
 
-        {canShareMakerArt && set.isUserCreated && (
+        {canShareMakerArt && set.isUserCreated && set.shareImageUrl && (
           <ShareAssetCard
             kind="maker"
             setId={set.id}

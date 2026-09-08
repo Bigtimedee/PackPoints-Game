@@ -1,17 +1,19 @@
 /**
  * Load a published user set and render its maker-share PNG from live rows.
- * Honesty: card photos, set name, mixtape, and count come from the set — never invented.
+ * Surface A: POST /api/sets/create only. Per-card cream silhouette if mask fails.
  */
 import { db } from "../db";
 import { cardPhotos, gameSets, playableCards } from "@shared/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { getMaskConfig } from "../services/maskConfig";
 import {
   generateMakerShare,
   parseCardPhotoId,
   redactCardForShare,
+  type MakerCardSlot,
   type MakerShareInput,
 } from "./generateMakerShare";
+import { MAKER_SHARE_MAX_STACK, MAKER_SHARE_VOLUME_GATE } from "./makerShareSlug";
 import type { ScoreCardOutput } from "./generateScoreCard";
 
 export interface PublishedSetShareSource {
@@ -20,6 +22,7 @@ export interface PublishedSetShareSource {
   makerNote: string | null;
   cardCount: number;
   date: string;
+  createdByUserId: string | null;
 }
 
 async function loadPhotoBuffer(imageUrl: string | null): Promise<Buffer | null> {
@@ -39,6 +42,7 @@ export async function loadPublishedSetShareSource(setId: string): Promise<Publis
     makerNote: gameSets.makerNote,
     createdAt: gameSets.createdAt,
     isUserCreated: gameSets.isUserCreated,
+    createdByUserId: gameSets.createdByUserId,
   }).from(gameSets).where(eq(gameSets.id, setId)).limit(1);
 
   if (!set || !set.isUserCreated) return null;
@@ -53,44 +57,84 @@ export async function loadPublishedSetShareSource(setId: string): Promise<Publis
     makerNote: set.makerNote,
     cardCount: cards.length,
     date: (set.createdAt ?? new Date()).toISOString().slice(0, 10),
+    createdByUserId: set.createdByUserId,
   };
 }
 
-export async function loadMaskedCardBuffersForSet(setId: string, limit = 5): Promise<Buffer[]> {
+export async function loadMakerCardSlots(setId: string): Promise<MakerCardSlot[]> {
   const cards = await db.select({
     imageUrl: playableCards.imageUrl,
     set: playableCards.set,
   }).from(playableCards)
     .where(and(eq(playableCards.gameSetId, setId), eq(playableCards.isPlayable, true)))
     .orderBy(asc(playableCards.createdAt))
-    .limit(20);
+    .limit(MAKER_SHARE_MAX_STACK);
 
-  const out: Buffer[] = [];
+  const slots: MakerCardSlot[] = [];
   for (const card of cards) {
-    if (out.length >= limit) break;
-    const raw = await loadPhotoBuffer(card.imageUrl);
-    if (!raw) continue;
-    const brandKey = (card.set || "").trim();
-    const mask = brandKey ? await getMaskConfig(brandKey) : null;
-    const redacted = await redactCardForShare(raw, mask?.regions ?? []);
-    out.push(redacted);
+    try {
+      const raw = await loadPhotoBuffer(card.imageUrl);
+      if (!raw) {
+        slots.push(null);
+        continue;
+      }
+      const brandKey = (card.set || "").trim();
+      const mask = brandKey ? await getMaskConfig(brandKey) : null;
+      slots.push(await redactCardForShare(raw, mask?.regions ?? []));
+    } catch {
+      slots.push(null);
+    }
   }
-  return out;
+  return slots;
+}
+
+export async function countNonStaffPublishedSets(): Promise<number> {
+  const result = await db.execute(sql`
+    SELECT COUNT(*)::int AS n
+    FROM game_sets gs
+    LEFT JOIN users u ON u.id = gs.created_by_user_id
+    WHERE gs.is_user_created = true
+      AND COALESCE(u.is_admin, false) = false
+  `);
+  return Number((result.rows[0] as { n?: number } | undefined)?.n ?? 0);
+}
+
+export async function countMakerPublishedSets(userId: string): Promise<number> {
+  const result = await db.execute(sql`
+    SELECT COUNT(*)::int AS n
+    FROM game_sets
+    WHERE is_user_created = true
+      AND created_by_user_id = ${userId}
+  `);
+  return Number((result.rows[0] as { n?: number } | undefined)?.n ?? 0);
 }
 
 export async function generateMakerShareFromSet(
   setId: string,
   assetId: string,
+  opts: { userId?: string } = {},
 ): Promise<ScoreCardOutput | null> {
   const source = await loadPublishedSetShareSource(setId);
   if (!source) return null;
-  const cardImages = await loadMaskedCardBuffersForSet(setId);
+  const cardSlots = await loadMakerCardSlots(setId);
+
+  let setsMade: number | null = null;
+  const nonStaff = await countNonStaffPublishedSets();
+  if (nonStaff >= MAKER_SHARE_VOLUME_GATE) {
+    const makerId = opts.userId || source.createdByUserId;
+    if (makerId) {
+      setsMade = await countMakerPublishedSets(makerId);
+    }
+  }
+
   const input: MakerShareInput = {
     setName: source.setName,
     makerNote: source.makerNote,
     cardCount: source.cardCount,
     date: source.date,
-    cardImages,
+    setId: source.setId,
+    setsMade,
+    cardSlots,
   };
   return generateMakerShare(input, assetId);
 }

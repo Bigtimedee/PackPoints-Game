@@ -123,7 +123,7 @@ export async function ensureAssetImage(
   if (asset.assetType === "MAKER_SHARE_CARD") {
     const setId = typeof meta.setId === "string" ? meta.setId : "";
     if (!setId) return asset;
-    const result = await generateMakerShareFromSet(setId, asset.id);
+    const result = await generateMakerShareFromSet(setId, asset.id, { userId: asset.userId || undefined });
     if (!result) return asset;
     return persistGeneratedCard(asset, result);
   }
@@ -302,7 +302,7 @@ export async function onSetPublished(event: SetPublishedEvent): Promise<{ assetI
       },
     }).returning();
 
-    const result = await generateMakerShareFromSet(event.setId, asset.id);
+    const result = await generateMakerShareFromSet(event.setId, asset.id, { userId: event.userId });
     if (!result) {
       console.error(`[ContentFactory] Maker share skipped — set ${event.setId} is not a user-created set`);
       return null;
