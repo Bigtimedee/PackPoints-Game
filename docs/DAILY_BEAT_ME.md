@@ -7,7 +7,7 @@ Share/challenge after Daily 5 Game Complete is a **product loop**, not a PNG or 
 Beat-me `puzzle_day`, the Daily 5 day key / challenge window, and streak “today” all use **`America/Chicago` (CT)**.
 
 - Day key: `YYYY-MM-DD` from `getPackptsDayKey()` in `shared/packptsDay.ts`
-- Daily 5 `startsAt` / `endsAt` for a date are CT midnight → next CT midnight
+- Daily 5 `startsAt` / `endsAt` for a date are CT midnight → next CT midnight (`getDailyStartEnd`). Load and `updateChallengeStatuses` rewrite stored UTC-midnight windows and derive ACTIVE/SCHEDULED/CLOSED from now.
 - Stale check: token `puzzle_day === getPackptsDayKey()` (same CT key)
 - Do **not** use America/New_York, UTC calendar dates, or a second feature TZ
 

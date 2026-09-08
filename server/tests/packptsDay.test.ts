@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addPackptsDays,
+  getDailyStartEnd,
   getPackptsDayKey,
   isPackptsDayKey,
   msUntilPackptsMidnight,
@@ -39,6 +40,13 @@ describe("PackPTS product day (America/Chicago)", () => {
     expect(addPackptsDays("2026-01-15", 1)).toBe("2026-01-16");
     expect(isPackptsDayKey("2026-09-08")).toBe(true);
     expect(isPackptsDayKey("09-08-2026")).toBe(false);
+  });
+
+  it("pairs CT midnight → next CT midnight for a Daily 5 date", () => {
+    const { startsAt, endsAt } = getDailyStartEnd("2026-09-08");
+    expect(startsAt.toISOString()).toBe("2026-09-08T05:00:00.000Z");
+    expect(endsAt.toISOString()).toBe("2026-09-09T05:00:00.000Z");
+    expect(startsAt.toISOString()).not.toBe("2026-09-09T00:00:00.000Z");
   });
 
   it("counts down to the next CT midnight", () => {
