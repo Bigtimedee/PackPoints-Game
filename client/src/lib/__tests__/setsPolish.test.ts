@@ -60,9 +60,28 @@ describe("set meta", () => {
       formatDetailMetaLine({
         makerUsername: "Bigtimedee",
         coCreatorUsername: "Pat",
-        createdAt: "2026-09-08T00:00:00.000Z",
+        createdAt: "2026-09-08T17:38:58.989Z",
       }),
     ).toBe("by Bigtimedee & Pat · SEP 8 · AUTHORED");
+  });
+
+  it("shows the same CT day for browse naive timestamp and detail ISO", () => {
+    const browse = "2026-09-08 17:38:58.989524";
+    const detail = "2026-09-08T17:38:58.989Z";
+    expect(formatAuthoredDate(browse)).toBe("SEP 8");
+    expect(formatAuthoredDate(detail)).toBe("SEP 8");
+    expect(formatSetMetaLine({ makerUsername: "Bigtimedee", cardCount: 5, createdAt: browse })).toBe(
+      formatSetMetaLine({ makerUsername: "Bigtimedee", cardCount: 5, createdAt: detail }),
+    );
+    expect(
+      formatDetailMetaLine({ makerUsername: "Bigtimedee", createdAt: browse }),
+    ).toBe(formatDetailMetaLine({ makerUsername: "Bigtimedee", createdAt: detail }));
+  });
+
+  it("uses America/Chicago, not UTC, across the CT/UTC date line", () => {
+    // 2026-09-09 03:00 UTC = 2026-09-08 22:00 CDT
+    expect(formatAuthoredDate("2026-09-09T03:00:00.000Z")).toBe("SEP 8");
+    expect(formatAuthoredDate("2026-09-09 03:00:00")).toBe("SEP 8");
   });
 
   it("labels 0 cards honestly", () => {

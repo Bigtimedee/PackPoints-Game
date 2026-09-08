@@ -72,3 +72,20 @@ export function sanitizeCoverCardUrls(value: unknown): string[] {
     .filter((url): url is string => !!url)
     .slice(0, 8);
 }
+
+/**
+ * Raw `db.execute` returns `timestamp without time zone` as
+ * `YYYY-MM-DD HH:MM:SS`. Treat that wall clock as UTC so browse JSON
+ * matches drizzle Date → ISO on GET /api/sets/:id.
+ */
+export function createdAtToIso(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const naive = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/.exec(trimmed);
+  const d = new Date(naive ? `${naive[1]}T${naive[2]}Z` : trimmed);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}

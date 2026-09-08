@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createdAtToIso,
   extractCardYear,
   sanitizeCoverCardUrls,
   toPublicPreviewCard,
@@ -36,6 +37,16 @@ describe("toPublicPreviewCard", () => {
       imageUrl: null,
       year: null,
     });
+  });
+});
+
+describe("createdAtToIso", () => {
+  it("normalizes raw pg timestamps to the same ISO as drizzle Date JSON", () => {
+    expect(createdAtToIso("2026-09-08 17:38:58.989524")).toBe("2026-09-08T17:38:58.989Z");
+    expect(createdAtToIso("2026-09-08T17:38:58.989Z")).toBe("2026-09-08T17:38:58.989Z");
+    expect(createdAtToIso(new Date("2026-09-08T17:38:58.989Z"))).toBe("2026-09-08T17:38:58.989Z");
+    expect(createdAtToIso(null)).toBeNull();
+    expect(createdAtToIso("not-a-date")).toBeNull();
   });
 });
 
