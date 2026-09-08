@@ -135,13 +135,13 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const numWidth = measureText(fonts.bold, scoreNum, scoreSize);
 
   const outlined = [
-    textToPath(fonts.bold, eyebrow, 80, 120, 28, "#9CA3AF", { letterSpacing: 6 }),
-    textToPath(fonts.bold, scoreNum, 80, 380, scoreSize, "#FFFFFF"),
-    textToPath(fonts.bold, scoreDen, 80 + numWidth, 380, scoreSize, "#6B7280"),
-    textToPath(fonts.semibold, pointsLabel, 80, 460, 36, "#9CA3AF"),
-    textToPath(fonts.bold, headline, 80, 700, 48, "#FFFFFF"),
-    textToPath(fonts.bold, "PackPTS", 152, 978, 32, "#FFFFFF"),
-    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, "#FFFFFF", { anchor: "end" }),
+    textToPath(fonts.bold, eyebrow, 80, 120, 28, "#8F96A3", { letterSpacing: 6 }),
+    textToPath(fonts.bold, scoreNum, 80, 380, scoreSize, "#F0F2F5"),
+    textToPath(fonts.bold, scoreDen, 80 + numWidth, 380, scoreSize, "#8F96A3"),
+    textToPath(fonts.semibold, pointsLabel, 80, 460, 36, "#8F96A3"),
+    textToPath(fonts.bold, headline, 80, 700, 48, "#F0F2F5"),
+    textToPath(fonts.bold, "PackPTS", 152, 978, 32, "#F0F2F5"),
+    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, "#F0F2F5", { anchor: "end" }),
   ].join("\n  ");
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">

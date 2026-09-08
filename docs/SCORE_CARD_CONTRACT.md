@@ -9,13 +9,13 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 
 ## Content (actual session values — never fake)
 - Eyebrow, top-left, all-caps: `DAILY 5`
-- Score: **actual** `X/5` (example 3/5). The numerator is white; `/5` is grey. Never render a canned 4/5.
+- Score: **actual** `X/5` (example 3/5). Numerator ink `#F0F2F5`; `/5` muted `#8F96A3`. Never render a canned 4/5.
 - Points under the score: `{score} pts` (example `525 pts`)
 - Five rounded-square pips. The first **X** pips fill `#22C55E`; the rest are dark outlines.
 - Headline from the session: `{LockedWord} locked. {OpenWord} open.`  
   Example for 3/5: `Three locked. Two open.`
 - Footer left: locked masked-P mark — **white P** + gold (`#F5C518`) bar on dark (`#0b0f16`) tile (not yellow-P-on-white) + **PackPTS**
-- Footer right: `packpts.com/daily`
+- Footer right: `packpts.com/daily` (visual only — Beat-me share href is the signed `/daily?…&challenge=` token)
 
 ## Brand
 - Spelling: **PackPTS** (never PackPoints)
