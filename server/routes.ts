@@ -67,6 +67,7 @@ import { track } from "./services/analytics/track";
 import { getDailyProgress as getMatchDailyProgress } from "./services/progress/dailyProgress";
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
+import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import { registerHealthRoutes } from "./routes/health.routes";
@@ -529,8 +530,8 @@ export async function registerRoutes(
         isUserCreated: gameSets.isUserCreated,
         createdByUserId: gameSets.createdByUserId,
         coCreatorUserId: gameSets.coCreatorUserId,
-        cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
-        playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
+        cardCount: userSetCardCountSql,
+        playCount: userSetPlayCountSql,
         makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
         coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
       }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
@@ -549,8 +550,8 @@ export async function registerRoutes(
             isUserCreated: gameSets.isUserCreated,
             createdByUserId: gameSets.createdByUserId,
             coCreatorUserId: gameSets.coCreatorUserId,
-            cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
-            playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
+            cardCount: userSetCardCountSql,
+            playCount: userSetPlayCountSql,
             makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
             coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
           }).from(gameSets)
@@ -700,8 +701,8 @@ export async function registerRoutes(
         brand: gameSets.brand,
         year: gameSets.year,
         makerNote: gameSets.makerNote,
-        cardCount: sql<number>`(SELECT COUNT(*) FROM playable_cards WHERE game_set_id = ${gameSets.id} AND is_playable = true)`,
-        playCount: sql<number>`(SELECT COUNT(*) FROM game_sessions WHERE (questions->0->'card'->>'gameSetId') = ${gameSets.id} AND status = 'completed')`,
+        cardCount: userSetCardCountSql,
+        playCount: userSetPlayCountSql,
         createdAt: gameSets.createdAt,
       }).from(gameSets)
         .where(and(eq(gameSets.createdByUserId, userId), eq(gameSets.isUserCreated, true)))

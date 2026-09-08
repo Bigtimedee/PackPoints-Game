@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-08
+**Last verified against codebase:** 2026-09-08 (set-page cardCount honesty)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -1930,8 +1930,8 @@ Shipped July 2026 across seven sequential PRs (see `MAKING_LAYER_PROMPTS.md` for
 - `GET /api/card-photos/:id` (public) — serves the stored photo with `Cache-Control: immutable` (1 year).
 - `POST /api/sets/create` (auth) — 5–20 cards, creates `game_sets` row (`isUserCreated: true`) + `playable_cards` rows with `imageUrl` and `category`. Awaits maker-share PNG generation (up to 1.5s) and returns `shareImageUrl`.
 - `GET /api/sets` (public) — browse user-created sets ordered by play count; powers `/sets`.
-- `GET /api/sets/:id` (public) — set metadata, maker + co-creator usernames, card count, play count, and `shareImageUrl` when a maker-share PNG exists.
-- `GET /api/my-sets` (auth) — the user's sets with play counts (profile "My Sets" tab).
+- `GET /api/sets/:id` (public) — set metadata, maker + co-creator usernames, card count, play count, and `shareImageUrl` when a maker-share PNG exists. `cardCount` / `playCount` are correlated `COUNT(*)::int` subqueries against `playable_cards` / `game_sessions` using the raw identifier `game_sets.id` (`server/routes/userSetCounts.ts`). Interpolating `${gameSets.id}` inside drizzle `sql` templates rebinds the column as a parameter and reports `0` even when the set has playable cards (live miss on Design QA Sep8 Stack `17e5d554-…` — share PNG and `GET /api/sets` browse were already honest; the public set page was not). No denormalized `sets.cardCount` column; no backfill — existing rows self-heal on the next GET.
+- `GET /api/my-sets` (auth) — the user's sets with play counts (profile "My Sets" tab). Uses the same correlated count SQL as `GET /api/sets/:id`.
 - `GET /api/sets/:setId/cards/:cardId/listings` (public) — top 3 cheapest marketplace listings for the card (player + year + brand query); always returns `{ listings: [] }` on failure, never errors.
 - `POST /api/sets/:setId/cards/:cardId/log-click` — logs to `outbound_clicks` with `pagePath: 'set-reveal'` for commerce attribution.
 - `server/routes/collab.ts` (mounted in routes.ts): `POST /api/collab/create`, `GET /api/collab/:id`, `POST /api/collab/:id/join`, `/nominate`, `/approve` (can't approve own nomination), `/publish` (host only, ≥5 approved cards; sets `coCreatorUserId`). Runtime maker-share PNG is Surface A (`/make` publish) only — collab may keep templates.
