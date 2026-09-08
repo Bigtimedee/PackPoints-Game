@@ -8,6 +8,10 @@
  *               (same activity source as admin DAU in adminService.getMetrics)
  *
  * Staff (users.is_admin = true) are excluded from both numerator and denominator.
+ *
+ * Admin-only companion field `publishedSetsNonStaff`: lifetime COUNT of
+ * is_user_created game_sets whose created_by_user_id is a non-admin user.
+ * Used to verify the diligence ≥10 published-set gate. Not a public metric.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
@@ -50,7 +54,12 @@ export function computeMakerRateFromFixture(opts: {
   events: MakerRateFixtureEvent[];
   users: MakerRateFixtureUser[];
   windowMs?: number;
-}): { makers30d: number; mau30d: number; makerRate: number } {
+}): {
+  makers30d: number;
+  mau30d: number;
+  makerRate: number;
+  publishedSetsNonStaff: number;
+} {
   const windowMs = opts.windowMs ?? 30 * 24 * 60 * 60 * 1000;
   const cutoff = new Date(opts.now.getTime() - windowMs);
   const staffIds = new Set(
@@ -58,8 +67,13 @@ export function computeMakerRateFromFixture(opts: {
   );
 
   const makers = new Set<string>();
+  let publishedSetsNonStaff = 0;
   for (const s of opts.sets) {
     if (!s.is_user_created) continue;
+    const creatorId = s.created_by_user_id;
+    if (creatorId && !staffIds.has(creatorId)) {
+      publishedSetsNonStaff += 1;
+    }
     if (s.created_at < cutoff) continue;
     for (const uid of [s.created_by_user_id, s.co_creator_user_id ?? null]) {
       if (!uid) continue;
@@ -82,6 +96,7 @@ export function computeMakerRateFromFixture(opts: {
     makers30d,
     mau30d,
     makerRate: computeMakerRate(makers30d, mau30d),
+    publishedSetsNonStaff,
   };
 }
 
@@ -114,13 +129,21 @@ export const MAKER_RATE_SQL = sql`
       WHERE el.created_at >= NOW() - INTERVAL '30 days'
         AND el.user_id IS NOT NULL
         AND COALESCE(u.is_admin, false) = false
-    ) AS mau_30d
+    ) AS mau_30d,
+    (
+      SELECT COUNT(*)::float
+      FROM game_sets gs
+      INNER JOIN users u ON u.id = gs.created_by_user_id
+      WHERE gs.is_user_created = true
+        AND COALESCE(u.is_admin, false) = false
+    ) AS published_sets_non_staff
 `;
 
 export async function fetchMakerRateMetrics(): Promise<{
   makers30d: number;
   mau30d: number;
   makerRate: number;
+  publishedSetsNonStaff: number;
 }> {
   const result = await db.execute(MAKER_RATE_SQL);
   const row = (result.rows[0] as any) ?? {};
@@ -130,5 +153,6 @@ export async function fetchMakerRateMetrics(): Promise<{
     makers30d,
     mau30d,
     makerRate: computeMakerRate(makers30d, mau30d),
+    publishedSetsNonStaff: Number(row.published_sets_non_staff ?? 0),
   };
 }

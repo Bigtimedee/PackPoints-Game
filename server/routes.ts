@@ -10687,24 +10687,6 @@ export async function registerRoutes(
     }
   });
 
-  // Temporary D5-2 proof: token-gated one-shot X post with media.
-  // Auth is x-one-shot-token (no admin session) so Eng can curl without cookies.
-  app.post("/api/admin/social-agent/one-shot-tweet", async (req, res) => {
-    try {
-      const { runOneShotTweet } = await import("./services/socialMedia/oneShotTweet");
-      const result = await runOneShotTweet({
-        tokenHeader: req.header("x-one-shot-token") ?? undefined,
-        copy: req.body?.copy,
-        imageUrl: req.body?.imageUrl,
-        hashtags: req.body?.hashtags,
-      });
-      res.status(result.status).json(result.body);
-    } catch {
-      console.error("[OneShotTweet] unexpected_error");
-      res.status(500).json({ ok: false, error: "internal_error" });
-    }
-  });
-
   // Creator Program Applications
   app.post('/api/creators/apply', async (req, res) => {
     try {

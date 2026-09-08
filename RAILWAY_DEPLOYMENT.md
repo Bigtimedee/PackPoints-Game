@@ -357,5 +357,5 @@ railway run node -e "console.log('DATABASE_URL:', process.env.DATABASE_URL ? '�
 
 ## Admin Maker Rate (ops note)
 
-Maker Rate on `GET /api/admin/metrics/making-layer` is `makers_30d / mau_30d` from `game_sets` and `event_log` (staff excluded). No env vars required; definition lives in `server/services/makingLayerMetrics.ts` and `ANALYTICS_DATA_DICTIONARY.md`.
+Maker Rate on `GET /api/admin/metrics/making-layer` is `makers_30d / mau_30d` from `game_sets` and `event_log` (staff excluded). The same admin payload includes `publishedSetsNonStaff` (lifetime count of non-staff `is_user_created` sets) so the diligence ≥10 gate is visible. No env vars required; definition lives in `server/services/makingLayerMetrics.ts` and `ANALYTICS_DATA_DICTIONARY.md`. Maker Rate is admin-only — do not expose it on public surfaces.
 

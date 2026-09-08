@@ -80,6 +80,8 @@ WorkOS authentication uses the same session mechanism as local auth:
 - `req.session.localUserId` - The local user ID (set for all auth methods)
 - `req.session.workosUserId` - The WorkOS user ID (set only for WorkOS auth)
 
+Session cookies are `sameSite: "lax"` (and `secure` in production). The WorkOS callback is a **top-level GET** navigation back to `https://packpts.com/api/auth/workos/callback`, so Lax cookies are sent. `sameSite: "none"` is not required for this first-party apex flow.
+
 The `isAuthenticated` middleware checks for `localUserId` first, so WorkOS users are treated the same as local users for route protection.
 
 ## User Linking Policy

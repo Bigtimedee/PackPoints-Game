@@ -22,6 +22,7 @@ interface MakingLayerMetrics {
   makerRate: number;
   makers30d?: number;
   mau30d?: number;
+  publishedSetsNonStaff?: number;
   setPlayDepth: number;
   topSets: {
     id: string;
@@ -141,7 +142,7 @@ export default function AdminMetrics() {
         ) : mlData ? (
           <div className="space-y-4">
             {/* Stat tiles */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card>
                 <CardHeader className="pb-2">
                   <div className="flex items-center gap-2">
@@ -155,6 +156,22 @@ export default function AdminMetrics() {
                   </p>
                   <CardDescription className="mt-1">
                     % of 30d MAU who published ≥1 set in 30d
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-metric-published-sets-non-staff">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <Layers className="h-5 w-5 text-teal-500" />
+                    <CardTitle className="text-sm font-medium">Published sets (non-staff)</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold font-mono">
+                    {(mlData.publishedSetsNonStaff ?? 0).toLocaleString()}
+                  </p>
+                  <CardDescription className="mt-1">
+                    Lifetime user-created sets by non-admin makers (diligence ≥10 gate)
                   </CardDescription>
                 </CardContent>
               </Card>

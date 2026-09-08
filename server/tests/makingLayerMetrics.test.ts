@@ -65,6 +65,8 @@ describe("Maker Rate SQL fixture — period + staff exclusion", () => {
     // mau_30d = {player-a, player-b, player-c} — staff excluded
     expect(result.mau30d).toBe(3);
     expect(result.makerRate).toBeCloseTo(1 / 3);
+    // lifetime published sets: player-a in-window + player-b outside window; staff + official excluded
+    expect(result.publishedSetsNonStaff).toBe(2);
   });
 
   it("excludes staff from numerator even if they published in-window", () => {
@@ -83,6 +85,7 @@ describe("Maker Rate SQL fixture — period + staff exclusion", () => {
     expect(result.makers30d).toBe(0);
     expect(result.mau30d).toBe(1); // player-a only
     expect(result.makerRate).toBe(0);
+    expect(result.publishedSetsNonStaff).toBe(0);
   });
 
   it("counts distinct makers once across multiple sets in window", () => {
@@ -103,6 +106,7 @@ describe("Maker Rate SQL fixture — period + staff exclusion", () => {
     expect(result.makers30d).toBe(2);
     expect(result.mau30d).toBe(2);
     expect(result.makerRate).toBe(1);
+    expect(result.publishedSetsNonStaff).toBe(3);
   });
 
   it("counts co_creator_user_id as a maker (collab publish) and excludes staff co-creators", () => {
@@ -135,5 +139,24 @@ describe("Maker Rate SQL fixture — period + staff exclusion", () => {
     expect(result.makers30d).toBe(3);
     expect(result.mau30d).toBe(3);
     expect(result.makerRate).toBe(1);
+    // both collab sets have non-admin created_by → count both (staff co-creator does not drop the set)
+    expect(result.publishedSetsNonStaff).toBe(2);
+  });
+
+  it("counts lifetime published non-staff sets (diligence ≥10 gate), including outside the 30d window", () => {
+    const result = computeMakerRateFromFixture({
+      now: NOW,
+      users,
+      sets: Array.from({ length: 10 }, (_, i) => ({
+        created_by_user_id: i < 8 ? "player-a" : "player-b",
+        is_user_created: true,
+        created_at: daysAgo(i < 3 ? 1 : 90),
+      })),
+      events: [{ user_id: "player-a", created_at: daysAgo(1) }],
+    });
+
+    expect(result.publishedSetsNonStaff).toBe(10);
+    // only the 3 in-window sets from player-a count as makers_30d
+    expect(result.makers30d).toBe(1);
   });
 });

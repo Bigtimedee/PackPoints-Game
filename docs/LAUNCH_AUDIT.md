@@ -27,7 +27,7 @@
 | 15 | Gameplay | Wallet creation on first earn (no silent skip) | PASS |
 | 16 | Gameplay | Rate limiting on game start and answer submission | PASS |
 | 17 | Security | Admin routes require server-side role check | PASS |
-| 18 | Security | Session cookies: httpOnly, secure on prod | PASS |
+| 18 | Security | Session cookies: httpOnly, secure on prod, sameSite=lax | PASS |
 | 19 | Security | Rate limiting on login and registration | PASS |
 | 20 | Security | Stripe keys never exposed client-side | PASS |
 | 21 | Security | PII sanitization in response logs (emails, passwords redacted) | PASS |
@@ -174,7 +174,7 @@ All critical money-safety, gameplay reliability, and security items pass. The sy
 - Multi-provider: WorkOS, local credentials
 - Admin routes: `isAuthenticated` + `requireAdmin` middleware (server-side role check)
 - Match routes validate session token and user belongs to match
-- Session cookies configured with httpOnly, secure flags
+- Session cookies configured with httpOnly, `secure` in production, `sameSite: "lax"` (first-party packpts.com SPA; WorkOS apex callback is a top-level GET)
 
 ### 4.2 Rate Limiting
 **Status: PASS**
@@ -193,7 +193,7 @@ Implemented via `server/middleware/rateLimiter.ts`:
 **Status: PASS**
 
 - Stripe keys never returned to client (publishable key served via `/api/stripe/config`)
-- Auth debug logs mask session IDs (first 8 chars only)
+- `/api/auth/user` does not emit per-request `[Auth Debug]` logs
 - No raw passwords logged
 - Response body logging sanitized via `sanitizeForLog()`: email, password, phone, address, name fields auto-redacted
 - Large array responses truncated to `[Array(N)]` to prevent log bloat

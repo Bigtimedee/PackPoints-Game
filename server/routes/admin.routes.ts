@@ -1073,6 +1073,8 @@ export function registerAdminRoutes(app: Express): void {
         makerRate: makerRateMetrics.makerRate,
         makers30d: makerRateMetrics.makers30d,
         mau30d: makerRateMetrics.mau30d,
+        // Lifetime COUNT of is_user_created sets whose created_by is non-admin (diligence ≥10 gate)
+        publishedSetsNonStaff: makerRateMetrics.publishedSetsNonStaff,
         setPlayDepth: Number((setPlayDepthRow.rows[0] as any)?.avg_depth ?? 0),
         topSets: (topSetsRows.rows as any[]).map(r => ({
           ...r,
