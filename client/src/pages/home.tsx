@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Gift, UserPlus, Play, X, Paintbrush, Compass } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Gift, UserPlus, Play, X, Compass } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
@@ -119,24 +119,12 @@ const gameModes = [
     disabled: true,
   },
   {
-    id: "make",
-    title: "Make a Set",
-    description: "Upload photos of your cards and build a playable set for others to guess.",
-    icon: Paintbrush,
-    href: "/make",
-    badge: "New",
-    badgeVariant: "default" as const,
-    pointRange: "—",
-    difficulty: "Creators",
-    disabled: false,
-  },
-  {
     id: "browse",
     title: "Browse Sets",
-    description: "Explore sets built by the community and play the ones you love.",
+    description: "Play sets already integrated into PackPTS.",
     icon: Compass,
     href: "/sets",
-    badge: "Community",
+    badge: "Play",
     badgeVariant: "secondary" as const,
     pointRange: "—",
     difficulty: "Discover",

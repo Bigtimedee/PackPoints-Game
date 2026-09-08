@@ -79,9 +79,9 @@ function MySetsPanel() {
           <Paintbrush className="h-10 w-10 text-muted-foreground/50" />
           <div className="space-y-1">
             <p className="font-medium text-muted-foreground">No sets yet</p>
-            <p className="text-sm text-muted-foreground">Upload card photos to build your first playable set.</p>
+            <p className="text-sm text-muted-foreground">Play sets already in PackPTS — users don’t publish their own.</p>
           </div>
-          <Button onClick={() => navigate("/make")} size="sm">Make a Set</Button>
+          <Button onClick={() => navigate("/sets")} size="sm">Browse sets</Button>
         </CardContent>
       </Card>
     );
@@ -110,9 +110,6 @@ function MySetsPanel() {
           </Card>
         </Link>
       ))}
-      <Button variant="outline" className="w-full" onClick={() => navigate("/make")}>
-        <Paintbrush className="mr-2 h-4 w-4" /> Make Another Set
-      </Button>
     </div>
   );
 }

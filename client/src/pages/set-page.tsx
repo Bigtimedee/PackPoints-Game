@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useParams, useLocation, Link } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -279,21 +279,6 @@ export default function SetPage() {
           >
             Save cover
           </a>
-        )}
-
-        {isOwner && (
-          <Link href="/make">
-            <span
-              className="flex w-full min-h-11 items-center justify-center rounded-md text-sm font-medium"
-              style={{
-                backgroundColor: SETS_POLISH.canvas,
-                color: SETS_POLISH.ink,
-                border: `1px solid ${SETS_POLISH.panelBorder}`,
-              }}
-            >
-              Make another set
-            </span>
-          </Link>
         )}
 
         <footer className="flex items-center gap-2 pt-4 pb-2">

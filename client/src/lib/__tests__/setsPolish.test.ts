@@ -134,6 +134,13 @@ describe("display url + forbidden copy", () => {
     expect(containsForbiddenPublicSetsCopy("by Bigtimedee · 5 cards · AUTHORED")).toBe(false);
   });
 
+  it("does not push Snap-to-Set publish copy on the public shelf", () => {
+    expect(SETS_POLISH.indexTitle).toBe("Sets");
+    expect(SETS_POLISH.indexSub).toBe("Play sets already in PackPTS.");
+    expect(SETS_POLISH.shortShelfBody.toLowerCase()).not.toContain("/make");
+    expect(SETS_POLISH.shortShelfBody.toLowerCase()).not.toContain("snap yours");
+  });
+
   it("keeps browse and detail pages free of vanity copy", () => {
     const pages = [
       readFileSync(new URL("../../pages/browse-sets.tsx", import.meta.url), "utf8"),
