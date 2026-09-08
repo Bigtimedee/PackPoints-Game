@@ -48,10 +48,22 @@ Event types: `answer_submitted` (outcome, latency), `listing_click`, `set_starte
 | **Maker Rate** | `makers_30d / mau_30d` | `game_sets` ÷ `event_log` | % of 30d MAU who published ≥1 user-created set in the same 30d window. Staff (`users.is_admin`) excluded from both sides. Activity source matches admin DAU (`event_log`), not `user_presence`. |
 | `makers_30d` | `COUNT(DISTINCT created_by_user_id ∪ co_creator_user_id)` where `is_user_created` and `created_at` in last 30d | `game_sets` ⨝ `users` | Non-admin creators + collab co-creators |
 | `publishedSetsNonStaff` | `COUNT(*)` of `is_user_created` sets whose `created_by_user_id` is non-admin | `game_sets` ⨝ `users` | Lifetime, admin-only. Diligence ≥10 published-set gate. Not a public metric. |
+| `makerSupplyGate` | `{ publishedSetsNonStaff, target: 10, remaining, progress, reached }` | derived from `publishedSetsNonStaff` | Admin progress to the ≥10 non-staff published-set gate. |
 | `mau_30d` | `COUNT(DISTINCT user_id)` with any event in last 30d | `event_log` ⨝ `users` | Same spine as `GET /api/admin/metrics` DAU |
+| Maker-supply funnel | event + unique-user counts for `make_started` → `identify_success` → `publish_success` → `share_generated` → `set_viewed`; plus `identify_fail` / `publish_fail`; top drop-off = largest unique-user loss between consecutive success steps | `event_log` ⨝ `users` | Last 7d and 30d. Staff (`users.is_admin`) excluded. Anonymous (null `user_id`) counts as events, not unique users. Admin-only. |
 
-Endpoint: `GET /api/admin/metrics/making-layer` → `{ makerRate, makers30d, mau30d, publishedSetsNonStaff, ... }` (admin session only; Maker Rate is not public).
-Implementation: `server/services/makingLayerMetrics.ts`.
+Funnel `event_type` values (written by `logMakingLayerEvent` → `analyticsService` → `event_log`):
+
+| Event | When |
+|---|---|
+| `make_started` | `POST /api/make/start` on `/make` mount (once per browser session) |
+| `identify_success` / `identify_fail` | `POST /api/sets/identify-card` |
+| `publish_success` / `publish_fail` | `POST /api/sets/create` |
+| `share_generated` | Maker-share PNG persisted in `onSetPublished` |
+| `set_viewed` | `GET /api/sets/:id` for `is_user_created` sets |
+
+Endpoint: `GET /api/admin/metrics/making-layer` → `{ makerRate, makers30d, mau30d, publishedSetsNonStaff, makerSupplyGate, funnel: { last7d, last30d }, ... }` (admin session only; Maker Rate and funnel volume are not public).
+Implementation: `server/services/makingLayerMetrics.ts`, `server/services/makingLayerEvents.ts`.
 
 ## Admin operational metrics (Retention — unpublished)
 

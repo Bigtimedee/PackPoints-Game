@@ -12,9 +12,18 @@
  * Admin-only companion field `publishedSetsNonStaff`: lifetime COUNT of
  * is_user_created game_sets whose created_by_user_id is a non-admin user.
  * Used to verify the diligence ≥10 published-set gate. Not a public metric.
+ *
+ * Maker-supply funnel (event_log): /make start → identify → publish → share
+ * generated → /sets/:id view. Same staff exclusion (users.is_admin). Admin-only.
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db";
+import {
+  MAKING_FUNNEL_EVENT_TYPES,
+  MAKING_FUNNEL_SUCCESS_STEPS,
+  MAKING_LAYER_EVENTS,
+  type MakingLayerEventType,
+} from "./makingLayerEvents";
 
 export const MAKER_RATE_WINDOW = "30 days";
 
@@ -156,3 +165,206 @@ export async function fetchMakerRateMetrics(): Promise<{
     publishedSetsNonStaff: Number(row.published_sets_non_staff ?? 0),
   };
 }
+
+/** Diligence gate: ≥10 real non-staff published /make sets. Admin-only. */
+export const MAKER_SUPPLY_GATE_TARGET = 10;
+
+export interface MakerSupplyGate {
+  publishedSetsNonStaff: number;
+  target: number;
+  remaining: number;
+  progress: number;
+  reached: boolean;
+}
+
+export function computeMakerSupplyGate(publishedSetsNonStaff: number): MakerSupplyGate {
+  const count = Number.isFinite(publishedSetsNonStaff) ? Math.max(0, publishedSetsNonStaff) : 0;
+  const target = MAKER_SUPPLY_GATE_TARGET;
+  return {
+    publishedSetsNonStaff: count,
+    target,
+    remaining: Math.max(0, target - count),
+    progress: target <= 0 ? 1 : Math.min(1, count / target),
+    reached: count >= target,
+  };
+}
+
+export interface MakingFunnelStep {
+  eventType: MakingLayerEventType;
+  events: number;
+  uniqueUsers: number;
+  conversionFromPrev: number | null;
+}
+
+export interface MakingFunnelDropOff {
+  from: MakingLayerEventType;
+  to: MakingLayerEventType;
+  lostUsers: number;
+  lostEvents: number;
+}
+
+export interface MakingFunnelWindow {
+  windowDays: 7 | 30;
+  steps: MakingFunnelStep[];
+  fails: {
+    identifyFail: { events: number; uniqueUsers: number };
+    publishFail: { events: number; uniqueUsers: number };
+  };
+  topDropOff: MakingFunnelDropOff | null;
+}
+
+export interface MakingFunnelFixtureEvent {
+  event_type: string;
+  user_id: string | null;
+  created_at: Date;
+}
+
+export interface FunnelCountRow {
+  event_type: string;
+  events: number;
+  unique_users: number;
+}
+
+/** Pure funnel assembly — same staff-exclusion + conversion rules as the SQL. */
+export function assembleMakingFunnelWindow(
+  windowDays: 7 | 30,
+  rows: FunnelCountRow[],
+): MakingFunnelWindow {
+  const byType = new Map<string, FunnelCountRow>();
+  for (const row of rows) {
+    byType.set(row.event_type, {
+      event_type: row.event_type,
+      events: Number(row.events ?? 0),
+      unique_users: Number(row.unique_users ?? 0),
+    });
+  }
+
+  const counts = (eventType: string) => {
+    const row = byType.get(eventType);
+    return {
+      events: row?.events ?? 0,
+      uniqueUsers: row?.unique_users ?? 0,
+    };
+  };
+
+  const steps: MakingFunnelStep[] = [];
+  for (let i = 0; i < MAKING_FUNNEL_SUCCESS_STEPS.length; i++) {
+    const eventType = MAKING_FUNNEL_SUCCESS_STEPS[i];
+    const { events, uniqueUsers } = counts(eventType);
+    let conversionFromPrev: number | null = null;
+    if (i > 0) {
+      const prevUsers = steps[i - 1].uniqueUsers;
+      conversionFromPrev = prevUsers > 0 ? uniqueUsers / prevUsers : 0;
+    }
+    steps.push({ eventType, events, uniqueUsers, conversionFromPrev });
+  }
+
+  let topDropOff: MakingFunnelDropOff | null = null;
+  for (let i = 1; i < steps.length; i++) {
+    const prev = steps[i - 1];
+    const next = steps[i];
+    if (prev.uniqueUsers === 0 && prev.events === 0 && next.uniqueUsers === 0 && next.events === 0) {
+      continue;
+    }
+    const lostUsers = Math.max(0, prev.uniqueUsers - next.uniqueUsers);
+    const lostEvents = Math.max(0, prev.events - next.events);
+    const candidate: MakingFunnelDropOff = {
+      from: prev.eventType,
+      to: next.eventType,
+      lostUsers,
+      lostEvents,
+    };
+    if (!topDropOff) {
+      topDropOff = candidate;
+      continue;
+    }
+    if (candidate.lostUsers > topDropOff.lostUsers) {
+      topDropOff = candidate;
+    } else if (candidate.lostUsers === topDropOff.lostUsers && candidate.lostEvents > topDropOff.lostEvents) {
+      topDropOff = candidate;
+    }
+  }
+
+  return {
+    windowDays,
+    steps,
+    fails: {
+      identifyFail: counts(MAKING_LAYER_EVENTS.identifyFail),
+      publishFail: counts(MAKING_LAYER_EVENTS.publishFail),
+    },
+    topDropOff,
+  };
+}
+
+export function computeMakingFunnelFromFixture(opts: {
+  now: Date;
+  events: MakingFunnelFixtureEvent[];
+  users: MakerRateFixtureUser[];
+  windowDays: 7 | 30;
+}): MakingFunnelWindow {
+  const cutoff = new Date(opts.now.getTime() - opts.windowDays * 24 * 60 * 60 * 1000);
+  const staffIds = new Set(opts.users.filter((u) => u.is_admin).map((u) => u.id));
+  const allowed = new Set<string>(MAKING_FUNNEL_EVENT_TYPES);
+
+  const grouped = new Map<string, { events: number; users: Set<string> }>();
+  for (const type of MAKING_FUNNEL_EVENT_TYPES) {
+    grouped.set(type, { events: 0, users: new Set() });
+  }
+
+  for (const event of opts.events) {
+    if (!allowed.has(event.event_type as MakingLayerEventType)) continue;
+    if (event.created_at < cutoff) continue;
+    if (event.user_id && staffIds.has(event.user_id)) continue;
+    const bucket = grouped.get(event.event_type);
+    if (!bucket) continue;
+    bucket.events += 1;
+    if (event.user_id) bucket.users.add(event.user_id);
+  }
+
+  const rows: FunnelCountRow[] = [...grouped.entries()].map(([event_type, bucket]) => ({
+    event_type,
+    events: bucket.events,
+    unique_users: bucket.users.size,
+  }));
+
+  return assembleMakingFunnelWindow(opts.windowDays, rows);
+}
+
+/** Authoritative SQL: Making Layer funnel counts, staff-excluded (users.is_admin). */
+export function makingFunnelSql(windowDays: 7 | 30) {
+  return sql`
+    SELECT
+      el.event_type,
+      COUNT(*)::int AS events,
+      COUNT(DISTINCT el.user_id)::int AS unique_users
+    FROM event_log el
+    LEFT JOIN users u ON u.id = el.user_id
+    WHERE el.created_at >= NOW() - (${windowDays}::text || ' days')::interval
+      AND el.event_type IN (
+        'make_started',
+        'identify_success',
+        'identify_fail',
+        'publish_success',
+        'publish_fail',
+        'share_generated',
+        'set_viewed'
+      )
+      AND COALESCE(u.is_admin, false) = false
+    GROUP BY el.event_type
+  `;
+}
+
+export async function fetchMakingFunnelWindows(): Promise<{
+  last7d: MakingFunnelWindow;
+  last30d: MakingFunnelWindow;
+}> {
+  const [rows7, rows30] = await Promise.all([
+    db.execute(makingFunnelSql(7)),
+    db.execute(makingFunnelSql(30)),
+  ]);
+  return {
+    last7d: assembleMakingFunnelWindow(7, ((rows7.rows as unknown) as FunnelCountRow[]) ?? []),
+    last30d: assembleMakingFunnelWindow(30, ((rows30.rows as unknown) as FunnelCountRow[]) ?? []),
+  };
+}
+

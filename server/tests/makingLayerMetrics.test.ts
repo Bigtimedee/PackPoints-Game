@@ -11,9 +11,15 @@ import { vi, describe, it, expect } from "vitest";
 vi.mock("../db", () => ({ db: { execute: vi.fn() }, pool: {} }));
 
 import {
+  assembleMakingFunnelWindow,
   computeMakerRate,
   computeMakerRateFromFixture,
+  computeMakerSupplyGate,
+  computeMakingFunnelFromFixture,
+  MAKER_SUPPLY_GATE_TARGET,
+  makingFunnelSql,
 } from "../services/makingLayerMetrics";
+import { MAKING_LAYER_EVENTS } from "../services/makingLayerEvents";
 
 const NOW = new Date("2026-09-05T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -158,5 +164,136 @@ describe("Maker Rate SQL fixture — period + staff exclusion", () => {
     expect(result.publishedSetsNonStaff).toBe(10);
     // only the 3 in-window sets from player-a count as makers_30d
     expect(result.makers30d).toBe(1);
+  });
+});
+
+describe("computeMakerSupplyGate", () => {
+  it("tracks progress toward the ≥10 non-staff published-set gate", () => {
+    expect(MAKER_SUPPLY_GATE_TARGET).toBe(10);
+    const mid = computeMakerSupplyGate(3);
+    expect(mid.publishedSetsNonStaff).toBe(3);
+    expect(mid.target).toBe(10);
+    expect(mid.remaining).toBe(7);
+    expect(mid.progress).toBeCloseTo(0.3);
+    expect(mid.reached).toBe(false);
+
+    const done = computeMakerSupplyGate(10);
+    expect(done.remaining).toBe(0);
+    expect(done.progress).toBe(1);
+    expect(done.reached).toBe(true);
+
+    const over = computeMakerSupplyGate(14);
+    expect(over.remaining).toBe(0);
+    expect(over.progress).toBe(1);
+    expect(over.reached).toBe(true);
+  });
+});
+
+describe("Making Layer funnel — period + staff exclusion", () => {
+  const users = [
+    { id: "player-a", is_admin: false },
+    { id: "player-b", is_admin: false },
+    { id: "staff-1", is_admin: true },
+  ];
+
+  it("excludes staff events and events outside the window", () => {
+    const result = computeMakingFunnelFromFixture({
+      now: NOW,
+      users,
+      windowDays: 7,
+      events: [
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-a", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-b", created_at: daysAgo(2) },
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "staff-1", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-a", created_at: daysAgo(20) },
+        { event_type: MAKING_LAYER_EVENTS.identifySuccess, user_id: "player-a", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.identifyFail, user_id: "player-b", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.publishSuccess, user_id: "player-a", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.shareGenerated, user_id: "player-a", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.setViewed, user_id: "player-b", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.setViewed, user_id: null, created_at: daysAgo(1) },
+      ],
+    });
+
+    const byType = Object.fromEntries(result.steps.map((s) => [s.eventType, s]));
+    expect(byType.make_started.uniqueUsers).toBe(2); // a + b; staff + 20d-old excluded
+    expect(byType.make_started.events).toBe(2);
+    expect(byType.identify_success.uniqueUsers).toBe(1);
+    expect(byType.publish_success.uniqueUsers).toBe(1);
+    expect(byType.share_generated.uniqueUsers).toBe(1);
+    expect(byType.set_viewed.uniqueUsers).toBe(1); // player-b only; anonymous counts as event not user
+    expect(byType.set_viewed.events).toBe(2);
+    expect(result.fails.identifyFail.uniqueUsers).toBe(1);
+    expect(result.fails.publishFail.events).toBe(0);
+  });
+
+  it("uses 7d vs 30d windows independently", () => {
+    const events = [
+      { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-a", created_at: daysAgo(2) },
+      { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-b", created_at: daysAgo(20) },
+      { event_type: MAKING_LAYER_EVENTS.identifySuccess, user_id: "player-b", created_at: daysAgo(20) },
+    ];
+
+    const last7 = computeMakingFunnelFromFixture({ now: NOW, users, windowDays: 7, events });
+    const last30 = computeMakingFunnelFromFixture({ now: NOW, users, windowDays: 30, events });
+
+    expect(last7.steps[0].uniqueUsers).toBe(1);
+    expect(last30.steps[0].uniqueUsers).toBe(2);
+    expect(last30.steps[1].uniqueUsers).toBe(1);
+    expect(last7.steps[1].uniqueUsers).toBe(0);
+  });
+
+  it("reports the largest unique-user drop-off between consecutive success steps", () => {
+    const result = assembleMakingFunnelWindow(7, [
+      { event_type: "make_started", events: 20, unique_users: 10 },
+      { event_type: "identify_success", events: 40, unique_users: 8 },
+      { event_type: "publish_success", events: 3, unique_users: 2 },
+      { event_type: "share_generated", events: 2, unique_users: 1 },
+      { event_type: "set_viewed", events: 1, unique_users: 1 },
+    ]);
+
+    // identify → publish loses 6 unique users (largest)
+    expect(result.topDropOff).toEqual({
+      from: "identify_success",
+      to: "publish_success",
+      lostUsers: 6,
+      lostEvents: 37,
+    });
+    expect(result.steps[2].conversionFromPrev).toBeCloseTo(2 / 8);
+  });
+
+  it("breaks unique-user ties using lost event count", () => {
+    const result = assembleMakingFunnelWindow(30, [
+      { event_type: "make_started", events: 10, unique_users: 5 },
+      { event_type: "identify_success", events: 9, unique_users: 4 },
+      { event_type: "publish_success", events: 2, unique_users: 3 },
+      { event_type: "share_generated", events: 2, unique_users: 3 },
+      { event_type: "set_viewed", events: 2, unique_users: 3 },
+    ]);
+
+    // make→identify and identify→publish both lose 1 user; identify→publish loses more events
+    expect(result.topDropOff).toEqual({
+      from: "identify_success",
+      to: "publish_success",
+      lostUsers: 1,
+      lostEvents: 7,
+    });
+  });
+
+  it("SQL keeps the same staff-exclusion predicate as Maker Rate", () => {
+    const flattenSql = (value: unknown): string => {
+      if (typeof value === "string") return value;
+      if (!value || typeof value !== "object") return "";
+      const chunks = (value as { queryChunks?: unknown[] }).queryChunks;
+      if (!chunks) return JSON.stringify(value);
+      return chunks.map(flattenSql).join("");
+    };
+    const compiled = flattenSql(makingFunnelSql(7));
+    expect(compiled).toContain("COALESCE");
+    expect(compiled).toContain("is_admin");
+    expect(compiled).toContain("event_log");
+    expect(compiled).toContain("make_started");
+    expect(compiled).toContain("set_viewed");
+    expect(compiled).toContain("false");
   });
 });

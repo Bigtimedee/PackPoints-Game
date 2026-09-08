@@ -15,8 +15,14 @@ export type CardIdentificationResult =
   | { success: true; card: IdentifiedCard }
   | { success: false; reason: "not-a-card" | "unreadable" | "not-playable"; blockedReason?: string; rawText?: string };
 
+/** gpt-4o high-detail vision regularly exceeds the global 15s client timeout. */
+export const IDENTIFY_OPENAI_TIMEOUT_MS = 40_000;
+
 function getOpenAIClient(): OpenAI {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    timeout: IDENTIFY_OPENAI_TIMEOUT_MS,
+  });
 }
 
 const IDENTIFICATION_PROMPT = `You are a sports card expert. Analyze this image and identify the trading card shown.

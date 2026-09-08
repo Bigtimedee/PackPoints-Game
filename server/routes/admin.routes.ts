@@ -2,7 +2,11 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { isAuthenticated } from "../auth";
 import { storage } from "../storage";
 import { adminService } from "../services/adminService";
-import { fetchMakerRateMetrics } from "../services/makingLayerMetrics";
+import {
+  computeMakerSupplyGate,
+  fetchMakerRateMetrics,
+  fetchMakingFunnelWindows,
+} from "../services/makingLayerMetrics";
 import { fetchAdminRetentionPayload } from "../services/retentionCohorts";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
@@ -1007,7 +1011,7 @@ export function registerAdminRoutes(app: Express): void {
   // Admin: Making Layer metrics
   app.get("/api/admin/metrics/making-layer", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const [setsMadeByDay, makerRateMetrics, setPlayDepthRow, topSetsRows, clicksBySet] = await Promise.all([
+      const [setsMadeByDay, makerRateMetrics, setPlayDepthRow, topSetsRows, clicksBySet, funnel] = await Promise.all([
         // Sets made per day, last 30 days
         db.execute(sql`
           SELECT DATE(created_at) AS day, COUNT(*)::int AS count
@@ -1058,6 +1062,7 @@ export function registerAdminRoutes(app: Express): void {
           GROUP BY card_set_id
           ORDER BY "clicks" DESC
         `),
+        fetchMakingFunnelWindows(),
       ]);
 
       const clickMap: Record<string, number> = {};
@@ -1076,6 +1081,8 @@ export function registerAdminRoutes(app: Express): void {
         mau30d: makerRateMetrics.mau30d,
         // Lifetime COUNT of is_user_created sets whose created_by is non-admin (diligence ≥10 gate)
         publishedSetsNonStaff: makerRateMetrics.publishedSetsNonStaff,
+        makerSupplyGate: computeMakerSupplyGate(makerRateMetrics.publishedSetsNonStaff),
+        funnel,
         setPlayDepth: Number((setPlayDepthRow.rows[0] as any)?.avg_depth ?? 0),
         topSets: (topSetsRows.rows as any[]).map(r => ({
           ...r,

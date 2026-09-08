@@ -1174,6 +1174,14 @@ export const ANALYTICS_EVENT_TYPES = [
   "streak_broken",
   "streak_freeze_used",
   "streak_reward_awarded",
+  // Making Layer funnel (event_log; admin-queryable; staff-excluded via users.is_admin)
+  "make_started",
+  "identify_success",
+  "identify_fail",
+  "publish_success",
+  "publish_fail",
+  "share_generated",
+  "set_viewed",
 ] as const;
 
 export type AnalyticsEventType = typeof ANALYTICS_EVENT_TYPES[number];

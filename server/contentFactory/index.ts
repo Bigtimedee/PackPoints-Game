@@ -6,6 +6,7 @@ import { getPackptsDayKey } from "@shared/packptsDay";
 import { generateScoreCard, generateStreakBadge, type ScoreCardInput } from "./generateScoreCard";
 import { generateMakerShareFromSet } from "./makerShareFromSet";
 import { makerShareSourceEventId } from "./generateMakerShare";
+import { logMakingLayerEvent, MAKING_LAYER_EVENTS } from "../services/makingLayerEvents";
 
 const STREAK_MILESTONES = [3, 7, 14, 30];
 
@@ -314,6 +315,11 @@ export async function onSetPublished(event: SetPublishedEvent): Promise<{ assetI
     }).where(eq(contentAssets.id, asset.id));
 
     console.log(`[ContentFactory] Maker share generated: ${asset.id} for set ${event.setId}`);
+    logMakingLayerEvent(MAKING_LAYER_EVENTS.shareGenerated, event.userId, {
+      setId: event.setId,
+      assetId: asset.id,
+      reused: false,
+    });
     return { assetId: asset.id, imageUrl: result.imageUrl };
   } catch (err: any) {
     console.error("[ContentFactory] onSetPublished error:", err?.message);

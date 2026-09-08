@@ -24,8 +24,12 @@ import {
 } from "lucide-react";
 
 const MAKE_PENDING_INTENT_KEY = "packpts:make:pendingIntent";
+const MAKE_START_LOGGED_KEY = "packpts:make:startedSession";
 const MAX_LIBRARY_PICK = 20;
 const SETS_CTA_URL = "https://packpts.com/sets";
+/** gpt-4o high-detail identify regularly exceeds the global 15s apiRequest budget. */
+const IDENTIFY_REQUEST_TIMEOUT_MS = 45_000;
+const PUBLISH_REQUEST_TIMEOUT_MS = 30_000;
 
 type MakeIntent = "camera" | "library";
 
@@ -62,6 +66,9 @@ function friendlyIdentifyError(err: unknown): string {
   if (/401|unauthorized|unauth/i.test(msg)) {
     return "Sign in to identify cards";
   }
+  if (/timed out|abort/i.test(msg)) {
+    return "Identify took too long — try again with a clearer photo";
+  }
   return msg || "Could not identify this card";
 }
 
@@ -83,7 +90,12 @@ export default function MakePage() {
 
   const identifyMutation = useMutation({
     mutationFn: async (imageBase64: string) => {
-      const res = await apiRequest("POST", "/api/sets/identify-card", { imageBase64 });
+      const res = await apiRequest(
+        "POST",
+        "/api/sets/identify-card",
+        { imageBase64 },
+        { timeoutMs: IDENTIFY_REQUEST_TIMEOUT_MS },
+      );
       return res.json();
     },
   });
@@ -103,7 +115,9 @@ export default function MakePage() {
 
   const createMutation = useMutation({
     mutationFn: async (body: { cards: IdentifiedCard[]; setName: string; makerNote: string }) => {
-      const res = await apiRequest("POST", "/api/sets/create", body);
+      const res = await apiRequest("POST", "/api/sets/create", body, {
+        timeoutMs: PUBLISH_REQUEST_TIMEOUT_MS,
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -142,6 +156,16 @@ export default function MakePage() {
     [authLoading, isAuthenticated, openPicker, setLocation],
   );
 
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(MAKE_START_LOGGED_KEY)) return;
+      sessionStorage.setItem(MAKE_START_LOGGED_KEY, "1");
+    } catch {
+      /* private mode — still log */
+    }
+    void apiRequest("POST", "/api/make/start", {}).catch(() => {});
+  }, []);
+
   // After auth redirect back to /make, resume the CTA intent once.
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
@@ -173,7 +197,7 @@ export default function MakePage() {
       setEntries((prev) =>
         prev.map((e) => (e.id === entryId ? { ...e, status: "error", error: msg } : e)),
       );
-      if (/identify pace|too many|429/i.test(msg)) {
+      if (/identify pace|too many|429|took too long|timed out/i.test(msg)) {
         toast({ title: msg, variant: "destructive" });
       }
     }

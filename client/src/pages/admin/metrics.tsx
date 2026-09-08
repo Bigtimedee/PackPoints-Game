@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Gamepad2, CreditCard, TrendingUp, Activity, Wallet, Paintbrush, BarChart2, Layers, Repeat } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Users, Gamepad2, CreditCard, TrendingUp, Activity, Wallet, Paintbrush, BarChart2, Layers, Repeat, Filter } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -18,12 +19,45 @@ interface MetricsData {
   activeSubscriptions?: number;
 }
 
+interface MakingFunnelStep {
+  eventType: string;
+  events: number;
+  uniqueUsers: number;
+  conversionFromPrev: number | null;
+}
+
+interface MakingFunnelWindow {
+  windowDays: 7 | 30;
+  steps: MakingFunnelStep[];
+  fails: {
+    identifyFail: { events: number; uniqueUsers: number };
+    publishFail: { events: number; uniqueUsers: number };
+  };
+  topDropOff: {
+    from: string;
+    to: string;
+    lostUsers: number;
+    lostEvents: number;
+  } | null;
+}
+
 interface MakingLayerMetrics {
   setsMadeByDay: { day: string; count: number }[];
   makerRate: number;
   makers30d?: number;
   mau30d?: number;
   publishedSetsNonStaff?: number;
+  makerSupplyGate?: {
+    publishedSetsNonStaff: number;
+    target: number;
+    remaining: number;
+    progress: number;
+    reached: boolean;
+  };
+  funnel?: {
+    last7d: MakingFunnelWindow;
+    last30d: MakingFunnelWindow;
+  };
   setPlayDepth: number;
   topSets: {
     id: string;
@@ -82,6 +116,66 @@ function formatRetentionPct(rate: number | null): string {
 function formatReturned(returned: number, size: number, rate: number | null): string {
   if (rate === null) return "—";
   return `${returned} / ${size}`;
+}
+
+const FUNNEL_STEP_LABELS: Record<string, string> = {
+  make_started: "/make start",
+  identify_success: "Identify success",
+  publish_success: "Publish success",
+  share_generated: "Share generated",
+  set_viewed: "/sets/:id view",
+};
+
+function FunnelWindowCard({ title, window }: { title: string; window: MakingFunnelWindow }) {
+  const drop = window.topDropOff;
+  return (
+    <Card data-testid={`card-maker-funnel-${window.windowDays}d`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardDescription>
+          {drop
+            ? `Top drop-off: ${FUNNEL_STEP_LABELS[drop.from] ?? drop.from} → ${FUNNEL_STEP_LABELS[drop.to] ?? drop.to} (−${drop.lostUsers} users / −${drop.lostEvents} events)`
+            : "No funnel events in this window yet"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-muted-foreground text-xs">
+              <th className="text-left px-4 py-2 font-medium">Step</th>
+              <th className="text-right px-4 py-2 font-medium">Events</th>
+              <th className="text-right px-4 py-2 font-medium">Users</th>
+              <th className="text-right px-4 py-2 font-medium">Conv.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {window.steps.map((step) => (
+              <tr key={step.eventType} className="border-b last:border-0">
+                <td className="px-4 py-2">{FUNNEL_STEP_LABELS[step.eventType] ?? step.eventType}</td>
+                <td className="px-4 py-2 text-right font-mono">{step.events.toLocaleString()}</td>
+                <td className="px-4 py-2 text-right font-mono">{step.uniqueUsers.toLocaleString()}</td>
+                <td className="px-4 py-2 text-right font-mono text-muted-foreground">
+                  {step.conversionFromPrev == null
+                    ? "—"
+                    : `${(step.conversionFromPrev * 100).toFixed(0)}%`}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="px-4 py-3 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
+          <span>
+            Identify fail: {window.fails.identifyFail.events.toLocaleString()} events
+            ({window.fails.identifyFail.uniqueUsers.toLocaleString()} users)
+          </span>
+          <span>
+            Publish fail: {window.fails.publishFail.events.toLocaleString()} events
+            ({window.fails.publishFail.uniqueUsers.toLocaleString()} users)
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function AdminMetrics() {
@@ -388,11 +482,21 @@ export default function AdminMetrics() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-3xl font-bold font-mono">
-                    {(mlData.publishedSetsNonStaff ?? 0).toLocaleString()}
+                  <p className="text-3xl font-bold font-mono" data-testid="text-maker-supply-gate">
+                    {(mlData.makerSupplyGate?.publishedSetsNonStaff ?? mlData.publishedSetsNonStaff ?? 0).toLocaleString()}
+                    <span className="text-lg font-medium text-muted-foreground">
+                      {" "}/ {mlData.makerSupplyGate?.target ?? 10}
+                    </span>
                   </p>
-                  <CardDescription className="mt-1">
-                    Lifetime user-created sets by non-admin makers (diligence ≥10 gate)
+                  <Progress
+                    className="mt-3 h-2"
+                    value={(mlData.makerSupplyGate?.progress ?? 0) * 100}
+                    data-testid="progress-maker-supply-gate"
+                  />
+                  <CardDescription className="mt-2">
+                    {mlData.makerSupplyGate?.reached
+                      ? "Diligence ≥10 gate reached (admin-only; not shown publicly)"
+                      : `${mlData.makerSupplyGate?.remaining ?? 10} more non-staff published sets to the ≥10 gate`}
                   </CardDescription>
                 </CardContent>
               </Card>
@@ -413,6 +517,24 @@ export default function AdminMetrics() {
                 </CardContent>
               </Card>
             </div>
+
+            {mlData.funnel && (
+              <div className="space-y-3" data-testid="section-maker-supply-funnel">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Maker supply funnel</p>
+                    <p className="text-xs text-muted-foreground">
+                      event_log · staff excluded · admin only · no public volume claims
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <FunnelWindowCard title="Last 7 days" window={mlData.funnel.last7d} />
+                  <FunnelWindowCard title="Last 30 days" window={mlData.funnel.last30d} />
+                </div>
+              </div>
+            )}
 
             {/* Sets Made per day chart */}
             <Card>
