@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link } from "wouter";
+import { useParams, Link, useSearch } from "wouter";
 import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -132,10 +132,14 @@ function PointsAnimation({ points, show, reward }: { points: number; show: boole
 
 export default function Game() {
   const { mode } = useParams<{ mode: string }>();
+  const search = useSearch();
+  const incomingSession = new URLSearchParams(
+    search.startsWith("?") ? search.slice(1) : search,
+  ).get("session");
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(incomingSession);
   const [shareImageUrl, setShareImageUrl] = useState<string | undefined>(undefined);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
@@ -155,7 +159,7 @@ export default function Game() {
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
   const [selectedCardCount, setSelectedCardCount] = useState("10");
-  const [hasStartedGame, setHasStartedGame] = useState(false);
+  const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
 
   // Milestone tracking

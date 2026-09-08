@@ -21,8 +21,9 @@ export function usePlayMakerSet(setId: string | undefined, cardCount: unknown) {
       });
       return res.json();
     },
-    onSuccess: () => {
-      setLocation("/game/solo");
+    onSuccess: (data: { id?: string }) => {
+      const sessionId = typeof data?.id === "string" ? data.id : "";
+      setLocation(sessionId ? `/game/solo?session=${encodeURIComponent(sessionId)}` : "/game/solo");
     },
     onError: (err: Error) => {
       toast({ title: "Couldn't start game", description: err.message, variant: "destructive" });
