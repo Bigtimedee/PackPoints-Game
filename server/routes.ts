@@ -323,7 +323,7 @@ export async function registerRoutes(
   });
 
   // ========================================
-  // MAKING LAYER — SNAP-TO-SET
+  // MAKING LAYER — SNAP-TO-SET (staff-only; public UGC path is dark)
   // ========================================
 
   app.post("/api/make/start", async (req: any, res) => {
@@ -355,7 +355,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/sets/identify-card", isAuthenticated, cardIdentifyLimiter, async (req: any, res) => {
+  app.post("/api/sets/identify-card", isAuthenticated, requireAdmin, cardIdentifyLimiter, async (req: any, res) => {
     const userId = requestUserId(req);
     try {
       const { imageBase64 } = req.body;
@@ -454,7 +454,7 @@ export async function registerRoutes(
     })).min(5).max(20),
   });
 
-  app.post("/api/sets/create", isAuthenticated, async (req: any, res) => {
+  app.post("/api/sets/create", isAuthenticated, requireAdmin, async (req: any, res) => {
     const userId = requestUserId(req);
     try {
       const parsed = createUserSetSchema.safeParse(req.body);

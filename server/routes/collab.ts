@@ -17,8 +17,17 @@ function isAuthenticated(req: any, res: Response, next: Function) {
   next();
 }
 
+/** Product lock: UGC publish is staff-only. Code stays; public path is dark. */
+async function requireAdmin(req: any, res: Response, next: Function) {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ message: "Unauthorized" });
+  const [dbUser] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, userId)).limit(1);
+  if (!dbUser?.isAdmin) return res.status(403).json({ message: "Admin access required" });
+  next();
+}
+
 // POST /api/collab/create — host creates a session and gets back a shareable URL
-router.post("/api/collab/create", isAuthenticated, async (req: any, res: Response) => {
+router.post("/api/collab/create", isAuthenticated, requireAdmin, async (req: any, res: Response) => {
   try {
     const hostUserId = req.user.id;
     const [session] = await db.insert(collaborationSessions).values({
@@ -171,7 +180,7 @@ const publishSchema = z.object({
 });
 
 // POST /api/collab/:id/publish — host publishes approved cards as a real game set
-router.post("/api/collab/:id/publish", isAuthenticated, async (req: any, res: Response) => {
+router.post("/api/collab/:id/publish", isAuthenticated, requireAdmin, async (req: any, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;

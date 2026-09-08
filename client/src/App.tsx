@@ -11,6 +11,8 @@ import { MobileNav } from "@/components/mobile-nav";
 import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
+import { useAuth } from "@/hooks/use-auth";
+import { canAccessMake, MAKE_PUBLIC_REDIRECT } from "@/lib/makeAccess";
 
 // Critical path — eager imports
 import Home from "@/pages/home";
@@ -80,6 +82,23 @@ function BrandedLoadingScreen() {
       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   );
+}
+
+/** Staff-only: non-admin visitors are sent to /sets. Make codebase stays mounted for ops. */
+function MakeRoute() {
+  const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!isLoading && !canAccessMake(user)) {
+      setLocation(MAKE_PUBLIC_REDIRECT);
+    }
+  }, [isLoading, user, setLocation]);
+
+  if (isLoading || !canAccessMake(user)) {
+    return <BrandedLoadingScreen />;
+  }
+  return <Make />;
 }
 
 function Router() {
@@ -337,7 +356,7 @@ function Router() {
       <Route path="/creators" component={Creators} />
       <Route path="/partners" component={Partners} />
       <Route path="/roadmap" component={Roadmap} />
-      <Route path="/make" component={Make} />
+      <Route path="/make" component={MakeRoute} />
       <Route path="/sets" component={BrowseSets} />
       <Route path="/sets/:id" component={SetPage} />
       <Route path="/collab/:id" component={Collab} />

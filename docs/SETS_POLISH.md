@@ -14,15 +14,15 @@ Mocks: `sets-index-polish.png`, `sets-detail-polish.png`.
 | Muted | `#8F96A3` | Meta, cues |
 | Gold | `#F5C518` | Accent only (short-shelf rule, FAN MADE outline) |
 | Green | `#22C55E` | Not required on these pages |
-| Blue | `#2B6CEE` | Play / Make a set CTAs, sparingly |
+| Blue | `#2B6CEE` | Play CTAs, sparingly |
 
 Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, no three-square tiles, no neon.
 
 ## Index `/sets`
 
 - Eyebrow `SETS`
-- H1 `Maker sets`
-- Sub `Built from the PC. Authored, not scrolled.`
+- H1 `Sets`
+- Sub `Play sets already in PackPTS.`
 - Honest `{n} sets` count of the live published list (never a padded inventory number)
 
 ### Cards
@@ -36,11 +36,11 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 
 When published set volume is below the public gate (**10**), show a quiet banner:
 
-> **A short shelf.** Real maker sets only — no filler. Snap yours on /make.
+> **A short shelf.** Integrated sets only — play what’s here, or open Daily 5.
 
 Never fake inventory. Never publish Maker Rate / DAU / “N makers” here. The gate matches admin `publishedSetsNonStaff` diligence (≥10 non-staff); the public page only sees the honest list length, not the admin metric.
 
-Footer actions: **Make a set** (blue) · **Play Daily 5** (quiet outline).
+Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play Daily 5** (quiet outline). `/make` is staff-only.
 
 ## Detail `/sets/:id`
 

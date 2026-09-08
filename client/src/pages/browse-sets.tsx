@@ -153,7 +153,7 @@ export default function BrowseSets() {
         ) : sets.length === 0 ? (
           <div className="py-16 text-center space-y-2">
             <p className="font-medium" style={{ color: SETS_POLISH.muted }}>The shelf is empty.</p>
-            <p className="text-sm" style={{ color: SETS_POLISH.muted }}>Snap a set from the PC.</p>
+            <p className="text-sm" style={{ color: SETS_POLISH.muted }}>Play Daily 5 while PackPTS adds more sets.</p>
           </div>
         ) : (
           <div className="space-y-10">
@@ -162,15 +162,6 @@ export default function BrowseSets() {
         )}
 
         <div className="space-y-3 pt-2">
-          <Link href="/make">
-            <span
-              className="flex w-full min-h-11 items-center justify-center rounded-md text-sm font-medium text-white"
-              style={{ backgroundColor: SETS_POLISH.blue }}
-              data-testid="button-make-set"
-            >
-              Make a set
-            </span>
-          </Link>
           <Link href="/daily">
             <span
               className="flex w-full min-h-11 items-center justify-center rounded-md text-sm font-medium"
