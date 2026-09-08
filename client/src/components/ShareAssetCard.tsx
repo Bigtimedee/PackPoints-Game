@@ -17,18 +17,25 @@ interface ContentAsset {
 interface ShareAssetCardProps {
   matchId?: string;
   challengeId?: string;
+  setId?: string;
+  kind?: "score" | "maker";
   initialImageUrl?: string;
   downloadFilename?: string;
   shareUrl?: string;
   shareText?: string;
+  shareTitle?: string;
   /** Resolve the live challenge URL before copy/share so we never emit bare /daily. */
   resolveShareUrl?: () => Promise<string | null>;
 }
 
 const GENERATE_WAIT_MS = 8_000;
 
-async function fetchLatestAsset(matchId?: string, challengeId?: string): Promise<ContentAsset | null> {
-  const param = matchId ? `matchId=${encodeURIComponent(matchId)}` : `challengeId=${encodeURIComponent(challengeId ?? "")}`;
+async function fetchLatestAsset(matchId?: string, challengeId?: string, setId?: string): Promise<ContentAsset | null> {
+  const param = matchId
+    ? `matchId=${encodeURIComponent(matchId)}`
+    : challengeId
+      ? `challengeId=${encodeURIComponent(challengeId)}`
+      : `setId=${encodeURIComponent(setId ?? "")}`;
   const res = await fetch(`/api/content-assets/latest?${param}`, { credentials: "include" });
   if (!res.ok) return null;
   const data = await res.json();
@@ -57,10 +64,12 @@ function ScoreCardEmptyState({
   retrying,
   onRetry,
   onShareWithoutCard,
+  isMaker,
 }: {
   retrying: boolean;
   onRetry: () => void;
   onShareWithoutCard: () => void;
+  isMaker?: boolean;
 }) {
   return (
     <div
@@ -70,8 +79,8 @@ function ScoreCardEmptyState({
     >
       <MaskedPMark />
       <div>
-        <p className="text-base font-semibold text-white">Score card didn’t load.</p>
-        <p className="text-sm text-white/60 mt-1">Your points are saved. Try again.</p>
+        <p className="text-base font-semibold text-white">{isMaker ? "Share art didn’t load." : "Score card didn’t load."}</p>
+        <p className="text-sm text-white/60 mt-1">{isMaker ? "Your set is live. Try again." : "Your points are saved. Try again."}</p>
       </div>
       <Button
         className="text-white hover:opacity-90"
@@ -98,10 +107,15 @@ function ScoreCardEmptyState({
 export function ShareAssetCard({
   matchId,
   challengeId,
+  setId,
+  kind = "score",
   initialImageUrl,
-  downloadFilename = "packpts-score.png",
-  shareUrl = "https://packpts.com/daily",
-  shareText = "I just played PackPTS! Check it out at packpts.com/daily",
+  downloadFilename = kind === "maker" ? "packpts-set.png" : "packpts-score.png",
+  shareUrl = kind === "maker" ? "https://packpts.com/sets" : "https://packpts.com/daily",
+  shareText = kind === "maker"
+    ? "I MADE THIS SET on PackPTS"
+    : "I just played PackPTS! Check it out at packpts.com/daily",
+  shareTitle = kind === "maker" ? "I MADE THIS SET" : "My PackPTS Score",
   resolveShareUrl,
 }: ShareAssetCardProps) {
   const { toast } = useToast();
@@ -110,19 +124,20 @@ export function ShareAssetCard({
   const [imageFailed, setImageFailed] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const isMaker = kind === "maker";
 
-  const queryKey = ["content-asset", matchId, challengeId];
+  const queryKey = ["content-asset", matchId, challengeId, setId];
 
   const { data: asset, isLoading, isFetching } = useQuery({
     queryKey,
-    queryFn: () => fetchLatestAsset(matchId, challengeId),
+    queryFn: () => fetchLatestAsset(matchId, challengeId, setId),
     refetchInterval: (query) => {
       if (isUsableImageUrl(query.state.data?.metadata?.imageUrl)) return false;
       if (timedOut) return false;
       return 500;
     },
     retry: false,
-    enabled: !!(matchId || challengeId),
+    enabled: !!(matchId || challengeId || setId),
   });
 
   const fetchedUrl = isUsableImageUrl(asset?.metadata?.imageUrl) ? asset.metadata.imageUrl : undefined;
@@ -137,7 +152,7 @@ export function ShareAssetCard({
     }
     const timer = window.setTimeout(() => setTimedOut(true), GENERATE_WAIT_MS);
     return () => window.clearTimeout(timer);
-  }, [imageUrl, matchId, challengeId, retrying]);
+  }, [imageUrl, matchId, challengeId, setId, retrying]);
 
   useEffect(() => {
     setImageLoaded(false);
@@ -145,7 +160,7 @@ export function ShareAssetCard({
   }, [rawUrl]);
 
   const handleRetry = async () => {
-    if (!matchId && !challengeId) return;
+    if (!matchId && !challengeId && !setId) return;
     setRetrying(true);
     setTimedOut(false);
     setImageFailed(false);
@@ -154,7 +169,7 @@ export function ShareAssetCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ matchId, challengeId }),
+        body: JSON.stringify({ matchId, challengeId, setId }),
       });
       if (!res.ok) {
         throw new Error("retry failed");
@@ -162,7 +177,7 @@ export function ShareAssetCard({
       await queryClient.invalidateQueries({ queryKey });
     } catch {
       setTimedOut(true);
-      toast({ title: "Still unavailable", description: "Could not generate the score card. Try again in a moment.", variant: "destructive" });
+      toast({ title: "Still unavailable", description: isMaker ? "Could not generate the share art. Try again in a moment." : "Could not generate the score card. Try again in a moment.", variant: "destructive" });
     } finally {
       setRetrying(false);
     }
@@ -188,7 +203,7 @@ export function ShareAssetCard({
     const payload = `${shareText}\n\n${url}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: "My PackPTS Score", text: shareText, url });
+        await navigator.share({ title: shareTitle, text: shareText, url });
         return;
       }
       await navigator.clipboard.writeText(payload);
@@ -205,7 +220,7 @@ export function ShareAssetCard({
 
   const handleDownload = async () => {
     if (!imageUrl) {
-      toast({ title: "Not ready", description: "Score card is still generating, try again in a moment", variant: "destructive" });
+      toast({ title: "Not ready", description: isMaker ? "Share art is still generating, try again in a moment" : "Score card is still generating, try again in a moment", variant: "destructive" });
       return;
     }
     try {
@@ -220,7 +235,7 @@ export function ShareAssetCard({
       link.click();
       document.body.removeChild(link);
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
-      toast({ title: "Downloading!", description: "Score card image saving to your device" });
+      toast({ title: "Downloading!", description: isMaker ? "Share image saving to your device" : "Score card image saving to your device" });
     } catch {
       window.open(imageUrl, "_blank", "noopener,noreferrer");
     }
@@ -254,13 +269,13 @@ export function ShareAssetCard({
         if (navigator.canShare?.({ files: [file] })) {
           await navigator.share({
             files: [file],
-            title: "My PackPTS Score",
+            title: shareTitle,
             text: `${shareText}\n${url}`,
           });
           return;
         }
       }
-      await navigator.share({ title: "My PackPTS Score", text: shareText, url });
+      await navigator.share({ title: shareTitle, text: shareText, url });
     } catch {
       // User cancelled or share failed silently
     }
@@ -278,7 +293,7 @@ export function ShareAssetCard({
             {waitingForImage && (
               <div className="flex flex-col items-center gap-2 text-white/60 text-sm p-4 text-center">
                 <Loader2 className="h-6 w-6 animate-spin" />
-                <span>Generating your score card&hellip;</span>
+                <span>{isMaker ? "Generating your share art" : "Generating your score card"}&hellip;</span>
               </div>
             )}
             {showEmpty && (
@@ -286,6 +301,7 @@ export function ShareAssetCard({
                 retrying={retrying}
                 onRetry={handleRetry}
                 onShareWithoutCard={handleShareWithoutCard}
+                isMaker={isMaker}
               />
             )}
             {imageUrl && !imageLoaded && (
@@ -296,7 +312,7 @@ export function ShareAssetCard({
             {imageUrl ? (
               <img
                 src={imageUrl}
-                alt="Your PackPTS score card"
+                alt={isMaker ? "I MADE THIS SET share art" : "Your PackPTS score card"}
                 className={`w-full h-full object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
                 onLoad={() => setImageLoaded(true)}
                 onError={() => setImageFailed(true)}

@@ -18,12 +18,12 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import { db } from "../db";
-import { contentAssets, users } from "@shared/schema";
+import { contentAssets, users, gameSets, playableCards, cardPhotos } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, pipStartX, PIP_SIZE, PIP_GAP, PIP_Y, SCORE_CARD_SIZE, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 import sharp from "sharp";
-import { onMatchFinished, onDaily5Finished, ensureAssetImage } from "../contentFactory/index";
+import { onMatchFinished, onDaily5Finished, ensureAssetImage, onSetPublished } from "../contentFactory/index";
 
 function isGreen(r: number, g: number, b: number): boolean {
   return r < 80 && g > 160 && b < 130;
@@ -576,5 +576,76 @@ describe("ensureAssetImage() / finish-handler repair", () => {
     expect(fs.existsSync(repaired.imagePath!)).toBe(true);
     expect((repaired.metadata as any)?.imageUrl).toMatch(/^\/generated\/share\//);
     createdImagePaths.push(repaired.imagePath!);
+  });
+});
+
+describe("onSetPublished()", () => {
+  it("creates a MAKER_SHARE_CARD from the published set's real name, note, and masked cards", async () => {
+    const setId = randomUUID();
+    const photoId = randomUUID();
+    try {
+      const cardTop = await sharp({
+        create: { width: 240, height: 180, channels: 3, background: { r: 40, g: 90, b: 200 } },
+      }).png().toBuffer();
+      const cardBot = await sharp({
+        create: { width: 240, height: 156, channels: 3, background: { r: 20, g: 200, b: 40 } },
+      }).png().toBuffer();
+      const photoJpeg = await sharp({
+        create: { width: 240, height: 336, channels: 3, background: { r: 0, g: 0, b: 0 } },
+      }).composite([
+        { input: cardTop, top: 0, left: 0 },
+        { input: cardBot, top: 180, left: 0 },
+      ]).jpeg().toBuffer();
+
+      await db.insert(cardPhotos).values({
+        id: photoId,
+        data: photoJpeg,
+        contentType: "image/jpeg",
+        uploadedByUserId: testUserId,
+      });
+      await db.insert(gameSets).values({
+        id: setId,
+        sport: "baseball",
+        brand: "Topps",
+        year: 1987,
+        setName: "Porch 87s",
+        isUserCreated: true,
+        createdByUserId: testUserId,
+        makerNote: "The stack I kept in a shoebox",
+      });
+      await db.insert(playableCards).values({
+        gameSetId: setId,
+        cardhedgeCardId: `snap2set:${randomUUID()}`,
+        player: "Secret Name",
+        set: "1987 Topps",
+        imageUrl: `https://packpts.com/api/card-photos/${photoId}`,
+        category: "baseball",
+        isPlayable: true,
+      });
+
+      const result = await onSetPublished({ setId, userId: testUserId });
+      expect(result).not.toBeNull();
+      expect(result!.imageUrl).toMatch(/^\/generated\/share\//);
+
+      const [asset] = await db.select()
+        .from(contentAssets)
+        .where(and(
+          eq(contentAssets.userId, testUserId),
+          eq(contentAssets.sourceEventId, `maker_set_${setId}`),
+        ))
+        .limit(1);
+      expect(asset.assetType).toBe("MAKER_SHARE_CARD");
+      expect((asset.metadata as any)?.setId).toBe(setId);
+      createdAssetIds.push(asset.id);
+      if (asset.imagePath) createdImagePaths.push(asset.imagePath);
+      expect(fs.existsSync(asset.imagePath!)).toBe(true);
+
+      const again = await onSetPublished({ setId, userId: testUserId });
+      expect(again!.assetId).toBe(result!.assetId);
+    } finally {
+      await db.delete(playableCards).where(eq(playableCards.gameSetId, setId)).catch(() => null);
+      await db.delete(gameSets).where(eq(gameSets.id, setId)).catch(() => null);
+      await db.delete(cardPhotos).where(eq(cardPhotos.id, photoId)).catch(() => null);
+    }
   });
 });

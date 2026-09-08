@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { prepareIdentifyImage } from "@/lib/prepareIdentifyImage";
 import { useAuth } from "@/hooks/use-auth";
+import { ShareAssetCard } from "@/components/ShareAssetCard";
 import {
   Loader2,
   Camera,
@@ -70,6 +71,8 @@ export default function MakePage() {
   const [setName, setSetName] = useState("");
   const [makerNote, setMakerNote] = useState("");
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [publishedSetId, setPublishedSetId] = useState<string | null>(null);
+  const [shareImageUrl, setShareImageUrl] = useState<string | undefined>(undefined);
   const [copied, setCopied] = useState(false);
   const [identifyingBusy, setIdentifyingBusy] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -106,6 +109,8 @@ export default function MakePage() {
     onSuccess: (data) => {
       const url = `${window.location.origin}${data.setUrl}`;
       setPublishedUrl(url);
+      setPublishedSetId(typeof data.setId === "string" ? data.setId : null);
+      setShareImageUrl(typeof data.shareImageUrl === "string" ? data.shareImageUrl : undefined);
       setStep(3);
     },
     onError: (err: Error) => {
@@ -266,8 +271,8 @@ export default function MakePage() {
   async function shareLink() {
     if (!publishedUrl) return;
     const shareData = {
-      title: setName.trim() || "PackPTS set",
-      text: makerNote.trim() || "I made this set on PackPTS",
+      title: "I MADE THIS SET",
+      text: [setName.trim() || "PackPTS set", makerNote.trim()].filter(Boolean).join(" — "),
       url: publishedUrl,
     };
     try {
@@ -585,9 +590,25 @@ export default function MakePage() {
                 <p className="text-sm text-muted-foreground mt-1 italic">“{makerNote.trim()}”</p>
               )}
               <p className="text-sm text-muted-foreground mt-2">
-                Share the link — quiet pride, no confetti cannons.
+                Share the set — your cards, your name for it, your note.
               </p>
             </div>
+            {publishedSetId && (
+              <ShareAssetCard
+                kind="maker"
+                setId={publishedSetId}
+                initialImageUrl={shareImageUrl}
+                downloadFilename="packpts-set.png"
+                shareUrl={publishedUrl}
+                shareTitle="I MADE THIS SET"
+                shareText={[
+                  "I MADE THIS SET",
+                  setName.trim(),
+                  makerNote.trim() ? `“${makerNote.trim()}”` : "",
+                  publishedUrl,
+                ].filter(Boolean).join("\n")}
+              />
+            )}
             <div className="rounded-lg border bg-muted/30 p-3 flex items-center gap-2">
               <p className="text-sm font-mono truncate flex-1 text-left">{publishedUrl}</p>
               <Button size="sm" variant="outline" onClick={copyLink} aria-label="Copy link">
@@ -619,6 +640,8 @@ export default function MakePage() {
                   setSetName("");
                   setMakerNote("");
                   setPublishedUrl(null);
+                  setPublishedSetId(null);
+                  setShareImageUrl(undefined);
                   setStep(1);
                 }}
               >

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Paintbrush, Play, Users, Hash, Loader2 } from "lucide-react";
+import { ShareAssetCard } from "@/components/ShareAssetCard";
 
 interface SetDetail {
   id: string;
@@ -23,6 +24,7 @@ interface SetDetail {
   coCreatorUsername: string | null;
   cardCount: number;
   playCount: number;
+  shareImageUrl?: string;
 }
 
 export default function SetPage() {
@@ -55,6 +57,8 @@ export default function SetPage() {
   });
 
   const isOwner = user && set?.createdByUserId === (user as any)?.id;
+  const isCoCreator = user && set?.coCreatorUserId === (user as any)?.id;
+  const canShareMakerArt = !!(isOwner || isCoCreator);
 
   if (isLoading) {
     return (
@@ -109,6 +113,23 @@ export default function SetPage() {
               <p className="text-sm italic text-foreground/80">"{set.makerNote}"</p>
             </CardContent>
           </Card>
+        )}
+
+        {canShareMakerArt && set.isUserCreated && set.shareImageUrl && (
+          <ShareAssetCard
+            kind="maker"
+            setId={set.id}
+            initialImageUrl={set.shareImageUrl}
+            downloadFilename="packpts-set.png"
+            shareUrl={`${typeof window !== "undefined" ? window.location.origin : "https://packpts.com"}/sets/${set.id}`}
+            shareTitle="I MADE THIS SET"
+            shareText={[
+              "I MADE THIS SET",
+              set.setName,
+              set.makerNote ? `“${set.makerNote}”` : "",
+              `https://packpts.com/sets/${set.id}`,
+            ].filter(Boolean).join("\n")}
+          />
         )}
 
         {/* Stats */}

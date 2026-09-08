@@ -39,6 +39,9 @@ function candidateFontDirs(): string[] {
   }
   dirs.push(path.join(process.cwd(), "server", "contentFactory", "assets", "fonts"));
   dirs.push("/app/server/contentFactory/assets/fonts");
+  // DejaVu is the documented Inter fallback; Railway Alpine has neither, so Inter ships in-repo.
+  dirs.push("/usr/share/fonts/truetype/dejavu");
+  dirs.push("/usr/share/fonts/dejavu");
   return dirs;
 }
 
