@@ -1178,9 +1178,11 @@ export const ANALYTICS_EVENT_TYPES = [
   "make_started",
   "identify_success",
   "identify_fail",
+  "name_started",
   "publish_success",
   "publish_fail",
   "share_generated",
+  "share_opened",
   "set_viewed",
 ] as const;
 

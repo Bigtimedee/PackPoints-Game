@@ -26,6 +26,19 @@ interface MakingFunnelStep {
   conversionFromPrev: number | null;
 }
 
+interface MakingFrictionKpis {
+  identifyFailRate: number;
+  identifyAttempts: number;
+  timeToPublish: { p50Ms: number | null; p90Ms: number | null; samples: number };
+  nameMixtape: {
+    reachedUsers: number;
+    publishedUsers: number;
+    dropOffUsers: number;
+    dropOffRate: number;
+  };
+  shareOpen: { openedUsers: number; publishedUsers: number; openRate: number };
+}
+
 interface MakingFunnelWindow {
   windowDays: 7 | 30;
   steps: MakingFunnelStep[];
@@ -39,6 +52,7 @@ interface MakingFunnelWindow {
     lostUsers: number;
     lostEvents: number;
   } | null;
+  friction?: MakingFrictionKpis;
 }
 
 interface MakingLayerMetrics {
@@ -121,10 +135,19 @@ function formatReturned(returned: number, size: number, rate: number | null): st
 const FUNNEL_STEP_LABELS: Record<string, string> = {
   make_started: "/make start",
   identify_success: "Identify success",
+  name_started: "Name / mixtape",
   publish_success: "Publish success",
   share_generated: "Share generated",
+  share_opened: "Share opened",
   set_viewed: "/sets/:id view",
 };
+
+function formatDurationMs(ms: number | null): string {
+  if (ms == null || !Number.isFinite(ms)) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  return `${(ms / 60_000).toFixed(1)}m`;
+}
 
 function FunnelWindowCard({ title, window }: { title: string; window: MakingFunnelWindow }) {
   const drop = window.topDropOff;
@@ -163,15 +186,37 @@ function FunnelWindowCard({ title, window }: { title: string; window: MakingFunn
             ))}
           </tbody>
         </table>
-        <div className="px-4 py-3 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
-          <span>
-            Identify fail: {window.fails.identifyFail.events.toLocaleString()} events
-            ({window.fails.identifyFail.uniqueUsers.toLocaleString()} users)
-          </span>
-          <span>
-            Publish fail: {window.fails.publishFail.events.toLocaleString()} events
-            ({window.fails.publishFail.uniqueUsers.toLocaleString()} users)
-          </span>
+        <div className="px-4 py-3 text-xs text-muted-foreground space-y-1" data-testid={`text-make-friction-${window.windowDays}d`}>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span>
+              Identify fail: {window.fails.identifyFail.events.toLocaleString()} events
+              ({window.fails.identifyFail.uniqueUsers.toLocaleString()} users)
+              {window.friction
+                ? ` · ${(window.friction.identifyFailRate * 100).toFixed(0)}% fail rate`
+                : ""}
+            </span>
+            <span>
+              Publish fail: {window.fails.publishFail.events.toLocaleString()} events
+              ({window.fails.publishFail.uniqueUsers.toLocaleString()} users)
+            </span>
+          </div>
+          {window.friction && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span>
+                Time-to-publish: p50 {formatDurationMs(window.friction.timeToPublish.p50Ms)}
+                {" · "}p90 {formatDurationMs(window.friction.timeToPublish.p90Ms)}
+                {" · "}{window.friction.timeToPublish.samples} samples
+              </span>
+              <span>
+                Name/mixtape drop-off: {window.friction.nameMixtape.dropOffUsers.toLocaleString()} users
+                {" "}({(window.friction.nameMixtape.dropOffRate * 100).toFixed(0)}%)
+              </span>
+              <span>
+                Share open rate: {(window.friction.shareOpen.openRate * 100).toFixed(0)}%
+                {" "}({window.friction.shareOpen.openedUsers.toLocaleString()} / {window.friction.shareOpen.publishedUsers.toLocaleString()})
+              </span>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

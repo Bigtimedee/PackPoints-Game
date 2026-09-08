@@ -38,7 +38,7 @@ import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
 import { adminService } from "./services/adminService";
 import { analyticsService } from "./services/analyticsService";
-import { logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
+import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
@@ -326,6 +326,23 @@ export async function registerRoutes(
       logMakingLayerEvent(MAKING_LAYER_EVENTS.makeStarted, userId, {
         authenticated: !!userId,
       });
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: true });
+    }
+  });
+
+  app.post("/api/make/event", async (req: any, res) => {
+    try {
+      const eventType = req.body?.eventType;
+      if (!isMakingLayerClientEvent(eventType)) {
+        return res.status(400).json({ error: "Unknown event" });
+      }
+      const raw = req.body?.metadata;
+      const metadata = raw && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+      logMakingLayerEvent(eventType, requestUserId(req), { ...metadata, client: true });
       res.json({ ok: true });
     } catch {
       res.json({ ok: true });

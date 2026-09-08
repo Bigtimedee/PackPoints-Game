@@ -203,6 +203,30 @@ export interface MakingFunnelDropOff {
   lostEvents: number;
 }
 
+export interface MakingFrictionTimeToPublish {
+  p50Ms: number | null;
+  p90Ms: number | null;
+  samples: number;
+}
+
+/** Design MAKE_FRICTION KPIs — admin-only, staff-excluded. */
+export interface MakingFrictionKpis {
+  identifyFailRate: number;
+  identifyAttempts: number;
+  timeToPublish: MakingFrictionTimeToPublish;
+  nameMixtape: {
+    reachedUsers: number;
+    publishedUsers: number;
+    dropOffUsers: number;
+    dropOffRate: number;
+  };
+  shareOpen: {
+    openedUsers: number;
+    publishedUsers: number;
+    openRate: number;
+  };
+}
+
 export interface MakingFunnelWindow {
   windowDays: 7 | 30;
   steps: MakingFunnelStep[];
@@ -211,6 +235,7 @@ export interface MakingFunnelWindow {
     publishFail: { events: number; uniqueUsers: number };
   };
   topDropOff: MakingFunnelDropOff | null;
+  friction: MakingFrictionKpis;
 }
 
 export interface MakingFunnelFixtureEvent {
@@ -225,10 +250,53 @@ export interface FunnelCountRow {
   unique_users: number;
 }
 
+export function percentileMs(sorted: number[], p: number): number | null {
+  if (sorted.length === 0 || !Number.isFinite(p) || p < 0 || p > 1) return null;
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+export function assembleFrictionKpis(
+  counts: {
+    identifySuccess: { events: number; uniqueUsers: number };
+    identifyFail: { events: number; uniqueUsers: number };
+    nameStarted: { events: number; uniqueUsers: number };
+    publishSuccess: { events: number; uniqueUsers: number };
+    shareOpened: { events: number; uniqueUsers: number };
+  },
+  timeToPublish: MakingFrictionTimeToPublish,
+): MakingFrictionKpis {
+  const identifyAttempts = counts.identifySuccess.events + counts.identifyFail.events;
+  const identifyFailRate = identifyAttempts > 0 ? counts.identifyFail.events / identifyAttempts : 0;
+  const reachedUsers = counts.nameStarted.uniqueUsers;
+  const publishedUsers = counts.publishSuccess.uniqueUsers;
+  const dropOffUsers = Math.max(0, reachedUsers - publishedUsers);
+  return {
+    identifyFailRate,
+    identifyAttempts,
+    timeToPublish,
+    nameMixtape: {
+      reachedUsers,
+      publishedUsers,
+      dropOffUsers,
+      dropOffRate: reachedUsers > 0 ? dropOffUsers / reachedUsers : 0,
+    },
+    shareOpen: {
+      openedUsers: counts.shareOpened.uniqueUsers,
+      publishedUsers,
+      openRate: publishedUsers > 0 ? counts.shareOpened.uniqueUsers / publishedUsers : 0,
+    },
+  };
+}
+
 /** Pure funnel assembly — same staff-exclusion + conversion rules as the SQL. */
 export function assembleMakingFunnelWindow(
   windowDays: 7 | 30,
   rows: FunnelCountRow[],
+  timeToPublish: MakingFrictionTimeToPublish = { p50Ms: null, p90Ms: null, samples: 0 },
 ): MakingFunnelWindow {
   const byType = new Map<string, FunnelCountRow>();
   for (const row of rows) {
@@ -293,6 +361,16 @@ export function assembleMakingFunnelWindow(
       publishFail: counts(MAKING_LAYER_EVENTS.publishFail),
     },
     topDropOff,
+    friction: assembleFrictionKpis(
+      {
+        identifySuccess: counts(MAKING_LAYER_EVENTS.identifySuccess),
+        identifyFail: counts(MAKING_LAYER_EVENTS.identifyFail),
+        nameStarted: counts(MAKING_LAYER_EVENTS.nameStarted),
+        publishSuccess: counts(MAKING_LAYER_EVENTS.publishSuccess),
+        shareOpened: counts(MAKING_LAYER_EVENTS.shareOpened),
+      },
+      timeToPublish,
+    ),
   };
 }
 
@@ -327,7 +405,32 @@ export function computeMakingFunnelFromFixture(opts: {
     unique_users: bucket.users.size,
   }));
 
-  return assembleMakingFunnelWindow(opts.windowDays, rows);
+  const elapsed: number[] = [];
+  const publishes = opts.events.filter((e) => {
+    if (e.event_type !== MAKING_LAYER_EVENTS.publishSuccess) return false;
+    if (e.created_at < cutoff) return false;
+    if (!e.user_id || staffIds.has(e.user_id)) return false;
+    return true;
+  });
+  for (const publish of publishes) {
+    const starts = opts.events.filter((e) => {
+      if (e.event_type !== MAKING_LAYER_EVENTS.makeStarted) return false;
+      if (e.user_id !== publish.user_id) return false;
+      if (e.created_at > publish.created_at) return false;
+      if (e.created_at < cutoff) return false;
+      return true;
+    });
+    if (starts.length === 0) continue;
+    const start = starts.reduce((latest, e) => (e.created_at > latest.created_at ? e : latest));
+    elapsed.push(publish.created_at.getTime() - start.created_at.getTime());
+  }
+  elapsed.sort((a, b) => a - b);
+
+  return assembleMakingFunnelWindow(opts.windowDays, rows, {
+    p50Ms: percentileMs(elapsed, 0.5),
+    p90Ms: percentileMs(elapsed, 0.9),
+    samples: elapsed.length,
+  });
 }
 
 /** Authoritative SQL: Making Layer funnel counts, staff-excluded (users.is_admin). */
@@ -344,9 +447,11 @@ export function makingFunnelSql(windowDays: 7 | 30) {
         'make_started',
         'identify_success',
         'identify_fail',
+        'name_started',
         'publish_success',
         'publish_fail',
         'share_generated',
+        'share_opened',
         'set_viewed'
       )
       AND COALESCE(u.is_admin, false) = false
@@ -354,17 +459,69 @@ export function makingFunnelSql(windowDays: 7 | 30) {
   `;
 }
 
+/** Last make_started → publish_success per user in-window; staff excluded. */
+export function makingTimeToPublishSql(windowDays: 7 | 30) {
+  return sql`
+    SELECT
+      percentile_cont(0.5) WITHIN GROUP (
+        ORDER BY EXTRACT(EPOCH FROM (p.created_at - s.started_at)) * 1000
+      ) AS p50_ms,
+      percentile_cont(0.9) WITHIN GROUP (
+        ORDER BY EXTRACT(EPOCH FROM (p.created_at - s.started_at)) * 1000
+      ) AS p90_ms,
+      COUNT(*)::int AS samples
+    FROM event_log p
+    INNER JOIN users u ON u.id = p.user_id
+    INNER JOIN LATERAL (
+      SELECT el.created_at AS started_at
+      FROM event_log el
+      WHERE el.event_type = 'make_started'
+        AND el.user_id = p.user_id
+        AND el.created_at <= p.created_at
+        AND el.created_at >= NOW() - (${windowDays}::text || ' days')::interval
+      ORDER BY el.created_at DESC
+      LIMIT 1
+    ) s ON true
+    WHERE p.event_type = 'publish_success'
+      AND p.created_at >= NOW() - (${windowDays}::text || ' days')::interval
+      AND p.user_id IS NOT NULL
+      AND COALESCE(u.is_admin, false) = false
+  `;
+}
+
+function timeToPublishFromRow(row: unknown): MakingFrictionTimeToPublish {
+  const r = (row ?? {}) as { p50_ms?: unknown; p90_ms?: unknown; samples?: unknown };
+  const samples = Number(r.samples ?? 0);
+  const p50 = r.p50_ms == null ? null : Number(r.p50_ms);
+  const p90 = r.p90_ms == null ? null : Number(r.p90_ms);
+  return {
+    p50Ms: Number.isFinite(p50) ? p50 : null,
+    p90Ms: Number.isFinite(p90) ? p90 : null,
+    samples: Number.isFinite(samples) ? samples : 0,
+  };
+}
+
 export async function fetchMakingFunnelWindows(): Promise<{
   last7d: MakingFunnelWindow;
   last30d: MakingFunnelWindow;
 }> {
-  const [rows7, rows30] = await Promise.all([
+  const [rows7, rows30, ttp7, ttp30] = await Promise.all([
     db.execute(makingFunnelSql(7)),
     db.execute(makingFunnelSql(30)),
+    db.execute(makingTimeToPublishSql(7)),
+    db.execute(makingTimeToPublishSql(30)),
   ]);
   return {
-    last7d: assembleMakingFunnelWindow(7, ((rows7.rows as unknown) as FunnelCountRow[]) ?? []),
-    last30d: assembleMakingFunnelWindow(30, ((rows30.rows as unknown) as FunnelCountRow[]) ?? []),
+    last7d: assembleMakingFunnelWindow(
+      7,
+      ((rows7.rows as unknown) as FunnelCountRow[]) ?? [],
+      timeToPublishFromRow(ttp7.rows[0]),
+    ),
+    last30d: assembleMakingFunnelWindow(
+      30,
+      ((rows30.rows as unknown) as FunnelCountRow[]) ?? [],
+      timeToPublishFromRow(ttp30.rows[0]),
+    ),
   };
 }
 

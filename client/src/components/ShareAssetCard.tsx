@@ -26,6 +26,8 @@ interface ShareAssetCardProps {
   shareTitle?: string;
   /** Resolve the live challenge URL before copy/share so we never emit bare /daily. */
   resolveShareUrl?: () => Promise<string | null>;
+  /** Maker-supply funnel: share sheet / share-without-card opened (Surface A). */
+  onShareOpen?: () => void;
 }
 
 const GENERATE_WAIT_MS = 8_000;
@@ -117,6 +119,7 @@ export function ShareAssetCard({
     : "I just played PackPTS! Check it out at packpts.com/daily",
   shareTitle = kind === "maker" ? "I MADE THIS SET" : "My PackPTS Score",
   resolveShareUrl,
+  onShareOpen,
 }: ShareAssetCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -195,6 +198,7 @@ export function ShareAssetCard({
   };
 
   const handleShareWithoutCard = async () => {
+    onShareOpen?.();
     const url = await resolveUrl();
     if (!url) {
       toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });
@@ -256,6 +260,7 @@ export function ShareAssetCard({
   };
 
   const handleNativeShare = async () => {
+    onShareOpen?.();
     const url = await resolveUrl();
     if (!url) {
       toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });

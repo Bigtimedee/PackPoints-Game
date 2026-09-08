@@ -11,6 +11,7 @@ import { vi, describe, it, expect } from "vitest";
 vi.mock("../db", () => ({ db: { execute: vi.fn() }, pool: {} }));
 
 import {
+  assembleFrictionKpis,
   assembleMakingFunnelWindow,
   computeMakerRate,
   computeMakerRateFromFixture,
@@ -18,6 +19,8 @@ import {
   computeMakingFunnelFromFixture,
   MAKER_SUPPLY_GATE_TARGET,
   makingFunnelSql,
+  makingTimeToPublishSql,
+  percentileMs,
 } from "../services/makingLayerMetrics";
 import { MAKING_LAYER_EVENTS } from "../services/makingLayerEvents";
 
@@ -247,37 +250,94 @@ describe("Making Layer funnel — period + staff exclusion", () => {
     const result = assembleMakingFunnelWindow(7, [
       { event_type: "make_started", events: 20, unique_users: 10 },
       { event_type: "identify_success", events: 40, unique_users: 8 },
+      { event_type: "name_started", events: 7, unique_users: 7 },
       { event_type: "publish_success", events: 3, unique_users: 2 },
       { event_type: "share_generated", events: 2, unique_users: 1 },
+      { event_type: "share_opened", events: 1, unique_users: 1 },
       { event_type: "set_viewed", events: 1, unique_users: 1 },
     ]);
 
-    // identify → publish loses 6 unique users (largest)
+    // name/mixtape → publish loses 5 unique users (largest)
     expect(result.topDropOff).toEqual({
-      from: "identify_success",
+      from: "name_started",
       to: "publish_success",
-      lostUsers: 6,
-      lostEvents: 37,
+      lostUsers: 5,
+      lostEvents: 4,
     });
-    expect(result.steps[2].conversionFromPrev).toBeCloseTo(2 / 8);
+    expect(result.friction.nameMixtape.dropOffUsers).toBe(5);
+    expect(result.friction.nameMixtape.dropOffRate).toBeCloseTo(5 / 7);
   });
 
   it("breaks unique-user ties using lost event count", () => {
     const result = assembleMakingFunnelWindow(30, [
       { event_type: "make_started", events: 10, unique_users: 5 },
       { event_type: "identify_success", events: 9, unique_users: 4 },
+      { event_type: "name_started", events: 2, unique_users: 3 },
       { event_type: "publish_success", events: 2, unique_users: 3 },
       { event_type: "share_generated", events: 2, unique_users: 3 },
+      { event_type: "share_opened", events: 2, unique_users: 3 },
       { event_type: "set_viewed", events: 2, unique_users: 3 },
     ]);
 
-    // make→identify and identify→publish both lose 1 user; identify→publish loses more events
+    // make→identify and identify→name both lose 1 user; identify→name loses more events
     expect(result.topDropOff).toEqual({
       from: "identify_success",
-      to: "publish_success",
+      to: "name_started",
       lostUsers: 1,
       lostEvents: 7,
     });
+  });
+
+  it("computes Design MAKE_FRICTION KPIs from event_log counts + time-to-publish", () => {
+    const zero = { events: 0, uniqueUsers: 0 };
+    const kpis = assembleFrictionKpis(
+      {
+        identifySuccess: { events: 8, uniqueUsers: 4 },
+        identifyFail: { events: 2, uniqueUsers: 2 },
+        nameStarted: { events: 4, uniqueUsers: 4 },
+        publishSuccess: { events: 2, uniqueUsers: 2 },
+        shareOpened: { events: 1, uniqueUsers: 1 },
+      },
+      { p50Ms: 120_000, p90Ms: 300_000, samples: 2 },
+    );
+
+    expect(kpis.identifyAttempts).toBe(10);
+    expect(kpis.identifyFailRate).toBeCloseTo(0.2);
+    expect(kpis.timeToPublish.p50Ms).toBe(120_000);
+    expect(kpis.nameMixtape.dropOffUsers).toBe(2);
+    expect(kpis.nameMixtape.dropOffRate).toBeCloseTo(0.5);
+    expect(kpis.shareOpen.openRate).toBeCloseTo(0.5);
+    expect(assembleFrictionKpis({
+      identifySuccess: zero,
+      identifyFail: zero,
+      nameStarted: zero,
+      publishSuccess: zero,
+      shareOpened: zero,
+    }, { p50Ms: null, p90Ms: null, samples: 0 }).identifyFailRate).toBe(0);
+  });
+
+  it("pairs last make_started → publish_success for time-to-publish (staff excluded)", () => {
+    const result = computeMakingFunnelFromFixture({
+      now: NOW,
+      users,
+      windowDays: 7,
+      events: [
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-a", created_at: daysAgo(2) },
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-a", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.publishSuccess, user_id: "player-a", created_at: new Date(NOW.getTime() - 12 * 60 * 60 * 1000) },
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "player-b", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.publishSuccess, user_id: "player-b", created_at: new Date(NOW.getTime() - 6 * 60 * 60 * 1000) },
+        { event_type: MAKING_LAYER_EVENTS.makeStarted, user_id: "staff-1", created_at: daysAgo(1) },
+        { event_type: MAKING_LAYER_EVENTS.publishSuccess, user_id: "staff-1", created_at: NOW },
+      ],
+    });
+
+    // player-a: last start 1d ago → publish 12h ago = 12h
+    // player-b: start 1d ago → publish 6h ago = 18h
+    expect(result.friction.timeToPublish.samples).toBe(2);
+    const expected = [12 * 60 * 60 * 1000, 18 * 60 * 60 * 1000];
+    expect(result.friction.timeToPublish.p50Ms).toBe(percentileMs(expected, 0.5));
+    expect(result.friction.timeToPublish.p90Ms).toBe(percentileMs(expected, 0.9));
   });
 
   it("SQL keeps the same staff-exclusion predicate as Maker Rate", () => {
@@ -293,7 +353,13 @@ describe("Making Layer funnel — period + staff exclusion", () => {
     expect(compiled).toContain("is_admin");
     expect(compiled).toContain("event_log");
     expect(compiled).toContain("make_started");
+    expect(compiled).toContain("name_started");
+    expect(compiled).toContain("share_opened");
     expect(compiled).toContain("set_viewed");
     expect(compiled).toContain("false");
+    const ttp = flattenSql(makingTimeToPublishSql(30));
+    expect(ttp).toContain("publish_success");
+    expect(ttp).toContain("make_started");
+    expect(ttp).toContain("is_admin");
   });
 });
