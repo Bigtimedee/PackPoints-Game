@@ -9,7 +9,7 @@ import fs from "fs";
 import path from "path";
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import { buildEmbeddedFontCss, loadScoreCardFonts, measureText, textToPath, type ScoreCardFonts } from "./fonts";
-import { getShareOutputBase, SHARE_URL_PREFIX, SCORE_CARD_SIZE, type ScoreCardOutput } from "./generateScoreCard";
+import { getShareOutputBase, SHARE_URL_PREFIX, type ScoreCardOutput } from "./generateScoreCard";
 import {
   CREAM_SILHOUETTE,
   MAKER_SHARE_MAX_STACK,
@@ -18,9 +18,14 @@ import {
   makerShareFooterUrl,
   setsMadeLabel,
 } from "./makerShareSlug";
+import {
+  MAKER_SHARE_ASSETS,
+  isMakerShareRasterFormat,
+  makerShareGridSlots,
+} from "./makerShareAssets";
 
-export const MAKER_SHARE_SIZE = SCORE_CARD_SIZE;
-export const MAKER_SHARE_EYEBROW = "I MADE THIS SET";
+export const MAKER_SHARE_SIZE = MAKER_SHARE_ASSETS.canvas;
+export const MAKER_SHARE_EYEBROW = MAKER_SHARE_ASSETS.eyebrow;
 export { STOCK_FAN_ASSET, CREAM_SILHOUETTE, WHO_IS_THIS_PLAYER, makerShareFooterUrl };
 
 const MASKED_P_MARK = `<g transform="scale(0.0546875)">
@@ -217,13 +222,12 @@ export async function redactCardForShare(
       overlays.push({ input: pixelated, left, top });
     }
 
-    const alpha = region.type === "solid" ? 0.95 : 0.86;
     const dark = await sharp({
       create: {
         width: rw,
         height: rh,
         channels: 4,
-        background: { r: 11, g: 15, b: 22, alpha },
+        background: { r: 0, g: 0, b: 0, alpha: 1 },
       },
     }).png().toBuffer();
     overlays.push({ input: dark, left, top });
@@ -232,25 +236,22 @@ export async function redactCardForShare(
   return sharp(normalized).composite(overlays).jpeg({ quality: 82 }).toBuffer();
 }
 
-function stackMetrics(n: number): { cardW: number; cardH: number; step: number; startX: number; y: number } {
-  const cardW = n >= 7 ? 148 : n >= 5 ? 172 : 210;
-  const cardH = Math.round(cardW * 1.4);
-  const step = Math.round(cardW * 0.52);
-  const totalW = cardW + Math.max(0, n - 1) * step;
-  return {
-    cardW,
-    cardH,
-    step,
-    startX: Math.round((MAKER_SHARE_SIZE - totalW) / 2),
-    y: 175,
-  };
-}
-
-async function cardToDataUri(buffer: Buffer, width: number, height: number): Promise<string> {
-  const jpeg = await sharp(buffer)
+/** JPEG/WebP/PNG from /make identify (HEIC already normalized client-side). Card-aspect or square crop. */
+export async function cropMakerCardThumb(input: Buffer, width: number, height: number): Promise<Buffer> {
+  const meta = await sharp(input, { failOn: "none" }).metadata();
+  const format = (meta.format || "").toLowerCase();
+  if (format && !isMakerShareRasterFormat(format)) {
+    throw new Error(`Maker share thumb rejects ${format}; expected jpeg/webp/png`);
+  }
+  return sharp(input, { failOn: "none" })
+    .rotate()
     .resize(width, height, { fit: "cover", position: "top" })
     .jpeg({ quality: 80 })
     .toBuffer();
+}
+
+async function cardToDataUri(buffer: Buffer, width: number, height: number): Promise<string> {
+  const jpeg = await cropMakerCardThumb(buffer, width, height);
   return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
 }
 
@@ -260,24 +261,26 @@ function nameBandSvg(
   cardH: number,
   labelSize: number,
 ): string {
-  const bandY = Math.round(cardH * 0.54);
+  const bandPct = MAKER_SHARE_ASSETS.redactionBandPct / 100;
+  const bandY = Math.round(cardH * (1 - bandPct));
   const bandH = cardH - bandY;
   const labelY = bandY + Math.round(bandH * 0.58);
   const fitted = fitText(fonts.bold, WHO_IS_THIS_PLAYER, cardW - 12, labelSize, 6);
-  return `<rect x="0" y="${bandY}" width="${cardW}" height="${bandH}" fill="#0b0f16" fill-opacity="0.92"/>
+  return `<rect x="0" y="${bandY}" width="${cardW}" height="${bandH}" fill="${MAKER_SHARE_ASSETS.redactionBar}"/>
       ${textToPath(fonts.bold, fitted.text, cardW / 2, labelY, fitted.size, "#F1F5F9", { anchor: "middle" })}`;
 }
 
 function creamCardSvg(fonts: ScoreCardFonts, cardW: number, cardH: number, labelSize: number): string {
   const portraitR = Math.round(cardW * 0.22);
-  return `<rect x="0" y="0" width="${cardW}" height="${cardH}" rx="12" fill="${CREAM_SILHOUETTE}"/>
-      <ellipse cx="${cardW / 2}" cy="${Math.round(cardH * 0.32)}" rx="${portraitR}" ry="${Math.round(portraitR * 1.15)}" fill="#E2D3B3"/>
+  return `<rect x="0" y="0" width="${cardW}" height="${cardH}" rx="12" fill="${MAKER_SHARE_ASSETS.cream}"/>
+      <ellipse cx="${cardW / 2}" cy="${Math.round(cardH * 0.32)}" rx="${portraitR}" ry="${Math.round(portraitR * 1.15)}" fill="${MAKER_SHARE_ASSETS.creamPortrait}"/>
       ${nameBandSvg(fonts, cardW, cardH, labelSize)}`;
 }
 
 export async function buildMakerShareSvg(input: MakerShareInput): Promise<string> {
-  const W = MAKER_SHARE_SIZE;
-  const H = MAKER_SHARE_SIZE;
+  const A = MAKER_SHARE_ASSETS;
+  const W = A.canvas;
+  const H = A.canvas;
   const fonts = loadScoreCardFonts();
   const setNameFit = fitText(fonts.bold, input.setName || "Untitled set", 920, 44, 26);
   const noteRaw = (input.makerNote || "").trim();
@@ -291,42 +294,41 @@ export async function buildMakerShareSvg(input: MakerShareInput): Promise<string
     : "";
   const slots = input.cardSlots.slice(0, MAKER_SHARE_MAX_STACK);
   const n = slots.length;
-  const metrics = stackMetrics(Math.max(n, 1));
+  const grid = makerShareGridSlots(n);
   const labelSize = n >= 7 ? 8 : n >= 5 ? 9 : 11;
 
   const clipDefs: string[] = [];
-  const stackParts: string[] = [];
+  const gridParts: string[] = [];
   for (let i = 0; i < n; i++) {
-    const x = metrics.startX + i * metrics.step;
-    const slot = slots[i];
-    clipDefs.push(`<clipPath id="makerCard${i}"><rect x="0" y="0" width="${metrics.cardW}" height="${metrics.cardH}" rx="12"/></clipPath>`);
+    const cell = grid[i];
+    if (!cell) continue;
+    clipDefs.push(`<clipPath id="makerCard${i}"><rect x="0" y="0" width="${cell.w}" height="${cell.h}" rx="12"/></clipPath>`);
     let inner: string;
-    if (slot) {
-      const uri = await cardToDataUri(slot, metrics.cardW, metrics.cardH);
-      inner = `<rect x="0" y="0" width="${metrics.cardW}" height="${metrics.cardH}" rx="12" fill="#1a2230"/>
-      <image href="${uri}" xlink:href="${uri}" width="${metrics.cardW}" height="${metrics.cardH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#makerCard${i})" />
-      ${nameBandSvg(fonts, metrics.cardW, metrics.cardH, labelSize)}`;
+    if (slots[i]) {
+      try {
+        const uri = await cardToDataUri(slots[i] as Buffer, cell.w, cell.h);
+        inner = `<rect x="0" y="0" width="${cell.w}" height="${cell.h}" rx="12" fill="#1a2230"/>
+      <image href="${uri}" xlink:href="${uri}" width="${cell.w}" height="${cell.h}" preserveAspectRatio="xMidYMid slice" clip-path="url(#makerCard${i})" />
+      ${nameBandSvg(fonts, cell.w, cell.h, labelSize)}`;
+      } catch {
+        inner = creamCardSvg(fonts, cell.w, cell.h, labelSize);
+      }
     } else {
-      inner = creamCardSvg(fonts, metrics.cardW, metrics.cardH, labelSize);
+      inner = creamCardSvg(fonts, cell.w, cell.h, labelSize);
     }
-    stackParts.push(`<g transform="translate(${x},${metrics.y})">
-      <rect x="4" y="8" width="${metrics.cardW}" height="${metrics.cardH}" rx="12" fill="#000000" opacity="0.28"/>
-      ${inner}
-    </g>`);
+    gridParts.push(`<g transform="translate(${cell.x},${cell.y})">${inner}</g>`);
   }
 
-  const titleY = 720;
-  const noteY = 768;
   const outlined = [
-    textToPath(fonts.bold, MAKER_SHARE_EYEBROW, W / 2, 88, 26, "#9CA3AF", { anchor: "middle", letterSpacing: 6 }),
-    safeOutline(fonts.bold, setNameFit.text, W / 2, titleY, setNameFit.size, "#FFFFFF", { anchor: "middle" }),
+    textToPath(fonts.bold, MAKER_SHARE_EYEBROW, W / 2, A.headerY, 24, A.textMuted, { anchor: "middle", letterSpacing: 6 }),
+    safeOutline(fonts.bold, setNameFit.text, W / 2, A.titleY, setNameFit.size, A.textPrimary, { anchor: "middle" }),
     ...noteLines.map((line, i) =>
-      safeOutline(fonts.regular, line, W / 2, noteY + i * 34, 26, "#C5CBD6", { anchor: "middle" }),
+      safeOutline(fonts.regular, line, W / 2, A.noteY + i * 32, 24, A.textNote, { anchor: "middle" }),
     ),
-    textToPath(fonts.semibold, countText, W / 2, 860, 26, "#9CA3AF", { anchor: "middle" }),
-    ...(made ? [textToPath(fonts.semibold, made, W / 2, 896, 22, "#9CA3AF", { anchor: "middle" })] : []),
-    textToPath(fonts.bold, "PackPTS", 152, 978, 32, "#FFFFFF"),
-    textToPath(fonts.semibold, footerUrl, 1000, 978, 22, "#FFFFFF", { anchor: "end" }),
+    textToPath(fonts.semibold, countText, W / 2, A.gridBottom + 28, 24, A.textMuted, { anchor: "middle" }),
+    ...(made ? [textToPath(fonts.semibold, made, W / 2, A.gridBottom + 58, 20, A.textMuted, { anchor: "middle" })] : []),
+    textToPath(fonts.bold, "PackPTS", 152, A.footerY, 32, A.textPrimary),
+    textToPath(fonts.semibold, footerUrl, 1000, A.footerY, 22, A.textPrimary, { anchor: "end" }),
   ].join("\n  ");
 
   const desc = [
@@ -345,20 +347,20 @@ export async function buildMakerShareSvg(input: MakerShareInput): Promise<string
   <defs>
     <style type="text/css">${buildEmbeddedFontCss(fonts)}</style>
     <radialGradient id="makerGlow" cx="85%" cy="12%" r="55%">
-      <stop offset="0%" stop-color="#1e3a5f" stop-opacity="0.55"/>
+      <stop offset="0%" stop-color="${A.glow}" stop-opacity="0.55"/>
       <stop offset="100%" stop-color="#0b0f16" stop-opacity="0"/>
     </radialGradient>
     ${clipDefs.join("\n    ")}
   </defs>
 
-  <rect width="${W}" height="${H}" fill="#0b0f16"/>
+  <rect width="${W}" height="${H}" fill="${A.background}"/>
   <rect width="${W}" height="${H}" fill="url(#makerGlow)"/>
 
-  ${stackParts.join("\n  ")}
+  ${gridParts.join("\n  ")}
 
   ${outlined}
 
-  <g transform="translate(80, 940)">
+  <g transform="translate(${A.markX}, ${A.markY})">
     ${MASKED_P_MARK}
   </g>
 </svg>`;

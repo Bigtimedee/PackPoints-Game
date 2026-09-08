@@ -9,22 +9,23 @@ Not on draft, not mid-`/make` identify, not first DM, not collab publish (templa
 
 ## Canvas
 - **1080 × 1080** PNG, `#0b0f16` + soft blue radial glow (same delivery path as the score card)
-- Fonts: bundled Inter, outlined to SVG paths (no Railway system fonts)
+- Fonts: bundled **Inter**, outlined to SVG paths; **DejaVu Sans** is the documented fallback (Railway Alpine has neither — Inter ships in-repo)
+- Design tokens live in `server/contentFactory/makerShareAssets.ts` (crop, cream, bar, grid). v1 ships without Design polish; swap tokens there, do not block on a pass.
 
-## Layout (acceptance)
+## Layout (acceptance) — v1 compose
 | Zone | Content |
 |------|---------|
 | Header | `I MADE THIS SET` (all caps) |
 | Title + note | `{Set name}` + `{mixtape note}` from the published row (never invented) |
-| Stack | **3–8 of this set’s identified cards**, rendered as **masked cards in the same language as Daily 5** (`WHO IS THIS PLAYER?` name band, bottom 46%, `#0b0f16` @ 0.92). Prefer real thumbnails from published `card_photos`. |
-| Mask failure | Cream masked silhouette **per card** (`#F3E6C8` body + Daily 5 name band). **NEVER** default the whole canvas to stock fan `maker-set-1080.png`. |
+| Cards | **Prefer 3–8** of this set’s identified cards as a **grid** (1 row ≤4; 2 rows for 5–8). Per-card thumb: **card-aspect (2.5×3.5) or square** crop, **masked** (cream + **black** `#000000` redaction bar, or product mask pipeline). Inputs = whatever `/make` identify already stores (**JPEG/WebP**; HEIC normalized upstream). |
+| Mask failure | **Per missing mask:** cream silhouette + black redaction bar. **NEVER** default the canvas to stock fan `maker-set-1080.png`. |
 | Optional | `N sets made` — this maker’s real published-set count, **only** if the volume gate is unlocked |
 | Footer | Masked-P + **PackPTS** + `packpts.com/sets/{setSlug}` |
 
-## Stack rules
+## Card rules
 - Take `min(8, playable card count)` slots from the published set (publish already requires ≥5).
-- Each slot is either a redacted thumbnail or a cream silhouette. Never drop a slot into a crowd/fan illustration.
-- Masking floor = gameplay `DEFAULT_MASK_REGIONS` (yPct 54 / hPct 46) + Daily 5 label `WHO IS THIS PLAYER?`.
+- Each slot is either a redacted JPEG/WebP/PNG thumbnail or a cream silhouette. Never drop a slot into a crowd/fan illustration.
+- Masking floor = gameplay `DEFAULT_MASK_REGIONS` (yPct 54 / hPct 46) + Daily 5 label `WHO IS THIS PLAYER?` + solid black name bar.
 
 ## Honesty / gate
 - Only real published set data. No fake counts, no canned scores.

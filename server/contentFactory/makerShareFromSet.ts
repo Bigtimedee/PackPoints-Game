@@ -2,6 +2,7 @@
  * Load a published user set and render its maker-share PNG from live rows.
  * Surface A: POST /api/sets/create only. Per-card cream silhouette if mask fails.
  */
+import sharp from "sharp";
 import { db } from "../db";
 import { cardPhotos, gameSets, playableCards } from "@shared/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
@@ -13,6 +14,7 @@ import {
   type MakerCardSlot,
   type MakerShareInput,
 } from "./generateMakerShare";
+import { isMakerShareRasterFormat } from "./makerShareAssets";
 import { MAKER_SHARE_MAX_STACK, MAKER_SHARE_VOLUME_GATE } from "./makerShareSlug";
 import type { ScoreCardOutput } from "./generateScoreCard";
 
@@ -33,6 +35,16 @@ async function loadPhotoBuffer(imageUrl: string | null): Promise<Buffer | null> 
     .where(eq(cardPhotos.id, photoId))
     .limit(1);
   return photo?.data ?? null;
+}
+
+/** /make identify stores JPEG/WebP (HEIC normalized client-side). Anything else is a cream slot. */
+async function isMakerSharePhotoBuffer(buf: Buffer): Promise<boolean> {
+  try {
+    const meta = await sharp(buf, { failOn: "none" }).metadata();
+    return isMakerShareRasterFormat(meta.format);
+  } catch {
+    return false;
+  }
 }
 
 export async function loadPublishedSetShareSource(setId: string): Promise<PublishedSetShareSource | null> {
@@ -74,7 +86,7 @@ export async function loadMakerCardSlots(setId: string): Promise<MakerCardSlot[]
   for (const card of cards) {
     try {
       const raw = await loadPhotoBuffer(card.imageUrl);
-      if (!raw) {
+      if (!raw || !(await isMakerSharePhotoBuffer(raw))) {
         slots.push(null);
         continue;
       }

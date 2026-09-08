@@ -9,6 +9,7 @@ import {
   buildMakerShareSvg,
   generateMakerShare,
   redactCardForShare,
+  cropMakerCardThumb,
   parseCardPhotoId,
   cardCountLabel,
   containsForbiddenMakerShareCopy,
@@ -26,6 +27,11 @@ import {
   MAKER_SHARE_VOLUME_GATE,
   clampMakerStackCount,
 } from "../contentFactory/makerShareSlug";
+import {
+  MAKER_SHARE_ASSETS,
+  makerShareGridSlots,
+  isMakerShareRasterFormat,
+} from "../contentFactory/makerShareAssets";
 
 const TODAY = "2026-09-08";
 const SET_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
@@ -171,8 +177,8 @@ describe("maker share PNG contract", () => {
     const meta = await sharp(result.imagePath).metadata();
     expect(meta.width).toBe(1080);
     expect(meta.height).toBe(1080);
-    expect(await regionHasColor(result.imagePath, 250, 180, 500, 360, (r, g, b) => r < 100 && g > 60 && b > 150)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 140, 950, 340, 1000, (r, g, b) => r > 220 && g > 220 && b > 220)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 200, 250, 500, 500, (r, g, b) => r < 100 && g > 60 && b > 150)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 140, 950, 340, 1010, (r, g, b) => r > 220 && g > 220 && b > 220)).toBe(true);
   });
 
   it("uses a cream masked silhouette per failed card and never maker-set-1080.png", async () => {
@@ -187,6 +193,7 @@ describe("maker share PNG contract", () => {
       cardSlots: [masked, null, masked, null, masked],
     });
     expect(svg).toContain(CREAM_SILHOUETTE);
+    expect(svg).toContain(MAKER_SHARE_ASSETS.redactionBar);
     expect(svg).toContain(WHO_IS_THIS_PLAYER);
     expect(svg).toContain("data:image/jpeg;base64,");
     expect(svg).not.toContain(STOCK_FAN_ASSET);
@@ -232,5 +239,53 @@ describe("maker share PNG contract", () => {
     });
     expect(unlocked).toContain("3 sets made");
     expect(unlocked.toLowerCase()).not.toContain("maker rate");
+    expect(unlocked).toContain(CREAM_SILHOUETTE);
+    expect(unlocked).toContain(MAKER_SHARE_ASSETS.redactionBar);
+  });
+});
+
+describe("makerShareGridSlots", () => {
+  it("places 3–8 card-aspect thumbs in 1 or 2 rows", () => {
+    expect(MAKER_SHARE_ASSETS.cream).toBe(CREAM_SILHOUETTE);
+    expect(MAKER_SHARE_ASSETS.redactionBar).toBe("#000000");
+    expect(MAKER_SHARE_ASSETS.canvas).toBe(1080);
+    expect(MAKER_SHARE_ASSETS.crop).toBe("card");
+    expect(makerShareGridSlots(0)).toEqual([]);
+    expect(makerShareGridSlots(4)).toHaveLength(4);
+    expect(makerShareGridSlots(5)).toHaveLength(5);
+    expect(makerShareGridSlots(8)).toHaveLength(8);
+    expect(makerShareGridSlots(12)).toHaveLength(8);
+
+    const four = makerShareGridSlots(4);
+    expect(new Set(four.map((s) => s.y)).size).toBe(1);
+
+    const five = makerShareGridSlots(5);
+    expect(five[0].y).toBe(five[2].y);
+    expect(five[3].y).toBeGreaterThan(five[0].y);
+    expect(five[3].y).toBe(five[4].y);
+    const ratio = five[0].w / five[0].h;
+    expect(ratio).toBeCloseTo(2.5 / 3.5, 2);
+    expect(five.every((s) => s.y >= MAKER_SHARE_ASSETS.gridTop - 1)).toBe(true);
+    expect(five.every((s) => s.y + s.h <= MAKER_SHARE_ASSETS.gridBottom + 1)).toBe(true);
+  });
+});
+
+describe("cropMakerCardThumb", () => {
+  it("covers jpeg and webp identify inputs into a card-aspect jpeg", async () => {
+    const jpeg = await fakeCard({ r: 40, g: 110, b: 220 }, { r: 20, g: 220, b: 20 });
+    expect(isMakerShareRasterFormat((await sharp(jpeg).metadata()).format)).toBe(true);
+
+    const fromJpeg = await cropMakerCardThumb(jpeg, 100, 140);
+    const jpegMeta = await sharp(fromJpeg).metadata();
+    expect(jpegMeta.format).toBe("jpeg");
+    expect(jpegMeta.width).toBe(100);
+    expect(jpegMeta.height).toBe(140);
+
+    const webp = await sharp(jpeg).webp().toBuffer();
+    expect(isMakerShareRasterFormat((await sharp(webp).metadata()).format)).toBe(true);
+    const fromWebp = await cropMakerCardThumb(webp, 100, 140);
+    const webpMeta = await sharp(fromWebp).metadata();
+    expect(webpMeta.format).toBe("jpeg");
+    expect(webpMeta.width).toBe(100);
   });
 });
