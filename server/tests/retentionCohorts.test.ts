@@ -13,9 +13,11 @@ import { addPackptsDays, getPackptsDayKey, packptsMidnightUtc } from "@shared/pa
 import {
   computeRetentionFromFixture,
   computeRetentionRate,
+  fetchRetentionReport,
   isRetentionWindowMature,
   packptsIsoWeekStart,
 } from "../services/retentionCohorts";
+import { db } from "../db";
 
 /** Monday 2026-06-01 is a CT Monday. */
 const WEEK_A = "2026-06-01";
@@ -236,6 +238,23 @@ describe("retention cohort fixture math", () => {
     const row = report.cohorts.find((c) => c.cohortWeek === WEEK_A);
     expect(row?.cohortSize).toBe(1);
     expect(row?.d1Returned).toBe(1);
+  });
+
+  it("maps live event_log rows through the same fixture math", async () => {
+    // SQL already drops staff/bots; this proves the row → fixture mapping.
+    vi.mocked(db.execute).mockResolvedValueOnce({
+      rows: [
+        { user_id: "a", created_at: atDay(WEEK_A) },
+        { user_id: "a", created_at: atDay(addPackptsDays(WEEK_A, 1)) },
+        { user_id: "b", created_at: atDay(WEEK_A) },
+      ],
+    } as never);
+
+    const report = await fetchRetentionReport(atDay("2026-07-15"));
+    const row = report.cohorts.find((c) => c.cohortWeek === WEEK_A);
+    expect(row?.cohortSize).toBe(2);
+    expect(row?.d1Returned).toBe(1);
+    expect(row?.d1Rate).toBe(0.5);
   });
 
   it("uses CT day keys across a UTC-date boundary (late-evening CT)", () => {
