@@ -1,10 +1,8 @@
 /**
  * Public /sets cover + stack payloads. No player names.
+ * Kept free of db so unit tests can import this file without DATABASE_URL.
  * Locked: docs/SETS_POLISH.md
  */
-import { sql } from "drizzle-orm";
-import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
-import { db } from "../db";
 import { STOCK_FAN_ASSET } from "../contentFactory/makerShareSlug";
 
 export function isStockFanUrl(url: string | null | undefined): boolean {
@@ -73,22 +71,4 @@ export function sanitizeCoverCardUrls(value: unknown): string[] {
     .map(usablePublicImageUrl)
     .filter((url): url is string => !!url)
     .slice(0, 8);
-}
-
-/** completed_at is a varchar ISO/date prefix; compare as CT day keys. */
-export async function userPlayedSetToday(userId: string, setId: string): Promise<boolean> {
-  const today = getPackptsDayKey();
-  const tomorrow = addPackptsDays(today, 1);
-  const result = await db.execute(sql`
-    SELECT 1 AS hit
-    FROM game_sessions
-    WHERE user_id = ${userId}
-      AND status = 'completed'
-      AND (questions->0->'card'->>'gameSetId') = ${setId}
-      AND completed_at IS NOT NULL
-      AND completed_at >= ${today}
-      AND completed_at < ${tomorrow}
-    LIMIT 1
-  `);
-  return result.rows.length > 0;
 }

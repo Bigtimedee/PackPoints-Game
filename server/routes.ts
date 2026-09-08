@@ -52,7 +52,7 @@ import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES
 import { daily5Service } from "./services/daily5Service";
 import { createBeatMeFromSession } from "./services/daily5BeatMe";
 import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
-import { getPackptsDayKey } from "@shared/packptsDay";
+import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
@@ -73,7 +73,6 @@ import {
   sanitizeCoverCardUrls,
   toPublicPreviewCard,
   usablePublicImageUrl,
-  userPlayedSetToday,
 } from "./routes/userSetPreview";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
@@ -650,7 +649,23 @@ export async function registerRoutes(
       const previewCards = previewRows.map(toPublicPreviewCard);
 
       const viewerId = requestUserId(req as any);
-      const playedToday = viewerId ? await userPlayedSetToday(viewerId, resolved.id) : false;
+      let playedToday = false;
+      if (viewerId) {
+        const today = getPackptsDayKey();
+        const tomorrow = addPackptsDays(today, 1);
+        const played = await db.execute(sql`
+          SELECT 1 AS hit
+          FROM game_sessions
+          WHERE user_id = ${viewerId}
+            AND status = 'completed'
+            AND (questions->0->'card'->>'gameSetId') = ${resolved.id}
+            AND completed_at IS NOT NULL
+            AND completed_at >= ${today}
+            AND completed_at < ${tomorrow}
+          LIMIT 1
+        `);
+        playedToday = played.rows.length > 0;
+      }
 
       res.json({ ...resolved, shareImageUrl, previewCards, playedToday });
     } catch (error) {
