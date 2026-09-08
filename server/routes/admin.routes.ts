@@ -3,6 +3,7 @@ import { isAuthenticated } from "../auth";
 import { storage } from "../storage";
 import { adminService } from "../services/adminService";
 import { fetchMakerRateMetrics } from "../services/makingLayerMetrics";
+import { fetchAdminRetentionPayload } from "../services/retentionCohorts";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
 import { eq, sql, desc, and, gt, gte } from "drizzle-orm";
@@ -1088,6 +1089,25 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       console.error("[MakingLayer] metrics error:", error);
       res.status(500).json({ error: "Failed to get Making Layer metrics" });
+    }
+  });
+
+  // Admin-only weekly D1/D7/D30 + Maker Rate. Unpublished externally.
+  // Definition: first event_log day (not signup), exact CT day-N return.
+  // See server/services/retentionCohorts.ts.
+  app.get("/api/admin/retention", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const payload = await fetchAdminRetentionPayload();
+      res.json({
+        ...payload.report,
+        makerRate: payload.makerRate,
+        makers30d: payload.makers30d,
+        mau30d: payload.mau30d,
+        publishedSetsNonStaff: payload.publishedSetsNonStaff,
+      });
+    } catch (error) {
+      console.error("[Admin] retention error:", error);
+      res.status(500).json({ error: "Failed to get retention data" });
     }
   });
 
