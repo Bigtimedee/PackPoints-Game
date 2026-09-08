@@ -225,8 +225,20 @@ router.post("/api/collab/:id/publish", isAuthenticated, async (req: any, res: Re
       payload: { cardCount: approved.length, source: "collab", collabId: id },
     });
 
-    broadcastToCollab(id, { type: "collab:published", payload: { setId: newSet.id, setName: parsed.data.setName } });
-    res.json({ setId: newSet.id });
+    let shareImageUrl: string | undefined;
+    try {
+      const { onSetPublished, awaitScoreCard } = await import("../contentFactory/index");
+      const generated = await awaitScoreCard(onSetPublished({ setId: newSet.id, userId }).catch((err) => {
+        console.error("[ContentFactory] Maker share error:", err?.message);
+        return null;
+      }));
+      shareImageUrl = generated?.imageUrl || undefined;
+    } catch (cfErr) {
+      console.error("[ContentFactory] Maker share import error:", cfErr);
+    }
+
+    broadcastToCollab(id, { type: "collab:published", payload: { setId: newSet.id, setName: parsed.data.setName, shareImageUrl } });
+    res.json({ setId: newSet.id, shareImageUrl });
   } catch (err) {
     console.error("[Collab] POST /api/collab/:id/publish error:", err);
     res.status(500).json({ error: "Failed to publish collab set" });

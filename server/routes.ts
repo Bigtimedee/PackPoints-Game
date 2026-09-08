@@ -14,7 +14,7 @@ import {
   resetPasswordLimiter,
   cardIdentifyLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -459,7 +459,20 @@ export async function registerRoutes(
         isUserCreatedSet: true,
         payload: { cardCount: cards.length },
       });
-      res.json({ setId, setUrl: `/sets/${setId}`, cardCount: cards.length });
+
+      let shareImageUrl: string | undefined;
+      try {
+        const { onSetPublished, awaitScoreCard } = await import("./contentFactory/index");
+        const generated = await awaitScoreCard(onSetPublished({ setId, userId }).catch((err) => {
+          console.error("[ContentFactory] Maker share error:", err?.message);
+          return null;
+        }));
+        shareImageUrl = generated?.imageUrl || undefined;
+      } catch (cfErr) {
+        console.error("[ContentFactory] Maker share import error:", cfErr);
+      }
+
+      res.json({ setId, setUrl: `/sets/${setId}`, cardCount: cards.length, shareImageUrl });
     } catch (error) {
       console.error("[SnapToSet] create-set error:", error);
       res.status(500).json({ error: "Failed to create set" });
@@ -522,7 +535,18 @@ export async function registerRoutes(
       }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
 
       if (!set) return res.status(404).json({ error: "Set not found" });
-      res.json(set);
+
+      let shareImageUrl: string | undefined;
+      if (set.isUserCreated) {
+        const [asset] = await db.select({ metadata: contentAssets.metadata, imagePath: contentAssets.imagePath })
+          .from(contentAssets)
+          .where(eq(contentAssets.sourceEventId, `maker_set_${id}`))
+          .limit(1);
+        const url = (asset?.metadata as { imageUrl?: string } | null)?.imageUrl;
+        if (url) shareImageUrl = url;
+      }
+
+      res.json({ ...set, shareImageUrl });
     } catch (error) {
       console.error("[Sets] GET /api/sets/:id error:", error);
       res.status(500).json({ error: "Failed to get set" });

@@ -310,11 +310,12 @@ router.get("/api/content-assets/latest", async (req: Request, res: Response) => 
       return res.status(401).json({ message: "Unauthorized" });
     }
     const userId = getUserId(req)!;
-    const { matchId, challengeId } = req.query;
+    const { matchId, challengeId, setId } = req.query;
 
     let sourceEventId: string | undefined;
-    if (matchId) sourceEventId = `match_${matchId}`;
-    if (challengeId) sourceEventId = `daily5_${challengeId}`;
+    if (typeof matchId === "string" && matchId) sourceEventId = `match_${matchId}`;
+    if (typeof challengeId === "string" && challengeId) sourceEventId = `daily5_${challengeId}`;
+    if (typeof setId === "string" && setId) sourceEventId = `maker_set_${setId}`;
 
     if (sourceEventId) {
       const assets = await db.select()
@@ -347,13 +348,14 @@ router.post("/api/content-assets/retry", async (req: Request, res: Response) => 
       return res.status(401).json({ message: "Unauthorized" });
     }
     const userId = getUserId(req)!;
-    const { matchId, challengeId } = req.body || {};
+    const { matchId, challengeId, setId } = req.body || {};
 
     let sourceEventId: string | undefined;
     if (typeof matchId === "string" && matchId) sourceEventId = `match_${matchId}`;
     if (typeof challengeId === "string" && challengeId) sourceEventId = `daily5_${challengeId}`;
+    if (typeof setId === "string" && setId) sourceEventId = `maker_set_${setId}`;
     if (!sourceEventId) {
-      return res.status(400).json({ message: "matchId or challengeId is required" });
+      return res.status(400).json({ message: "matchId, challengeId, or setId is required" });
     }
 
     const [asset] = await db.select()
@@ -366,7 +368,7 @@ router.post("/api/content-assets/retry", async (req: Request, res: Response) => 
       .limit(1);
 
     if (!asset) {
-      return res.status(404).json({ message: "No score card to retry" });
+      return res.status(404).json({ message: "No share image to retry" });
     }
 
     const { ensureAssetImage } = await import("../contentFactory/index");

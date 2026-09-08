@@ -4214,7 +4214,7 @@ export type InsertReferralMilestone = z.infer<typeof insertReferralMilestoneSche
 export type ReferralMilestone = typeof referralMilestones.$inferSelect;
 
 export const contentAssetTypeEnum = pgEnum("content_asset_type", [
-  "SCORE_CARD", "DAILY5_RANK_CARD", "STREAK_BADGE", "LEADERBOARD_SPOTLIGHT",
+  "SCORE_CARD", "DAILY5_RANK_CARD", "STREAK_BADGE", "LEADERBOARD_SPOTLIGHT", "MAKER_SHARE_CARD",
 ]);
 
 export const contentAssets = pgTable("content_assets", {

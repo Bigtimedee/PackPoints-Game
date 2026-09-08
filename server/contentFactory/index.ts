@@ -4,6 +4,8 @@ import { contentAssets, users, type ContentAsset } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { generateScoreCard, generateStreakBadge, type ScoreCardInput } from "./generateScoreCard";
+import { generateMakerShareFromSet } from "./makerShareFromSet";
+import { makerShareSourceEventId } from "./generateMakerShare";
 
 const STREAK_MILESTONES = [3, 7, 14, 30];
 
@@ -115,6 +117,14 @@ export async function ensureAssetImage(
   if (asset.assetType === "STREAK_BADGE") {
     const streak = typeof meta.streak === "number" ? meta.streak : 0;
     const result = await generateStreakBadge(username, streak, date, asset.id);
+    return persistGeneratedCard(asset, result);
+  }
+
+  if (asset.assetType === "MAKER_SHARE_CARD") {
+    const setId = typeof meta.setId === "string" ? meta.setId : "";
+    if (!setId) return asset;
+    const result = await generateMakerShareFromSet(setId, asset.id);
+    if (!result) return asset;
     return persistGeneratedCard(asset, result);
   }
 
@@ -254,6 +264,59 @@ export async function onDaily5Finished(event: Daily5FinishedEvent): Promise<{ as
     return { assetId: asset.id, imageUrl: result.imageUrl };
   } catch (err: any) {
     console.error("[ContentFactory] onDaily5Finished error:", err?.message);
+    return null;
+  }
+}
+
+export interface SetPublishedEvent {
+  setId: string;
+  userId: string;
+}
+
+export async function onSetPublished(event: SetPublishedEvent): Promise<{ assetId: string; imageUrl: string } | null> {
+  try {
+    const sourceEventId = makerShareSourceEventId(event.setId);
+    const existing = await db.select({ id: contentAssets.id })
+      .from(contentAssets)
+      .where(and(
+        eq(contentAssets.assetType, "MAKER_SHARE_CARD"),
+        eq(contentAssets.userId, event.userId),
+        eq(contentAssets.sourceEventId, sourceEventId),
+      )).limit(1);
+
+    if (existing.length > 0) {
+      const [row] = await db.select()
+        .from(contentAssets).where(eq(contentAssets.id, existing[0].id)).limit(1);
+      if (!row) return null;
+      const ready = await ensureAssetImage(row);
+      return { assetId: ready.id, imageUrl: (ready.metadata as any)?.imageUrl || "" };
+    }
+
+    const [asset] = await db.insert(contentAssets).values({
+      assetType: "MAKER_SHARE_CARD",
+      userId: event.userId,
+      sourceEventId,
+      metadata: {
+        setId: event.setId,
+        date: new Date().toISOString().slice(0, 10),
+      },
+    }).returning();
+
+    const result = await generateMakerShareFromSet(event.setId, asset.id);
+    if (!result) {
+      console.error(`[ContentFactory] Maker share skipped — set ${event.setId} is not a user-created set`);
+      return null;
+    }
+
+    await db.update(contentAssets).set({
+      imagePath: result.imagePath,
+      metadata: { ...(asset.metadata as any), imageUrl: result.imageUrl, setId: event.setId },
+    }).where(eq(contentAssets.id, asset.id));
+
+    console.log(`[ContentFactory] Maker share generated: ${asset.id} for set ${event.setId}`);
+    return { assetId: asset.id, imageUrl: result.imageUrl };
+  } catch (err: any) {
+    console.error("[ContentFactory] onSetPublished error:", err?.message);
     return null;
   }
 }
