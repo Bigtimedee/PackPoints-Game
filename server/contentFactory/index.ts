@@ -2,6 +2,7 @@ import fs from "fs";
 import { db } from "../db";
 import { contentAssets, users, type ContentAsset } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
+import { getPackptsDayKey } from "@shared/packptsDay";
 import { generateScoreCard, generateStreakBadge, type ScoreCardInput } from "./generateScoreCard";
 
 const STREAK_MILESTONES = [3, 7, 14, 30];
@@ -68,7 +69,7 @@ function asFiniteNumber(value: unknown): number | undefined {
 
 function scoreCardInputFromMetadata(username: string, metadata: Record<string, unknown> | null, fallbackMode: string): ScoreCardInput {
   const meta = metadata || {};
-  const date = typeof meta.date === "string" ? meta.date : new Date().toISOString().slice(0, 10);
+  const date = typeof meta.date === "string" ? meta.date : getPackptsDayKey();
   return {
     username,
     score: asFiniteNumber(meta.score) ?? 0,
@@ -109,7 +110,7 @@ export async function ensureAssetImage(
   }
 
   const username = asset.userId ? await getUsername(asset.userId) : "Player";
-  const date = typeof meta.date === "string" ? meta.date : new Date().toISOString().slice(0, 10);
+  const date = typeof meta.date === "string" ? meta.date : getPackptsDayKey();
 
   if (asset.assetType === "STREAK_BADGE") {
     const streak = typeof meta.streak === "number" ? meta.streak : 0;
@@ -125,7 +126,7 @@ export async function ensureAssetImage(
 export async function onMatchFinished(event: MatchFinishedEvent): Promise<{ assetId: string; imageUrl: string } | null> {
   try {
     const sourceEventId = `match_${event.matchId}`;
-    const date = new Date().toISOString().slice(0, 10);
+    const date = getPackptsDayKey();
 
     const existing = await db.select({ id: contentAssets.id })
       .from(contentAssets)
@@ -219,6 +220,7 @@ export async function onDaily5Finished(event: Daily5FinishedEvent): Promise<{ as
         score: event.score,
         correctCount: event.correctCount,
         totalQuestions: event.totalQuestions,
+        mode: "daily5",
         rank: event.rank,
         streak: event.streak,
         date: event.date,

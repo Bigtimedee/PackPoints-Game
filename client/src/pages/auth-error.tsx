@@ -128,7 +128,7 @@ export default function AuthError() {
                   How to Log In
                 </p>
                 <ol className="text-muted-foreground space-y-1 list-decimal pl-4">
-                  <li>Navigate to the official PackPoints app URL</li>
+                  <li>Navigate to the official PackPTS app URL</li>
                   <li>Click "Log in" from there</li>
                 </ol>
               </div>

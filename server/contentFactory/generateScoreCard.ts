@@ -20,6 +20,7 @@
 import sharp from "sharp";
 import fs from "fs";
 import path from "path";
+import { getPackptsDayKey, isPackptsDayKey, PACKPTS_DAY_TZ } from "@shared/packptsDay";
 import { buildEmbeddedFontCss, loadScoreCardFonts, measureText, textToPath } from "./fonts";
 
 export const SHARE_URL_PREFIX = "/generated/share";
@@ -41,7 +42,7 @@ export function getShareOutputBase(): string {
 }
 
 function safeDateDir(date: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10);
+  return isPackptsDayKey(date) ? date : getPackptsDayKey();
 }
 
 function escapeXml(text: string): string {
@@ -49,8 +50,7 @@ function escapeXml(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+    .replace(/"/g, "&quot;");
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -77,7 +77,7 @@ export interface ScoreCardOutput {
 
 export const SCORE_CARD_SIZE = 1080;
 
-/** Design Sync palette — Beat-me / Daily 5 1080 card. */
+/** Design Sync palette — Beat-me / Daily 5 1080 card (SCORE_CARD_CONTRACT). */
 export const SCORE_CARD_COLORS = {
   canvas: "#0b0f16",
   gold: "#F5C518",
@@ -86,11 +86,64 @@ export const SCORE_CARD_COLORS = {
   muted: "#8F96A3",
 } as const;
 
-/** Real streak only. Omit when missing or zero — never invent a kit streak. */
-export function buildStreakOverlayLabel(streak: unknown): string | undefined {
-  const n = asCount(streak);
-  if (n < 1) return undefined;
-  return n === 1 ? "1-day streak" : `${n}-day streak`;
+/** Same CT day key as Daily 5 / streak / Beat-me (`shared/packptsDay.ts`). */
+export const SCORE_CARD_TZ = PACKPTS_DAY_TZ;
+
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"] as const;
+
+export const PIP_SIZE = 56;
+export const PIP_GAP = 14;
+export const PIP_Y = 560;
+
+const STRIP_TILE = 24;
+const STRIP_GAP = 6;
+const STRIP_COUNT = 5;
+const STRIP_X = 80;
+const STRIP_Y = 142;
+
+export function pipStartX(count: number): number {
+  const n = Math.max(1, count);
+  const totalW = n * PIP_SIZE + Math.max(0, n - 1) * PIP_GAP;
+  return Math.round((SCORE_CARD_SIZE - totalW) / 2);
+}
+
+/** Calendar-date formatter. PackPTS day keys (YYYY-MM-DD CT) never UTC-shift. */
+export function formatSessionDay(date: string): string {
+  if (isPackptsDayKey(date)) {
+    const month = Number(date.slice(5, 7));
+    const day = Number(date.slice(8, 10));
+    return `${MONTHS[month - 1]} ${day}`;
+  }
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: SCORE_CARD_TZ,
+  }).formatToParts(parsed);
+  const mon = (parts.find((p) => p.type === "month")?.value || "").toUpperCase();
+  const day = parts.find((p) => p.type === "day")?.value || "";
+  return `${mon} ${day}`.trim();
+}
+
+/** §3b quiet today identity. Daily 5: `SEP 8 · TODAY'S FIVE`. Other modes: date only. */
+export function formatSessionDayIdentity(date: string, isDaily5: boolean): string {
+  const day = formatSessionDay(date);
+  if (isDaily5) return day ? `${day} · TODAY'S FIVE` : "TODAY'S FIVE";
+  return day;
+}
+
+/** Mini masked-strip: five cream tiles + gold redaction (Design v2 strip language). */
+export function buildMaskedStripSvg(x = STRIP_X, y = STRIP_Y): string {
+  const barH = 5;
+  const barY = y + Math.round((STRIP_TILE - barH) / 2);
+  return Array.from({ length: STRIP_COUNT }, (_, i) => {
+    const tx = x + i * (STRIP_TILE + STRIP_GAP);
+    return [
+      `<rect x="${tx}" y="${y}" width="${STRIP_TILE}" height="${STRIP_TILE}" rx="4" fill="${SCORE_CARD_COLORS.ink}"/>`,
+      `<rect x="${tx}" y="${barY}" width="${STRIP_TILE}" height="${barH}" fill="${SCORE_CARD_COLORS.gold}"/>`,
+    ].join("");
+  }).join("");
 }
 
 const NUMBER_WORDS = [
@@ -117,56 +170,80 @@ function asCount(value: unknown): number {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
 
+/** Real streak only. Omit when missing or zero — never invent a kit streak. */
+export function buildStreakOverlayLabel(streak: unknown): string | undefined {
+  const n = asCount(streak);
+  if (n < 1) return undefined;
+  return n === 1 ? "1-day streak" : `${n}-day streak`;
+}
+
 export function buildPipsSvg(correctCount: number, totalQuestions: number): string {
   const count = Math.max(1, Math.min(totalQuestions > 0 ? totalQuestions : 5, 12));
   const filled = Math.max(0, Math.min(correctCount, count));
-  const size = 56;
-  const gap = 14;
-  const startX = 80;
-  const y = 560;
+  const startX = pipStartX(count);
   return Array.from({ length: count }, (_, i) => {
-    const x = startX + i * (size + gap);
+    const x = startX + i * (PIP_SIZE + PIP_GAP);
     if (i < filled) {
-      return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="${SCORE_CARD_COLORS.green}"/>`;
+      return `<rect x="${x}" y="${PIP_Y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="${SCORE_CARD_COLORS.green}"/>`;
     }
-    return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
+    return `<rect x="${x}" y="${PIP_Y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
   }).join("");
 }
 
 export function buildScoreCardSvg(input: ScoreCardInput): string {
   const W = SCORE_CARD_SIZE;
   const H = SCORE_CARD_SIZE;
+  const cx = W / 2;
   const correct = asCount(input.correctCount);
   const total = asCount(input.totalQuestions);
   const score = asCount(input.score);
   const headline = buildScoreCardHeadline(correct, total);
   const streakLabel = buildStreakOverlayLabel(input.streak);
-  const isDaily5 = input.mode === "daily5" || total === 5;
-  const eyebrow = isDaily5 ? "DAILY 5" : input.mode === "1v1" ? "1V1 MATCH" : "SOLO";
+  const isDaily5Mode = input.mode === "daily5";
+  const treatAsDaily5 = isDaily5Mode || total === 5;
+  const eyebrow = treatAsDaily5 ? "DAILY 5" : input.mode === "1v1" ? "1V1 MATCH" : "SOLO";
   const pointsLabel = `${score} pts`;
+  const identity = formatSessionDayIdentity(input.date, isDaily5Mode);
   const fonts = loadScoreCardFonts();
-  const { canvas, gold, ink, muted } = SCORE_CARD_COLORS;
+  const { ink, muted, gold, canvas } = SCORE_CARD_COLORS;
 
   const scoreNum = String(correct);
   const scoreDen = `/${total}`;
   const scoreSize = 200;
   const numWidth = measureText(fonts.bold, scoreNum, scoreSize);
+  const denWidth = measureText(fonts.bold, scoreDen, scoreSize);
+  const scoreX = cx - (numWidth + denWidth) / 2;
 
   const outlined = [
-    textToPath(fonts.bold, eyebrow, 80, 120, 28, muted, { letterSpacing: 6 }),
-    textToPath(fonts.bold, scoreNum, 80, 380, scoreSize, ink),
-    textToPath(fonts.bold, scoreDen, 80 + numWidth, 380, scoreSize, muted),
-    textToPath(fonts.semibold, pointsLabel, 80, 460, 36, muted),
-    streakLabel
-      ? textToPath(fonts.semibold, streakLabel, 80, 510, 28, muted)
+    textToPath(fonts.bold, eyebrow, 80, 108, 22, muted, { letterSpacing: 4 }),
+    identity
+      ? textToPath(fonts.bold, identity, 1000, 108, 22, muted, { anchor: "end", letterSpacing: 2 })
       : "",
-    textToPath(fonts.bold, headline, 80, 700, 48, ink),
+    textToPath(fonts.bold, scoreNum, scoreX, 400, scoreSize, ink),
+    textToPath(fonts.bold, scoreDen, scoreX + numWidth, 400, scoreSize, muted),
+    textToPath(fonts.semibold, pointsLabel, cx, 470, 32, muted, { anchor: "middle" }),
+    streakLabel
+      ? textToPath(fonts.semibold, streakLabel, cx, 518, 28, muted, { anchor: "middle" })
+      : "",
+    textToPath(fonts.bold, headline, cx, 700, 48, ink, { anchor: "middle" }),
     textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
     textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, ink, { anchor: "end" }),
   ].filter(Boolean).join("\n  ");
 
+  const strip = treatAsDaily5 ? buildMaskedStripSvg() : "";
+  const desc = [
+    eyebrow,
+    identity,
+    `${scoreNum}${scoreDen}`,
+    pointsLabel,
+    streakLabel,
+    headline,
+    "PackPTS",
+    "packpts.com/daily",
+  ].filter(Boolean).join(" | ");
+
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-  <desc>${escapeXml(`${eyebrow} | ${scoreNum}${scoreDen} | ${pointsLabel}${streakLabel ? ` | ${streakLabel}` : ""} | ${headline} | PackPTS | packpts.com/daily`)}</desc>
+  <desc>${escapeXml(desc)}</desc>
   <defs>
     <style type="text/css">${buildEmbeddedFontCss(fonts)}</style>
     <radialGradient id="glow" cx="85%" cy="12%" r="55%">
@@ -179,6 +256,8 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   <rect width="${W}" height="${H}" fill="url(#glow)"/>
 
   ${outlined}
+
+  ${strip}
 
   ${buildPipsSvg(correct, total)}
 
