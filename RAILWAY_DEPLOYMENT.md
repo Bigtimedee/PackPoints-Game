@@ -359,3 +359,7 @@ railway run node -e "console.log('DATABASE_URL:', process.env.DATABASE_URL ? '�
 
 Maker Rate on `GET /api/admin/metrics/making-layer` is `makers_30d / mau_30d` from `game_sets` and `event_log` (staff excluded). The same admin payload includes `publishedSetsNonStaff` (lifetime count of non-staff `is_user_created` sets) so the diligence ≥10 gate is visible. No env vars required; definition lives in `server/services/makingLayerMetrics.ts` and `ANALYTICS_DATA_DICTIONARY.md`. Maker Rate is admin-only — do not expose it on public surfaces.
 
+## Admin retention cohorts (ops note)
+
+`GET /api/admin/retention` (admin session) computes weekly D1/D7/D30 on demand from `event_log` (first-active CT day, exact day-N return, staff + bots excluded) and reuses `fetchMakerRateMetrics` for Maker Rate. UI is `/admin/metrics`. No new tables, env vars, or cron. Do not add these numbers to `/api/home-stats` or marketing. Definition: `server/services/retentionCohorts.ts`.
+

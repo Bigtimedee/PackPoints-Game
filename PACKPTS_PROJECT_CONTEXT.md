@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-08 (set-page cardCount honesty)
+**Last verified against codebase:** 2026-09-08 (admin retention D1/D7/D30 + Maker Rate)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -955,7 +955,7 @@ Public: `/`, `/game/:mode`, `/lobby`, `/match/:matchId`, `/queue`, `/daily5`, `/
 
 Protected: `/profile`, `/friends`
 
-Admin (20+): `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin/metrics`, `/admin/audit-log`, `/admin/redemptions`, `/admin/tiers`, `/admin/streaks`, `/admin/daily5`, `/admin/products`, `/admin/subscriptions`, `/admin/access`, `/admin/geo`, `/admin/playable-sets`, `/admin/card-sets`, `/admin/cardhedge-card`, `/admin/card-search`, `/admin/card-reports`, `/admin/card-telemetry`, `/admin/package-guardrails`, `/admin/growth`
+Admin (20+): `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin/metrics` (weekly D1/D7/D30 + Maker Rate, admin-only), `/admin/audit-log`, `/admin/redemptions`, `/admin/tiers`, `/admin/streaks`, `/admin/daily5`, `/admin/products`, `/admin/subscriptions`, `/admin/access`, `/admin/geo`, `/admin/playable-sets`, `/admin/card-sets`, `/admin/cardhedge-card`, `/admin/card-search`, `/admin/card-reports`, `/admin/card-telemetry`, `/admin/package-guardrails`, `/admin/growth`
 
 ### Data Fetching
 - **TanStack React Query v5** for all server state
@@ -1396,7 +1396,7 @@ Returns for the current week (Sun–Sat):
 |-------|--------|-------------|
 | `northStar.value` | `matches WHERE status=FINISHED` | WAP — unique players with ≥1 finished match |
 | `growth.newSignupsThisWeek` | `users` | Signups this week vs last week + WoW % |
-| `retention.d7Pct` | `users + user_presence` | D7 return rate for last week's cohort |
+| `retention.d7Pct` | `event_log` first-active cohort | Latest mature D7 (same definition as `/api/admin/retention`) |
 | `revenue.revenueUsd` | `purchase_events` | Stripe checkout completions sum |
 | `engagement.matchesPlayed` | `matches` | Total finished matches this week |
 | `engagement.ptsAwarded` | `ledger_entries` | Total EARN ledger credits this week |
@@ -1699,7 +1699,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] Chargeback → wallet freeze + REVERSAL ledger entry wired (Prompt 13): `charge.dispute.created` → `handleChargeDispute()` now calls `walletService.reversal()` after freezing user, mirrors `handleChargeRefunded` pattern
 - [x] Hold period on PURCHASED bucket points (Prompt 14): `packpts_bucket.redeemable_at` column + `packpts_expiration_policy.purchased_hold_days` config; `getUserOpenBuckets()` and `getUserOpenBucketsFIFO()` filter out buckets in hold; migration applied to prod
 - [x] Full attribution loop instrumented (Prompt 15): card_views table + POST /api/attribution/card-view; attributed_purchases table + GET /api/webhooks/epn-postback resolves EPN customId → outbound_click → user; migration applied to prod
-- [x] Admin retention cohort dashboard (Prompt 16): GET /api/admin/retention returns DAU/WAU/MAU (from user_presence.last_seen_at) + weekly D1/D7/D30 cohort retention rates (last 13 weeks); no new schema needed
+- [x] Admin retention cohort dashboard (Prompt 16 / P0 2026-09-08): `GET /api/admin/retention` (admin session only) returns weekly first-active D1/D7/D30 + Maker Rate (`fetchMakerRateMetrics`). Cohort = first `event_log` day (America/Chicago ISO week), not signup; D_N = activity on first-active CT date + N; staff (`is_admin`) excluded like Maker Rate, bots excluded; pending windows are null until Sunday+N has passed. Surfaced on `/admin/metrics`. Never on `/api/home-stats` or marketing. Replaced the old `users.created_at` + `user_presence.last_seen_at` “still around after N days” query. Definition + fixture tests: `server/services/retentionCohorts.ts`.
 - [x] First-session onboarding tutorial (Prompt 17): user_onboarding table; GET /api/onboarding/status, POST /api/onboarding/start (returns random playable guided card), POST /api/onboarding/complete (marks done, awards 50 PackPTS via idempotency key `onboarding_reward_${userId}`, returns nextAction hint); migration applied to prod
 - [x] Web push + email re-engagement (Prompt 18): push_subscriptions table; GET /api/push/vapid-public-key, POST/DELETE /api/push/subscribe, POST /api/admin/push/send-test; pushNotificationService.ts handles streak_at_risk / daily5_live / match_invite via VAPID (env: VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY); graceful no-op if VAPID unconfigured; web-push v3 package added
 - [x] Viral loop hardened (Prompt 21): POST /api/share/generate returns referral code + referralUrl + share text variants (twitter/general/sms); reuses recent INVITE link (24h window); registration auto-attributes SIGNUP event when referredByCode present + calls grantReferralWelcomeBonus; all idempotent via unique constraint + ledger idempotency key
@@ -1839,8 +1839,8 @@ These can all be derived from the production DB at the time of sale:
 | Metric | How to Compute |
 |---|---|
 | Weekly Active Players (WAP) | Users with ≥1 finished match in last 7d — north-star metric |
-| DAU / WAU / MAU | `user_presence.last_seen_at` window queries |
-| D7 / D30 Retention | Cohort SQL on `users.createdAt` vs `user_presence.last_seen_at` |
+| DAU / WAU / MAU | Admin DAU: distinct `event_log.user_id` that day (`adminService.getMetrics`). Maker Rate MAU: distinct `event_log` users in 30d, staff excluded. Do not use `user_presence` for published admin proof. |
+| D1 / D7 / D30 Retention | Weekly first-active cohorts from `event_log` (`GET /api/admin/retention`, `/admin/metrics`). First CT day with an event_log row; return = event on first-active + N. Staff + bots excluded. Pending = null. |
 | MRR | Sum of active `subscriptionProducts.priceCents` per billing cycle |
 | ARPU | MRR ÷ MAU |
 | Affiliate GMV | Sum of `attributedPurchases.salePriceCents` in trailing 90d |
@@ -1936,6 +1936,7 @@ Shipped July 2026 across seven sequential PRs (see `MAKING_LAYER_PROMPTS.md` for
 - `POST /api/sets/:setId/cards/:cardId/log-click` — logs to `outbound_clicks` with `pagePath: 'set-reveal'` for commerce attribution.
 - `server/routes/collab.ts` (mounted in routes.ts): `POST /api/collab/create`, `GET /api/collab/:id`, `POST /api/collab/:id/join`, `/nominate`, `/approve` (can't approve own nomination), `/publish` (host only, ≥5 approved cards; sets `coCreatorUserId`). Runtime maker-share PNG is Surface A (`/make` publish) only — collab may keep templates.
 - Admin: `GET /api/admin/metrics/making-layer` — sets/day (30d), maker rate (creators ÷ MAU, staff excluded, admin-only), `publishedSetsNonStaff` (lifetime count of `is_user_created` sets whose `created_by_user_id` is non-admin — diligence ≥10 gate), set play depth, top-10 sets with outbound click counts. Maker Rate is not a public metric.
+- Admin: `GET /api/admin/retention` — weekly first-active D1/D7/D30 (event_log, CT day keys) plus the same Maker Rate payload from `fetchMakerRateMetrics`. Admin-only; unpublished on marketing / home-stats.
 
 ### Play count convention
 

@@ -231,6 +231,8 @@ export async function registerRoutes(
       const totalGames = Number(gamesResult[0]?.count ?? 0);
       const totalCards = Number(cardsResult[0]?.total ?? 0);
 
+      // Public marketing surface — games + cards only. Never add D1/D7/D30,
+      // Maker Rate, DAU, or any admin retention field here.
       const data = {
         totalGames,
         totalCards,
@@ -11449,10 +11451,11 @@ export async function registerRoutes(
       weekStart.setHours(0, 0, 0, 0);
       const prevWeekStart = new Date(weekStart);
       prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-      const prevWeekEnd = weekStart;
+
+      const { fetchRetentionReport } = await import("./services/retentionCohorts");
 
       // Parallel queries
-      const [nsResult, growthResult, retentionResult, revenueResult, engagementResult, viralResult] =
+      const [nsResult, growthResult, retentionReport, revenueResult, engagementResult, viralResult] =
         await Promise.all([
           // North-Star: WAP with ≥1 completed match this week
           dbPool.query<{ wap: string }>(`
@@ -11469,18 +11472,9 @@ export async function registerRoutes(
             FROM users WHERE is_bot = FALSE
           `, [weekStart, prevWeekStart]),
 
-          // D7 retention: users who signed up 7-14 days ago and came back this week
-          dbPool.query<{ cohort_size: string; returned: string }>(`
-            WITH cohort AS (
-              SELECT id FROM users
-              WHERE created_at >= $1 AND created_at < $2 AND is_bot = FALSE
-            )
-            SELECT
-              COUNT(*) AS cohort_size,
-              COUNT(DISTINCT up.user_id) AS returned
-            FROM cohort c
-            LEFT JOIN user_presence up ON up.user_id = c.id AND up.last_seen_at >= $3
-          `, [prevWeekStart, prevWeekEnd, weekStart]),
+          // D7: latest mature first-active cohort (event_log, staff/bot excluded).
+          // Same definition as GET /api/admin/retention — not signup + user_presence.
+          fetchRetentionReport(now),
 
           // Revenue: purchase events this week (PURCHASE_CREDIT type = real purchase)
           dbPool.query<{ purchase_count: string; total_cents: string }>(`
@@ -11513,8 +11507,9 @@ export async function registerRoutes(
       const wap = Number(nsResult.rows[0]?.wap || 0);
       const thisWeekSignups = Number(growthResult.rows[0]?.this_week || 0);
       const lastWeekSignups = Number(growthResult.rows[0]?.last_week || 0);
-      const cohortSize = Number(retentionResult.rows[0]?.cohort_size || 0);
-      const retained = Number(retentionResult.rows[0]?.returned || 0);
+      const d7Headline = retentionReport.headlines.d7;
+      const cohortSize = d7Headline?.cohortSize ?? 0;
+      const retained = d7Headline?.returned ?? 0;
       const purchaseCount = Number(revenueResult.rows[0]?.purchase_count || 0);
       const revenueCents = Number(revenueResult.rows[0]?.total_cents || 0);
       const matchesPlayed = Number(engagementResult.rows[0]?.matches_played || 0);
@@ -11535,9 +11530,10 @@ export async function registerRoutes(
             : null,
         },
         retention: {
+          cohortWeek: d7Headline?.cohortWeek ?? null,
           cohortSize,
           retained,
-          d7Pct: cohortSize > 0 ? Math.round((retained / cohortSize) * 100) : null,
+          d7Pct: d7Headline ? Math.round(d7Headline.rate * 100) : null,
         },
         revenue: {
           purchaseCount,
@@ -11558,83 +11554,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Admin] scorecard error:", error);
       res.status(500).json({ error: "Failed to get scorecard" });
-    }
-  });
-
-  // GET /api/admin/retention - DAU/WAU/MAU + D1/D7/D30 cohort retention
-  app.get("/api/admin/retention", requireAdmin, async (_req, res) => {
-    try {
-      const { pool: dbPool } = await import("./db");
-
-      // DAU / WAU / MAU based on user_presence.last_seen_at
-      const activeCountsResult = await dbPool.query<{ period: string; count: string }>(`
-        SELECT period, COUNT(*) AS count FROM (
-          SELECT 'dau' AS period, user_id FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '1 day'
-          UNION ALL
-          SELECT 'wau', user_id FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '7 days'
-          UNION ALL
-          SELECT 'mau', user_id FROM user_presence WHERE last_seen_at >= NOW() - INTERVAL '30 days'
-        ) t GROUP BY period
-      `);
-
-      const activeCounts: Record<string, number> = { dau: 0, wau: 0, mau: 0 };
-      for (const row of activeCountsResult.rows) {
-        activeCounts[row.period] = Number(row.count);
-      }
-
-      // Cohort retention: weekly signup cohorts, D1/D7/D30 return rates
-      // A user "returned on day N" means they appeared in user_presence with last_seen_at >= signup + N days
-      const cohortResult = await dbPool.query<{
-        cohort_week: string;
-        cohort_size: string;
-        d1: string;
-        d7: string;
-        d30: string;
-      }>(`
-        WITH cohorts AS (
-          SELECT
-            id AS user_id,
-            DATE_TRUNC('week', created_at) AS cohort_week,
-            created_at AS signup_at
-          FROM users
-          WHERE created_at >= NOW() - INTERVAL '90 days'
-        ),
-        activity AS (
-          SELECT user_id, last_seen_at FROM user_presence
-        )
-        SELECT
-          TO_CHAR(c.cohort_week, 'YYYY-MM-DD') AS cohort_week,
-          COUNT(DISTINCT c.user_id)::text AS cohort_size,
-          COUNT(DISTINCT CASE WHEN a.last_seen_at >= c.signup_at + INTERVAL '1 day' THEN c.user_id END)::text AS d1,
-          COUNT(DISTINCT CASE WHEN a.last_seen_at >= c.signup_at + INTERVAL '7 days' THEN c.user_id END)::text AS d7,
-          COUNT(DISTINCT CASE WHEN a.last_seen_at >= c.signup_at + INTERVAL '30 days' THEN c.user_id END)::text AS d30
-        FROM cohorts c
-        LEFT JOIN activity a ON a.user_id = c.user_id
-        GROUP BY c.cohort_week
-        ORDER BY c.cohort_week DESC
-        LIMIT 13
-      `);
-
-      const cohorts = cohortResult.rows.map((row) => {
-        const size = Number(row.cohort_size);
-        return {
-          cohortWeek: row.cohort_week,
-          cohortSize: size,
-          d1: size > 0 ? Math.round((Number(row.d1) / size) * 100) : 0,
-          d7: size > 0 ? Math.round((Number(row.d7) / size) * 100) : 0,
-          d30: size > 0 ? Math.round((Number(row.d30) / size) * 100) : 0,
-        };
-      });
-
-      res.json({
-        dau: activeCounts.dau,
-        wau: activeCounts.wau,
-        mau: activeCounts.mau,
-        cohorts,
-      });
-    } catch (error) {
-      console.error("[Admin] retention error:", error);
-      res.status(500).json({ error: "Failed to get retention data" });
     }
   });
 

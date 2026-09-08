@@ -3,6 +3,10 @@ import { users, streakState } from "@shared/schema";
 import { eq, and, gte, lte, isNotNull } from "drizzle-orm";
 import { sendStreakReminderEmail, sendReEngagementEmail } from "./emailService";
 
+// Activity family matches admin retention cohorts (event_log / last-played),
+// not signup date. These loops do not compute D1/D7/D30 — see
+// server/services/retentionCohorts.ts for the weekly proof definition.
+
 let lastStreakReminderDate = "";
 let lastReEngagementDate = "";
 

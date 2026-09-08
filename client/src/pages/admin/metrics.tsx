@@ -2,7 +2,8 @@ import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Gamepad2, CreditCard, TrendingUp, Activity, Wallet, Paintbrush, BarChart2, Layers } from "lucide-react";
+import { Users, Gamepad2, CreditCard, TrendingUp, Activity, Wallet, Paintbrush, BarChart2, Layers, Repeat } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -35,6 +36,54 @@ interface MakingLayerMetrics {
   clicksBySet?: { setId: string; clicks: number }[];
 }
 
+interface RetentionHeadline {
+  cohortWeek: string;
+  cohortSize: number;
+  returned: number;
+  rate: number;
+}
+
+interface RetentionCohortRow {
+  cohortWeek: string;
+  cohortSize: number;
+  d1Returned: number;
+  d7Returned: number;
+  d30Returned: number;
+  d1Rate: number | null;
+  d7Rate: number | null;
+  d30Rate: number | null;
+}
+
+interface RetentionMetrics {
+  timezone: string;
+  asOfDay: string;
+  definition: {
+    cohort: string;
+    returnOn: string;
+    staff: string;
+    pending: string;
+  };
+  headlines: {
+    d1: RetentionHeadline | null;
+    d7: RetentionHeadline | null;
+    d30: RetentionHeadline | null;
+  };
+  cohorts: RetentionCohortRow[];
+  makerRate: number;
+  makers30d?: number;
+  mau30d?: number;
+}
+
+function formatRetentionPct(rate: number | null): string {
+  if (rate === null) return "—";
+  return `${(rate * 100).toFixed(1)}%`;
+}
+
+function formatReturned(returned: number, size: number, rate: number | null): string {
+  if (rate === null) return "—";
+  return `${returned} / ${size}`;
+}
+
 export default function AdminMetrics() {
   const [, navigate] = useLocation();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -60,6 +109,16 @@ export default function AdminMetrics() {
     queryFn: async () => {
       const response = await fetch("/api/admin/metrics/making-layer", { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch Making Layer metrics");
+      return response.json();
+    },
+    enabled: isAuthenticated && user?.isAdmin,
+  });
+
+  const { data: retention, isLoading: retentionLoading } = useQuery<RetentionMetrics>({
+    queryKey: ["/api/admin/retention"],
+    queryFn: async () => {
+      const response = await fetch("/api/admin/retention", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch retention");
       return response.json();
     },
     enabled: isAuthenticated && user?.isAdmin,
@@ -96,12 +155,174 @@ export default function AdminMetrics() {
     { title: "Active Subscriptions", value: data.activeSubscriptions?.toLocaleString() ?? "0", icon: CreditCard, color: "text-emerald-500", description: "Current paid subscribers" },
   ];
 
+  const makerRate = retention?.makerRate ?? mlData?.makerRate ?? 0;
+  const makers30d = retention?.makers30d ?? mlData?.makers30d;
+  const mau30d = retention?.mau30d ?? mlData?.mau30d;
+
   return (
     <div className="space-y-10">
+      <div className="space-y-4" data-testid="admin-retention-section">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Repeat className="h-5 w-5 text-primary" />
+              <h1 className="text-3xl font-bold" data-testid="text-admin-metrics-title">Weekly retention</h1>
+            </div>
+            <p className="text-muted-foreground mt-1">
+              Internal Eng proof — D1 / D7 / D30 + Maker Rate. Not published externally.
+            </p>
+          </div>
+          <Badge variant="outline" data-testid="badge-retention-internal">Admin only</Badge>
+        </div>
+
+        <Card>
+          <CardContent className="pt-4 text-sm text-muted-foreground space-y-1">
+            <p>
+              <span className="font-medium text-foreground">Cohort:</span>{" "}
+              first <code className="text-xs">event_log</code> day (America/Chicago), not signup.
+              Same activity spine as admin DAU and Maker Rate MAU.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">D_N:</span>{" "}
+              ≥1 event on first-active CT date + N. Day 0 is not D1. “—” means the week’s window is still open — do not read it as 0%.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Exclusions:</span>{" "}
+              staff (<code className="text-xs">is_admin</code>, same as Maker Rate) and bots.
+              Retention emails use last-played, not this table.
+            </p>
+            {retention && (
+              <p data-testid="text-retention-as-of">
+                As of {retention.asOfDay} ({retention.timezone}). Read cohort size before the rate.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {retentionLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : retention ? (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card data-testid="card-retention-d1">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">D1 (latest mature)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold font-mono">{formatRetentionPct(retention.headlines.d1?.rate ?? null)}</p>
+                  <CardDescription className="mt-1">
+                    {retention.headlines.d1
+                      ? `${retention.headlines.d1.returned} / ${retention.headlines.d1.cohortSize} · week of ${retention.headlines.d1.cohortWeek}`
+                      : "No closed D1 week yet"}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-retention-d7">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">D7 (latest mature)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold font-mono">{formatRetentionPct(retention.headlines.d7?.rate ?? null)}</p>
+                  <CardDescription className="mt-1">
+                    {retention.headlines.d7
+                      ? `${retention.headlines.d7.returned} / ${retention.headlines.d7.cohortSize} · week of ${retention.headlines.d7.cohortWeek}`
+                      : "No closed D7 week yet"}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-retention-d30">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">D30 (latest mature)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold font-mono">{formatRetentionPct(retention.headlines.d30?.rate ?? null)}</p>
+                  <CardDescription className="mt-1">
+                    {retention.headlines.d30
+                      ? `${retention.headlines.d30.returned} / ${retention.headlines.d30.cohortSize} · week of ${retention.headlines.d30.cohortWeek}`
+                      : "No closed D30 week yet"}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+              <Card data-testid="card-retention-maker-rate">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Maker Rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-3xl font-bold font-mono">{(makerRate * 100).toFixed(1)}%</p>
+                  <CardDescription className="mt-1">
+                    {makers30d != null && mau30d != null
+                      ? `${makers30d} makers / ${mau30d} MAU · 30d, staff excluded`
+                      : "% of 30d MAU who published ≥1 set in 30d"}
+                  </CardDescription>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Weekly first-active cohorts</CardTitle>
+                <CardDescription>
+                  Monday-start ISO week in America/Chicago. Newest week first.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {retention.cohorts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No first-active cohorts in the last 13 weeks
+                  </p>
+                ) : (
+                  <table className="w-full text-sm" data-testid="table-retention-cohorts">
+                    <thead>
+                      <tr className="border-b text-muted-foreground text-xs">
+                        <th className="text-left px-4 py-2 font-medium">Week (Mon)</th>
+                        <th className="text-right px-4 py-2 font-medium">Cohort</th>
+                        <th className="text-right px-4 py-2 font-medium">D1</th>
+                        <th className="text-right px-4 py-2 font-medium">D7</th>
+                        <th className="text-right px-4 py-2 font-medium">D30</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {retention.cohorts.map((row) => (
+                        <tr key={row.cohortWeek} className="border-b last:border-0 hover:bg-muted/40 transition-colors">
+                          <td className="px-4 py-2 font-mono">{row.cohortWeek}</td>
+                          <td className="px-4 py-2 text-right font-mono font-bold">{row.cohortSize}</td>
+                          <td className="px-4 py-2 text-right font-mono">
+                            {formatRetentionPct(row.d1Rate)}
+                            <span className="block text-xs text-muted-foreground font-normal">
+                              {formatReturned(row.d1Returned, row.cohortSize, row.d1Rate)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-right font-mono">
+                            {formatRetentionPct(row.d7Rate)}
+                            <span className="block text-xs text-muted-foreground font-normal">
+                              {formatReturned(row.d7Returned, row.cohortSize, row.d7Rate)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-right font-mono">
+                            {formatRetentionPct(row.d30Rate)}
+                            <span className="block text-xs text-muted-foreground font-normal">
+                              {formatReturned(row.d30Returned, row.cohortSize, row.d30Rate)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Retention data unavailable.</p>
+        )}
+      </div>
+
       {/* Platform Metrics */}
       <div className="space-y-4">
         <div>
-          <h1 className="text-3xl font-bold" data-testid="text-admin-metrics-title">Platform Metrics</h1>
+          <h2 className="text-xl font-bold">Platform Metrics</h2>
           <p className="text-muted-foreground">Key performance indicators for PackPTS</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

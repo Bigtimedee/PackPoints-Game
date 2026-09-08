@@ -53,3 +53,17 @@ Event types: `answer_submitted` (outcome, latency), `listing_click`, `set_starte
 Endpoint: `GET /api/admin/metrics/making-layer` → `{ makerRate, makers30d, mau30d, publishedSetsNonStaff, ... }` (admin session only; Maker Rate is not public).
 Implementation: `server/services/makingLayerMetrics.ts`.
 
+## Admin operational metrics (Retention — unpublished)
+
+| Metric | Formula | Source | Notes |
+|---|---|---|---|
+| **Cohort** | Users whose **first** `event_log` row falls in that ISO week (Mon–Sun, America/Chicago) | `event_log` ⨝ `users` | Not `users.created_at`. Matches admin DAU / Maker Rate activity spine. |
+| **D1 / D7 / D30** | `returned_N / cohort_size` | `event_log` | Returned = ≥1 event on first-active CT date + N. Day 0 is not D1. Rate is `null` until today (CT) > week Sunday + N. |
+| Staff / bots | `users.is_admin` and `users.is_bot` excluded | `users` | Staff exclusion matches Maker Rate. Bots are the AI fallback, not product users. |
+| **Maker Rate** (same page) | `makers_30d / mau_30d` | `fetchMakerRateMetrics` | Reused, not redefined. |
+
+Endpoint: `GET /api/admin/retention` (admin session only). UI: `/admin/metrics`. **Never** expose on `/api/home-stats` or marketing pages.
+Implementation: `server/services/retentionCohorts.ts`. Retention emails (`retentionEmails.ts`) use last-played (`streak_state.last_active_local_date`) — same activity family, not this cohort statistic.
+
+How to read a weekly row: cohort size first (small-n rates are real but noisy); ignore “—” (window open); D1/D7/D30 are independent; Maker Rate is a 30d conversion metric, not a retention substitute.
+
