@@ -20,10 +20,13 @@ Auth-before-upload stays **MAKE_FLOW**: signed-out tap still stores intent and r
 | Secondary CTA | `Choose from library` |
 | Soft auth (signed out) | `Sign in to photo your stack.` |
 
-## Example stack
-- Quiet **example** PC stack: **3–5** cream / masked sample cards (CSS silhouettes + redaction bar).
+## Example stack (match `make-empty-state-1080.png`)
+- Quiet **example** PC stack: **5** fanned cards. Cream + gold inner stroke; **one navy** mid-fan.
+- Front card: `DESK` + silhouette + eye-mask bar + `PTS` / `1990` footer. Soft drop shadow.
+- Badge centered above the fan: `EXAMPLE · NOT YOUR PC` (gold 40% stroke).
 - Clearly **not** the user’s published set.
 - **Never** mount Surface A share PNG, `maker-set-1080.png`, or `<ShareAssetCard>` as empty chrome.
+- Eyebrow is muted `#8F96A3` (not gold). CTAs are full-width stacked: fill `#2B6CEE` + dark outline.
 
 ## Actions
 - Primary **Take photo** — existing camera file input (`capture=environment`, single still).

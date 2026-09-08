@@ -4,7 +4,6 @@ import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { logMakeClientEvent } from "@/lib/makeFunnel";
@@ -12,11 +11,16 @@ import { prepareIdentifyImage } from "@/lib/prepareIdentifyImage";
 import { useAuth } from "@/hooks/use-auth";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
 import { MakeEmptyState } from "@/components/MakeEmptyState";
-import { MakeIdentifySlot } from "@/components/MakeIdentifySlot";
+import { MakeDraftBoard, MakeIdentifySlot } from "@/components/MakeIdentifySlot";
+import {
+  IDENTIFY_RETRY_COPY,
+  MAKE_BLUE,
+  MAKE_CANVAS,
+  MAKE_INK,
+  MAKE_MUTED,
+} from "@/lib/makeIdentifyUi";
 import {
   Loader2,
-  Camera,
-  Images,
   X,
   Check,
   Copy,
@@ -181,6 +185,34 @@ export default function MakePage() {
       /* private mode — still log */
     }
     void apiRequest("POST", "/api/make/start", {}).catch(() => {});
+  }, []);
+
+  // Design QA: #design-retry seeds the IDENTIFY_RETRY mock row (dev only).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (typeof window === "undefined" || window.location.hash !== "#design-retry") return;
+    const blank = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "preview.jpg", {
+      type: "image/jpeg",
+    });
+    setEntries([
+      {
+        id: "design-1",
+        file: blank,
+        status: "ok",
+        card: {
+          playerName: "Preview",
+          year: 1992,
+          brand: "Topps",
+          sport: "baseball",
+          setName: "Topps",
+          confidence: "high",
+          rawText: "",
+        },
+      },
+      { id: "design-2", file: blank, status: "loading" },
+      { id: "design-3", file: blank, status: "error", error: "Couldn't identify" },
+      { id: "design-4", file: blank, status: "queued" },
+    ]);
   }, []);
 
   // After auth redirect back to /make, resume the CTA intent once.
@@ -373,10 +405,15 @@ export default function MakePage() {
     toast({ title: "Link copied", description: "Share sheet wasn't available on this device." });
   }
 
+  const step1Canvas = step === 1;
+
   return (
-    <div className="min-h-screen bg-background p-4 pb-16">
+    <div
+      className={`min-h-screen p-4 pb-16 ${step1Canvas ? "" : "bg-background"}`}
+      style={step1Canvas ? { background: MAKE_CANVAS, color: MAKE_INK } : undefined}
+    >
       <div className="max-w-2xl mx-auto space-y-6">
-        {(step !== 1 || entries.length > 0) && (
+        {step !== 1 && (
           <div className="flex items-center gap-3 pt-4">
             <Paintbrush className="h-6 w-6 text-primary" />
             <div>
@@ -388,27 +425,28 @@ export default function MakePage() {
           </div>
         )}
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-2 text-sm">
-          {([1, 2, 3] as const).map((s) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
-                ${step === s ? "bg-primary text-primary-foreground" : step > s ? "bg-primary/30 text-primary" : "bg-muted text-muted-foreground"}`}
-              >
-                {step > s ? <Check className="h-3 w-3" /> : s}
+        {step !== 1 && (
+          <div className="flex items-center gap-2 text-sm">
+            {([1, 2, 3] as const).map((s) => (
+              <div key={s} className="flex items-center gap-2">
+                <div
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold
+                  ${step === s ? "bg-primary text-primary-foreground" : step > s ? "bg-primary/30 text-primary" : "bg-muted text-muted-foreground"}`}
+                >
+                  {step > s ? <Check className="h-3 w-3" /> : s}
+                </div>
+                <span className={step === s ? "font-medium" : "text-muted-foreground"}>
+                  {s === 1 ? "Upload" : s === 2 ? "Review" : "Publish"}
+                </span>
+                {s < 3 && <div className="w-8 h-px bg-border" />}
               </div>
-              <span className={step === s ? "font-medium" : "text-muted-foreground"}>
-                {s === 1 ? "Upload" : s === 2 ? "Review" : "Publish"}
-              </span>
-              {s < 3 && <div className="w-8 h-px bg-border" />}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
-        {/* Step 1 — Upload (two file-input CTAs only) */}
+        {/* Step 1 — EMPTY_STATE / IDENTIFY_RETRY */}
         {step === 1 && (
-          <div className={`space-y-4 ${entries.length === 0 ? "pt-4" : ""}`}>
+          <div className="space-y-4 pt-2">
             {entries.length === 0 ? (
               <MakeEmptyState
                 onTakePhoto={() => requireAuthThen("camera")}
@@ -419,43 +457,23 @@ export default function MakePage() {
                 onSignIn={() => setLocation(`/auth?redirect=${encodeURIComponent("/make")}`)}
               />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Card className="border-2">
-                  <CardContent className="flex flex-col items-center justify-center gap-3 py-6">
-                    <Camera className="h-7 w-7 text-muted-foreground" />
-                    <div className="text-center px-2">
-                      <p className="font-medium">Take photo</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Rear camera when the OS allows it. One card at a time.
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => requireAuthThen("camera")}
-                      disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
-                    >
-                      Take photo
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-2 border-dashed">
-                  <CardContent className="flex flex-col items-center justify-center gap-3 py-6">
-                    <Images className="h-7 w-7 text-muted-foreground" />
-                    <div className="text-center px-2">
-                      <p className="font-medium">Choose from library</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Up to {MAX_LIBRARY_PICK} stills. HEIC converts on device.
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => requireAuthThen("library")}
-                      disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
-                    >
-                      Choose from library
-                    </Button>
-                  </CardContent>
-                </Card>
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3 pt-1">
+                  <p className="text-[11px] font-semibold tracking-[0.22em]" style={{ color: MAKE_MUTED }}>
+                    {IDENTIFY_RETRY_COPY.eyebrow}
+                  </p>
+                  <p className="text-[11px]" style={{ color: MAKE_MUTED }}>
+                    {IDENTIFY_RETRY_COPY.crumb}
+                  </p>
+                </div>
+                <div>
+                  <h1 className="text-[1.85rem] font-bold leading-tight" style={{ color: MAKE_INK }}>
+                    {IDENTIFY_RETRY_COPY.headline}
+                  </h1>
+                  <p className="mt-2 text-sm" style={{ color: MAKE_MUTED }}>
+                    {IDENTIFY_RETRY_COPY.subline}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -486,72 +504,97 @@ export default function MakePage() {
             />
 
             {entries.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center" data-testid="text-make-empty-hint">
-                Snap at least 5 cards. Identify runs one photo at a time.
-              </p>
-            )}
-
-            {entries.length === 0 && (
-              <Card className="bg-primary/5 border-primary/20">
-                <CardContent className="flex items-center justify-between gap-3 py-4">
-                  <div className="flex items-center gap-3">
-                    <Users2 className="h-5 w-5 text-primary shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium">Make it together</p>
-                      <p className="text-xs text-muted-foreground">
-                        Invite a friend — you nominate cards, they approve.
-                      </p>
-                    </div>
+              <div
+                className="flex items-center justify-between gap-3 rounded-xl border px-3 py-3"
+                style={{ borderColor: "rgba(143, 150, 163, 0.2)" }}
+              >
+                <div className="flex items-center gap-3">
+                  <Users2 className="h-4 w-4 shrink-0" style={{ color: MAKE_MUTED }} />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: MAKE_INK }}>
+                      Make it together
+                    </p>
+                    <p className="text-xs" style={{ color: MAKE_MUTED }}>
+                      Invite a friend — you nominate cards, they approve.
+                    </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!isAuthenticated) {
-                        setLocation(`/auth?redirect=${encodeURIComponent("/make")}`);
-                        return;
-                      }
-                      startCollabMutation.mutate();
-                    }}
-                    disabled={startCollabMutation.isPending}
-                  >
-                    {startCollabMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      "Start"
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {entries.length > 0 && (
-              <div className="grid grid-cols-2 gap-3">
-                {entries.map((entry) => (
-                  <MakeIdentifySlot
-                    key={entry.id}
-                    fileName={entry.file.name}
-                    status={entry.status}
-                    card={entry.card}
-                    detail={entry.error}
-                    onRemove={() => removeEntry(entry.id)}
-                    onTryAgain={() => retryEntry(entry)}
-                    onSkip={() => skipEntry(entry.id)}
-                  />
-                ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-transparent"
+                  style={{ color: MAKE_INK, borderColor: "rgba(143, 150, 163, 0.35)" }}
+                  onClick={() => {
+                    if (!isAuthenticated) {
+                      setLocation(`/auth?redirect=${encodeURIComponent("/make")}`);
+                      return;
+                    }
+                    startCollabMutation.mutate();
+                  }}
+                  disabled={startCollabMutation.isPending}
+                >
+                  {startCollabMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Start"
+                  )}
+                </Button>
               </div>
             )}
 
             {entries.length > 0 && (
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-muted-foreground">
-                  {okCards.length} card{okCards.length !== 1 ? "s" : ""} identified
-                  {loadingCount > 0 && ` · ${loadingCount} in queue…`}
-                  {okCards.length > 0 && okCards.length < 5 && " · need at least 5"}
-                </p>
-                <Button disabled={!canProceedToReview} onClick={() => setStep(2)}>
-                  Review Cards →
-                </Button>
+              <MakeDraftBoard count={entries.length}>
+                {entries.map((entry, index) => (
+                  <MakeIdentifySlot
+                    key={entry.id}
+                    index={index}
+                    file={entry.file}
+                    status={entry.status}
+                    card={entry.card}
+                    detail={entry.error}
+                    onTryAgain={() => retryEntry(entry)}
+                    onSkip={() => skipEntry(entry.id)}
+                  />
+                ))}
+              </MakeDraftBoard>
+            )}
+
+            {entries.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex gap-3 text-sm">
+                  <button
+                    type="button"
+                    className="underline-offset-2 hover:underline"
+                    style={{ color: MAKE_MUTED }}
+                    disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    onClick={() => requireAuthThen("camera")}
+                  >
+                    Take photo
+                  </button>
+                  <button
+                    type="button"
+                    className="underline-offset-2 hover:underline"
+                    style={{ color: MAKE_MUTED }}
+                    disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    onClick={() => requireAuthThen("library")}
+                  >
+                    Choose from library
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm" style={{ color: MAKE_MUTED }}>
+                    {okCards.length} identified
+                    {okCards.length > 0 && okCards.length < 5 && " · need 5"}
+                  </p>
+                  <Button
+                    disabled={!canProceedToReview}
+                    onClick={() => setStep(2)}
+                    className="text-white border-0"
+                    style={{ background: canProceedToReview ? MAKE_BLUE : undefined }}
+                  >
+                    Review Cards →
+                  </Button>
+                </div>
               </div>
             )}
           </div>

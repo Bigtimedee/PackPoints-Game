@@ -8,7 +8,9 @@ Pipeline stays sequential (one identify at a time). A failure must not block lat
 |--------|-------|--------|
 | `queued` | `Queued` | Quiet / muted |
 | `loading` | `Identifying…` | Spinner + muted |
-| `ok` | Success | Green check `#22C55E` + identified name |
+| `ok` | `Saved` | Green check `#22C55E` on thumb + `{year} {brand}` |
+
+Draft chrome (match `make-identify-retry-1080.png`): headline `Identifying your stack`; subline `One card at a time. Failed slots stay actionable — skip anytime.`; board `Draft • N cards` + `Sequential`. Failed: gold 40% border, **Try again** `#2B6CEE` over **Skip** text.
 | `error` | `Couldn't identify` | Quiet border (optional gold at 40%) |
 
 ## Failed slot

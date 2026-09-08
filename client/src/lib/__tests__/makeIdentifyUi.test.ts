@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   IDENTIFY_RETRY_COPY,
   MAKE_EMPTY_COPY,
+  draftBoardTitle,
+  draftSlotTitle,
   identifySlotChrome,
 } from "../makeIdentifyUi";
 
@@ -34,6 +36,7 @@ describe("Design IDENTIFY_RETRY chrome", () => {
       success: false,
     });
     expect(identifySlotChrome("ok")).toMatchObject({
+      label: IDENTIFY_RETRY_COPY.saved,
       success: true,
       showTryAgain: false,
       failBorder: false,
@@ -48,5 +51,10 @@ describe("Design IDENTIFY_RETRY chrome", () => {
     expect(IDENTIFY_RETRY_COPY.tryAgain).toBe("Try again");
     expect(IDENTIFY_RETRY_COPY.skip).toBe("Skip");
     expect(IDENTIFY_RETRY_COPY.failed).toBe("Couldn't identify");
+    expect(IDENTIFY_RETRY_COPY.headline).toBe("Identifying your stack");
+    expect(IDENTIFY_RETRY_COPY.saved).toBe("Saved");
+    expect(draftBoardTitle(4)).toBe("Draft • 4 cards");
+    expect(draftSlotTitle("ok", { year: 1992, brand: "Topps" }, 0)).toBe("1992 Topps");
+    expect(draftSlotTitle("error", undefined, 2)).toBe("Photo 03");
   });
 });

@@ -19,9 +19,34 @@ export const IDENTIFY_RETRY_COPY = {
   failed: "Couldn't identify",
   tryAgain: "Try again",
   skip: "Skip",
+  saved: "Saved",
+  eyebrow: "SNAP-TO-SET",
+  headline: "Identifying your stack",
+  subline: "One card at a time. Failed slots stay actionable — skip anytime.",
+  sequential: "Sequential",
+  crumb: "/make · draft",
 } as const;
 
 export type IdentifySlotStatus = "queued" | "loading" | "ok" | "error";
+
+export function draftBoardTitle(count: number): string {
+  return `Draft • ${count} card${count === 1 ? "" : "s"}`;
+}
+
+export function draftPhotoLabel(index: number): string {
+  return `Photo ${String(index + 1).padStart(2, "0")}`;
+}
+
+export function draftSlotTitle(
+  status: IdentifySlotStatus,
+  card: { year?: number; brand?: string } | undefined,
+  index: number,
+): string {
+  if (status === "ok" && card && (card.year || card.brand)) {
+    return [card.year, card.brand].filter(Boolean).join(" ");
+  }
+  return draftPhotoLabel(index);
+}
 
 export interface IdentifySlotChrome {
   label: string | null;
@@ -51,7 +76,7 @@ export function identifySlotChrome(status: IdentifySlotStatus): IdentifySlotChro
       };
     case "ok":
       return {
-        label: null,
+        label: IDENTIFY_RETRY_COPY.saved,
         showTryAgain: false,
         showSkip: false,
         success: true,
@@ -75,5 +100,8 @@ export const MAKE_INK = "#F0F2F5";
 export const MAKE_MUTED = "#8F96A3";
 export const MAKE_GOLD = "#F5C518";
 export const MAKE_GREEN = "#22C55E";
+export const MAKE_BLUE = "#2B6CEE";
+export const MAKE_NAVY = "#1B2838";
+export const MAKE_PANEL = "#12171F";
 export const MAKE_CREAM = "#F3E6C8";
 export const MAKE_CREAM_ALT = "#E2D3B3";
