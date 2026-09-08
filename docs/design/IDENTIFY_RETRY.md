@@ -28,6 +28,15 @@ Draft chrome (match `make-identify-retry-1080.png`): headline `Identifying your 
 - Canvas / page tokens as EMPTY_STATE: ink `#F0F2F5`, muted `#8F96A3`, gold `#F5C518` at 40% on the fail border.
 - Success check `#22C55E` only. No red error flash.
 
+## Staff QA (Design screenshot, no upload)
+Staff/admin (`users.is_admin`) can seed **one** Failed slot without calling identify:
+
+- `https://packpts.com/make?qaIdentifyFail=1`
+- `https://packpts.com/make?qa=identify-fail`
+- One-shot `sessionStorage` / `localStorage` key `packpts:make:qaIdentifyFail` = `1` (consumed after inject)
+
+Non-staff: param and storage are ignored with no toast, redirect, or empty-state change. **Try again** on the QA stub stays Failed (no identify). **Skip** removes the slot. Dev-only `#design-retry` still seeds the four-state mock row.
+
 ## Non-goals
 - Parallel identify
 - Changing `POST /api/sets/identify-card` or publish gates (≥5 ok cards)

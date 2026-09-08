@@ -43,5 +43,8 @@ Auth chrome (PackPTS mark / Signed in) is the existing app header — do not dup
 
 No alarm red. No toast-per-failure. Sequential queue only (IDENTIFY_RETRY).
 
+## Staff QA (no file picker)
+Admin session + `?qaIdentifyFail=1` or `?qa=identify-fail` injects one Failed slot (`Couldn't identify` + Try again + Skip) so Design can screenshot IDENTIFY_RETRY without Auto-review / `/auth`. Non-admin: ignore silently. Optional one-shot storage: `packpts:make:qaIdentifyFail=1`.
+
 ## Out of scope
 Wizard steps 2–3 (review / publish) keep existing chrome. Collab (“Make it together”) stays below empty CTAs, quiet. Identify / publish APIs unchanged.
