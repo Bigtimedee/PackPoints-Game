@@ -77,6 +77,22 @@ export interface ScoreCardOutput {
 
 export const SCORE_CARD_SIZE = 1080;
 
+/** Design Sync palette — Beat-me / Daily 5 1080 card. */
+export const SCORE_CARD_COLORS = {
+  canvas: "#0b0f16",
+  gold: "#F5C518",
+  green: "#22C55E",
+  ink: "#F0F2F5",
+  muted: "#8F96A3",
+} as const;
+
+/** Real streak only. Omit when missing or zero — never invent a kit streak. */
+export function buildStreakOverlayLabel(streak: unknown): string | undefined {
+  const n = asCount(streak);
+  if (n < 1) return undefined;
+  return n === 1 ? "1-day streak" : `${n}-day streak`;
+}
+
 const NUMBER_WORDS = [
   "None", "One", "Two", "Three", "Four", "Five",
   "Six", "Seven", "Eight", "Nine", "Ten",
@@ -111,7 +127,7 @@ export function buildPipsSvg(correctCount: number, totalQuestions: number): stri
   return Array.from({ length: count }, (_, i) => {
     const x = startX + i * (size + gap);
     if (i < filled) {
-      return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="#22C55E"/>`;
+      return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="${SCORE_CARD_COLORS.green}"/>`;
     }
     return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
   }).join("");
@@ -124,10 +140,12 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const total = asCount(input.totalQuestions);
   const score = asCount(input.score);
   const headline = buildScoreCardHeadline(correct, total);
+  const streakLabel = buildStreakOverlayLabel(input.streak);
   const isDaily5 = input.mode === "daily5" || total === 5;
   const eyebrow = isDaily5 ? "DAILY 5" : input.mode === "1v1" ? "1V1 MATCH" : "SOLO";
   const pointsLabel = `${score} pts`;
   const fonts = loadScoreCardFonts();
+  const { canvas, gold, ink, muted } = SCORE_CARD_COLORS;
 
   const scoreNum = String(correct);
   const scoreDen = `/${total}`;
@@ -135,26 +153,29 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const numWidth = measureText(fonts.bold, scoreNum, scoreSize);
 
   const outlined = [
-    textToPath(fonts.bold, eyebrow, 80, 120, 28, "#8F96A3", { letterSpacing: 6 }),
-    textToPath(fonts.bold, scoreNum, 80, 380, scoreSize, "#F0F2F5"),
-    textToPath(fonts.bold, scoreDen, 80 + numWidth, 380, scoreSize, "#8F96A3"),
-    textToPath(fonts.semibold, pointsLabel, 80, 460, 36, "#8F96A3"),
-    textToPath(fonts.bold, headline, 80, 700, 48, "#F0F2F5"),
-    textToPath(fonts.bold, "PackPTS", 152, 978, 32, "#F0F2F5"),
-    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, "#F0F2F5", { anchor: "end" }),
-  ].join("\n  ");
+    textToPath(fonts.bold, eyebrow, 80, 120, 28, muted, { letterSpacing: 6 }),
+    textToPath(fonts.bold, scoreNum, 80, 380, scoreSize, ink),
+    textToPath(fonts.bold, scoreDen, 80 + numWidth, 380, scoreSize, muted),
+    textToPath(fonts.semibold, pointsLabel, 80, 460, 36, muted),
+    streakLabel
+      ? textToPath(fonts.semibold, streakLabel, 80, 510, 28, muted)
+      : "",
+    textToPath(fonts.bold, headline, 80, 700, 48, ink),
+    textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
+    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, ink, { anchor: "end" }),
+  ].filter(Boolean).join("\n  ");
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-  <desc>${escapeXml(`${eyebrow} | ${scoreNum}${scoreDen} | ${pointsLabel} | ${headline} | PackPTS | packpts.com/daily`)}</desc>
+  <desc>${escapeXml(`${eyebrow} | ${scoreNum}${scoreDen} | ${pointsLabel}${streakLabel ? ` | ${streakLabel}` : ""} | ${headline} | PackPTS | packpts.com/daily`)}</desc>
   <defs>
     <style type="text/css">${buildEmbeddedFontCss(fonts)}</style>
     <radialGradient id="glow" cx="85%" cy="12%" r="55%">
       <stop offset="0%" stop-color="#1e3a5f" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#0b0f16" stop-opacity="0"/>
+      <stop offset="100%" stop-color="${canvas}" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
-  <rect width="${W}" height="${H}" fill="#0b0f16"/>
+  <rect width="${W}" height="${H}" fill="${canvas}"/>
   <rect width="${W}" height="${H}" fill="url(#glow)"/>
 
   ${outlined}
@@ -164,9 +185,9 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   <g transform="translate(80, 940)">
     <g transform="scale(0.0546875)">
       <!-- Locked masked-P mark: white P + gold bar on dark (not yellow-P-on-white) -->
-      <rect width="1024" height="1024" fill="#0b0f16"/>
+      <rect width="1024" height="1024" fill="${canvas}"/>
       <path fill="#ffffff" fill-rule="evenodd" d="M292 196 H560 C720 196 820 280 820 420 C820 560 720 644 560 644 H452 V828 H292 Z M452 340 V500 H548 C620 500 668 470 668 420 C668 370 620 340 548 340 Z"/>
-      <rect x="292" y="448" width="528" height="96" fill="#F5C518"/>
+      <rect x="292" y="448" width="528" height="96" fill="${gold}"/>
     </g>
   </g>
 </svg>`;

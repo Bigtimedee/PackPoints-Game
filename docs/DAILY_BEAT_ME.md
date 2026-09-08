@@ -53,3 +53,7 @@ TTL = that CT day key. If `d` is not today’s CT key → **stale**. Recipient s
 - `GET /api/daily5/beat-me?challenge=` — `{ status: active\|stale\|invalid, puzzleDay, today, correctCount, displayName }`
 
 Helpers: `shared/packptsDay.ts`, `server/lib/daily5BeatMeToken.ts`, `client/src/lib/dailyBeatMe.ts`.
+
+## Share image (v1)
+
+Challenge share still uses the **1080×1080** score card (`docs/SCORE_CARD_CONTRACT.md`). Live overlay is the session `X/5` (never kit 4/5) plus optional real `{n}-day streak`. Palette: canvas `#0b0f16`, gold `#F5C518`, green `#22C55E`, ink `#F0F2F5`, muted `#8F96A3`. Corner mark is the masked-P (white P + gold bar). The PNG may say `packpts.com/daily`; the href copied/shared is the challenge token URL.

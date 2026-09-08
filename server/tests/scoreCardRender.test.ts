@@ -6,7 +6,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
-import { generateScoreCard, buildScoreCardSvg, buildPipsSvg, SCORE_CARD_SIZE } from "../contentFactory/generateScoreCard";
+import { generateScoreCard, buildScoreCardSvg, buildPipsSvg, buildStreakOverlayLabel, SCORE_CARD_SIZE, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 
 const TODAY = "2026-09-05";
@@ -59,6 +59,54 @@ describe("buildPipsSvg()", () => {
     const svg = buildPipsSvg(3, 5);
     expect((svg.match(/fill="#22C55E"/g) || []).length).toBe(3);
     expect((svg.match(/fill="none"/g) || []).length).toBe(2);
+  });
+});
+
+describe("Beat-me 1080 palette + streak overlay", () => {
+  it("locks Design Sync colors and never invents a streak", () => {
+    expect(SCORE_CARD_COLORS).toEqual({
+      canvas: "#0b0f16",
+      gold: "#F5C518",
+      green: "#22C55E",
+      ink: "#F0F2F5",
+      muted: "#8F96A3",
+    });
+    expect(buildStreakOverlayLabel(undefined)).toBeUndefined();
+    expect(buildStreakOverlayLabel(0)).toBeUndefined();
+    expect(buildStreakOverlayLabel(1)).toBe("1-day streak");
+    expect(buildStreakOverlayLabel(4)).toBe("4-day streak");
+  });
+
+  it("overlays a real streak on the 1080 card and keeps packpts.com/daily as visual CTA", () => {
+    const svg = buildScoreCardSvg({
+      username: "dave",
+      score: 400,
+      correctCount: 4,
+      totalQuestions: 5,
+      mode: "daily5",
+      streak: 4,
+      date: TODAY,
+    });
+    expect(svg).toContain('width="1080"');
+    expect(svg).toContain('height="1080"');
+    expect(svg).toContain("4/5");
+    expect(svg).toContain("4-day streak");
+    expect(svg).toContain("#0b0f16");
+    expect(svg).toContain("#F5C518");
+    expect(svg).toContain("#22C55E");
+    expect(svg).toContain("#F0F2F5");
+    expect(svg).toContain("#8F96A3");
+    expect(svg).toContain("packpts.com/daily");
+    expect(svg).not.toContain("three-square");
+    const noStreak = buildScoreCardSvg({
+      username: "dave",
+      score: 400,
+      correctCount: 4,
+      totalQuestions: 5,
+      mode: "daily5",
+      date: TODAY,
+    });
+    expect(noStreak).not.toContain("streak");
   });
 });
 

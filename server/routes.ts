@@ -1405,6 +1405,12 @@ export async function registerRoutes(
       try {
         const { onDaily5Finished, awaitScoreCard } = await import("./contentFactory/index");
         const date = getPackptsDayKey();
+        const [streakRow] = await db.select({
+          currentDays: streakState.currentDays,
+        }).from(streakState).where(eq(streakState.userId, userId)).limit(1);
+        const streakDays = streakRow?.currentDays && streakRow.currentDays > 0
+          ? streakRow.currentDays
+          : undefined;
         const cardPromise = onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -1412,6 +1418,7 @@ export async function registerRoutes(
           correctCount: result.correctCount || 0,
           totalQuestions: 5,
           rank: result.rank,
+          streak: streakDays,
           date,
         }).catch(err => {
           console.error("[ContentFactory] Daily5 background error:", err?.message);
