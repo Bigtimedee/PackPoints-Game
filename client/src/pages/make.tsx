@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { logMakeClientEvent } from "@/lib/makeFunnel";
 import { prepareIdentifyImage } from "@/lib/prepareIdentifyImage";
 import { useAuth } from "@/hooks/use-auth";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
@@ -24,8 +25,12 @@ import {
 } from "lucide-react";
 
 const MAKE_PENDING_INTENT_KEY = "packpts:make:pendingIntent";
+const MAKE_START_LOGGED_KEY = "packpts:make:startedSession";
 const MAX_LIBRARY_PICK = 20;
 const SETS_CTA_URL = "https://packpts.com/sets";
+/** gpt-4o high-detail identify regularly exceeds the global 15s apiRequest budget. */
+const IDENTIFY_REQUEST_TIMEOUT_MS = 45_000;
+const PUBLISH_REQUEST_TIMEOUT_MS = 30_000;
 
 type MakeIntent = "camera" | "library";
 
@@ -62,6 +67,9 @@ function friendlyIdentifyError(err: unknown): string {
   if (/401|unauthorized|unauth/i.test(msg)) {
     return "Sign in to identify cards";
   }
+  if (/timed out|abort/i.test(msg)) {
+    return "Identify took too long — try again with a clearer photo";
+  }
   return msg || "Could not identify this card";
 }
 
@@ -77,13 +85,20 @@ export default function MakePage() {
   const [identifyingBusy, setIdentifyingBusy] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
+  const pendingAuthIntentRef = useRef<MakeIntent | null>(null);
+  const replaceEntryIdRef = useRef<string | null>(null);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const identifyMutation = useMutation({
     mutationFn: async (imageBase64: string) => {
-      const res = await apiRequest("POST", "/api/sets/identify-card", { imageBase64 });
+      const res = await apiRequest(
+        "POST",
+        "/api/sets/identify-card",
+        { imageBase64 },
+        { timeoutMs: IDENTIFY_REQUEST_TIMEOUT_MS },
+      );
       return res.json();
     },
   });
@@ -103,7 +118,9 @@ export default function MakePage() {
 
   const createMutation = useMutation({
     mutationFn: async (body: { cards: IdentifiedCard[]; setName: string; makerNote: string }) => {
-      const res = await apiRequest("POST", "/api/sets/create", body);
+      const res = await apiRequest("POST", "/api/sets/create", body, {
+        timeoutMs: PUBLISH_REQUEST_TIMEOUT_MS,
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -127,7 +144,11 @@ export default function MakePage() {
 
   const requireAuthThen = useCallback(
     (intent: MakeIntent) => {
-      if (authLoading) return;
+      // First-pass trap: auth hydration used to no-op the click on an empty /make.
+      if (authLoading) {
+        pendingAuthIntentRef.current = intent;
+        return;
+      }
       if (!isAuthenticated) {
         try {
           sessionStorage.setItem(MAKE_PENDING_INTENT_KEY, intent);
@@ -141,6 +162,24 @@ export default function MakePage() {
     },
     [authLoading, isAuthenticated, openPicker, setLocation],
   );
+
+  useEffect(() => {
+    if (authLoading) return;
+    const queued = pendingAuthIntentRef.current;
+    if (!queued) return;
+    pendingAuthIntentRef.current = null;
+    requireAuthThen(queued);
+  }, [authLoading, requireAuthThen]);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(MAKE_START_LOGGED_KEY)) return;
+      sessionStorage.setItem(MAKE_START_LOGGED_KEY, "1");
+    } catch {
+      /* private mode — still log */
+    }
+    void apiRequest("POST", "/api/make/start", {}).catch(() => {});
+  }, []);
 
   // After auth redirect back to /make, resume the CTA intent once.
   useEffect(() => {
@@ -173,9 +212,7 @@ export default function MakePage() {
       setEntries((prev) =>
         prev.map((e) => (e.id === entryId ? { ...e, status: "error", error: msg } : e)),
       );
-      if (/identify pace|too many|429/i.test(msg)) {
-        toast({ title: msg, variant: "destructive" });
-      }
+      toast({ title: msg, variant: "destructive" });
     }
   }
 
@@ -237,9 +274,21 @@ export default function MakePage() {
   }
 
   function retryEntry(entry: CardEntry) {
-    // Re-open the matching picker for a fresh still, or re-run the same file
     void identifyOne(entry.id, entry.file).finally(() => setIdentifyingBusy(false));
     setIdentifyingBusy(true);
+  }
+
+  function pickReplacementPhoto(entryId: string) {
+    replaceEntryIdRef.current = entryId;
+    if (libraryInputRef.current) {
+      libraryInputRef.current.value = "";
+      libraryInputRef.current.click();
+    }
+  }
+
+  function goToNameStep() {
+    setStep(3);
+    logMakeClientEvent("name_started");
   }
 
   function removeEntry(id: string) {
@@ -270,6 +319,7 @@ export default function MakePage() {
 
   async function shareLink() {
     if (!publishedUrl) return;
+    logMakeClientEvent("share_opened", { surface: "make_share_button" });
     const shareData = {
       title: "I MADE THIS SET",
       text: [setName.trim() || "PackPTS set", makerNote.trim()].filter(Boolean).join(" — "),
@@ -348,9 +398,10 @@ export default function MakePage() {
                   </div>
                   <Button
                     onClick={() => requireAuthThen("camera")}
-                    disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    disabled={identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    data-testid="button-make-take-photo"
                   >
-                    Take photo
+                    {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Take photo"}
                   </Button>
                 </CardContent>
               </Card>
@@ -367,9 +418,10 @@ export default function MakePage() {
                   <Button
                     variant="outline"
                     onClick={() => requireAuthThen("library")}
-                    disabled={authLoading || identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    disabled={identifyingBusy || entries.length >= MAX_LIBRARY_PICK}
+                    data-testid="button-make-choose-library"
                   >
-                    Choose from library
+                    {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Choose from library"}
                   </Button>
                 </CardContent>
               </Card>
@@ -394,9 +446,18 @@ export default function MakePage() {
               multiple
               className="hidden"
               onChange={(e) => {
-                if (e.target.files?.length) void handleFiles(e.target.files);
+                if (!e.target.files?.length) return;
+                const replaceId = replaceEntryIdRef.current;
+                replaceEntryIdRef.current = null;
+                void handleFiles(e.target.files, replaceId ? { replaceId } : undefined);
               }}
             />
+
+            {entries.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center" data-testid="text-make-empty-hint">
+                Snap at least 5 cards. Identify runs one photo at a time.
+              </p>
+            )}
 
             {entries.length === 0 && (
               <Card className="bg-primary/5 border-primary/20">
@@ -469,16 +530,28 @@ export default function MakePage() {
                     )}
                     {entry.status === "error" && (
                       <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">{entry.error}</p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          disabled={identifyingBusy}
-                          onClick={() => retryEntry(entry)}
-                        >
-                          Retry
-                        </Button>
+                        <p className="text-xs text-destructive">{entry.error}</p>
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            disabled={identifyingBusy}
+                            onClick={() => retryEntry(entry)}
+                          >
+                            Retry
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            disabled={identifyingBusy}
+                            onClick={() => pickReplacementPhoto(entry.id)}
+                            data-testid="button-identify-new-photo"
+                          >
+                            New photo
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -528,7 +601,7 @@ export default function MakePage() {
               <Button variant="outline" onClick={() => setStep(1)}>
                 ← Back
               </Button>
-              <Button disabled={okCards.length < 5} onClick={() => setStep(3)}>
+              <Button disabled={okCards.length < 5} onClick={goToNameStep}>
                 Name Your Set →
               </Button>
             </div>
@@ -543,7 +616,7 @@ export default function MakePage() {
                 Set Name <span className="text-muted-foreground">(max 60 chars)</span>
               </label>
               <Input
-                placeholder="Untitled set"
+                placeholder="Name this set"
                 maxLength={60}
                 value={setName}
                 onChange={(e) => setSetName(e.target.value)}
@@ -563,6 +636,9 @@ export default function MakePage() {
               />
               <p className="text-xs text-muted-foreground text-right">{makerNote.length}/140</p>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Name and mixtape note are both required to publish.
+            </p>
             <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
               {okCards.length} cards · PackPTS set
             </div>
@@ -600,6 +676,7 @@ export default function MakePage() {
                 initialImageUrl={shareImageUrl}
                 downloadFilename="packpts-set.png"
                 shareUrl={publishedUrl}
+                onShareOpen={() => logMakeClientEvent("share_opened", { surface: "share_kit" })}
                 shareTitle="I MADE THIS SET"
                 shareText={[
                   "I MADE THIS SET",

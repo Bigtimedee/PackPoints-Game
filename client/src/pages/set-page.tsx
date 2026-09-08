@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Paintbrush, Play, Users, Hash, Loader2 } from "lucide-react";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
+import { logMakeClientEvent } from "@/lib/makeFunnel";
 
 interface SetDetail {
   id: string;
@@ -120,6 +121,7 @@ export default function SetPage() {
             kind="maker"
             setId={set.id}
             initialImageUrl={set.shareImageUrl}
+            onShareOpen={() => logMakeClientEvent("share_opened", { surface: "set_page" })}
             downloadFilename="packpts-set.png"
             shareUrl={`${typeof window !== "undefined" ? window.location.origin : "https://packpts.com"}/sets/${set.id}`}
             shareTitle="I MADE THIS SET"

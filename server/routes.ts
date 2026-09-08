@@ -38,6 +38,7 @@ import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
 import { adminService } from "./services/adminService";
 import { analyticsService } from "./services/analyticsService";
+import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
@@ -319,16 +320,48 @@ export async function registerRoutes(
   // MAKING LAYER — SNAP-TO-SET
   // ========================================
 
+  app.post("/api/make/start", async (req: any, res) => {
+    try {
+      const userId = requestUserId(req);
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.makeStarted, userId, {
+        authenticated: !!userId,
+      });
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: true });
+    }
+  });
+
+  app.post("/api/make/event", async (req: any, res) => {
+    try {
+      const eventType = req.body?.eventType;
+      if (!isMakingLayerClientEvent(eventType)) {
+        return res.status(400).json({ error: "Unknown event" });
+      }
+      const raw = req.body?.metadata;
+      const metadata = raw && typeof raw === "object" && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {};
+      logMakingLayerEvent(eventType, requestUserId(req), { ...metadata, client: true });
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: true });
+    }
+  });
+
   app.post("/api/sets/identify-card", isAuthenticated, cardIdentifyLimiter, async (req: any, res) => {
+    const userId = requestUserId(req);
     try {
       const { imageBase64 } = req.body;
 
       if (!imageBase64 || typeof imageBase64 !== "string") {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "missing_image" });
         return res.status(400).json({ error: "imageBase64 is required" });
       }
 
       // Rough size check: base64 encodes ~1.33x, so 5MB raw ≈ 6.7MB base64 ≈ 6_700_000 chars
       if (imageBase64.length > 6_700_000) {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "too_large" });
         return res.status(400).json({ error: "Image too large. Maximum size is 5MB." });
       }
 
@@ -336,6 +369,10 @@ export async function registerRoutes(
       const result = await identifyCardFromPhoto(imageBase64);
 
       if (!result.success) {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, {
+          reason: result.reason,
+          blockedReason: result.blockedReason ?? null,
+        });
         return res.status(422).json({
           error: result.reason === "not-playable"
             ? `This card type can't be used in a game: ${result.blockedReason}`
@@ -354,7 +391,6 @@ export async function registerRoutes(
       let imageUrl: string | null = null;
       try {
         const sharp = (await import("sharp")).default;
-        const userId = req.user?.claims?.sub || req.session?.localUserId || null;
         const resized = await sharp(Buffer.from(imageBase64, "base64"))
           .rotate() // respect EXIF orientation
           .resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true })
@@ -371,8 +407,13 @@ export async function registerRoutes(
         console.error("[SnapToSet] photo store failed (continuing without image):", uploadError);
       }
 
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.identifySuccess, userId, {
+        photoStored: !!imageUrl,
+        confidence: result.card.confidence,
+      });
       res.json({ card: { ...result.card, imageUrl } });
     } catch (error) {
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "exception" });
       console.error("[SnapToSet] identify-card error:", error);
       res.status(500).json({ error: "Failed to identify card" });
     }
@@ -408,14 +449,18 @@ export async function registerRoutes(
   });
 
   app.post("/api/sets/create", isAuthenticated, async (req: any, res) => {
+    const userId = requestUserId(req);
     try {
       const parsed = createUserSetSchema.safeParse(req.body);
       if (!parsed.success) {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, userId, { reason: "invalid_request" });
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
       }
 
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      if (!userId) {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, null, { reason: "unauthorized" });
+        return res.status(401).json({ error: "Unauthorized" });
+      }
 
       const { setName, makerNote, cards } = parsed.data;
 
@@ -463,6 +508,10 @@ export async function registerRoutes(
         isUserCreatedSet: true,
         payload: { cardCount: cards.length },
       });
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.publishSuccess, userId, {
+        setId,
+        cardCount: cards.length,
+      });
 
       let shareImageUrl: string | undefined;
       try {
@@ -478,6 +527,7 @@ export async function registerRoutes(
 
       res.json({ setId, setUrl: `/sets/${setId}`, cardCount: cards.length, shareImageUrl });
     } catch (error) {
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, userId, { reason: "exception" });
       console.error("[SnapToSet] create-set error:", error);
       res.status(500).json({ error: "Failed to create set" });
     }
@@ -564,6 +614,13 @@ export async function registerRoutes(
       }
 
       if (!resolved) return res.status(404).json({ error: "Set not found" });
+
+      if (resolved.isUserCreated) {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.setViewed, requestUserId(req as any), {
+          setId: resolved.id,
+          isUserCreated: true,
+        });
+      }
 
       let shareImageUrl: string | undefined;
       if (resolved.isUserCreated) {
