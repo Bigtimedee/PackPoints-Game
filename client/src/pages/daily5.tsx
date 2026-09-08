@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,6 +22,12 @@ import {
   readPersistedBeatMeChallenge,
   type DailyBeatMeChallenge,
 } from "@/lib/dailyBeatMe";
+import {
+  isDaily5PositionAnswered,
+  nextUnansweredDaily5Position,
+  resolveDaily5Resume,
+  type Daily5ResumeEntry,
+} from "@/lib/daily5Resume";
 import {
   Calendar, Trophy, ArrowLeft, Check, X, Loader2,
   Play, Award, Crown, Share2, UserPlus
@@ -375,6 +381,9 @@ export default function Daily5Page() {
   const [finishResult, setFinishResult] = useState<FinishResult | null>(null);
   const [challengeId, setChallengeId] = useState<string>("");
   const [entryId, setEntryId] = useState<string>("");
+  const [answeredPositions, setAnsweredPositions] = useState<number[]>([]);
+  const hydratedEntryIdRef = useRef<string | null>(null);
+  const autoFinishKeyRef = useRef<string | null>(null);
 
   const statusQuery = useQuery<Daily5Status>({
     queryKey: ["/api/daily5/status"],
@@ -390,19 +399,48 @@ export default function Daily5Page() {
     refetchInterval: 60000,
   });
 
+  const applyResume = useCallback((
+    entry: Daily5ResumeEntry | null | undefined,
+    ids?: { challengeId?: string; entryId?: string },
+  ) => {
+    const resume = resolveDaily5Resume(entry);
+    if (ids?.challengeId) setChallengeId(ids.challengeId);
+    if (ids?.entryId) setEntryId(ids.entryId);
+    setScore(resume.score);
+    setCorrectCount(resume.correctCount);
+    setAnsweredPositions(resume.answeredPositions);
+    setSelectedAnswer(null);
+    setAnswerResult(null);
+    setIsRevealed(false);
+
+    if (resume.phase === "complete") {
+      setFinishResult((prev) => prev ?? {
+        score: resume.score,
+        correctCount: resume.correctCount,
+        totalTime: 0,
+        rank: 0,
+      });
+      setGameState("results");
+      return resume;
+    }
+
+    setCurrentPosition(resume.currentPosition);
+    setGameState("playing");
+    return resume;
+  }, []);
+
   const startMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/daily5/start"),
     onSuccess: async (res) => {
       const data = await res.json();
       setCards(data.cards);
-      setChallengeId(data.entry.dailyChallengeId);
-      setEntryId(data.entry.id);
-      setCurrentPosition(1);
-      setScore(0);
-      setCorrectCount(0);
-      setGameState("playing");
+      applyResume(data.entry, {
+        challengeId: data.entry.dailyChallengeId,
+        entryId: data.entry.id,
+      });
     },
     onError: (err: any) => {
+      setGameState("preview");
       toast({ title: "Cannot start", description: err.message || "Failed to start Daily 5", variant: "destructive" });
     },
   });
@@ -410,12 +448,15 @@ export default function Daily5Page() {
   const answerMutation = useMutation({
     mutationFn: (data: { challengeId: string; position: number; selectedAnswer: string }) =>
       apiRequest("POST", "/api/daily5/answer", data),
-    onSuccess: async (res) => {
+    onSuccess: async (res, variables) => {
       const data: AnswerResult = await res.json();
       setAnswerResult(data);
       setIsRevealed(true);
       setScore(data.score);
       setCorrectCount(data.correctCount);
+      setAnsweredPositions((prev) => (
+        prev.includes(variables.position) ? prev : [...prev, variables.position]
+      ));
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message || "Failed to submit answer", variant: "destructive" });
@@ -433,6 +474,10 @@ export default function Daily5Page() {
       queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
     },
     onError: (err: any) => {
+      if (String(err.message || "").includes("Already completed")) {
+        setGameState("results");
+        return;
+      }
       toast({ title: "Error", description: err.message || "Failed to finish", variant: "destructive" });
     },
   });
@@ -467,6 +512,8 @@ export default function Daily5Page() {
   useEffect(() => {
     if (!statusQuery.data) return;
     const status = statusQuery.data;
+    const resume = resolveDaily5Resume(status.entry);
+
     if (status.hasPlayed && status.entry?.completedAt) {
       setFinishResult({
         score: status.entry.score,
@@ -475,20 +522,62 @@ export default function Daily5Page() {
         rank: 0,
       });
       setGameState("results");
-    } else if (status.entry && !status.entry.completedAt && status.challenge?.status === "ACTIVE") {
-      setGameState("playing");
+      return;
+    }
+
+    if (status.entry && status.challenge?.status === "ACTIVE" && resume.phase === "complete") {
+      if (hydratedEntryIdRef.current !== status.entry.id) {
+        hydratedEntryIdRef.current = status.entry.id;
+        applyResume(status.entry, {
+          challengeId: status.challenge.id,
+          entryId: status.entry.id,
+        });
+      } else {
+        setGameState("results");
+      }
+      const finishKey = status.entry.id;
+      if (!status.entry.completedAt && autoFinishKeyRef.current !== finishKey && !finishMutation.isPending) {
+        autoFinishKeyRef.current = finishKey;
+        finishMutation.mutate({ challengeId: status.challenge.id });
+      }
+      return;
+    }
+
+    if (status.entry && !status.entry.completedAt && status.challenge?.status === "ACTIVE") {
+      if (hydratedEntryIdRef.current !== status.entry.id) {
+        hydratedEntryIdRef.current = status.entry.id;
+        applyResume(status.entry, {
+          challengeId: status.challenge.id,
+          entryId: status.entry.id,
+        });
+      } else {
+        setGameState("playing");
+      }
       if (cards.length === 0 && !startMutation.isPending) {
         startMutation.mutate();
       }
-    } else {
-      setGameState("preview");
+      return;
     }
+
+    setGameState("preview");
   }, [statusQuery.data]);
 
   const handleSubmitAnswer = useCallback(() => {
     if (!selectedAnswer || !challengeId) return;
+    if (isDaily5PositionAnswered(answeredPositions, currentPosition)) {
+      const next = nextUnansweredDaily5Position(answeredPositions);
+      if (next == null) {
+        finishMutation.mutate({ challengeId });
+        return;
+      }
+      setCurrentPosition(next);
+      setSelectedAnswer(null);
+      setAnswerResult(null);
+      setIsRevealed(false);
+      return;
+    }
     answerMutation.mutate({ challengeId, position: currentPosition, selectedAnswer });
-  }, [selectedAnswer, challengeId, currentPosition]);
+  }, [selectedAnswer, challengeId, currentPosition, answeredPositions]);
 
   const handleNext = useCallback(() => {
     if (currentPosition >= 5) {
@@ -504,7 +593,11 @@ export default function Daily5Page() {
   const status = statusQuery.data;
   const currentCard = cards.find(c => c.position === currentPosition);
 
-  if (statusQuery.isLoading) {
+  if (
+    statusQuery.isLoading
+    || (gameState === "playing" && !currentCard)
+    || (finishMutation.isPending && gameState !== "results")
+  ) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -560,7 +653,7 @@ export default function Daily5Page() {
               {!isRevealed ? (
                 <Button
                   className="w-full"
-                  disabled={!selectedAnswer || answerMutation.isPending}
+                  disabled={!selectedAnswer || answerMutation.isPending || isDaily5PositionAnswered(answeredPositions, currentPosition)}
                   onClick={handleSubmitAnswer}
                   data-testid="button-d5-submit"
                 >
