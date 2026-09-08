@@ -18,6 +18,11 @@ import {
   MAKE_CANVAS,
   MAKE_INK,
   MAKE_MUTED,
+  QA_IDENTIFY_FAIL_ENTRY_ID,
+  consumeQaIdentifyFailStorage,
+  makeQaIdentifyFailEntry,
+  makeQaPreviewFile,
+  staffWantsQaIdentifyFail,
 } from "@/lib/makeIdentifyUi";
 import {
   Loader2,
@@ -91,7 +96,7 @@ export default function MakePage() {
   const drainingRef = useRef(false);
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   useEffect(() => {
     entriesRef.current = entries;
@@ -191,9 +196,7 @@ export default function MakePage() {
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     if (typeof window === "undefined" || window.location.hash !== "#design-retry") return;
-    const blank = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "preview.jpg", {
-      type: "image/jpeg",
-    });
+    const blank = makeQaPreviewFile();
     setEntries([
       {
         id: "design-1",
@@ -210,10 +213,44 @@ export default function MakePage() {
         },
       },
       { id: "design-2", file: blank, status: "loading" },
-      { id: "design-3", file: blank, status: "error", error: "Couldn't identify" },
+      { id: "design-3", file: blank, status: "error", error: IDENTIFY_RETRY_COPY.failed },
       { id: "design-4", file: blank, status: "queued" },
     ]);
   }, []);
+
+  // Staff QA: ?qaIdentifyFail=1 or ?qa=identify-fail seeds one Failed slot (no identify API).
+  useEffect(() => {
+    if (authLoading) return;
+    if (typeof window === "undefined") return;
+    const readStorage = (key: string) => {
+      try {
+        return sessionStorage.getItem(key) ?? localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    };
+    if (
+      !staffWantsQaIdentifyFail({
+        isAdmin: user?.isAdmin,
+        search: window.location.search,
+        readStorage,
+      })
+    ) {
+      return;
+    }
+    consumeQaIdentifyFailStorage((key) => {
+      try {
+        sessionStorage.removeItem(key);
+        localStorage.removeItem(key);
+      } catch {
+        /* private mode */
+      }
+    });
+    setEntries((prev) => {
+      if (prev.some((e) => e.id === QA_IDENTIFY_FAIL_ENTRY_ID)) return prev;
+      return [...prev, makeQaIdentifyFailEntry(makeQaPreviewFile())];
+    });
+  }, [authLoading, user?.isAdmin]);
 
   // After auth redirect back to /make, resume the CTA intent once.
   useEffect(() => {
@@ -327,6 +364,17 @@ export default function MakePage() {
   }
 
   function retryEntry(entry: CardEntry) {
+    // QA stub: keep Failed chrome without hitting identify.
+    if (entry.id === QA_IDENTIFY_FAIL_ENTRY_ID) {
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? { ...e, status: "error" as const, card: undefined, error: IDENTIFY_RETRY_COPY.failed }
+            : e,
+        ),
+      );
+      return;
+    }
     setEntries((prev) => {
       const next = prev.map((e) =>
         e.id === entry.id ? { ...e, status: "queued" as const, card: undefined, error: undefined } : e,

@@ -93,6 +93,66 @@ export function identifySlotChrome(status: IdentifySlotStatus): IdentifySlotChro
   }
 }
 
+/** Staff-only Design QA: seed a Failed slot without calling identify. */
+export const QA_IDENTIFY_FAIL_STORAGE_KEY = "packpts:make:qaIdentifyFail";
+export const QA_IDENTIFY_FAIL_ENTRY_ID = "qa-identify-fail";
+
+export function searchWantsQaIdentifyFail(search: string): boolean {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const params = new URLSearchParams(raw);
+  return params.get("qaIdentifyFail") === "1" || params.get("qa") === "identify-fail";
+}
+
+export function storageWantsQaIdentifyFail(
+  getItem: (key: string) => string | null | undefined,
+): boolean {
+  try {
+    return getItem(QA_IDENTIFY_FAIL_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Gate: URL or one-shot storage, staff/admin only. Non-staff always false (no leak). */
+export function staffWantsQaIdentifyFail(args: {
+  isAdmin: boolean | undefined;
+  search: string;
+  readStorage?: (key: string) => string | null | undefined;
+}): boolean {
+  if (!args.isAdmin) return false;
+  if (searchWantsQaIdentifyFail(args.search)) return true;
+  if (args.readStorage && storageWantsQaIdentifyFail(args.readStorage)) return true;
+  return false;
+}
+
+export function consumeQaIdentifyFailStorage(removeItem: (key: string) => void): void {
+  try {
+    removeItem(QA_IDENTIFY_FAIL_STORAGE_KEY);
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+export function makeQaPreviewFile(): File {
+  return new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "preview.jpg", {
+    type: "image/jpeg",
+  });
+}
+
+export function makeQaIdentifyFailEntry(file: File): {
+  id: typeof QA_IDENTIFY_FAIL_ENTRY_ID;
+  file: File;
+  status: "error";
+  error: typeof IDENTIFY_RETRY_COPY.failed;
+} {
+  return {
+    id: QA_IDENTIFY_FAIL_ENTRY_ID,
+    file,
+    status: "error",
+    error: IDENTIFY_RETRY_COPY.failed,
+  };
+}
+
 /** Gold at 40% — optional quiet fail border (IDENTIFY_RETRY). */
 export const IDENTIFY_FAIL_BORDER = "rgba(245, 197, 24, 0.4)";
 export const MAKE_CANVAS = "#0b0f16";
