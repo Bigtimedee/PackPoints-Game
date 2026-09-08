@@ -49,6 +49,9 @@ import * as accessService from "./services/accessService";
 import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
 import { daily5Service } from "./services/daily5Service";
+import { createBeatMeFromSession } from "./services/daily5BeatMe";
+import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
+import { getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
@@ -1401,7 +1404,13 @@ export async function registerRoutes(
       let shareImageUrl: string | undefined;
       try {
         const { onDaily5Finished, awaitScoreCard } = await import("./contentFactory/index");
-        const date = new Date().toISOString().slice(0, 10);
+        const date = getPackptsDayKey();
+        const [streakRow] = await db.select({
+          currentDays: streakState.currentDays,
+        }).from(streakState).where(eq(streakState.userId, userId)).limit(1);
+        const streakDays = streakRow?.currentDays && streakRow.currentDays > 0
+          ? streakRow.currentDays
+          : undefined;
         const cardPromise = onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -1409,6 +1418,7 @@ export async function registerRoutes(
           correctCount: result.correctCount || 0,
           totalQuestions: 5,
           rank: result.rank,
+          streak: streakDays,
           date,
         }).catch(err => {
           console.error("[ContentFactory] Daily5 background error:", err?.message);
@@ -1424,6 +1434,32 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[Daily5] Error finishing challenge:", error);
       res.status(500).json({ error: "Failed to finish Daily 5" });
+    }
+  });
+
+  app.post("/api/daily5/beat-me", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const created = await createBeatMeFromSession(userId);
+      res.json(created);
+    } catch (error: any) {
+      const message = error?.message || "Failed to create Beat-me challenge";
+      if (message.includes("Finish today's Daily 5") || message.includes("No Daily 5")) {
+        return res.status(400).json({ error: message });
+      }
+      console.error("[Daily5] Beat-me create error:", error);
+      res.status(500).json({ error: "Failed to create Beat-me challenge" });
+    }
+  });
+
+  app.get("/api/daily5/beat-me", async (req, res) => {
+    try {
+      const token = typeof req.query.challenge === "string" ? req.query.challenge : "";
+      res.json(resolveBeatMeToken(token));
+    } catch (error) {
+      console.error("[Daily5] Beat-me resolve error:", error);
+      res.status(500).json({ error: "Failed to resolve challenge" });
     }
   });
 
@@ -10773,90 +10809,15 @@ export async function registerRoutes(
     }
   });
 
-  // Card of the Day
-  app.get('/api/card-of-the-day', async (req, res) => {
-    try {
-      const { pool: dbPool } = await import('./db');
-
-      // Get today's card
-      const today = new Date().toISOString().split('T')[0];
-      let result = await dbPool.query(
-        `SELECT cotd.*, pc.image_url, pc.player_name, pc.set_name, pc.year
-         FROM card_of_the_day cotd
-         JOIN playable_cards pc ON pc.id = cotd.card_id
-         WHERE cotd.date = $1`,
-        [today]
-      );
-
-      if (result.rows.length === 0) {
-        // No card set for today — pick the card with highest wrong answer rate from yesterday
-        const cardResult = await dbPool.query(
-          `SELECT
-             pc.id as card_id,
-             pc.image_url,
-             pc.set_name,
-             pc.year,
-             COUNT(ga.id) as total_answers,
-             COUNT(CASE WHEN ga.is_correct = false THEN 1 END) as wrong_answers,
-             ROUND(
-               COUNT(CASE WHEN ga.is_correct = false THEN 1 END)::numeric / NULLIF(COUNT(ga.id), 0) * 100,
-               2
-             ) as wrong_answer_rate
-           FROM playable_cards pc
-           JOIN game_answers ga ON ga.card_id = pc.id
-           WHERE ga.created_at >= NOW() - INTERVAL '24 hours'
-             AND pc.is_active = true
-           GROUP BY pc.id, pc.image_url, pc.set_name, pc.year
-           HAVING COUNT(ga.id) >= 5
-           ORDER BY wrong_answer_rate DESC
-           LIMIT 1`
-        );
-
-        if (cardResult.rows.length > 0) {
-          const card = cardResult.rows[0];
-          const insertResult = await dbPool.query(
-            `INSERT INTO card_of_the_day (card_id, date, wrong_answer_rate, difficulty_score)
-             VALUES ($1, $2, $3, $3)
-             ON CONFLICT (date) DO NOTHING
-             RETURNING *`,
-            [card.card_id, today, card.wrong_answer_rate]
-          );
-
-          if (insertResult.rows.length > 0) {
-            return res.json({
-              cardId: card.card_id,
-              imageUrl: card.image_url,
-              setName: card.set_name,
-              year: card.year,
-              wrongAnswerRate: card.wrong_answer_rate,
-              date: today,
-            });
-          }
-        }
-
-        return res.json(null); // No card of the day available
-      }
-
-      const card = result.rows[0];
-
-      // Increment times_shown
-      await dbPool.query(
-        `UPDATE card_of_the_day SET times_shown = times_shown + 1 WHERE id = $1`,
-        [card.id]
-      );
-
-      res.json({
-        cardId: card.card_id,
-        imageUrl: card.image_url,
-        setName: card.set_name,
-        year: card.year,
-        wrongAnswerRate: card.wrong_answer_rate,
-        date: today,
-      });
-    } catch (err) {
-      console.error('[CardOfTheDay] Error:', err);
-      res.status(500).json({ message: 'Failed to get card of the day' });
-    }
+  // Card of the Day — retired. Live prod 500'd because this handler queried
+  // tables/columns that are not in the Railway schema: `card_of_the_day` is
+  // not in drizzle (`shared/schema.ts`), `game_answers` does not exist
+  // (answers live on `match_answers`, which has no card_id), and
+  // `playable_cards` uses `player` / `set` / `is_playable` (not player_name,
+  // set_name, year, is_active). Daily 5 is the ICP daily product; this home
+  // widget is not. Keep a 200 so diligence curls never see a 500.
+  app.get('/api/card-of-the-day', (_req, res) => {
+    res.json({ card: null });
   });
 
   // Newsletter unsubscribe

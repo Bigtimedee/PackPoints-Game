@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Flame, Gift, UserPlus, Play, X, Paintbrush, Compass } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Gift, UserPlus, Play, X, Paintbrush, Compass } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
+import { msUntilPackptsMidnight } from "@shared/packptsDay";
 
 function SetOfWeekBanner() {
   const [dismissed, setDismissed] = useState(false);
@@ -259,10 +260,7 @@ function FAQ() {
 }
 
 function Daily5Urgency() {
-  const now = new Date();
-  const midnight = new Date(now);
-  midnight.setUTCHours(24, 0, 0, 0);
-  const msLeft = midnight.getTime() - now.getTime();
+  const msLeft = msUntilPackptsMidnight();
   const hoursLeft = Math.floor(msLeft / (1000 * 60 * 60));
   const minutesLeft = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
 
@@ -287,7 +285,7 @@ function Daily5Urgency() {
               <p className={`text-lg font-bold font-mono ${urgentColor}`}>
                 {hoursLeft}h {minutesLeft}m left
               </p>
-              <p className="text-xs text-muted-foreground">Resets at midnight UTC</p>
+              <p className="text-xs text-muted-foreground">Resets at midnight CT</p>
             </div>
             <Link href="/daily5">
               <Button className="gap-2" size="sm">
@@ -295,61 +293,6 @@ function Daily5Urgency() {
                 Play Daily 5
               </Button>
             </Link>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function CardOfTheDay() {
-  const { data: card } = useQuery<{
-    cardId: number;
-    imageUrl: string;
-    setName: string;
-    year: string;
-    wrongAnswerRate: number;
-    date: string;
-  } | null>({
-    queryKey: ["/api/card-of-the-day"],
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
-
-  if (!card) return null;
-
-  return (
-    <Card className="mb-8 overflow-hidden border-2 border-primary/20">
-      <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <Flame className="h-5 w-5 text-orange-500" />
-          <CardTitle className="text-lg">Card of the Day</CardTitle>
-          <Badge variant="secondary" className="ml-auto">
-            {Math.round(card.wrongAnswerRate)}% got it wrong
-          </Badge>
-        </div>
-        <CardDescription>
-          Can you identify today's mystery player? {Math.round(card.wrongAnswerRate)}% of players got it wrong yesterday!
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="pb-4">
-        <div className="flex items-center gap-4">
-          <div className="w-20 h-28 rounded-md overflow-hidden bg-muted flex-shrink-0 relative">
-            <img
-              src={card.imageUrl}
-              alt="Mystery card - player identity hidden"
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-              <span className="text-white text-xs font-bold">?</span>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <p className="font-medium">{card.setName} {card.year}</p>
-            <p className="text-sm text-muted-foreground">Play today to find out who this is!</p>
-            <Button size="sm" asChild className="mt-2">
-              <a href="/game/solo">Play Now</a>
-            </Button>
           </div>
         </div>
       </CardContent>
@@ -449,7 +392,6 @@ export default function Home() {
 
       <section className="container mx-auto px-4 pt-4">
         <Daily5Urgency />
-        <CardOfTheDay />
       </section>
 
       <section className="container mx-auto px-4 py-8">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,19 @@ import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
 import {
-  Calendar, Clock, Trophy, ArrowLeft, Check, X, Loader2,
-  Play, Award, Timer, Users, Crown, Share2, Download, UserPlus
+  formatBeatMeBanner,
+  formatBeatMeCompare,
+  formatBeatMeShareCaption,
+  isBeatMeShareUrl,
+  mapBeatMeApiResult,
+  parseBeatMeToken,
+  persistBeatMeChallenge,
+  readPersistedBeatMeChallenge,
+  type DailyBeatMeChallenge,
+} from "@/lib/dailyBeatMe";
+import {
+  Calendar, Trophy, ArrowLeft, Check, X, Loader2,
+  Play, Award, Crown, Share2, UserPlus
 } from "lucide-react";
 
 interface Daily5Status {
@@ -81,6 +92,20 @@ function formatTime(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function BeatMeBanner({ challenge }: { challenge: DailyBeatMeChallenge }) {
+  return (
+    <div
+      className="mb-4 rounded-md border border-border bg-muted/50 px-4 py-3 text-center"
+      data-testid="text-d5-beat-me"
+    >
+      <p className="text-sm font-medium">{formatBeatMeBanner(challenge)}</p>
+      {challenge.status === "active" && (
+        <p className="text-xs text-muted-foreground mt-0.5">Today&apos;s Daily 5. Same five cards.</p>
+      )}
+    </div>
+  );
+}
+
 function ShareResultCard({ score, correctCount, rank, date, challengeId, shareImageUrl }: {
   score: number;
   correctCount: number;
@@ -92,21 +117,14 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
   const [shared, setShared] = useState(false);
+  const [beatMeUrl, setBeatMeUrl] = useState<string | null>(null);
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const shareCaption = formatBeatMeShareCaption(correctCount);
 
   const shareGrid = Array.from({ length: 5 }, (_, i) =>
     i < correctCount ? "[+]" : "[-]"
   ).join(" ");
-
-  const shareText = [
-    `PackPTS Daily 5 - ${dateStr}`,
-    shareGrid,
-    `Score: ${score} pts | ${correctCount}/5 correct`,
-    rank && rank > 0 ? `Rank: #${rank}` : null,
-    "",
-    "Play at packpts.com/daily",
-  ].filter(Boolean).join("\n");
 
   const logShareEvent = async (shareType: string, target: string) => {
     try {
@@ -115,17 +133,31 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
   };
 
   const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: shareText });
-        setShared(true);
-        logShareEvent("SCORE_CARD", "NATIVE_SHARE");
-        setTimeout(() => setShared(false), 3000);
-        return;
-      } catch {}
-    }
     try {
-      await navigator.clipboard.writeText(shareText);
+      const created = beatMeUrl ? { url: beatMeUrl } : await issueBeatMe();
+      if (!created?.url) {
+        toast({ title: "Not ready", description: "Challenge link is still being created.", variant: "destructive" });
+        return;
+      }
+      const text = [
+        `PackPTS Daily 5 - ${dateStr}`,
+        shareGrid,
+        `${correctCount}/5`,
+        rank && rank > 0 ? `#${rank}` : null,
+        "",
+        shareCaption,
+        created.url,
+      ].filter(Boolean).join("\n");
+      if (navigator.share) {
+        try {
+          await navigator.share({ text, url: created.url });
+          setShared(true);
+          logShareEvent("SCORE_CARD", "NATIVE_SHARE");
+          setTimeout(() => setShared(false), 3000);
+          return;
+        } catch {}
+      }
+      await navigator.clipboard.writeText(text);
       setShared(true);
       logShareEvent("SCORE_CARD", "COPY_LINK");
       toast({ title: "Copied to clipboard", description: "Share your result with friends!" });
@@ -159,23 +191,43 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
     }
   };
 
+  const issueBeatMe = async (): Promise<{ url: string; path: string } | null> => {
+    const created = await apiRequest("POST", "/api/daily5/beat-me").then((res) => res.json()) as {
+      url?: string;
+      path?: string;
+    };
+    if (!created.url || !created.path || !isBeatMeShareUrl(created.url)) return null;
+    setBeatMeUrl(created.url);
+    try {
+      await apiRequest("POST", "/api/referrals/create", {
+        purpose: "SCORE_SHARE",
+        destinationPath: created.path,
+      });
+    } catch {
+      // attribution is optional — the signed challenge URL is the product loop
+    }
+    return { url: created.url, path: created.path };
+  };
+
   const handleChallengeInvite = async () => {
     try {
-      const res = await apiRequest("POST", "/api/referrals/create", {
-        purpose: "SCORE_SHARE",
-        destinationPath: "/daily",
-      });
-      const data = await res.json();
-      if (data.url) {
-        const challengeText = `I scored ${score} points in today's PackPTS Daily 5! Can you beat me? ${data.url}`;
-        await navigator.clipboard.writeText(challengeText);
-        logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
-        toast({ title: "Challenge link copied!", description: "Share it with a friend" });
+      const created = await issueBeatMe();
+      if (!created) {
+        toast({ title: "Error", description: "Failed to create challenge link", variant: "destructive" });
+        return;
       }
+      await navigator.clipboard.writeText(`${shareCaption} ${created.url}`);
+      logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
+      toast({ title: "Challenge link copied", description: "Opens today's Daily 5 with your score" });
     } catch {
       toast({ title: "Error", description: "Failed to create challenge link", variant: "destructive" });
     }
   };
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    issueBeatMe().catch(() => {});
+  }, [isAuthenticated]);
 
   const resultIcons = Array.from({ length: 5 }, (_, i) => i < correctCount);
 
@@ -217,8 +269,12 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
               challengeId={challengeId}
               initialImageUrl={shareImageUrl}
               downloadFilename={`packpts-daily5-${dateStr}.png`}
-              shareUrl="https://packpts.com/daily"
-              shareText={`I scored ${score} pts in today's PackPTS Daily 5! Play at packpts.com/daily`}
+              shareUrl={beatMeUrl ?? undefined}
+              shareText={shareCaption}
+              resolveShareUrl={async () => {
+                const created = await issueBeatMe();
+                return created?.url ?? null;
+              }}
             />
           )}
 
@@ -240,7 +296,7 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
                 className="gap-2 w-full"
                 data-testid="button-d5-challenge-friend">
                 <UserPlus className="h-4 w-4" />
-                Challenge a Friend
+                Beat me
               </Button>
             )}
           </div>
@@ -306,6 +362,8 @@ function AnswerButton({
 export default function Daily5Page() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const searchString = useSearch();
+  const [beatMe, setBeatMe] = useState<DailyBeatMeChallenge | null>(null);
   const [gameState, setGameState] = useState<"loading" | "preview" | "playing" | "results">("loading");
   const [cards, setCards] = useState<Daily5Card[]>([]);
   const [currentPosition, setCurrentPosition] = useState(1);
@@ -380,6 +438,33 @@ export default function Daily5Page() {
   });
 
   useEffect(() => {
+    const token = parseBeatMeToken(searchString) ?? readPersistedBeatMeChallenge()?.token;
+    if (!token) {
+      setBeatMe(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/daily5/beat-me?challenge=${encodeURIComponent(token)}`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const mapped = mapBeatMeApiResult(token, data);
+        if (mapped) {
+          persistBeatMeChallenge(mapped);
+          setBeatMe(mapped);
+        } else {
+          setBeatMe(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setBeatMe(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchString]);
+
+  useEffect(() => {
     if (!statusQuery.data) return;
     const status = statusQuery.data;
     if (status.hasPlayed && status.entry?.completedAt) {
@@ -431,6 +516,7 @@ export default function Daily5Page() {
     return (
       <div>
         <div className="container mx-auto px-4 py-4 max-w-2xl">
+          {beatMe && <BeatMeBanner challenge={beatMe} />}
           <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
             <Badge variant="outline" className="gap-1.5">
               <Calendar className="h-3 w-3" />
@@ -508,6 +594,7 @@ export default function Daily5Page() {
     return (
       <div>
         <div className="container mx-auto px-4 py-8 max-w-2xl">
+          {beatMe && <BeatMeBanner challenge={beatMe} />}
           <div className="text-center space-y-4 mb-8">
             <div className="inline-flex p-4 rounded-full bg-primary/10">
               <Trophy className="h-10 w-10 text-primary" />
@@ -534,6 +621,14 @@ export default function Daily5Page() {
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
               </div>
             </div>
+            {beatMe?.status === "active" && (
+              <p className="text-sm text-muted-foreground" data-testid="text-d5-beat-me-compare">
+                {formatBeatMeCompare(
+                  finishResult?.correctCount ?? status?.entry?.correctCount ?? 0,
+                  beatMe.correctCount,
+                )}
+              </p>
+            )}
             {finishResult?.rank && finishResult.rank > 0 && (
               <p className="text-sm text-muted-foreground" data-testid="text-d5-rank">
                 Rank #{finishResult.rank}
@@ -633,6 +728,8 @@ export default function Daily5Page() {
             Back
           </Button>
         </Link>
+
+        {beatMe && <BeatMeBanner challenge={beatMe} />}
 
         <Card className="mb-6">
           <CardHeader className="text-center">

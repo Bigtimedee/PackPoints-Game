@@ -9,17 +9,21 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 
 ## Content (actual session values — never fake)
 - Eyebrow, top-left, all-caps: `DAILY 5`
-- Score: **actual** `X/5` (example 3/5). The numerator is white; `/5` is grey. Never render a canned 4/5.
+- Score: **actual** `X/5` (example 3/5). Numerator ink `#F0F2F5`; `/5` muted `#8F96A3`. Never render a canned 4/5.
 - Points under the score: `{score} pts` (example `525 pts`)
+- Optional real streak under points: `{n}-day streak` in muted `#8F96A3`. Omit when streak is missing or 0 — never invent one.
 - Five rounded-square pips. The first **X** pips fill `#22C55E`; the rest are dark outlines.
 - Headline from the session: `{LockedWord} locked. {OpenWord} open.`  
   Example for 3/5: `Three locked. Two open.`
 - Footer left: locked masked-P mark — **white P** + gold (`#F5C518`) bar on dark (`#0b0f16`) tile (not yellow-P-on-white) + **PackPTS**
-- Footer right: `packpts.com/daily`
+- Footer right: `packpts.com/daily` (visual only — Beat-me share href is the signed `/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge=` token)
+
+## Palette (Design Sync)
+- Canvas `#0b0f16` · gold `#F5C518` · green `#22C55E` · ink `#F0F2F5` · muted `#8F96A3`
 
 ## Brand
 - Spelling: **PackPTS** (never PackPoints)
-- Masked P only. No three-square mark.
+- Masked P only (white P + gold bar). No three-square mark.
 
 ## Fonts
 - **Inter** (SIL OFL 1.1) ships in `server/contentFactory/assets/fonts/` and is copied into the Railway image.
