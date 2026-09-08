@@ -9,15 +9,6 @@ export function registerAuthRoutes(app: Express): void {
   // session.workosUserId).
   app.get("/api/auth/user", collectGeo, async (req: any, res) => {
     try {
-      console.log("[Auth Debug] /api/auth/user called", {
-        isAuthenticated: req.isAuthenticated?.() ?? false,
-        hasUser: !!req.user,
-        hasSession: !!req.session,
-        sessionId: req.sessionID ? req.sessionID.substring(0, 8) + "..." : null,
-        localUserId: req.session?.localUserId ? "set" : "not set",
-        workosUserId: req.session?.workosUserId ? "set" : "not set",
-      });
-
       if (req.session?.localUserId) {
         const user = await authStorage.getUser(req.session.localUserId);
         if (user) {

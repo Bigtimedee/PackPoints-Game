@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-07
+**Last verified against codebase:** 2026-09-08
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -602,9 +602,10 @@ Full funnel instrumented: card_view → outbound_click → affiliate postback �
 - Password reset: `POST /api/auth/forgot-password` → token email → `GET /api/auth/validate-reset-token?token=…` → `POST /api/auth/reset-password`
 - Magic-link account linking: `/api/auth/link/{challenge,confirm,send-magic,verify,cancel}`
 - Sessions stored in PostgreSQL via `sessions` table (sid, sess JSONB, expire)
+- Session cookies (`server/auth/session.ts`): `httpOnly`, `secure` in non-development, **`sameSite: "lax"`** in all environments. Production is a first-party SPA on packpts.com (host-only cookies; www → apex). WorkOS/TikTok OAuth callbacks are top-level GET navigations to apex, which send Lax cookies. `sameSite: "none"` is not used — it would allow credentialed cross-site POSTs against cookie-auth `/api/*`.
 - Session management: Passport.js with local strategy
 - Canonical guard: `server/auth/middleware.ts:isAuthenticated` returns `{ message: "Unauthorized" }` on 401 (no internals)
-- Session inspector: `GET /api/auth/user`
+- Session inspector: `GET /api/auth/user` — no per-request `[Auth Debug]` logging in production (removed)
 
 **WorkOS OAuth (SSO) — wired, package installed:**
 - `WORKOS_API_KEY` + `WORKOS_CLIENT_ID` configure OIDC flow (`@workos-inc/node`)
@@ -729,14 +730,7 @@ Startup (`index.ts`):
 - Reddit: **Not implemented** (env vars defined in strategy docs but no publisher code)
 - Instagram: **Not implemented** (env var defined but no publisher code)
 
-**Temporary D5-2 one-shot tweet (token-gated, no admin session):**
-- `POST /api/admin/social-agent/one-shot-tweet`
-- Header `x-one-shot-token` must match `ONE_SHOT_PUBLISH_TOKEN`. If that env is unset, the route returns 503 (`one_shot_disabled`).
-- Body: `{ "copy": string, "imageUrl": string, "hashtags"?: string[] }`. `imageUrl` must be https (packpts.com preferred). Downloads the image and calls `publishTweet(..., imageBuffer, mediaRequired=true)`.
-- Success: `{ ok: true, tweetId, url }` with `url` = `https://x.com/i/web/status/${tweetId}`.
-- Generic Twitter/API failure: 502 `{ ok: false, error: "publish_failed", detail }` — `detail` is `err.message` (or `String(err)`), truncated to 240 chars, with long token-like strings redacted. Same sanitized string is `console.error`'d as `[OneShotTweet] publish_failed`.
-- If `ONE_SHOT_PUBLISH_CONSUME=true`, the first successful publish consumes the endpoint; later calls return 409 (`already_consumed`) until process restart.
-- Do not log the one-shot token or `TWITTER_*` secrets. Remove this route after D5-2 media proof.
+Weekday / scheduled X publish uses the Social Media Agent publisher path only (`publisher/twitter.ts` via the agent scheduler). The temporary D5-2 token-gated `POST /api/admin/social-agent/one-shot-tweet` route and `ONE_SHOT_PUBLISH_*` env vars were removed (token-header gate was not session-admin; leftover after D5 prove).
 
 **Safety Systems:**
 - Fact Checker (`factChecker.ts`): Verifies user counts, match counts, scores, streaks, reward values against DB. Auto-corrects claims >10% off actual values.
@@ -1013,7 +1007,7 @@ Entry point: `server/index.ts`
 - **Streak:** `/api/streak` — state, buy freeze, config
 - **Marketplace:** `/api/marketplace/*` — search listings; `/out/ebay/:listingId` — affiliate redirect
 - **Store:** `/api/checkout` — Stripe checkout; `/api/stripe/webhook` — payment webhooks
-- **Admin:** `/api/admin/*` — 40+ endpoints for dashboard, users, cards, redemptions, streaks, products, access, geo, growth, panic. Temporary D5-2: `POST /api/admin/social-agent/one-shot-tweet` is token-gated (`x-one-shot-token`), not session-admin.
+- **Admin:** `/api/admin/*` — 40+ endpoints for dashboard, users, cards, redemptions, streaks, products, access, geo, growth, panic. All `/api/admin/*` mutating routes require session auth + `requireAdmin` (the temporary D5-2 token-gated one-shot tweet route was removed).
 - **Friends:** Friend list management, match invites
 - **Referrals:** `/api/referrals/*` — create, attribute, stats, leaderboard
 - **Share cards:** `GET /api/content-assets/latest`, `POST /api/content-assets/retry` — score-card PNG lookup + regenerate. Files live on the Railway volume at `/app/data/masked-cards/generated/share/` (the non-root `packpts` user cannot write `/app/public`). Public URL prefix `/generated/share/` is mounted from that directory in production and from `public/generated/share` in local/CI. Inter TTFs ship in `server/contentFactory/assets/fonts/` and are outlined into SVG paths at generate time — Railway Alpine has no system fonts, so `<text font-family="sans-serif">` produced tofu on the live 1080 card.
@@ -1259,8 +1253,6 @@ Generate unique values with `openssl rand -hex 32`. Set in Railway → Service �
 | `TWITTER_ACCESS_TOKEN` | Twitter/X user access token | (optional) |
 | `TWITTER_ACCESS_TOKEN_SECRET` | Twitter/X user access secret | (optional) |
 | `TWITTER_BEARER_TOKEN` | Twitter/X bearer token | (optional) |
-| `ONE_SHOT_PUBLISH_TOKEN` | Shared secret for `POST /api/admin/social-agent/one-shot-tweet` (`x-one-shot-token`). Unset = 503 | (optional, temporary D5-2) |
-| `ONE_SHOT_PUBLISH_CONSUME` | If `"true"`, one-shot tweet succeeds once then no-ops (in-process) | "false" |
 | `TIKTOK_CLIENT_KEY` | TikTok app client key | (optional) |
 | `TIKTOK_CLIENT_SECRET` | TikTok app client secret | (optional) |
 | `TIKTOK_ACCESS_TOKEN` | TikTok user access token | (optional) |
@@ -1932,7 +1924,7 @@ Shipped July 2026 across seven sequential PRs (see `MAKING_LAYER_PROMPTS.md` for
 - `GET /api/sets/:setId/cards/:cardId/listings` (public) — top 3 cheapest marketplace listings for the card (player + year + brand query); always returns `{ listings: [] }` on failure, never errors.
 - `POST /api/sets/:setId/cards/:cardId/log-click` — logs to `outbound_clicks` with `pagePath: 'set-reveal'` for commerce attribution.
 - `server/routes/collab.ts` (mounted in routes.ts): `POST /api/collab/create`, `GET /api/collab/:id`, `POST /api/collab/:id/join`, `/nominate`, `/approve` (can't approve own nomination), `/publish` (host only, ≥5 approved cards; sets `coCreatorUserId`).
-- Admin: `GET /api/admin/metrics/making-layer` — sets/day (30d), maker rate (creators ÷ MAU), set play depth, top-10 sets with outbound click counts.
+- Admin: `GET /api/admin/metrics/making-layer` — sets/day (30d), maker rate (creators ÷ MAU, staff excluded, admin-only), `publishedSetsNonStaff` (lifetime count of `is_user_created` sets whose `created_by_user_id` is non-admin — diligence ≥10 gate), set play depth, top-10 sets with outbound click counts. Maker Rate is not a public metric.
 
 ### Play count convention
 
