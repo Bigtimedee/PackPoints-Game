@@ -1,5 +1,6 @@
 /**
- * PackPTS product day — one timezone for Daily 5, streak, and Beat-me.
+ * PackPTS product day — one timezone for Daily 5, streak, Beat-me, and
+ * authored set dates on /sets.
  *
  * Locked: America/Chicago (CT). Do not use America/New_York, UTC calendar
  * dates, or a per-feature TZ for “today” / puzzle_day / challenge tokens.
@@ -13,9 +14,18 @@ export function isPackptsDayKey(value: unknown): value is string {
   return typeof value === "string" && DAY_KEY_RE.test(value);
 }
 
+const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"] as const;
+
 /** YYYY-MM-DD in America/Chicago. */
 export function getPackptsDayKey(at: Date = new Date()): string {
   return at.toLocaleDateString("en-CA", { timeZone: PACKPTS_DAY_TZ });
+}
+
+/** `{MON} {D}` for the America/Chicago calendar day of `at` (e.g. SEP 8). */
+export function formatPackptsMonDay(at: Date): string {
+  const key = getPackptsDayKey(at);
+  if (!isPackptsDayKey(key)) return "";
+  return `${MON[Number(key.slice(5, 7)) - 1]} ${Number(key.slice(8, 10))}`;
 }
 
 export function addPackptsDays(dayKey: string, delta: number): string {

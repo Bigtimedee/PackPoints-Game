@@ -28,7 +28,7 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 ### Cards
 
 - **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack of that set’s cards**. Never keep a stock fan once the runtime cover exists.
-- Meta: set name · `by {maker}` · honest `{n} cards` · optional `{MON D}` · `AUTHORED`
+- Meta: set name · `by {maker}` · honest `{n} cards` · optional `{MON D}` (America/Chicago via `shared/packptsDay.ts`) · `AUTHORED`
 - Play CTA: blue `#2B6CEE`
 - Do not render play count, Maker Rate, trending, or vanity tiles
 
@@ -44,7 +44,7 @@ Footer actions: **Make a set** (blue) · **Play Daily 5** (quiet outline).
 
 ## Detail `/sets/:id`
 
-- Provenance: title, `by {maker}` · optional date · `AUTHORED`, gold-outline `FAN MADE` if user-created
+- Provenance: title, `by {maker}` · optional date (same America/Chicago `{MON D}` as index) · `AUTHORED`, gold-outline `FAN MADE` if user-created
 - Mixtape note in a quiet quoted panel (real `makerNote` only)
 - Play + honest `{n} Cards` pill
 - Optional muted `Play today’s stack` **only if this visitor has not already played this set today** (America/Chicago). No clocks, no “hurry”, no “come back tomorrow”
@@ -56,7 +56,7 @@ Footer actions: **Make a set** (blue) · **Play Daily 5** (quiet outline).
 
 ## API (minimal)
 
-`GET /api/sets` and `GET /api/sets/:id` already expose honest `cardCount`. Add:
+`GET /api/sets` and `GET /api/sets/:id` already expose honest `cardCount`. Both emit `createdAt` as ISO UTC (browse maps raw pg timestamps via `createdAtToIso`). Authored `{MON D}` is America/Chicago (`formatPackptsMonDay`). Add:
 
 - `shareImageUrl` on the browse list (same `content_assets` lookup as detail)
 - `coverCardUrls` (browse) / `previewCards: { imageUrl, year }[]` (detail) — **no player names**

@@ -70,6 +70,7 @@ import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
 import {
+  createdAtToIso,
   sanitizeCoverCardUrls,
   toPublicPreviewCard,
   usablePublicImageUrl,
@@ -720,6 +721,7 @@ export async function registerRoutes(
 
       const sets = (rows.rows as Record<string, unknown>[]).map((row) => ({
         ...row,
+        createdAt: createdAtToIso(row.createdAt),
         shareImageUrl: usablePublicImageUrl(row.shareImageUrl) ?? undefined,
         coverCardUrls: sanitizeCoverCardUrls(row.coverCardUrls),
       }));

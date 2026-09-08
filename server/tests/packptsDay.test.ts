@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addPackptsDays,
+  formatPackptsMonDay,
   getDailyStartEnd,
   getPackptsDayKey,
   isPackptsDayKey,
@@ -18,10 +19,12 @@ describe("PackPTS product day (America/Chicago)", () => {
     // 2026-01-15 05:30 UTC = 2026-01-14 23:30 CST
     const lateCst = new Date("2026-01-15T05:30:00.000Z");
     expect(getPackptsDayKey(lateCst)).toBe("2026-01-14");
+    expect(formatPackptsMonDay(lateCst)).toBe("JAN 14");
     expect(lateCst.toISOString().slice(0, 10)).toBe("2026-01-15");
 
     // 2026-01-15 06:30 UTC = 2026-01-15 00:30 CST
     expect(getPackptsDayKey(new Date("2026-01-15T06:30:00.000Z"))).toBe("2026-01-15");
+    expect(formatPackptsMonDay(new Date("2026-09-09T03:00:00.000Z"))).toBe("SEP 8");
   });
 
   it("does not use America/New_York for the day key", () => {

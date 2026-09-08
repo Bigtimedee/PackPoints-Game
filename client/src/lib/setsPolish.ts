@@ -2,6 +2,7 @@
  * Goldin-quiet /sets helpers. Locked: docs/SETS_POLISH.md
  * Keep this file free of React so vitest can import it in node.
  */
+import { formatPackptsMonDay, isPackptsDayKey } from "@shared/packptsDay";
 import { isUsableImageUrl } from "./shareAssetUrl";
 
 export const SETS_POLISH = {
@@ -61,12 +62,28 @@ export function resolveSetCover(shareImageUrl: unknown, cardUrls: unknown): SetC
   return { kind: "stack", urls: sanitizeCoverCardUrls(cardUrls) };
 }
 
+/**
+ * Instant for an authored `createdAt`. Naive Postgres `timestamp`
+ * (`YYYY-MM-DD HH:MM:SS`) is UTC — same as drizzle Date JSON — so index
+ * and detail share one America/Chicago day.
+ */
+export function parseAuthoredInstant(iso: string): Date | null {
+  const trimmed = iso.trim();
+  if (!trimmed) return null;
+  if (isPackptsDayKey(trimmed)) {
+    return new Date(`${trimmed}T12:00:00.000Z`);
+  }
+  const naive = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/.exec(trimmed);
+  const d = new Date(naive ? `${naive[1]}T${naive[2]}Z` : trimmed);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 export function formatAuthoredDate(iso: string | null | undefined): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const mon = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" }).toUpperCase();
-  return `${mon} ${d.getUTCDate()}`;
+  const d = parseAuthoredInstant(iso);
+  if (!d) return null;
+  const label = formatPackptsMonDay(d);
+  return label || null;
 }
 
 export function honestCardCountLabel(cardCount: unknown): string {
