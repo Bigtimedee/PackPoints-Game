@@ -52,7 +52,7 @@ import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES
 import { daily5Service } from "./services/daily5Service";
 import { createBeatMeFromSession } from "./services/daily5BeatMe";
 import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
-import { getPackptsDayKey } from "@shared/packptsDay";
+import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
@@ -69,6 +69,11 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
+import {
+  sanitizeCoverCardUrls,
+  toPublicPreviewCard,
+  usablePublicImageUrl,
+} from "./routes/userSetPreview";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import { registerHealthRoutes } from "./routes/health.routes";
@@ -582,6 +587,7 @@ export async function registerRoutes(
         isUserCreated: gameSets.isUserCreated,
         createdByUserId: gameSets.createdByUserId,
         coCreatorUserId: gameSets.coCreatorUserId,
+        createdAt: gameSets.createdAt,
         cardCount: userSetCardCountSql,
         playCount: userSetPlayCountSql,
         makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
@@ -602,6 +608,7 @@ export async function registerRoutes(
             isUserCreated: gameSets.isUserCreated,
             createdByUserId: gameSets.createdByUserId,
             coCreatorUserId: gameSets.coCreatorUserId,
+            createdAt: gameSets.createdAt,
             cardCount: userSetCardCountSql,
             playCount: userSetPlayCountSql,
             makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
@@ -628,11 +635,39 @@ export async function registerRoutes(
           .from(contentAssets)
           .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
           .limit(1);
-        const url = (asset?.metadata as { imageUrl?: string } | null)?.imageUrl;
+        const url = usablePublicImageUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
         if (url) shareImageUrl = url;
       }
 
-      res.json({ ...resolved, shareImageUrl });
+      const previewRows = await db.select({
+        imageUrl: playableCards.imageUrl,
+        set: playableCards.set,
+        description: playableCards.description,
+      }).from(playableCards)
+        .where(and(eq(playableCards.gameSetId, resolved.id), eq(playableCards.isPlayable, true)))
+        .limit(8);
+      const previewCards = previewRows.map(toPublicPreviewCard);
+
+      const viewerId = requestUserId(req as any);
+      let playedToday = false;
+      if (viewerId) {
+        const today = getPackptsDayKey();
+        const tomorrow = addPackptsDays(today, 1);
+        const played = await db.execute(sql`
+          SELECT 1 AS hit
+          FROM game_sessions
+          WHERE user_id = ${viewerId}
+            AND status = 'completed'
+            AND (questions->0->'card'->>'gameSetId') = ${resolved.id}
+            AND completed_at IS NOT NULL
+            AND completed_at >= ${today}
+            AND completed_at < ${tomorrow}
+          LIMIT 1
+        `);
+        playedToday = played.rows.length > 0;
+      }
+
+      res.json({ ...resolved, shareImageUrl, previewCards, playedToday });
     } catch (error) {
       console.error("[Sets] GET /api/sets/:id error:", error);
       res.status(500).json({ error: "Failed to get set" });
@@ -656,16 +691,40 @@ export async function registerRoutes(
           gs.created_at AS "createdAt",
           u.username AS "makerUsername",
           (SELECT COUNT(*) FROM playable_cards pc WHERE pc.game_set_id = gs.id AND pc.is_playable = true)::int AS "cardCount",
-          (SELECT COUNT(*) FROM game_sessions gs2 WHERE (gs2.questions->0->'card'->>'gameSetId') = gs.id AND gs2.status = 'completed')::int AS "playCount"
+          (SELECT COUNT(*) FROM game_sessions gs2 WHERE (gs2.questions->0->'card'->>'gameSetId') = gs.id AND gs2.status = 'completed')::int AS "playCount",
+          (SELECT ca.metadata->>'imageUrl'
+             FROM content_assets ca
+            WHERE ca.source_event_id = 'maker_set_' || gs.id::text
+              AND ca.asset_type = 'MAKER_SHARE_CARD'
+            LIMIT 1) AS "shareImageUrl",
+          COALESCE((
+            SELECT json_agg(sub.image_url)
+            FROM (
+              SELECT pc.image_url
+              FROM playable_cards pc
+              WHERE pc.game_set_id = gs.id
+                AND pc.is_playable = true
+                AND pc.image_url IS NOT NULL
+                AND pc.image_url <> ''
+              ORDER BY pc.created_at ASC
+              LIMIT 8
+            ) sub
+          ), '[]'::json) AS "coverCardUrls"
         FROM game_sets gs
         LEFT JOIN users u ON u.id = gs.created_by_user_id
         WHERE gs.is_user_created = true
           AND gs.is_active = true
-        ORDER BY "playCount" DESC, gs.created_at DESC
+        ORDER BY gs.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `);
 
-      res.json({ sets: rows.rows });
+      const sets = (rows.rows as Record<string, unknown>[]).map((row) => ({
+        ...row,
+        shareImageUrl: usablePublicImageUrl(row.shareImageUrl) ?? undefined,
+        coverCardUrls: sanitizeCoverCardUrls(row.coverCardUrls),
+      }));
+
+      res.json({ sets });
     } catch (error) {
       console.error("[Sets] GET /api/sets error:", error);
       res.status(500).json({ error: "Failed to list sets" });
