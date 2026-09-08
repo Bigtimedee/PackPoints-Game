@@ -4,12 +4,12 @@ import {
   dailyChallenges, dailyChallengeCards, dailyChallengeEntries,
   playableCards, gameSets, users,
   type DailyChallenge, type DailyChallengeCard, type DailyChallengeEntry,
-  type PlayableCard
+  type DailyChallengeStatus, type PlayableCard
 } from "@shared/schema";
 import { eq, and, desc, isNotNull, ne, isNull, or, not, like, sql, asc, gte } from "drizzle-orm";
 import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
-import { addPackptsDays, getPackptsDayKey, packptsMidnightUtc } from "@shared/packptsDay";
+import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -18,15 +18,41 @@ const DAILY5_MIN_TIME_MS = parseInt(process.env.DAILY5_MIN_TIME_MS || "15000", 1
 const DAILY5_PERFECT_STREAK_THRESHOLD = parseInt(process.env.DAILY5_PERFECT_STREAK_THRESHOLD || "3", 10);
 const DAILY5_NEW_ACCOUNT_DAYS = parseInt(process.env.DAILY5_NEW_ACCOUNT_DAYS || "7", 10);
 
+const WINDOW_SKEW_MS = 1000;
+
 function getTodayDateString(): string {
   return getPackptsDayKey();
 }
 
-function getDailyStartEnd(dateStr: string): { startsAt: Date; endsAt: Date } {
-  return {
-    startsAt: packptsMidnightUtc(dateStr),
-    endsAt: packptsMidnightUtc(addPackptsDays(dateStr, 1)),
-  };
+export function daily5StatusForNow(
+  startsAt: Date,
+  endsAt: Date,
+  now: Date = new Date(),
+): DailyChallengeStatus {
+  const t = now.getTime();
+  if (t < startsAt.getTime()) return "SCHEDULED";
+  if (t >= endsAt.getTime()) return "CLOSED";
+  return "ACTIVE";
+}
+
+/** Patch stored windows/status onto CT midnights when they disagree with now. */
+export function reconcileDailyChallengeFields(
+  challenge: {
+    date: string;
+    startsAt: Date | string;
+    endsAt: Date | string;
+    status: string;
+  },
+  now: Date = new Date(),
+): { startsAt: Date; endsAt: Date; status: DailyChallengeStatus } | null {
+  const { startsAt, endsAt } = getDailyStartEnd(challenge.date);
+  const status = daily5StatusForNow(startsAt, endsAt, now);
+  const startSkew = Math.abs(new Date(challenge.startsAt).getTime() - startsAt.getTime());
+  const endSkew = Math.abs(new Date(challenge.endsAt).getTime() - endsAt.getTime());
+  if (startSkew <= WINDOW_SKEW_MS && endSkew <= WINDOW_SKEW_MS && challenge.status === status) {
+    return null;
+  }
+  return { startsAt, endsAt, status };
 }
 
 function deterministicSeed(dateStr: string, setId: string): string {
@@ -53,26 +79,52 @@ function perUserChoiceSeed(challengeId: string, userId: string, position: number
 }
 
 export class Daily5Service {
-  async getOrCreateTodayChallenge(): Promise<DailyChallenge | null> {
-    const today = getTodayDateString();
-    
+  private async persistReconciledChallenge(
+    challenge: DailyChallenge,
+    now: Date = new Date(),
+  ): Promise<DailyChallenge> {
+    const patch = reconcileDailyChallengeFields(challenge, now);
+    if (!patch) return challenge;
+
+    const [updated] = await db
+      .update(dailyChallenges)
+      .set({
+        startsAt: patch.startsAt,
+        endsAt: patch.endsAt,
+        status: patch.status,
+      })
+      .where(eq(dailyChallenges.id, challenge.id))
+      .returning();
+
+    console.log(
+      `[Daily5] Reconciled ${challenge.date} startsAt ${new Date(challenge.startsAt).toISOString()} -> ${patch.startsAt.toISOString()} status ${challenge.status} -> ${patch.status}`,
+    );
+    return updated ?? { ...challenge, ...patch };
+  }
+
+  private async getChallengeByDate(
+    dateStr: string,
+    now: Date = new Date(),
+  ): Promise<DailyChallenge | null> {
     const [existing] = await db
       .select()
       .from(dailyChallenges)
-      .where(eq(dailyChallenges.date, today))
+      .where(eq(dailyChallenges.date, dateStr))
       .limit(1);
+    if (!existing) return null;
+    return this.persistReconciledChallenge(existing, now);
+  }
 
+  async getOrCreateTodayChallenge(): Promise<DailyChallenge | null> {
+    const today = getTodayDateString();
+    const existing = await this.getChallengeByDate(today);
     if (existing) return existing;
 
     return this.createChallengeForDate(today);
   }
 
   async createChallengeForDate(dateStr: string): Promise<DailyChallenge | null> {
-    const [existingCheck] = await db
-      .select()
-      .from(dailyChallenges)
-      .where(eq(dailyChallenges.date, dateStr))
-      .limit(1);
+    const existingCheck = await this.getChallengeByDate(dateStr);
     if (existingCheck) return existingCheck;
 
     const [activeSet] = await db
@@ -89,6 +141,7 @@ export class Daily5Service {
 
     const seed = deterministicSeed(dateStr, activeSet.id);
     const { startsAt, endsAt } = getDailyStartEnd(dateStr);
+    const status = daily5StatusForNow(startsAt, endsAt);
 
     const [challenge] = await db
       .insert(dailyChallenges)
@@ -99,18 +152,13 @@ export class Daily5Service {
         seed,
         startsAt,
         endsAt,
-        status: "SCHEDULED",
+        status,
       })
       .onConflictDoNothing()
       .returning();
 
     if (!challenge) {
-      const [existing] = await db
-        .select()
-        .from(dailyChallenges)
-        .where(eq(dailyChallenges.date, dateStr))
-        .limit(1);
-      return existing || null;
+      return this.getChallengeByDate(dateStr);
     }
 
     await this.selectCardsForChallenge(challenge, activeSet.id, seed);
@@ -180,6 +228,24 @@ export class Daily5Service {
 
   async updateChallengeStatuses(): Promise<void> {
     const now = new Date();
+    const today = getTodayDateString();
+    const yesterday = addPackptsDays(today, -1);
+
+    const openOrCurrent = await db
+      .select()
+      .from(dailyChallenges)
+      .where(
+        or(
+          eq(dailyChallenges.status, "SCHEDULED"),
+          eq(dailyChallenges.status, "ACTIVE"),
+          eq(dailyChallenges.date, today),
+          eq(dailyChallenges.date, yesterday),
+        )
+      );
+
+    for (const row of openOrCurrent) {
+      await this.persistReconciledChallenge(row, now);
+    }
 
     await db
       .update(dailyChallenges)
@@ -217,11 +283,15 @@ export class Daily5Service {
 
     await this.updateChallengeStatuses();
 
-    const [freshChallenge] = await db
+    const [freshRow] = await db
       .select()
       .from(dailyChallenges)
       .where(eq(dailyChallenges.id, challenge.id))
       .limit(1);
+
+    const freshChallenge = freshRow
+      ? await this.persistReconciledChallenge(freshRow)
+      : challenge;
 
     let hasPlayed = false;
     let entry: DailyChallengeEntry | null = null;
@@ -263,11 +333,15 @@ export class Daily5Service {
     const challenge = await this.getOrCreateTodayChallenge();
     if (!challenge) throw new Error("No challenge available today");
 
-    const [fresh] = await db
+    const [freshRow] = await db
       .select()
       .from(dailyChallenges)
       .where(eq(dailyChallenges.id, challenge.id))
       .limit(1);
+
+    const fresh = freshRow
+      ? await this.persistReconciledChallenge(freshRow)
+      : challenge;
 
     if (fresh.status !== "ACTIVE") {
       throw new Error(`Challenge is ${fresh.status}, not active`);
@@ -570,12 +644,7 @@ export class Daily5Service {
     totalEntries: number;
   }> {
     const date = dateStr || getTodayDateString();
-
-    const [challenge] = await db
-      .select()
-      .from(dailyChallenges)
-      .where(eq(dailyChallenges.date, date))
-      .limit(1);
+    const challenge = await this.getChallengeByDate(date);
 
     if (!challenge) {
       return { entries: [], date, totalEntries: 0 };
@@ -629,12 +698,7 @@ export class Daily5Service {
     challenge: DailyChallenge | null;
   } | null> {
     const dateStr = addPackptsDays(getPackptsDayKey(), -1);
-
-    const [challenge] = await db
-      .select()
-      .from(dailyChallenges)
-      .where(eq(dailyChallenges.date, dateStr))
-      .limit(1);
+    const challenge = await this.getChallengeByDate(dateStr);
 
     if (!challenge) return null;
 
@@ -677,12 +741,7 @@ export class Daily5Service {
     }[];
   }> {
     const today = getTodayDateString();
-
-    const [todayChallenge] = await db
-      .select()
-      .from(dailyChallenges)
-      .where(eq(dailyChallenges.date, today))
-      .limit(1);
+    const todayChallenge = await this.getChallengeByDate(today);
 
     let todayParticipants = 0;
     let todayFlagged = 0;

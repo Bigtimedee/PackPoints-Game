@@ -27,6 +27,14 @@ export function addPackptsDays(dayKey: string, delta: number): string {
   return noonUtc.toISOString().slice(0, 10);
 }
 
+/** CT midnight → next CT midnight for a YYYY-MM-DD day key. */
+export function getDailyStartEnd(dayKey: string): { startsAt: Date; endsAt: Date } {
+  return {
+    startsAt: packptsMidnightUtc(dayKey),
+    endsAt: packptsMidnightUtc(addPackptsDays(dayKey, 1)),
+  };
+}
+
 /** Milliseconds until the next midnight in America/Chicago. */
 export function msUntilPackptsMidnight(at: Date = new Date()): number {
   const today = getPackptsDayKey(at);
