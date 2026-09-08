@@ -6,10 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Gift, UserPlus, Play, X, Compass } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
-import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
 import { msUntilPackptsMidnight } from "@shared/packptsDay";
+import { shouldShowHomePlayVanity } from "@shared/homePlayVanity";
 
 function SetOfWeekBanner() {
   const [dismissed, setDismissed] = useState(false);
@@ -290,7 +290,12 @@ function Daily5Urgency() {
 
 export default function Home() {
   const { isAuthenticated } = useAuth();
-  const { data: homeStats } = useQuery<{ totalGames: number; totalCards: number }>({
+  const { data: homeStats } = useQuery<{
+    totalGames: number;
+    totalCards: number;
+    staffPlayVanityOverride?: boolean;
+    showPlayVanity?: boolean;
+  }>({
     queryKey: ["/api/home-stats"],
     staleTime: 5 * 60 * 1000,
   });
@@ -300,18 +305,24 @@ export default function Home() {
     logAbEvent("impression", variant.current);
   }, []);
 
-  const quickStats = [
-    {
-      label: "Total Games Played",
-      value: homeStats ? homeStats.totalGames.toLocaleString() : "—",
-      icon: Star,
-    },
-    {
-      label: "Cards Guessed",
-      value: homeStats ? homeStats.totalCards.toLocaleString() : "—",
-      icon: Zap,
-    },
-  ];
+  const showPlayVanity = shouldShowHomePlayVanity({
+    totalGames: homeStats?.totalGames,
+    staffOverride: homeStats?.staffPlayVanityOverride,
+  });
+  const quickStats = showPlayVanity && homeStats
+    ? [
+        {
+          label: "Total Games Played",
+          value: homeStats.totalGames.toLocaleString(),
+          icon: Star,
+        },
+        {
+          label: "Cards Guessed",
+          value: homeStats.totalCards.toLocaleString(),
+          icon: Zap,
+        },
+      ]
+    : [];
 
   return (
     <div className="min-h-screen pb-20 md:pb-8">
@@ -357,7 +368,7 @@ export default function Home() {
                 <Link href="/auth">
                   <Button size="lg" variant="outline" className="gap-2" data-testid="button-claim-bonus">
                     <Gift className="h-5 w-5" />
-                    Claim 250 Free Points
+                    Claim 250 Free PackPTS
                   </Button>
                 </Link>
               )}
@@ -374,34 +385,32 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="container mx-auto px-4 py-4">
-        <FoundersCounter />
-      </section>
-
       <section className="container mx-auto px-4 pt-4">
         <Daily5Urgency />
       </section>
 
       <section className="container mx-auto px-4 py-8">
         <HowItWorks />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-12">
-          {quickStats.map((stat) => {
-            const Icon = stat.icon;
-            return (
-              <Card key={stat.label}>
-                <CardContent className="flex items-center gap-4 p-4">
-                  <div className="p-2 rounded-md bg-primary/10">
-                    <Icon className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold font-mono" data-testid={`text-stat-${stat.label.toLowerCase().replace(/\s/g, '-')}`}>{stat.value}</p>
-                    <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        {quickStats.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-12" data-testid="home-play-vanity">
+            {quickStats.map((stat) => {
+              const Icon = stat.icon;
+              return (
+                <Card key={stat.label}>
+                  <CardContent className="flex items-center gap-4 p-4">
+                    <div className="p-2 rounded-md bg-primary/10">
+                      <Icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold font-mono" data-testid={`text-stat-${stat.label.toLowerCase().replace(/\s/g, '-')}`}>{stat.value}</p>
+                      <p className="text-sm text-muted-foreground">{stat.label}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
         <div className="space-y-6">
           <div className="text-center space-y-2">

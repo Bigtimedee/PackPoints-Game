@@ -65,6 +65,7 @@ function getUrgencyTier(spotsRemaining: number): {
   };
 }
 
+/** Cap-status FOMO bar. Do not mount on home (HOME_VANITY_QUARANTINE). Cap API stays for auth / waitlist / admin. */
 export function FoundersCounter() {
   const { data: capStatus, isLoading } = useQuery<CapStatus>({
     queryKey: ["/api/access/cap"],

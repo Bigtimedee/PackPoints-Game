@@ -36,6 +36,10 @@ import { isAuthenticated } from "./auth";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
+import {
+  HOME_PLAY_VANITY_FLAG,
+  shouldShowHomePlayVanity,
+} from "@shared/homePlayVanity";
 import { adminService } from "./services/adminService";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
@@ -222,34 +226,47 @@ export async function registerRoutes(
 
   app.get("/api/home-stats", async (_req, res) => {
     try {
-      if (homeStatsCache && Date.now() - homeStatsCache.cachedAt < HOME_STATS_TTL_MS) {
-        return res.json(homeStatsCache.data);
+      let counts = homeStatsCache?.data;
+      if (!counts || Date.now() - homeStatsCache!.cachedAt >= HOME_STATS_TTL_MS) {
+        const [gamesResult, cardsResult] = await Promise.all([
+          db.select({ count: sql<number>`count(*)` })
+            .from(gameSessionsTable)
+            .where(eq(gameSessionsTable.status, "completed")),
+          db.select({ total: sql<number>`COALESCE(SUM(correct_answers), 0)` })
+            .from(gameSessionsTable)
+            .where(eq(gameSessionsTable.status, "completed")),
+        ]);
+
+        counts = {
+          totalGames: Number(gamesResult[0]?.count ?? 0),
+          totalCards: Number(cardsResult[0]?.total ?? 0),
+        };
+        homeStatsCache = { data: counts, cachedAt: Date.now() };
       }
 
-      const [gamesResult, cardsResult] = await Promise.all([
-        db.select({ count: sql<number>`count(*)` })
-          .from(gameSessionsTable)
-          .where(eq(gameSessionsTable.status, "completed")),
-        db.select({ total: sql<number>`COALESCE(SUM(correct_answers), 0)` })
-          .from(gameSessionsTable)
-          .where(eq(gameSessionsTable.status, "completed")),
-      ]);
-
-      const totalGames = Number(gamesResult[0]?.count ?? 0);
-      const totalCards = Number(cardsResult[0]?.total ?? 0);
+      const staffPlayVanityOverride = await quotaService.isFeatureEnabled(HOME_PLAY_VANITY_FLAG);
+      const showPlayVanity = shouldShowHomePlayVanity({
+        totalGames: counts.totalGames,
+        staffOverride: staffPlayVanityOverride,
+      });
 
       // Public marketing surface — games + cards only. Never add D1/D7/D30,
       // Maker Rate, DAU, or any admin retention field here.
-      const data = {
-        totalGames,
-        totalCards,
-      };
-
-      homeStatsCache = { data, cachedAt: Date.now() };
-      return res.json(data);
+      // showPlayVanity is the home-page gate (HOME_VANITY_QUARANTINE); counts stay real.
+      return res.json({
+        totalGames: counts.totalGames,
+        totalCards: counts.totalCards,
+        staffPlayVanityOverride,
+        showPlayVanity,
+      });
     } catch (err) {
       console.error("[HomeStats] Query failed:", err);
-      return res.json({ totalGames: 0, totalCards: 0 });
+      return res.json({
+        totalGames: 0,
+        totalCards: 0,
+        staffPlayVanityOverride: false,
+        showPlayVanity: false,
+      });
     }
   });
 

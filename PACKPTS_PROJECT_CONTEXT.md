@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-08 (product lock: dark `/make` UGC publish; authored dates = America/Chicago; staff QA identify-fail)
+**Last verified against codebase:** 2026-09-08 (home vanity quarantine: play counters gated at 500 games; Founders FOMO hidden on home)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -42,7 +42,7 @@ Trading cards are one of the most emotionally resonant collectible categories in
 1. User visits packpts.com or receives a Founders Pass / invite link.
 2. Signup requires username, email, password. Invite code may be required if the founders cap is active.
 3. WorkOS SSO (Google, etc.) is an alternative auth path.
-4. After signup, the user lands on the home page and can immediately play a solo game.
+4. After signup, the user lands on the home page and can immediately play a solo game. Home does not show Total Games Played / Cards Guessed until `totalGames ≥ 500` (or staff flag `home.show_play_vanity`). Founders FOMO is not on home.
 
 ### First Game
 1. User selects a game mode (Solo is the default entry point).
@@ -1692,6 +1692,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] Staff QA identify-fail (2026-09-08): admin/staff on `/make?qaIdentifyFail=1` or `?qa=identify-fail` (or one-shot `packpts:make:qaIdentifyFail` storage) injects one Failed draft slot without calling identify, so Design can screenshot retry chrome without the file picker. Non-admin: param ignored silently. Try again on the stub stays Failed (no API). Skip removes the slot. Production identify pipeline unchanged.
 - [x] `/sets` Goldin-quiet polish (2026-09-08): index + detail match `docs/SETS_POLISH.md` (play shelf, Surface A cover else masked stack, honest `{n} cards`, short-shelf banner below the ≥10 gate, no Times Played / Maker Rate / currency chrome). Play uses the set’s real card count (5–20), not a hardcoded 10, and resumes that session on `/game/solo?session=` so the setup picker is skipped. Authored `{MON D}` on index and detail is the same America/Chicago day (`formatPackptsMonDay` / `shared/packptsDay.ts`); `GET /api/sets` serializes `createdAt` as ISO UTC so it matches drizzle on `GET /api/sets/:id` (Design QA on #73: naive browse `2026-09-08 17:38:58` vs detail ISO showed SEP 9 vs SEP 8).
 - [x] Product lock — dark `/make` UGC publish (2026-09-08): users never create cards; they play sets already integrated into PackPTS. Public nav / home / `/sets` / set pages / profile no longer link to Snap-to-Set. Non-staff `/make` redirects to `/sets`. Staff (`users.is_admin`) may still open `/make` by URL (including staff QA `?qaIdentifyFail=1`). Maker codebase is not deleted. `POST /api/sets/identify-card`, `POST /api/sets/create`, `POST /api/collab/create`, and `POST /api/collab/:id/publish` require admin. Daily 5, Beat-me, and `/sets` play stay.
+- [x] Home vanity quarantine (2026-09-08): home omits **Total Games Played** + **Cards Guessed** until `totalGames ≥ HOME_PLAY_VANITY_MIN_GAMES` (500) or staff flag `home.show_play_vanity`. Below the gate (including while `/api/home-stats` is loading) the rows are absent — no `"—"`, zeros, or Coming soon. Founders FOMO / “Limited Founder spots” progress bar is **not** mounted on home; `GET /api/access/cap` stays for auth / waitlist / admin. **250 Free PackPTS** promo stays: `POST /api/auth/register` still `walletService.earn(..., 250, ..., welcome_bonus:{userId})`. Promo DOM is separate from the vanity grid; spelling is PackPTS. Contract: `docs/design/HOME_VANITY_QUARANTINE.md`. Helper: `shared/homePlayVanity.ts`.
 - [x] Score card tofu / blank type (2026-09-05 follow-up): after the EACCES fix, production PNGs wrote and served but Inter was not in the Alpine image. `sans-serif` text became tofu; X/5, headline, PackPTS, and `packpts.com/daily` were unreadable; pips could look empty when metadata counts failed to coerce. Generator now bundles Inter TTFs, embeds them as `@font-face` data URIs, and outlines every label to SVG paths so Sharp never asks fontconfig for a face.
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
 - [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
