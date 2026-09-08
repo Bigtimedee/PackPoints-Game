@@ -49,6 +49,9 @@ import * as accessService from "./services/accessService";
 import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
 import { daily5Service } from "./services/daily5Service";
+import { createBeatMeFromSession } from "./services/daily5BeatMe";
+import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
+import { getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
@@ -1401,7 +1404,7 @@ export async function registerRoutes(
       let shareImageUrl: string | undefined;
       try {
         const { onDaily5Finished, awaitScoreCard } = await import("./contentFactory/index");
-        const date = new Date().toISOString().slice(0, 10);
+        const date = getPackptsDayKey();
         const cardPromise = onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -1424,6 +1427,32 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[Daily5] Error finishing challenge:", error);
       res.status(500).json({ error: "Failed to finish Daily 5" });
+    }
+  });
+
+  app.post("/api/daily5/beat-me", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      const created = await createBeatMeFromSession(userId);
+      res.json(created);
+    } catch (error: any) {
+      const message = error?.message || "Failed to create Beat-me challenge";
+      if (message.includes("Finish today's Daily 5") || message.includes("No Daily 5")) {
+        return res.status(400).json({ error: message });
+      }
+      console.error("[Daily5] Beat-me create error:", error);
+      res.status(500).json({ error: "Failed to create Beat-me challenge" });
+    }
+  });
+
+  app.get("/api/daily5/beat-me", async (req, res) => {
+    try {
+      const token = typeof req.query.challenge === "string" ? req.query.challenge : "";
+      res.json(resolveBeatMeToken(token));
+    } catch (error) {
+      console.error("[Daily5] Beat-me resolve error:", error);
+      res.status(500).json({ error: "Failed to resolve challenge" });
     }
   });
 

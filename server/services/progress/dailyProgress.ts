@@ -1,18 +1,12 @@
 import { db } from "../../db";
 import { userDailyProgress, matches, matchParticipants } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { getPackptsDayKey, msUntilPackptsMidnight } from "@shared/packptsDay";
 
 const DAILY_CARD_CAP = 200;
 
 export function getChicagoDate(): string {
-  const chicagoTime = new Date().toLocaleString("en-US", {
-    timeZone: "America/Chicago",
-  });
-  const chicagoDate = new Date(chicagoTime);
-  const year = chicagoDate.getFullYear();
-  const month = String(chicagoDate.getMonth() + 1).padStart(2, "0");
-  const day = String(chicagoDate.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getPackptsDayKey();
 }
 
 export async function bumpDailyProgressForMatch(params: {
@@ -81,12 +75,7 @@ export async function applyProgressForMatchIfNeeded(params: {
 }
 
 function getChicagoMidnightResetMs(): number {
-  const now = new Date();
-  const chicagoNow = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-  const chicagoTomorrow = new Date(chicagoNow);
-  chicagoTomorrow.setDate(chicagoTomorrow.getDate() + 1);
-  chicagoTomorrow.setHours(0, 0, 0, 0);
-  return chicagoTomorrow.getTime() - chicagoNow.getTime();
+  return msUntilPackptsMidnight();
 }
 
 export async function getDailyProgress(userId: string): Promise<{
@@ -120,14 +109,7 @@ export async function getDailyProgress(userId: string): Promise<{
 }
 
 function toChicagoDate(date: Date): string {
-  const chicagoTime = date.toLocaleString("en-US", {
-    timeZone: "America/Chicago",
-  });
-  const chicagoDate = new Date(chicagoTime);
-  const year = chicagoDate.getFullYear();
-  const month = String(chicagoDate.getMonth() + 1).padStart(2, "0");
-  const day = String(chicagoDate.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getPackptsDayKey(date);
 }
 
 export async function backfillProgressForFinishedMatches(): Promise<{

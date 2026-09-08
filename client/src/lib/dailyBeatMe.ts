@@ -1,93 +1,76 @@
 /**
- * Daily 5 “Beat me” deep-link contract.
+ * Daily 5 “Beat me” client helpers.
  *
- * Canonical URL: https://packpts.com/daily?s={0-5}&n={username}
- * `/daily` and `/daily5` are the same page. Recipients always play *today’s*
- * Daily 5 — query params carry challenger context only, never a puzzle date.
+ * Durable URL:
+ *   https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}
  *
- * Honesty: `s` is the sender’s real session correct-count (X/5). Never invent
- * scores or streaks. Invalid / out-of-range `s` is ignored (no banner).
+ * Token is server-signed. puzzle_day is the America/Chicago Daily 5 day key.
+ * Recipients always play *today’s* Daily 5. Stale tokens (wrong CT day) keep
+ * the page playable and show an expired notice — never yesterday’s cards.
  */
 
 export const DAILY_BEAT_ME_PATH = "/daily";
 export const DAILY_BEAT_ME_ORIGIN = "https://packpts.com";
 
 const STORAGE_KEY = "packpts_daily_beat_me";
-const NAME_MAX = 20;
+
+export type BeatMeStatus = "active" | "stale" | "invalid";
 
 export interface DailyBeatMeChallenge {
+  status: BeatMeStatus;
+  token: string;
   correctCount: number;
   displayName?: string;
+  puzzleDay?: string;
+  today?: string;
 }
 
-export function parseBeatMeCorrectCount(raw: unknown): number | undefined {
-  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw <= 5) {
-    return raw;
-  }
-  if (typeof raw === "string" && /^(0|1|2|3|4|5)$/.test(raw.trim())) {
-    return Number(raw.trim());
-  }
-  return undefined;
-}
-
-export function sanitizeBeatMeName(raw: unknown): string | undefined {
-  if (typeof raw !== "string") return undefined;
-  const cleaned = raw.trim().replace(/[^a-zA-Z0-9_]/g, "").slice(0, NAME_MAX);
-  return cleaned || undefined;
-}
-
-export function buildDailyBeatMePath(input: {
-  correctCount: unknown;
-  displayName?: unknown;
-}): string {
-  const s = parseBeatMeCorrectCount(input.correctCount);
-  if (s === undefined) return DAILY_BEAT_ME_PATH;
-  const params = new URLSearchParams();
-  params.set("s", String(s));
-  const n = sanitizeBeatMeName(input.displayName);
-  if (n) params.set("n", n);
-  return `${DAILY_BEAT_ME_PATH}?${params.toString()}`;
-}
-
-export function buildDailyBeatMeUrl(input: {
-  correctCount: unknown;
-  displayName?: unknown;
-}): string {
-  return `${DAILY_BEAT_ME_ORIGIN}${buildDailyBeatMePath(input)}`;
-}
-
-export function parseDailyBeatMeParams(
-  search: string | URLSearchParams,
-): DailyBeatMeChallenge | null {
+export function parseBeatMeToken(search: string | URLSearchParams): string | undefined {
   const params =
     typeof search === "string"
       ? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
       : search;
-  const s = parseBeatMeCorrectCount(params.get("s"));
-  if (s === undefined) return null;
-  return {
-    correctCount: s,
-    displayName: sanitizeBeatMeName(params.get("n") ?? undefined),
-  };
+  const token = params.get("challenge")?.trim();
+  return token || undefined;
+}
+
+export function buildDailyBeatMePath(token: string): string {
+  const params = new URLSearchParams({
+    utm_source: "share",
+    utm_medium: "beatme",
+    utm_campaign: "daily5",
+    challenge: token,
+  });
+  return `${DAILY_BEAT_ME_PATH}?${params.toString()}`;
+}
+
+export function buildDailyBeatMeUrl(token: string): string {
+  return `${DAILY_BEAT_ME_ORIGIN}${buildDailyBeatMePath(token)}`;
 }
 
 export function formatBeatMeBanner(challenge: DailyBeatMeChallenge): string {
-  const who = challenge.displayName ?? "A player";
-  return `${who} went ${challenge.correctCount}/5 — Beat them`;
+  if (challenge.status === "stale") {
+    return "Challenge expired — play today's five.";
+  }
+  const who = challenge.displayName ?? "them";
+  return `Beat ${who} — they went ${challenge.correctCount}/5 today`;
 }
 
-export function formatBeatMeShareCaption(challenge: DailyBeatMeChallenge): string {
-  return `I went ${challenge.correctCount}/5 on today's Daily 5.`;
+export function formatBeatMeShareCaption(correctCount: number): string {
+  return `I went ${correctCount}/5 on today's Daily 5.`;
+}
+
+export function formatBeatMeCompare(yours: number, theirs: number): string {
+  if (yours > theirs) return `You went ${yours}/5. They went ${theirs}/5.`;
+  if (yours < theirs) return `They went ${theirs}/5. You went ${yours}/5.`;
+  return `You both went ${yours}/5.`;
 }
 
 export function persistBeatMeChallenge(challenge: DailyBeatMeChallenge): void {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-      correctCount: challenge.correctCount,
-      displayName: challenge.displayName,
-    }));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(challenge));
   } catch {
-    // private mode / quota — banner still works from the URL
+    // private mode / quota
   }
 }
 
@@ -95,24 +78,44 @@ export function readPersistedBeatMeChallenge(): DailyBeatMeChallenge | null {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { correctCount?: unknown; displayName?: unknown };
-    const s = parseBeatMeCorrectCount(parsed.correctCount);
-    if (s === undefined) return null;
-    return {
-      correctCount: s,
-      displayName: sanitizeBeatMeName(parsed.displayName),
-    };
+    const parsed = JSON.parse(raw) as DailyBeatMeChallenge;
+    if (!parsed?.token || (parsed.status !== "active" && parsed.status !== "stale")) {
+      return null;
+    }
+    if (
+      typeof parsed.correctCount !== "number" ||
+      parsed.correctCount < 0 ||
+      parsed.correctCount > 5
+    ) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
 }
 
-/** Prefer URL params (and persist them); fall back to this-tab sessionStorage. */
-export function resolveBeatMeChallenge(search: string): DailyBeatMeChallenge | null {
-  const fromUrl = parseDailyBeatMeParams(search);
-  if (fromUrl) {
-    persistBeatMeChallenge(fromUrl);
-    return fromUrl;
-  }
-  return readPersistedBeatMeChallenge();
+export function mapBeatMeApiResult(
+  token: string,
+  data: {
+    status?: string;
+    correctCount?: number;
+    displayName?: string;
+    puzzleDay?: string;
+    today?: string;
+  },
+): DailyBeatMeChallenge | null {
+  if (data.status === "invalid" || data.status == null) return null;
+  if (data.status !== "active" && data.status !== "stale") return null;
+  if (typeof data.correctCount !== "number") return null;
+  const challenge: DailyBeatMeChallenge = {
+    status: data.status,
+    token,
+    correctCount: data.correctCount,
+    displayName: data.displayName,
+    puzzleDay: data.puzzleDay,
+    today: data.today,
+  };
+  persistBeatMeChallenge(challenge);
+  return challenge;
 }

@@ -1,42 +1,55 @@
 # Daily 5 “Beat me” URL contract
 
-Share/challenge after Daily 5 Game Complete is a **product loop**, not a PNG or caption. The recipient opens today’s Daily 5 with the challenger’s real session score.
+Share/challenge after Daily 5 Game Complete is a **product loop**, not a PNG or caption. The recipient opens **today’s** Daily 5 with the challenger’s real session score.
+
+## Timezone lock
+
+Beat-me `puzzle_day`, the Daily 5 day key / challenge window, and streak “today” all use **`America/Chicago` (CT)**.
+
+- Day key: `YYYY-MM-DD` from `getPackptsDayKey()` in `shared/packptsDay.ts`
+- Daily 5 `startsAt` / `endsAt` for a date are CT midnight → next CT midnight
+- Stale check: token `puzzle_day === getPackptsDayKey()` (same CT key)
+- Do **not** use America/New_York, UTC calendar dates, or a second feature TZ
 
 ## Canonical URL
 
 ```
-https://packpts.com/daily?s={0-5}&n={username}
+https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}
 ```
-
-| Param | Required | Meaning |
-|-------|----------|---------|
-| `s` | yes | Challenger’s **real** session correct-count (`0`–`5`). This is the X in X/5. |
-| `n` | no | Challenger username (`[A-Za-z0-9_]`, max 20). Omitted when unavailable. |
-| `ref` | no | Existing referral short-link code. Ignored by the Beat-me parser. |
 
 `/daily` and `/daily5` render the same page. Build and share **`/daily`**.
 
+| Param | Required | Meaning |
+|-------|----------|---------|
+| `challenge` | yes | Server-signed token (`v1.{payload}.{hmac}`) |
+| `utm_*` | yes on share | `share` / `beatme` / `daily5` |
+
+Token payload (HMAC-SHA256 with `SECRET_SALT`):
+
+| Field | Meaning |
+|-------|---------|
+| `s` | Challenger’s **real** session correct-count (`0`–`5`) |
+| `d` | `puzzle_day` — CT Daily 5 day key |
+| `n` | Optional username |
+| `u` | Optional challenger user id |
+
+TTL = that CT day key. If `d` is not today’s CT key → **stale**. Recipient still plays today’s five cards.
+
 ## Honesty
 
-- Emit `s` only from the finished Daily 5 session (`finishResult.correctCount` or `status.entry.correctCount`).
-- Never invent scores, streaks, ranks, or points in the deep link.
-- Invalid or out-of-range `s` → treat as a normal `/daily` visit (no banner).
-- Do **not** pin a puzzle date. The recipient always plays **today’s** Daily 5. `s`/`n` are challenger context only.
+- Tokens are issued only by `POST /api/daily5/beat-me` after a completed entry for **today’s CT** Daily 5. The client cannot supply a score.
+- Never invent scores, streaks, ranks, or kit `4/5`.
+- Invalid token → normal `/daily` (no banner).
 
 ## Recipient UI
 
-Quiet banner on preview / play / results:
+- Active: `Beat {name} — they went {score}/5 today`
+- Stale: `Challenge expired — play today's five.`
+- After the recipient finishes: quiet compare (`You went X/5. They went Y/5.` / tie / they led). No casino copy.
 
-```
-{n} went {s}/5 — Beat them
-```
+## Endpoints
 
-If `n` is missing: `A player went {s}/5 — Beat them`.
+- `POST /api/daily5/beat-me` (auth) — signs today’s real session
+- `GET /api/daily5/beat-me?challenge=` — `{ status: active\|stale\|invalid, puzzleDay, today, correctCount, displayName }`
 
-## How links are produced
-
-1. **Challenge a Friend** — `POST /api/referrals/create` with `purpose: SCORE_SHARE` and `destinationPath: /daily?s=…&n=…`. The `/r/{code}` redirect keeps those params and appends `ref`.
-2. **ShareAssetCard** (copy / native / share-without-card) — `shareUrl` is the canonical `https://packpts.com/daily?s=…&n=…` URL.
-3. **Share Result** clipboard/native text — same X/5 caption + that URL.
-
-Helpers live in `client/src/lib/dailyBeatMe.ts`. Context is also written to `sessionStorage` (`packpts_daily_beat_me`) so a sign-in hop or `/daily5` alias still shows the banner.
+Helpers: `shared/packptsDay.ts`, `server/lib/daily5BeatMeToken.ts`, `client/src/lib/dailyBeatMe.ts`.

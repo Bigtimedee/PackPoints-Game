@@ -14,6 +14,7 @@ import {
 import { eq, and, lte, gte, isNull, or, desc, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { analyticsService } from "./analyticsService";
+import { getPackptsDayKey, msUntilPackptsMidnight, PACKPTS_DAY_TZ } from "@shared/packptsDay";
 
 async function isUserFrozen(userId: string): Promise<boolean> {
   try {
@@ -52,47 +53,12 @@ export interface StreakClaimResult {
 }
 
 class StreakService {
-  private getUserLocalDate(timezone: string = "America/Chicago"): string {
-    try {
-      const now = new Date();
-      const formatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-      return formatter.format(now);
-    } catch {
-      const now = new Date();
-      const offset = -6 * 60;
-      const local = new Date(now.getTime() + offset * 60000);
-      return local.toISOString().split("T")[0];
-    }
+  private getUserLocalDate(_timezone: string = PACKPTS_DAY_TZ): string {
+    return getPackptsDayKey();
   }
 
-  private getTimeUntilMidnight(timezone: string = "America/Chicago"): number {
-    try {
-      const now = new Date();
-      const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone,
-        hour: "numeric",
-        minute: "numeric",
-        second: "numeric",
-        hour12: false,
-      });
-      const parts = formatter.formatToParts(now);
-      const hour = parseInt(parts.find(p => p.type === "hour")?.value || "0");
-      const minute = parseInt(parts.find(p => p.type === "minute")?.value || "0");
-      const second = parseInt(parts.find(p => p.type === "second")?.value || "0");
-      
-      const secondsUntilMidnight = (24 - hour - 1) * 3600 + (60 - minute - 1) * 60 + (60 - second);
-      return secondsUntilMidnight * 1000;
-    } catch {
-      const now = new Date();
-      const midnight = new Date(now);
-      midnight.setHours(24, 0, 0, 0);
-      return midnight.getTime() - now.getTime();
-    }
+  private getTimeUntilMidnight(_timezone: string = PACKPTS_DAY_TZ): number {
+    return msUntilPackptsMidnight();
   }
 
   private isConsecutiveDay(lastDate: string, currentDate: string): boolean {

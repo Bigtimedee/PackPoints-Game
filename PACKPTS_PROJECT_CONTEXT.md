@@ -99,10 +99,10 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 
 ### Daily 5 Challenge
 - **Status:** Implemented
-- **Flow:** Once per day, all users get the same 5 cards. Play, submit scores, see daily leaderboard. Game Complete share/challenge emits a **Beat-me** deep link into *today’s* Daily 5 (`https://packpts.com/daily?s={0-5}&n={username}`) — recipient sees `{n} went {s}/5 — Beat them` and plays the current day’s cards, never a stale puzzle. Contract: `docs/DAILY_BEAT_ME.md`. Helpers: `client/src/lib/dailyBeatMe.ts`.
-- **Scoring:** Same reward engine; max 250 pts per Daily 5 session (configurable via `DAILY5_MAX_POINTS`); minimum answer time of 15s enforced to prevent botting. Beat-me `s` is the real session correct-count only — no invented scores or streaks.
+- **Flow:** Once per day, all users get the same 5 cards. Play, submit scores, see daily leaderboard. Game Complete **Beat me** issues a server-signed token (`POST /api/daily5/beat-me`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient banner: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Always today’s cards. Contract: `docs/DAILY_BEAT_ME.md`.
+- **Scoring:** Same reward engine; max 250 pts per Daily 5 session (configurable via `DAILY5_MAX_POINTS`); minimum answer time of 15s enforced to prevent botting. Beat-me score is the real completed-entry correct-count only — no invented scores or streaks.
+- **Day key:** **America/Chicago (CT)** — shared with streak and Beat-me `puzzle_day` via `shared/packptsDay.ts`. Daily 5 challenge window is CT midnight → next CT midnight. Stale check is `token.puzzle_day === getPackptsDayKey()`. Do not use America/New_York or UTC dates for this identity.
 - **Fairness:** Same cards for everyone; new-account detection (accounts < 7 days old may have restrictions)
-- **Known gaps:** Timezone handling for "day" boundary uses `DAILY5_TZ` (defaults to America/New_York)
 
 ### 1v1 Friend Match
 - **Status:** Implemented
@@ -1016,7 +1016,7 @@ Entry point: `server/index.ts`
 - **Admin:** `/api/admin/*` — 40+ endpoints for dashboard, users, cards, redemptions, streaks, products, access, geo, growth, panic. Temporary D5-2: `POST /api/admin/social-agent/one-shot-tweet` is token-gated (`x-one-shot-token`), not session-admin.
 - **Friends:** Friend list management, match invites
 - **Referrals:** `/api/referrals/*` — create, attribute, stats, leaderboard
-- **Share cards:** `GET /api/content-assets/latest`, `POST /api/content-assets/retry` — score-card PNG lookup + regenerate. Files live on the Railway volume at `/app/data/masked-cards/generated/share/` (the non-root `packpts` user cannot write `/app/public`). Public URL prefix `/generated/share/` is mounted from that directory in production and from `public/generated/share` in local/CI. Inter TTFs ship in `server/contentFactory/assets/fonts/` and are outlined into SVG paths at generate time — Railway Alpine has no system fonts, so `<text font-family="sans-serif">` produced tofu on the live 1080 card. Daily 5 Game Complete challenge/share also writes a Beat-me URL (`/daily?s=&n=`) so the PNG is not the loop — see `docs/DAILY_BEAT_ME.md`.
+- **Share cards:** `GET /api/content-assets/latest`, `POST /api/content-assets/retry` — score-card PNG lookup + regenerate. Files live on the Railway volume at `/app/data/masked-cards/generated/share/` (the non-root `packpts` user cannot write `/app/public`). Public URL prefix `/generated/share/` is mounted from that directory in production and from `public/generated/share` in local/CI. Inter TTFs ship in `server/contentFactory/assets/fonts/` and are outlined into SVG paths at generate time — Railway Alpine has no system fonts, so `<text font-family="sans-serif">` produced tofu on the live 1080 card. Daily 5 Game Complete **Beat me** is a signed challenge token (not a PNG/caption): `POST /api/daily5/beat-me`, `GET /api/daily5/beat-me?challenge=` — see `docs/DAILY_BEAT_ME.md`.
 - **Card of the Day:** `GET /api/card-of-the-day` is **retired**. Returns `200 { "card": null }`. The old handler 500’d in production (verified 2026-09-08: `{"message":"Failed to get card of the day"}`) because it queried `card_of_the_day` + `game_answers` and `playable_cards.player_name/set_name/year/is_active` — none of those match Railway schema. Home widget removed. Daily 5 is the daily ICP product.
 - **Health:** `/api/health`, `/api/version`
 
@@ -1369,7 +1369,9 @@ See Section 18 for the full route listing. Key endpoints grouped by domain:
 | POST | /api/lobby/create | Yes | Create match lobby |
 | POST | /api/lobby/join | Yes | Join lobby |
 | GET | /api/leaderboard | No | Global rankings |
-| POST | /api/referrals/create | Yes | Create referral link. Daily 5 Beat-me uses `destinationPath: /daily?s={0-5}&n={username}` |
+| POST | /api/referrals/create | Yes | Create referral link. Daily 5 Beat-me sets `destinationPath` to `/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}` |
+| POST | /api/daily5/beat-me | Yes | Sign today’s CT Daily 5 session into a Beat-me token (real X/5 only) |
+| GET | /api/daily5/beat-me | No | Resolve token: `active` / `stale` / `invalid` against today’s CT day key |
 | GET | /api/card-of-the-day | No | Retired. Always `200 { "card": null }` (was a production 500) |
 | GET | /api/content-assets/latest | Yes | Latest score card for a match or Daily 5 challenge; repairs missing PNGs |
 | POST | /api/content-assets/retry | Yes | Force-regenerate a score card PNG |
@@ -1686,7 +1688,7 @@ railway variables --service Postgres --json | python3 -c \
 
 ### Gameplay
 - [x] Game Complete / Daily 5 score card PNG (2026-09-05): generation wrote to `/app/public/generated/share`, which the non-root `packpts` process cannot mkdir (`EACCES`). Confirmed in production deploy logs. Cards now write to the persistent volume `/app/data/masked-cards/generated/share/` and are served at `/generated/share/`. Failed rows (insert-then-EACCES) are repaired on `GET /api/content-assets/latest` and via `POST /api/content-assets/retry`. Finish handlers await generation up to 1.5s and return `shareImageUrl` so the 1080×1080 card can appear within ~2s on Safari. Locked Design contract: `docs/SCORE_CARD_CONTRACT.md` (1080 square, actual X/5, five `#22C55E` pips, “N locked. M open.”, masked-P + PackPTS, packpts.com/daily) and `docs/EMPTY_STATE.md` (no broken-image glyph; “Score card didn’t load.” + Retry `#2B6CEE` + Share without card). `/daily` is an alias for `/daily5`.
-- [x] Daily 5 Beat-me product loop (2026-09-08): Game Complete challenge/share deep-links to `https://packpts.com/daily?s={0-5}&n={username}` (real session X/5 only). Recipient lands on today’s Daily 5 with `{n} went {s}/5 — Beat them`. Contract: `docs/DAILY_BEAT_ME.md`.
+- [x] Daily 5 Beat-me product loop (2026-09-08): Game Complete **Beat me** issues `POST /api/daily5/beat-me` (real completed-entry X/5 + CT `puzzle_day`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Day key shared with Daily 5 + streak: `America/Chicago` (`shared/packptsDay.ts`). Contract: `docs/DAILY_BEAT_ME.md`.
 - [x] `/api/card-of-the-day` production 500 (2026-09-08): live curl returned `{"message":"Failed to get card of the day"}`. Root cause verified in code: handler joined `card_of_the_day` (not in drizzle schema), `game_answers` (table does not exist), and `playable_cards.player_name/set_name/year/is_active` (actual columns are `player`/`set`/`is_playable`; no `year`). Not on the Daily 5 ICP path. Endpoint now returns `200 { "card": null }`; home widget removed.
 - [x] Score card tofu / blank type (2026-09-05 follow-up): after the EACCES fix, production PNGs wrote and served but Inter was not in the Alpine image. `sans-serif` text became tofu; X/5, headline, PackPTS, and `packpts.com/daily` were unreadable; pips could look empty when metadata counts failed to coerce. Generator now bundles Inter TTFs, embeds them as `@font-face` data URIs, and outlines every label to SVG paths so Sharp never asks fontconfig for a face.
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min

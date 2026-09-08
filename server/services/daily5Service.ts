@@ -9,10 +9,8 @@ import {
 import { eq, and, desc, isNotNull, ne, isNull, or, not, like, sql, asc, gte } from "drizzle-orm";
 import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
+import { addPackptsDays, getPackptsDayKey, packptsMidnightUtc } from "@shared/packptsDay";
 
-const DAILY5_TZ = process.env.GROWTH_AGENT_DAILY5_TZ || "America/New_York";
-const DAILY5_START_HOUR = parseInt(process.env.GROWTH_AGENT_DAILY5_START_HOUR || "20", 10);
-const DAILY5_START_MINUTE = parseInt(process.env.GROWTH_AGENT_DAILY5_START_MINUTE || "0", 10);
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
 const DAILY5_MAX_POINTS = parseInt(process.env.DAILY5_MAX_POINTS || "250", 10);
@@ -20,33 +18,15 @@ const DAILY5_MIN_TIME_MS = parseInt(process.env.DAILY5_MIN_TIME_MS || "15000", 1
 const DAILY5_PERFECT_STREAK_THRESHOLD = parseInt(process.env.DAILY5_PERFECT_STREAK_THRESHOLD || "3", 10);
 const DAILY5_NEW_ACCOUNT_DAYS = parseInt(process.env.DAILY5_NEW_ACCOUNT_DAYS || "7", 10);
 
-function getDateStringInTZ(tz: string, date?: Date): string {
-  const d = date || new Date();
-  return d.toLocaleDateString("en-CA", { timeZone: tz });
-}
-
 function getTodayDateString(): string {
-  return getDateStringInTZ(DAILY5_TZ);
+  return getPackptsDayKey();
 }
 
 function getDailyStartEnd(dateStr: string): { startsAt: Date; endsAt: Date } {
-  const utcStart = getUTCForLocalTime(dateStr, DAILY5_START_HOUR, DAILY5_START_MINUTE, DAILY5_TZ);
-  const utcEnd = new Date(utcStart.getTime() + 24 * 60 * 60 * 1000);
-  return { startsAt: utcStart, endsAt: utcEnd };
-}
-
-function getUTCForLocalTime(dateStr: string, hour: number, minute: number, tz: string): Date {
-  const testDate = new Date(`${dateStr}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`);
-  
-  const utcStr = testDate.toLocaleString("en-US", { timeZone: "UTC" });
-  const tzStr = testDate.toLocaleString("en-US", { timeZone: tz });
-  
-  const utcDate = new Date(utcStr);
-  const tzDate = new Date(tzStr);
-  const offsetMs = utcDate.getTime() - tzDate.getTime();
-  
-  const localMs = new Date(`${dateStr}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00Z`).getTime();
-  return new Date(localMs + offsetMs);
+  return {
+    startsAt: packptsMidnightUtc(dateStr),
+    endsAt: packptsMidnightUtc(addPackptsDays(dateStr, 1)),
+  };
 }
 
 function deterministicSeed(dateStr: string, setId: string): string {
@@ -648,9 +628,7 @@ export class Daily5Service {
     totalParticipants: number;
     challenge: DailyChallenge | null;
   } | null> {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = getDateStringInTZ(DAILY5_TZ, yesterday);
+    const dateStr = addPackptsDays(getPackptsDayKey(), -1);
 
     const [challenge] = await db
       .select()

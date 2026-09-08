@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { FoundersCounter } from "@/components/founders-counter";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
+import { msUntilPackptsMidnight } from "@shared/packptsDay";
 
 function SetOfWeekBanner() {
   const [dismissed, setDismissed] = useState(false);
@@ -259,10 +260,7 @@ function FAQ() {
 }
 
 function Daily5Urgency() {
-  const now = new Date();
-  const midnight = new Date(now);
-  midnight.setUTCHours(24, 0, 0, 0);
-  const msLeft = midnight.getTime() - now.getTime();
+  const msLeft = msUntilPackptsMidnight();
   const hoursLeft = Math.floor(msLeft / (1000 * 60 * 60));
   const minutesLeft = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
 
@@ -287,7 +285,7 @@ function Daily5Urgency() {
               <p className={`text-lg font-bold font-mono ${urgentColor}`}>
                 {hoursLeft}h {minutesLeft}m left
               </p>
-              <p className="text-xs text-muted-foreground">Resets at midnight UTC</p>
+              <p className="text-xs text-muted-foreground">Resets at midnight CT</p>
             </div>
             <Link href="/daily5">
               <Button className="gap-2" size="sm">
