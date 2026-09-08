@@ -176,7 +176,7 @@ export function MakeEmptyState({
           disabled={photoDisabled}
           className="h-12 w-full text-base font-semibold text-white border-0"
           style={{ background: MAKE_BLUE }}
-          data-testid="make-cta-photo"
+          data-testid="button-make-take-photo"
         >
           {MAKE_EMPTY_COPY.primaryCta}
         </Button>
@@ -186,7 +186,7 @@ export function MakeEmptyState({
           disabled={libraryDisabled}
           className="h-12 w-full text-base font-medium"
           style={{ color: MAKE_INK, background: "#12171F", borderColor: "rgba(143, 150, 163, 0.4)" }}
-          data-testid="make-cta-library"
+          data-testid="button-make-choose-library"
         >
           {MAKE_EMPTY_COPY.secondaryCta}
         </Button>
