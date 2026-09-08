@@ -20,7 +20,7 @@ import path from "path";
 import { db } from "../db";
 import { contentAssets, users } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, SCORE_CARD_SIZE } from "../contentFactory/generateScoreCard";
+import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, pipStartX, PIP_SIZE, PIP_GAP, PIP_Y, SCORE_CARD_SIZE, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 import sharp from "sharp";
 import { onMatchFinished, onDaily5Finished, ensureAssetImage } from "../contentFactory/index";
@@ -158,10 +158,13 @@ describe("generateScoreCard()", () => {
     expect(svg).toContain("#0b0f16");
     expect(svg).toContain("#22C55E");
     expect(svg).toContain("#F5C518");
+    expect(svg).toContain(SCORE_CARD_COLORS.ink);
+    expect(svg).toContain(SCORE_CARD_COLORS.muted);
     // Locked masked-P: dark tile + white P + gold bar (matches client/public/packpts-mark.svg)
     expect(svg).toMatch(/<rect width="1024" height="1024" fill="#0b0f16"\/>/);
     expect(svg).toMatch(/<path fill="#ffffff" fill-rule="evenodd"/);
     expect(svg).toContain("DAILY 5");
+    expect(svg).toContain("TODAY'S FIVE");
     expect(svg).toContain("Three locked. Two open.");
     expect(svg).toContain("525 pts");
     expect(svg).toContain("PackPTS");
@@ -177,16 +180,31 @@ describe("generateScoreCard()", () => {
     expect(meta.width).toBe(1080);
     expect(meta.height).toBe(1080);
 
+    const startX = pipStartX(5);
     // Outlined type must paint (missing fonts = blank navy / tofu).
-    expect(await regionHasColor(result.imagePath, 80, 200, 280, 400, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 80, 660, 720, 720, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 360, 230, 720, 430, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 200, 660, 880, 730, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
 
     // First three pips filled #22C55E; fourth outline only.
-    expect(await regionHasColor(result.imagePath, 80, 560, 136, 616, isGreen)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 220, 560, 276, 616, isGreen)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 290, 560, 346, 616, isGreen)).toBe(false);
+    expect(await regionHasColor(result.imagePath, startX, PIP_Y, startX + PIP_SIZE, PIP_Y + PIP_SIZE, isGreen)).toBe(true);
+    expect(await regionHasColor(
+      result.imagePath,
+      startX + 2 * (PIP_SIZE + PIP_GAP),
+      PIP_Y,
+      startX + 2 * (PIP_SIZE + PIP_GAP) + PIP_SIZE,
+      PIP_Y + PIP_SIZE,
+      isGreen,
+    )).toBe(true);
+    expect(await regionHasColor(
+      result.imagePath,
+      startX + 3 * (PIP_SIZE + PIP_GAP),
+      PIP_Y,
+      startX + 3 * (PIP_SIZE + PIP_GAP) + PIP_SIZE,
+      PIP_Y + PIP_SIZE,
+      isGreen,
+    )).toBe(false);
 
     createdImagePaths.push(result.imagePath);
   });

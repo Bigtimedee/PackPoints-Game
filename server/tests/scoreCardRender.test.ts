@@ -6,7 +6,21 @@ import { describe, it, expect, afterAll } from "vitest";
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
-import { generateScoreCard, buildScoreCardSvg, buildPipsSvg, buildStreakOverlayLabel, SCORE_CARD_SIZE, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
+import {
+  generateScoreCard,
+  buildScoreCardSvg,
+  buildPipsSvg,
+  buildMaskedStripSvg,
+  buildStreakOverlayLabel,
+  formatSessionDay,
+  formatSessionDayIdentity,
+  pipStartX,
+  PIP_SIZE,
+  PIP_GAP,
+  PIP_Y,
+  SCORE_CARD_SIZE,
+  SCORE_CARD_COLORS,
+} from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 
 const TODAY = "2026-09-05";
@@ -24,6 +38,10 @@ function isGreen(r: number, g: number, b: number): boolean {
 
 function isNearWhite(r: number, g: number, b: number): boolean {
   return r > 220 && g > 220 && b > 220;
+}
+
+function isGold(r: number, g: number, b: number): boolean {
+  return r > 200 && g > 160 && b < 80;
 }
 
 async function regionHasColor(
@@ -51,6 +69,36 @@ describe("bundled score-card fonts", () => {
     expect(fs.existsSync(path.join(dir, FONT_FILES.regular))).toBe(true);
     expect(fs.existsSync(path.join(dir, FONT_FILES.semibold))).toBe(true);
     expect(fs.existsSync(path.join(dir, FONT_FILES.bold))).toBe(true);
+  });
+});
+
+describe("§3b today identity", () => {
+  it("formats the session calendar day without UTC-shifting YYYY-MM-DD", () => {
+    expect(formatSessionDay("2026-09-08")).toBe("SEP 8");
+    expect(formatSessionDayIdentity("2026-09-08", true)).toBe("SEP 8 · TODAY'S FIVE");
+    expect(formatSessionDayIdentity("2026-09-08", false)).toBe("SEP 8");
+  });
+
+  it("keeps TODAY'S FIVE off non-daily5 cards", () => {
+    const svg = buildScoreCardSvg({
+      username: "Charter",
+      score: 800,
+      correctCount: 8,
+      totalQuestions: 10,
+      mode: "1v1",
+      date: "2026-09-08",
+    });
+    expect(svg).toContain("SEP 8");
+    expect(svg).not.toContain("TODAY'S FIVE");
+    expect(svg).not.toContain("DAILY 5");
+  });
+});
+
+describe("buildMaskedStripSvg()", () => {
+  it("paints five cream tiles with gold redaction bars", () => {
+    const svg = buildMaskedStripSvg();
+    expect((svg.match(/fill="#F0F2F5"/g) || []).length).toBe(5);
+    expect((svg.match(/fill="#F5C518"/g) || []).length).toBe(5);
   });
 });
 
@@ -91,6 +139,7 @@ describe("Beat-me 1080 palette + streak overlay", () => {
     expect(svg).toContain('height="1080"');
     expect(svg).toContain("4/5");
     expect(svg).toContain("4-day streak");
+    expect(svg).toContain("TODAY'S FIVE");
     expect(svg).toContain("#0b0f16");
     expect(svg).toContain("#F5C518");
     expect(svg).toContain("#22C55E");
@@ -111,29 +160,35 @@ describe("Beat-me 1080 palette + streak overlay", () => {
 });
 
 describe("score card PNG contract", () => {
-  it("paints 3/5 type, green pips, and a legible footer without <text>", async () => {
+  it("paints 3/5 type, green pips, §3b identity, and a legible footer without <text>", async () => {
     const input = {
       username: "Charter",
       score: 525,
       correctCount: 3,
       totalQuestions: 5,
       mode: "daily5",
-      date: TODAY,
+      date: "2026-09-08",
     };
     const svg = buildScoreCardSvg(input);
     expect(svg).toContain(`width="${SCORE_CARD_SIZE}"`);
     expect(svg).toContain("DAILY 5");
+    expect(svg).toContain("TODAY'S FIVE");
+    expect(svg).toContain("SEP 8");
     expect(svg).toContain("3/5");
     expect(svg).toContain("525 pts");
     expect(svg).toContain("Three locked. Two open.");
     expect(svg).toContain("PackPTS");
     expect(svg).toContain("packpts.com/daily");
+    expect(svg).toContain(SCORE_CARD_COLORS.ink);
+    expect(svg).toContain(SCORE_CARD_COLORS.muted);
     expect(svg).toMatch(/<rect width="1024" height="1024" fill="#0b0f16"\/>/);
     expect(svg).toContain('fill="#ffffff"');
     expect(svg).toContain("#F5C518");
     expect(svg).toContain("data:font/ttf;base64,");
     expect(svg).not.toMatch(/<text[\s>]/);
     expect(svg).not.toContain("sans-serif");
+    expect(svg).not.toContain("PackPoints");
+    expect((svg.match(/fill="#F0F2F5"/g) || []).length).toBeGreaterThanOrEqual(5);
 
     const result = await generateScoreCard(input, `render-3of5-${Date.now()}`);
     created.push(result.imagePath);
@@ -141,12 +196,29 @@ describe("score card PNG contract", () => {
     expect(meta.width).toBe(1080);
     expect(meta.height).toBe(1080);
 
-    expect(await regionHasColor(result.imagePath, 80, 200, 280, 400, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 80, 660, 720, 720, isNearWhite)).toBe(true);
+    const startX = pipStartX(5);
+    expect(await regionHasColor(result.imagePath, 360, 230, 720, 430, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 200, 660, 880, 730, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 80, 560, 136, 616, isGreen)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 220, 560, 276, 616, isGreen)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 290, 560, 346, 616, isGreen)).toBe(false);
+    expect(await regionHasColor(result.imagePath, startX, PIP_Y, startX + PIP_SIZE, PIP_Y + PIP_SIZE, isGreen)).toBe(true);
+    expect(await regionHasColor(
+      result.imagePath,
+      startX + 2 * (PIP_SIZE + PIP_GAP),
+      PIP_Y,
+      startX + 2 * (PIP_SIZE + PIP_GAP) + PIP_SIZE,
+      PIP_Y + PIP_SIZE,
+      isGreen,
+    )).toBe(true);
+    expect(await regionHasColor(
+      result.imagePath,
+      startX + 3 * (PIP_SIZE + PIP_GAP),
+      PIP_Y,
+      startX + 3 * (PIP_SIZE + PIP_GAP) + PIP_SIZE,
+      PIP_Y + PIP_SIZE,
+      isGreen,
+    )).toBe(false);
+    expect(await regionHasColor(result.imagePath, 80, 142, 104, 166, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 80, 148, 104, 160, isGold)).toBe(true);
   });
 });

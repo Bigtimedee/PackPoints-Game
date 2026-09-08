@@ -434,9 +434,9 @@ router.post("/api/share/generate", async (req: Request, res: Response) => {
 
     // Compose share text variants
     const shareText = {
-      twitter: `I'm playing PackPoints — guess the baseball card player and earn PackPTS! Use my link to join: ${referralUrl} #PackPoints #BaseballCards`,
-      general: `Join me on PackPoints! Guess baseball card players and earn rewards. Sign up with my link: ${referralUrl}`,
-      sms: `Play PackPoints with me — guess the card! ${referralUrl}`,
+      twitter: `I'm playing PackPTS — guess the baseball card player and earn PackPTS! Use my link to join: ${referralUrl} #PackPTS #BaseballCards`,
+      general: `Join me on PackPTS! Guess baseball card players and earn rewards. Sign up with my link: ${referralUrl}`,
+      sms: `Play PackPTS with me — guess the card! ${referralUrl}`,
     };
 
     return res.json({
