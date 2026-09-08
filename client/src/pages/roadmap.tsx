@@ -19,7 +19,6 @@ const ROADMAP_ITEMS = [
   { status: "done", category: "Social", title: "Global leaderboard", description: "See who's leading in PackPTS earned." },
   // In Progress
   { status: "in_progress", category: "Game", title: "Tournament mode", description: "Bracket-style competitions with prize pools." },
-  { status: "in_progress", category: "Discovery", title: "Card of the Day", description: "Daily featured mystery card with community discussion." },
   { status: "in_progress", category: "Social", title: "Creator program", description: "Partner with sports card content creators." },
   // Planned
   { status: "planned", category: "Game", title: "Team-based mode", description: "2v2 and 3v3 team competitions." },

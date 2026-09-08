@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +12,16 @@ import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
 import {
-  Calendar, Clock, Trophy, ArrowLeft, Check, X, Loader2,
-  Play, Award, Timer, Users, Crown, Share2, Download, UserPlus
+  buildDailyBeatMePath,
+  buildDailyBeatMeUrl,
+  formatBeatMeBanner,
+  formatBeatMeShareCaption,
+  resolveBeatMeChallenge,
+  type DailyBeatMeChallenge,
+} from "@/lib/dailyBeatMe";
+import {
+  Calendar, Trophy, ArrowLeft, Check, X, Loader2,
+  Play, Award, Crown, Share2, UserPlus
 } from "lucide-react";
 
 interface Daily5Status {
@@ -81,19 +89,36 @@ function formatTime(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function ShareResultCard({ score, correctCount, rank, date, challengeId, shareImageUrl }: {
+function BeatMeBanner({ challenge }: { challenge: DailyBeatMeChallenge }) {
+  return (
+    <div
+      className="mb-4 rounded-md border border-border bg-muted/50 px-4 py-3 text-center"
+      data-testid="text-d5-beat-me"
+    >
+      <p className="text-sm font-medium">{formatBeatMeBanner(challenge)}</p>
+      <p className="text-xs text-muted-foreground mt-0.5">Today&apos;s Daily 5. Same five cards.</p>
+    </div>
+  );
+}
+
+function ShareResultCard({ score, correctCount, rank, date, challengeId, shareImageUrl, displayName }: {
   score: number;
   correctCount: number;
   rank?: number;
   date?: string;
   challengeId?: string;
   shareImageUrl?: string;
+  displayName?: string;
 }) {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
   const [shared, setShared] = useState(false);
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const beatMe = { correctCount, displayName };
+  const beatMePath = buildDailyBeatMePath(beatMe);
+  const beatMeUrl = buildDailyBeatMeUrl(beatMe);
+  const shareCaption = formatBeatMeShareCaption(beatMe);
 
   const shareGrid = Array.from({ length: 5 }, (_, i) =>
     i < correctCount ? "[+]" : "[-]"
@@ -102,10 +127,11 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
   const shareText = [
     `PackPTS Daily 5 - ${dateStr}`,
     shareGrid,
-    `Score: ${score} pts | ${correctCount}/5 correct`,
-    rank && rank > 0 ? `Rank: #${rank}` : null,
+    `${correctCount}/5`,
+    rank && rank > 0 ? `#${rank}` : null,
     "",
-    "Play at packpts.com/daily",
+    shareCaption,
+    beatMeUrl,
   ].filter(Boolean).join("\n");
 
   const logShareEvent = async (shareType: string, target: string) => {
@@ -163,14 +189,14 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
     try {
       const res = await apiRequest("POST", "/api/referrals/create", {
         purpose: "SCORE_SHARE",
-        destinationPath: "/daily",
+        destinationPath: beatMePath,
       });
       const data = await res.json();
       if (data.url) {
-        const challengeText = `I scored ${score} points in today's PackPTS Daily 5! Can you beat me? ${data.url}`;
+        const challengeText = `${shareCaption} ${data.url}`;
         await navigator.clipboard.writeText(challengeText);
         logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
-        toast({ title: "Challenge link copied!", description: "Share it with a friend" });
+        toast({ title: "Challenge link copied", description: "Opens today's Daily 5 with your score" });
       }
     } catch {
       toast({ title: "Error", description: "Failed to create challenge link", variant: "destructive" });
@@ -217,8 +243,8 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
               challengeId={challengeId}
               initialImageUrl={shareImageUrl}
               downloadFilename={`packpts-daily5-${dateStr}.png`}
-              shareUrl="https://packpts.com/daily"
-              shareText={`I scored ${score} pts in today's PackPTS Daily 5! Play at packpts.com/daily`}
+              shareUrl={beatMeUrl}
+              shareText={shareCaption}
             />
           )}
 
@@ -306,6 +332,8 @@ function AnswerButton({
 export default function Daily5Page() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const searchString = useSearch();
+  const [beatMe, setBeatMe] = useState<DailyBeatMeChallenge | null>(null);
   const [gameState, setGameState] = useState<"loading" | "preview" | "playing" | "results">("loading");
   const [cards, setCards] = useState<Daily5Card[]>([]);
   const [currentPosition, setCurrentPosition] = useState(1);
@@ -380,6 +408,10 @@ export default function Daily5Page() {
   });
 
   useEffect(() => {
+    setBeatMe(resolveBeatMeChallenge(searchString));
+  }, [searchString]);
+
+  useEffect(() => {
     if (!statusQuery.data) return;
     const status = statusQuery.data;
     if (status.hasPlayed && status.entry?.completedAt) {
@@ -431,6 +463,7 @@ export default function Daily5Page() {
     return (
       <div>
         <div className="container mx-auto px-4 py-4 max-w-2xl">
+          {beatMe && <BeatMeBanner challenge={beatMe} />}
           <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
             <Badge variant="outline" className="gap-1.5">
               <Calendar className="h-3 w-3" />
@@ -508,6 +541,7 @@ export default function Daily5Page() {
     return (
       <div>
         <div className="container mx-auto px-4 py-8 max-w-2xl">
+          {beatMe && <BeatMeBanner challenge={beatMe} />}
           <div className="text-center space-y-4 mb-8">
             <div className="inline-flex p-4 rounded-full bg-primary/10">
               <Trophy className="h-10 w-10 text-primary" />
@@ -553,6 +587,7 @@ export default function Daily5Page() {
             date={status?.challenge?.date}
             challengeId={status?.challenge?.id}
             shareImageUrl={finishResult?.shareImageUrl}
+            displayName={user?.username ?? undefined}
           />
 
           <Card className="mb-6">
@@ -633,6 +668,8 @@ export default function Daily5Page() {
             Back
           </Button>
         </Link>
+
+        {beatMe && <BeatMeBanner challenge={beatMe} />}
 
         <Card className="mb-6">
           <CardHeader className="text-center">
