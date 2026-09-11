@@ -150,6 +150,15 @@ describe("display url + forbidden copy", () => {
       expect(containsForbiddenPublicSetsCopy(src)).toBe(false);
       expect(src).not.toContain("playCount");
       expect(src).not.toContain("Times Played");
+      expect(src).not.toMatch(/href=["']\/make/);
+      expect(src).not.toContain("Make a set");
+      expect(src).not.toContain("Snap-to-Set");
     }
+  });
+
+  it("wires set-page share to locked play_sets UTMs", () => {
+    const src = readFileSync(new URL("../../pages/set-page.tsx", import.meta.url), "utf8");
+    expect(src).toContain("playSetsShareUrl");
+    expect(src).toContain("@shared/playSetsShare");
   });
 });

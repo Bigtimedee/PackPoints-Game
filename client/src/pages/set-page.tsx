@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -12,8 +13,10 @@ import {
   SETS_POLISH,
   formatDetailMetaLine,
   publicSetDisplayUrl,
+  setShareSlug,
   shouldShowPlayTodayCue,
 } from "@/lib/setsPolish";
+import { playSetsShareUrl } from "@shared/playSetsShare";
 
 interface PreviewCard {
   imageUrl: string | null;
@@ -88,6 +91,16 @@ export default function SetPage() {
   });
 
   const play = usePlayMakerSet(set?.id ?? id, set?.cardCount);
+
+  useEffect(() => {
+    if (!set?.setName) return;
+    const previous = document.title;
+    document.title = `${set.setName} · PackPTS`;
+    return () => {
+      document.title = previous;
+    };
+  }, [set?.setName]);
+
   const isOwner = user && set?.createdByUserId === (user as { id?: string }).id;
   const isCoCreator = user && set?.coCreatorUserId === (user as { id?: string }).id;
   const canSaveCover = !!(isOwner || isCoCreator) && !!set?.shareImageUrl;
@@ -96,8 +109,16 @@ export default function SetPage() {
     .map((c) => c.imageUrl)
     .filter((u): u is string => !!u);
 
+  function setShareHref() {
+    const slug = setShareSlug(set!.setName, set!.id);
+    return playSetsShareUrl({
+      slugOrId: slug,
+      origin: typeof window !== "undefined" ? window.location.origin : undefined,
+    });
+  }
+
   async function copyLink() {
-    const url = `${window.location.origin}/sets/${set!.id}`;
+    const url = setShareHref();
     try {
       await navigator.clipboard.writeText(url);
       toast({ title: "Link copied" });
@@ -107,14 +128,14 @@ export default function SetPage() {
   }
 
   async function shareSet() {
-    const url = `${window.location.origin}/sets/${set!.id}`;
+    const url = setShareHref();
     logMakeClientEvent("share_opened", { surface: "set_page" });
     try {
       if (navigator.share) {
         await navigator.share({
           title: set!.setName,
           url,
-          text: set!.makerNote ? `“${set!.makerNote}”` : set!.setName,
+          text: set!.makerNote ? `“${set!.makerNote}”` : "Play this set on PackPTS.",
         });
         return;
       }
