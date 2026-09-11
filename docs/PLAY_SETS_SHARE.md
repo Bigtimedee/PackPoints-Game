@@ -44,23 +44,35 @@ Never `/make`. Never Snap-to-Set publish CTAs. Brand spelling is **PackPTS**.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/share/play-sets` | JSON: destination, UTMs, image URL, `imageKind` (`runtime` \| `kit`) |
-| GET | `/api/share/play-sets/image` | PNG (kit or runtime crop). Query: `surface`, `set`, `asset` |
+| GET | `/api/share/play-sets` | JSON: destination, UTMs, image URL, `imageKind` (`runtime` \| `kit`), `storyUrl` |
+| GET | `/api/share/play-sets/image` | PNG (kit, story crop, or runtime). Query: `surface`, `set`/`slug`, `asset`, `format` |
 | GET | `/api/share/play-sets/og.png` | 1200×630 letterbox for crawlers (same preference) |
 
 Query:
 
 - `surface` = `play_this_set` \| `integrated_shelf` \| `beat_me_from_set` (or `A` / `B` / `C`)
-- `set` = set UUID or public slug (`name-a1b2c3d4`)
+  - Surface C aliases: `beat_me`, `beat-me`, `beat_me_from_a_set`, `beat-me-from-a-set`, `beatme`
+- `set` or `slug` (or `id`) = set UUID **or** public slug (`name-a1b2c3d4`). Full `/sets/{slug}` URLs (with locked UTMs) are cleaned before lookup. Resolved sets use `/sets/{slug}` plus the locked UTMs and prefer the runtime cover when present.
 - `asset` = `kit` \| `runtime` (default: runtime when a usable cover exists)
+- `format` = `square` (default, 1080) \| `story` (1080×1920). `story=1` is accepted.
 
 ## Static kit URLs (packpts.com)
 
 After deploy:
 
+1080 square:
+
 - https://packpts.com/assets/play-sets/play-this-set.png
 - https://packpts.com/assets/play-sets/integrated-shelf.png
 - https://packpts.com/assets/play-sets/beat-me-from-a-set.png
+
+Story (Design export names, 1080×1920):
+
+- https://packpts.com/assets/play-sets/play-set-story.png
+- https://packpts.com/assets/play-sets/play-shelf-story.png
+- https://packpts.com/assets/play-sets/play-beatme-story.png
+
+JSON always includes `storyUrl` for the matching surface crop. `GET /api/share/play-sets/image?format=story&surface=beat_me` serves that story PNG (runtime cover letterboxed to 9:16 when `set`/`slug` resolves and `asset` is not `kit`).
 
 ## OG
 

@@ -12,6 +12,7 @@ import {
   PLAY_SETS_COPY,
   PLAY_SETS_KIT_DIR,
   PLAY_SETS_KIT_FILES,
+  PLAY_SETS_STORY_FILES,
   absolutePackptsUrl,
   canonicalPlaySetsPath,
   parsePlaySetsSurface,
@@ -26,6 +27,8 @@ import type { MakerCardSlot } from "./generateMakerShare";
 export const PLAY_SETS_KIT_SIZE = 1080;
 export const PLAY_SETS_OG_WIDTH = 1200;
 export const PLAY_SETS_OG_HEIGHT = 630;
+export const PLAY_SETS_STORY_WIDTH = 1080;
+export const PLAY_SETS_STORY_HEIGHT = 1920;
 
 const MASKED_P_MARK = `<g transform="scale(0.0546875)">
       <rect width="1024" height="1024" fill="#0b0f16"/>
@@ -219,12 +222,34 @@ export async function letterboxPlaySetsOg(squarePng: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/** Same kit art on a 1080×1920 story canvas — no new creative. */
+export async function letterboxPlaySetsStory(squarePng: Buffer): Promise<Buffer> {
+  const fitted = await sharp(squarePng)
+    .resize(PLAY_SETS_STORY_WIDTH, PLAY_SETS_STORY_WIDTH, {
+      fit: "contain",
+      background: "#0b0f16",
+    })
+    .png()
+    .toBuffer();
+  const top = Math.round((PLAY_SETS_STORY_HEIGHT - PLAY_SETS_STORY_WIDTH) / 2);
+  return sharp({
+    create: {
+      width: PLAY_SETS_STORY_WIDTH,
+      height: PLAY_SETS_STORY_HEIGHT,
+      channels: 4,
+      background: { r: 11, g: 15, b: 22, alpha: 1 },
+    },
+  })
+    .composite([{ input: fitted, left: 0, top }])
+    .png()
+    .toBuffer();
+}
+
 export function playSetsKitPublicPath(surface: PlaySetsSurface): string {
   return `${PLAY_SETS_KIT_DIR}/${PLAY_SETS_KIT_FILES[surface]}`;
 }
 
-export function playSetsKitDiskCandidates(surface: PlaySetsSurface): string[] {
-  const file = PLAY_SETS_KIT_FILES[surface];
+function playSetsAssetDiskCandidates(file: string): string[] {
   return [
     path.resolve(process.cwd(), "client/public/assets/play-sets", file),
     path.resolve(process.cwd(), "dist/public/assets/play-sets", file),
@@ -233,8 +258,23 @@ export function playSetsKitDiskCandidates(surface: PlaySetsSurface): string[] {
   ];
 }
 
+export function playSetsKitDiskCandidates(surface: PlaySetsSurface): string[] {
+  return playSetsAssetDiskCandidates(PLAY_SETS_KIT_FILES[surface]);
+}
+
+export function playSetsStoryDiskCandidates(surface: PlaySetsSurface): string[] {
+  return playSetsAssetDiskCandidates(PLAY_SETS_STORY_FILES[surface]);
+}
+
 export function resolvePlaySetsKitFile(surface: PlaySetsSurface): string | null {
   for (const candidate of playSetsKitDiskCandidates(surface)) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+export function resolvePlaySetsStoryFile(surface: PlaySetsSurface): string | null {
+  for (const candidate of playSetsStoryDiskCandidates(surface)) {
     if (fs.existsSync(candidate)) return candidate;
   }
   return null;
@@ -248,6 +288,22 @@ export async function writePlaySetsKitFiles(outDir: string): Promise<string[]> {
     const png = await renderPlaySetsSharePng({ surface });
     const dest = path.join(outDir, PLAY_SETS_KIT_FILES[surface]);
     fs.writeFileSync(dest, png);
+    written.push(dest);
+  }
+  return written;
+}
+
+export async function writePlaySetsStoryFiles(outDir: string): Promise<string[]> {
+  fs.mkdirSync(outDir, { recursive: true });
+  const written: string[] = [];
+  const surfaces: PlaySetsSurface[] = ["play_this_set", "integrated_shelf", "beat_me_from_set"];
+  for (const surface of surfaces) {
+    const squarePath = path.join(outDir, PLAY_SETS_KIT_FILES[surface]);
+    const square = fs.existsSync(squarePath)
+      ? fs.readFileSync(squarePath)
+      : await renderPlaySetsSharePng({ surface });
+    const dest = path.join(outDir, PLAY_SETS_STORY_FILES[surface]);
+    fs.writeFileSync(dest, await letterboxPlaySetsStory(square));
     written.push(dest);
   }
   return written;

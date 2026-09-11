@@ -31,6 +31,16 @@ export const PLAY_SETS_KIT_FILES = {
   beat_me_from_set: "beat-me-from-a-set.png",
 } as const;
 
+/** Design story crops (1080×1920) — packpts-design/play-sets/exports/ filenames. */
+export const PLAY_SETS_STORY_FILES = {
+  play_this_set: "play-set-story.png",
+  integrated_shelf: "play-shelf-story.png",
+  beat_me_from_set: "play-beatme-story.png",
+} as const;
+
+export const PLAY_SETS_FORMATS = ["square", "story"] as const;
+export type PlaySetsFormat = (typeof PLAY_SETS_FORMATS)[number];
+
 export const PLAY_SETS_KIT_DIR = "/assets/play-sets";
 
 export const PLAY_SETS_COPY = {
@@ -73,18 +83,125 @@ export function isPlaySetsSurface(value: unknown): value is PlaySetsSurface {
   return typeof value === "string" && (PLAY_SETS_SURFACES as readonly string[]).includes(value);
 }
 
+function firstQueryString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0].trim();
+  return "";
+}
+
+function normalizeSurfaceKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+}
+
+/**
+ * Marketing aliases → A / B / C. `beat_me` / `beat-me` / `beat_me_from_a_set`
+ * must resolve to surface C (not fall through to integrated_shelf).
+ */
 export function parsePlaySetsSurface(value: unknown): PlaySetsSurface {
-  if (value === "A" || value === "a") return "play_this_set";
-  if (value === "B" || value === "b") return "integrated_shelf";
-  if (value === "C" || value === "c") return "beat_me_from_set";
-  if (value === "beat_me_from_a_set") return "beat_me_from_set";
-  if (isPlaySetsSurface(value)) return value;
+  if (typeof value !== "string") return "integrated_shelf";
+  const raw = value.trim();
+  if (raw === "A" || raw === "a") return "play_this_set";
+  if (raw === "B" || raw === "b") return "integrated_shelf";
+  if (raw === "C" || raw === "c") return "beat_me_from_set";
+
+  const key = normalizeSurfaceKey(raw);
+  if (
+    key === "beatme"
+    || key.startsWith("beat_me")
+    || key.startsWith("beatme_")
+  ) {
+    return "beat_me_from_set";
+  }
+  if (
+    key === "play_this_set"
+    || key === "play_this"
+    || key === "play_set"
+    || key === "play_a_set"
+  ) {
+    return "play_this_set";
+  }
+  if (key === "integrated_shelf" || key === "shelf" || key === "sets_shelf") {
+    return "integrated_shelf";
+  }
+  if (isPlaySetsSurface(key)) return key;
   return "integrated_shelf";
+}
+
+export function parsePlaySetsFormat(value: unknown): PlaySetsFormat {
+  if (typeof value !== "string") return "square";
+  const key = normalizeSurfaceKey(value);
+  if (
+    key === "story"
+    || key === "stories"
+    || key === "9_16"
+    || key === "1080x1920"
+  ) {
+    return "story";
+  }
+  return "square";
 }
 
 export function playSetsKitPath(surface: PlaySetsSurface): string {
   const file = PLAY_SETS_KIT_FILES[surface];
   return `${PLAY_SETS_KIT_DIR}/${file}`;
+}
+
+export function playSetsStoryKitPath(surface: PlaySetsSurface): string {
+  return `${PLAY_SETS_KIT_DIR}/${PLAY_SETS_STORY_FILES[surface]}`;
+}
+
+/**
+ * Clean a set UUID or public slug from `set` / `slug` / a full /sets URL.
+ * Strips origin, `/sets/`, query, and hash so slug lookup is not id-only.
+ */
+export function normalizePlaySetsSetRef(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let cleaned = value.trim();
+  if (!cleaned) return null;
+
+  cleaned = cleaned.split("?")[0].split("#")[0];
+  cleaned = cleaned.replace(/^https?:\/\/[^/]+/i, "");
+  cleaned = cleaned.replace(/^\/+/, "");
+  if (cleaned.toLowerCase().startsWith("sets/")) cleaned = cleaned.slice(5);
+  if (cleaned.toLowerCase() === "sets") return null;
+  try {
+    cleaned = decodeURIComponent(cleaned).trim();
+  } catch {
+    cleaned = cleaned.trim();
+  }
+  cleaned = cleaned.replace(/\/+$/, "");
+  if (!cleaned) return null;
+  const lower = cleaned.toLowerCase();
+  if (lower === "make" || lower.startsWith("make/") || lower.includes("/make")) return null;
+  return cleaned;
+}
+
+/** Accept `set`, `slug`, or `id` — Marketing copies any of these. */
+export function playSetsSetRefFromQuery(query: {
+  set?: unknown;
+  slug?: unknown;
+  id?: unknown;
+}): string | null {
+  return normalizePlaySetsSetRef(
+    firstQueryString(query.set) || firstQueryString(query.slug) || firstQueryString(query.id),
+  );
+}
+
+export function playSetsDashedUuid(raw: string): string | null {
+  if (UUID_RE.test(raw)) return raw.toLowerCase();
+  if (/^[0-9a-f]{32}$/i.test(raw)) {
+    const h = raw.toLowerCase();
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  return null;
+}
+
+/** Last 8 hex of `name-a1b2c3d4`, or a bare 8-hex prefix. */
+export function playSetsSlugIdPrefix(raw: string): string | null {
+  const cleaned = normalizePlaySetsSetRef(raw) ?? raw.trim().toLowerCase();
+  const match = cleaned.toLowerCase().match(/-([a-f0-9]{8})$/)
+    || cleaned.toLowerCase().match(/^([a-f0-9]{8})$/);
+  return match?.[1] ?? null;
 }
 
 export function absolutePackptsUrl(pathOrUrl: string, origin = PACKPTS_ORIGIN): string {
@@ -189,9 +306,11 @@ export function preferPlaySetsShareImage(opts: {
   runtimeCoverUrl?: string | null;
   surface?: PlaySetsSurface | string | null;
   wantKit?: boolean;
+  format?: PlaySetsFormat | string | null;
 }): PlaySetsImageChoice {
   const surface = parsePlaySetsSurface(opts.surface);
-  const kit = playSetsKitPath(surface);
+  const format = parsePlaySetsFormat(opts.format);
+  const kit = format === "story" ? playSetsStoryKitPath(surface) : playSetsKitPath(surface);
   if (opts.wantKit) return { kind: "kit", path: kit };
   if (isUsableShareImageUrl(opts.runtimeCoverUrl) && !isPlaySetsKitUrl(opts.runtimeCoverUrl)) {
     return { kind: "runtime", path: opts.runtimeCoverUrl.trim() };
