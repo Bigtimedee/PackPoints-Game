@@ -38,6 +38,18 @@ export const PLAY_SETS_STORY_FILES = {
   beat_me_from_set: "play-beatme-story.png",
 } as const;
 
+/** Design drop → files the app serves at /assets/play-sets/. Do not invent art. */
+export const PLAY_SETS_DESIGN_EXPORT_DIR = "packpts-design/play-sets/exports";
+
+export const PLAY_SETS_DESIGN_EXPORT_MAP = [
+  { from: "play-set-1080.png", to: "play-this-set.png" },
+  { from: "play-shelf-1080.png", to: "integrated-shelf.png" },
+  { from: "play-beatme-1080.png", to: "beat-me-from-a-set.png" },
+  { from: "play-set-story.png", to: "play-set-story.png" },
+  { from: "play-shelf-story.png", to: "play-shelf-story.png" },
+  { from: "play-beatme-story.png", to: "play-beatme-story.png" },
+] as const;
+
 export const PLAY_SETS_FORMATS = ["square", "story"] as const;
 export type PlaySetsFormat = (typeof PLAY_SETS_FORMATS)[number];
 

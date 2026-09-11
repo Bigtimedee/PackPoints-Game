@@ -8,6 +8,7 @@ import path from "path";
 import sharp from "sharp";
 import {
   PLAY_SETS_COPY,
+  PLAY_SETS_DESIGN_EXPORT_MAP,
   PLAY_SETS_STORY_FILES,
   PLAY_SETS_UTM,
   canonicalPlaySetsPath,
@@ -44,12 +45,13 @@ import {
   writePlaySetsKitFiles,
   writePlaySetsStoryFiles,
 } from "../contentFactory/generatePlaySetsKit";
+import { copyPlaySetsDesignExports } from "../contentFactory/copyPlaySetsDesign";
 
 const created: string[] = [];
 
 afterAll(() => {
   for (const filePath of created) {
-    fs.rmSync(filePath, { force: true });
+    fs.rmSync(filePath, { force: true, recursive: true });
   }
 });
 
@@ -298,6 +300,29 @@ describe("play-sets kit compose", () => {
       expect(meta.width).toBe(1080);
       expect(meta.height).toBe(1920);
     }
+  });
+
+  it("copies Design exports by rename map and does not invent missing art", () => {
+    expect(PLAY_SETS_DESIGN_EXPORT_MAP).toEqual([
+      { from: "play-set-1080.png", to: "play-this-set.png" },
+      { from: "play-shelf-1080.png", to: "integrated-shelf.png" },
+      { from: "play-beatme-1080.png", to: "beat-me-from-a-set.png" },
+      { from: "play-set-story.png", to: "play-set-story.png" },
+      { from: "play-shelf-story.png", to: "play-shelf-story.png" },
+      { from: "play-beatme-story.png", to: "play-beatme-story.png" },
+    ]);
+
+    const src = path.resolve("public/generated/share/play-sets-design-src");
+    const dest = path.resolve("public/generated/share/play-sets-design-dest");
+    fs.mkdirSync(src, { recursive: true });
+    fs.mkdirSync(dest, { recursive: true });
+    created.push(src, dest);
+    fs.writeFileSync(path.join(src, "play-beatme-1080.png"), Buffer.from("design-c"));
+    const result = copyPlaySetsDesignExports({ sourceDir: src, destDir: dest });
+    expect(result.copied.map((file) => path.basename(file))).toEqual(["beat-me-from-a-set.png"]);
+    expect(result.missing).toContain("play-set-1080.png");
+    expect(fs.readFileSync(path.join(dest, "beat-me-from-a-set.png"), "utf8")).toBe("design-c");
+    expect(fs.existsSync(path.join(dest, "play-this-set.png"))).toBe(false);
   });
 
   it("hosts Design story crops as static Marketing assets", async () => {

@@ -2,7 +2,18 @@
 
 Marketing + in-product share for sets already in PackPTS. Locked with Daily 5 · Beat-me · integrated `/sets` only.
 
-Design drop referenced `packpts-design/play-sets/ENG_HANDOFF.md` (not in this repo). Surfaces, CTA, UTMs, and runtime-vs-kit rules below are the engineering contract. Cover priority matches `docs/SETS_POLISH.md`.
+Design drop: `packpts-design/play-sets/exports/` (copy/rename only — do not invent art).
+
+| Design export | Served as |
+|---------------|-----------|
+| `play-set-1080.png` | `/assets/play-sets/play-this-set.png` (A) |
+| `play-shelf-1080.png` | `/assets/play-sets/integrated-shelf.png` (B) |
+| `play-beatme-1080.png` | `/assets/play-sets/beat-me-from-a-set.png` (C) |
+| `play-set-story.png` | `/assets/play-sets/play-set-story.png` |
+| `play-shelf-story.png` | `/assets/play-sets/play-shelf-story.png` |
+| `play-beatme-story.png` | `/assets/play-sets/play-beatme-story.png` |
+
+Surfaces, CTA, UTMs, and runtime-vs-kit rules below are the engineering contract. Cover priority matches `docs/SETS_POLISH.md`. Helper: `copyPlaySetsDesignExports`.
 
 ## Surfaces
 
