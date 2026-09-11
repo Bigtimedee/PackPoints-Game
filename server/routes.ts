@@ -81,6 +81,7 @@ import {
 } from "./routes/userSetPreview";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
+import playSetsShareRouter from "./routes/playSetsShare";
 import { registerHealthRoutes } from "./routes/health.routes";
 import { registerWalletRoutes } from "./routes/wallet.routes";
 import { registerAdminRoutes } from "./routes/admin.routes";
@@ -165,6 +166,7 @@ export async function registerRoutes(
 
   // Referral and share event routes
   app.use(referralsRouter);
+  app.use(playSetsShareRouter);
 
   // CardHedge API routes (server-side only, never expose API key to client)
   app.use("/api/cardhedge", cardhedgeRouter);
@@ -648,14 +650,12 @@ export async function registerRoutes(
       }
 
       let shareImageUrl: string | undefined;
-      if (resolved.isUserCreated) {
-        const [asset] = await db.select({ metadata: contentAssets.metadata, imagePath: contentAssets.imagePath })
-          .from(contentAssets)
-          .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
-          .limit(1);
-        const url = usablePublicImageUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
-        if (url) shareImageUrl = url;
-      }
+      const [asset] = await db.select({ metadata: contentAssets.metadata, imagePath: contentAssets.imagePath })
+        .from(contentAssets)
+        .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
+        .limit(1);
+      const url = usablePublicImageUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
+      if (url) shareImageUrl = url;
 
       const previewRows = await db.select({
         imageUrl: playableCards.imageUrl,

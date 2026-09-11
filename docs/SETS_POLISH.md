@@ -51,6 +51,8 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 - Cover priority same as index. Caption: `Share cover · runtime Surface A` when Surface A is shown
 - **THE STACK:** staggered preview of this set’s cards (masked). Cream silhouette + redaction bar if a photo is missing. Never player names in copy, alt, or payload
 - Share · Copy link · muted `packpts.com/sets/{slug}`
+- Share/copy href is `https://packpts.com/sets/{slug}?utm_source=share&utm_medium=play_sets&utm_campaign=integrated` (never `/make`). Display line stays the quiet canonical without UTMs.
+- **Cover / OG priority:** runtime Surface A (or play-sets runtime crop) when present and not stock fan `maker-set-1080.png`. Kit templates (`/assets/play-sets/*.png`) are Marketing cold posts / placeholders only — do not substitute kit A for a real set’s runtime cover. Contract: `docs/PLAY_SETS_SHARE.md`.
 - Do not lead with `0 Times Played` or any play-count vanity tile
 - No PackPoints balance chrome on this page
 
