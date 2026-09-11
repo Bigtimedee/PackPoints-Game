@@ -8,17 +8,25 @@ import path from "path";
 import sharp from "sharp";
 import {
   PLAY_SETS_COPY,
+  PLAY_SETS_DESIGN_EXPORT_MAP,
+  PLAY_SETS_STORY_FILES,
   PLAY_SETS_UTM,
   canonicalPlaySetsPath,
   containsForbiddenPlaySetsShareCopy,
   isPlaySetsShareDestination,
+  normalizePlaySetsSetRef,
+  parsePlaySetsFormat,
   parsePlaySetsHtmlPath,
   parsePlaySetsSurface,
+  playSetsDashedUuid,
   playSetsKitPath,
   playSetsOgDescription,
   playSetsOgTitle,
+  playSetsSetRefFromQuery,
   playSetsSharePath,
   playSetsShareUrl,
+  playSetsSlugIdPrefix,
+  playSetsStoryKitPath,
   preferPlaySetsShareImage,
 } from "@shared/playSetsShare";
 import { injectPlaySetsOgTags } from "../lib/playSetsHtml";
@@ -26,19 +34,24 @@ import {
   PLAY_SETS_KIT_SIZE,
   PLAY_SETS_OG_HEIGHT,
   PLAY_SETS_OG_WIDTH,
+  PLAY_SETS_STORY_HEIGHT,
+  PLAY_SETS_STORY_WIDTH,
   buildPlaySetsShareSvg,
   containsForbiddenPlaySetsKitCopy,
   letterboxPlaySetsOg,
+  letterboxPlaySetsStory,
   playSetsFooterUrl,
   renderPlaySetsSharePng,
   writePlaySetsKitFiles,
+  writePlaySetsStoryFiles,
 } from "../contentFactory/generatePlaySetsKit";
+import { copyPlaySetsDesignExports } from "../contentFactory/copyPlaySetsDesign";
 
 const created: string[] = [];
 
 afterAll(() => {
   for (const filePath of created) {
-    fs.rmSync(filePath, { force: true });
+    fs.rmSync(filePath, { force: true, recursive: true });
   }
 });
 
@@ -79,6 +92,59 @@ describe("play-sets destinations + UTMs", () => {
     expect(parsePlaySetsSurface("B")).toBe("integrated_shelf");
     expect(parsePlaySetsSurface("C")).toBe("beat_me_from_set");
     expect(parsePlaySetsSurface("unknown")).toBe("integrated_shelf");
+  });
+
+  it("maps beat_me aliases to surface C, not integrated_shelf", () => {
+    for (const alias of [
+      "beat_me",
+      "beat-me",
+      "beat_me_from_a_set",
+      "beat-me-from-a-set",
+      "beat_me_from_set",
+      "beatme",
+      "BEAT_ME",
+    ]) {
+      expect(parsePlaySetsSurface(alias)).toBe("beat_me_from_set");
+    }
+    expect(playSetsKitPath("beat_me_from_set")).toBe("/assets/play-sets/beat-me-from-a-set.png");
+    expect(playSetsStoryKitPath("beat_me_from_set")).toBe("/assets/play-sets/play-beatme-story.png");
+  });
+
+  it("normalizes set slugs from URLs, slug=, and id-only UUIDs", () => {
+    expect(normalizePlaySetsSetRef("porch-87s-a1b2c3d4")).toBe("porch-87s-a1b2c3d4");
+    expect(normalizePlaySetsSetRef("/sets/porch-87s-a1b2c3d4/")).toBe("porch-87s-a1b2c3d4");
+    expect(normalizePlaySetsSetRef(
+      "https://packpts.com/sets/porch-87s-a1b2c3d4?utm_source=share&utm_medium=play_sets&utm_campaign=integrated",
+    )).toBe("porch-87s-a1b2c3d4");
+    expect(playSetsSetRefFromQuery({ slug: "porch-87s-a1b2c3d4" })).toBe("porch-87s-a1b2c3d4");
+    expect(playSetsSetRefFromQuery({ set: "https://packpts.com/sets/porch-87s-a1b2c3d4" }))
+      .toBe("porch-87s-a1b2c3d4");
+    expect(playSetsSlugIdPrefix("porch-87s-a1b2c3d4")).toBe("a1b2c3d4");
+    expect(playSetsSlugIdPrefix("a1b2c3d4")).toBe("a1b2c3d4");
+    expect(playSetsDashedUuid("17e5d554aaaa4bbb8cccddddeeeeffff"))
+      .toBe("17e5d554-aaaa-4bbb-8ccc-ddddeeeeffff");
+    expect(canonicalPlaySetsPath("porch-87s-a1b2c3d4")).toBe("/sets/porch-87s-a1b2c3d4");
+    expect(playSetsShareUrl({ slugOrId: "porch-87s-a1b2c3d4" })).toBe(
+      "https://packpts.com/sets/porch-87s-a1b2c3d4?utm_source=share&utm_medium=play_sets&utm_campaign=integrated",
+    );
+  });
+
+  it("parses story format and prefers runtime cover over story kit", () => {
+    expect(parsePlaySetsFormat("story")).toBe("story");
+    expect(parsePlaySetsFormat("9-16")).toBe("story");
+    expect(parsePlaySetsFormat("square")).toBe("square");
+    const kitStory = preferPlaySetsShareImage({
+      surface: "beat_me",
+      wantKit: true,
+      format: "story",
+    });
+    expect(kitStory).toEqual({ kind: "kit", path: "/assets/play-sets/play-beatme-story.png" });
+    const runtime = preferPlaySetsShareImage({
+      runtimeCoverUrl: "/generated/share/2026-09-08/qa.png",
+      surface: "beat_me",
+      format: "story",
+    });
+    expect(runtime).toEqual({ kind: "runtime", path: "/generated/share/2026-09-08/qa.png" });
   });
 
   it("prefers runtime cover over kit A and never treats stock fan as runtime", () => {
@@ -210,6 +276,63 @@ describe("play-sets kit compose", () => {
       const meta = await sharp(disk).metadata();
       expect(meta.width).toBe(1080);
       expect(meta.height).toBe(1080);
+    }
+  });
+
+  it("letterboxes kit art to 1080×1920 story without new copy", async () => {
+    const square = await renderPlaySetsSharePng({ surface: "beat_me_from_set" });
+    const story = await letterboxPlaySetsStory(square);
+    const meta = await sharp(story).metadata();
+    expect(meta.width).toBe(PLAY_SETS_STORY_WIDTH);
+    expect(meta.height).toBe(PLAY_SETS_STORY_HEIGHT);
+  });
+
+  it("writes Design-named story crops next to the 1080 kit", async () => {
+    const dir = path.resolve("public/generated/share/play-sets-story-test");
+    const squares = await writePlaySetsKitFiles(dir);
+    const stories = await writePlaySetsStoryFiles(dir);
+    created.push(...squares, ...stories);
+    expect(stories.map((file) => path.basename(file)).sort()).toEqual(
+      Object.values(PLAY_SETS_STORY_FILES).slice().sort(),
+    );
+    for (const file of stories) {
+      const meta = await sharp(file).metadata();
+      expect(meta.width).toBe(1080);
+      expect(meta.height).toBe(1920);
+    }
+  });
+
+  it("copies Design exports by rename map and does not invent missing art", () => {
+    expect(PLAY_SETS_DESIGN_EXPORT_MAP).toEqual([
+      { from: "play-set-1080.png", to: "play-this-set.png" },
+      { from: "play-shelf-1080.png", to: "integrated-shelf.png" },
+      { from: "play-beatme-1080.png", to: "beat-me-from-a-set.png" },
+      { from: "play-set-story.png", to: "play-set-story.png" },
+      { from: "play-shelf-story.png", to: "play-shelf-story.png" },
+      { from: "play-beatme-story.png", to: "play-beatme-story.png" },
+    ]);
+
+    const src = path.resolve("public/generated/share/play-sets-design-src");
+    const dest = path.resolve("public/generated/share/play-sets-design-dest");
+    fs.mkdirSync(src, { recursive: true });
+    fs.mkdirSync(dest, { recursive: true });
+    created.push(src, dest);
+    fs.writeFileSync(path.join(src, "play-beatme-1080.png"), Buffer.from("design-c"));
+    const result = copyPlaySetsDesignExports({ sourceDir: src, destDir: dest });
+    expect(result.copied.map((file) => path.basename(file))).toEqual(["beat-me-from-a-set.png"]);
+    expect(result.missing).toContain("play-set-1080.png");
+    expect(fs.readFileSync(path.join(dest, "beat-me-from-a-set.png"), "utf8")).toBe("design-c");
+    expect(fs.existsSync(path.join(dest, "play-this-set.png"))).toBe(false);
+  });
+
+  it("hosts Design story crops as static Marketing assets", async () => {
+    const dir = path.resolve("client/public/assets/play-sets");
+    for (const file of Object.values(PLAY_SETS_STORY_FILES)) {
+      const disk = path.join(dir, file);
+      expect(fs.existsSync(disk)).toBe(true);
+      const meta = await sharp(disk).metadata();
+      expect(meta.width).toBe(1080);
+      expect(meta.height).toBe(1920);
     }
   });
 });

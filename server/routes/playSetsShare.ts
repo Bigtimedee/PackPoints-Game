@@ -11,17 +11,22 @@ import {
   PLAY_SETS_UTM,
   absolutePackptsUrl,
   canonicalPlaySetsPath,
+  parsePlaySetsFormat,
   parsePlaySetsSurface,
   playSetsKitPath,
   playSetsOgDescription,
   playSetsOgTitle,
+  playSetsSetRefFromQuery,
   playSetsShareUrl,
+  playSetsStoryKitPath,
   preferPlaySetsShareImage,
 } from "@shared/playSetsShare";
 import {
   letterboxPlaySetsOg,
+  letterboxPlaySetsStory,
   renderPlaySetsSharePng,
   resolvePlaySetsKitFile,
+  resolvePlaySetsStoryFile,
 } from "../contentFactory/generatePlaySetsKit";
 import { getShareOutputBase } from "../contentFactory/generateScoreCard";
 import { ensurePlaySetsRuntimeCrop, resolvePlaySetsSet } from "../lib/resolvePlaySetsSet";
@@ -37,7 +42,19 @@ function requestOrigin(req: Request): string {
   return `${proto}://${host}`;
 }
 
-async function kitPng(surface: ReturnType<typeof parsePlaySetsSurface>): Promise<Buffer> {
+async function kitPng(
+  surface: ReturnType<typeof parsePlaySetsSurface>,
+  format: ReturnType<typeof parsePlaySetsFormat>,
+): Promise<Buffer> {
+  if (format === "story") {
+    const storyDisk = resolvePlaySetsStoryFile(surface);
+    if (storyDisk) return fs.promises.readFile(storyDisk);
+    const squareDisk = resolvePlaySetsKitFile(surface);
+    const square = squareDisk
+      ? await fs.promises.readFile(squareDisk)
+      : await renderPlaySetsSharePng({ surface });
+    return letterboxPlaySetsStory(square);
+  }
   const disk = resolvePlaySetsKitFile(surface);
   if (disk) return fs.promises.readFile(disk);
   return renderPlaySetsSharePng({ surface });
@@ -50,14 +67,23 @@ function generatedShareDiskPath(imageUrl: string): string | null {
   return path.join(getShareOutputBase(), rel);
 }
 
+function requestFormat(req: Request): ReturnType<typeof parsePlaySetsFormat> {
+  const storyFlag = String(req.query.story || "").toLowerCase();
+  if (storyFlag === "1" || storyFlag === "true" || storyFlag === "story") {
+    return "story";
+  }
+  return parsePlaySetsFormat(req.query.format);
+}
+
 async function resolveSharePayload(req: Request) {
   const surface = parsePlaySetsSurface(req.query.surface);
+  const format = requestFormat(req);
   const wantKit = String(req.query.asset || "") === "kit";
-  const setRef = typeof req.query.set === "string" ? req.query.set.trim() : "";
+  const setRef = playSetsSetRefFromQuery(req.query);
   const origin = requestOrigin(req);
 
   let setName: string | null = null;
-  let slugOrId: string | null = setRef || null;
+  let slugOrId: string | null = setRef;
   let runtimeCoverUrl: string | undefined;
 
   if (setRef) {
@@ -82,11 +108,13 @@ async function resolveSharePayload(req: Request) {
     runtimeCoverUrl,
     surface,
     wantKit,
+    format,
   });
   const imageUrl = absolutePackptsUrl(image.path, origin);
 
   return {
     surface,
+    format,
     setName,
     slugOrId,
     destinationPath,
@@ -110,17 +138,21 @@ async function resolveSharePayload(req: Request) {
 router.get("/api/share/play-sets", async (req: Request, res: Response) => {
   try {
     const payload = await resolveSharePayload(req);
+    const origin = requestOrigin(req);
     res.json({
       surface: payload.surface,
+      format: payload.format,
       destination: payload.destination,
       destinationPath: payload.destinationPath,
       utm: PLAY_SETS_UTM,
       imageKind: payload.imageKind,
       imageUrl: payload.imageUrl,
-      kitUrl: absolutePackptsUrl(playSetsKitPath(payload.surface), requestOrigin(req)),
+      kitUrl: absolutePackptsUrl(playSetsKitPath(payload.surface), origin),
+      storyUrl: absolutePackptsUrl(playSetsStoryKitPath(payload.surface), origin),
       caption: payload.caption,
       og: payload.og,
       setName: payload.setName,
+      slug: payload.slugOrId,
     });
   } catch (err) {
     console.error("[PlaySetsShare] JSON error:", (err as Error)?.message);
@@ -142,7 +174,9 @@ async function sendShareImage(req: Request, res: Response, ogLetterbox: boolean)
   }
 
   if (!png) {
-    png = await kitPng(payload.surface);
+    png = await kitPng(payload.surface, ogLetterbox ? "square" : payload.format);
+  } else if (payload.format === "story" && !ogLetterbox) {
+    png = await letterboxPlaySetsStory(png);
   }
 
   const out = ogLetterbox ? await letterboxPlaySetsOg(png) : png;

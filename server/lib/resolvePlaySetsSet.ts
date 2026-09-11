@@ -5,14 +5,20 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contentAssets, gameSets, playableCards } from "@shared/schema";
-import { setIdPrefixFromShareSlug, setShareSlug } from "../contentFactory/makerShareSlug";
+import { setShareSlug } from "../contentFactory/makerShareSlug";
 import { usablePublicImageUrl } from "../routes/userSetPreview";
 import { loadMakerCardSlots } from "../contentFactory/makerShareFromSet";
 import {
   writePlaySetsRuntimeCrop,
   playSetsRuntimeCacheUrl,
 } from "../contentFactory/generatePlaySetsKit";
-import { isUsableShareImageUrl, type PlaySetsSurface } from "@shared/playSetsShare";
+import {
+  isUsableShareImageUrl,
+  normalizePlaySetsSetRef,
+  playSetsDashedUuid,
+  playSetsSlugIdPrefix,
+  type PlaySetsSurface,
+} from "@shared/playSetsShare";
 import fs from "fs";
 import path from "path";
 import { getShareOutputBase } from "../contentFactory/generateScoreCard";
@@ -36,18 +42,21 @@ async function lookupRuntimeCover(setId: string): Promise<string | undefined> {
 }
 
 export async function resolvePlaySetsSet(idOrSlug: string): Promise<ResolvedPlaySetsSet | null> {
-  const raw = (idOrSlug || "").trim();
+  const raw = normalizePlaySetsSetRef(idOrSlug) ?? (idOrSlug || "").trim();
   if (!raw) return null;
 
-  const [byId] = await db.select({
-    id: gameSets.id,
-    setName: gameSets.setName,
-    isActive: gameSets.isActive,
-  }).from(gameSets).where(eq(gameSets.id, raw)).limit(1);
+  const dashedId = playSetsDashedUuid(raw);
+  const [byId] = dashedId
+    ? await db.select({
+      id: gameSets.id,
+      setName: gameSets.setName,
+      isActive: gameSets.isActive,
+    }).from(gameSets).where(eq(gameSets.id, dashedId)).limit(1)
+    : [];
 
   let row = byId;
   if (!row) {
-    const prefix = setIdPrefixFromShareSlug(raw);
+    const prefix = playSetsSlugIdPrefix(raw);
     if (prefix) {
       const [bySlug] = await db.select({
         id: gameSets.id,

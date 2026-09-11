@@ -95,6 +95,7 @@ import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from "./utils/questionSanitizer";
 import { setIdPrefixFromShareSlug } from "./contentFactory/makerShareSlug";
+import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
 
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
 const sessionAnswerLocks = new Map<string, Promise<void>>();
@@ -597,6 +598,8 @@ export async function registerRoutes(
   app.get("/api/sets/:id", async (req, res) => {
     try {
       const { id } = req.params;
+      const setRef = normalizePlaySetsSetRef(id) ?? id;
+      const dashedId = playSetsDashedUuid(setRef);
       const [set] = await db.select({
         id: gameSets.id,
         setName: gameSets.setName,
@@ -612,11 +615,11 @@ export async function registerRoutes(
         playCount: userSetPlayCountSql,
         makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
         coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
-      }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
+      }).from(gameSets).where(eq(gameSets.id, dashedId ?? setRef)).limit(1);
 
       let resolved = set;
       if (!resolved) {
-        const prefix = setIdPrefixFromShareSlug(id);
+        const prefix = playSetsSlugIdPrefix(setRef) ?? setIdPrefixFromShareSlug(id);
         if (prefix) {
           const [bySlug] = await db.select({
             id: gameSets.id,
