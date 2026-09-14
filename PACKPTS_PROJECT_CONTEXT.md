@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-11 (play-sets QA: beat_me → C, slug→set, story crops)
+**Last verified against codebase:** 2026-09-14 (social PNG tofu + SOCIAL_PNG_QA font gate)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -756,7 +756,7 @@ Weekday / scheduled X publish uses the Social Media Agent publisher path only (`
 - `retention.ts`: Retention-focused content type rotation, runs on odd-numbered days
 
 **Image Composition:**
-- `imageComposer.ts` → `gameImageRenderer.ts`: Renders card images with branding overlay
+- `imageComposer.ts` → `gameImageRenderer.ts`: Renders @PlayPackPTS social PNGs (pure-SVG stats cards + CardHedge overlay types). Labels are outlined Inter paths via `contentFactory/fonts.ts` (`textToPath`) plus `@font-face` base64 — Railway Alpine has no system fonts, so `<text font-family="sans-serif">` produced tofu on live shares. Daily 5 / Beat-me user cards stay in `generateScoreCard.ts`. `composePostImage` prefers a Design-baked PNG from `packpts-design/social/exports/` (or `client/public/assets/social/`) when that file exists — copy-only, no invented creatives. Prevention gate: `docs/design/SOCIAL_PNG_QA.md` (`assertShareFontsPresent` fails `npm run build` / CI if Inter or DejaVu is missing; Alpine `font-dejavu` + Ubuntu `fonts-dejavu-core`).
 - `imageStorage.ts`: Uploads composed images to Cloudflare R2
 - Falls back to local storage if R2 is unavailable
 
@@ -1443,7 +1443,7 @@ Returns for the current week (Sun–Sat):
 
 ### Existing Tests
 
-**Vitest integration tests** (`server/tests/` — 14 test files, 223+ tests, most require a live PostgreSQL connection):
+**Vitest integration tests** (`server/tests/` — 15 test files, 230+ tests, most require a live PostgreSQL connection):
 | File | Tests | What it covers |
 |------|-------|---------------|
 | `wallet.test.ts` | 23 | WalletService: credit/debit, idempotency, frozen-wallet guard, ledger balance consistency |
@@ -1452,6 +1452,7 @@ Returns for the current week (Sun–Sat):
 | `baseballCardsLegacy.test.ts` | 5 | Legacy baseballCards fallback table decision (see Data Model section) |
 | `contentFactory.test.ts` | 14 | Score card / streak badge generation, 1080 contract, DB idempotency, missing-PNG repair |
 | `scoreCardRender.test.ts` | 8 | Bundled Inter, pip fill, Beat-me palette/streak, §3b today identity, masked-strip, outlined 3/5 PNG pixels (no DB) |
+| `gameImageRender.test.ts` | 7 | Social PNG tofu guard + SOCIAL_PNG_QA: no `<text>` / sans-serif, outlined Inter, painted regions, Inter+DejaVu gate, Design-bake prefer (no DB) |
 | `gameplayGating.test.ts` | 15 | Gameplay gate enforcement |
 | `growthAgent.test.ts` | 4 | Growth agent: schema validation, deduplication, job tracking (OpenAI mocked) |
 | `growthFlywheel.test.ts` | 8 | Growth flywheel logic |
@@ -1699,6 +1700,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] Play-integrated set share kit (2026-09-11): Marketing surfaces A Play this set · B Integrated shelf · C Beat me from a set. Destinations are only `/sets` or `/sets/{slug}` with `utm_source=share&utm_medium=play_sets&utm_campaign=integrated`. Share/OG/`/sets` heroes prefer the set’s runtime cover (existing `maker_set_*` PNG or a server-rendered play-sets crop) when present; kit templates at `/assets/play-sets/*.png` are cold-post placeholders only and never replace a real set cover. No `/make` publish CTA. Surface C is a marketing creative, not a new Beat-me token. Contract: `docs/PLAY_SETS_SHARE.md`. Helpers: `shared/playSetsShare.ts`.
 - [x] Play-sets Design QA follow-up (2026-09-11): `surface=beat_me` / `beat-me` / `beat_me_from_a_set` map to C (not integrated_shelf). `set` or `slug` (UUID, `name-a1b2c3d4`, or a `/sets/{slug}` URL) resolves the integrated set, prefers runtime cover, and destinations stay `/sets/{slug}` + locked UTMs. Design export map: `play-set-1080.png` → `play-this-set.png`, `play-shelf-1080.png` → `integrated-shelf.png`, `play-beatme-1080.png` → `beat-me-from-a-set.png`, plus `*-story.png`. Copy-only from `packpts-design/play-sets/exports/` — no invented art. JSON `storyUrl` + `format=story`.
 - [x] Score card tofu / blank type (2026-09-05 follow-up): after the EACCES fix, production PNGs wrote and served but Inter was not in the Alpine image. `sans-serif` text became tofu; X/5, headline, PackPTS, and `packpts.com/daily` were unreadable; pips could look empty when metadata counts failed to coerce. Generator now bundles Inter TTFs, embeds them as `@font-face` data URIs, and outlines every label to SVG paths so Sharp never asks fontconfig for a face.
+- [x] @PlayPackPTS social PNG tofu (2026-09-14): `gameImageRenderer.ts` (scheduler → `composePostImage`) still used `<text font-family="sans-serif">`. Same Alpine/fontconfig miss as the score card. All seven social composers now outline Inter (Inter Regular/Bold; no italic face) so Railway PNGs cannot tofu. Pixel guard: `server/tests/gameImageRender.test.ts`. SOCIAL_PNG_QA (`docs/design/SOCIAL_PNG_QA.md`): Inter + DejaVu required (`assertShareFontsPresent` in `script/build.ts` + CI); Alpine `font-dejavu` / Ubuntu `fonts-dejavu-core`; Design-baked social exports preferred when present. Video-factory frame SVGs still use system-ui `<text>` (not this share-PNG path).
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
 - [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
 - [ ] Wager match settlement is still in progress (confirmed not complete)

@@ -17,6 +17,29 @@ export const FONT_FILES = {
   bold: "Inter-Bold.ttf",
 } as const;
 
+/** Design SOCIAL_PNG_QA — DejaVu regular/bold filenames. */
+export const DEJAVU_FILES = {
+  regular: "DejaVuSans.ttf",
+  bold: "DejaVuSans-Bold.ttf",
+} as const;
+
+/**
+ * Design-listed + vendored DejaVu paths.
+ * Debian/Ubuntu: fonts-dejavu-core → /usr/share/fonts/truetype/dejavu/
+ * Alpine: font-dejavu → /usr/share/fonts/dejavu/
+ * Repo: assets/fonts/ (always ships in the deploy).
+ */
+export function dejaVuCandidatePaths(file: string): string[] {
+  return [
+    path.join(process.cwd(), "assets", "fonts", file),
+    path.join(process.cwd(), "server", "contentFactory", "assets", "fonts", file),
+    `/usr/share/fonts/truetype/dejavu/${file}`,
+    `/usr/share/fonts/dejavu/${file}`,
+    `/usr/share/fonts/TTF/${file}`,
+    `/app/assets/fonts/${file}`,
+  ];
+}
+
 export interface ScoreCardFonts {
   regular: Font;
   semibold: Font;
@@ -54,6 +77,50 @@ export function resolveFontsDir(): string {
   throw new Error(
     `[ContentFactory] Score-card fonts missing. Expected ${FONT_FILES.bold} under server/contentFactory/assets/fonts (bundled with the deploy).`,
   );
+}
+
+export function resolveDejaVuPath(file: string = DEJAVU_FILES.regular): string | null {
+  for (const candidate of dejaVuCandidatePaths(file)) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+export interface ShareFontGate {
+  interDir: string;
+  interRegular: string;
+  interBold: string;
+  dejaVuRegular: string;
+  dejaVuBold: string | null;
+}
+
+/**
+ * SOCIAL_PNG_QA prevention gate: Railway/CI must never render share PNGs
+ * without fonts. Inter (outlined) is required; DejaVu must exist at a
+ * Design-listed or vendored path (fonts-dejavu-core / font-dejavu / assets/fonts).
+ */
+export function assertShareFontsPresent(): ShareFontGate {
+  const interDir = resolveFontsDir();
+  const interRegular = path.join(interDir, FONT_FILES.regular);
+  const interBold = path.join(interDir, FONT_FILES.bold);
+  if (!fs.existsSync(interRegular) || !fs.existsSync(interBold)) {
+    throw new Error(
+      `[ShareFonts] Inter TTFs missing under ${interDir}. Vendor server/contentFactory/assets/fonts/.`,
+    );
+  }
+  const dejaVuRegular = resolveDejaVuPath(DEJAVU_FILES.regular);
+  if (!dejaVuRegular) {
+    throw new Error(
+      `[ShareFonts] ${DEJAVU_FILES.regular} missing. Vendor assets/fonts/ or install fonts-dejavu-core (Debian) / font-dejavu (Alpine). Looked in: ${dejaVuCandidatePaths(DEJAVU_FILES.regular).join(", ")}`,
+    );
+  }
+  return {
+    interDir,
+    interRegular,
+    interBold,
+    dejaVuRegular,
+    dejaVuBold: resolveDejaVuPath(DEJAVU_FILES.bold),
+  };
 }
 
 export function loadScoreCardFonts(): ScoreCardFonts {

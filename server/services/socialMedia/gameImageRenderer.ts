@@ -4,16 +4,25 @@
  * Generates branded PNG images from live DB game data for all 7 social content types.
  * Card-based types (TRIVIA_CARD, MARKET_PRICE_SPOTLIGHT) composite a CardHedge image
  * with an SVG overlay. All other types render a pure SVG with game stats.
+ *
+ * Railway Alpine has no system fonts. Sharp/librsvg draws tofu for SVG <text>
+ * that relies on fontconfig. Labels are outlined to Inter paths (same pipeline
+ * as contentFactory score cards) so PNG output never asks fontconfig for a face.
+ *
+ * Call sites: `composePostImage` → social scheduler (`@PlayPackPTS` queue).
+ * Daily 5 / Beat-me user share cards are `contentFactory/generateScoreCard.ts`.
  */
 
 import sharp from "sharp";
 import { sql } from "drizzle-orm";
 import { cardSearchSorted } from "../../services/cardhedge/client";
+import { buildEmbeddedFontCss, loadScoreCardFonts, textToPath } from "../../contentFactory/fonts";
+import type { Font } from "opentype.js";
 import { createLogger } from "./logger";
 
 const logger = createLogger("GameImageRenderer");
 
-const C = {
+export const GAME_IMAGE_COLORS = {
   bg: "#0a0a2e",
   panel: "#13133a",
   stripe: "#1a1a5e",
@@ -25,9 +34,11 @@ const C = {
   green: "#66ff66",
   purple: "#cc88ff",
   bottomBar: "#050514",
-};
+} as const;
 
-const DIMENSIONS = {
+const C = GAME_IMAGE_COLORS;
+
+export const DIMENSIONS = {
   TWITTER: { width: 1080, height: 1080 },
   TIKTOK: { width: 1080, height: 1920 },
   DISCORD: { width: 1080, height: 1080 },
@@ -41,6 +52,25 @@ export interface GameImageResult {
   cardSet?: string;
   cardPrice?: number;
   cardSales7d?: number;
+}
+
+type PathFont = Font;
+type AnchorOpts = { anchor?: "start" | "middle" | "end"; letterSpacing?: number };
+
+function mid(
+  font: PathFont,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  fill: string,
+  options: Omit<AnchorOpts, "anchor"> = {},
+): string {
+  return textToPath(font, text, x, y, size, fill, { anchor: "middle", ...options });
+}
+
+function fontCss(): string {
+  return `<defs><style type="text/css">${buildEmbeddedFontCss()}</style></defs>`;
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
@@ -122,142 +152,129 @@ function shorten(text: string, max: number): string {
   return text.slice(0, max - 1) + "…";
 }
 
+export async function renderSocialSvgToPng(svg: string): Promise<Buffer> {
+  return sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+}
+
 // ── Pure-SVG renderers ────────────────────────────────────────────────────────
 
-function svgLeaderboard(w: number, h: number, username: string, score: number): string {
+export function buildLeaderboardSvg(w: number, h: number, username: string, score: number): string {
+  const fonts = loadScoreCardFonts();
   const barH = Math.round(h * 0.13);
   const scoreStr = score > 0 ? score.toLocaleString() : "—";
+  const name = shorten(username, 18);
   const cx = w / 2;
   const circleR = Math.round(Math.min(w, h) * 0.14);
   const circleY = Math.round(h * 0.38);
   const nameY = Math.round(h * 0.62);
   const scoreY = Math.round(h * 0.72);
   const tagY = Math.round(h * 0.82);
+  const desc = ["LEADERBOARD", "#1", name, `${scoreStr} pts today`, "Can you take the top spot?", "PackPTS.com"].join(" | ");
 
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${fontCss()}
+    <desc>${esc(desc)}</desc>
     <rect width="${w}" height="${h}" fill="${C.bg}"/>
     <!-- Subtle stripe -->
     <rect x="0" y="${Math.round(h * 0.5)}" width="${w}" height="4" fill="${C.stripe}" opacity="0.6"/>
 
     <!-- Top badge bar -->
     <rect x="0" y="0" width="${w}" height="${barH}" fill="${C.panel}"/>
-    <text x="${cx}" y="${Math.round(barH * 0.65)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle" letter-spacing="5">LEADERBOARD</text>
+    ${mid(fonts.bold, "LEADERBOARD", cx, Math.round(barH * 0.65), Math.round(barH * 0.42), C.gold, { letterSpacing: 5 })}
 
     <!-- #1 circle -->
     <circle cx="${cx}" cy="${circleY}" r="${circleR}" fill="${C.gold}" opacity="0.12"/>
     <circle cx="${cx}" cy="${circleY}" r="${circleR - 6}" fill="none" stroke="${C.gold}" stroke-width="4"/>
-    <text x="${cx}" y="${circleY + Math.round(circleR * 0.38)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(circleR * 0.9)}"
-      fill="${C.gold}" text-anchor="middle">#1</text>
+    ${mid(fonts.bold, "#1", cx, circleY + Math.round(circleR * 0.38), Math.round(circleR * 0.9), C.gold)}
 
     <!-- Player name -->
-    <text x="${cx}" y="${nameY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.072)}"
-      fill="${C.white}" text-anchor="middle">${esc(shorten(username, 18))}</text>
+    ${mid(fonts.bold, name, cx, nameY, Math.round(w * 0.072), C.white)}
 
     <!-- Score -->
-    <text x="${cx}" y="${scoreY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.048)}"
-      fill="${C.muted}" text-anchor="middle">${scoreStr} pts today</text>
+    ${mid(fonts.regular, `${scoreStr} pts today`, cx, scoreY, Math.round(w * 0.048), C.muted)}
 
-    <!-- CTA -->
-    <text x="${cx}" y="${tagY}"
-      font-family="sans-serif" font-style="italic" font-size="${Math.round(w * 0.036)}"
-      fill="${C.gold}" text-anchor="middle">Can you take the top spot?</text>
+    <!-- CTA (regular — no italic Inter face ships) -->
+    ${mid(fonts.regular, "Can you take the top spot?", cx, tagY, Math.round(w * 0.036), C.gold)}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="${C.bottomBar}"/>
-    <text x="${cx}" y="${h - Math.round(barH * 0.32)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle">PackPTS.com</text>
+    ${mid(fonts.bold, "PackPTS.com", cx, h - Math.round(barH * 0.32), Math.round(barH * 0.42), C.gold)}
   </svg>`;
 }
 
-function svgStreak(w: number, h: number, streak: number): string {
+export function buildStreakSvg(w: number, h: number, streak: number): string {
+  const fonts = loadScoreCardFonts();
   const barH = Math.round(h * 0.13);
   const cx = w / 2;
   const circleR = Math.round(Math.min(w, h) * 0.18);
   const circleY = Math.round(h * 0.42);
   const labelY = Math.round(h * 0.68);
   const subY = Math.round(h * 0.77);
+  const streakStr = String(streak);
+  const desc = ["STREAK", streakStr, "DAY STREAK", "Daily play = bonus points", "PackPTS.com"].join(" | ");
 
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${fontCss()}
+    <desc>${esc(desc)}</desc>
     <rect width="${w}" height="${h}" fill="${C.bg}"/>
 
     <!-- Top badge bar -->
     <rect x="0" y="0" width="${w}" height="${barH}" fill="${C.panel}"/>
-    <text x="${cx}" y="${Math.round(barH * 0.65)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.orange}" text-anchor="middle" letter-spacing="5">STREAK</text>
+    ${mid(fonts.bold, "STREAK", cx, Math.round(barH * 0.65), Math.round(barH * 0.42), C.orange, { letterSpacing: 5 })}
 
     <!-- Fire-ring circle -->
     <circle cx="${cx}" cy="${circleY}" r="${circleR}" fill="${C.orange}" opacity="0.1"/>
     <circle cx="${cx}" cy="${circleY}" r="${circleR - 6}" fill="none" stroke="${C.orange}" stroke-width="5"/>
-    <text x="${cx}" y="${circleY + Math.round(circleR * 0.28)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(circleR * 1.1)}"
-      fill="${C.orange}" text-anchor="middle">${streak}</text>
+    ${mid(fonts.bold, streakStr, cx, circleY + Math.round(circleR * 0.28), Math.round(circleR * 1.1), C.orange)}
 
     <!-- Label -->
-    <text x="${cx}" y="${labelY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.064)}"
-      fill="${C.white}" text-anchor="middle">DAY STREAK</text>
+    ${mid(fonts.bold, "DAY STREAK", cx, labelY, Math.round(w * 0.064), C.white)}
 
     <!-- Sub -->
-    <text x="${cx}" y="${subY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.038)}"
-      fill="${C.muted}" text-anchor="middle">Daily play = bonus points</text>
+    ${mid(fonts.regular, "Daily play = bonus points", cx, subY, Math.round(w * 0.038), C.muted)}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="${C.bottomBar}"/>
-    <text x="${cx}" y="${h - Math.round(barH * 0.32)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle">PackPTS.com</text>
+    ${mid(fonts.bold, "PackPTS.com", cx, h - Math.round(barH * 0.32), Math.round(barH * 0.42), C.gold)}
   </svg>`;
 }
 
-function svgChallenge(w: number, h: number, topScore: number): string {
+export function buildChallengeSvg(w: number, h: number, topScore: number): string {
+  const fonts = loadScoreCardFonts();
   const barH = Math.round(h * 0.13);
   const cx = w / 2;
   const scoreY = Math.round(h * 0.48);
   const labelY = Math.round(h * 0.6);
   const ctaY = Math.round(h * 0.72);
   const scoreStr = topScore > 0 ? topScore.toLocaleString() : "—";
+  const desc = ["CHALLENGE", scoreStr, "points — the record to beat", "Card experts only.", "PackPTS.com"].join(" | ");
 
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${fontCss()}
+    <desc>${esc(desc)}</desc>
     <rect width="${w}" height="${h}" fill="${C.bg}"/>
 
     <!-- Top badge bar -->
     <rect x="0" y="0" width="${w}" height="${barH}" fill="${C.panel}"/>
-    <text x="${cx}" y="${Math.round(barH * 0.65)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.blue}" text-anchor="middle" letter-spacing="5">CHALLENGE</text>
+    ${mid(fonts.bold, "CHALLENGE", cx, Math.round(barH * 0.65), Math.round(barH * 0.42), C.blue, { letterSpacing: 5 })}
 
     <!-- Score display -->
-    <text x="${cx}" y="${scoreY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.18)}"
-      fill="${C.blue}" text-anchor="middle">${esc(scoreStr)}</text>
+    ${mid(fonts.bold, scoreStr, cx, scoreY, Math.round(w * 0.18), C.blue)}
 
     <!-- Label -->
-    <text x="${cx}" y="${labelY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.048)}"
-      fill="${C.muted}" text-anchor="middle">points — the record to beat</text>
+    ${mid(fonts.regular, "points — the record to beat", cx, labelY, Math.round(w * 0.048), C.muted)}
 
     <!-- CTA -->
-    <text x="${cx}" y="${ctaY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.042)}"
-      fill="${C.white}" text-anchor="middle">Card experts only.</text>
+    ${mid(fonts.bold, "Card experts only.", cx, ctaY, Math.round(w * 0.042), C.white)}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="${C.bottomBar}"/>
-    <text x="${cx}" y="${h - Math.round(barH * 0.32)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle">PackPTS.com</text>
+    ${mid(fonts.bold, "PackPTS.com", cx, h - Math.round(barH * 0.32), Math.round(barH * 0.42), C.gold)}
   </svg>`;
 }
 
-function svgNewUser(w: number, h: number, userCount: number): string {
+export function buildNewUserSvg(w: number, h: number, userCount: number): string {
+  const fonts = loadScoreCardFonts();
   const barH = Math.round(h * 0.13);
   const cx = w / 2;
   const countStr = userCount > 0 ? userCount.toLocaleString() : "Thousands";
@@ -265,115 +282,98 @@ function svgNewUser(w: number, h: number, userCount: number): string {
   const labelY = Math.round(h * 0.58);
   const ctaY = Math.round(h * 0.69);
   const subY = Math.round(h * 0.79);
+  const desc = ["JOIN NOW", countStr, "players already competing", "Free to play. Real rewards.", "Your card knowledge pays off.", "PackPTS.com"].join(" | ");
 
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${fontCss()}
+    <desc>${esc(desc)}</desc>
     <rect width="${w}" height="${h}" fill="${C.bg}"/>
 
     <!-- Top badge bar -->
     <rect x="0" y="0" width="${w}" height="${barH}" fill="${C.panel}"/>
-    <text x="${cx}" y="${Math.round(barH * 0.65)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.green}" text-anchor="middle" letter-spacing="4">JOIN NOW</text>
+    ${mid(fonts.bold, "JOIN NOW", cx, Math.round(barH * 0.65), Math.round(barH * 0.42), C.green, { letterSpacing: 4 })}
 
     <!-- Count -->
-    <text x="${cx}" y="${countY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.14)}"
-      fill="${C.green}" text-anchor="middle">${esc(countStr)}</text>
+    ${mid(fonts.bold, countStr, cx, countY, Math.round(w * 0.14), C.green)}
 
     <!-- Label -->
-    <text x="${cx}" y="${labelY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.044)}"
-      fill="${C.muted}" text-anchor="middle">players already competing</text>
+    ${mid(fonts.regular, "players already competing", cx, labelY, Math.round(w * 0.044), C.muted)}
 
     <!-- CTA -->
-    <text x="${cx}" y="${ctaY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.05)}"
-      fill="${C.white}" text-anchor="middle">Free to play. Real rewards.</text>
+    ${mid(fonts.bold, "Free to play. Real rewards.", cx, ctaY, Math.round(w * 0.05), C.white)}
 
     <!-- Sub -->
-    <text x="${cx}" y="${subY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.036)}"
-      fill="${C.muted}" text-anchor="middle">Your card knowledge pays off.</text>
+    ${mid(fonts.regular, "Your card knowledge pays off.", cx, subY, Math.round(w * 0.036), C.muted)}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="${C.bottomBar}"/>
-    <text x="${cx}" y="${h - Math.round(barH * 0.32)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle">PackPTS.com</text>
+    ${mid(fonts.bold, "PackPTS.com", cx, h - Math.round(barH * 0.32), Math.round(barH * 0.42), C.gold)}
   </svg>`;
 }
 
-function svgReward(w: number, h: number, rewardValue: string): string {
+export function buildRewardSvg(w: number, h: number, rewardValue: string): string {
+  const fonts = loadScoreCardFonts();
   const barH = Math.round(h * 0.13);
   const cx = w / 2;
   const valueY = Math.round(h * 0.46);
   const labelY = Math.round(h * 0.58);
   const ctaY = Math.round(h * 0.69);
   const subY = Math.round(h * 0.79);
+  const desc = ["REWARD", rewardValue, "bonus points on signup", "Streak rewards. Referral points.", "PackPTS pays you to play.", "PackPTS.com"].join(" | ");
 
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${fontCss()}
+    <desc>${esc(desc)}</desc>
     <rect width="${w}" height="${h}" fill="${C.bg}"/>
 
     <!-- Top badge bar -->
     <rect x="0" y="0" width="${w}" height="${barH}" fill="${C.panel}"/>
-    <text x="${cx}" y="${Math.round(barH * 0.65)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.purple}" text-anchor="middle" letter-spacing="4">REWARD</text>
+    ${mid(fonts.bold, "REWARD", cx, Math.round(barH * 0.65), Math.round(barH * 0.42), C.purple, { letterSpacing: 4 })}
 
     <!-- Value -->
-    <text x="${cx}" y="${valueY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.16)}"
-      fill="${C.purple}" text-anchor="middle">${esc(rewardValue)}</text>
+    ${mid(fonts.bold, rewardValue, cx, valueY, Math.round(w * 0.16), C.purple)}
 
     <!-- Label -->
-    <text x="${cx}" y="${labelY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.044)}"
-      fill="${C.muted}" text-anchor="middle">bonus points on signup</text>
+    ${mid(fonts.regular, "bonus points on signup", cx, labelY, Math.round(w * 0.044), C.muted)}
 
     <!-- CTA -->
-    <text x="${cx}" y="${ctaY}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(w * 0.05)}"
-      fill="${C.white}" text-anchor="middle">Streak rewards. Referral points.</text>
+    ${mid(fonts.bold, "Streak rewards. Referral points.", cx, ctaY, Math.round(w * 0.05), C.white)}
 
     <!-- Sub -->
-    <text x="${cx}" y="${subY}"
-      font-family="sans-serif" font-size="${Math.round(w * 0.036)}"
-      fill="${C.muted}" text-anchor="middle">PackPTS pays you to play.</text>
+    ${mid(fonts.regular, "PackPTS pays you to play.", cx, subY, Math.round(w * 0.036), C.muted)}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="${C.bottomBar}"/>
-    <text x="${cx}" y="${h - Math.round(barH * 0.32)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle">PackPTS.com</text>
+    ${mid(fonts.bold, "PackPTS.com", cx, h - Math.round(barH * 0.32), Math.round(barH * 0.42), C.gold)}
   </svg>`;
 }
 
 // ── Card-image overlay SVGs ───────────────────────────────────────────────────
 
-function svgCardOverlay(
+export function buildCardOverlaySvg(
   w: number,
   h: number,
   badgeLabel: string,
   accentColor: string,
   overlayText?: string,
 ): string {
+  const fonts = loadScoreCardFonts();
   const barH = Math.round(h * 0.13);
   const cx = w / 2;
+  const overlay = overlayText ? shorten(overlayText, 50) : "";
+  const desc = [badgeLabel, "PackPTS.com", overlay].filter(Boolean).join(" | ");
+
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${fontCss()}
+    <desc>${esc(desc)}</desc>
     <!-- Top badge bar -->
     <rect x="0" y="0" width="${w}" height="${barH}" fill="rgba(10,10,46,0.88)"/>
-    <text x="${cx}" y="${Math.round(barH * 0.65)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${accentColor}" text-anchor="middle" letter-spacing="5">${esc(badgeLabel)}</text>
+    ${mid(fonts.bold, badgeLabel, cx, Math.round(barH * 0.65), Math.round(barH * 0.42), accentColor, { letterSpacing: 5 })}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="rgba(5,5,20,0.92)"/>
-    <text x="${cx}" y="${h - Math.round(barH * 0.52)}"
-      font-family="sans-serif" font-weight="bold" font-size="${Math.round(barH * 0.42)}"
-      fill="${C.gold}" text-anchor="middle">PackPTS.com</text>
-    ${overlayText ? `<text x="${cx}" y="${h - Math.round(barH * 0.15)}"
-      font-family="sans-serif" font-size="${Math.round(barH * 0.26)}"
-      fill="${C.muted}" text-anchor="middle">${esc(shorten(overlayText, 50))}</text>` : ""}
+    ${mid(fonts.bold, "PackPTS.com", cx, h - Math.round(barH * 0.52), Math.round(barH * 0.42), C.gold)}
+    ${overlay ? mid(fonts.regular, overlay, cx, h - Math.round(barH * 0.15), Math.round(barH * 0.26), C.muted) : ""}
   </svg>`;
 }
 
@@ -416,7 +416,7 @@ async function renderCardImage(
   const cardLeft = Math.floor((w - cardW) / 2);
   const cardTop = Math.floor((h - cardH) / 2);
 
-  const overlaySvg = svgCardOverlay(w, h, badgeLabel, accentColor, overlayText);
+  const overlaySvg = buildCardOverlaySvg(w, h, badgeLabel, accentColor, overlayText);
 
   const buffer = await sharp({
     create: { width: w, height: h, channels: 4, background: { r: 10, g: 10, b: 46, alpha: 1 } },
@@ -464,47 +464,47 @@ export async function renderGameImage(
     case "LEADERBOARD_HIGHLIGHT": {
       logger.info("render_start", { contentType, platform });
       const { username, score } = await queryLeaderboard();
-      const svg = svgLeaderboard(w, h, username, score);
-      const buffer = await sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+      const svg = buildLeaderboardSvg(w, h, username, score);
+      const buffer = await renderSocialSvgToPng(svg);
       return { buffer };
     }
 
     case "STREAK_MILESTONE": {
       logger.info("render_start", { contentType, platform });
       const streak = await queryStreak();
-      const svg = svgStreak(w, h, streak);
-      const buffer = await sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+      const svg = buildStreakSvg(w, h, streak);
+      const buffer = await renderSocialSvgToPng(svg);
       return { buffer };
     }
 
     case "CHALLENGE": {
       logger.info("render_start", { contentType, platform });
       const topScore = await queryChallengeScore();
-      const svg = svgChallenge(w, h, topScore);
-      const buffer = await sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+      const svg = buildChallengeSvg(w, h, topScore);
+      const buffer = await renderSocialSvgToPng(svg);
       return { buffer };
     }
 
     case "NEW_USER_ACQUISITION": {
       logger.info("render_start", { contentType, platform });
       const userCount = await queryUserCount();
-      const svg = svgNewUser(w, h, userCount);
-      const buffer = await sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+      const svg = buildNewUserSvg(w, h, userCount);
+      const buffer = await renderSocialSvgToPng(svg);
       return { buffer };
     }
 
     case "REWARD_ANNOUNCEMENT": {
       logger.info("render_start", { contentType, platform });
       const rewardValue = await queryRewardValue();
-      const svg = svgReward(w, h, rewardValue);
-      const buffer = await sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+      const svg = buildRewardSvg(w, h, rewardValue);
+      const buffer = await renderSocialSvgToPng(svg);
       return { buffer };
     }
 
     default: {
       logger.warn("unknown_content_type", { contentType, platform });
-      const svg = svgNewUser(w, h, 0);
-      const buffer = await sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+      const svg = buildNewUserSvg(w, h, 0);
+      const buffer = await renderSocialSvgToPng(svg);
       return { buffer };
     }
   }

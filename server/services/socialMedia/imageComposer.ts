@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { createLogger } from "./logger";
 import { uploadImageToStorage } from "./imageStorage";
 import { renderGameImage } from "./gameImageRenderer";
+import { readSocialDesignExport } from "./designExports";
 
 const logger = createLogger("ImageComposer");
 // Use /tmp so Railway containers (read-only app/) can write generated images
@@ -36,7 +37,10 @@ async function getOutputDir(date: string): Promise<string> {
 export async function composePostImage(params: ImageComposeParams): Promise<ComposedImage> {
   const { platform, contentType, cardQuery, overlayText } = params;
 
-  const result = await renderGameImage(contentType, platform, cardQuery, overlayText);
+  const baked = readSocialDesignExport(contentType, platform);
+  const result = baked
+    ? { buffer: baked.buffer }
+    : await renderGameImage(contentType, platform, cardQuery, overlayText);
 
   const date = new Date().toISOString().slice(0, 10);
   const dir = await getOutputDir(date);
@@ -52,18 +56,19 @@ export async function composePostImage(params: ImageComposeParams): Promise<Comp
   logger.info("image_composed", {
     platform,
     contentType,
-    cardId: result.cardId ?? "none",
+    cardId: baked ? "design-export" : result.cardId ?? "none",
     imagePath,
     storage: r2Url ? "r2" : "local",
+    source: baked ? baked.sourcePath : "runtime",
   });
 
   return {
     imagePath,
-    cardId: result.cardId ?? "",
-    cardImageUrl: result.cardImageUrl ?? "",
-    cardPlayer: result.cardPlayer ?? "",
-    cardSet: result.cardSet ?? "",
-    cardPrice: result.cardPrice,
-    cardSales7d: result.cardSales7d,
+    cardId: baked ? "" : result.cardId ?? "",
+    cardImageUrl: baked ? "" : result.cardImageUrl ?? "",
+    cardPlayer: baked ? "" : result.cardPlayer ?? "",
+    cardSet: baked ? "" : result.cardSet ?? "",
+    cardPrice: baked ? undefined : result.cardPrice,
+    cardSales7d: baked ? undefined : result.cardSales7d,
   };
 }
