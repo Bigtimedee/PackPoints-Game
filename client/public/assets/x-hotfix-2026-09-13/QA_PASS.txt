@@ -1,0 +1,9 @@
+PackPTS X hotfix QA_PASS — 2026-09-13
+Fonts: DejaVuSans-Bold / DejaVuSans / DejaVuSansMono-Bold (box paths)
+Assertions: getbbox glyphs, file size >50KB, no near-empty white tofu bands
+
+post1-250-pts-1080.png: 1080x1080  79705 bytes  no tofu
+post2-daily5-1080.png: 1080x1080  143787 bytes  no tofu
+post3-play-sets-1080.png: 1080x1080  94853 bytes  no tofu
+
+RESULT: PASS — all three PNGs rasterized with DejaVu; no tofu detected.
