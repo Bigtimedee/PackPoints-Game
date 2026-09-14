@@ -2,6 +2,7 @@ import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
 import { execSync } from "child_process";
+import { assertShareFontsPresent } from "../server/contentFactory/fonts";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -51,6 +52,9 @@ function getCommitSha(): string {
 }
 
 async function buildAll() {
+  const fonts = assertShareFontsPresent();
+  console.log("share fonts", fonts.interDir, fonts.dejaVuRegular);
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");

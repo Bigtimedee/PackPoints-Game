@@ -5,9 +5,15 @@
  */
 import { describe, it, expect } from "vitest";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import sharp from "sharp";
-import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
+import { FONT_FILES, assertShareFontsPresent, resolveFontsDir } from "../contentFactory/fonts";
+import {
+  SOCIAL_DESIGN_EXPORTS,
+  readSocialDesignExport,
+  socialDesignFileName,
+} from "../services/socialMedia/designExports";
 import {
   DIMENSIONS,
   GAME_IMAGE_COLORS,
@@ -87,6 +93,14 @@ describe("bundled social-image fonts", () => {
     expect(fs.existsSync(path.join(dir, FONT_FILES.semibold))).toBe(true);
     expect(fs.existsSync(path.join(dir, FONT_FILES.bold))).toBe(true);
   });
+
+  it("SOCIAL_PNG_QA: Inter + DejaVu paths exist (build fails if missing)", () => {
+    const found = assertShareFontsPresent();
+    expect(fs.existsSync(found.interRegular)).toBe(true);
+    expect(fs.existsSync(found.interBold)).toBe(true);
+    expect(fs.existsSync(found.dejaVuRegular)).toBe(true);
+    expect(found.dejaVuRegular).toMatch(/DejaVuSans\.ttf$/);
+  });
 });
 
 describe("social SVG composers outline type", () => {
@@ -153,5 +167,31 @@ describe("social PNG tofu guard", () => {
     );
     expect(await regionHasColor(overlay, 200, 40, 880, 130, isGold)).toBe(true);
     expect(await regionHasColor(overlay, 250, 960, 830, 1040, isGold)).toBe(true);
+  });
+});
+
+describe("Design-baked social exports", () => {
+  it("maps content types to square/story filenames and does not invent art", () => {
+    expect(socialDesignFileName("LEADERBOARD_HIGHLIGHT", "TWITTER")).toBe("leaderboard-1080.png");
+    expect(socialDesignFileName("LEADERBOARD_HIGHLIGHT", "TIKTOK")).toBe("leaderboard-story.png");
+    expect(socialDesignFileName("UNKNOWN", "TWITTER")).toBeNull();
+    expect(SOCIAL_DESIGN_EXPORTS.STREAK_MILESTONE.square).toBe("streak-1080.png");
+    expect(readSocialDesignExport("LEADERBOARD_HIGHLIGHT", "TWITTER", { searchDirs: ["/tmp/packpts-no-design"] })).toBeNull();
+  });
+
+  it("prefers a Design-baked PNG when the file is on disk", async () => {
+    const dir = path.join(os.tmpdir(), `packpts-social-design-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const baked = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: { r: 220, g: 20, b: 20 } },
+    }).png().toBuffer();
+    fs.writeFileSync(path.join(dir, "leaderboard-1080.png"), baked);
+
+    const found = readSocialDesignExport("LEADERBOARD_HIGHLIGHT", "TWITTER", { searchDirs: [dir] });
+    expect(found?.fileName).toBe("leaderboard-1080.png");
+    expect(found && await regionHasColor(found.buffer, 0, 0, 64, 64, (r, g, b) => r > 200 && g < 40 && b < 40)).toBe(true);
+
+    expect(readSocialDesignExport("CHALLENGE", "TWITTER", { searchDirs: [dir] })).toBeNull();
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

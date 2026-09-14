@@ -4,7 +4,9 @@ FROM node:20.18-alpine
 # Install FFmpeg + su-exec (privilege drop in start.sh after chowning the volume
 # mount) + postgresql 17 client (boot-time pg_dump guard — must match the
 # Postgres 17.x server; v17 client comes from the alpine 3.21 repo)
-RUN apk add --no-cache ffmpeg su-exec && \
+# font-dejavu: SOCIAL_PNG_QA — Alpine has no fonts; leftover <text> tofus without this.
+# Inter TTFs are also vendored and outlined (see server/contentFactory/fonts.ts).
+RUN apk add --no-cache ffmpeg su-exec font-dejavu && \
     apk add --no-cache postgresql17-client --repository=https://dl-cdn.alpinelinux.org/alpine/v3.21/main
 
 # Set production environment
@@ -24,6 +26,12 @@ RUN npm ci --production=false
 
 # Copy application code
 COPY . .
+
+# SOCIAL_PNG_QA: fail the image build if Inter or DejaVu is missing.
+RUN test -f /app/server/contentFactory/assets/fonts/Inter-Bold.ttf && \
+    test -f /app/server/contentFactory/assets/fonts/Inter-Regular.ttf && \
+    test -f /app/assets/fonts/DejaVuSans.ttf && \
+    test -f /usr/share/fonts/dejavu/DejaVuSans.ttf
 
 # Build the application
 RUN npm run build

@@ -8,6 +8,7 @@
     "build": "npm run check && tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
+    "assert:share-fonts": "tsx scripts/assert-share-fonts.ts",
     "db:push": "drizzle-kit push",
     "agent:social": "tsx server/services/socialMedia/index.ts",
     "test:e2e": "playwright test",
