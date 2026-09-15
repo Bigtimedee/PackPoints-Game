@@ -43,7 +43,8 @@ import {
   Clock,
   AlertCircle,
   ScanSearch,
-  UserX
+  UserX,
+  Trash2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -243,6 +244,8 @@ export default function AdminPlayableSets() {
 
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const [purgeTargetSet, setPurgeTargetSet] = useState<GameSet | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTargetSet, setDeleteTargetSet] = useState<GameSet | null>(null);
   const [rescanningSetId, setRescanningSetId] = useState<string | null>(null);
   const [scanningMismatchesSetId, setScanningMismatchesSetId] = useState<string | null>(null);
 
@@ -343,6 +346,37 @@ export default function AdminPlayableSets() {
       purgeReimportMutation.mutate(purgeTargetSet.id);
     }
   };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (setId: string) => {
+      return apiRequest("DELETE", `/api/admin/game-sets/${setId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Set deleted",
+        description: "The game set has been permanently removed",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
+      setShowDeleteConfirm(false);
+      setDeleteTargetSet(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleDelete = (set: GameSet) => {
+    setDeleteTargetSet(set);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    if (deleteTargetSet) {
+      deleteMutation.mutate(deleteTargetSet.id);
+    }
+  };
+
+  const setDisplayName = (set: GameSet) => `${set.brand} ${set.setName}`.trim();
 
   const closeDialog = () => {
     setShowDialog(false);
@@ -567,6 +601,19 @@ export default function AdminPlayableSets() {
                           }
                         </Button>
                       )}
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => handleDelete(set)}
+                        disabled={deleteMutation.isPending && deleteTargetSet?.id === set.id}
+                        data-testid={`button-delete-${set.id}`}
+                        title="Delete set permanently"
+                      >
+                        {deleteMutation.isPending && deleteTargetSet?.id === set.id 
+                          ? <Loader2 className="h-4 w-4 animate-spin text-destructive" />
+                          : <Trash2 className="h-4 w-4 text-destructive" />
+                        }
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -864,6 +911,60 @@ export default function AdminPlayableSets() {
               data-testid="button-cancel-lookup"
             >
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showDeleteConfirm}
+        onOpenChange={(open) => {
+          if (deleteMutation.isPending) return;
+          setShowDeleteConfirm(open);
+          if (!open) setDeleteTargetSet(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Game Set</DialogTitle>
+            <DialogDescription>
+              Permanently delete "{deleteTargetSet ? setDisplayName(deleteTargetSet) : "this set"}"?
+              This will hard-delete the set and{" "}
+              {deleteTargetSet?.cardsImportedCount ?? 0} imported cards. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-2">
+            <p className="text-sm font-medium">This action will:</p>
+            <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
+              <li>Remove the game set from the admin table and public play</li>
+              <li>Delete imported playable cards and related import records</li>
+              <li>Cannot be reversed — inactive/deactivate is not enough</li>
+            </ul>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setDeleteTargetSet(null);
+              }}
+              disabled={deleteMutation.isPending}
+              data-testid="button-cancel-delete"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending || !deleteTargetSet}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              Delete permanently
             </Button>
           </DialogFooter>
         </DialogContent>

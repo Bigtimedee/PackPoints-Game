@@ -39,6 +39,38 @@ describe("DELETE /api/admin/game-sets/:id handler", () => {
   });
 });
 
+describe("admin playable-sets UI delete action", () => {
+  const pagePath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../client/src/pages/admin/playable-sets.tsx",
+  );
+  const src = readFileSync(pagePath, "utf8");
+
+  it("calls DELETE /api/admin/game-sets/:id with credentials via apiRequest", () => {
+    expect(src).toContain('apiRequest("DELETE", `/api/admin/game-sets/${setId}`)');
+    expect(src).toContain("Trash2");
+    expect(src).toContain('data-testid={`button-delete-${set.id}`}');
+    expect(src).toContain('data-testid="button-confirm-delete"');
+  });
+
+  it("requires confirmation that names the set and shows card count", () => {
+    expect(src).toContain("showDeleteConfirm");
+    expect(src).toContain("setDisplayName(deleteTargetSet)");
+    expect(src).toContain("cardsImportedCount");
+    expect(src).toContain("Delete permanently");
+    expect(src).toContain('variant="destructive"');
+  });
+
+  it("invalidates the game-sets list on successful delete", () => {
+    const marker = "const deleteMutation = useMutation({";
+    const start = src.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const mutation = src.slice(start, start + 900);
+    expect(mutation).toContain('queryKey: ["/api/admin/game-sets"]');
+    expect(mutation).toContain("invalidateQueries");
+  });
+});
+
 describe.skipIf(!hasDb)("hardDeleteGameSet", () => {
   beforeAll(async () => {
     ({ db } = await import("../db"));
