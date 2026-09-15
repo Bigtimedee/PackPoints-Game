@@ -41,6 +41,7 @@ import {
   shouldShowHomePlayVanity,
 } from "@shared/homePlayVanity";
 import { adminService } from "./services/adminService";
+import { hardDeleteGameSet } from "./services/gameSetDelete";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
 import { redemptionService } from "./services/redemptionService";
@@ -5094,21 +5095,17 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Delete game set
+  // Admin: Hard-delete a game set (and FK dependents). Inactive rows stay
+  // listed on GET /api/admin/game-sets until this removes them.
   app.delete("/api/admin/game-sets/:id", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      
-      const [deleted] = await db
-        .update(gameSets)
-        .set({ isActive: false })
-        .where(eq(gameSets.id, id))
-        .returning();
-      
+      const deleted = await hardDeleteGameSet(id);
+
       if (!deleted) {
         return res.status(404).json({ error: "Game set not found" });
       }
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting game set:", error);
