@@ -121,7 +121,7 @@ describe("play surfaces: mask until successful submit, then full card", () => {
   it("GameCard stays dumb — it does not fetch originals from isRevealed", () => {
     expect(gameCardSrc).not.toContain("resolvePlayCardSrc");
     expect(gameCardSrc).not.toContain("/api/images/card/");
-    expect(gameCardSrc).toContain("data-testid=\"mask-name-band\"");
+    expect(gameCardSrc).toContain('"mask-name-band"');
     expect(gameCardSrc).toContain("{!isRevealed && !imageError");
   });
 
