@@ -13,6 +13,7 @@ import { queryClient } from "@/lib/queryClient";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -981,7 +982,7 @@ export default function Match() {
                     </p>
                     <div className="flex gap-2">
                       <Button
-                        className="flex-1 gap-2"
+                        className="flex-1 min-h-11 gap-2"
                         onClick={() => {
                           if (!matchEnded.sessionId) return;
                           send("battle_rematch_request", { sessionId: matchEnded.sessionId });
@@ -1001,7 +1002,7 @@ export default function Match() {
                       </Button>
                       <Button
                         variant="outline"
-                        className="flex-1 gap-2"
+                        className="flex-1 min-h-11 gap-2"
                         onClick={() => {
                           if (!matchEnded.sessionId) return;
                           send("battle_leave", { sessionId: matchEnded.sessionId });
@@ -1025,9 +1026,22 @@ export default function Match() {
                   /* Legacy rematch-vote flow for non-Battle (random matchmaking) matches */
                   <div className="space-y-3">
                     {opponentVote === "decline" ? (
-                      <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                        <UserX className="h-4 w-4 shrink-0" />
-                        <span>{opponentResult?.username || "Opponent"} declined rematch</span>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                          <UserX className="h-4 w-4 shrink-0" />
+                          <span>{opponentResult?.username || "Opponent"} declined rematch</span>
+                        </div>
+                        <Button
+                          className={PLAY_AGAIN_BUTTON_CLASS}
+                          onClick={() => {
+                            clearMatchSecret();
+                            navigate(MATCH_FALLBACK_PLAY.href);
+                          }}
+                          data-testid={MATCH_FALLBACK_PLAY.testId}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          {MATCH_FALLBACK_PLAY.label}
+                        </Button>
                       </div>
                     ) : rematchState === "idle" || rematchState === "opponent_voted" ? (
                       <>
@@ -1036,7 +1050,7 @@ export default function Match() {
                         </p>
                         <div className="flex gap-2">
                           <Button
-                            className="flex-1 gap-2"
+                            className="flex-1 min-h-11 gap-2"
                             onClick={() => {
                               if (!matchEnded?.matchId) return;
                               send("rematch_vote", { matchId: matchEnded.matchId, vote: "accept" });
@@ -1053,7 +1067,7 @@ export default function Match() {
                           </Button>
                           <Button
                             variant="outline"
-                            className="flex-1 gap-2"
+                            className="flex-1 min-h-11 gap-2"
                             onClick={() => {
                               if (!matchEnded?.matchId) return;
                               send("rematch_vote", { matchId: matchEnded.matchId, vote: "decline" });

@@ -23,6 +23,11 @@ import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
+import {
+  PLAY_AGAIN_BUTTON_CLASS,
+  replayCardCountFromSession,
+  replaySetIdFromSession,
+} from "@/lib/playAgain";
 
 function AnswerButton({
   option,
@@ -189,14 +194,22 @@ export default function Game() {
     }
   }, [availableSets, selectedSetId]);
 
+  useEffect(() => {
+    if (!session) return;
+    const setId = replaySetIdFromSession(session);
+    if (setId) setSelectedSetId(setId);
+    const count = replayCardCountFromSession(session);
+    if (count != null) setSelectedCardCount(String(count));
+  }, [session?.id]);
+
   const [startError, setStartError] = useState<{ isRateLimit: boolean; message: string } | null>(null);
 
   const startGameMutation = useMutation({
-    mutationFn: async (cardCount: number) => {
+    mutationFn: async ({ cardCount, setId }: { cardCount: number; setId?: string | null }) => {
       const res = await apiRequest("POST", "/api/game/start", {
         mode: mode || "solo",
         totalQuestions: cardCount,
-        setId: selectedSetId || currentGameSet?.id,
+        setId: setId || selectedSetId || currentGameSet?.id,
       });
       return res.json();
     },
@@ -691,22 +704,27 @@ export default function Game() {
   };
 
   const handlePlayAgain = () => {
-    // Reset to pre-game state to allow card count selection
+    const setId = replaySetIdFromSession(session) || selectedSetId || currentGameSet?.id || null;
+    const parsedCount = replayCardCountFromSession(session) ?? parseInt(selectedCardCount, 10);
+    const cardCount = Number.isFinite(parsedCount) ? parsedCount : 10;
+    if (setId) setSelectedSetId(setId);
+    if (cardCount) setSelectedCardCount(String(cardCount));
     setSessionId(null);
-    setHasStartedGame(false);
+    setHasStartedGame(true);
     setStartError(null);
     setPointsUpdatedForSession(null);
-    // Reset replacement tracking for new game
+    setShareImageUrl(undefined);
     setFailedCardIds([]);
     setReplacedQuestionIndices(new Set());
     setReplacementAttempts(new Map());
     setShowSkipButton(false);
     setReplacementStartTime(null);
+    startGameMutation.mutate({ cardCount, setId });
   };
 
   const handleStartGame = () => {
     setHasStartedGame(true);
-    startGameMutation.mutate(parseInt(selectedCardCount));
+    startGameMutation.mutate({ cardCount: parseInt(selectedCardCount, 10), setId: selectedSetId });
   };
 
   if (startGameMutation.isPending || sessionLoading) {
@@ -840,7 +858,7 @@ export default function Game() {
                 <X className="h-12 w-12 text-destructive mx-auto" />
                 <h2 className="text-xl font-bold">Failed to Start Game</h2>
                 <p className="text-muted-foreground">Something went wrong. Please try again.</p>
-                <Button onClick={() => startGameMutation.mutate(parseInt(selectedCardCount))} data-testid="button-retry-game">
+                <Button onClick={() => startGameMutation.mutate({ cardCount: parseInt(selectedCardCount, 10), setId: selectedSetId })} data-testid="button-retry-game">
                   Try Again
                 </Button>
               </>
@@ -991,6 +1009,24 @@ export default function Game() {
                 {session.skippedQuestions} card{session.skippedQuestions === 1 ? "" : "s"} skipped
               </div>
             )}
+
+            <div className="flex flex-col gap-3 pt-2">
+              <Button
+                onClick={handlePlayAgain}
+                size="lg"
+                className={PLAY_AGAIN_BUTTON_CLASS}
+                data-testid="button-play-again"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Play Again
+              </Button>
+              <Link href="/">
+                <Button variant="outline" className={PLAY_AGAIN_BUTTON_CLASS} data-testid="button-back-home">
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to Home
+                </Button>
+              </Link>
+            </div>
             
             {isAuthenticated && (
               <ShareAssetCard
@@ -1071,7 +1107,7 @@ export default function Game() {
                 <Button 
                   onClick={() => setShowSignupModal(true)} 
                   variant="secondary" 
-                  className="w-full gap-2"
+                  className={PLAY_AGAIN_BUTTON_CLASS}
                   data-testid="button-save-points"
                 >
                   <Zap className="h-4 w-4" />
@@ -1079,19 +1115,6 @@ export default function Game() {
                 </Button>
               </div>
             )}
-
-            <div className="flex flex-col gap-3 pt-2">
-              <Button onClick={handlePlayAgain} className="gap-2" data-testid="button-play-again">
-                <RefreshCw className="h-4 w-4" />
-                Play Again
-              </Button>
-              <Link href="/">
-                <Button variant="outline" className="w-full gap-2" data-testid="button-back-home">
-                  <ArrowLeft className="h-4 w-4" />
-                  Back to Home
-                </Button>
-              </Link>
-            </div>
           </CardContent>
         </Card>
 
@@ -1104,6 +1127,7 @@ export default function Game() {
             }
           }}
           pendingPoints={session.score}
+          onPlayAgain={handlePlayAgain}
           onSuccess={() => {
             setHasSeenSignupPrompt(true);
             toast({
@@ -1131,7 +1155,7 @@ export default function Game() {
             <h2 className="text-xl font-bold">Game Error</h2>
             <p className="text-muted-foreground">Unable to load the current card. Please try again.</p>
             <div className="flex flex-col gap-2">
-              <Button onClick={() => startGameMutation.mutate(parseInt(selectedCardCount))} data-testid="button-retry-game">
+              <Button onClick={() => startGameMutation.mutate({ cardCount: parseInt(selectedCardCount, 10), setId: selectedSetId })} data-testid="button-retry-game">
                 Start New Game
               </Button>
               <Link href="/">

@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-16 (intelligent card name masking v4.0: OCR + set layout profiles; 1989 Fleer Basketball top-name plate; GameCard overlay follows regions; masked-image `?v=v4.0`; ops `docs/MASK_CACHE_REBUILD.md`)
+**Last verified against codebase:** 2026-09-16 (Game Complete Play Again / Daily 5 next-play CTAs; intelligent card name masking v4.0: OCR + set layout profiles; 1989 Fleer Basketball top-name plate; GameCard overlay follows regions; masked-image `?v=v4.0`; ops `docs/MASK_CACHE_REBUILD.md`)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -50,8 +50,8 @@ Trading cards are one of the most emotionally resonant collectible categories in
 3. A card is displayed with the player name masked (blurred/pixelated regions on the card image).
 4. Four answer choices are presented.
 5. User selects an answer. Correct = PackPTS awarded (animated breakdown showing fame, vintage multiplier, rarity multiplier). Incorrect = 0 points.
-6. After all cards, a results screen shows score, accuracy, streak milestones, and a share button.
-7. If unauthenticated, a signup modal prompts the user to save their score.
+6. After all cards, a results screen shows score, accuracy, streak milestones, a primary **Play Again** CTA (same mode + set + card count, no auth required to replay), then share / marketplace.
+7. If unauthenticated, a signup modal prompts the user to save their score. Skip on that modal is **Play Again** (not an auth wall).
 
 ### Ongoing Engagement
 - **Daily 5 Challenge:** Same 5 cards for all users each day, with a daily leaderboard.
@@ -77,7 +77,7 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
      ↓ (last card)
   Results Screen → Update wallet, stats, leaderboard, streak
      ↓
-  Share / Rematch / Marketplace / Home
+  Play Again (primary) / Share / Rematch / Marketplace / Home
 ```
 
 **Key invariants:**
@@ -92,14 +92,14 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 
 ### Solo Play
 - **Status:** Implemented
-- **Flow:** Select card set → select card count (5/10/15/20) → play through cards → results screen
+- **Flow:** Select card set → select card count (5/10/15/20) → play through cards → results screen. Game Complete **Play Again** immediately starts a new solo session with the same set and card count (from session state / first-card `gameSetId`). Guests and registered users get the same CTA; replay does not require signup. Home remains secondary.
 - **Scoring:** Server-side reward engine; base points inversely proportional to player fame; vintage and rarity multipliers applied; per-match cap of 1,000 pts; daily cap of 5,000 pts (configurable via `rewardPolicy` table)
 - **Fairness:** Answer options are generated server-side from the card set's player pool; 4 choices per question
 - **Known gaps:** No adaptive difficulty (ELO-based card selection is planned, not implemented)
 
 ### Daily 5 Challenge
 - **Status:** Implemented
-- **Flow:** Once per day, all users get the same 5 cards. Play, submit scores, see daily leaderboard. Game Complete **Beat me** issues a server-signed token (`POST /api/daily5/beat-me`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient banner: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Always today’s cards. Contract: `docs/DAILY_BEAT_ME.md`.
+- **Flow:** Once per day, all users get the same 5 cards. Play, submit scores, see daily leaderboard. Game Complete **Beat me** issues a server-signed token (`POST /api/daily5/beat-me`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient banner: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Always today’s cards. Contract: `docs/DAILY_BEAT_ME.md`. Same-day replay is forbidden (`Already completed`); Game Complete does **not** label a CTA Play Again. Next play is honest: **Play Solo** (`/game/solo`) and **Browse Sets** (`/sets`), plus Home / Leaderboard. Copy: “Today's Daily 5 is done. Come back tomorrow for a new five.”
 - **Resume:** `GET /api/daily5/status` and `POST /api/daily5/start` return the existing entry, including 1-indexed `answers[]` (schema `position` 1–5). The client rebuilds play state via `resolveDaily5Resume` (`client/src/lib/daily5Resume.ts`) and lands on the **next unanswered** position — never hardcoded card 1. If all 5 are answered or `completedAt` is set, show Game Complete (auto-`POST /api/daily5/finish` when answers exist but the entry was never closed). Do not offer Submit on an already-answered position.
 - **Scoring:** Same reward engine; max 250 pts per Daily 5 session (configurable via `DAILY5_MAX_POINTS`); minimum answer time of 15s enforced to prevent botting. Beat-me score is the real completed-entry correct-count only — no invented scores or streaks.
 - **Day key:** **America/Chicago (CT)** — shared with streak and Beat-me `puzzle_day` via `shared/packptsDay.ts`. Daily 5 challenge window is CT midnight → next CT midnight (`getDailyStartEnd` / `packptsMidnightUtc`). Stale check is `token.puzzle_day === getPackptsDayKey()`. Do not use America/New_York or UTC dates for this identity.
@@ -112,7 +112,7 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 - **Flow:** Host creates lobby → gets 6-char join code → shares with friend → friend joins → host starts match → both play same cards in real-time via WebSocket → results
 - **Scoring:** Both players see the same questions. Points are awarded per correct answer. Winner determined by score (or correct count as tiebreaker).
 - **Real-time:** WebSocket messages: `start_match`, `submit_answer`, `ready_next`, `match_resync`, `rematch_vote`
-- **Battle Sessions:** Multiple consecutive matches tracked as a series (wins/losses/ties across rematches)
+- **Battle Sessions:** Multiple consecutive matches tracked as a series (wins/losses/ties across rematches). Match complete **Play Again** is rematch (battle session or `rematch_vote`). If the opponent declines, the fallback is **Play Solo** (`/game/solo`) — not a fake rematch.
 - **Known gaps:** Host disconnect has 30s grace period; guest disconnect is immediate leave
 
 ### 1v1 Random Match
@@ -1707,6 +1707,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] @PlayPackPTS social PNG tofu (2026-09-14): `gameImageRenderer.ts` (scheduler → `composePostImage`) still used `<text font-family="sans-serif">`. Same Alpine/fontconfig miss as the score card. All seven social composers now outline Inter (Inter Regular/Bold; no italic face) so Railway PNGs cannot tofu. Pixel guard: `server/tests/gameImageRender.test.ts`. SOCIAL_PNG_QA (`docs/design/SOCIAL_PNG_QA.md`): Inter + DejaVu required (`assertShareFontsPresent` in `script/build.ts` + CI); Alpine `font-dejavu` / Ubuntu `fonts-dejavu-core`; Design-baked social exports preferred when present. Video-factory frame SVGs still use system-ui `<text>` (not this share-PNG path).
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
 - [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
+- [x] Game Complete stranded with no obvious replay (2026-09-16): Solo Play Again is the primary CTA (above share) and immediately restarts the same set + card count for guests and auth users; guest signup modal Skip is Play Again (`client/src/lib/playAgain.ts`). Daily 5 cannot re-run today’s five; complete offers Play Solo / Browse Sets, labeled honestly. 1v1 keeps rematch Play Again and falls back to Play Solo if rematch is declined. Share/download score-card flows from #85 are unchanged.
 - [x] Daily 5 card-1 hang “Finding a replacement card…” (2026-09-16): `GameCard.isPlaceholderImage` dominant-color >50% rejected a live HTTP 200 Topps Chrome JPEG; Daily 5 has no replace path so the overlay never clears. Fix: honest overlay when no replace/skip/`onImageError`; Daily 5 `allowClientImageReject={false}`; tighter silhouette test (low unique colors AND near-flat histogram); `key={cardId}` + `setKey`; score-card / solo subtitle branding follows `mode === "daily5"` not `total === 5`; solo share footer is `packpts.com`; skip is painted (dealt pips + `1 skipped`) instead of a silent `10−1=9` pip row. Solo replace stamps `imageFailure` on the failed card index and looks up sport via `gameSetId`. Audit: `docs/audits/DAILY5_STUCK_REPLACEMENT_2026-09-16.md`. Do not wire Daily 5 into solo `replace-card`. Design target: Dave’s `/game/solo` Game Complete screenshot (1994 Topps Football, 1050 / 67% / 6 of 9, 1 card skipped, SOLO 6/9 share card).
 - [ ] Wager match settlement is still in progress (confirmed not complete)
 - [ ] Adaptive difficulty (personalized card selection) not implemented

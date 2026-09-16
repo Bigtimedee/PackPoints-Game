@@ -30,8 +30,9 @@ import {
 } from "@/lib/daily5Resume";
 import {
   Calendar, Trophy, ArrowLeft, Check, X, Loader2,
-  Play, Award, Crown, Share2, UserPlus
+  Play, Award, Crown, Share2, UserPlus, Compass
 } from "lucide-react";
+import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 
 interface Daily5Status {
   challenge: {
@@ -742,6 +743,24 @@ export default function Daily5Page() {
             )}
           </div>
 
+          <div className="space-y-3 mb-8 max-w-md mx-auto">
+            <p className="text-sm text-muted-foreground text-center" data-testid="text-d5-next-play">
+              {DAILY5_NEXT_PLAY.doneNote}
+            </p>
+            <Link href={DAILY5_NEXT_PLAY.primary.href}>
+              <Button size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.primary.testId}>
+                <Play className="h-4 w-4" />
+                {DAILY5_NEXT_PLAY.primary.label}
+              </Button>
+            </Link>
+            <Link href={DAILY5_NEXT_PLAY.secondary.href}>
+              <Button variant="outline" size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.secondary.testId}>
+                <Compass className="h-4 w-4" />
+                {DAILY5_NEXT_PLAY.secondary.label}
+              </Button>
+            </Link>
+          </div>
+
           <ShareResultCard
             score={finishResult?.score ?? status?.entry?.score ?? 0}
             correctCount={finishResult?.correctCount ?? status?.entry?.correctCount ?? 0}
@@ -803,13 +822,13 @@ export default function Daily5Page() {
 
           <div className="flex gap-2">
             <Link href="/" className="flex-1">
-              <Button variant="outline" className="w-full gap-2" data-testid="button-d5-home">
+              <Button variant="outline" className="w-full min-h-11 gap-2" data-testid="button-d5-home">
                 <ArrowLeft className="h-4 w-4" />
                 Home
               </Button>
             </Link>
             <Link href="/leaderboard" className="flex-1">
-              <Button variant="outline" className="w-full gap-2" data-testid="button-d5-leaderboard">
+              <Button variant="outline" className="w-full min-h-11 gap-2" data-testid="button-d5-leaderboard">
                 <Trophy className="h-4 w-4" />
                 Leaderboard
               </Button>
