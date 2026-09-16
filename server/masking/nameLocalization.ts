@@ -5,6 +5,7 @@ import {
   unionMaskRegions,
 } from "@shared/maskGeometry";
 import { getMaskProfile } from "./maskProfiles";
+import { ocrLooksLikeSlab, slabMaskRegions } from "./slabLayout";
 
 export interface OcrWordBox {
   text: string;
@@ -125,12 +126,27 @@ export function resolveNameMaskPlan(input: {
   words?: OcrWordBox[];
   imageWidth: number;
   imageHeight: number;
+  slabLayout?: boolean;
 }): LocalizedNamePlan {
   const profile = getMaskProfile(input.setHint);
   const ocr = matchPlayerNameBoxes(input.playerName, input.words || []);
   const ocrRegions = boxesToPaddedRegions(ocr.boxes, input.imageWidth, input.imageHeight);
   const lastName = tokenizePlayerName(input.playerName).slice(-1)[0];
   const lastNameMatched = lastName ? ocr.tokens.includes(lastName) : ocr.tokens.length > 0;
+  const isSlab = Boolean(input.slabLayout) || ocrLooksLikeSlab(input.words || [], input.imageHeight);
+
+  if (isSlab) {
+    const regions = unionMaskRegions([
+      ...slabMaskRegions(profile),
+      ...(lastNameMatched ? ocrRegions : []),
+    ]);
+    return {
+      regions,
+      source: lastNameMatched && ocrRegions.length > 0 ? "ocr+profile" : "profile",
+      matchedTokens: ocr.tokens,
+      profileId: "psa-slab",
+    };
+  }
 
   if (profile.matched && ocrRegions.length > 0 && lastNameMatched) {
     return {

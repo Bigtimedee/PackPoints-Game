@@ -16,12 +16,12 @@ const playAgainSrc = readFileSync(new URL("../playAgain.ts", import.meta.url), "
 const CARD_ID = "card-abc";
 
 describe("resolvePlayCardSrc", () => {
-  it("keeps the v4.0 baked JPEG until a successful submit", () => {
+  it("keeps the baked JPEG until a successful submit", () => {
     expect(resolvePlayCardSrc({ cardId: CARD_ID, submitted: false })).toBe(
       `/api/cards/${CARD_ID}/masked-image?v=${CURRENT_MASK_VERSION}`,
     );
-    expect(maskedPlayUrl(CARD_ID)).toContain("/masked-image?v=v4.0");
-    expect(CURRENT_MASK_VERSION).toBe("v4.0");
+    expect(maskedPlayUrl(CARD_ID)).toContain(`/masked-image?v=${CURRENT_MASK_VERSION}`);
+    expect(CURRENT_MASK_VERSION).toBe("v4.1");
   });
 
   it("swaps to the original scan proxy after successful submit", () => {

@@ -15,8 +15,8 @@ describe("1v1 replace stays masked during guessing", () => {
     expect((replaceSrc.match(/maskedCardImageUrl\(availableCard\.id\)/g) || []).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("v4.0 localization floor is unchanged", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.0");
+  it("v4.x localization floor is unchanged", () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.1");
     expect(DEFAULT_MASK_REGIONS[0]?.hPct).toBe(46);
   });
 });

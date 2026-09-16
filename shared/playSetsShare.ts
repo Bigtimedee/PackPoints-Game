@@ -50,6 +50,27 @@ export const PLAY_SETS_DESIGN_EXPORT_MAP = [
   { from: "play-beatme-story.png", to: "play-beatme-story.png" },
 ] as const;
 
+/**
+ * Extra CDN filenames Design/marketing already request under /assets/play-sets/.
+ * Same bytes as the canonical kit file. Live 2026-09-16 QA: these returned SPA
+ * HTML (200 text/html) while integrated-shelf.png and *-story.png were real PNGs.
+ * Do not add speculative names — missing files 404 into the SPA.
+ */
+export const PLAY_SETS_CDN_ALIASES = [
+  {
+    canonical: "play-this-set.png",
+    aliases: ["integrated-set.png", "play-set-1080.png", "set-1080.png"],
+  },
+  {
+    canonical: "integrated-shelf.png",
+    aliases: ["play-shelf.png", "play-shelf-1080.png"],
+  },
+  {
+    canonical: "beat-me-from-a-set.png",
+    aliases: ["integrated-beatme.png", "play-beatme-1080.png", "beatme-1080.png"],
+  },
+] as const;
+
 export const PLAY_SETS_FORMATS = ["square", "story"] as const;
 export type PlaySetsFormat = (typeof PLAY_SETS_FORMATS)[number];
 

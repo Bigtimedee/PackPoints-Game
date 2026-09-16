@@ -85,6 +85,18 @@ Story (Design export names, 1080×1920):
 
 JSON always includes `storyUrl` for the matching surface crop. `GET /api/share/play-sets/image?format=story&surface=beat_me` serves that story PNG (runtime cover letterboxed to 9:16 when `set`/`slug` resolves and `asset` is not `kit`).
 
+## CDN aliases (Design/marketing short names)
+
+Eng canonical names stay as above. Design QA 2026-09-16 probed Design export names and `integrated-*` short names; those were SPA HTML until aliased. Same bytes as the canonical 1080 kit — do not invent additional names.
+
+| Canonical | Also served as |
+|-----------|----------------|
+| `play-this-set.png` | `integrated-set.png`, `play-set-1080.png`, `set-1080.png` |
+| `integrated-shelf.png` | `play-shelf.png`, `play-shelf-1080.png` |
+| `beat-me-from-a-set.png` | `integrated-beatme.png`, `play-beatme-1080.png`, `beatme-1080.png` |
+
+Helper: `PLAY_SETS_CDN_ALIASES` + `materializePlaySetsCdnAliases`.
+
 ## OG
 
 `/sets` and `/sets/{slug}` HTML inject title / description / `og:image` / `twitter:image`. Image prefers the runtime cover; otherwise the matching kit. Canonical URL is `/sets` or `/sets/{slug}` (no `/make`).

@@ -14,6 +14,7 @@ import {
 import { getMaskProfile } from "../masking/maskProfiles";
 import { resolveNameMaskPlan, matchPlayerNameBoxes } from "../masking/nameLocalization";
 import { maskCardImage } from "../masking/maskCardImage";
+import { detectPsaSlabLayout, ocrLooksLikeSlab, PSA_SLAB_TOP_LABEL } from "../masking/slabLayout";
 
 const W = 200;
 const H = 280;
@@ -81,6 +82,40 @@ async function bottomPlaqueCard(): Promise<Buffer> {
     .toBuffer();
 }
 
+const SLAB_W = 400;
+const SLAB_H = 600;
+const PSA_RED = { r: 196, g: 30, b: 58 };
+
+async function psaSlabCard(): Promise<Buffer> {
+  const headerH = Math.round(SLAB_H * 0.055);
+  const labelH = Math.round(SLAB_H * 0.12);
+  const plaqueH = Math.round(SLAB_H * 0.22);
+  const photoH = SLAB_H - headerH - labelH - plaqueH;
+  const header = await sharp({
+    create: { width: SLAB_W, height: headerH, channels: 3, background: PSA_RED },
+  }).png().toBuffer();
+  const label = await sharp({
+    create: { width: SLAB_W, height: labelH, channels: 3, background: WHITE },
+  }).png().toBuffer();
+  const photo = await sharp({
+    create: { width: SLAB_W, height: photoH, channels: 3, background: GREEN },
+  }).png().toBuffer();
+  const plaque = await sharp({
+    create: { width: SLAB_W, height: plaqueH, channels: 3, background: WHITE },
+  }).png().toBuffer();
+  return sharp({
+    create: { width: SLAB_W, height: SLAB_H, channels: 3, background: WHITE },
+  })
+    .composite([
+      { input: header, top: 0, left: 0 },
+      { input: label, top: headerH, left: 0 },
+      { input: photo, top: headerH + labelH, left: 0 },
+      { input: plaque, top: headerH + labelH + photoH, left: 0 },
+    ])
+    .png()
+    .toBuffer();
+}
+
 describe("name localization plan", () => {
   it("masks the 1989 Fleer top name plate even when OCR finds nothing", () => {
     const plan = resolveNameMaskPlan({
@@ -128,8 +163,39 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.0");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.0");
+    expect(CURRENT_MASK_VERSION).toBe("v4.1");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.1");
+  });
+
+  it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {
+    const plan = resolveNameMaskPlan({
+      playerName: "Roger Clemens",
+      setHint: "1987 Topps",
+      words: [
+        { text: "PSA", x: 20, y: 8, w: 40, h: 14 },
+        { text: "CLEMENS", x: 80, y: 22, w: 90, h: 16 },
+      ],
+      imageWidth: W,
+      imageHeight: H,
+    });
+    expect(plan.profileId).toBe("psa-slab");
+    expect(anyRegionCoversPoint(plan.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(plan.regions, 50, 90)).toBe(true);
+    expect(PSA_SLAB_TOP_LABEL.hPct).toBe(22);
+  });
+
+  it("PSA grader OCR does not fire on a raw Fleer top-name card", () => {
+    expect(ocrLooksLikeSlab([], H)).toBe(false);
+    const plan = resolveNameMaskPlan({
+      playerName: "A.C. Green",
+      setHint: "1989 Fleer basketball",
+      words: [],
+      imageWidth: W,
+      imageHeight: H,
+    });
+    expect(plan.profileId).toBe("fleer-bball-top");
+    expect(anyRegionCoversPoint(plan.regions, 20, 8)).toBe(true);
+    expect(anyRegionCoversPoint(plan.regions, 50, 72)).toBe(false);
   });
 });
 
@@ -159,5 +225,25 @@ describe("baked mask fixtures", () => {
     const afterPhoto = await sample(result.maskedBuffer, 50, 18);
     expect(isDark(afterName.r, afterName.g, afterName.b)).toBe(true);
     expect(isGreen(afterPhoto.r, afterPhoto.g, afterPhoto.b)).toBe(true);
+  });
+
+  it("PSA-slab fixture masks the top cert name and the inner bottom plaque", async () => {
+    const raw = await psaSlabCard();
+    expect(await detectPsaSlabLayout(raw)).toBe(true);
+    expect(await detectPsaSlabLayout(await fleerLikeTopNameCard())).toBe(false);
+    expect(await detectPsaSlabLayout(await bottomPlaqueCard())).toBe(false);
+
+    const result = await maskCardImage(raw, "Roger Clemens", "1987 Topps", { skipOcr: true });
+    expect(result.source).toBe("profile");
+    expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 40)).toBe(false);
+
+    const afterLabel = await sample(result.maskedBuffer, 50, 10);
+    const afterPhoto = await sample(result.maskedBuffer, 50, 40);
+    const afterPlaque = await sample(result.maskedBuffer, 50, 90);
+    expect(isDark(afterLabel.r, afterLabel.g, afterLabel.b)).toBe(true);
+    expect(isGreen(afterPhoto.r, afterPhoto.g, afterPhoto.b)).toBe(true);
+    expect(isDark(afterPlaque.r, afterPlaque.g, afterPlaque.b)).toBe(true);
   });
 });
