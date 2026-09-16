@@ -33,6 +33,7 @@ import {
   Play, Award, Crown, Share2, UserPlus, Compass
 } from "lucide-react";
 import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
+import { resolvePlayCardSrc } from "@shared/playCardImage";
 
 interface Daily5Status {
   challenge: {
@@ -633,8 +634,8 @@ export default function Daily5Page() {
             <div className="flex justify-center">
               <div className="w-full max-w-xs aspect-[3/4] relative">
                 <GameCard
-                  key={currentCard.cardId}
-                  imageUrl={currentCard.imageUrl}
+                  key={`${currentCard.cardId}-${isRevealed ? "revealed" : "masked"}`}
+                  imageUrl={resolvePlayCardSrc({ cardId: currentCard.cardId, submitted: isRevealed })}
                   isRevealed={isRevealed}
                   imageRotation={0}
                   cardId={currentCard.cardId}

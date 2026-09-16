@@ -28,6 +28,7 @@ import {
   replayCardCountFromSession,
   replaySetIdFromSession,
 } from "@/lib/playAgain";
+import { resolvePlayCardSrc } from "@shared/playCardImage";
 
 function AnswerButton({
   option,
@@ -287,6 +288,7 @@ export default function Game() {
       return res.json();
     },
     onSuccess: (data) => {
+      setIsRevealed(true);
       setRevealedCorrectAnswer(data.correctAnswer ?? null);
       if (data.correct) {
         // Trigger marketplace listing fetch for user-created sets
@@ -695,7 +697,6 @@ export default function Game() {
 
   const handleSubmit = () => {
     if (!selectedAnswer) return;
-    setIsRevealed(true);
     submitAnswerMutation.mutate(selectedAnswer);
   };
 
@@ -1200,8 +1201,11 @@ export default function Game() {
         <div className="flex items-center justify-center py-1 relative">
           <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
               <GameCard 
-                key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}`}
-                imageUrl={currentQuestion.card.imageUrl} 
+                key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}-${isRevealed ? "revealed" : "masked"}`}
+                imageUrl={resolvePlayCardSrc({
+                  cardId: currentQuestion.card.playableCardId || currentQuestion.card.id,
+                  submitted: isRevealed,
+                })} 
                 isRevealed={isRevealed}
                 setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
                 setKey={currentGameSet?.id}

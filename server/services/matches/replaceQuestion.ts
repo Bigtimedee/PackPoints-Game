@@ -12,6 +12,7 @@ import {
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/imageQuality";
 import { getOrValidateCardImage } from "../images/imageGate";
+import { maskedCardImageUrl } from "@shared/maskGeometry";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -322,7 +323,7 @@ export async function replaceMatchQuestion(
         year: 0,
         setName: availableCard.set || "Unknown",
         cardNumber: availableCard.number || "",
-        imageUrl: `/api/images/card/${availableCard.id}`,
+        imageUrl: maskedCardImageUrl(availableCard.id),
         popularity: 50,
         imageVerified: true,
         lastImageCheck: availableCard.lastImageCheck,
@@ -371,7 +372,7 @@ export async function replaceMatchQuestion(
         seedVersion: newSeedVersion,
         card: {
           id: availableCard.id,
-          imageUrl: `/api/images/card/${availableCard.id}`,
+          imageUrl: maskedCardImageUrl(availableCard.id),
           team: "Unknown",
           year: 0,
           setName: availableCard.set || "Unknown",

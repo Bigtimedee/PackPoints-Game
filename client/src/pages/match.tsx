@@ -14,6 +14,7 @@ import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
+import { resolvePlayCardSrc } from "@shared/playCardImage";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -1120,6 +1121,15 @@ export default function Match() {
 
   const currentQuestion = matchState.currentQuestion;
   const progress = ((matchState.currentQuestionIndex + 1) / matchState.totalQuestions) * 100;
+  const playCardSrc = currentQuestion
+    ? resolvePlayCardSrc({
+        cardId: currentQuestion.card.id,
+        submitted: answerResult !== null,
+      })
+    : "";
+  const playCardSrcBusted = playCardSrc
+    ? `${playCardSrc}${playCardSrc.includes("?") ? "&" : "?"}t=${seedVersion}-${imageRetryCount}-${matchState.currentQuestionIndex}`
+    : "";
 
   const battleSeries = battleSession?.seriesRecord;
   const mySeriesWins = battleSession
@@ -1187,8 +1197,8 @@ export default function Match() {
         {currentQuestion && (
           <div className="space-y-4">
             <GameCard
-              key={`${matchState.currentQuestionIndex}-${seedVersion}-${imageRetryCount}`}
-              imageUrl={`${currentQuestion.card.imageUrl}${currentQuestion.card.imageUrl.includes('?') ? '&' : '?'}t=${seedVersion}-${imageRetryCount}-${matchState.currentQuestionIndex}`}
+              key={`${matchState.currentQuestionIndex}-${seedVersion}-${imageRetryCount}-${answerResult ? "revealed" : "masked"}`}
+              imageUrl={playCardSrcBusted}
               isRevealed={answerResult !== null}
               setLabel="MYSTERY CARD"
               setKey={matchState.gameSetId}
