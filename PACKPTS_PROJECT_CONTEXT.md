@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-16 (Game Complete Play Again / Daily 5 next-play CTAs; intelligent card name masking v4.0: OCR + set layout profiles; 1989 Fleer Basketball top-name plate; GameCard overlay follows regions; masked-image `?v=v4.0`; ops `docs/MASK_CACHE_REBUILD.md`)
+**Last verified against codebase:** 2026-09-16 (post-submit full-card reveal is a documented gap — overlay-off still shows the v4.0 baked JPEG; audit `docs/audits/MASK_REVEAL_AFTER_SUBMIT_2026-09-16.md`. Same-day: Play Again #87; name masking v4.0 #86; Daily 5 overlay #85)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -82,6 +82,7 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 
 **Key invariants:**
 - The player name is never visible before the answer is submitted.
+- After a **successful** answer submit, the mask is removed so the full card (printed name) is visible; the next card starts masked. **Gap as of 2026-09-16:** overlay-off still shows the v4.0 baked JPEG — `docs/audits/MASK_REVEAL_AFTER_SUBMIT_2026-09-16.md`.
 - Points are calculated server-side using the reward engine (fame score, vintage multiplier, rarity multiplier, policy caps).
 - Each answer submission is idempotent (unique constraint on matchId + userId + questionIndex).
 - Daily and per-match point caps are enforced server-side.
@@ -216,6 +217,7 @@ The entire game depends on the player not knowing who is on the card before subm
 - **Server JPEG:** `maskingService.ts` + `maskCardImage.ts` bake opaque name-region overlays into `/api/cards/:id/masked-image?v=v4.0`. Cache: `card_image_mask_cache.maskVersion` + filename `{cardId}_v4.0.jpg` on the Railway volume. Rebuild: `POST /api/admin/masks/rebuild` — `docs/MASK_CACHE_REBUILD.md`.
 - **Image validation:** Canvas-based analysis checks color diversity and dominant color percentage to detect blank/silhouette placeholder images that shouldn't be served.
 - **Card replacement:** If an image fails to load or is detected as a placeholder, the client requests a replacement card from the server (`POST /api/game/session/:id/replace-card` or WebSocket `question_replace_request`). Maximum 2 replacements before skipping.
+- **Post-submit full-card reveal (gap, 2026-09-16):** Dave’s rule is: mask stays until a **successful** answer submit, then the **full** card (printed name) is shown; the next card starts masked. Today `isRevealed` only unmounts the CSS overlay. `img src` remains `/api/cards/:id/masked-image?v=v4.0` (opaque bake). Solo flips `isRevealed` on Submit **click** (before ACK). Daily 5 / 1v1 flip overlay only after success. 1v1 replace is the exception that already uses `/api/images/card/:id` **before** submit. Plan (no behavior in the audit PR): `docs/audits/MASK_REVEAL_AFTER_SUBMIT_2026-09-16.md`. Do not weaken v4.0 localization to fake a reveal.
 
 ### What Must NEVER Happen
 1. **Player name visible in card image** before answer submission (masking regions must fully cover all name text on the card).
@@ -1709,6 +1711,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
 - [x] Game Complete stranded with no obvious replay (2026-09-16): Solo Play Again is the primary CTA (above share) and immediately restarts the same set + card count for guests and auth users; guest signup modal Skip is Play Again (`client/src/lib/playAgain.ts`). Daily 5 cannot re-run today’s five; complete offers Play Solo / Browse Sets, labeled honestly. 1v1 keeps rematch Play Again and falls back to Play Solo if rematch is declined. Share/download score-card flows from #85 are unchanged.
 - [x] Daily 5 card-1 hang “Finding a replacement card…” (2026-09-16): `GameCard.isPlaceholderImage` dominant-color >50% rejected a live HTTP 200 Topps Chrome JPEG; Daily 5 has no replace path so the overlay never clears. Fix: honest overlay when no replace/skip/`onImageError`; Daily 5 `allowClientImageReject={false}`; tighter silhouette test (low unique colors AND near-flat histogram); `key={cardId}` + `setKey`; score-card / solo subtitle branding follows `mode === "daily5"` not `total === 5`; solo share footer is `packpts.com`; skip is painted (dealt pips + `1 skipped`) instead of a silent `10−1=9` pip row. Solo replace stamps `imageFailure` on the failed card index and looks up sport via `gameSetId`. Audit: `docs/audits/DAILY5_STUCK_REPLACEMENT_2026-09-16.md`. Do not wire Daily 5 into solo `replace-card`. Design target: Dave’s `/game/solo` Game Complete screenshot (1994 Topps Football, 1050 / 67% / 6 of 9, 1 card skipped, SOLO 6/9 share card).
+- [ ] Post-submit full-card reveal (Dave, 2026-09-16): after a successful answer submit the CSS overlay drops but the baked v4.0 JPEG still hides the printed name; solo overlay drops on click before ACK. Audit + plan (no behavior fix yet): `docs/audits/MASK_REVEAL_AFTER_SUBMIT_2026-09-16.md`. Do not regress #85 / #86 / #87.
 - [ ] Wager match settlement is still in progress (confirmed not complete)
 - [ ] Adaptive difficulty (personalized card selection) not implemented
 - [ ] Tournament mode not implemented (UI shows "coming soon")
