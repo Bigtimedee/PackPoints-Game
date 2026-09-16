@@ -1,6 +1,6 @@
 /**
  * Intelligent name-band localization: layout profiles + OCR boxes.
- * Fixtures are synthetic (no live DB rows, no Tesseract).
+ * Fixtures are synthetic plus one captured Clemens PSA JPEG (no live DB, no Tesseract).
  */
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
@@ -14,7 +14,14 @@ import {
 import { getMaskProfile } from "../masking/maskProfiles";
 import { resolveNameMaskPlan, matchPlayerNameBoxes } from "../masking/nameLocalization";
 import { maskCardImage } from "../masking/maskCardImage";
-import { detectPsaSlabLayout, ocrLooksLikeSlab, PSA_SLAB_TOP_LABEL } from "../masking/slabLayout";
+import { readFileSync } from "fs";
+import path from "path";
+import {
+  detectPsaSlabLayout,
+  ocrLooksLikeSlab,
+  tokenLooksLikeGrader,
+  PSA_SLAB_TOP_LABEL,
+} from "../masking/slabLayout";
 
 const W = 200;
 const H = 280;
@@ -116,6 +123,41 @@ async function psaSlabCard(): Promise<Buffer> {
     .toBuffer();
 }
 
+/** Holder-framed PSA scan: centered red header + white cert plate, not full-bleed. */
+async function clemensClassPsaSlabCard(): Promise<Buffer> {
+  const holder = { r: 18, g: 20, b: 28 };
+  const innerW = Math.round(SLAB_W * 0.72);
+  const innerX = Math.round((SLAB_W - innerW) / 2);
+  const headerH = Math.round(SLAB_H * 0.05);
+  const labelH = Math.round(SLAB_H * 0.13);
+  const innerTop = Math.round(SLAB_H * 0.035);
+  const plaqueH = Math.round(SLAB_H * 0.2);
+  const photoH = SLAB_H - innerTop - headerH - labelH - plaqueH - Math.round(SLAB_H * 0.04);
+  const header = await sharp({
+    create: { width: innerW, height: headerH, channels: 3, background: PSA_RED },
+  }).png().toBuffer();
+  const label = await sharp({
+    create: { width: innerW, height: labelH, channels: 3, background: WHITE },
+  }).png().toBuffer();
+  const photo = await sharp({
+    create: { width: innerW, height: photoH, channels: 3, background: GREEN },
+  }).png().toBuffer();
+  const plaque = await sharp({
+    create: { width: innerW, height: plaqueH, channels: 3, background: { r: 196, g: 40, b: 70 } },
+  }).png().toBuffer();
+  return sharp({
+    create: { width: SLAB_W, height: SLAB_H, channels: 3, background: holder },
+  })
+    .composite([
+      { input: header, top: innerTop, left: innerX },
+      { input: label, top: innerTop + headerH, left: innerX },
+      { input: photo, top: innerTop + headerH + labelH, left: innerX },
+      { input: plaque, top: innerTop + headerH + labelH + photoH, left: innerX },
+    ])
+    .png()
+    .toBuffer();
+}
+
 describe("name localization plan", () => {
   it("masks the 1989 Fleer top name plate even when OCR finds nothing", () => {
     const plan = resolveNameMaskPlan({
@@ -163,8 +205,8 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.1");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.1");
+    expect(CURRENT_MASK_VERSION).toBe("v4.2");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.2");
   });
 
   it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {
@@ -196,6 +238,27 @@ describe("name localization plan", () => {
     expect(plan.profileId).toBe("fleer-bball-top");
     expect(anyRegionCoversPoint(plan.regions, 20, 8)).toBe(true);
     expect(anyRegionCoversPoint(plan.regions, 50, 72)).toBe(false);
+  });
+
+  it("PSA-slab OCR accepts GEM/MINT/PSA* cert tokens, not only exact PSA", () => {
+    expect(tokenLooksLikeGrader("P5A")).toBe(true);
+    expect(tokenLooksLikeGrader("MINT")).toBe(true);
+    expect(tokenLooksLikeGrader("GEM")).toBe(true);
+    expect(tokenLooksLikeGrader("PSA9")).toBe(true);
+    expect(ocrLooksLikeSlab([{ text: "MINT", y: 18 }, { text: "CLEMENS", y: 28 }], H)).toBe(true);
+    const plan = resolveNameMaskPlan({
+      playerName: "Roger Clemens",
+      setHint: "1987 Topps",
+      words: [
+        { text: "MINT", x: 160, y: 12, w: 40, h: 12 },
+        { text: "CLEMENS", x: 80, y: 22, w: 90, h: 16 },
+      ],
+      imageWidth: W,
+      imageHeight: H,
+    });
+    expect(plan.profileId).toBe("psa-slab");
+    expect(anyRegionCoversPoint(plan.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(plan.regions, 50, 90)).toBe(true);
   });
 });
 
@@ -244,6 +307,43 @@ describe("baked mask fixtures", () => {
     const afterPlaque = await sample(result.maskedBuffer, 50, 90);
     expect(isDark(afterLabel.r, afterLabel.g, afterLabel.b)).toBe(true);
     expect(isGreen(afterPhoto.r, afterPhoto.g, afterPhoto.b)).toBe(true);
+    expect(isDark(afterPlaque.r, afterPlaque.g, afterPlaque.b)).toBe(true);
+  });
+
+  it("Clemens-class holder-framed slab covers the top cert name and the inner plaque", async () => {
+    const raw = await clemensClassPsaSlabCard();
+    expect(await detectPsaSlabLayout(raw)).toBe(true);
+    expect(await detectPsaSlabLayout(await fleerLikeTopNameCard())).toBe(false);
+    expect(await detectPsaSlabLayout(await bottomPlaqueCard())).toBe(false);
+
+    const result = await maskCardImage(raw, "Roger Clemens", "1987 Topps", { skipOcr: true });
+    expect(result.source).toBe("profile");
+    expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 40)).toBe(false);
+
+    const afterLabel = await sample(result.maskedBuffer, 50, 10);
+    const afterPhoto = await sample(result.maskedBuffer, 50, 40);
+    const afterPlaque = await sample(result.maskedBuffer, 50, 90);
+    expect(isDark(afterLabel.r, afterLabel.g, afterLabel.b)).toBe(true);
+    expect(isGreen(afterPhoto.r, afterPhoto.g, afterPhoto.b)).toBe(true);
+    expect(isDark(afterPlaque.r, afterPlaque.g, afterPlaque.b)).toBe(true);
+  });
+
+  it("live Clemens PSA JPEG covers the top cert band (not plaque-only)", async () => {
+    const raw = readFileSync(path.resolve("server/tests/fixtures/clemens-psa-slab.jpg"));
+    expect(await detectPsaSlabLayout(raw)).toBe(true);
+
+    const result = await maskCardImage(raw, "Roger Clemens", "1987 Topps", { skipOcr: true });
+    expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 40)).toBe(false);
+
+    const afterLabel = await sample(result.maskedBuffer, 50, 10);
+    const afterPhoto = await sample(result.maskedBuffer, 50, 40);
+    const afterPlaque = await sample(result.maskedBuffer, 50, 88);
+    expect(isDark(afterLabel.r, afterLabel.g, afterLabel.b)).toBe(true);
+    expect(afterPhoto.r).toBeGreaterThan(80);
     expect(isDark(afterPlaque.r, afterPlaque.g, afterPlaque.b)).toBe(true);
   });
 });

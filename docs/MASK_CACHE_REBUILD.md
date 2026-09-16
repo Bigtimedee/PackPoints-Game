@@ -1,4 +1,4 @@
-# Masked-image cache rebuild (v4.1)
+# Masked-image cache rebuild (v4.2)
 
 PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them at `/api/cards/:cardId/masked-image`. Gameplay (solo, Daily 5, 1v1) uses that URL. After a masking geometry change, old files stay on disk until the cache key changes.
 
@@ -8,11 +8,13 @@ PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them
 |---|---|---|
 | DB row `card_image_mask_cache` | `cardId` + `rawImageUrl` + `maskVersion` | `maskVersion` bump, or admin rebuild deleting the row |
 | File on volume | `/app/data/masked-cards/{cardId}_{maskVersion}.jpg` (local: `data/masked-cards/`) | version in filename, or deleting the file |
-| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.1`). `Cache-Control: public, max-age=3600` (not immutable) |
+| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.2`). `Cache-Control: public, max-age=3600` (not immutable). `ETag` + `X-Mask-Version` are the current bake id. |
 
-Current version: **`v4.1`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
+Current version: **`v4.2`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
 
-v4.1 adds PSA/slab certificate-label coverage (top ~22% of slab photos) while keeping the set plaque (1987 Topps bottom 46%, 1989 Fleer top plate). Leftover `*_v4.0.jpg` files will not be used once gameplay requests `?v=v4.1`.
+**The handler ignores `?v=`.** `?v=v4.0` and `?v=v4.1` (and any other `v`) return the same on-disk JPEG. Design QA 2026-09-16 hashed those two URLs as byte-identical — that is expected from the route, not proof that v4.1 geometry ran. Gameplay must request the **current** `?v=` so CDNs treat it as a new object. Leftover `*_v4.1.jpg` / `*_v4.0.jpg` files will not be used once gameplay requests `?v=v4.2`.
+
+v4.2 covers PSA/slab certificate labels (top ~22% of slab photos) with a center-column red→white detector plus a dark-holder fallback, and OCR tokens `PSA` / `GEM` / `MINT` / `PSA9` in the top third. Set plaque stays (1987 Topps bottom 46%, 1989 Fleer top plate).
 
 ## Production (Railway)
 
@@ -39,12 +41,21 @@ Content-Type: application/json
 { "setId": "<game_sets.id>" }
 ```
 
-Response includes `deletedRows`, `deletedFiles`, `maskVersion`. The next player request to `/api/cards/:id/masked-image?v=v4.1` regenerates that card.
+Per card (Clemens slab sample):
+
+```http
+POST /api/admin/masks/rebuild
+Content-Type: application/json
+
+{ "cardIds": ["c6e890d5-015d-4e33-868a-77a69ca320ef"] }
+```
+
+Response includes `deletedRows`, `deletedFiles`, `maskVersion`. The next player request to `/api/cards/:id/masked-image?v=v4.2` regenerates that card.
 
 3. Optional: hit a known 1989 Fleer card URL once and confirm the top name plate is dark and the photo is visible.
-4. Optional: hit a PSA-slab scan (Topps Tiffany-class, player name on the top cert label) and confirm **ROGER CLEMENS**-style label text is covered, not only the inner-card bottom plaque.
+4. Optional: hit the Clemens PSA slab `c6e890d5-015d-4e33-868a-77a69ca320ef?v=v4.2` and confirm the top cert label (**ROGER CLEMENS**) is covered, not only the inner-card bottom plaque. `?v=v4.1` may still look identical to an older bake until this rebuild; only `?v=v4.2` is the new object.
 
-If admin rebuild is not used, new `?v=v4.1` URLs still miss the old cache row version check and regenerate on first request. Rebuild is for clearing leftover `*_v4.0.jpg` / `*_v3.0.jpg` files and DB rows so the volume does not keep serving stale paths if something requests the URL without `v`.
+If admin rebuild is not used, new `?v=v4.2` URLs still miss the old cache row version check and regenerate on first request. Rebuild is for clearing leftover `*_v4.1.jpg` / `*_v4.0.jpg` / `*_v3.0.jpg` files and DB rows so the volume does not keep serving stale paths if something requests the URL without `v`.
 
 ## What this does not do
 

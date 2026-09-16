@@ -1,7 +1,7 @@
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "./schema";
 
 /** Bump whenever baked JPEG geometry/OCR rules change. Cache keys and `?v=` URLs follow this. */
-export const CURRENT_MASK_VERSION = "v4.1";
+export const CURRENT_MASK_VERSION = "v4.2";
 
 export function maskedCardImageUrl(cardId: string): string {
   return `/api/cards/${encodeURIComponent(cardId)}/masked-image?v=${CURRENT_MASK_VERSION}`;
