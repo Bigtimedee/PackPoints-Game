@@ -7,6 +7,7 @@ import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSub
 import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl, analyzeCardImageContent } from "./cards/imageQuality";
 import { getOrValidateCardImage } from "./images/imageGate";
 import { logCardDelivery } from "./telemetry/cardDelivery";
+import { maskedCardImageUrl } from "@shared/maskGeometry";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -585,7 +586,7 @@ class MatchService {
     
     const proxiedCard = {
       ...card,
-      imageUrl: `/api/cards/${card.id}/masked-image`,
+      imageUrl: maskedCardImageUrl(card.id),
     };
     
     return {
@@ -608,7 +609,7 @@ class MatchService {
     
     const maskedCard = {
       ...card,
-      imageUrl: `/api/cards/${card.id}/masked-image`,
+      imageUrl: maskedCardImageUrl(card.id),
     };
     
     return {

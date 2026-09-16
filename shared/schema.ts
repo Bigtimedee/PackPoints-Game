@@ -3564,7 +3564,8 @@ export const insertCardSetMaskSchema = createInsertSchema(cardSetMasks).omit({
 export type InsertCardSetMask = z.infer<typeof insertCardSetMaskSchema>;
 export type CardSetMask = typeof cardSetMasks.$inferSelect;
 
-// Default mask regions — covers bottom 46% to hide team-color band and player name
+// Unknown / bottom-plaque fallback. Set-aware layouts (1989 Fleer Basketball top
+// name plate, etc.) come from server/masking/maskProfiles.ts via getMaskConfig.
 export const DEFAULT_MASK_REGIONS: MaskRegion[] = [
   { xPct: 0, yPct: 54, wPct: 100, hPct: 46, type: "blur", radiusPct: 0 },
 ];

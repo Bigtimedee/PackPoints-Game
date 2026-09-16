@@ -1,9 +1,10 @@
 import fs from "fs/promises";
 import path from "path";
 import { db } from "../db";
-import { cardImageMaskCache, baseballCards, playableCards } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@shared/schema";
+import { eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
+import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 
 const MASKED_CARDS_DIR = path.join(process.cwd(), "data", "masked-cards");
 
@@ -61,7 +62,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
 
   let imageUrl: string | null = null;
   let playerName: string | null = null;
-  let setName: string | null = null;
+  let setHint: string | null = null;
 
   const [baseballCard] = await db
     .select()
@@ -72,7 +73,10 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
   if (baseballCard?.imageUrl) {
     imageUrl = baseballCard.imageUrl;
     playerName = baseballCard.playerName;
-    setName = baseballCard.setName;
+    setHint = buildSetMaskHint({
+      setName: baseballCard.setName,
+      year: baseballCard.year,
+    });
   } else {
     const [playableCard] = await db
       .select()
@@ -83,7 +87,39 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     if (playableCard?.imageUrl) {
       imageUrl = playableCard.imageUrl;
       playerName = playableCard.player;
-      setName = playableCard.set;
+      let year: number | null = null;
+      let brand: string | null = null;
+      let sport: string | null = null;
+      if (playableCard.gameSetId) {
+        const [gameSet] = await db
+          .select({
+            year: gameSets.year,
+            brand: gameSets.brand,
+            sport: gameSets.sport,
+            setName: gameSets.setName,
+          })
+          .from(gameSets)
+          .where(eq(gameSets.id, playableCard.gameSetId))
+          .limit(1);
+        if (gameSet) {
+          year = gameSet.year;
+          brand = gameSet.brand;
+          sport = gameSet.sport;
+          setHint = buildSetMaskHint({
+            year,
+            brand,
+            sport,
+            setName: playableCard.set || gameSet.setName,
+            category: playableCard.category,
+          });
+        }
+      }
+      if (!setHint) {
+        setHint = buildSetMaskHint({
+          setName: playableCard.set,
+          category: playableCard.category,
+        });
+      }
     }
   }
 
@@ -125,7 +161,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     const result = await maskCardImage(
       imageBuffer,
       playerName || "",
-      setName || null
+      setHint,
     );
 
     const filename = `${cardId}_${CURRENT_MASK_VERSION}.jpg`;
@@ -154,6 +190,8 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     console.log(`[MaskingService] Generated masked image for card ${cardId}`, {
       ocrApplied: result.ocrApplied,
       ocrMatches: result.ocrMatches,
+      source: result.source,
+      maskVersion: CURRENT_MASK_VERSION,
     });
 
     return filename;
@@ -173,19 +211,82 @@ export async function preMaskCards(cardIds: string[]): Promise<Map<string, strin
     const batch = cardIds.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (cardId) => {
-        const path = await getMaskedImagePath(cardId);
-        return { cardId, path };
+        const imagePath = await getMaskedImagePath(cardId);
+        return { cardId, path: imagePath };
       })
     );
     
-    for (const { cardId, path } of batchResults) {
-      results.set(cardId, path);
+    for (const { cardId, path: imagePath } of batchResults) {
+      results.set(cardId, imagePath);
     }
   }
   
   return results;
 }
 
-export function getMaskedImageUrl(cardId: string, maskedPath: string): string {
-  return `/api/cards/${cardId}/masked-image`;
+export function getMaskedImageUrl(cardId: string, _maskedPath?: string): string {
+  return maskedCardImageUrl(cardId);
+}
+
+export function getMaskedCardsDir(): string {
+  return MASKED_CARDS_DIR;
+}
+
+export async function invalidateMaskedImageCache(opts: {
+  setId?: string;
+  cardIds?: string[];
+  all?: boolean;
+} = {}): Promise<{ deletedRows: number; deletedFiles: number; cardIds: string[] }> {
+  await ensureDirectory();
+
+  let cardIds = opts.cardIds ? [...opts.cardIds] : [];
+  if (opts.setId) {
+    const rows = await db
+      .select({ id: playableCards.id })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, opts.setId));
+    cardIds.push(...rows.map((row) => row.id));
+  }
+
+  cardIds = [...new Set(cardIds.filter(Boolean))];
+
+  let cacheRows: { cardId: string; maskedImagePath: string }[] = [];
+  if (opts.all) {
+    cacheRows = await db.select({
+      cardId: cardImageMaskCache.cardId,
+      maskedImagePath: cardImageMaskCache.maskedImagePath,
+    }).from(cardImageMaskCache);
+  } else if (cardIds.length > 0) {
+    cacheRows = await db
+      .select({
+        cardId: cardImageMaskCache.cardId,
+        maskedImagePath: cardImageMaskCache.maskedImagePath,
+      })
+      .from(cardImageMaskCache)
+      .where(inArray(cardImageMaskCache.cardId, cardIds));
+  }
+
+  let deletedFiles = 0;
+  for (const row of cacheRows) {
+    try {
+      await fs.unlink(path.join(MASKED_CARDS_DIR, row.maskedImagePath));
+      deletedFiles++;
+    } catch {
+      // already gone
+    }
+  }
+
+  if (opts.all) {
+    await db.delete(cardImageMaskCache);
+  } else if (cacheRows.length > 0) {
+    await db.delete(cardImageMaskCache).where(
+      inArray(cardImageMaskCache.cardId, cacheRows.map((row) => row.cardId)),
+    );
+  }
+
+  return {
+    deletedRows: cacheRows.length,
+    deletedFiles,
+    cardIds: cacheRows.map((row) => row.cardId),
+  };
 }

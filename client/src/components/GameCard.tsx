@@ -12,6 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import type { MaskRegion } from "@shared/schema";
+import { largestMaskRegion, overlayMaskRegions } from "@shared/maskGeometry";
 import {
   GAME_CARD_HONEST_IMAGE_ERROR_COPY,
   GAME_CARD_REPLACEMENT_PENDING_COPY,
@@ -226,7 +227,8 @@ export function GameCard({
     staleTime: 10 * 60 * 1000,
   });
 
-  const regions = maskConfig?.regions || DEFAULT_MASK_REGIONS;
+  const regions = overlayMaskRegions(maskConfig?.regions);
+  const nameBandRegion = largestMaskRegion(regions);
 
   useEffect(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl) && cardId) {
@@ -477,19 +479,28 @@ export function GameCard({
         </div>
       ))}
 
-      {!isRevealed && !imageError && (
-        <div
-          className="absolute pointer-events-none left-0 right-0 bottom-0 flex items-center justify-center"
-          style={{
-            height: "46%",
-            backgroundColor: "rgba(11, 15, 22, 0.92)",
-            zIndex: 21,
-          }}
-          data-testid="mask-name-band"
-        >
-          <span className="text-sm font-bold text-slate-100 tracking-widest drop-shadow-lg">WHO IS THIS PLAYER?</span>
-        </div>
-      )}
+      {!isRevealed && !imageError && regions.map((region, index) => {
+        const isPrimary = nameBandRegion === region || (index === 0 && !nameBandRegion);
+        return (
+          <div
+            key={`name-band-${index}`}
+            className="absolute pointer-events-none flex items-center justify-center"
+            style={{
+              left: `${region.xPct}%`,
+              top: `${region.yPct}%`,
+              width: `${region.wPct}%`,
+              height: `${region.hPct}%`,
+              backgroundColor: "#0a0e16",
+              zIndex: 21,
+            }}
+            data-testid={isPrimary ? "mask-name-band" : `mask-name-band-${index}`}
+          >
+            {isPrimary && region.hPct >= 8 && (
+              <span className="text-sm font-bold text-slate-100 tracking-widest drop-shadow-lg px-2 text-center">WHO IS THIS PLAYER?</span>
+            )}
+          </div>
+        );
+      })}
       
       {isSetOfWeek && !imageError && (
         <div className="absolute top-2 left-2 z-30 pointer-events-none">

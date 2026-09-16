@@ -1,145 +1,64 @@
 import sharp from "sharp";
 import Tesseract from "tesseract.js";
-import { getMaskProfile, CURRENT_MASK_VERSION } from "./maskProfiles";
+import { CURRENT_MASK_VERSION } from "./maskProfiles";
+import {
+  resolveNameMaskPlan,
+  type OcrWordBox,
+} from "./nameLocalization";
+import type { MaskRegion } from "@shared/schema";
 
-const OCR_TIMEOUT_MS = 2500;
+const OCR_TIMEOUT_MS = 3500;
 const OCR_DOWNSCALE_WIDTH = 700;
 
-interface MaskResult {
+export interface MaskResult {
   maskedBuffer: Buffer;
   ocrApplied: boolean;
   ocrMatches: string[];
+  source: "ocr+profile" | "profile" | "ocr" | "default";
+  regions: MaskRegion[];
 }
 
-function tokenize(name: string): string[] {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .split(/\s+/)
-    .filter(t => t.length > 1);
-}
-
-function fuzzyMatch(detected: string, target: string): boolean {
-  if (detected === target) return true;
-  if (detected.length < 2 || target.length < 2) return false;
-  
-  const normalizedDetected = detected
-    .replace(/1/g, "i")
-    .replace(/0/g, "o")
-    .replace(/5/g, "s");
-  
-  if (normalizedDetected === target) return true;
-  
-  if (Math.abs(detected.length - target.length) > 1) return false;
-  
-  let distance = 0;
-  const maxLen = Math.max(detected.length, target.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (detected[i] !== target[i]) distance++;
-    if (distance > 1) return false;
-  }
-  return distance <= 1;
-}
-
-async function applyTemplateMasks(
+async function applyPercentRegions(
   imageBuffer: Buffer,
-  setName: string | null | undefined
+  regions: MaskRegion[],
 ): Promise<Buffer> {
-  const profile = getMaskProfile(setName);
+  if (regions.length === 0) return imageBuffer;
+
   const metadata = await sharp(imageBuffer).metadata();
   const width = metadata.width || 800;
   const height = metadata.height || 1000;
-
   const overlays: sharp.OverlayOptions[] = [];
 
-  if (profile.topBandPct > 0) {
-    const topHeight = Math.round(height * profile.topBandPct);
-    const topOverlay = await sharp({
+  for (const region of regions) {
+    const left = Math.max(0, Math.round((region.xPct / 100) * width));
+    const top = Math.max(0, Math.round((region.yPct / 100) * height));
+    const rw = Math.min(width - left, Math.max(0, Math.round((region.wPct / 100) * width)));
+    const rh = Math.min(height - top, Math.max(0, Math.round((region.hPct / 100) * height)));
+    if (rw < 2 || rh < 2) continue;
+
+    const overlay = await sharp({
       create: {
-        width,
-        height: topHeight,
+        width: rw,
+        height: rh,
         channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0.15 },
+        background: { r: 10, g: 14, b: 22, alpha: 0.94 },
       },
     })
-      .blur(profile.blurSigma || 10)
+      .blur(8)
       .png()
       .toBuffer();
 
-    overlays.push({ input: topOverlay, top: 0, left: 0 });
+    overlays.push({ input: overlay, top, left });
   }
 
-  if (profile.bottomBandPct > 0) {
-    const bottomHeight = Math.round(height * profile.bottomBandPct);
-    const bottomTop = height - bottomHeight;
-    const bottomOverlay = await sharp({
-      create: {
-        width,
-        height: bottomHeight,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0.15 },
-      },
-    })
-      .blur(profile.blurSigma || 10)
-      .png()
-      .toBuffer();
-
-    overlays.push({ input: bottomOverlay, top: bottomTop, left: 0 });
-  }
-
-  if (profile.leftBandPct > 0) {
-    const leftWidth = Math.round(width * profile.leftBandPct);
-    const leftOverlay = await sharp({
-      create: {
-        width: leftWidth,
-        height,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0.15 },
-      },
-    })
-      .blur(profile.blurSigma || 10)
-      .png()
-      .toBuffer();
-
-    overlays.push({ input: leftOverlay, top: 0, left: 0 });
-  }
-
-  if (profile.rightBandPct > 0) {
-    const rightWidth = Math.round(width * profile.rightBandPct);
-    const rightLeft = width - rightWidth;
-    const rightOverlay = await sharp({
-      create: {
-        width: rightWidth,
-        height,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0.15 },
-      },
-    })
-      .blur(profile.blurSigma || 10)
-      .png()
-      .toBuffer();
-
-    overlays.push({ input: rightOverlay, top: 0, left: rightLeft });
-  }
-
-  if (overlays.length === 0) {
-    return imageBuffer;
-  }
-
+  if (overlays.length === 0) return imageBuffer;
   return sharp(imageBuffer).composite(overlays).jpeg({ quality: 85 }).toBuffer();
 }
 
-async function runOCRWithTimeout(
+async function runOCRWords(
   imageBuffer: Buffer,
-  playerName: string,
   originalWidth: number,
-  originalHeight: number
-): Promise<{ matches: Array<{ x: number; y: number; w: number; h: number }>; tokens: string[] }> {
-  const tokens = tokenize(playerName);
-  if (tokens.length === 0) {
-    return { matches: [], tokens: [] };
-  }
-
+): Promise<OcrWordBox[]> {
   const scaledBuffer = await sharp(imageBuffer)
     .resize(OCR_DOWNSCALE_WIDTH)
     .grayscale()
@@ -149,10 +68,7 @@ async function runOCRWithTimeout(
   const scaledMeta = await sharp(scaledBuffer).metadata();
   const scaleFactor = originalWidth / (scaledMeta.width || OCR_DOWNSCALE_WIDTH);
 
-  // Use an explicit worker so we can terminate it if the timeout fires,
-  // preventing leaked background threads from abandoned OCR jobs.
   const worker = await Tesseract.createWorker("eng", 1, { logger: () => {} });
-
   let timedOut = false;
   const timeoutId = setTimeout(() => {
     timedOut = true;
@@ -163,7 +79,7 @@ async function runOCRWithTimeout(
   try {
     result = await worker.recognize(scaledBuffer);
   } catch {
-    // Worker was terminated by timeout or failed
+    // Worker terminated by timeout or failed
   } finally {
     clearTimeout(timeoutId);
     if (!timedOut) {
@@ -173,118 +89,63 @@ async function runOCRWithTimeout(
 
   if (!result || timedOut) {
     if (timedOut) console.warn("[Masking] OCR timed out — worker terminated");
-    return { matches: [], tokens: [] };
+    return [];
   }
 
-  const matches: Array<{ x: number; y: number; w: number; h: number }> = [];
-  const matchedTokens: string[] = [];
-
-  const words = (result.data as any).words || [];
+  const words = ((result.data as { words?: Array<{ text?: string; bbox?: { x0: number; y0: number; x1: number; y1: number } }> }).words) || [];
+  const boxes: OcrWordBox[] = [];
   for (const word of words) {
-    const detectedText = word.text.toLowerCase().replace(/[^a-z0-9]/g, "");
-    
-    for (const token of tokens) {
-      if (fuzzyMatch(detectedText, token)) {
-        const bbox = word.bbox;
-        const padding = 15;
-        
-        matches.push({
-          x: Math.max(0, Math.round((bbox.x0 - padding) * scaleFactor)),
-          y: Math.max(0, Math.round((bbox.y0 - padding) * scaleFactor)),
-          w: Math.round((bbox.x1 - bbox.x0 + padding * 2) * scaleFactor),
-          h: Math.round((bbox.y1 - bbox.y0 + padding * 2) * scaleFactor),
-        });
-        
-        if (!matchedTokens.includes(token)) {
-          matchedTokens.push(token);
-        }
-        break;
-      }
-    }
+    const text = (word.text || "").trim();
+    const bbox = word.bbox;
+    if (!text || !bbox) continue;
+    boxes.push({
+      text,
+      x: Math.round(bbox.x0 * scaleFactor),
+      y: Math.round(bbox.y0 * scaleFactor),
+      w: Math.round((bbox.x1 - bbox.x0) * scaleFactor),
+      h: Math.round((bbox.y1 - bbox.y0) * scaleFactor),
+    });
   }
-
-  return { matches, tokens: matchedTokens };
-}
-
-async function applyOCRMasks(
-  imageBuffer: Buffer,
-  regions: Array<{ x: number; y: number; w: number; h: number }>
-): Promise<Buffer> {
-  if (regions.length === 0) {
-    return imageBuffer;
-  }
-
-  const metadata = await sharp(imageBuffer).metadata();
-  const width = metadata.width || 800;
-  const height = metadata.height || 1000;
-
-  const overlays: sharp.OverlayOptions[] = [];
-
-  for (const region of regions) {
-    const safeW = Math.min(region.w, width - region.x);
-    const safeH = Math.min(region.h, height - region.y);
-    
-    if (safeW <= 0 || safeH <= 0) continue;
-
-    const overlay = await sharp({
-      create: {
-        width: safeW,
-        height: safeH,
-        channels: 4,
-        background: { r: 40, g: 40, b: 40, alpha: 0.95 },
-      },
-    })
-      .blur(8)
-      .png()
-      .toBuffer();
-
-    overlays.push({ input: overlay, top: region.y, left: region.x });
-  }
-
-  if (overlays.length === 0) {
-    return imageBuffer;
-  }
-
-  return sharp(imageBuffer).composite(overlays).jpeg({ quality: 85 }).toBuffer();
+  return boxes;
 }
 
 export async function maskCardImage(
   rawImageBuffer: Buffer,
   playerName: string,
-  setName: string | null | undefined
+  setName: string | null | undefined,
+  opts: { skipOcr?: boolean; words?: OcrWordBox[] } = {},
 ): Promise<MaskResult> {
-  const templateMasked = await applyTemplateMasks(rawImageBuffer, setName);
-
   const metadata = await sharp(rawImageBuffer).metadata();
   const originalWidth = metadata.width || 800;
   const originalHeight = metadata.height || 1000;
 
-  let ocrApplied = false;
-  let ocrMatches: string[] = [];
-  let finalBuffer = templateMasked;
-
-  try {
-    const { matches, tokens } = await runOCRWithTimeout(
-      rawImageBuffer,
-      playerName,
-      originalWidth,
-      originalHeight
-    );
-
-    if (matches.length > 0) {
-      finalBuffer = await applyOCRMasks(templateMasked, matches);
-      ocrApplied = true;
-      ocrMatches = tokens;
+  let words: OcrWordBox[] = opts.words || [];
+  if (!opts.skipOcr && !opts.words) {
+    try {
+      words = await runOCRWords(rawImageBuffer, originalWidth);
+    } catch (error) {
+      console.error("[Masking] OCR processing failed:", error);
+      words = [];
     }
-  } catch (error) {
-    console.error("[Masking] OCR processing failed:", error);
   }
 
+  const plan = resolveNameMaskPlan({
+    playerName,
+    setHint: setName,
+    words,
+    imageWidth: originalWidth,
+    imageHeight: originalHeight,
+  });
+
+  const maskedBuffer = await applyPercentRegions(rawImageBuffer, plan.regions);
+
   return {
-    maskedBuffer: finalBuffer,
-    ocrApplied,
-    ocrMatches,
+    maskedBuffer,
+    ocrApplied: plan.source === "ocr" || plan.source === "ocr+profile",
+    ocrMatches: plan.matchedTokens,
+    source: plan.source,
+    regions: plan.regions,
   };
 }
 
-export { CURRENT_MASK_VERSION };
+export { CURRENT_MASK_VERSION, applyPercentRegions };
