@@ -192,13 +192,13 @@ function uniqueRegions(regions: MaskRegion[]): MaskRegion[] {
 
 /**
  * Pixelate + darken name bands so share art never leaks the printed player name.
- * Same floor as Daily 5 / GameCard (DEFAULT_MASK_REGIONS).
+ * Uses the set's layout regions when provided; otherwise DEFAULT_MASK_REGIONS.
  */
 export async function redactCardForShare(
   input: Buffer,
   brandRegions: MaskRegion[] = [],
 ): Promise<Buffer> {
-  const regions = uniqueRegions([...DEFAULT_MASK_REGIONS, ...brandRegions]);
+  const regions = uniqueRegions(brandRegions.length > 0 ? brandRegions : DEFAULT_MASK_REGIONS);
   const normalized = await sharp(input).rotate().ensureAlpha().png().toBuffer();
   const meta = await sharp(normalized).metadata();
   const w = meta.width || 1;

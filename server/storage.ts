@@ -12,6 +12,7 @@ import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
+import { maskedCardImageUrl } from "@shared/maskGeometry";
 
 // Known silhouette/placeholder URL patterns that should NEVER be served
 // These are stock images from Card Hedge that indicate missing card scans
@@ -797,7 +798,7 @@ export class DatabaseStorage implements IStorage {
       team: card.set || "",
       year: 0,
       cardNumber: card.number || "",
-      imageUrl: `/api/cards/${card.id}/masked-image`,
+      imageUrl: maskedCardImageUrl(card.id),
       popularity: 50,
       imageVerified: true,
       setName: card.set || "",
@@ -837,7 +838,7 @@ export class DatabaseStorage implements IStorage {
     
     const maskedCard = {
       ...card,
-      imageUrl: `/api/cards/${card.id}/masked-image`,
+      imageUrl: maskedCardImageUrl(card.id),
     };
     
     return {

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import type { MaskRegion } from "@shared/schema";
+import { overlayMaskRegions } from "@shared/maskGeometry";
 
 interface MaskConfig {
   setKey: string;
@@ -57,7 +58,7 @@ export function MaskedCardImage({
     staleTime: 10 * 60 * 1000,
   });
 
-  const regions = maskConfig?.regions || DEFAULT_MASK_REGIONS;
+  const regions = overlayMaskRegions(maskConfig?.regions);
 
   const handleImageLoad = useCallback(() => {
     setImageLoaded(true);

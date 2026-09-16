@@ -8583,7 +8583,7 @@ export async function registerRoutes(
       }
 
       res.setHeader("Content-Type", "image/jpeg");
-      res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
+      res.setHeader("Cache-Control", "public, max-age=3600");
       res.setHeader("Content-Security-Policy", "default-src 'none'");
       res.setHeader("X-Content-Type-Options", "nosniff");
       
@@ -8708,6 +8708,33 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error saving mask config:", error);
       res.status(500).json({ error: "Failed to save mask configuration" });
+    }
+  });
+
+  app.post("/api/admin/masks/rebuild", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const setId = typeof req.body?.setId === "string" ? req.body.setId : undefined;
+      const cardIds = Array.isArray(req.body?.cardIds)
+        ? req.body.cardIds.filter((id: unknown) => typeof id === "string")
+        : undefined;
+      const all = req.body?.all === true;
+      if (!setId && !cardIds?.length && !all) {
+        return res.status(400).json({ error: "setId, cardIds, or all=true required" });
+      }
+      const { invalidateMaskedImageCache } = await import("./masking/maskingService");
+      const { CURRENT_MASK_VERSION } = await import("./masking/maskProfiles");
+      const { clearMaskCache } = await import("./services/maskConfig");
+      const result = await invalidateMaskedImageCache({ setId, cardIds, all });
+      clearMaskCache();
+      res.json({
+        ok: true,
+        maskVersion: CURRENT_MASK_VERSION,
+        ...result,
+        note: "Next GET /api/cards/:id/masked-image?v=" + CURRENT_MASK_VERSION + " regenerates the JPEG.",
+      });
+    } catch (error) {
+      console.error("[MaskRebuild] Failed:", error);
+      res.status(500).json({ error: "Failed to invalidate masked-image cache" });
     }
   });
 

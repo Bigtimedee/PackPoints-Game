@@ -10,6 +10,7 @@ import { eq, and, desc, isNotNull, ne, isNull, or, not, like, sql, asc, gte } fr
 import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
+import { maskedCardImageUrl } from "@shared/maskGeometry";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -408,7 +409,7 @@ export class Daily5Service {
       return {
         position: c.position,
         cardId: c.cardId,
-        imageUrl: `/api/cards/${c.cardId}/masked-image`,
+        imageUrl: maskedCardImageUrl(c.cardId),
         choices: shuffledChoices,
         pointValue: c.pointValue,
       };

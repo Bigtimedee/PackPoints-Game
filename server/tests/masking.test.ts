@@ -253,20 +253,22 @@ describe("Masking redesign — schema constants", () => {
 // ── Visual masking redesign v3.0 — maskProfiles ───────────────────────────────
 
 describe("Masking redesign — maskProfiles", () => {
-  it("CURRENT_MASK_VERSION is v3.0", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v3.0");
+  it("CURRENT_MASK_VERSION is v4.0", () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.0");
   });
 
-  it("default profile has 18% bottom band and no top band", () => {
+  it("default profile uses the 46% bottom plaque and no top band", () => {
     const profile = getMaskProfile(null);
-    expect(profile.bottomBandPct).toBe(0.18);
+    expect(profile.bottomBandPct).toBe(0.46);
     expect(profile.topBandPct).toBe(0.0);
+    expect(profile.nameAnchor).toBe("bottom");
   });
 
-  it("1987 Topps profile has 22% bottom band", () => {
+  it("1987 Topps profile covers the team-color name band (bottom 46%)", () => {
     const profile = getMaskProfile("1987 Topps");
-    expect(profile.bottomBandPct).toBe(0.22);
+    expect(profile.bottomBandPct).toBe(0.46);
     expect(profile.topBandPct).toBe(0.0);
+    expect(profile.nameAnchor).toBe("bottom");
   });
 
   it("1989 Upper Deck profile has 20% bottom band", () => {
@@ -283,12 +285,30 @@ describe("Masking redesign — maskProfiles", () => {
 
   it("unknown set returns default profile", () => {
     const profile = getMaskProfile("2024 Bowman Chrome");
-    expect(profile.bottomBandPct).toBe(0.18);
+    expect(profile.bottomBandPct).toBe(0.46);
+    expect(profile.id).toBe("default");
   });
 
   it("partial set name match works (case-insensitive)", () => {
     const profile = getMaskProfile("Vintage 1952 Topps Heritage");
     expect(profile.bottomBandPct).toBe(0.35);
+  });
+
+  it("1989 Fleer Basketball is a top-name plate, not a bottom plaque", () => {
+    const profile = getMaskProfile("1989 Fleer Basketball");
+    expect(profile.id).toBe("fleer-bball-top");
+    expect(profile.nameAnchor).toBe("top");
+    expect(profile.topBandPct).toBe(0.18);
+    expect(profile.bottomBandPct).toBe(0);
+    expect(profile.regions[0].yPct).toBe(0);
+    expect(profile.regions[0].hPct).toBe(18);
+    expect(profile.regions[0].yPct).toBeLessThan(20);
+  });
+
+  it("1989 Fleer baseball does not steal the basketball top-name profile", () => {
+    const profile = getMaskProfile("1989 Fleer Baseball");
+    expect(profile.id).not.toBe("fleer-bball-top");
+    expect(profile.nameAnchor).toBe("bottom");
   });
 });
 

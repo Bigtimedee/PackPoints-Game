@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-16 (Daily 5 stuck overlay + share branding fix: honest GameCard empty state, Daily 5 `allowClientImageReject={false}`, tighter silhouette heuristic, mode-true score-card CTA; audit `docs/audits/DAILY5_STUCK_REPLACEMENT_2026-09-16.md`)
+**Last verified against codebase:** 2026-09-16 (intelligent card name masking v4.0: OCR + set layout profiles; 1989 Fleer Basketball top-name plate; GameCard overlay follows regions; masked-image `?v=v4.0`; ops `docs/MASK_CACHE_REBUILD.md`)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -211,8 +211,9 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 The entire game depends on the player not knowing who is on the card before submitting their answer. Any leak — visual, textual, or metadata — destroys the gameplay experience.
 
 ### How Masking Works Today
-- **Client-side canvas masking:** The `MaskedCardImage` component applies blur/pixelate effects to configurable rectangular regions on the card image. Mask regions are defined per card set in the `cardSetMasks` table.
-- **Name-band rendering is pure blur (2026-07-06):** In `GameCard.tsx` (the card renderer used by solo, Daily 5, and 1v1 match), the bottom name-band region (index 1) always renders as a heavy `backdrop-filter: blur(24px)` with a neutral dark-slate tint (`rgba(15, 23, 42, 0.2)`) and the "WHO IS THIS PLAYER?" label — regardless of whether the region's configured `type` is `solid` or `blur`. The previous amber/orange gradient (`amber-600→800`) and orange-brown tint (`rgba(120, 53, 15, 0.4)`) were removed for UX quality. Server-side baked blur (`server/masking/maskCardImage.ts`, sigma 25) remains the anti-cheat backstop; the client blur is presentational.
+- **Intelligent name localization (v4.0, 2026-09-16):** Masking finds where the **player name** lives on that card, then covers that region. It is not a universal bottom wipe. Chain: OCR name/jersey tokens (Tesseract, last-name + fuzzy match) → known layout profile (`server/masking/maskProfiles.ts`, e.g. 1986–1990 Fleer Basketball top name plate) → `DEFAULT_MASK_REGIONS` bottom plaque for unknown sets. Dave’s live solo leak (1989 Fleer Spud Webb, packpts.com/game/solo) was the old hardcoded GameCard `bottom:0; height:46%` overlay plus a bottom-only server fallback, which left the white **SPUD WEBB** plate in the clear.
+- **Client overlay:** `GameCard` / `MaskedCardImage` still fetch `/api/card-sets/:setKey/mask`. UUID `setKey` values (solo `gameSet.id`, Daily 5 `challenge.setId`) resolve through `game_sets` (year + brand + sport) so code profiles apply without a `card_set_masks` row. The "WHO IS THIS PLAYER?" layer **always renders** when `!isRevealed && !imageError`, positioned from those regions (solid `#0a0e16`, no `backdropFilter` — Chrome compositing rule below). Cosmetic `regions.map()` stays underneath. Daily 5 `allowClientImageReject={false}` from #85 is unchanged.
+- **Server JPEG:** `maskingService.ts` + `maskCardImage.ts` bake opaque name-region overlays into `/api/cards/:id/masked-image?v=v4.0`. Cache: `card_image_mask_cache.maskVersion` + filename `{cardId}_v4.0.jpg` on the Railway volume. Rebuild: `POST /api/admin/masks/rebuild` — `docs/MASK_CACHE_REBUILD.md`.
 - **Image validation:** Canvas-based analysis checks color diversity and dominant color percentage to detect blank/silhouette placeholder images that shouldn't be served.
 - **Card replacement:** If an image fails to load or is detected as a placeholder, the client requests a replacement card from the server (`POST /api/game/session/:id/replace-card` or WebSocket `question_replace_request`). Maximum 2 replacements before skipping.
 
@@ -257,17 +258,19 @@ The entire game depends on the player not knowing who is on the card before subm
 - The old `yPct:82` mask only covered the very bottom edge — the name was fully visible in the orange/colored band above it.
 - The new `yPct:54` mask covers the entire team-color band and the name.
 
-**Never reduce `yPct` below 54 or `hPct` below 46 in `DEFAULT_MASK_REGIONS` without verifying the player name is still covered on all active card sets.**
+**Never reduce `yPct` below 54 or `hPct` below 46 in `DEFAULT_MASK_REGIONS` without verifying the player name is still covered on all active bottom-plaque sets.** Top-name sets (1989 Fleer Basketball, etc.) must use a **set profile**, not a smaller default.
 
-The test `"DEFAULT_MASK_REGIONS is a single bottom band at yPct:54, hPct:46"` in `server/tests/masking.test.ts` enforces this. It will fail CI if the values regress.
+The test `"DEFAULT_MASK_REGIONS is a single bottom band at yPct:54, hPct:46"` in `server/tests/masking.test.ts` enforces this. It will fail CI if the values regress. Top-name geometry is covered in `server/tests/nameMasking.test.ts`.
 
-### "WHO IS THIS PLAYER?" Band Is Unconditional — DO NOT Move Back Into regions.map()
+### "WHO IS THIS PLAYER?" Band Is Unconditional — DO NOT Drop It When Regions Change
 
-The "WHO IS THIS PLAYER?" blur overlay in `GameCard.tsx` is rendered **outside** the `regions.map()` loop, anchored unconditionally to `bottom: 0, height: 46%` with `zIndex: 21`. It is **not** driven by mask region config.
+The "WHO IS THIS PLAYER?" overlay in `GameCard.tsx` is rendered **outside** the cosmetic `regions.map()` loop, `zIndex: 21`. It **must always render** when `!isRevealed && !imageError`.
 
-**Why:** `DEFAULT_MASK_REGIONS` defines only one region (index 0). When the name band text was gated behind `{index === 1 && ...}` inside the map, any set using the default config (or any single-region custom config) silently dropped the overlay, exposing the player's printed name on the card image below. This was a data-exposure bug.
+**Why:** `DEFAULT_MASK_REGIONS` defines only one region (index 0). When the name band text was gated behind `{index === 1 && ...}` inside the map, any set using the default config (or any single-region custom config) silently dropped the overlay, exposing the player's printed name.
 
-**Rule:** The name band must always render when `!isRevealed && !imageError` regardless of how many mask regions are configured. It is not a cosmetic region — it is a security invariant. The `regions.map()` renders cosmetic set-label overlays only; the name band stands alone.
+**v4.0 geometry:** The band is **not** hardcoded to `bottom: 0, height: 46%`. It follows overlay regions from mask config (top plate for 1989 Fleer Basketball, bottom plaque for 1987 Topps, OCR boxes when present). If config is empty, `overlayMaskRegions()` falls back to `DEFAULT_MASK_REGIONS`. Never remove the always-on render; never re-hardcode a bottom-only band.
+
+**Rule:** The name band is a security invariant. `regions.map()` remains cosmetic set-label overlays only.
 
 ### Chrome backdropFilter + maskImage Compositing Bug — DO NOT USE
 
@@ -275,7 +278,7 @@ The "WHO IS THIS PLAYER?" blur overlay in `GameCard.tsx` is rendered **outside**
 
 Files affected: `client/src/components/GameCard.tsx` and `client/src/components/MaskedCardImage.tsx`.
 
-### Automated Masking Tests (server/tests/masking.test.ts — 33 tests)
+### Automated Masking Tests (`server/tests/masking.test.ts` + `nameMasking.test.ts`)
 
 Added in Prompt 9, extended through June 2026. These run in CI and guard:
 - `sanitizeQuestionForClient` strips `correctAnswer` and `card.playerName`, preserves all other fields
