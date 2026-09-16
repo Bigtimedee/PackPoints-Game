@@ -3,8 +3,8 @@
 **Incident date:** 2026-09-16 01:50 UTC (CT calendar day **2026-09-15**)  
 **Reporter / user:** Dave Maloney (`Bigtimedee`)  
 **Surface:** https://packpts.com/daily5  
-**Severity:** Daily 5 card 1 is unplayable for every user who hits today’s puzzle, until they guess blindly or leave. The UI lies that a replacement is in progress.  
-**This document:** read-only engineering audit. No production schema or card-row mutation was performed.
+**Severity:** Daily 5 card 1 is unplayable for every user who hits today’s puzzle, until they guess blindly or leave. The UI lies that a replacement is in progress. Solo *can* skip; Dave did that two minutes later in a **different** session — that is not Daily 5 completing.  
+**This document:** read-only engineering audit. No production schema or card-row mutation was performed. Two live screenshots: Daily 5 hung overlay, then solo Game Complete.
 
 Evidence classes used below:
 
@@ -36,6 +36,8 @@ It is `GameCard`’s **hard image-error overlay**.
 
 **Immediate workaround (ops):** Submit any answer on card 1 (blind). Positions 2–5 of today’s puzzle pass the same client heuristic and should render. This is unfair; it is not a fix.
 
+**Second screenshot (same user, ~3 minutes later):** `https://packpts.com/game/solo` Game Complete — **1994 Topps Football**, `1050 PTS`, `67%`, `6 of 9`, copy **“1 card skipped”**, share card `SOLO / SEP 15` / `6/9` / `Six locked. Three open.` / footer `packpts.com/daily`. That is **not** Daily 5 finishing as nine cards. It is the default 10-card solo picker minus one skip (`10 − 1 = 9`). Math: `6/9 = 67%`. **PROD** session `ec205940…`, `mode: "solo"`, `totalQuestions: 10`, `skippedQuestions: 1`.
+
 ---
 
 ## 1. Production timeline (Dave’s session)
@@ -48,10 +50,17 @@ Railway project `marvelous-freedom`, service PackPoints-Game, deployment `e77d1c
 | 01:50:26 | `POST /api/daily5/start` | **200 / 104ms**. Entry created. Five cards returned. Position 1 choices are exactly the screenshot: Tristan da Silva, Adem Bona, Walker Kessler, Nicolas Batum. |
 | 01:50:28 | `GET /api/cards/1356d9c8-1d34-4335-b6df-16fb97472fca/masked-image` | **200 / 1453ms**. `[MaskingService] Generated masked image … { ocrApplied: false, ocrMatches: [] }` |
 | 01:50:28 → 01:51:25 | Status/leaderboard polls | Entry still `answers: []`, `score: 0`, `completedAt: null`. **No second image fetch. No `/report`. No `/replace-card`.** |
-| 01:51:41 | Navigation to solo `/game` | Dave left Daily 5 stuck |
-| 01:53:09 | Solo `POST …/replace-card` | 404 `No replacement found for sport unknown` — different mode, useful contrast |
+| 01:51:41 | HTTP: home + `/assets/game-*.js` | Dave left Daily 5. Daily 5 entry still open (`answers: []`). |
+| 01:51:50 | `POST /api/game/start` | **New session** `ec205940-…`, `mode: "solo"`, `totalQuestions: 10`, `skippedQuestions: 0`. Same user id. Default picker is 10 cards (`game.tsx` `selectedCardCount = "10"`). |
+| 01:51:57 → 01:53:08 | Eight solo answers | Mix of correct/wrong. Score to 875 / 5 correct. `skippedQuestions: 0`. |
+| 01:53:02 | `POST /api/game/next` | Index 7. Image `3af91a8c-…` (Edgar Bennett Finest + seller banner) HTTP **200** in 1364ms. |
+| 01:53:08 | `POST /api/game/answer` index 7 | Kevin Greene, correct. Submitted **after** that JPEG loaded. |
+| 01:53:09 | `POST /api/game/next` then `POST …/replace-card` 404 | Next advances to **index 8**. Replace for `3af91a8c` 404s: `[CardReplacement] No replacement found for sport unknown`. Sets `imageFailure` on **current index 8**, not necessarily the failed card’s index. |
+| 01:53:12 | `POST /api/game/next` `reason=image_failure` | **PROD:** `[Game Next] Question skipped due to verified image failure { questionIndex: 8, skippedQuestions: 1 }`. This is the UI line **“1 card skipped”**. |
+| 01:53:15 | Answer index 9 | Jeff Hostetler, correct. `correctAnswers: 6`, `score: 1050` (`6 × 175`). |
+| 01:53:17 | Finish `POST /api/game/next` | `status: completed`, `totalQuestions: 10`, `skippedQuestions: 1`. Score-card metadata `{ mode: "solo", correctCount: 6, totalQuestions: 9, streak: 1 }` — **9 = 10 − 1**. PNG `/generated/share/2026-09-15/2b0e2c4e-…png`. |
 
-Public `GET /api/daily5/leaderboard` at audit time: `{ entries: [], date: "2026-09-15", totalEntries: "0" }`. Dave never finished. No one else had a completed entry either. **HUNCH:** Dave was the first (and only) starter of this CT day in the log window; every other user who opens today’s Daily 5 will hit the same card-1 overlay.
+Public `GET /api/daily5/leaderboard` after both screenshots: `{ entries: [], date: "2026-09-15", totalEntries: "0" }`. Dave **still has not finished Daily 5**. The Game Complete screen is solo. **HUNCH:** he was the first Daily 5 starter of the CT day in the log window; every other user who opens today’s Daily 5 still hits the same card-1 overlay.
 
 Position 1 payload from the start log:
 
@@ -192,6 +201,22 @@ Once `imageError` is set, CSS name masks are also skipped (`!isRevealed && !imag
 
 This is **not a loop**. One failed `onLoad` check → sticky overlay. Calling it a “replacement loop” in the ticket matches the copy, not the control flow.
 
+**The second screenshot is what that same GameCard path looks like when recovery *is* wired.** Solo’s terminal state is `skippedQuestions += 1` and Game Complete “1 card skipped”. Daily 5 cannot reach that state. Dave did not skip Daily 5 card 1; he abandoned the mode. See §10.
+
+### RC2b — Solo replace 404 (`sport unknown`) forces a skip (likelihood: **confirmed** for the Game Complete skip; not Daily 5)
+
+**CODE + PROD.**
+
+`POST /api/game/session/:id/replace-card` always sets `questions[currentQuestionIndex].imageFailure = true`, then looks up a replacement. `storage.getReplacementCardForSession` keys sport off `currentQuestion.card.setName` → `gameSets.setName`. If that lookup misses, `expectedSport` is null, the same-sport fallback **never runs**, log is `No replacement found for sport unknown`, HTTP **404**.
+
+Client `replaceCardMutation.onError`: if the message contains `"No replacement card available"`, it sets `replacementAttempts` for that index to **2**, which is the skip threshold. Next click on the overlay button calls `nextQuestionMutation.mutate("image_failure")`.
+
+Server `POST /api/game/next` with `reason === "image_failure"` increments `skippedQuestions` **only if** `currentQ.imageFailure` is already true (the 404 path stamps that flag). Log line Dave hit: `Question skipped due to verified image failure { questionIndex: 8, skippedQuestions: 1 }`.
+
+**Race (PROD timestamps, same second):** `next` to index 8 at 01:53:09, then replace-card 404 for `3af91a8c` (the *previous* JPEG) also 01:53:09. Replace stamps `imageFailure` on **index 8**, then skip at 01:53:12 burns question 8. **HUNCH:** the skipped slot may not have been the bad JPEG; the flag is “current index”, not “failed card id”. Not proven without the session blob. Proven: skip requires that flag, and 404 wrote it.
+
+Daily 5 never calls this endpoint. `sport unknown` cannot unstick `/daily5`.
+
 ### RC3 — Daily 5 card pick never proves the image is showable (likelihood: **confirmed contributing**)
 
 **CODE.** `selectCardsForChallenge` filters:
@@ -249,7 +274,8 @@ That counter increments in `awardDailyBaseForCorrectCard` (`dailyGameplayBase.ts
 | `isPlaceholderUrl("/api/cards/…/masked-image")` | Patterns are `placeholder`, `silhouette`, `fallback`, etc. This path does not match. Initial `imageError` state would be false |
 | Ownership / user inventory filter | Daily 5 reads `playableCards` + `daily_challenge_cards`, not user-owned cards |
 | Resume desync (card 1 already answered) | Entry `answers: []`; UI `0 pts` `1/5`; that bug was fixed 2026-09-08 (`resolveDaily5Resume`) |
-| Replacement pool empty looping | Daily 5 never calls replace. Solo later *did* 404 replace (`sport unknown`) — separate bug |
+| Replacement pool empty looping | Daily 5 never calls replace. Solo later 404’d replace (`sport unknown`) and **skipped** — §10 |
+| Solo Game Complete is Daily 5 with wrong flags | Separate session `mode: "solo"`, `totalQuestions: 10`. `/game/solo` ≠ `/daily5`. See §11 |
 | Railway volume EACCES | Bake succeeded and file was served |
 | `Daily5Preflight` Railway function failed | That function only dumps Twitter env for social posting; it does not preflight cards |
 
@@ -317,6 +343,8 @@ Instrument these; today we got lucky because Railway request logs print the star
 | Dominant-color false positive | Offline: resize JPEG to 100×100, q32 histogram, max bucket / 10000 > 0.5. Done for this incident: **0.573** |
 | User at daily cap | `GET /api/progress/daily` `cardsAnswered >= 200`. Today: 0, and cap is not consulted by Daily 5 start |
 | All users stuck | Leaderboard `totalEntries` stays 0 while `/daily5/start` count > 0; or many in-progress entries with `answers=[]` and matching card 1 |
+| Solo skip vs Daily 5 hang | Deploy: `[Game Next] Question skipped due to verified image failure`. Daily 5 never emits this. Session `mode` + `totalQuestions` + `skippedQuestions` on finish. |
+| Replace `sport unknown` | `[CardReplacement] No replacement found for sport unknown` + 404 `/replace-card`. Prove `card.setName` empty/mismatch via the session question payload (not fetched this audit). |
 
 Suggested one-line server log on masked-image 200: `{ cardId, bytes, ms, ocrApplied, cacheHit }`. Suggested client log (already `logger.debug` in `isPlaceholderImage`, likely stripped in prod): promote those to `warn` with `mode`.
 
@@ -346,25 +374,91 @@ Do **not** wire Daily 5 into solo `replace-card`. That violates the product rule
 
 7. **Do not pick Daily 5 from “largest imported active set” forever.** Curate, or at least exclude cards whose baked image is name-on-jersey / OCR-miss. That’s content ops, not a one-line patch.
 
-8. **Solo replace `sport unknown` 404** (Dave hit this two minutes later) is a separate bug: `getReplacementCardForSession` keys off `currentQuestion.card.setName` → `gameSets.setName`. If `setName` is missing, `expectedSport` is null and the same-sport fallback never runs. Not in the Daily 5 path; fix later.
+8. **Solo replace `sport unknown` 404** (Dave’s skip). `getReplacementCardForSession` must use `gameSetId` from the question/card, not `setName` string match. Also stamp `imageFailure` on the **failed card’s index**, not whatever `currentQuestionIndex` is when the 404 returns (the 01:53:09 race). Daily 5 still must not call this API.
 
-**What not to do:** delete today’s `daily_challenge_cards` out from under in-progress entries; run `drizzle-kit push` for this; “verify” in Supabase; add a third-party image CDN.
+9. **Stop labeling solo results as Daily 5, and stop printing `packpts.com/daily` on every score card.** `game.tsx` uses `effectiveTotal === 5 ? "DAILY 5"` (Dave’s 9 avoided it). `buildScoreCardSvg` uses `treatAsDaily5 = mode === "daily5" || total === 5` and hardcodes the Daily 5 footer. Contract `docs/SCORE_CARD_CONTRACT.md` is Daily 5–specific; solo reuse is a branding leak, not a playable-card fix.
+
+**What not to do:** delete today’s `daily_challenge_cards` out from under in-progress entries; run `drizzle-kit push` for this; “verify” in Supabase; add a third-party image CDN; treat the 6-of-9 Game Complete as Daily 5 recovery.
 
 ---
 
 ## 8. What this audit did not see
 
 - The `playable_cards` row for `1356d9c8…` (quarantine, review status, raw `imageUrl`). Sandbox has no TCP to Railway Postgres. Not required: the JPEG that row produced is a real Batum Chrome.
+- The solo session’s full `questions[]` blob (which card sat at index 8 when skipped). Logs show replace targeted `3af91a8c` while skip was `questionIndex: 8` after a `next` to 8.
 - Dave’s browser console (`[PlaceholderDetect] High dominant color: 57.3%` would be definitive if `logger.debug` survived the prod bundle).
 - Whether Safari vs Chrome canvas resize would move 57.3% across the 50% line. Margin is 7 points; **HUNCH:** all Chromium users reject. Unproven for WebKit.
 
 ---
 
-## 9. Bottom line for Dave
+## 9. What “1 card skipped” means (client + server)
 
-The server found a card, baked a JPEG, and handed the four names to the page. The page then ran a “is this a silhouette?” check that treats a black Chrome border as a fake image, hid the JPEG behind a yellow panel, and printed a sentence from solo mode (“Finding a replacement card…”) even though Daily 5 has no replacement machinery. Header `0/200` is the daily earning-cap toy in the chrome. It did not cause this.
+**CODE.** Skip is a **solo/session** concept. Daily 5 has no `skippedQuestions` field on `daily_challenge_entries`.
 
-Cards 2–5 of 2026-09-15 are fine under the same check. Card 1 is a landmine for the whole day because Daily 5 is shared.
+| Step | Where | What happens |
+|---|---|---|
+| Image fails (onError or canvas reject) | `GameCard` → `onImageError` | Solo: `handleCardImageError`. Daily 5: **undefined**, overlay lies. |
+| Auto-replace | `POST /api/game/session/:id/replace-card` | Always `questions[currentQuestionIndex].imageFailure = true`. Then find another card. 404 if none. |
+| Client skip threshold | `game.tsx` `replaceCardMutation.onError` | Message contains `"No replacement card available"` → `replacementAttempts.set(idx, 2)`. Overlay button mode becomes `'skip'`. |
+| User clicks skip | `handleManualSkip` | `nextQuestionMutation.mutate("image_failure")` → `POST /api/game/next { reason: "image_failure" }` |
+| Server accepts skip | `routes.ts` `/api/game/next` | If `reason === "image_failure"` **and** `currentQ.imageFailure`, then `skippedQuestions += 1`. If the flag is missing, it **warns and ignores** the skip (`Ignoring unverified image_failure skip attempt`). |
+| Results copy | `game.tsx` Game Complete | `{n} card(s) skipped` when `skippedQuestions > 0`. |
+| Score math | client + finish path | `effectiveTotal = totalQuestions - skippedQuestions`. Accuracy and “X of Y” use **effectiveTotal**. Share card is passed `totalQuestions: effectiveTotal`. |
+
+Dave’s numbers are the identity `10 − 1 = 9`, `6/9 = 67%`, headline `Six locked. Three open.` (`buildScoreCardHeadline(6, 9)`). **PROD** finish metadata: `correctCount: 6, totalQuestions: 9, skippedQuestions: 1, mode: "solo"`.
+
+**Is this the terminal outcome of the hung Daily 5 overlay?** Same *widget* (`GameCard` imageError), **different product path**:
+
+- Daily 5: no `onImageError` → overlay never becomes a skip button → **stuck**. Session `0c7e5d49…` still `answers: []`.
+- Solo: `onImageError` → replace → 404 → skip button → `skippedQuestions=1` → Game Complete.
+
+Dave’s second screenshot is **escape to `/game/solo`**, not Daily 5 converting a hang into a skip. Leaderboard `totalEntries: 0` proves Daily 5 never finished.
+
+---
+
+## 10. Why the completed game is 9 cards, not Daily 5 of 5
+
+**CODE + PROD. Not a shared engine with wrong mode flags.**
+
+| | Daily 5 (screenshot 1) | Solo (screenshot 2) |
+|---|---|---|
+| URL | `/daily5` | `/game/solo` (`App.tsx` `Route path="/game/:mode"`) |
+| Page | `client/src/pages/daily5.tsx` | `client/src/pages/game.tsx` |
+| Start API | `POST /api/daily5/start` | `POST /api/game/start` `{ mode: "solo", totalQuestions: 10, setId }` |
+| Session | `daily_challenge_entries` `0c7e5d49…` | `game_sessions` `ec205940…` |
+| Length | Always 5 | Picker 5/10/15/20; **default `"10"`** |
+| Set | Largest active imported set (today: NBA names) | User-picked **1994 Topps Football** |
+| Skip | Impossible | `skippedQuestions` |
+| Finish | `POST /api/daily5/finish` | last `POST /api/game/next` sets `status: "completed"` |
+
+Nine is `effectiveTotal`: 10 dealt, 1 skipped, 9 counted. Home “Play” links to `/game/solo`, not `/daily5`. No fallback that starts solo because Daily 5 failed — Dave navigated (HTTP at 01:51:41: `/` then `game-*.js`).
+
+---
+
+## 11. Daily 5 / solo / share-card branding divergence
+
+Three different “daily” concepts share chrome.
+
+**Routes (CODE):** `/daily` and `/daily5` are the **same** lazy page (`App.tsx`). `/game/solo` is the generic solo engine. Footer `packpts.com/daily` therefore opens Daily 5, even from a football solo.
+
+**Game Complete subtitle (CODE, `game.tsx`):** `{effectiveTotal === 5 ? "DAILY 5" : "Here's how well you know your {set} cards"}`. A **solo 5-card** game would be titled Daily 5. Dave’s 9 missed that lie; the 1994 Topps line is the else branch. Daily 5’s own complete screen always says `DAILY 5` (`daily5.tsx`).
+
+**Share PNG (CODE, `generateScoreCard.ts`):**
+
+- Eyebrow: `treatAsDaily5 = mode === "daily5" || total === 5` then `"DAILY 5"`, else `"SOLO"` / `"1V1 MATCH"`. Dave: `mode: "solo"` and `total: 9` → **SOLO**. A solo 5 would print **DAILY 5** on the PNG.
+- Date: `formatSessionDayIdentity(date, isDaily5Mode)` with `isDaily5Mode = mode === "daily5"` only → `SEP 15` without `· TODAY'S FIVE`. Matches the screenshot.
+- Pips: `buildPipsSvg(6, 9)` → 6 filled + 3 open. Contract text in `docs/SCORE_CARD_CONTRACT.md` still says “Five rounded-square pips” because that spec is Daily 5; the generator allows 1–12.
+- Footer is **hardcoded** `packpts.com/daily` for every mode. `ShareAssetCard` default `shareUrl` is `https://packpts.com/daily`. Solo Game Complete passes that explicitly. Design contract calls the footer “visual only” for Beat-me; it is still the wrong CTA for a 1994 football solo.
+
+**Not causal** to the missing card. It is why the second screenshot *looks* like Daily 5 product (footer, pip language “locked/open”) while the URL bar is `/game/solo`.
+
+---
+
+## 12. Bottom line for Dave
+
+Daily 5: the server found a card, baked a JPEG, and handed the four names to the page. The page ran a “is this a silhouette?” check that treats a black Chrome border as a fake image, hid the JPEG behind a yellow panel, and printed a sentence from solo mode (“Finding a replacement card…”) even though Daily 5 has no replacement machinery. Header `0/200` is the daily earning-cap toy. It did not cause this. Cards 2–5 of 2026-09-15 would have displayed. Card 1 is a landmine for the whole day because Daily 5 is shared. That session is **still open**.
+
+Solo, two minutes later: same `GameCard` failure detector, but `onImageError` is wired. Replace 404’d (`sport unknown`), the server marked `imageFailure`, you skipped one of a **10-card 1994 Topps Football** game, and Game Complete counted `6 of 9`. The share card says SOLO and still points friends at `packpts.com/daily` (the Daily 5 alias). That skip is the recovery Daily 5 does not have. It is not Daily 5 finishing.
 
 ---
 
