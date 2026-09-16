@@ -38,23 +38,48 @@ export const PLAY_SETS_STORY_FILES = {
   beat_me_from_set: "play-beatme-story.png",
 } as const;
 
-/** Design drop → files the app serves at /assets/play-sets/. Do not invent art. */
+/** Design drop → every CDN name the app or Design/marketing already requests. */
 export const PLAY_SETS_DESIGN_EXPORT_DIR = "packpts-design/play-sets/exports";
 
+/**
+ * App/API kit URLs (`playSetsKitPath` / JSON `kitUrl` / OG fallback).
+ * React never hardcodes `/assets/play-sets/*.png`; it shares destination URLs only.
+ */
+export const PLAY_SETS_APP_KIT_FILES = [
+  "play-this-set.png",
+  "integrated-shelf.png",
+  "beat-me-from-a-set.png",
+] as const;
+
+/** Design export 1080s — live 2026-09-16 probes returned SPA HTML for these. */
+export const PLAY_SETS_DESIGN_1080_FILES = [
+  "play-set-1080.png",
+  "play-shelf-1080.png",
+  "play-beatme-1080.png",
+] as const;
+
 export const PLAY_SETS_DESIGN_EXPORT_MAP = [
-  { from: "play-set-1080.png", to: "play-this-set.png" },
-  { from: "play-shelf-1080.png", to: "integrated-shelf.png" },
-  { from: "play-beatme-1080.png", to: "beat-me-from-a-set.png" },
-  { from: "play-set-story.png", to: "play-set-story.png" },
-  { from: "play-shelf-story.png", to: "play-shelf-story.png" },
-  { from: "play-beatme-story.png", to: "play-beatme-story.png" },
+  {
+    from: "play-set-1080.png",
+    to: ["play-this-set.png", "play-set-1080.png", "integrated-set.png", "set-1080.png"],
+  },
+  {
+    from: "play-shelf-1080.png",
+    to: ["integrated-shelf.png", "play-shelf-1080.png", "play-shelf.png"],
+  },
+  {
+    from: "play-beatme-1080.png",
+    to: ["beat-me-from-a-set.png", "play-beatme-1080.png", "integrated-beatme.png", "beatme-1080.png"],
+  },
+  { from: "play-set-story.png", to: ["play-set-story.png"] },
+  { from: "play-shelf-story.png", to: ["play-shelf-story.png"] },
+  { from: "play-beatme-story.png", to: ["play-beatme-story.png"] },
 ] as const;
 
 /**
  * Extra CDN filenames Design/marketing already request under /assets/play-sets/.
- * Same bytes as the canonical kit file. Live 2026-09-16 QA: these returned SPA
- * HTML (200 text/html) while integrated-shelf.png and *-story.png were real PNGs.
- * Do not add speculative names — missing files 404 into the SPA.
+ * Used when the Design drop is absent so Eng kit files still fill those paths.
+ * Same bytes as the canonical kit file. Do not add speculative names.
  */
 export const PLAY_SETS_CDN_ALIASES = [
   {

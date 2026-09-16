@@ -30,9 +30,12 @@ export function copyPlaySetsDesignExports(opts?: {
       missing.push(from);
       continue;
     }
-    const dest = path.join(destDir, to);
-    fs.copyFileSync(src, dest);
-    copied.push(dest);
+    const destNames = Array.isArray(to) ? to : [to];
+    for (const destName of destNames) {
+      const dest = path.join(destDir, destName);
+      fs.copyFileSync(src, dest);
+      copied.push(dest);
+    }
   }
   const aliases = materializePlaySetsCdnAliases(destDir);
   return { copied, missing, aliases: aliases.copied };

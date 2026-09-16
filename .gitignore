@@ -17,3 +17,4 @@ data/masked-cards/
 public/generated/
 test-results/
 playwright-report/
+packpts-design/
