@@ -190,6 +190,21 @@ export function buildPipsSvg(correctCount: number, totalQuestions: number): stri
   }).join("");
 }
 
+export function isDaily5ScoreCardMode(mode: string | undefined): boolean {
+  return mode === "daily5";
+}
+
+export function scoreCardEyebrow(mode: string | undefined): string {
+  if (mode === "daily5") return "DAILY 5";
+  if (mode === "1v1") return "1V1 MATCH";
+  return "SOLO";
+}
+
+/** Footer CTA. Only Daily 5 prints packpts.com/daily — solo/1v1 stay packpts.com. */
+export function scoreCardFooterCta(mode: string | undefined): string {
+  return mode === "daily5" ? "packpts.com/daily" : "packpts.com";
+}
+
 export function buildScoreCardSvg(input: ScoreCardInput): string {
   const W = SCORE_CARD_SIZE;
   const H = SCORE_CARD_SIZE;
@@ -199,9 +214,9 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const score = asCount(input.score);
   const headline = buildScoreCardHeadline(correct, total);
   const streakLabel = buildStreakOverlayLabel(input.streak);
-  const isDaily5Mode = input.mode === "daily5";
-  const treatAsDaily5 = isDaily5Mode || total === 5;
-  const eyebrow = treatAsDaily5 ? "DAILY 5" : input.mode === "1v1" ? "1V1 MATCH" : "SOLO";
+  const isDaily5Mode = isDaily5ScoreCardMode(input.mode);
+  const eyebrow = scoreCardEyebrow(input.mode);
+  const footerCta = scoreCardFooterCta(input.mode);
   const pointsLabel = `${score} pts`;
   const identity = formatSessionDayIdentity(input.date, isDaily5Mode);
   const fonts = loadScoreCardFonts();
@@ -227,10 +242,10 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
       : "",
     textToPath(fonts.bold, headline, cx, 700, 48, ink, { anchor: "middle" }),
     textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
-    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, ink, { anchor: "end" }),
+    textToPath(fonts.semibold, footerCta, 1000, 978, 26, ink, { anchor: "end" }),
   ].filter(Boolean).join("\n  ");
 
-  const strip = treatAsDaily5 ? buildMaskedStripSvg() : "";
+  const strip = isDaily5Mode ? buildMaskedStripSvg() : "";
   const desc = [
     eyebrow,
     identity,
@@ -239,7 +254,7 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
     streakLabel,
     headline,
     "PackPTS",
-    "packpts.com/daily",
+    footerCta,
   ].filter(Boolean).join(" | ");
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">

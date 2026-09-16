@@ -18,6 +18,14 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 - Footer left: locked masked-P mark — **white P** + gold (`#F5C518`) bar on dark (`#0b0f16`) tile (not yellow-P-on-white) + **PackPTS**
 - Footer right: `packpts.com/daily` (visual only — Beat-me share href is the signed `/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge=` token)
 
+## Other modes (solo / 1v1)
+
+Same 1080 canvas, pips, and PackPTS mark. Branding follows **`mode === "daily5"`**, never `total === 5`:
+
+- Eyebrow: `SOLO` or `1V1 MATCH` — never `DAILY 5` for a 5-card solo
+- No `TODAY'S FIVE` and no mini masked-strip
+- Footer right: `packpts.com` (not `/daily`)
+
 ## Palette (Design Sync)
 - Canvas `#0b0f16` · gold `#F5C518` · green `#22C55E` · ink `#F0F2F5` · muted `#8F96A3`
 
@@ -41,7 +49,7 @@ Quiet header identity for the session's PackPTS day — never "now", never a dif
 - **Inter** (SIL OFL 1.1) ships in `server/contentFactory/assets/fonts/` and is copied into the Railway image.
 - Do **not** rely on Alpine / Railway system fonts — they are absent and render tofu.
 - Generator embeds the TTFs as `@font-face` data URIs **and** outlines every label to SVG paths so Sharp/librsvg never looks up a face.
-- Required glyphs: session `X/5`, `{score} pts`, `{n}-day streak`, date / `TODAY'S FIVE`, headline, **PackPTS**, `packpts.com/daily`.
+- Required glyphs: session `X/5`, `{score} pts`, `{n}-day streak`, date / `TODAY'S FIVE`, headline, **PackPTS**, `packpts.com/daily` (Daily 5) or `packpts.com` (solo/1v1).
 
 ## Delivery
 - Generated server-side (SVG → PNG via sharp)

@@ -40,6 +40,7 @@ interface Daily5Status {
     status: "SCHEDULED" | "ACTIVE" | "CLOSED";
     startsAt: string;
     endsAt: string;
+    setId?: string | null;
   } | null;
   hasPlayed: boolean;
   entry: {
@@ -275,7 +276,7 @@ function ShareResultCard({ score, correctCount, rank, date, challengeId, shareIm
               challengeId={challengeId}
               initialImageUrl={shareImageUrl}
               downloadFilename={`packpts-daily5-${dateStr}.png`}
-              shareUrl={beatMeUrl ?? undefined}
+              shareUrl={beatMeUrl ?? "https://packpts.com/daily"}
               shareText={shareCaption}
               resolveShareUrl={async () => {
                 const created = await issueBeatMe();
@@ -381,6 +382,7 @@ export default function Daily5Page() {
   const [finishResult, setFinishResult] = useState<FinishResult | null>(null);
   const [challengeId, setChallengeId] = useState<string>("");
   const [entryId, setEntryId] = useState<string>("");
+  const [challengeSetId, setChallengeSetId] = useState<string | undefined>();
   const [answeredPositions, setAnsweredPositions] = useState<number[]>([]);
   const hydratedEntryIdRef = useRef<string | null>(null);
   const autoFinishKeyRef = useRef<string | null>(null);
@@ -434,6 +436,7 @@ export default function Daily5Page() {
     onSuccess: async (res) => {
       const data = await res.json();
       setCards(data.cards);
+      if (data.setId) setChallengeSetId(data.setId);
       applyResume(data.entry, {
         challengeId: data.entry.dailyChallengeId,
         entryId: data.entry.id,
@@ -512,6 +515,7 @@ export default function Daily5Page() {
   useEffect(() => {
     if (!statusQuery.data) return;
     const status = statusQuery.data;
+    if (status.challenge?.setId) setChallengeSetId(status.challenge.setId);
     const resume = resolveDaily5Resume(status.entry);
 
     if (status.hasPlayed && status.entry?.completedAt) {
@@ -628,9 +632,13 @@ export default function Daily5Page() {
             <div className="flex justify-center">
               <div className="w-full max-w-xs aspect-[3/4] relative">
                 <GameCard
+                  key={currentCard.cardId}
                   imageUrl={currentCard.imageUrl}
                   isRevealed={isRevealed}
                   imageRotation={0}
+                  cardId={currentCard.cardId}
+                  setKey={challengeSetId ?? statusQuery.data?.challenge?.setId ?? undefined}
+                  allowClientImageReject={false}
                 />
               </div>
             </div>

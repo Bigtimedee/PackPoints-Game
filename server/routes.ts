@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
+import { findQuestionIndexByCardId } from "./lib/cardReplacement";
 import {
   loginLimiter,
   matchCreateLimiter,
@@ -1082,7 +1083,12 @@ export async function registerRoutes(
       // Always flag the failed card for admin review (regardless of replacement availability)
       await storage.flagCardForImageFailure(failedCardId);
 
-      (session.questions[session.currentQuestionIndex] as any).imageFailure = true;
+      const failedIndex = findQuestionIndexByCardId(
+        session.questions,
+        failedCardId,
+        session.currentQuestionIndex,
+      );
+      (session.questions[failedIndex] as any).imageFailure = true;
 
       const result = await storage.getReplacementCardForSession(id, failedCardId, excludeCardIds);
       
@@ -1095,7 +1101,7 @@ export async function registerRoutes(
       // Update the session with the replacement question, preserving imageFailure flag
       const replacement = result.question as any;
       replacement.imageFailure = true;
-      session.questions[session.currentQuestionIndex] = replacement;
+      session.questions[failedIndex] = replacement;
       await storage.updateGameSession(session);
 
       console.log(`[CardReplacement] Replaced card ${failedCardId} with ${result.question.card.id} in session ${id}`);

@@ -91,6 +91,24 @@ describe("§3b today identity", () => {
     expect(svg).toContain("SEP 8");
     expect(svg).not.toContain("TODAY'S FIVE");
     expect(svg).not.toContain("DAILY 5");
+    expect(svg).toContain("packpts.com");
+    expect(svg).not.toContain("packpts.com/daily");
+  });
+
+  it("does not brand a 5-card solo session as Daily 5", () => {
+    const svg = buildScoreCardSvg({
+      username: "dave",
+      score: 500,
+      correctCount: 4,
+      totalQuestions: 5,
+      mode: "solo",
+      date: "2026-09-15",
+    });
+    expect(svg).toContain("SOLO");
+    expect(svg).not.toContain("DAILY 5");
+    expect(svg).not.toContain("TODAY'S FIVE");
+    expect(svg).toContain("packpts.com");
+    expect(svg).not.toContain("packpts.com/daily");
   });
 });
 

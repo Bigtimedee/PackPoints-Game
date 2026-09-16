@@ -328,6 +328,7 @@ export class Daily5Service {
   async startChallenge(userId: string): Promise<{
     entry: DailyChallengeEntry;
     cards: { position: number; cardId: string; imageUrl: string; choices: string[]; pointValue: number }[];
+    setId: string | null;
   }> {
     await this.updateChallengeStatuses();
     const challenge = await this.getOrCreateTodayChallenge();
@@ -413,7 +414,7 @@ export class Daily5Service {
       };
     });
 
-    return { entry, cards: maskedCards };
+    return { entry, cards: maskedCards, setId: fresh.setId ?? null };
   }
 
   async submitAnswer(userId: string, challengeId: string, position: number, selectedAnswer: string): Promise<{

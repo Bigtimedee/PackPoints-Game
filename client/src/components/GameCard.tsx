@@ -12,6 +12,16 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import type { MaskRegion } from "@shared/schema";
+import {
+  GAME_CARD_HONEST_IMAGE_ERROR_COPY,
+  GAME_CARD_REPLACEMENT_PENDING_COPY,
+  resolveGameCardImageErrorKind,
+} from "@/lib/gameCardImageError";
+import {
+  isPlaceholderBitmap,
+  isPlaceholderUrl,
+  shouldRunClientCanvasReject,
+} from "@/lib/placeholderImageDetect";
 
 interface MaskConfig {
   setKey: string;
@@ -19,89 +29,29 @@ interface MaskConfig {
   maskVersion: number;
 }
 
-const PLACEHOLDER_URL_PATTERNS = [
-  /placeholder/i,
-  /no[-_]?image/i,
-  /default[-_]?image/i,
-  /missing[-_]?image/i,
-  /silhouette/i,
-  /generic[-_]?card/i,
-  /coming[-_]?soon/i,
-  /not[-_]?available/i,
-  /fallback/i,
-  /blank[-_]?card/i,
-  /unavailable/i,
-];
-
-function isPlaceholderUrl(url: string): boolean {
-  for (const pattern of PLACEHOLDER_URL_PATTERNS) {
-    if (pattern.test(url)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 const CLIENT_SIDE_IMAGE_VALIDATION = import.meta.env.VITE_CLIENT_SIDE_IMAGE_VALIDATION !== 'false';
 
 /**
- * Canvas-based image validation — detects blank/placeholder card images.
- * Performance note: runs on the client for every loaded image.
- * Server-side canonical solution: see server/services/imageValidation.ts
- * Toggle with VITE_CLIENT_SIDE_IMAGE_VALIDATION env var (default: enabled when var is absent).
+ * Canvas silhouette check. Dominant >50% alone is NOT a silhouette (Topps Chrome
+ * borders trip that). See client/src/lib/placeholderImageDetect.ts.
  */
 function isPlaceholderImage(img: HTMLImageElement): boolean {
   try {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return false;
-    
+
     const sampleSize = 100;
     canvas.width = sampleSize;
     canvas.height = sampleSize;
-    
     ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
-    
+
     const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
-    const pixels = imageData.data;
-    
-    // Count unique colors (quantized to 32 levels like server-side)
-    const colorSet = new Set<string>();
-    for (let i = 0; i < pixels.length; i += 4) {
-      const r = Math.floor(pixels[i] / 32) * 32;
-      const g = Math.floor(pixels[i + 1] / 32) * 32;
-      const b = Math.floor(pixels[i + 2] / 32) * 32;
-      colorSet.add(`${r},${g},${b}`);
+    const analysis = isPlaceholderBitmap(imageData.data, sampleSize, sampleSize);
+    if (analysis) {
+      logger.warn(`[PlaceholderDetect] Silhouette bitmap (low unique colors AND near-flat histogram)`);
     }
-    
-    // Silhouettes typically have < 50 unique colors, but we use 30 as buffer
-    // Real cards have 300-500 unique colors (at this quantization ~40-60)
-    if (colorSet.size < 30) {
-      logger.debug(`[PlaceholderDetect] Low color diversity: ${colorSet.size} unique colors`);
-      return true;
-    }
-    
-    // Check for dominant color (silhouettes often have >60% single color)
-    const colorCounts = new Map<string, number>();
-    for (let i = 0; i < pixels.length; i += 4) {
-      const r = Math.floor(pixels[i] / 32) * 32;
-      const g = Math.floor(pixels[i + 1] / 32) * 32;
-      const b = Math.floor(pixels[i + 2] / 32) * 32;
-      const key = `${r},${g},${b}`;
-      colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
-    }
-    
-    const totalPixels = (sampleSize * sampleSize);
-    const maxCount = Math.max(...Array.from(colorCounts.values()));
-    const dominantPercent = (maxCount / totalPixels) * 100;
-    
-    // Real cards have <10% dominant color, silhouettes have >50%
-    if (dominantPercent > 50) {
-      logger.debug(`[PlaceholderDetect] High dominant color: ${dominantPercent.toFixed(1)}%`);
-      return true;
-    }
-    
-    return false;
+    return analysis;
   } catch (e) {
     if (e instanceof DOMException && e.name === 'SecurityError') {
       return false;
@@ -202,6 +152,8 @@ interface GameCardProps {
   onReportSubmitted?: () => void;
   isSetOfWeek?: boolean;
   setOfWeekMultiplier?: number;
+  /** Daily 5 must pass false — canvas reject has no replace path. Solo/1v1 default true. */
+  allowClientImageReject?: boolean;
 }
 
 export function GameCard({
@@ -225,6 +177,7 @@ export function GameCard({
   onReportSubmitted,
   isSetOfWeek = false,
   setOfWeekMultiplier,
+  allowClientImageReject = true,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
@@ -317,10 +270,8 @@ export function GameCard({
       return;
     }
     
-    // Canvas-based placeholder detection
-    // Disabled by default in production (server-side validation is the canonical solution)
-    // Enable with VITE_CLIENT_SIDE_IMAGE_VALIDATION=true
-    if (CLIENT_SIDE_IMAGE_VALIDATION) {
+    // Canvas silhouette/blank checks. Daily 5 sets allowClientImageReject={false}.
+    if (shouldRunClientCanvasReject(allowClientImageReject, CLIENT_SIDE_IMAGE_VALIDATION)) {
       if (isBlankImage(img)) {
         setImageError(true);
         onImageError?.();
@@ -388,6 +339,8 @@ export function GameCard({
     return false;
   }, []);
 
+  const imageErrorKind = resolveGameCardImageErrorKind({ showSkipButton, showReplaceButton, onImageError });
+
   return (
     <div 
       className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900 select-none max-h-full"
@@ -406,8 +359,8 @@ export function GameCard({
         </div>
       )}
       {imageError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200 z-30">
-          <div className="text-center space-y-3">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200 z-30" data-testid="game-card-image-error">
+          <div className="text-center space-y-3 px-4">
             {cardNumber && (
               <div className="mb-4">
                 <p className="text-2xl font-bold text-amber-800">Image Failed to Load</p>
@@ -415,12 +368,20 @@ export function GameCard({
                 {team && <p className="text-sm text-amber-600 mt-2">{team}</p>}
               </div>
             )}
-            {!showSkipButton && !showReplaceButton ? (
+            {imageErrorKind === "honest" && (
+              <p className="text-sm text-amber-900" data-testid="text-game-card-image-error">
+                {GAME_CARD_HONEST_IMAGE_ERROR_COPY}
+              </p>
+            )}
+            {imageErrorKind === "replace-pending" && (
               <>
                 <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">Finding a replacement card...</p>
+                <p className="text-sm text-muted-foreground" data-testid="text-game-card-image-error">
+                  {GAME_CARD_REPLACEMENT_PENDING_COPY}
+                </p>
               </>
-            ) : showReplaceButton ? (
+            )}
+            {imageErrorKind === "replace-button" && (
               <>
                 {!replacePending && (
                   <Button 
@@ -441,7 +402,8 @@ export function GameCard({
                   </div>
                 )}
               </>
-            ) : (
+            )}
+            {imageErrorKind === "skip-button" && (
               <Button 
                 variant="default" 
                 size="default"

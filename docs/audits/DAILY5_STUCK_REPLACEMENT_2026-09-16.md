@@ -1,5 +1,7 @@
 # Daily 5 stuck on “Finding a replacement card…”
 
+**Status (fix):** implemented 2026-09-16. Daily 5 never canvas-rejects (`allowClientImageReject={false}`), overlay copy is honest when there is no replace path, silhouette heuristic no longer treats dominant >50% alone as a fake, share/results branding follows `mode === "daily5"`, and solo replace stamps `imageFailure` on the failed card index + looks up sport via `gameSetId`. Daily 5 still must not call solo `replace-card`. No production card-row mutation.
+
 **Incident date:** 2026-09-16 01:50 UTC (CT calendar day **2026-09-15**)  
 **Reporter / user:** Dave Maloney (`Bigtimedee`)  
 **Surface:** https://packpts.com/daily5  
