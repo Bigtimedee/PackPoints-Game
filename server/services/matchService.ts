@@ -233,6 +233,7 @@ class MatchService {
       id: matchId,
       lobbyId,
       status: MatchStatus.ACTIVE,
+      cardSetId: lobby.gameSetId || null,
       totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
     }).returning();
@@ -251,6 +252,7 @@ class MatchService {
       currentQuestionIndex: 0,
       totalQuestions: questions.length,
       questions,
+      gameSetId: lobby.gameSetId || undefined,
       participants: [
         { userId: lobby.hostId, username: lobby.hostUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
         { userId: lobby.guestId, username: lobby.guestUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
@@ -297,6 +299,7 @@ class MatchService {
       status: MatchStatus.ACTIVE,
       hostUserId: lobby.hostId,
       guestUserId: lobby.guestId,
+      cardSetId: lobby.gameSetId || null,
       totalQuestions: questions.length,
       questionsData: JSON.stringify(questions),
       sessionId: opts?.sessionId ?? null,
@@ -317,6 +320,7 @@ class MatchService {
       currentQuestionIndex: 0,
       totalQuestions: questions.length,
       questions,
+      gameSetId: lobby.gameSetId || undefined,
       participants: [
         { userId: lobby.hostId, username: lobby.hostUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
         { userId: lobby.guestId, username: lobby.guestUsername, score: 0, correctAnswers: 0, currentQuestionIndex: 0, hasAnsweredCurrent: false },
@@ -689,6 +693,7 @@ class MatchService {
         currentQuestionIndex: matchCurrentIndex,
         totalQuestions: match.totalQuestions,
         questions,
+        gameSetId: match.cardSetId || undefined,
         participants: participants.map(p => ({
           userId: p.userId,
           username: p.username,

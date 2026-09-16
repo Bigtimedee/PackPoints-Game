@@ -1,10 +1,10 @@
 # Mask removal only after successful answer submit
 
-**Status:** audit + executive plan. **No behavior fix in this change.**  
+**Status:** implemented (behavior PR on top of this audit).  
 **Date:** 2026-09-16  
 **Codebase:** `origin/main` @ `07215b1b` (`#87` Play Again; includes `#86` v4.0 name localization and `#85` Daily 5 overlay).  
 **Reporter / product owner:** Dave — after a user has **submitted** an answer, the mask must be removed to reveal the **full** card. The mask must **not** be removed before a successful submit.  
-**This document:** read-only engineering audit. No production schema or card-row mutation. No invented live DB state.
+**This document:** read-only engineering audit of `main` before the fix. The behavior PR implements §8 Steps 1–4.
 
 Evidence classes:
 

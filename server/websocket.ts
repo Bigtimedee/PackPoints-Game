@@ -1259,6 +1259,7 @@ function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number
     status: matchState.status,
     currentQuestionIndex: matchState.currentQuestionIndex,
     totalQuestions: matchState.totalQuestions,
+    gameSetId: matchState.gameSetId,
     currentQuestion: currentQuestion ? {
       card: {
         id: currentQuestion.card.id,
