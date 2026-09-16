@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Trophy, Zap, User, Mail, Lock, LogIn } from "lucide-react";
+import { Loader2, Trophy, Zap, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -34,9 +34,10 @@ interface SignupModalProps {
   onOpenChange: (open: boolean) => void;
   pendingPoints: number;
   onSuccess?: () => void;
+  onPlayAgain?: () => void;
 }
 
-export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: SignupModalProps) {
+export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain }: SignupModalProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   
@@ -305,12 +306,23 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
                   </Button>
                   <Button 
                     type="button" 
-                    variant="ghost" 
-                    onClick={() => onOpenChange(false)}
+                    variant={onPlayAgain ? "outline" : "ghost"}
+                    className={onPlayAgain ? "w-full min-h-11" : undefined}
+                    onClick={() => {
+                      onOpenChange(false);
+                      onPlayAgain?.();
+                    }}
                     disabled={registerMutation.isPending}
-                    data-testid="button-modal-skip"
+                    data-testid={onPlayAgain ? "button-modal-play-again" : "button-modal-skip"}
                   >
-                    Skip for Now
+                    {onPlayAgain ? (
+                      <>
+                        <RefreshCw className="h-4 w-4" />
+                        Play Again
+                      </>
+                    ) : (
+                      "Skip for Now"
+                    )}
                   </Button>
                 </div>
               </form>
@@ -394,12 +406,23 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess }: Si
                   </Button>
                   <Button 
                     type="button" 
-                    variant="ghost" 
-                    onClick={() => onOpenChange(false)}
+                    variant={onPlayAgain ? "outline" : "ghost"}
+                    className={onPlayAgain ? "w-full min-h-11" : undefined}
+                    onClick={() => {
+                      onOpenChange(false);
+                      onPlayAgain?.();
+                    }}
                     disabled={loginMutation.isPending}
-                    data-testid="button-modal-skip"
+                    data-testid={onPlayAgain ? "button-modal-play-again" : "button-modal-skip"}
                   >
-                    Skip for Now
+                    {onPlayAgain ? (
+                      <>
+                        <RefreshCw className="h-4 w-4" />
+                        Play Again
+                      </>
+                    ) : (
+                      "Skip for Now"
+                    )}
                   </Button>
                 </div>
               </form>
