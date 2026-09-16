@@ -110,6 +110,32 @@ describe("§3b today identity", () => {
     expect(svg).toContain("packpts.com");
     expect(svg).not.toContain("packpts.com/daily");
   });
+
+  it("keeps Dave's 6/9 scored chrome and shows the 10th dealt skip (not packpts.com/daily)", () => {
+    const svg = buildScoreCardSvg({
+      username: "dave",
+      score: 1050,
+      correctCount: 6,
+      totalQuestions: 9,
+      skippedQuestions: 1,
+      mode: "solo",
+      streak: 1,
+      date: "2026-09-15",
+    });
+    expect(svg).toContain("SOLO");
+    expect(svg).toContain("SEP 15");
+    expect(svg).toContain("6/9");
+    expect(svg).toContain("10 dealt");
+    expect(svg).toContain("1050 pts");
+    expect(svg).toContain("1-day streak · 1 skipped");
+    expect(svg).toContain("Six locked. Three open.");
+    expect(svg).not.toContain("Nine locked");
+    expect(svg).toContain("packpts.com");
+    expect(svg).not.toContain("packpts.com/daily");
+    expect(svg).not.toContain("DAILY 5");
+    expect((svg.match(/fill="#22C55E"/g) || []).length).toBe(6);
+    expect((svg.match(/fill="#F5C518"/g) || []).length).toBe(2);
+  });
 });
 
 describe("buildMaskedStripSvg()", () => {
@@ -125,6 +151,13 @@ describe("buildPipsSvg()", () => {
     const svg = buildPipsSvg(3, 5);
     expect((svg.match(/fill="#22C55E"/g) || []).length).toBe(3);
     expect((svg.match(/fill="none"/g) || []).length).toBe(2);
+  });
+
+  it("does not collapse a 10-card solo with 1 skip into a silent 9-pip row", () => {
+    const svg = buildPipsSvg(6, 9, 1);
+    expect((svg.match(/fill="#22C55E"/g) || []).length).toBe(6);
+    expect((svg.match(/fill="#F5C518"/g) || []).length).toBe(1);
+    expect((svg.match(/fill="none"/g) || []).length).toBe(4);
   });
 });
 

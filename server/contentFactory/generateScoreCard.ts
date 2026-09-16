@@ -62,7 +62,10 @@ export interface ScoreCardInput {
   username: string;
   score: number;
   correctCount: number;
+  /** Answered / scored count (Dave's 6/9). Not the dealt total when skips exist. */
   totalQuestions: number;
+  /** Dealt cards that were skipped. Do not fold this into totalQuestions. */
+  skippedQuestions?: number;
   mode: string;
   streak?: number;
   rank?: number;
@@ -156,7 +159,28 @@ function numberWord(n: number): string {
   return String(n);
 }
 
-/** Session headline. Always uses the real correct/open counts — never a canned 4/5. */
+export function skippedQuestionCount(skipped: unknown): number {
+  return asCount(skipped);
+}
+
+/** Dealt cards = scored answers + skips. Used for pip count so 10−1 is not a silent 9. */
+export function dealtQuestionCount(scoredTotal: number, skipped: unknown): number {
+  return Math.max(0, asCount(scoredTotal) + skippedQuestionCount(skipped));
+}
+
+export function buildSkipOverlayLabel(skipped: unknown): string | undefined {
+  const n = skippedQuestionCount(skipped);
+  if (n < 1) return undefined;
+  return n === 1 ? "1 skipped" : `${n} skipped`;
+}
+
+/** Muted status under pts: streak and/or skip. Matches Game Complete “1 card skipped”. */
+export function buildScoreCardStatusLine(streak: unknown, skipped: unknown): string | undefined {
+  const parts = [buildStreakOverlayLabel(streak), buildSkipOverlayLabel(skipped)].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
+/** Session headline. Always uses the real correct/open counts — never a canned 4/5. Skip is the status line + skip pip. */
 export function buildScoreCardHeadline(correctCount: number, totalQuestions: number): string {
   const locked = Math.max(0, Math.min(correctCount, totalQuestions));
   const open = Math.max(0, totalQuestions - locked);
@@ -177,14 +201,39 @@ export function buildStreakOverlayLabel(streak: unknown): string | undefined {
   return n === 1 ? "1-day streak" : `${n}-day streak`;
 }
 
-export function buildPipsSvg(correctCount: number, totalQuestions: number): string {
-  const count = Math.max(1, Math.min(totalQuestions > 0 ? totalQuestions : 5, 12));
+function skippedPipSvg(x: number, y: number): string {
+  const barH = 6;
+  const barY = y + Math.round((PIP_SIZE - barH) / 2);
+  const inset = 8;
+  return [
+    `<rect x="${x}" y="${y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="none" stroke="${SCORE_CARD_COLORS.muted}" stroke-width="3"/>`,
+    `<rect x="${x + inset}" y="${barY}" width="${PIP_SIZE - inset * 2}" height="${barH}" rx="2" fill="${SCORE_CARD_COLORS.gold}"/>`,
+  ].join("");
+}
+
+/**
+ * Pips are the dealt story. `totalQuestions` is scored (6/9); `skippedQuestions`
+ * adds skip pips so a 10-card solo with 1 skip is not a clean 9-pip row.
+ */
+export function buildPipsSvg(
+  correctCount: number,
+  totalQuestions: number,
+  skippedQuestions = 0,
+): string {
+  const scored = Math.max(0, totalQuestions);
+  const skipped = skippedQuestionCount(skippedQuestions);
+  const dealt = dealtQuestionCount(scored, skipped);
+  const count = Math.max(1, Math.min(dealt > 0 ? dealt : 5, 12));
   const filled = Math.max(0, Math.min(correctCount, count));
+  const skipPips = Math.max(0, Math.min(skipped, count - filled));
   const startX = pipStartX(count);
   return Array.from({ length: count }, (_, i) => {
     const x = startX + i * (PIP_SIZE + PIP_GAP);
     if (i < filled) {
       return `<rect x="${x}" y="${PIP_Y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="${SCORE_CARD_COLORS.green}"/>`;
+    }
+    if (i < filled + skipPips) {
+      return skippedPipSvg(x, PIP_Y);
     }
     return `<rect x="${x}" y="${PIP_Y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
   }).join("");
@@ -211,9 +260,11 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const cx = W / 2;
   const correct = asCount(input.correctCount);
   const total = asCount(input.totalQuestions);
+  const skipped = skippedQuestionCount(input.skippedQuestions);
+  const dealt = dealtQuestionCount(total, skipped);
   const score = asCount(input.score);
   const headline = buildScoreCardHeadline(correct, total);
-  const streakLabel = buildStreakOverlayLabel(input.streak);
+  const statusLine = buildScoreCardStatusLine(input.streak, skipped);
   const isDaily5Mode = isDaily5ScoreCardMode(input.mode);
   const eyebrow = scoreCardEyebrow(input.mode);
   const footerCta = scoreCardFooterCta(input.mode);
@@ -237,8 +288,8 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
     textToPath(fonts.bold, scoreNum, scoreX, 400, scoreSize, ink),
     textToPath(fonts.bold, scoreDen, scoreX + numWidth, 400, scoreSize, muted),
     textToPath(fonts.semibold, pointsLabel, cx, 470, 32, muted, { anchor: "middle" }),
-    streakLabel
-      ? textToPath(fonts.semibold, streakLabel, cx, 518, 28, muted, { anchor: "middle" })
+    statusLine
+      ? textToPath(fonts.semibold, statusLine, cx, 518, 28, muted, { anchor: "middle" })
       : "",
     textToPath(fonts.bold, headline, cx, 700, 48, ink, { anchor: "middle" }),
     textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
@@ -250,8 +301,9 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
     eyebrow,
     identity,
     `${scoreNum}${scoreDen}`,
+    dealt !== total ? `${dealt} dealt` : "",
     pointsLabel,
-    streakLabel,
+    statusLine,
     headline,
     "PackPTS",
     footerCta,
@@ -274,7 +326,7 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
 
   ${strip}
 
-  ${buildPipsSvg(correct, total)}
+  ${buildPipsSvg(correct, total, skipped)}
 
   <g transform="translate(80, 940)">
     <g transform="scale(0.0546875)">

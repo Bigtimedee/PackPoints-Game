@@ -1469,6 +1469,7 @@ export async function registerRoutes(
                 score: finalScore,
                 correctCount: session.correctAnswers,
                 totalQuestions: effectiveTotal,
+                skippedQuestions: session.skippedQuestions ?? 0,
                 mode: session.mode || "solo",
                 streak: streakDays,
               }).catch(err => {

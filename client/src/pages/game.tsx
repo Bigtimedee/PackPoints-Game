@@ -858,7 +858,10 @@ export default function Game() {
       : 0;
 
     const setName = currentGameSet ? getSetDisplayName(currentGameSet) : "classic";
-    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
+    const skipNote = (session.skippedQuestions ?? 0) > 0
+      ? ` (${session.skippedQuestions} skipped)`
+      : "";
+    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} with ${accuracy}% accuracy. Can you beat my score?`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
     const logShareEvent = async (shareType: string, target: string, contentAssetId?: string) => {
@@ -995,7 +998,7 @@ export default function Game() {
                 initialImageUrl={shareImageUrl}
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
                 shareUrl="https://packpts.com"
-                shareText={`I scored ${session.score} points on PackPTS! Play at packpts.com`}
+                shareText={shareText}
               />
             )}
 

@@ -1,6 +1,6 @@
 # Daily 5 stuck on “Finding a replacement card…”
 
-**Status (fix):** implemented 2026-09-16. Daily 5 never canvas-rejects (`allowClientImageReject={false}`), overlay copy is honest when there is no replace path, silhouette heuristic no longer treats dominant >50% alone as a fake, share/results branding follows `mode === "daily5"`, and solo replace stamps `imageFailure` on the failed card index + looks up sport via `gameSetId`. Daily 5 still must not call solo `replace-card`. No production card-row mutation.
+**Status (fix):** implemented 2026-09-16. Daily 5 never canvas-rejects (`allowClientImageReject={false}`), overlay copy is honest when there is no replace path, silhouette heuristic no longer treats dominant >50% alone as a fake, share/results branding follows `mode === "daily5"`, solo share footer is `packpts.com` (not `/daily`), and a skipped card is painted on the 1080 (dealt pips + `1 skipped`) instead of a silent `10−1=9` row. Solo replace stamps `imageFailure` on the failed card index + looks up sport via `gameSetId`. Daily 5 still must not call solo `replace-card`. No production card-row mutation. Design target: Dave’s `/game/solo` Game Complete screenshot (1994 Topps Football, 6 of 9 + 1 skipped).
 
 **Incident date:** 2026-09-16 01:50 UTC (CT calendar day **2026-09-15**)  
 **Reporter / user:** Dave Maloney (`Bigtimedee`)  

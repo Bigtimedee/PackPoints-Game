@@ -236,6 +236,7 @@ describe("buildScoreCardHeadline()", () => {
     expect(buildScoreCardHeadline(5, 5)).toBe("Five locked.");
     expect(buildScoreCardHeadline(0, 5)).toBe("None locked. Five open.");
     expect(buildScoreCardHeadline(3, 5)).not.toContain("Four");
+    expect(buildScoreCardHeadline(6, 9)).toBe("Six locked. Three open.");
   });
 });
 

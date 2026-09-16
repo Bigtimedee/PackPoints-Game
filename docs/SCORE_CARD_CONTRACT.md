@@ -25,6 +25,7 @@ Same 1080 canvas, pips, and PackPTS mark. Branding follows **`mode === "daily5"`
 - Eyebrow: `SOLO` or `1V1 MATCH` — never `DAILY 5` for a 5-card solo
 - No `TODAY'S FIVE` and no mini masked-strip
 - Footer right: `packpts.com` (not `/daily`)
+- **Skips:** never fold `dealt − skipped` into a silent pip row. Dave’s 10-card solo with 1 skip (screenshot: Game Complete `6 of 9` + “1 card skipped”, share PNG `6/9` / `Six locked. Three open.`) keeps scored `6/9` and paints **10 pips** (6 locked `#22C55E`, 1 skipped muted outline + gold bar, 3 open) plus muted `1 skipped` under pts (with streak: `1-day streak · 1 skipped`). Accuracy stays 6/9 = 67%. Footer is `packpts.com`.
 
 ## Palette (Design Sync)
 - Canvas `#0b0f16` · gold `#F5C518` · green `#22C55E` · ink `#F0F2F5` · muted `#8F96A3`
