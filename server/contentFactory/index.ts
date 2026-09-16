@@ -31,6 +31,7 @@ export interface MatchFinishedEvent {
   score: number;
   correctCount: number;
   totalQuestions: number;
+  skippedQuestions?: number;
   mode: string;
   setName?: string;
   streak?: number;
@@ -80,6 +81,7 @@ function scoreCardInputFromMetadata(username: string, metadata: Record<string, u
     totalQuestions: asFiniteNumber(meta.totalQuestions) ?? 0,
     mode: typeof meta.mode === "string" ? meta.mode : fallbackMode,
     streak: asFiniteNumber(meta.streak),
+    skippedQuestions: asFiniteNumber(meta.skippedQuestions),
     rank: asFiniteNumber(meta.rank),
     setName: typeof meta.setName === "string" ? meta.setName : undefined,
     date,
@@ -164,6 +166,7 @@ export async function onMatchFinished(event: MatchFinishedEvent): Promise<{ asse
         score: event.score,
         correctCount: event.correctCount,
         totalQuestions: event.totalQuestions,
+        skippedQuestions: event.skippedQuestions ?? 0,
         mode: event.mode,
         setName: event.setName,
         streak: event.streak,
@@ -176,6 +179,7 @@ export async function onMatchFinished(event: MatchFinishedEvent): Promise<{ asse
       score: event.score,
       correctCount: event.correctCount,
       totalQuestions: event.totalQuestions,
+      skippedQuestions: event.skippedQuestions ?? 0,
       mode: event.mode,
       streak: event.streak,
       setName: event.setName,

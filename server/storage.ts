@@ -11,6 +11,7 @@ import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } fro
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
+import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
 
 // Known silhouette/placeholder URL patterns that should NEVER be served
 // These are stock images from Card Hedge that indicate missing card scans
@@ -976,14 +977,28 @@ export class DatabaseStorage implements IStorage {
     ]);
 
     // Get a replacement card from the same set, excluding used cards
-    const currentQuestion = session.questions[session.currentQuestionIndex];
-    const setName = currentQuestion?.card.setName;
+    const failedIndex = findQuestionIndexByCardId(
+      session.questions,
+      failedCardId,
+      session.currentQuestionIndex,
+    );
+    const failedQuestion = session.questions[failedIndex] || session.questions[session.currentQuestionIndex];
+    const { gameSetId, setName } = replacementSetLookup(failedQuestion?.card);
 
-    // Find the set ID and sport
-    let targetSetId: string | null = null;
+    let targetSetId: string | null = gameSetId;
     let expectedSport: string | null = null;
-    
-    if (setName) {
+
+    if (gameSetId) {
+      const [gameSet] = await db
+        .select({ id: gameSets.id, sport: gameSets.sport })
+        .from(gameSets)
+        .where(eq(gameSets.id, gameSetId))
+        .limit(1);
+      if (gameSet) {
+        targetSetId = gameSet.id;
+        expectedSport = gameSet.sport?.toLowerCase() || null;
+      }
+    } else if (setName) {
       const [gameSet] = await db
         .select({ id: gameSets.id, sport: gameSets.sport })
         .from(gameSets)

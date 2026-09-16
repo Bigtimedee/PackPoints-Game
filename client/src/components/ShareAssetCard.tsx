@@ -113,10 +113,10 @@ export function ShareAssetCard({
   kind = "score",
   initialImageUrl,
   downloadFilename = kind === "maker" ? "packpts-set.png" : "packpts-score.png",
-  shareUrl = kind === "maker" ? "https://packpts.com/sets" : "https://packpts.com/daily",
+  shareUrl = kind === "maker" ? "https://packpts.com/sets" : "https://packpts.com",
   shareText = kind === "maker"
     ? "I MADE THIS SET on PackPTS"
-    : "I just played PackPTS! Check it out at packpts.com/daily",
+    : "I just played PackPTS! Check it out at packpts.com",
   shareTitle = kind === "maker" ? "I MADE THIS SET" : "My PackPTS Score",
   resolveShareUrl,
   onShareOpen,

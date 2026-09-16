@@ -858,7 +858,10 @@ export default function Game() {
       : 0;
 
     const setName = currentGameSet ? getSetDisplayName(currentGameSet) : "classic";
-    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards with ${accuracy}% accuracy. Can you beat my score?`;
+    const skipNote = (session.skippedQuestions ?? 0) > 0
+      ? ` (${session.skippedQuestions} skipped)`
+      : "";
+    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} with ${accuracy}% accuracy. Can you beat my score?`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
     const logShareEvent = async (shareType: string, target: string, contentAssetId?: string) => {
@@ -966,7 +969,7 @@ export default function Game() {
             <div className="space-y-2">
               <h2 className="text-2xl font-bold" data-testid="text-game-over-title">Game Complete</h2>
               <p className="text-muted-foreground uppercase tracking-wider text-sm">
-                {effectiveTotal === 5 ? "DAILY 5" : `Here's how well you know your ${currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards`}
+                {`Here's how well you know your ${currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards`}
               </p>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -994,8 +997,8 @@ export default function Game() {
                 matchId={session.id}
                 initialImageUrl={shareImageUrl}
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
-                shareUrl="https://packpts.com/daily"
-                shareText={`I scored ${session.score} points on PackPTS! Play at packpts.com/daily`}
+                shareUrl="https://packpts.com"
+                shareText={shareText}
               />
             )}
 
