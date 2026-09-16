@@ -8582,8 +8582,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Masked image not found" });
       }
 
+      const { CURRENT_MASK_VERSION } = await import("./masking/maskProfiles");
       res.setHeader("Content-Type", "image/jpeg");
       res.setHeader("Cache-Control", "public, max-age=3600");
+      res.setHeader("ETag", `"${CURRENT_MASK_VERSION}"`);
+      res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
       res.setHeader("Content-Security-Policy", "default-src 'none'");
       res.setHeader("X-Content-Type-Options", "nosniff");
       
