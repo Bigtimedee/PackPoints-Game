@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-15 (admin game-set DELETE is a hard delete; `/admin/playable-sets` exposes it)
+**Last verified against codebase:** 2026-09-16 (Daily 5 card-1 “Finding a replacement card…” hang: client silhouette heuristic + unwired GameCard error UI; audit `docs/audits/DAILY5_STUCK_REPLACEMENT_2026-09-16.md`)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -105,6 +105,7 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 - **Day key:** **America/Chicago (CT)** — shared with streak and Beat-me `puzzle_day` via `shared/packptsDay.ts`. Daily 5 challenge window is CT midnight → next CT midnight (`getDailyStartEnd` / `packptsMidnightUtc`). Stale check is `token.puzzle_day === getPackptsDayKey()`. Do not use America/New_York or UTC dates for this identity.
 - **Window reconcile:** Existing `daily_challenges` rows created with UTC-midnight `startsAt`/`endsAt` are rewritten on load (any get-by-date) and by `updateChallengeStatuses`. If stored windows differ by >1s from CT midnights, or `status` disagrees with now, the row is UPDATEd to CT `startsAt`/`endsAt` and `ACTIVE` / `SCHEDULED` / `CLOSED`. The activate-SCHEDULED path cannot leave a CT-correct window stuck as SCHEDULED after start time.
 - **Fairness:** Same cards for everyone; new-account detection (accounts < 7 days old may have restrictions)
+- **Known gap (2026-09-16):** Daily 5 mounts `GameCard` with no `onImageError` / skip / replace. Client-side placeholder detection (`isPlaceholderImage`, dominant quantized color > 50%) can reject a **successfully served** masked JPEG. Verified live for CT day 2026-09-15 position 1 (Nicolas Batum Topps Chrome, `GET /masked-image` 200, dominant ~57%). Overlay copy is the solo-mode lie “Finding a replacement card…”; Daily 5 has no replace API (and must not swap cards). Header `0/200 cards` is the daily earning-cap badge, not causal. Full chain, logs, and fix order: `docs/audits/DAILY5_STUCK_REPLACEMENT_2026-09-16.md`. Do not wire Daily 5 into `POST /api/game/session/:id/replace-card`.
 
 ### 1v1 Friend Match
 - **Status:** Implemented
@@ -1703,6 +1704,7 @@ railway variables --service Postgres --json | python3 -c \
 - [x] @PlayPackPTS social PNG tofu (2026-09-14): `gameImageRenderer.ts` (scheduler → `composePostImage`) still used `<text font-family="sans-serif">`. Same Alpine/fontconfig miss as the score card. All seven social composers now outline Inter (Inter Regular/Bold; no italic face) so Railway PNGs cannot tofu. Pixel guard: `server/tests/gameImageRender.test.ts`. SOCIAL_PNG_QA (`docs/design/SOCIAL_PNG_QA.md`): Inter + DejaVu required (`assertShareFontsPresent` in `script/build.ts` + CI); Alpine `font-dejavu` / Ubuntu `fonts-dejavu-core`; Design-baked social exports preferred when present. Video-factory frame SVGs still use system-ui `<text>` (not this share-PNG path).
 - [x] ELO-based matchmaking with expanding band (Prompt 19): matchmaking_tickets.elo_rating column stores player ELO at queue-join time; pairing SQL uses ABS(elo1-elo2) <= LEAST(500, 100 + 50*floor(maxWaitSeconds/30)); starts at ±100, expands ±50 per 30s, caps at ±500 after ~4 min
 - [x] AI fallback bot opponent (Prompt 20): after 60s in queue with no human match, dbQueue triggers createBotMatch(); bot accuracy scales with human ELO (1000→55%, 2200→92%); bot answers via scheduleBotAnswers() polling loop every 500ms, random delay 1.5–7s per question; anti-farm cap: 5 bot games per day per user (extras get bot_unavailable); users.is_bot column + seed bot user `packpts-bot-00000000-0000-0000-0000-000000000001`
+- [ ] Daily 5 card-1 hang “Finding a replacement card…” (2026-09-16): `GameCard.isPlaceholderImage` dominant-color >50% rejected a live HTTP 200 Topps Chrome JPEG; Daily 5 has no replace path so the overlay never clears. Audit: `docs/audits/DAILY5_STUCK_REPLACEMENT_2026-09-16.md`. Do not fix by wiring Daily 5 into solo `replace-card`.
 - [ ] Wager match settlement is still in progress (confirmed not complete)
 - [ ] Adaptive difficulty (personalized card selection) not implemented
 - [ ] Tournament mode not implemented (UI shows "coming soon")
