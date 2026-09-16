@@ -21,16 +21,11 @@ import { abTests, socialPosts, evolvedCopyVariants } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { createLogger } from "./logger";
 import type { SocialContentType } from "./contentGenerator";
+import { AUTO_CONTENT_TYPE, detectMarketingSorViolation } from "./marketingSor";
 
 const logger = createLogger("PromptEvolution");
 
 const CONTENT_TYPES: SocialContentType[] = [
-  "TRIVIA_CARD",
-  "LEADERBOARD_HIGHLIGHT",
-  "STREAK_MILESTONE",
-  "MARKET_PRICE_SPOTLIGHT",
-  "NEW_USER_ACQUISITION",
-  "REWARD_ANNOUNCEMENT",
   "CHALLENGE",
 ];
 
@@ -79,6 +74,7 @@ async function fetchRecentWinners(): Promise<WinnerRecord[]> {
 
   for (const test of concludedTests) {
     if (!test.winner || !test.contentType) continue;
+    if (test.contentType !== AUTO_CONTENT_TYPE) continue;
 
     // Find a published post from the winning group for this test
     const winningPost = await (await getDb())
@@ -94,6 +90,7 @@ async function fetchRecentWinners(): Promise<WinnerRecord[]> {
       .limit(1);
 
     if (winningPost.length === 0) continue;
+    if (detectMarketingSorViolation(winningPost[0].copyText).matched) continue;
 
     // Get the conversion rate for the winning group
     const statsRow = await (await getDb()).execute(sql`
@@ -172,9 +169,10 @@ ${winnersBlock.length > 0 ? winnersBlock : "No concluded tests yet. Generate fir
 
 ## Your task
 
-For each content type listed above (or all 7 types if there are no winners), generate the
+For each content type listed above (CHALLENGE / Daily 5 ritual only — never NEW_USER_ACQUISITION or REWARD_ANNOUNCEMENT), generate the
 next generation of A/B/C variants. Study the winning copy to understand what mechanic drove
-conversions, then push further in that direction while staying within the brand voice constraints.
+Daily 5 engagement, then push further in that direction while staying within Marketing SoR:
+Daily 5 announcement/recap tone, no signup bonus, no 250 free pts, no FOMO acquisition, no hashtag dumps.
 
 Return a JSON array where each element matches this shape exactly:
 {
@@ -201,14 +199,28 @@ Return ONLY valid JSON. No markdown fences, no explanation outside the JSON.`;
     const raw = response.choices[0]?.message?.content?.trim() ?? "";
     const parsed: GeneratedVariants[] = JSON.parse(raw);
 
-    // Basic validation
-    return parsed.filter(
-      item =>
-        item.contentType &&
-        item.variants?.A &&
-        item.variants?.B &&
-        item.variants?.C,
-    );
+    // Basic validation + Marketing SoR: Daily 5 CHALLENGE only, no FOMO copy
+    return parsed.filter((item) => {
+      if (!item.contentType || !item.variants?.A || !item.variants?.B || !item.variants?.C) {
+        return false;
+      }
+      if (item.contentType !== AUTO_CONTENT_TYPE && !CONTENT_TYPES.includes(item.contentType as SocialContentType)) {
+        logger.warn("evolution_filtered_unknown_type", { contentType: item.contentType });
+        return false;
+      }
+      if (item.contentType !== AUTO_CONTENT_TYPE) {
+        logger.warn("evolution_filtered_non_daily5_type", { contentType: item.contentType });
+        return false;
+      }
+      for (const copy of Object.values(item.variants)) {
+        const violation = detectMarketingSorViolation(copy);
+        if (violation.matched) {
+          logger.warn("evolution_filtered_fomo_variant", { contentType: item.contentType, reason: violation.reason });
+          return false;
+        }
+      }
+      return true;
+    });
   } catch (err) {
     logger.error("openai_generation_failed", { error: String(err) });
     return [];

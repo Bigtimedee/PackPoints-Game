@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { socialPosts } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { createLogger } from "./logger";
+import { detectMarketingSorViolation } from "./marketingSor";
 
 const logger = createLogger("Preflight");
 
@@ -43,7 +44,13 @@ export function validatePostForPublishing(post: {
   contentType: string;
   composedImagePath?: string | null;
   mediaRequired?: boolean | null;
+  hashtags?: string[] | null;
 }): PreflightResult {
+  const sor = detectMarketingSorViolation(post.copyText, post.hashtags);
+  if (sor.matched) {
+    return { blocked: true, reason: sor.reason };
+  }
+
   const visualType = isVisualContentType(post.contentType);
   const visualCopy = detectsVisualReference(post.copyText);
   const needsMedia = post.mediaRequired || visualType || visualCopy;
@@ -78,6 +85,7 @@ export async function auditBlockedPosts(): Promise<{ blocked: number }> {
       contentType: post.contentType,
       composedImagePath: post.composedImagePath,
       mediaRequired: post.mediaRequired,
+      hashtags: post.hashtags,
     });
 
     if (result.blocked) {

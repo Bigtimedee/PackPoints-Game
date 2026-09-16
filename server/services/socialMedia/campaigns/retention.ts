@@ -1,22 +1,19 @@
 import type { SocialContentType } from "../contentGenerator";
+import { AUTO_CONTENT_TYPE } from "../marketingSor";
 
+/** Retention rotation is Daily 5 only — no reward/signup FOMO types. */
 export const retentionCampaign = {
   campaignId: "retention-v1",
 
-  contentTypeRotation: [
-    "STREAK_MILESTONE",
-    "REWARD_ANNOUNCEMENT",
-    "CHALLENGE",
-    "LEADERBOARD_HIGHLIGHT",
-  ] as SocialContentType[],
+  contentTypeRotation: [AUTO_CONTENT_TYPE] as SocialContentType[],
 
   hashtags: {
-    primary: ["#PackPTS", "#SportsCards", "#Streak"],
-    secondary: ["#DailyChallenge", "#CardCollector", "#Rewards"],
+    primary: ["#PackPTS", "#Daily5"],
+    secondary: [] as string[],
   },
 
   ctaVariants: {
-    A: "Keep your streak alive at PackPTS.com.",
-    B: "Come back for today's card challenge at PackPTS.com.",
+    A: "Keep the Daily 5 streak at packpts.com/daily",
+    B: "Come back for today's five at packpts.com/daily",
   },
 };

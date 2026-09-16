@@ -41,7 +41,7 @@ This guide covers all environment variables needed to run PackPTS on Railway.
 | `INSTAGRAM_ACCESS_TOKEN` | Instagram Business account token |
 | `FACEBOOK_PAGE_ACCESS_TOKEN` | Facebook Page access token |
 | `TIKTOK_ACCESS_TOKEN` | TikTok Business account token |
-| `SOCIAL_MEDIA_AGENT_ENABLED` | Set to `true` to enable autonomous posting |
+| `SOCIAL_MEDIA_AGENT_ENABLED` | Set to `true` to enable autonomous Daily 5 posting (SoR-safe after 2026-09-16 lock) |
 
 ## Optional Features
 

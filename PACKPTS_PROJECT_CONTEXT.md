@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-16 (Design QA: play-sets CDN aliases + PSA-slab top-label mask v4.1. Guessing bake `?v=v4.1` + overlay; post-submit full-card reveal unchanged. Play Again #87; name masking #86; Daily 5 overlay #85)
+**Last verified against codebase:** 2026-09-16 (Social Media Agent Marketing SoR: Daily 5-only auto X + FOMO preflight; play-sets CDN aliases + PSA-slab mask v4.1; post-submit full-card reveal. Play Again #87; name masking #86; Daily 5 overlay #85)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -704,7 +704,19 @@ Items in the `publishing_queue` are designed for **manual posting** by an operat
 
 **Location:** `server/services/socialMedia/`
 **Toggle:** `SOCIAL_MEDIA_AGENT_ENABLED=true`
-**Purpose:** Fully autonomous content generation, image composition, A/B testing, publishing, analytics, and prompt evolution
+**Marketing SoR (2026-09-16):** Auto X posts are **Daily 5 announcement/recap only**. Copy kit: `client/public/assets/x-hotfix-2026-09-13/CAPTIONS.md` post2. Organic reference: https://x.com/PlayPackPTS/status/2100232354249728403. Signup-bonus / “250 free PackPTS” / FOMO acquisition copy is **hard-rejected** at preflight (`marketingSor.ts` + `preflight.ts`) and is not emitted by `contentGenerator.ts`. Sparse hashtags only (`#PackPTS` `#Daily5`, max 2). Re-enabling `SOCIAL_MEDIA_AGENT_ENABLED` is safe under this lock. Immediate kill is still the env flag. Manual Growth-queue “mark posted” (operator pastes to X) is unchanged.
+
+**Purpose:** Autonomous Daily 5 ritual posts, image composition, A/B testing, publishing, analytics, and prompt evolution (Daily 5 CHALLENGE variants only)
+
+Startup (`index.ts`):
+1. Verify DB connectivity (hard fail)
+2. Verify CardHedge API (soft fail — per-post degradation)
+3. Verify Twitter credentials (soft fail)
+4. Verify TikTok credentials (soft fail)
+5. Seed campaign rewards if empty (**never SIGNUP_BONUS**); deactivate existing SIGNUP_BONUS rows and FOMO evolved variants
+6. Recover stuck PUBLISHING posts to QUEUED
+7. Audit and block orphaned QUEUED posts missing media **or violating Marketing SoR**
+8. Start all 4 scheduler loops
 
 Startup (`index.ts`):
 1. Verify DB connectivity (hard fail)
@@ -720,16 +732,16 @@ Startup (`index.ts`):
 
 | Loop | Interval | Fires At | Purpose |
 |------|----------|----------|---------|
-| Prompt Evolution | 5 min check | 1 AM EST (daily) | Read A/B test winners → OpenAI → generate next-gen copy variants |
-| Daily Queue Builder | 5 min check | 2 AM EST (daily) | Build 2-4 posts per platform per day, alternate acquisition/retention campaigns |
-| Publisher | 60 sec | Continuous | Pick up QUEUED posts with scheduledAt <= now, publish to Twitter/TikTok |
+| Prompt Evolution | 5 min check | 1 AM CT (daily) | Read A/B test winners → OpenAI → next-gen **Daily 5** copy only (FOMO variants dropped) |
+| Daily Queue Builder | 5 min check | 2 AM CT (daily) | Queue **two** posts per platform: 8 AM CT announcement + 9 PM CT recap (`daily5-ritual-v1`) |
+| Publisher | 60 sec | Continuous | Pick up QUEUED posts with scheduledAt <= now, **SoR preflight**, publish to Twitter/TikTok |
 | Analytics Fetcher | 6 hours | Continuous | Fetch post metrics, trigger A/B test analysis |
 
 **Content Generation (`contentGenerator.ts`):**
-- 7 content types: TRIVIA_CARD, LEADERBOARD_HIGHLIGHT, STREAK_MILESTONE, MARKET_PRICE_SPOTLIGHT, NEW_USER_ACQUISITION, REWARD_ANNOUNCEMENT, CHALLENGE
-- 3 A/B variants (A/B/C) per content type, rotated by day
-- Context enrichment: queries live DB for user counts, streak records, top scores, active reward values
-- Fallback templates when OPENAI_API_KEY is not set
+- Auto drafts are always `CHALLENGE` Daily 5 ritual copy (`marketingSor.buildDaily5Copy`), regardless of requested type. `NEW_USER_ACQUISITION` / `REWARD_ANNOUNCEMENT` are not auto-generated.
+- Hashtags: `#PackPTS` `#Daily5` only (max 2)
+- Evolved variants are used only when they pass SoR; otherwise CAPTIONS-aligned templates
+- Fallback templates are Daily 5 only (never “250 free PackPTS on signup”)
 
 **Publishers:**
 - Twitter (`publisher/twitter.ts`): Full auto-publish with image upload via twitter-api-v2. Live X handle is `@PlayPackPTS` (app name stays PackPTS).
@@ -742,12 +754,13 @@ Weekday / scheduled X publish uses the Social Media Agent publisher path only (`
 
 **Safety Systems:**
 - Fact Checker (`factChecker.ts`): Verifies user counts, match counts, scores, streaks, reward values against DB. Auto-corrects claims >10% off actual values.
-- Preflight Validator (`preflight.ts`): Blocks posts referencing visual content without attached media image.
-- Startup Audit: Blocks orphaned QUEUED posts missing media.
+- Preflight Validator (`preflight.ts`): Blocks (1) **Marketing SoR FOMO** — signup bonus / 250 free / acquisition FOMO / hashtag dumps; (2) visual copy without attached media. Runs at queue-insert, publisher tick, and startup audit.
+- Startup Audit: Blocks orphaned QUEUED posts missing media or violating SoR.
 - Crash Recovery: Resets PUBLISHING posts to QUEUED on startup.
 - Rate Limit Tracking: Twitter publisher tracks remaining rate limit.
 - Retry Logic: 3 attempts per post with 30-minute backoff.
 - A/B Test Timeout: Marks inconclusive after 7 days.
+- Publishers cap appended hashtags at 2.
 
 **Prompt Evolution (`promptEvolution.ts`):**
 - Reads concluded A/B tests from last 30 days
@@ -758,8 +771,9 @@ Weekday / scheduled X publish uses the Social Media Agent publisher path only (`
 - Each generation learns from the prior generation's winners
 
 **Campaigns:**
-- `newUserAcquisition.ts`: Acquisition-focused content type rotation, runs on even-numbered days
-- `retention.ts`: Retention-focused content type rotation, runs on odd-numbered days
+- Auto queue uses `daily5-ritual-v1` only (8 AM CT announcement, 9 PM CT recap).
+- `newUserAcquisition.ts` / `retention.ts` rotations are Daily 5 `CHALLENGE` only (dead campaign IDs kept for old A/B rows).
+- `campaign_rewards.SIGNUP_BONUS` is deactivated on agent start and is never re-seeded. In-product welcome bonus (`POST /api/auth/register` 250 PackPTS) is unchanged.
 
 **Image Composition:**
 - `imageComposer.ts` → `gameImageRenderer.ts`: Renders @PlayPackPTS social PNGs (pure-SVG stats cards + CardHedge overlay types). Labels are outlined Inter paths via `contentFactory/fonts.ts` (`textToPath`) plus `@font-face` base64 — Railway Alpine has no system fonts, so `<text font-family="sans-serif">` produced tofu on live shares. Daily 5 / Beat-me user cards stay in `generateScoreCard.ts`. `composePostImage` prefers a Design-baked PNG from `packpts-design/social/exports/` (or `client/public/assets/social/`) when that file exists — copy-only, no invented creatives. Prevention gate: `docs/design/SOCIAL_PNG_QA.md` (`assertShareFontsPresent` fails `npm run build` / CI if Inter or DejaVu is missing; Alpine `font-dejavu` + Ubuntu `fonts-dejavu-core`).
@@ -799,7 +813,7 @@ Idempotent — safe to re-run for the same day.
 1. **Missing publishers:** Discord, Reddit, and Instagram publishers are referenced in strategy docs but no code exists. Discord (webhook) is the easiest to implement.
 2. **No global circuit breaker:** Strategy docs describe "5 failures in 30 min → pause 30 min" but code only has per-post retry logic.
 3. **Diversity tracking is in-memory:** Resets on server restart. Should be DB-backed for production reliability.
-4. **Daily 5 announcements not wired:** Strategy calls for 8 AM ET announcement and 9 PM ET recap posts. These are not integrated into the Social Media Agent scheduler.
+4. **Daily 5 auto announcements (2026-09-16):** Agent queue posts 8 AM CT announcement + 9 PM CT recap aligned with Marketing CAPTIONS post2. SoR preflight rejects signup-bonus FOMO.
 5. **Brand rules validator not implemented:** Strategy describes a "second AI pass" for compliance validation. Only the DB fact-checker exists.
 
 ---
@@ -1249,12 +1263,12 @@ Generate unique values with `openssl rand -hex 32`. Set in Railway → Service �
 ### Social Media / Growth Agent
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `SOCIAL_MEDIA_AGENT_ENABLED` | Enable autonomous Social Media Agent | "false" |
+| `SOCIAL_MEDIA_AGENT_ENABLED` | Enable autonomous Social Media Agent (Daily 5 ritual only; SoR preflight rejects FOMO) | "false" |
 | `AGENT_DRY_RUN` | Queue posts but skip actual publishing | "false" |
-| `AGENT_TIMEZONE` | Scheduler timezone | "America/New_York" |
-| `AGENT_MIN_POSTS_PER_DAY` | Min posts per platform per day | 2 |
-| `AGENT_MAX_POSTS_PER_DAY` | Max posts per platform per day | 4 |
-| `AGENT_DAILY_QUEUE_BUILD_HOUR` | EST hour to build daily queue | 2 |
+| `AGENT_TIMEZONE` | Documented scheduler timezone (Daily 5 slots are hard-locked to America/Chicago) | "America/New_York" |
+| `AGENT_MIN_POSTS_PER_DAY` | Unused for auto queue (fixed 2 Daily 5 slots) | 2 |
+| `AGENT_MAX_POSTS_PER_DAY` | Unused for auto queue (fixed 2 Daily 5 slots) | 4 |
+| `AGENT_DAILY_QUEUE_BUILD_HOUR` | CT hour to build daily queue | 2 |
 | `PACKPTS_SITE_URL` | Site URL for content CTAs | "https://PackPTS.com" |
 | `OPENAI_API_KEY` | AI content generation (GPT-4o-mini) | (optional, fallback templates) |
 | `TWITTER_API_KEY` | Twitter/X app key | (optional) |
@@ -1738,6 +1752,9 @@ railway variables --service Postgres --json | python3 -c \
 - [ ] Apple IAP receipt verification endpoint exists but full iOS payment flow untested in production
 - [x] Subscription lifecycle webhooks verified and completed (Prompt 24): customer.subscription.deleted now explicitly calls storage.revokeEntitlement() instead of "expire naturally"; invoice.payment_failed added — sends dunning email on attempt 1, revokes entitlement after 3 failures; customer.subscription.created wired to handleSubscriptionUpdated
 - [ ] No automated refund processing
+
+### Social / Growth
+- [x] Social Media Agent FOMO / hashtag-dump SoR violation (2026-09-16): Railway agent (~7am CT) auto-posted “250 free PackPTS / Signup bonus” with dense hashtags. Kill: `SOCIAL_MEDIA_AGENT_ENABLED=false` in prod; code lock Daily 5-only generator + preflight reject. Organic SoR: https://x.com/PlayPackPTS/status/2100232354249728403. Manual Growth mark-posted Daily 5 is unchanged.
 
 ### Marketplace
 - [x] Listing price validation against CardHedge market data (Prompt 23): POST /api/marketplace/validate-price takes cardhedgeCardId + claimedPriceCents, compares to raw (ungraded) CardHedge price from cache or API; rejects if ratio > 2.5x; redemptionQuoteRequestSchema accepts optional cardhedgeCardId, redemption quote endpoint validates and rejects inflated prices before quote creation

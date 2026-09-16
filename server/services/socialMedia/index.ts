@@ -1,13 +1,13 @@
 import { db } from "../../db";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq, and, count, inArray } from "drizzle-orm";
 import { agentConfig, isPlatformConfigured, type SocialPlatform } from "./config";
 import { createLogger } from "./logger";
 import { cardSearchSorted } from "../../services/cardhedge/client";
 import { verifyCreatorInfo } from "./publisher/tiktok";
 import { verifyWebhook as verifyDiscordWebhook } from "./publisher/discord";
 import { startDailyQueueBuilder, startPublisherLoop, startAnalyticsFetcher, startPromptEvolutionLoop } from "./scheduler";
-import { campaignRewards, socialPosts } from "@shared/schema";
-import { count } from "drizzle-orm";
+import { campaignRewards, socialPosts, evolvedCopyVariants } from "@shared/schema";
+import { AUTO_CAMPAIGN_ID } from "./marketingSor";
 
 const logger = createLogger("SocialMediaAgent");
 
@@ -30,24 +30,39 @@ async function seedCampaignRewards(): Promise<void> {
   const result = await db.select({ cnt: count() }).from(campaignRewards);
   if ((result[0]?.cnt ?? 0) > 0) return;
 
+  // Do not seed SIGNUP_BONUS — that campaign drove FOMO acquisition copy. Wallet
+  // welcome_bonus (250 PackPTS) is independent and stays in auth/register.
   await db.insert(campaignRewards).values([
     {
-      campaignId: "new-user-acquisition-v1",
-      rewardType: "SIGNUP_BONUS",
-      rewardDescription: "Welcome bonus for new PackPTS registrations",
-      rewardValue: "500",
-      isActive: true,
-    },
-    {
-      campaignId: "new-user-acquisition-v1",
+      campaignId: AUTO_CAMPAIGN_ID,
       rewardType: "STREAK_REWARD",
-      rewardDescription: "First 7-day streak completion reward",
-      rewardValue: "250",
-      isActive: true,
+      rewardDescription: "Daily 5 streak — not used in auto X copy",
+      rewardValue: "0",
+      isActive: false,
     },
   ]);
 
-  logger.info("campaign_rewards_seeded");
+  logger.info("campaign_rewards_seeded", { campaignId: AUTO_CAMPAIGN_ID, signupBonus: false });
+}
+
+async function deactivateFomoCampaignArtifacts(): Promise<void> {
+  const rewards = await db
+    .update(campaignRewards)
+    .set({ isActive: false })
+    .where(eq(campaignRewards.rewardType, "SIGNUP_BONUS"))
+    .returning({ id: campaignRewards.id });
+  if (rewards.length > 0) {
+    logger.warn("signup_bonus_campaign_deactivated", { count: rewards.length });
+  }
+
+  const evolved = await db
+    .update(evolvedCopyVariants)
+    .set({ isActive: false })
+    .where(inArray(evolvedCopyVariants.contentType, ["NEW_USER_ACQUISITION", "REWARD_ANNOUNCEMENT"] as any))
+    .returning({ id: evolvedCopyVariants.id });
+  if (evolved.length > 0) {
+    logger.warn("fomo_evolved_variants_deactivated", { count: evolved.length });
+  }
 }
 
 export async function initSocialMediaAgent(): Promise<void> {
@@ -126,15 +141,17 @@ export async function initSocialMediaAgent(): Promise<void> {
     tiktok: tiktokEnabled ? "✓" : "✗",
     discord: discordEnabled ? "✓" : "✗",
     dryRun: agentConfig.dryRun,
+    marketingSor: "daily5-only",
   });
 
   if (agentConfig.dryRun) {
     logger.info("dry_run_mode", { message: "DRY RUN MODE — no posts will be published" });
   }
 
-  // 5. Seed rewards
+  // 5. Seed rewards (never SIGNUP_BONUS) and deactivate FOMO campaign artifacts
   try {
     await seedCampaignRewards();
+    await deactivateFomoCampaignArtifacts();
   } catch (err) {
     logger.warn("seed_rewards_failed", { error: String(err) });
   }
