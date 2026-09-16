@@ -8,6 +8,9 @@ import path from "path";
 import sharp from "sharp";
 import {
   PLAY_SETS_COPY,
+  PLAY_SETS_CDN_ALIASES,
+  PLAY_SETS_APP_KIT_FILES,
+  PLAY_SETS_DESIGN_1080_FILES,
   PLAY_SETS_DESIGN_EXPORT_MAP,
   PLAY_SETS_STORY_FILES,
   PLAY_SETS_UTM,
@@ -45,7 +48,7 @@ import {
   writePlaySetsKitFiles,
   writePlaySetsStoryFiles,
 } from "../contentFactory/generatePlaySetsKit";
-import { copyPlaySetsDesignExports } from "../contentFactory/copyPlaySetsDesign";
+import { copyPlaySetsDesignExports, materializePlaySetsCdnAliases } from "../contentFactory/copyPlaySetsDesign";
 
 const created: string[] = [];
 
@@ -270,7 +273,7 @@ describe("play-sets kit compose", () => {
 
   it("hosts kit PNGs as static Marketing assets", async () => {
     const dir = path.resolve("client/public/assets/play-sets");
-    for (const file of ["play-this-set.png", "integrated-shelf.png", "beat-me-from-a-set.png"]) {
+    for (const file of PLAY_SETS_APP_KIT_FILES) {
       const disk = path.join(dir, file);
       expect(fs.existsSync(disk)).toBe(true);
       const meta = await sharp(disk).metadata();
@@ -302,14 +305,23 @@ describe("play-sets kit compose", () => {
     }
   });
 
-  it("copies Design exports by rename map and does not invent missing art", () => {
+  it("copies Design exports onto Eng kit names and Design 1080 names", () => {
     expect(PLAY_SETS_DESIGN_EXPORT_MAP).toEqual([
-      { from: "play-set-1080.png", to: "play-this-set.png" },
-      { from: "play-shelf-1080.png", to: "integrated-shelf.png" },
-      { from: "play-beatme-1080.png", to: "beat-me-from-a-set.png" },
-      { from: "play-set-story.png", to: "play-set-story.png" },
-      { from: "play-shelf-story.png", to: "play-shelf-story.png" },
-      { from: "play-beatme-story.png", to: "play-beatme-story.png" },
+      {
+        from: "play-set-1080.png",
+        to: ["play-this-set.png", "play-set-1080.png", "integrated-set.png", "set-1080.png"],
+      },
+      {
+        from: "play-shelf-1080.png",
+        to: ["integrated-shelf.png", "play-shelf-1080.png", "play-shelf.png"],
+      },
+      {
+        from: "play-beatme-1080.png",
+        to: ["beat-me-from-a-set.png", "play-beatme-1080.png", "integrated-beatme.png", "beatme-1080.png"],
+      },
+      { from: "play-set-story.png", to: ["play-set-story.png"] },
+      { from: "play-shelf-story.png", to: ["play-shelf-story.png"] },
+      { from: "play-beatme-story.png", to: ["play-beatme-story.png"] },
     ]);
 
     const src = path.resolve("public/generated/share/play-sets-design-src");
@@ -319,9 +331,16 @@ describe("play-sets kit compose", () => {
     created.push(src, dest);
     fs.writeFileSync(path.join(src, "play-beatme-1080.png"), Buffer.from("design-c"));
     const result = copyPlaySetsDesignExports({ sourceDir: src, destDir: dest });
-    expect(result.copied.map((file) => path.basename(file))).toEqual(["beat-me-from-a-set.png"]);
+    expect(result.copied.map((file) => path.basename(file)).sort()).toEqual([
+      "beat-me-from-a-set.png",
+      "beatme-1080.png",
+      "integrated-beatme.png",
+      "play-beatme-1080.png",
+    ]);
     expect(result.missing).toContain("play-set-1080.png");
     expect(fs.readFileSync(path.join(dest, "beat-me-from-a-set.png"), "utf8")).toBe("design-c");
+    expect(fs.readFileSync(path.join(dest, "play-beatme-1080.png"), "utf8")).toBe("design-c");
+    expect(fs.readFileSync(path.join(dest, "integrated-beatme.png"), "utf8")).toBe("design-c");
     expect(fs.existsSync(path.join(dest, "play-this-set.png"))).toBe(false);
   });
 
@@ -334,5 +353,73 @@ describe("play-sets kit compose", () => {
       expect(meta.width).toBe(1080);
       expect(meta.height).toBe(1920);
     }
+  });
+
+  it("app/API kit URLs are Eng names; Design 1080 names are also hosted PNGs", async () => {
+    expect(playSetsKitPath("play_this_set")).toBe("/assets/play-sets/play-this-set.png");
+    expect(playSetsKitPath("integrated_shelf")).toBe("/assets/play-sets/integrated-shelf.png");
+    expect(playSetsKitPath("beat_me_from_set")).toBe("/assets/play-sets/beat-me-from-a-set.png");
+    expect(PLAY_SETS_APP_KIT_FILES).toEqual([
+      "play-this-set.png",
+      "integrated-shelf.png",
+      "beat-me-from-a-set.png",
+    ]);
+    expect(PLAY_SETS_DESIGN_1080_FILES).toEqual([
+      "play-set-1080.png",
+      "play-shelf-1080.png",
+      "play-beatme-1080.png",
+    ]);
+
+    const dir = path.resolve("client/public/assets/play-sets");
+    for (const file of [...PLAY_SETS_APP_KIT_FILES, ...PLAY_SETS_DESIGN_1080_FILES]) {
+      const disk = path.join(dir, file);
+      expect(fs.existsSync(disk)).toBe(true);
+      const meta = await sharp(disk).metadata();
+      expect(meta.format).toBe("png");
+      expect(meta.width).toBe(1080);
+      expect(meta.height).toBe(1080);
+    }
+  });
+
+  it("hosts Design/marketing CDN aliases as real PNGs (not SPA HTML fallbacks)", async () => {
+    const dir = path.resolve("client/public/assets/play-sets");
+    for (const { canonical, aliases } of PLAY_SETS_CDN_ALIASES) {
+      const src = path.join(dir, canonical);
+      expect(fs.existsSync(src)).toBe(true);
+      const canonicalBytes = fs.readFileSync(src);
+      const canonicalMeta = await sharp(src).metadata();
+      expect(canonicalMeta.format).toBe("png");
+      expect(canonicalMeta.width).toBe(1080);
+      for (const alias of aliases) {
+        const disk = path.join(dir, alias);
+        expect(fs.existsSync(disk)).toBe(true);
+        const meta = await sharp(disk).metadata();
+        expect(meta.format).toBe("png");
+        expect(meta.width).toBe(canonicalMeta.width);
+        expect(meta.height).toBe(canonicalMeta.height);
+        expect(fs.readFileSync(disk).equals(canonicalBytes)).toBe(true);
+      }
+    }
+  });
+
+  it("materializes aliases from canonical kit files without inventing art", () => {
+    const dir = path.resolve("public/generated/share/play-sets-alias-test");
+    fs.mkdirSync(dir, { recursive: true });
+    created.push(dir);
+    fs.writeFileSync(path.join(dir, "play-this-set.png"), Buffer.from("set-bytes"));
+    fs.writeFileSync(path.join(dir, "integrated-shelf.png"), Buffer.from("shelf-bytes"));
+    fs.writeFileSync(path.join(dir, "beat-me-from-a-set.png"), Buffer.from("beatme-bytes"));
+    const result = materializePlaySetsCdnAliases(dir);
+    expect(result.missing).toEqual([]);
+    expect(fs.readFileSync(path.join(dir, "integrated-set.png"), "utf8")).toBe("set-bytes");
+    expect(fs.readFileSync(path.join(dir, "play-set-1080.png"), "utf8")).toBe("set-bytes");
+    expect(fs.readFileSync(path.join(dir, "set-1080.png"), "utf8")).toBe("set-bytes");
+    expect(fs.readFileSync(path.join(dir, "play-shelf.png"), "utf8")).toBe("shelf-bytes");
+    expect(fs.readFileSync(path.join(dir, "play-shelf-1080.png"), "utf8")).toBe("shelf-bytes");
+    expect(fs.readFileSync(path.join(dir, "integrated-beatme.png"), "utf8")).toBe("beatme-bytes");
+    expect(fs.readFileSync(path.join(dir, "play-beatme-1080.png"), "utf8")).toBe("beatme-bytes");
+    expect(fs.readFileSync(path.join(dir, "beatme-1080.png"), "utf8")).toBe("beatme-bytes");
+    expect(fs.existsSync(path.join(dir, "play-set.png"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "play-beatme.png"))).toBe(false);
   });
 });

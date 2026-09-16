@@ -5,7 +5,7 @@ export function revealPlayUrl(cardId: string): string {
   return `/api/images/card/${encodeURIComponent(cardId)}`;
 }
 
-/** Guessing-phase bake. Same URL as question payloads (`?v=v4.0`). */
+/** Guessing-phase bake. Same URL as question payloads (`?v=` + CURRENT_MASK_VERSION). */
 export function maskedPlayUrl(cardId: string): string {
   return maskedCardImageUrl(cardId);
 }

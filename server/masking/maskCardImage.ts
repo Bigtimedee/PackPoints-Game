@@ -5,6 +5,7 @@ import {
   resolveNameMaskPlan,
   type OcrWordBox,
 } from "./nameLocalization";
+import { detectPsaSlabLayout } from "./slabLayout";
 import type { MaskRegion } from "@shared/schema";
 
 const OCR_TIMEOUT_MS = 3500;
@@ -129,12 +130,20 @@ export async function maskCardImage(
     }
   }
 
+  let slabLayout = false;
+  try {
+    slabLayout = await detectPsaSlabLayout(rawImageBuffer);
+  } catch {
+    slabLayout = false;
+  }
+
   const plan = resolveNameMaskPlan({
     playerName,
     setHint: setName,
     words,
     imageWidth: originalWidth,
     imageHeight: originalHeight,
+    slabLayout,
   });
 
   const maskedBuffer = await applyPercentRegions(rawImageBuffer, plan.regions);
