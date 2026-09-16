@@ -1,6 +1,7 @@
 import { agentConfig } from "../config";
 import { createLogger } from "../logger";
 import type { PostAnalytics } from "@shared/schema";
+import { MAX_AUTO_HASHTAGS } from "../marketingSor";
 
 const logger = createLogger("DiscordPublisher");
 
@@ -53,7 +54,8 @@ export async function publishDiscordMessage(
     });
   }
 
-  const tagLine = hashtags.length > 0 ? `\n${hashtags.join(" ")}` : "";
+  const tags = hashtags.slice(0, MAX_AUTO_HASHTAGS);
+  const tagLine = tags.length > 0 ? `\n${tags.join(" ")}` : "";
   const fullText = `${copy}${tagLine}`;
 
   const payload: DiscordWebhookPayload = {

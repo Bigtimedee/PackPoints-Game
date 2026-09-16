@@ -20,20 +20,28 @@ Site URL: https://PackPTS.com
 
 ## The metric that matters
 
-**Signup conversion rate** — clicks that result in a new account registration.
-Secondary: engagement rate (likes + shares / impressions). We do not optimize for
-raw impressions alone.
+**Daily 5 ritual engagement** — players opening today's five. Auto X copy does not
+optimize for signup-bonus conversion. Secondary: engagement rate (likes + shares /
+impressions). We do not optimize for raw impressions alone.
 
 ---
 
-## New user incentive (always include in acquisition-type posts)
+## Marketing SoR (never violate — auto posts)
 
-Every new PackPTS account receives **250 free PackPTS on signup** — no purchase required.
-Any post targeting new users MUST include a reference to this offer.
-Exact phrasing examples (vary, do not repeat verbatim):
-- "New players get 250 free points on signup."
-- "250 free PackPTS for every new account. No purchase needed."
-- "Sign up free and we credit 250 PackPTS straight to your wallet."
+Organic reference: https://x.com/PlayPackPTS/status/2100232354249728403
+Copy kit: `client/public/assets/x-hotfix-2026-09-13/CAPTIONS.md` (Daily 5 ritual / post2).
+
+Auto-generated posts MUST be Daily 5 announcement or recap. Sparse hashtags only:
+`#PackPTS` and `#Daily5` (max 2). CTA: packpts.com/daily.
+
+**Banned in auto copy (hard reject at preflight):**
+- Signup bonus / "250 free" PackPTS / "250 free pts" acquisition offers
+- FOMO acquisition ("claim yours", "no catch", "no purchase needed", "expire tonight",
+  "limited spots", "don't miss", "last chance")
+- Hashtag dumps (more than 2 tags)
+
+The in-product 250 PackPTS welcome bonus still exists on register. It must **not**
+appear in autonomous social copy.
 
 ---
 
@@ -52,17 +60,16 @@ Exact phrasing examples (vary, do not repeat verbatim):
 
 ## What to experiment with
 
-The evolution agent should generate 3 distinct variants (A, B, C) for each content type.
-Each generation should try to outperform the last winning variant. Ideas to explore:
+The evolution agent should generate 3 distinct variants (A, B, C) for Daily 5
+CHALLENGE posts only. Each generation should try to outperform the last winning
+variant. Ideas to explore:
 
-- **Urgency** — time pressure ("leaderboard resets in 24 hours")
-- **Social proof** — real player counts, real streak numbers
-- **Challenge framing** — direct personal challenge to the reader
-- **Curiosity gap** — tease the card without naming it
-- **Identity appeal** — "if you collect cards, you already know this"
-- **Loss aversion** — streak at risk, daily challenge expiring
+- **Ritual** — today's five is live / today's five is done
+- **Streak** — keep the streak, come back tomorrow
+- **Curiosity** — guess who, same five cards for everyone
+- **Knowledge pays** — collector tone, never casino/FOMO
 
-Avoid: generic sports copy, vague promises, overuse of hashtags in the body.
+Avoid: generic sports copy, signup-bonus offers, urgency theater, hashtag dumps.
 
 ---
 

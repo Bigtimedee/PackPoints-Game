@@ -11,10 +11,13 @@ import { publishPhoto } from "./publisher/tiktok";
 import { publishDiscordMessage } from "./publisher/discord";
 import { validatePostForPublishing, isVisualContentType } from "./preflight";
 import { fetchAnalyticsForRecentPosts } from "./analytics";
-import { newUserAcquisitionCampaign } from "./campaigns/newUserAcquisition";
 import * as fs from "fs";
-import { retentionCampaign } from "./campaigns/retention";
 import { runPromptEvolution } from "./promptEvolution";
+import {
+  AUTO_CAMPAIGN_ID,
+  AUTO_CONTENT_TYPE,
+  type Daily5Ritual,
+} from "./marketingSor";
 
 const logger = createLogger("Scheduler");
 
@@ -35,32 +38,46 @@ function logUnconfiguredOnce(scope: string, platform: SocialPlatform, extra?: Re
 
 
 
-// Post time slots in Eastern hours
-const TIME_SLOTS_EST = [8, 12, 16, 20];
+/** Daily 5 ritual slots in America/Chicago (product day key). Announcement 8 AM CT, recap 9 PM CT. */
+const DAILY5_SLOTS_CT: { hour: number; ritual: Daily5Ritual }[] = [
+  { hour: 8, ritual: "announcement" },
+  { hour: 21, ritual: "recap" },
+];
+const DAILY5_TIMEZONE = "America/Chicago";
 
-function getEasternOffsetMs(): number {
+function getZoneOffsetMs(timeZone: string): number {
   const now = new Date();
-  const easternDate = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false
+  const zoned = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
   }).formatToParts(now);
-  const parts = Object.fromEntries(easternDate.map(p => [p.type, p.value]));
-  const easternMs = new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`).getTime();
-  return now.getTime() - easternMs;
+  const parts = Object.fromEntries(zoned.map((p) => [p.type, p.value]));
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  const zonedMs = new Date(`${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}:${parts.second}`).getTime();
+  return now.getTime() - zonedMs;
 }
 
-function buildScheduledTime(hourEst: number): Date {
+function chicagoDateKey(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DAILY5_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+function buildScheduledTimeCt(hourCt: number): Date {
   const now = new Date();
-  const todayEst = new Date(now.getTime() + getEasternOffsetMs());
-  const year = todayEst.getUTCFullYear();
-  const month = todayEst.getUTCMonth();
-  const day = todayEst.getUTCDate();
-  // Build UTC time for the Eastern hour; carry over to next day if utcHour >= 24
-  const utcHour = hourEst + getEasternOffsetMs() / (60 * 60 * 1000);
+  const todayCt = new Date(now.getTime() + getZoneOffsetMs(DAILY5_TIMEZONE));
+  const year = todayCt.getUTCFullYear();
+  const month = todayCt.getUTCMonth();
+  const day = todayCt.getUTCDate();
+  const utcHour = hourCt + getZoneOffsetMs(DAILY5_TIMEZONE) / (60 * 60 * 1000);
   const dayOffset = Math.floor(utcHour / 24);
-  return new Date(Date.UTC(year, month, day + dayOffset, utcHour % 24, 0, 0, 0));
+  const normalizedHour = ((utcHour % 24) + 24) % 24;
+  return new Date(Date.UTC(year, month, day + dayOffset, normalizedHour, 0, 0, 0));
 }
 
 function todayStartUtc(): Date {
@@ -82,17 +99,12 @@ async function countTodaysPosts(platform: Platform): Promise<number> {
     .where(
       and(
         eq(socialPosts.platform, platform),
-        sql`${socialPosts.status} IN ('PUBLISHED', 'SKIPPED')`,
+        sql`${socialPosts.status} IN ('PUBLISHED', 'SKIPPED', 'QUEUED', 'BLOCKED', 'PUBLISHING')`,
         gte(socialPosts.scheduledAt, todayStartUtc()),
         lte(socialPosts.scheduledAt, todayEndUtc()),
       ),
     );
   return result[0]?.cnt ?? 0;
-}
-
-function isRetentionDay(): boolean {
-  // Alternate campaigns by day: even days = acquisition, odd days = retention
-  return new Date().getDate() % 2 !== 0;
 }
 
 async function buildQueueForPlatform(platform: Platform): Promise<void> {
@@ -102,36 +114,27 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
   }
 
   const existing = await countTodaysPosts(platform);
-  if (existing >= agentConfig.maxPostsPerDay) return;
+  if (existing >= DAILY5_SLOTS_CT.length) return;
 
-  const n = Math.floor(
-    Math.random() * (agentConfig.maxPostsPerDay - agentConfig.minPostsPerDay + 1)
-  ) + agentConfig.minPostsPerDay;
-  const needed = Math.max(0, n - existing);
-  const slots = TIME_SLOTS_EST.slice(0, needed);
+  const slots = DAILY5_SLOTS_CT.slice(existing);
 
-  const useRetention = isRetentionDay();
-  const campaign = useRetention ? retentionCampaign : newUserAcquisitionCampaign;
-  const rotation = useRetention ? retentionCampaign.contentTypeRotation : undefined;
+  logger.info("building_queue", {
+    platform,
+    existing,
+    target: DAILY5_SLOTS_CT.length,
+    slots: slots.map((s) => s.hour),
+    campaign: AUTO_CAMPAIGN_ID,
+  });
 
-  logger.info("building_queue", { platform, existing, target: n, slots, campaign: campaign.campaignId });
-
-  for (const hour of slots) {
+  for (const slot of slots) {
     try {
-      // Pick content type from campaign rotation if available
-      const contentType = rotation
-        ? rotation[Math.floor(Math.random() * rotation.length)]
-        : undefined;
-
-      // Compose image FIRST to get the actual card selected.
-      // For Twitter, image is text-only in the publisher anyway — so fall back to
-      // no-image if CardHedge is unreachable rather than skipping the slot entirely.
+      const contentType = AUTO_CONTENT_TYPE;
       let composed: Awaited<ReturnType<typeof composePostImage>> | null = null;
       let cardContext: CardContext | undefined;
       try {
         composed = await composePostImage({
           platform,
-          contentType: contentType ?? "TRIVIA_CARD",
+          contentType,
           cardQuery: { sortBy: "sales_7day", category: "Baseball" },
         });
         cardContext = {
@@ -141,49 +144,72 @@ async function buildQueueForPlatform(platform: Platform): Promise<void> {
           cardSales7d: composed.cardSales7d,
         };
       } catch (imageErr) {
-        if (platform === "TIKTOK") throw imageErr; // TikTok requires an image
-        const ct = contentType ?? "TRIVIA_CARD";
-        if (isVisualContentType(ct)) {
-          // Visual content types cannot be published without media — skip this slot
-          logger.warn("image_compose_failed_visual_slot_skipped", { platform, hour, contentType: ct, error: String(imageErr) });
+        if (platform === "TIKTOK") throw imageErr;
+        if (isVisualContentType(contentType)) {
+          logger.warn("image_compose_failed_visual_slot_skipped", {
+            platform,
+            hour: slot.hour,
+            contentType,
+            error: String(imageErr),
+          });
           continue;
         }
-        logger.warn("image_compose_skipped_text_only", { platform, hour, error: String(imageErr) });
+        logger.warn("image_compose_skipped_text_only", { platform, hour: slot.hour, error: String(imageErr) });
       }
 
-      // Generate copy (with or without card context)
-      const draft = await generateDraftPost(platform, contentType, undefined, cardContext);
+      const draft = await generateDraftPost(platform, contentType, undefined, cardContext, slot.ritual);
 
-      const { abTestId } = await getOrCreateAbTest(
-        campaign.campaignId,
-        draft.contentType as any,
-      );
+      const preflightAtQueue = validatePostForPublishing({
+        copyText: draft.copyText,
+        contentType: draft.contentType,
+        composedImagePath: composed?.imagePath ?? null,
+        mediaRequired: isVisualContentType(draft.contentType),
+        hashtags: draft.hashtags,
+      });
+      if (preflightAtQueue.blocked) {
+        logger.warn("queue_slot_rejected_sor", {
+          platform,
+          hour: slot.hour,
+          ritual: slot.ritual,
+          reason: preflightAtQueue.reason,
+        });
+        continue;
+      }
+
+      const { abTestId } = await getOrCreateAbTest(AUTO_CAMPAIGN_ID, draft.contentType as any);
 
       const resolvedContentType = draft.contentType as string;
-      const mediaRequired = isVisualContentType(resolvedContentType) || !composed ? isVisualContentType(resolvedContentType) : false;
+      const mediaRequired = isVisualContentType(resolvedContentType);
       await db.insert(socialPosts).values({
         platform,
         contentType: resolvedContentType as any,
         status: "QUEUED",
         abGroup: draft.abGroup as any,
         abTestId,
-        campaignId: campaign.campaignId,
+        campaignId: AUTO_CAMPAIGN_ID,
         cardId: composed?.cardId ?? null,
         cardImageUrl: composed?.cardImageUrl ?? null,
         composedImagePath: composed?.imagePath ?? null,
         cardQueryParams: draft.cardQueryParams,
         copyText: draft.copyText,
         hashtags: draft.hashtags,
-        scheduledAt: buildScheduledTime(hour),
+        scheduledAt: buildScheduledTimeCt(slot.hour),
         factCheckPassed: draft.factCheckPassed ?? false,
         factCheckLog: draft.factCheckLog ?? [],
         mediaRequired,
         mediaStatus: composed ? "GENERATED" : "NOT_REQUIRED",
       });
 
-      logger.info("post_queued", { platform, contentType: draft.contentType, hour, campaign: campaign.campaignId, hasImage: !!composed });
+      logger.info("post_queued", {
+        platform,
+        contentType: draft.contentType,
+        hour: slot.hour,
+        ritual: slot.ritual,
+        campaign: AUTO_CAMPAIGN_ID,
+        hasImage: !!composed,
+      });
     } catch (err) {
-      logger.error("queue_build_error", { platform, hour, error: String(err) });
+      logger.error("queue_build_error", { platform, hour: slot.hour, ritual: slot.ritual, error: String(err) });
     }
   }
 }
@@ -194,12 +220,18 @@ export function startDailyQueueBuilder(): void {
   const intervalMs = 5 * 60 * 1000; // 5 minutes
 
   const tick = async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = chicagoDateKey();
     if (lastQueueBuildDate === today) return;
 
-    const estNow = new Date(Date.now() - getEasternOffsetMs());
-    const estHour = estNow.getUTCHours();
-    if (estHour < agentConfig.dailyQueueBuildHour) return;
+    const ctHour = parseInt(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: DAILY5_TIMEZONE,
+        hour: "numeric",
+        hour12: false,
+      }).format(new Date()),
+      10,
+    );
+    if (ctHour < agentConfig.dailyQueueBuildHour) return;
 
     lastQueueBuildDate = today;
     logger.info("daily_queue_build_start", { date: today });
@@ -240,16 +272,22 @@ export function startDailyQueueBuilder(): void {
 let lastEvolutionDate = "";
 
 export function startPromptEvolutionLoop(): void {
-  const EVOLUTION_HOUR_EST = 1; // 1am EST — runs before the 2am queue build
+  const EVOLUTION_HOUR_CT = 1; // 1am CT — runs before the 2am CT queue build
   const intervalMs = 5 * 60 * 1000; // Check every 5 minutes
 
   const tick = async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = chicagoDateKey();
     if (lastEvolutionDate === today) return;
 
-    const estNow = new Date(Date.now() - getEasternOffsetMs());
-    const estHour = estNow.getUTCHours();
-    if (estHour < EVOLUTION_HOUR_EST) return;
+    const ctHour = parseInt(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: DAILY5_TIMEZONE,
+        hour: "numeric",
+        hour12: false,
+      }).format(new Date()),
+      10,
+    );
+    if (ctHour < EVOLUTION_HOUR_CT) return;
 
     lastEvolutionDate = today;
     try {
@@ -265,7 +303,7 @@ export function startPromptEvolutionLoop(): void {
     }
   }, intervalMs);
 
-  logger.info("prompt_evolution_loop_started", { hourEst: EVOLUTION_HOUR_EST });
+  logger.info("prompt_evolution_loop_started", { hourCt: EVOLUTION_HOUR_CT });
 }
 
 export function startPublisherLoop(): void {
@@ -320,6 +358,7 @@ export function startPublisherLoop(): void {
           contentType: post.contentType,
           composedImagePath: post.composedImagePath,
           mediaRequired: post.mediaRequired,
+          hashtags: post.hashtags,
         });
         if (preflightResult.blocked) {
           await db.update(socialPosts).set({

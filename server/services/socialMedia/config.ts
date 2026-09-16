@@ -30,6 +30,7 @@ export interface AgentConfig {
 }
 
 export const agentConfig: AgentConfig = {
+  // Re-enable is SoR-safe after Daily 5-only generator + FOMO preflight. See docs/GROWTH_AUTOMATION_SETUP.md.
   enabled: process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true",
   dryRun: process.env.AGENT_DRY_RUN === "true",
   timezone: process.env.AGENT_TIMEZONE ?? "America/New_York",

@@ -54,7 +54,7 @@ curl "https://graph.instagram.com/me?fields=id,username&access_token=YOUR_TOKEN"
 
 ## Enabling Autonomous Posting
 
-Once credentials are set, enable the posting agent:
+Once credentials are set, enable the posting agent (Daily 5 ritual only; FOMO copy is preflight-rejected):
 ```
 SOCIAL_MEDIA_AGENT_ENABLED=true
 ```

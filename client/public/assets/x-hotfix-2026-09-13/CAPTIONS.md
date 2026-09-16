@@ -5,6 +5,10 @@ Spelling lock: **PackPTS** (never PackPoints). Tone: sharp collector. No casino/
 Account: @PlayPackPTS  
 Assets: `post1-250-pts-1080.png` · `post2-daily5-1080.png` · `post3-play-sets-1080.png`
 
+**Autonomous Social Media Agent** may auto-publish **post2 (Daily 5 ritual) only**.
+post1 (250 free PackPTS) is Marketing kit for **manual** use — preflight rejects it
+on the auto-publisher. SoR reference: https://x.com/PlayPackPTS/status/2100232354249728403
+
 ---
 
 ## post1 — 250 free PackPTS

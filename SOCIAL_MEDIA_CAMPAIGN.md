@@ -1,6 +1,11 @@
 # PackPTS Social Media Marketing Campaign
 ## 30-Day Growth Playbook — $0 Budget
 
+> **SoR lock (2026-09-16):** The autonomous Social Media Agent must **not** auto-post this
+> playbook's "250 free PackPTS" / signup-bonus / hashtag-dump copy. Auto X follows the
+> Daily 5 ritual kit (`CAPTIONS.md` post2) and https://x.com/PlayPackPTS/status/2100232354249728403.
+> Manual operator posts (Growth queue mark-posted) may still use this playbook.
+
 **Objective:** Drive new user signups and daily active users (DAUs) across TikTok, Instagram, X/Twitter, and Facebook using only organic content. Target: 1,000 new signups in 30 days.
 
 **Core Hook:** "Free trivia game where knowing your baseball cards earns you real card discounts."

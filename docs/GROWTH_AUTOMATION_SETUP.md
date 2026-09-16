@@ -14,13 +14,32 @@ Three layers of automation exist:
 
 ## Layer 1: Social Media Agent (Server-Side)
 
+### Marketing SoR — keeping `SOCIAL_MEDIA_AGENT_ENABLED` safe
+
+Re-enabling the flag is **safe** only because auto-generation is Daily 5 ritual-only and preflight hard-rejects FOMO.
+
+| Rule | Enforcement |
+|------|-------------|
+| Auto X copy = Daily 5 announcement (8 AM CT) + recap (9 PM CT) | `scheduler.ts` + `marketingSor.buildDaily5Copy` |
+| Kit / captions | `client/public/assets/x-hotfix-2026-09-13/CAPTIONS.md` post2 |
+| Organic reference | https://x.com/PlayPackPTS/status/2100232354249728403 |
+| Sparse hashtags (`#PackPTS` `#Daily5`, max 2) | `sparseHashtags` + publisher cap |
+| No signup bonus / 250 free / FOMO acquisition | `validatePostForPublishing` blocks at queue, publish, and startup audit |
+| Manual Daily 5 | Admin Growth queue **mark-posted** (operator publishes). Agent publisher still SoR-checks any `social_posts` row; CAPTIONS Daily 5 copy passes |
+
+**Immediate kill:** `SOCIAL_MEDIA_AGENT_ENABLED=false` on Railway service PackPoints-Game (production). Does not require a code deploy. Do **not** turn the flag back on against a build from before this SoR lock.
+
+**Dry-run:** `AGENT_DRY_RUN=true` still queues then marks SKIPPED (never hits X). Optional extra belt; not required once SoR code is live.
+
+**Do not** add `NEW_USER_ACQUISITION` / `REWARD_ANNOUNCEMENT` back to the auto rotation, re-seed `SIGNUP_BONUS` campaign rewards for copy, or teach `prompt_program.md` to require “250 free PackPTS” in tweets.
+
 ### Activation Steps
 
 1. Set in Railway:
    ```
    SOCIAL_MEDIA_AGENT_ENABLED=true
-   AGENT_DRY_RUN=true              # Start in dry-run mode
-   OPENAI_API_KEY=sk-...           # GPT-4o-mini for content generation
+   AGENT_DRY_RUN=true              # Optional first boot after a SoR incident
+   OPENAI_API_KEY=sk-...           # Optional; Daily 5 templates do not need it
    ```
 
 2. Configure Twitter (if posting to X):
@@ -52,11 +71,13 @@ Three layers of automation exist:
 
 ### What It Does Automatically
 
-- **2 AM EST daily:** Builds a queue of 2-4 posts per platform
-- **8 AM, 12 PM, 4 PM, 8 PM EST:** Scheduled post delivery
-- **Every 60 seconds:** Checks for due posts and publishes them
+- **2 AM CT daily:** Queues two Daily 5 posts per configured platform (announcement + recap)
+- **8 AM CT / 9 PM CT:** Scheduled Daily 5 delivery
+- **Every 60 seconds:** Due QUEUED posts — SoR preflight then publish (or BLOCK)
 - **Every 6 hours:** Fetches post analytics from Twitter/TikTok
-- **1 AM EST daily:** Runs prompt evolution (generates next-gen copy from A/B test winners)
+- **1 AM CT daily:** Prompt evolution for Daily 5 CHALLENGE variants only (FOMO copy dropped)
+
+FOMO / signup-bonus / hashtag-dump copy is never published. Already-queued spam is BLOCKED on startup audit.
 
 ### Admin Dashboard
 
@@ -149,18 +170,14 @@ Action: Post the "discord" platform text to Discord webhook
 
 ---
 
-## Posting Schedule (All Times ET)
+## Posting Schedule (All Times CT — Daily 5 day key)
 
 | Time | Source | Platform | Content |
 |------|--------|----------|---------|
-| 1 AM | Social Media Agent | Internal | Prompt evolution (nightly) |
-| 2 AM | Social Media Agent | Internal | Daily queue build |
-| 8 AM | Social Media Agent | Twitter/TikTok | Scheduled post slot 1 |
-| 8 AM | External Script | Discord | Daily 5 morning announcement |
-| 12 PM | Social Media Agent | Twitter/TikTok | Scheduled post slot 2 |
-| 4 PM | Social Media Agent | Twitter/TikTok | Scheduled post slot 3 |
-| 8 PM | Social Media Agent | Twitter/TikTok | Scheduled post slot 4 |
-| 9 PM | External Script | Discord | Daily 5 evening recap |
+| 1 AM | Social Media Agent | Internal | Prompt evolution (Daily 5 only) |
+| 2 AM | Social Media Agent | Internal | Daily 5 queue build |
+| 8 AM | Social Media Agent | Twitter/TikTok/Discord | Daily 5 announcement |
+| 9 PM | Social Media Agent | Twitter/TikTok/Discord | Daily 5 recap |
 
 ---
 
@@ -175,9 +192,7 @@ controlling what kind of content gets produced.
 
 ### Campaign Alternation
 
-The Social Media Agent alternates between two campaigns:
-- **Even days:** New User Acquisition (TRIVIA_CARD, NEW_USER_ACQUISITION, CHALLENGE, etc.)
-- **Odd days:** Retention (STREAK_MILESTONE, REWARD_ANNOUNCEMENT, CHALLENGE, etc.)
+Removed. Auto queue is Daily 5 only (`daily5-ritual-v1`). Do not restore even/odd acquisition/retention rotation.
 
 ### Content Library
 
@@ -218,8 +233,8 @@ Server logs (Railway):
 ## Checklist: Going Live
 
 - [ ] OPENAI_API_KEY set in Railway
-- [ ] SOCIAL_MEDIA_AGENT_ENABLED=true in Railway
-- [ ] AGENT_DRY_RUN=true initially
+- [ ] SOCIAL_MEDIA_AGENT_ENABLED=true in Railway **only after** SoR Daily 5-only code is deployed
+- [ ] AGENT_DRY_RUN=true initially (optional)
 - [ ] Twitter credentials configured (if posting to X)
 - [ ] TikTok credentials configured (if posting to TikTok)
 - [ ] Discord webhook URL configured (for Daily 5 announcements)

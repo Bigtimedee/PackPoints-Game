@@ -2,6 +2,7 @@ import { TwitterApi, EUploadMimeType } from "twitter-api-v2";
 import { agentConfig } from "../config";
 import { createLogger } from "../logger";
 import type { PostAnalytics } from "@shared/schema";
+import { MAX_AUTO_HASHTAGS } from "../marketingSor";
 
 const logger = createLogger("TwitterPublisher");
 
@@ -38,7 +39,8 @@ export async function publishTweet(
   }
 
   const client = getClient();
-  const fullText = `${copy}\n${hashtags.join(" ")}`;
+  const tags = hashtags.slice(0, MAX_AUTO_HASHTAGS);
+  const fullText = tags.length > 0 ? `${copy}\n${tags.join(" ")}` : copy;
 
   let mediaIds: [string] | undefined;
   if (imageBuffer) {

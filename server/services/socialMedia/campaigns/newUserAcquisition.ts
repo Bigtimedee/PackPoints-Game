@@ -1,25 +1,28 @@
 import type { SocialContentType } from "../contentGenerator";
+import { AUTO_CAMPAIGN_ID, AUTO_CONTENT_TYPE } from "../marketingSor";
 
+/** Auto queue no longer runs this campaign. Kept so old A/B rows remain readable. */
 export const newUserAcquisitionCampaign = {
   campaignId: "new-user-acquisition-v1",
 
-  contentTypeRotation: [
-    "TRIVIA_CARD",
-    "NEW_USER_ACQUISITION",
-    "CHALLENGE",
-    "LEADERBOARD_HIGHLIGHT",
-    "MARKET_PRICE_SPOTLIGHT",
-    "REWARD_ANNOUNCEMENT",
-    "STREAK_MILESTONE",
-  ] as SocialContentType[],
+  contentTypeRotation: [AUTO_CONTENT_TYPE] as SocialContentType[],
 
   hashtags: {
-    primary: ["#PackPTS", "#SportsCards", "#TradingCards"],
-    secondary: ["#MLB", "#CardCollector", "#Collectibles", "#BaseballCards", "#CardBreaks"],
+    primary: ["#PackPTS", "#Daily5"],
+    secondary: [] as string[],
   },
 
   ctaVariants: {
-    A: "Sign up free at PackPTS.com and start earning rewards today.",
-    B: "Challenge yourself at PackPTS.com — the baseball card trivia game.",
+    A: "Today's Daily 5 is live at packpts.com/daily",
+    B: "Guess who. Keep the streak. packpts.com/daily",
+  },
+};
+
+export const daily5RitualCampaign = {
+  campaignId: AUTO_CAMPAIGN_ID,
+  contentTypeRotation: [AUTO_CONTENT_TYPE] as SocialContentType[],
+  hashtags: {
+    primary: ["#PackPTS", "#Daily5"],
+    secondary: [] as string[],
   },
 };
