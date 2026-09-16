@@ -10,8 +10,14 @@ export type ReplaceLookupCard = {
   setName?: string | null;
 };
 
-export function cardIdOfQuestion(question: { card?: ReplaceLookupCard } | undefined): string | undefined {
-  return question?.card?.playableCardId || question?.card?.id;
+export function questionMatchesFailedCard(
+  question: { card?: ReplaceLookupCard } | undefined,
+  failedCardId: string,
+): boolean {
+  const ids = [question?.card?.playableCardId, question?.card?.id].filter(
+    (id): id is string => !!id,
+  );
+  return ids.includes(failedCardId);
 }
 
 export function findQuestionIndexByCardId(
@@ -19,7 +25,7 @@ export function findQuestionIndexByCardId(
   failedCardId: string,
   fallbackIndex: number,
 ): number {
-  const idx = questions.findIndex((q) => cardIdOfQuestion(q) === failedCardId);
+  const idx = questions.findIndex((q) => questionMatchesFailedCard(q, failedCardId));
   return idx >= 0 ? idx : fallbackIndex;
 }
 
