@@ -123,6 +123,7 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(gameCardSrc).not.toContain("/api/images/card/");
     expect(gameCardSrc).toContain('"mask-name-band"');
     expect(gameCardSrc).toContain("{!isRevealed && !imageError");
+    expect(gameCardSrc).toContain("isPlayCardImageReady(imageUrl)");
   });
 
   it("does not weaken #87 Play Again helpers", () => {

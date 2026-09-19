@@ -8,7 +8,7 @@ PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them
 |---|---|---|
 | DB row `card_image_mask_cache` | `cardId` + `rawImageUrl` + `maskVersion` | `maskVersion` bump, or admin rebuild deleting the row |
 | File on volume | `/app/data/masked-cards/{cardId}_{maskVersion}.jpg` (local: `data/masked-cards/`) | version in filename, or deleting the file |
-| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.2`). `Cache-Control: public, max-age=3600` (not immutable). `ETag` + `X-Mask-Version` are the current bake id. |
+| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.2`). `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` (not immutable). Warm volume hits skip DB/OCR (`X-Mask-Cache: hit`, `Server-Timing`). `ETag` + `X-Mask-Version` are the current bake id. |
 
 Current version: **`v4.2`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
 
@@ -56,6 +56,14 @@ Response includes `deletedRows`, `deletedFiles`, `maskVersion`. The next player 
 4. Optional: hit the Clemens PSA slab `c6e890d5-015d-4e33-868a-77a69ca320ef?v=v4.2` and confirm the top cert label (**ROGER CLEMENS**) is covered, not only the inner-card bottom plaque. `?v=v4.1` may still look identical to an older bake until this rebuild; only `?v=v4.2` is the new object.
 
 If admin rebuild is not used, new `?v=v4.2` URLs still miss the old cache row version check and regenerate on first request. Rebuild is for clearing leftover `*_v4.1.jpg` / `*_v4.0.jpg` / `*_v3.0.jpg` files and DB rows so the volume does not keep serving stale paths if something requests the URL without `v`.
+
+## Deal warmup (between-card lag)
+
+`preMaskCards()` used to be defined and never called. Session/challenge/match start now **kicks** a background bake (`kickPreMask` in `server/masking/preMaskDeal.ts`) for the dealt card ids. It does **not** block start JSON. First GET of a still-cold card still generates on demand (OCR concurrency 2).
+
+Clients prefetch remaining **masked** URLs as soon as the deal is known (`client/src/lib/prefetchPlayCardImages.ts`). Unmasked `/api/images/card/:id` is prefetched only after a successful submit.
+
+**Volume cold after rebuild or a new Daily 5 day:** the first player (or the kick) pays the bake. Later positions should already be warm. Ops: after `{ "all": true }` rebuild, either wait for organic play or hit the five Daily 5 card URLs once so the volume is not cold at CT midnight.
 
 ## What this does not do
 

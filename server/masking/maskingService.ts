@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import { existsSync } from "fs";
 import path from "path";
 import { db } from "../db";
 import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@shared/schema";
@@ -7,6 +8,17 @@ import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 
 const MASKED_CARDS_DIR = path.join(process.cwd(), "data", "masked-cards");
+
+export function warmMaskedFilename(cardId: string): string {
+  return `${cardId}_${CURRENT_MASK_VERSION}.jpg`;
+}
+
+/** Disk hit for the current bake — no DB. Filename is the cache key. */
+export function peekWarmMaskedFilename(cardId: string): string | null {
+  if (!cardId) return null;
+  const filename = warmMaskedFilename(cardId);
+  return existsSync(path.join(MASKED_CARDS_DIR, filename)) ? filename : null;
+}
 
 const maskingQueue: Map<string, Promise<string | null>> = new Map();
 let activeMaskingJobs = 0;
@@ -42,6 +54,11 @@ async function downloadImage(url: string): Promise<Buffer | null> {
 }
 
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
+  const warm = peekWarmMaskedFilename(cardId);
+  if (warm) {
+    return warm;
+  }
+
   if (maskingQueue.has(cardId)) {
     return maskingQueue.get(cardId)!;
   }
@@ -164,7 +181,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       setHint,
     );
 
-    const filename = `${cardId}_${CURRENT_MASK_VERSION}.jpg`;
+    const filename = warmMaskedFilename(cardId);
     const filePath = path.join(MASKED_CARDS_DIR, filename);
     
     await fs.writeFile(filePath, result.maskedBuffer);

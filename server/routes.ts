@@ -1032,6 +1032,9 @@ export async function registerRoutes(
         await storage.updateGameSession(session);
       }
 
+      const { kickPreMask, cardIdsFromQuestions } = await import("./masking/preMaskDeal");
+      kickPreMask(cardIdsFromQuestions(session.questions), "solo-start");
+
       res.json({
         ...sanitizeSessionForClient(session),
         matchToken,
@@ -1105,6 +1108,9 @@ export async function registerRoutes(
       await storage.updateGameSession(session);
 
       console.log(`[CardReplacement] Replaced card ${failedCardId} with ${result.question.card.id} in session ${id}`);
+
+      const { kickPreMask } = await import("./masking/preMaskDeal");
+      kickPreMask([result.question.card.playableCardId || result.question.card.id], "solo-replace");
 
       res.json({
         success: true,
@@ -8560,17 +8566,21 @@ export async function registerRoutes(
   // ============================================
   app.get("/api/cards/:cardId/masked-image", async (req, res) => {
     const { cardId } = req.params;
+    const started = Date.now();
 
     if (!cardId || cardId.length > 100) {
       return res.status(400).json({ error: "Invalid card ID" });
     }
 
     try {
-      const { getMaskedImagePath } = await import("./masking/maskingService");
+      const { getMaskedImagePath, peekWarmMaskedFilename } = await import("./masking/maskingService");
       const path = await import("path");
       const fs = await import("fs");
+      const { CURRENT_MASK_VERSION } = await import("./masking/maskProfiles");
 
-      const maskedPath = await getMaskedImagePath(cardId);
+      const warmName = peekWarmMaskedFilename(cardId);
+      const maskedPath = warmName || await getMaskedImagePath(cardId);
+      const cacheStatus = warmName ? "hit" : "miss";
       
       if (!maskedPath) {
         return res.status(404).json({ error: "Unable to generate masked image" });
@@ -8582,11 +8592,19 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Masked image not found" });
       }
 
-      const { CURRENT_MASK_VERSION } = await import("./masking/maskProfiles");
+      const etag = `"${CURRENT_MASK_VERSION}"`;
+      if (req.headers["if-none-match"] === etag) {
+        res.setHeader("ETag", etag);
+        res.setHeader("X-Mask-Cache", cacheStatus);
+        return res.status(304).end();
+      }
+
       res.setHeader("Content-Type", "image/jpeg");
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      res.setHeader("ETag", `"${CURRENT_MASK_VERSION}"`);
+      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      res.setHeader("ETag", etag);
       res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
+      res.setHeader("X-Mask-Cache", cacheStatus);
+      res.setHeader("Server-Timing", `mask;dur=${Date.now() - started};desc="${cacheStatus}"`);
       res.setHeader("Content-Security-Policy", "default-src 'none'");
       res.setHeader("X-Content-Type-Options", "nosniff");
       
