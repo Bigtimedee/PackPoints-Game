@@ -1252,6 +1252,10 @@ async function getSeedVersionForQuestion(matchId: string, idx: number): Promise<
 
 function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number = 1): any {
   const currentQuestion = matchState.questions[matchState.currentQuestionIndex];
+  const upcomingMaskedCardIds = matchState.questions
+    .slice(matchState.currentQuestionIndex + 1)
+    .map((q) => q.card?.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
   
   return {
     matchId: matchState.matchId,
@@ -1260,6 +1264,7 @@ function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number
     currentQuestionIndex: matchState.currentQuestionIndex,
     totalQuestions: matchState.totalQuestions,
     gameSetId: matchState.gameSetId,
+    upcomingMaskedCardIds,
     currentQuestion: currentQuestion ? {
       card: {
         id: currentQuestion.card.id,

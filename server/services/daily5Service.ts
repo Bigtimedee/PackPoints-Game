@@ -225,6 +225,9 @@ export class Daily5Service {
         pointValue: 100,
       });
     }
+
+    const { kickPreMask } = await import("../masking/preMaskDeal");
+    kickPreMask(selected.map((card) => card.id), "daily5-create");
   }
 
   async updateChallengeStatuses(): Promise<void> {
@@ -414,6 +417,9 @@ export class Daily5Service {
         pointValue: c.pointValue,
       };
     });
+
+    const { kickPreMask } = await import("../masking/preMaskDeal");
+    kickPreMask(maskedCards.map((card) => card.cardId), "daily5-start");
 
     return { entry, cards: maskedCards, setId: fresh.setId ?? null };
   }

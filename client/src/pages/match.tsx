@@ -15,6 +15,7 @@ import { GameCard } from "@/components/GameCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
+import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -39,6 +40,7 @@ interface MatchState {
   currentQuestionIndex: number;
   totalQuestions: number;
   gameSetId?: string;
+  upcomingMaskedCardIds?: string[];
   currentQuestion: {
     card: {
       id: string;
@@ -733,6 +735,20 @@ export default function Match() {
   const me = matchState?.participants.find((p) => p.userId === userId);
   const opponent = matchState?.participants.find((p) => p.userId !== userId);
 
+  useEffect(() => {
+    if (!matchState) return;
+    prefetchMaskedPlayCards([
+      matchState.currentQuestion?.card.id,
+      ...(matchState.upcomingMaskedCardIds ?? []),
+    ]);
+  }, [matchState?.matchId, matchState?.currentQuestionIndex, matchState?.currentQuestion?.card.id, matchState?.upcomingMaskedCardIds?.join(",")]);
+
+  useEffect(() => {
+    if (answerResult && matchState?.currentQuestion?.card.id) {
+      prefetchRevealPlayCard(matchState.currentQuestion.card.id);
+    }
+  }, [answerResult, matchState?.currentQuestion?.card.id]);
+
   if (!matchState) {
     return (
       <div className="flex flex-col items-center gap-4 p-6 max-w-lg mx-auto">
@@ -1127,9 +1143,9 @@ export default function Match() {
         submitted: answerResult !== null,
       })
     : "";
-  const playCardSrcBusted = playCardSrc
-    ? `${playCardSrc}${playCardSrc.includes("?") ? "&" : "?"}t=${seedVersion}-${imageRetryCount}-${matchState.currentQuestionIndex}`
-    : "";
+  const playCardSrcBusted = playCardSrc && imageRetryCount > 0
+    ? `${playCardSrc}${playCardSrc.includes("?") ? "&" : "?"}t=${seedVersion}-${imageRetryCount}`
+    : playCardSrc;
 
   const battleSeries = battleSession?.seriesRecord;
   const mySeriesWins = battleSession

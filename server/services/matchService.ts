@@ -261,6 +261,9 @@ class MatchService {
     
     this.matchStates.set(match.id, matchState);
     this.playerAnswers.set(match.id, new Map());
+
+    const { kickPreMask, cardIdsFromQuestions } = await import("../masking/preMaskDeal");
+    kickPreMask(cardIdsFromQuestions(questions), "1v1-start");
     
     return { matchState };
   }
@@ -329,6 +332,9 @@ class MatchService {
     
     this.matchStates.set(match.id, matchState);
     this.playerAnswers.set(match.id, new Map());
+
+    const { kickPreMask, cardIdsFromQuestions } = await import("../masking/preMaskDeal");
+    kickPreMask(cardIdsFromQuestions(questions), "1v1-random-start");
     
     return { matchState };
   }

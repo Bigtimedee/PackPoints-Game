@@ -29,6 +29,11 @@ import {
   replaySetIdFromSession,
 } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
+import {
+  prefetchMaskedPlayCards,
+  prefetchRevealPlayCard,
+  remainingPlayCardIds,
+} from "@/lib/prefetchPlayCardImages";
 
 function AnswerButton({
   option,
@@ -406,6 +411,7 @@ export default function Game() {
         description: "Failed to load next question. Please try again.",
         variant: "destructive",
       });
+      void refetchSession();
     },
   });
 
@@ -506,6 +512,7 @@ export default function Game() {
           setReplacedQuestionIndices(prev => new Set(prev).add(replacedIndex));
         }
         logger.debug(`[Game] Card replaced successfully with ${data.question.card.id}`);
+        prefetchMaskedPlayCards([data.question.card.playableCardId || data.question.card.id]);
       }
     },
     onError: (error) => {
@@ -680,15 +687,28 @@ export default function Game() {
     }
   }, [isGameOver, isAuthenticated, session?.id, session?.score, pointsUpdatedForSession]);
 
-  const nextQuestionImageUrl = session?.questions?.[
-    (session?.currentQuestionIndex ?? -1) + 1
-  ]?.card?.imageUrl;
+  const remainingCardIds = remainingPlayCardIds(
+    (session?.questions ?? []).map((q) => q.card?.playableCardId || q.card?.id),
+    session?.currentQuestionIndex ?? 0,
+  );
   useEffect(() => {
-    if (nextQuestionImageUrl) {
-      const img = new window.Image();
-      img.src = nextQuestionImageUrl;
+    if (remainingCardIds.length === 0) return;
+    const started = typeof performance !== "undefined" ? performance.now() : 0;
+    prefetchMaskedPlayCards(remainingCardIds);
+    if (typeof performance !== "undefined") {
+      console.debug(
+        `[Prefetch] solo remaining=${remainingCardIds.length} queued in ${Math.round(performance.now() - started)}ms`,
+      );
     }
-  }, [nextQuestionImageUrl]);
+  }, [session?.id, session?.currentQuestionIndex, remainingCardIds.join(",")]);
+
+  const currentPlayCardId = session?.questions?.[session?.currentQuestionIndex ?? 0]?.card?.playableCardId
+    || session?.questions?.[session?.currentQuestionIndex ?? 0]?.card?.id;
+  useEffect(() => {
+    if (isRevealed && currentPlayCardId) {
+      prefetchRevealPlayCard(currentPlayCardId);
+    }
+  }, [isRevealed, currentPlayCardId]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isRevealed) return;
@@ -701,6 +721,17 @@ export default function Game() {
   };
 
   const handleNextQuestion = () => {
+    if (session && sessionId && session.currentQuestionIndex < session.totalQuestions - 1) {
+      const nextIndex = session.currentQuestionIndex + 1;
+      setSelectedAnswer(null);
+      setIsRevealed(false);
+      setRevealedCorrectAnswer(null);
+      setListingTarget(null);
+      queryClient.setQueryData(["/api/game/session", sessionId], {
+        ...session,
+        currentQuestionIndex: nextIndex,
+      });
+    }
     nextQuestionMutation.mutate(undefined);
   };
 

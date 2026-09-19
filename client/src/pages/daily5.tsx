@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
+import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 
 interface Daily5Status {
   challenge: {
@@ -598,6 +599,18 @@ export default function Daily5Page() {
 
   const status = statusQuery.data;
   const currentCard = cards.find(c => c.position === currentPosition);
+
+  useEffect(() => {
+    const remaining = cards.filter((card) => card.position >= currentPosition).map((card) => card.cardId);
+    if (remaining.length === 0) return;
+    prefetchMaskedPlayCards(remaining);
+  }, [cards, currentPosition]);
+
+  useEffect(() => {
+    if (isRevealed && currentCard?.cardId) {
+      prefetchRevealPlayCard(currentCard.cardId);
+    }
+  }, [isRevealed, currentCard?.cardId]);
 
   if (
     statusQuery.isLoading

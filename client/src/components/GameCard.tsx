@@ -23,6 +23,7 @@ import {
   isPlaceholderUrl,
   shouldRunClientCanvasReject,
 } from "@/lib/placeholderImageDetect";
+import { isPlayCardImageReady, markPlayCardImageReady } from "@/lib/prefetchPlayCardImages";
 
 interface MaskConfig {
   setKey: string;
@@ -183,7 +184,7 @@ export function GameCard({
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
 
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(() => isPlayCardImageReady(imageUrl));
   const [imageError, setImageError] = useState(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl)) {
       return true;
@@ -289,6 +290,7 @@ export function GameCard({
       }
     }
 
+    markPlayCardImageReady(imageUrl);
     setImageLoaded(true);
   };
 

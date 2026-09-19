@@ -365,6 +365,9 @@ export async function replaceMatchQuestion(
 
     console.log(`[ReplaceQuestion] Success: matchId=${matchId}, idx=${idx}, oldCard=${currentQuestion.cardId}, newCard=${availableCard.id}, newSeedVersion=${newSeedVersion} (from playable_cards pool)`);
 
+    const { kickPreMask } = await import("../../masking/preMaskDeal");
+    kickPreMask([availableCard.id], "1v1-replace");
+
     return {
       success: true,
       newQuestion: {
