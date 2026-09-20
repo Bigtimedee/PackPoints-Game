@@ -26,8 +26,8 @@ const steps = [
   },
   {
     icon: Gift,
-    title: "Redeem for Real Cards",
-    description: "Use your PackPTS to get discounts on real sports cards from our marketplace partners. Your knowledge pays off!",
+    title: "Browse Real Listings",
+    description: "Visit Marketplace to browse live eBay and Goldin listings. PackPTS you apply stay in your wallet and do not change the price those sites charge.",
     badge: "Step 3 of 4",
     color: "text-green-500",
     bg: "bg-green-500/10",

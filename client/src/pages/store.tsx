@@ -331,8 +331,8 @@ export default function Store() {
             Get PackPTS
           </h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Power up your gameplay with PackPTS. Use them to enter premium game modes, 
-            compete in tournaments, and redeem for real trading card discounts.
+            Power up your gameplay with PackPTS. Use them to enter premium game modes,
+            compete in tournaments, and browse live eBay and Goldin listings from Marketplace.
           </p>
         </div>
 
@@ -449,9 +449,9 @@ export default function Store() {
                   <Crown className="h-4 w-4 text-secondary-foreground" />
                 </div>
                 <div>
-                  <h4 className="font-medium">Redeem for Value</h4>
+                  <h4 className="font-medium">Browse Live Listings</h4>
                   <p className="text-sm text-muted-foreground">
-                    Convert PackPTS into store credit for real baseball cards on Goldin and eBay.
+                    Browse live eBay and Goldin listings from Marketplace. PackPTS you apply stay in your wallet and do not change the price those sites charge.
                   </p>
                 </div>
               </div>
@@ -474,7 +474,7 @@ export default function Store() {
                 <div className="flex-1 text-center md:text-left">
                   <h3 className="font-semibold text-lg mb-1">Browse Live Listings</h3>
                   <p className="text-sm text-muted-foreground">
-                    Search real-time listings from Goldin Auctions and eBay. Use your PackPTS as a discount!
+                    Search real-time listings from Goldin Auctions and eBay. We may earn an affiliate commission. Applied PackPTS do not change the eBay price.
                   </p>
                 </div>
                 <Link href="/marketplace">

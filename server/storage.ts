@@ -45,12 +45,12 @@ export function isKnownSilhouetteUrl(url: string | null | undefined): boolean {
 }
 
 const REDEMPTION_OPTIONS: RedemptionOption[] = [
-  { id: "1", title: "$5 Goldin Credit", description: "Redeemable for any item on Goldin Auctions", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
-  { id: "2", title: "$10 eBay Gift Card", description: "Use on any eBay sports card purchase", pointsCost: 10000, usdValue: 10, platform: "ebay", imageUrl: "" },
-  { id: "3", title: "$25 Goldin Credit", description: "Premium credit for Goldin Auctions", pointsCost: 25000, usdValue: 25, platform: "goldin", imageUrl: "" },
-  { id: "4", title: "$50 eBay Gift Card", description: "Major purchase credit for eBay", pointsCost: 50000, usdValue: 50, platform: "ebay", imageUrl: "" },
-  { id: "5", title: "$100 Goldin Credit", description: "High-value Goldin Auctions credit", pointsCost: 100000, usdValue: 100, platform: "goldin", imageUrl: "" },
-  { id: "6", title: "$2 eBay Credit", description: "Starter credit for eBay purchases", pointsCost: 2000, usdValue: 2, platform: "ebay", imageUrl: "" },
+  { id: "1", title: "$5 PackPTS Credit Token", description: "Internal wallet token. Not Goldin store credit and not usable at Goldin checkout.", pointsCost: 5000, usdValue: 5, platform: "goldin", imageUrl: "" },
+  { id: "2", title: "$10 PackPTS Credit Token", description: "Internal wallet token. Not an eBay gift card and not usable at eBay checkout.", pointsCost: 10000, usdValue: 10, platform: "ebay", imageUrl: "" },
+  { id: "3", title: "$25 PackPTS Credit Token", description: "Internal wallet token. Not Goldin store credit and not usable at Goldin checkout.", pointsCost: 25000, usdValue: 25, platform: "goldin", imageUrl: "" },
+  { id: "4", title: "$50 PackPTS Credit Token", description: "Internal wallet token. Not an eBay gift card and not usable at eBay checkout.", pointsCost: 50000, usdValue: 50, platform: "ebay", imageUrl: "" },
+  { id: "5", title: "$100 PackPTS Credit Token", description: "Internal wallet token. Not Goldin store credit and not usable at Goldin checkout.", pointsCost: 100000, usdValue: 100, platform: "goldin", imageUrl: "" },
+  { id: "6", title: "$2 PackPTS Credit Token", description: "Internal wallet token. Not an eBay gift card and not usable at eBay checkout.", pointsCost: 2000, usdValue: 2, platform: "ebay", imageUrl: "" },
 ];
 
 export interface IStorage {

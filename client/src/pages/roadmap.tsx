@@ -15,7 +15,7 @@ const ROADMAP_ITEMS = [
   { status: "done", category: "Game", title: "1v1 friend matches", description: "Challenge friends with a shared join code." },
   { status: "done", category: "Game", title: "Daily 5 challenge", description: "5 curated cards per day with streak tracking." },
   { status: "done", category: "Rewards", title: "PackPTS wallet", description: "Earn, track, and redeem points." },
-  { status: "done", category: "Rewards", title: "eBay marketplace redemption", description: "Use PackPTS for eBay card discounts." },
+  { status: "done", category: "Rewards", title: "eBay listing browse + PackPTS reserve", description: "Browse live eBay listings from PackPTS. Applied PackPTS stay in your wallet and do not change the eBay price." },
   { status: "done", category: "Social", title: "Global leaderboard", description: "See who's leading in PackPTS earned." },
   // In Progress
   { status: "in_progress", category: "Game", title: "Tournament mode", description: "Bracket-style competitions with prize pools." },
@@ -24,7 +24,7 @@ const ROADMAP_ITEMS = [
   { status: "planned", category: "Game", title: "Team-based mode", description: "2v2 and 3v3 team competitions." },
   { status: "planned", category: "Game", title: "Speed round mode", description: "30-second rapid-fire card identification." },
   { status: "planned", category: "Discovery", title: "Set browser", description: "Browse all available card sets and their difficulty ratings." },
-  { status: "planned", category: "Rewards", title: "Goldin Auctions integration", description: "Bid on premium auctions using PackPTS." },
+  { status: "planned", category: "Rewards", title: "Goldin Auctions listings", description: "Curated Goldin listing browse on PackPTS. PackPTS apply is wallet-side only." },
   { status: "planned", category: "Social", title: "Discord bot integration", description: "Daily challenges and leaderboard updates in your Discord server." },
   { status: "planned", category: "Mobile", title: "Native mobile app", description: "iOS and Android apps for on-the-go play." },
   // Considering

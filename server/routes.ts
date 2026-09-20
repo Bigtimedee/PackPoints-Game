@@ -2906,7 +2906,7 @@ export async function registerRoutes(
         requiresReview: result.requiresReview,
         message: result.requiresReview 
           ? "Your redemption is pending admin review due to the high value."
-          : "Redemption successful! Use your credit token at checkout.",
+          : "Redemption successful. Your PackPTS token is shown below — it is not usable at eBay or Goldin checkout.",
       });
     } catch (error) {
       console.error("Error processing redemption:", error);
