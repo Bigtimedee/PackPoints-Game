@@ -17,10 +17,11 @@ export const FONT_FILES = {
   bold: "Inter-Bold.ttf",
 } as const;
 
-/** Design SOCIAL_PNG_QA — DejaVu regular/bold filenames. */
+/** Design SOCIAL_PNG_QA — DejaVu regular/bold/mono filenames. */
 export const DEJAVU_FILES = {
   regular: "DejaVuSans.ttf",
   bold: "DejaVuSans-Bold.ttf",
+  monoBold: "DejaVuSansMono-Bold.ttf",
 } as const;
 
 /**
@@ -121,6 +122,42 @@ export function assertShareFontsPresent(): ShareFontGate {
     dejaVuRegular,
     dejaVuBold: resolveDejaVuPath(DEJAVU_FILES.bold),
   };
+}
+
+export interface DejaVuFonts {
+  regular: Font;
+  bold: Font;
+  monoBold: Font;
+  regularPath: string;
+  boldPath: string;
+  monoBoldPath: string;
+}
+
+let dejaVuCached: DejaVuFonts | null = null;
+
+/** Receipt PNG gate — raise if Design-listed DejaVu paths are missing. */
+export function assertDejaVuReceiptFonts(): Pick<DejaVuFonts, "regularPath" | "boldPath" | "monoBoldPath"> {
+  const regularPath = resolveDejaVuPath(DEJAVU_FILES.regular);
+  const boldPath = resolveDejaVuPath(DEJAVU_FILES.bold);
+  if (!regularPath || !boldPath) {
+    throw new Error(
+      `[ReceiptPNG] DejaVu TTFs missing. Expected ${DEJAVU_FILES.regular} and ${DEJAVU_FILES.bold} at Design-listed absolute paths. Looked in: ${dejaVuCandidatePaths(DEJAVU_FILES.regular).join(", ")}`,
+    );
+  }
+  const monoBoldPath = resolveDejaVuPath(DEJAVU_FILES.monoBold) || boldPath;
+  return { regularPath, boldPath, monoBoldPath };
+}
+
+export function loadDejaVuFonts(): DejaVuFonts {
+  if (dejaVuCached) return dejaVuCached;
+  const paths = assertDejaVuReceiptFonts();
+  dejaVuCached = {
+    regular: opentype.parse(fs.readFileSync(paths.regularPath)),
+    bold: opentype.parse(fs.readFileSync(paths.boldPath)),
+    monoBold: opentype.parse(fs.readFileSync(paths.monoBoldPath)),
+    ...paths,
+  };
+  return dejaVuCached;
 }
 
 export function loadScoreCardFonts(): ScoreCardFonts {

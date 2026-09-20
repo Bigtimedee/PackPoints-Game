@@ -3,7 +3,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useRoute } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -14,10 +13,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, ExternalLink, Receipt, DollarSign, ArrowLeft } from "lucide-react";
+import { Loader2, ExternalLink, ArrowLeft, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWallet } from "@/hooks/use-wallet";
+import { ReceiptPlaque } from "@/components/receipt-plaque";
+import {
+  RECEIPT_COLORS,
+  RECEIPT_COPY,
+  buildReceiptPlaqueView,
+  formatUsdCents,
+  formatWalletHeader,
+  type ReceiptPlaqueView,
+} from "@shared/receiptContract";
 
 interface Intent {
   id: string;
@@ -50,23 +58,45 @@ interface ReceiptRow {
   intent: Intent;
   credit: Credit | null;
   rebateBalanceCents: number;
+  grantMethod: string | null;
+  plaque?: ReceiptPlaqueView;
   honesty: string;
 }
 
-function statusBadge(status: string) {
-  if (status === "CREDIT_GRANTED" || status === "GRANTED") {
-    return <Badge data-testid="badge-status-granted">Granted</Badge>;
-  }
-  if (status === "PURCHASE_CONFIRMED") {
-    return <Badge variant="secondary" data-testid="badge-status-review">Pending review</Badge>;
-  }
-  if (status === "APPROVED") {
-    return <Badge variant="outline" data-testid="badge-status-reserved">Reserved — buy then claim</Badge>;
-  }
-  if (status === "DENIED" || status === "CANCELED" || status === "REVERSED") {
-    return <Badge variant="destructive">{status}</Badge>;
-  }
-  return <Badge variant="outline">{status}</Badge>;
+function plaqueFromRow(row: ReceiptRow): ReceiptPlaqueView {
+  if (row.plaque) return row.plaque;
+  const { intent, credit } = row;
+  return buildReceiptPlaqueView({
+    intentId: intent.id,
+    source: intent.source,
+    listingId: intent.listingId,
+    listingTitle: intent.listingTitle,
+    listingUrl: intent.listingUrl,
+    priceCents: intent.priceCents,
+    packptsSpent: credit?.packptsSpent ?? intent.approvedRedeemPackpts,
+    creditCents: credit?.creditCents ?? 0,
+    status: intent.status,
+    grantMethod: row.grantMethod ?? intent.grantMethod ?? credit?.grantMethod ?? null,
+    grantedAt: intent.grantedAt ?? credit?.grantedAt ?? null,
+    createdAt: intent.createdAt,
+    evidenceOrderId: intent.evidenceOrderId,
+    evidenceNote: intent.evidenceNote,
+    evidenceReceiptUrl: intent.evidenceReceiptUrl,
+    deniedReason: intent.deniedReason,
+    rebateBalanceCents: row.rebateBalanceCents,
+  });
+}
+
+async function downloadReceiptPng(intentId: string) {
+  const res = await fetch(`/api/marketplace/redemption/receipts/${intentId}/png`, { credentials: "include" });
+  if (!res.ok) throw new Error("Could not build receipt PNG");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `packpts-receipt-${intentId.slice(0, 8)}.png`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function ReceiptDetail() {
@@ -76,6 +106,7 @@ function ReceiptDetail() {
   const [orderId, setOrderId] = useState("");
   const [evidenceNote, setEvidenceNote] = useState("");
   const [receiptUrl, setReceiptUrl] = useState("");
+  const [pngBusy, setPngBusy] = useState(false);
 
   const { data, isLoading } = useQuery<ReceiptRow>({
     queryKey: ["/api/marketplace/redemption/receipts", intentId],
@@ -98,12 +129,17 @@ function ReceiptDetail() {
       return res.json();
     },
     onSuccess: (result) => {
-      toast({ title: result.granted ? "Cashback granted" : "Claim submitted", description: result.message });
+      toast({
+        title: result.granted ? "USD credit granted to PackPTS wallet" : "Credit pending review",
+        description: result.heldForReview
+          ? "PURCHASE_CONFIRMED — PackPTS will finish review."
+          : result.message,
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/marketplace/redemption/receipts"] });
       queryClient.invalidateQueries({ queryKey: ["/wallet"] });
     },
     onError: (error: Error) => {
-      toast({ title: "Could not claim cashback", description: error.message, variant: "destructive" });
+      toast({ title: "Could not claim rebate", description: error.message, variant: "destructive" });
     },
   });
 
@@ -115,81 +151,64 @@ function ReceiptDetail() {
     );
   }
   if (!data) {
-    return <p className="text-muted-foreground">Receipt not found.</p>;
+    return <p style={{ color: RECEIPT_COLORS.muted }}>Receipt not found.</p>;
   }
 
-  const { intent, credit } = data;
-  const platform = intent.source === "goldin" ? "Goldin" : "eBay";
-  const creditCents = credit?.creditCents ?? 0;
-  const canClaim = intent.status === "APPROVED";
+  const plaque = plaqueFromRow(data);
+  const canClaim = data.intent.status === "APPROVED";
+  const rebateUsd = formatUsdCents(plaque.creditCents);
 
   return (
     <div className="space-y-6" data-testid="page-redemption-receipt">
-      <Button variant="ghost" asChild>
+      <Button variant="ghost" asChild className="text-inherit">
         <Link href="/redemptions">
           <ArrowLeft className="h-4 w-4 mr-2" />
           My Redemptions
         </Link>
       </Button>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="h-5 w-5" />
-            PackPTS cashback receipt
-          </CardTitle>
-          <CardDescription>{data.honesty}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-muted-foreground">Status</span>
-            {statusBadge(intent.status)}
-          </div>
-          <div>
-            <p className="font-semibold" data-testid="text-receipt-listing">
-              {intent.listingTitle || `${platform} listing ${intent.listingId}`}
-            </p>
-            <p className="text-sm text-muted-foreground">{platform} · listed ${(intent.priceCents / 100).toFixed(2)}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4 p-4 rounded-md bg-muted">
-            <div>
-              <p className="text-xs text-muted-foreground">PackPTS spent</p>
-              <p className="font-mono font-bold" data-testid="text-receipt-packpts">
-                {(credit?.packptsSpent ?? intent.approvedRedeemPackpts).toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">USD cashback</p>
-              <p className="font-mono font-bold text-accent" data-testid="text-receipt-usd">
-                ${(creditCents / 100).toFixed(2)}
-              </p>
-            </div>
-          </div>
-          {intent.grantMethod && (
-            <p className="text-sm text-muted-foreground">
-              Granted via {intent.grantMethod.replace("_", " ").toLowerCase()}
-              {intent.grantedAt ? ` · ${new Date(intent.grantedAt).toLocaleString()}` : ""}
-            </p>
-          )}
-          {intent.deniedReason && (
-            <p className="text-sm text-destructive">Denied: {intent.deniedReason}</p>
-          )}
+      <ReceiptPlaque plaque={plaque} />
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          onClick={async () => {
+            setPngBusy(true);
+            try {
+              await downloadReceiptPng(intentId);
+            } catch (error) {
+              toast({
+                title: "Could not download receipt",
+                description: error instanceof Error ? error.message : "PNG failed",
+                variant: "destructive",
+              });
+            } finally {
+              setPngBusy(false);
+            }
+          }}
+          disabled={pngBusy}
+          data-testid="button-download-receipt"
+        >
+          {pngBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+          Download 1080 PNG
+        </Button>
+        {plaque.listingUrl && (
           <Button variant="outline" asChild>
-            <a href={intent.listingUrl} target="_blank" rel="noopener noreferrer">
-              Open {platform} listing
+            <a href={plaque.listingUrl} target="_blank" rel="noopener noreferrer">
+              Open {plaque.partner} listing
               <ExternalLink className="h-3 w-3 ml-2" />
             </a>
           </Button>
-        </CardContent>
-      </Card>
+        )}
+      </div>
 
       {canClaim && (
-        <Card>
+        <Card className="border-0" style={{ background: RECEIPT_COLORS.surface, color: RECEIPT_COLORS.ink }}>
           <CardHeader>
             <CardTitle>I purchased — claim rebate</CardTitle>
-            <CardDescription>
-              Pay full price on {platform}, then send the order id so PackPTS can grant ${(creditCents / 100).toFixed(2)} cashback.
-              {platform} will not show this discount.
+            <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
+              {RECEIPT_COPY.confirmToUnlock}. {RECEIPT_COPY.partnerCheckoutUnchanged}. PackPTS reserved {rebateUsd}.
+              Rebates of $25 or more stay PURCHASE_CONFIRMED with Credit pending review until PackPTS review finishes.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -199,7 +218,7 @@ function ReceiptDetail() {
                 id="order-id"
                 value={orderId}
                 onChange={(e) => setOrderId(e.target.value)}
-                placeholder={`${platform} order number`}
+                placeholder={`${plaque.partner} order number`}
                 data-testid="input-claim-order-id"
               />
             </div>
@@ -229,7 +248,7 @@ function ReceiptDetail() {
               data-testid="button-claim-rebate"
             >
               {confirmMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Claim ${(creditCents / 100).toFixed(2)} cashback
+              Claim {rebateUsd} rebate
             </Button>
           </CardContent>
         </Card>
@@ -284,26 +303,17 @@ function RedemptionsList() {
 
   return (
     <div className="space-y-6" data-testid="page-my-redemptions">
-      <Card>
-        <CardContent className="p-4 flex items-center gap-3">
-          <div className="p-2 rounded-md bg-accent/10">
-            <DollarSign className="h-5 w-5 text-accent" />
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">PackPTS cashback balance</p>
-            <p className="text-xl font-bold font-mono" data-testid="text-rebate-balance">
-              ${(rebateCents / 100).toFixed(2)}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex items-center justify-between" data-testid="text-rebate-balance">
+        <p className="text-sm tracking-[0.18em]" style={{ color: RECEIPT_COLORS.muted }}>PACKPTS RECEIPT</p>
+        <p className="text-sm" style={{ color: RECEIPT_COLORS.muted }}>{formatWalletHeader(rebateCents)}</p>
+      </div>
 
       {rebateCents > 0 && (
-        <Card>
+        <Card className="border-0" style={{ background: RECEIPT_COLORS.surface, color: RECEIPT_COLORS.ink }}>
           <CardHeader>
             <CardTitle>Request withdrawal</CardTitle>
-            <CardDescription>
-              Ops sends this as real USD (PayPal / Venmo / ACH) and marks it paid. Not an eBay payout.
+            <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
+              PackPTS sends this as real USD (PayPal / Venmo / ACH) after review. {RECEIPT_COPY.partnerCheckoutUnchanged}.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -360,34 +370,23 @@ function RedemptionsList() {
           </div>
         ) : data?.receipts.length ? (
           data.receipts.map((row) => {
-            const intent = row.intent;
-            const platform = intent.source === "goldin" ? "Goldin" : "eBay";
-            const usd = ((row.credit?.creditCents ?? 0) / 100).toFixed(2);
+            const plaque = plaqueFromRow(row);
             return (
-              <Card key={intent.id} data-testid={`card-redemption-${intent.id}`}>
-                <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{intent.listingTitle || `${platform} ${intent.listingId}`}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {platform} · ${(intent.priceCents / 100).toFixed(2)} list · ${usd} cashback
-                    </p>
-                    <div className="mt-2">{statusBadge(intent.status)}</div>
-                  </div>
-                  <Button asChild variant={intent.status === "APPROVED" ? "default" : "outline"}>
-                    <Link href={`/redemptions/${intent.id}`}>
-                      {intent.status === "APPROVED" ? "Claim rebate" : "View receipt"}
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
+              <Link key={plaque.intentId} href={`/redemptions/${plaque.intentId}`} className="block">
+                <ReceiptPlaque plaque={plaque} compact />
+                <p className="px-2 pt-2 text-right text-sm" style={{ color: RECEIPT_COLORS.muted }}>
+                  {row.intent.status === "APPROVED" ? "Claim rebate" : "View receipt"}
+                </p>
+              </Link>
             );
           })
         ) : (
-          <Card>
+          <Card className="border-0" style={{ background: RECEIPT_COLORS.surface, color: RECEIPT_COLORS.ink }}>
             <CardContent className="p-8 text-center space-y-2">
-              <p className="font-medium">No marketplace redemptions yet</p>
-              <p className="text-sm text-muted-foreground">
-                Apply PackPTS on a live listing, buy at full price, then claim cashback here.
+              <p className="font-medium">No PackPTS receipts yet</p>
+              <p className="text-sm" style={{ color: RECEIPT_COLORS.muted }}>
+                Apply PackPTS on a live listing, buy at partner price, then claim the post-purchase rebate here.
+                Partner checkout unchanged.
               </p>
               <Button asChild>
                 <Link href="/marketplace">Browse listings</Link>
@@ -404,13 +403,13 @@ export default function RedemptionsPage() {
   const [isDetail] = useRoute("/redemptions/:intentId");
 
   return (
-    <div className="min-h-screen pb-20 md:pb-8">
+    <div className="min-h-screen pb-20 md:pb-8" style={{ background: RECEIPT_COLORS.canvas, color: RECEIPT_COLORS.ink }}>
       <div className="container mx-auto px-4 py-8 max-w-3xl">
         <h1 className="text-3xl font-bold mb-2" data-testid="text-redemptions-title">
-          {isDetail ? "Receipt" : "My Redemptions"}
+          {isDetail ? "PackPTS receipt" : "My Redemptions"}
         </h1>
-        <p className="text-muted-foreground mb-8">
-          PackPTS cashback after eBay or Goldin purchases. Checkout on those sites stays full price.
+        <p className="mb-8" style={{ color: RECEIPT_COLORS.muted }}>
+          Post-purchase rebate after eBay or Goldin purchases. Partner checkout unchanged.
         </p>
         {isDetail ? <ReceiptDetail /> : <RedemptionsList />}
       </div>

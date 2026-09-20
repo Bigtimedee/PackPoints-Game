@@ -14,6 +14,7 @@ import {
 } from "@shared/schema";
 import { treasuryService } from "./treasuryService";
 import { sendRebateReceiptEmail } from "./emailService";
+import { buildReceiptPlaqueView, type ReceiptPlaqueView } from "@shared/receiptContract";
 
 export const REVIEW_THRESHOLD_CENTS = 2500; // $25 user-attested confirms need admin
 
@@ -42,13 +43,49 @@ export interface RedemptionReceipt {
   intent: ExternalPurchaseIntent;
   credit: RedemptionCredit | null;
   rebateBalanceCents: number;
+  grantMethod: string | null;
+  plaque: ReceiptPlaqueView;
   honesty: string;
 }
 
 const SITE_URL = () => process.env.SITE_URL || "https://packpts.com";
 
 const HONESTY =
-  "eBay and Goldin checkout stay full price. PackPTS pays this cashback after a confirmed purchase.";
+  "Post-purchase rebate. Partner checkout unchanged.";
+
+function assembleReceipt(
+  intent: ExternalPurchaseIntent,
+  credit: RedemptionCredit | null,
+  rebateBalanceCents: number,
+): RedemptionReceipt {
+  const grantMethod = intent.grantMethod || credit?.grantMethod || null;
+  return {
+    intent,
+    credit,
+    rebateBalanceCents,
+    grantMethod,
+    plaque: buildReceiptPlaqueView({
+      intentId: intent.id,
+      source: intent.source,
+      listingId: intent.listingId,
+      listingTitle: intent.listingTitle ?? null,
+      listingUrl: intent.listingUrl,
+      priceCents: intent.priceCents,
+      packptsSpent: credit?.packptsSpent ?? intent.approvedRedeemPackpts ?? 0,
+      creditCents: credit?.creditCents ?? 0,
+      status: intent.status,
+      grantMethod,
+      grantedAt: intent.grantedAt ?? credit?.grantedAt ?? null,
+      createdAt: intent.createdAt ?? null,
+      evidenceOrderId: intent.evidenceOrderId ?? null,
+      evidenceNote: intent.evidenceNote ?? null,
+      evidenceReceiptUrl: intent.evidenceReceiptUrl ?? null,
+      deniedReason: intent.deniedReason ?? null,
+      rebateBalanceCents,
+    }),
+    honesty: HONESTY,
+  };
+}
 
 function receiptPath(intentId: string): string {
   return `${SITE_URL()}/redemptions/${intentId}`;
@@ -76,12 +113,7 @@ class RebateService {
       .from(redemptionCredit)
       .where(eq(redemptionCredit.purchaseIntentId, intentId));
 
-    return {
-      intent,
-      credit: credit || null,
-      rebateBalanceCents: await this.getRebateBalance(userId),
-      honesty: HONESTY,
-    };
+    return assembleReceipt(intent, credit || null, await this.getRebateBalance(userId));
   }
 
   async listReceipts(userId: string): Promise<RedemptionReceipt[]> {
@@ -117,12 +149,9 @@ class RebateService {
     const creditByIntent = new Map(credits.map((c) => [c.purchaseIntentId, c]));
     const rebateBalanceCents = await this.getRebateBalance(userId);
 
-    return intents.map((intent) => ({
-      intent,
-      credit: creditByIntent.get(intent.id) || null,
-      rebateBalanceCents,
-      honesty: HONESTY,
-    }));
+    return intents.map((intent) =>
+      assembleReceipt(intent, creditByIntent.get(intent.id) || null, rebateBalanceCents),
+    );
   }
 
   async persistEvidence(

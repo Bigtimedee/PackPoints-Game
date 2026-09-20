@@ -9042,7 +9042,7 @@ export async function registerRoutes(
         receipts,
         payouts,
         rebateBalanceCents,
-        honesty: "eBay and Goldin checkout stay full price. PackPTS pays cashback after a confirmed purchase.",
+        honesty: "Post-purchase rebate. Partner checkout unchanged.",
       });
     } catch (error: any) {
       console.error("Error listing redemption receipts:", error);
@@ -9061,6 +9061,27 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error getting redemption receipt:", error);
       res.status(500).json({ error: error.message || "Failed to get receipt" });
+    }
+  });
+
+  app.get("/api/marketplace/redemption/receipts/:intentId/png", isAuthenticated, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const { renderReceiptPng } = await import("./contentFactory/generateReceiptPng");
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const receipt = await rebateService.getReceipt(userId, req.params.intentId);
+      if (!receipt) return res.status(404).json({ error: "Receipt not found" });
+      const png = await renderReceiptPng(receipt.plaque);
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="packpts-receipt-${receipt.plaque.intentId.slice(0, 8)}.png"`,
+      );
+      res.send(png);
+    } catch (error: any) {
+      console.error("Error rendering redemption receipt PNG:", error);
+      res.status(500).json({ error: error.message || "Failed to render receipt" });
     }
   });
 
