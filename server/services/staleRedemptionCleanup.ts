@@ -27,6 +27,7 @@ export async function runStaleRedemptionCleanup(): Promise<CleanupResult> {
     .where(
       and(
         eq(externalPurchaseIntent.status, "APPROVED"),
+        sql`${externalPurchaseIntent.listingId} NOT LIKE 'qa-receipt-%'`,
         lte(
           externalPurchaseIntent.updatedAt,
           new Date(now.getTime() - STALE_APPROVED_HOURS * 60 * 60 * 1000)
@@ -61,6 +62,7 @@ export async function runStaleRedemptionCleanup(): Promise<CleanupResult> {
     .where(
       and(
         eq(externalPurchaseIntent.status, "CREATED"),
+        sql`${externalPurchaseIntent.listingId} NOT LIKE 'qa-receipt-%'`,
         lte(
           externalPurchaseIntent.createdAt,
           new Date(now.getTime() - STALE_CREATED_HOURS * 60 * 60 * 1000)
