@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-19 (between-card masked-image prefetch + deal preMask; PSA-slab cert-label bake v4.2; Social Media Agent Marketing SoR Daily 5-only auto X + FOMO preflight #91; play-sets CDN aliases #90; post-submit full-card reveal. Play Again #87; name masking #86; Daily 5 overlay #85)
+**Last verified against codebase:** 2026-09-20 (brand SoR: **B masked-P** = app/PWA/favicon/header; **A masked-card** = OG/social only; glossy shield deleted; maskable + `/assets/brand/playpackpts-avatar-masked-p-1024.png`. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number. Prior: 2026-09-19 between-card masked-image prefetch + deal preMask; PSA-slab cert-label bake v4.2; Social Media Agent Marketing SoR Daily 5-only auto X + FOMO preflight #91; play-sets CDN aliases #90; post-submit full-card reveal.)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -658,7 +658,7 @@ Key fields on `users` table:
 All admin routes require `isAdmin: true`. Admin UI lives at `/admin/*` with 20+ pages.
 
 **Implemented Admin Features:**
-- **Dashboard:** KPIs (total users, games played, points awarded, card stats), top players chart
+- **Dashboard:** KPIs (registered users non-staff, games played, points awarded, card stats), top players chart. User headline is `overview.registeredUsersNonStaff` (`users.is_admin = false` AND `users.is_bot = false`). Legacy `totalUsers` aliases that honest count. Breakdown: `staffUsers`, `botUsers`, `allUserRows`. 7d signups are the same exclusion. **Do not cite all-rows `COUNT(*)` as registered users. Do not invent a public figure — read the live admin metric.** SQL: `server/services/userCounts.ts` (`REGISTERED_USERS_NON_STAFF_SQL`). **Do not cite** public `GET /api/access/cap` `currentActive` (founders-cap counter; live 2026-09-20 read `3`, includes staff) or `/api/leaderboard` length (wallet balance > 0, includes staff/test).
 - **User Management:** Search/filter users by status, view detailed analytics per user, adjust wallet, freeze/unfreeze accounts, approve waitlisted users
 - **Card Management:** Import card sets from CardHedge, configure mask regions, review reported cards, view card telemetry (wrong-answer rates), manage quarantine status, rotate images
 - **Card Sets:** Create/edit game sets, configure CardHedge import queries, manage active/inactive sets. `/admin/playable-sets` Actions include **Delete** (Trash2): confirmation names the set and shows imported card count, then `DELETE /api/admin/game-sets/:id` with credentials; success invalidates `["/api/admin/game-sets"]`. That endpoint **hard-deletes** the `game_sets` row (auth: `isAuthenticated` + `requireAdmin`; `{ success: true }` or 404). Soft-deactivate (`isActive=false`) used to leave inactive junk on `GET /api/admin/game-sets` / `/admin/playable-sets`. Dependents that FK-block the row are deleted first in application order: `daily_challenge_cards` and `card_image_reports` for the set's cards, then `playable_cards`, `cardhedge_import_runs`, `user_active_sets`, `match_context_log`, `set_of_week`; nullable FKs on `collaboration_sessions.published_set_id` and `daily_challenges.set_id` are set null. No `ON DELETE CASCADE` schema change. Public play still uses `isActive`; this does not change which sets product UI deletes.
@@ -995,6 +995,21 @@ Admin (20+): `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin
 - shadcn/ui component library (50+ Radix UI primitives)
 - Custom design tokens: border-radius (lg: 9px, md: 6px, sm: 3px)
 - Animations via Framer Motion (card reveals, point awards, leaderboard updates) — all < 500ms
+
+### Brand marks (two-role SoR — 2026-09-20)
+
+Design lock is **two roles**, not one mark everywhere:
+
+| Role | Mark | Ships on |
+|---|---|---|
+| **B — masked-P** | White P + gold `#F5C518` bar on `#0b0f16`. Master `client/public/packpts-mark.svg` (same path as score-card / maker-share / play-sets footers). Rasters: `favicon.png`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `icon-1024.png`. | App / PWA / favicon / apple-touch / manifest / client header |
+| **A — masked-card** | Marketing scene (card / Daily 5 tease). `og-image.png` + play-sets / social kit PNGs. | OG, social, share kits only |
+
+**Kill:** glossy 3-card shield (`packpts-logo.png`, deleted from header), three-square / orange tiles, yellow-P-on-white, PackPoints spelling on product chrome, using B as a social hero, mixing A into app thumbnails.
+
+**X avatar (stable URL):** `https://packpts.com/assets/brand/playpackpts-avatar-masked-p-1024.png` (B at 1024). Manifest includes `icon-512-maskable.png` with `purpose: maskable`. Header `img-logo` is Design’s B companion PNG `client/src/assets/packpts-logo.png` (394×128 masked-P + PackPTS wordmark; Vite `/assets/packpts-logo-*.png`). Not the glossy shield.
+
+`packpts-design/` is gitignored and was not on disk in this workspace. Live packpts.com B/A rasters already byte-match `client/public/` (verified 2026-09-20). Do not invent replacements.
 
 ---
 
@@ -1419,7 +1434,7 @@ Returns for the current week (Sun–Sat):
 | Field | Source | Description |
 |-------|--------|-------------|
 | `northStar.value` | `matches WHERE status=FINISHED` | WAP — unique players with ≥1 finished match |
-| `growth.newSignupsThisWeek` | `users` | Signups this week vs last week + WoW % |
+| `growth.newSignupsThisWeek` | `users` | Signups this week vs last week + WoW % — `is_admin` and `is_bot` excluded |
 | `retention.d7Pct` | `event_log` first-active cohort | Latest mature D7 (same definition as `/api/admin/retention`) |
 | `revenue.revenueUsd` | `purchase_events` | Stripe checkout completions sum |
 | `engagement.matchesPlayed` | `matches` | Total finished matches this week |
@@ -1707,6 +1722,8 @@ railway variables --service Postgres --json | python3 -c \
 ## 25. Known Bugs, Gaps, and Risks
 
 ### Gameplay
+- [x] Brand mark dual-logo (2026-09-20): header shipped the glossy 3-card shield (`packpts-logo.png`) into app thumbnails. Two-role SoR: **B masked-P** on header/favicon/PWA/manifest; **A masked-card** on OG/social only. Header `img-logo` is Design’s 394×128 B wordmark companion (same filename `packpts-logo.png` so Vite hashes `/assets/packpts-logo-*.png`). Manifest lists `icon-512-maskable.png`. X avatar `/assets/brand/playpackpts-avatar-masked-p-1024.png` matches attached B 1024 (`icon-1024.png` bytes).
+- [x] Admin user-count honesty (2026-09-20): `/admin/dashboard` “Total Users” was `users.length` (staff + bots included). Headline is now `registeredUsersNonStaff` (`is_admin = false` AND `is_bot = false`). 7d signups and scorecard weekly signups use the same exclusion. Cite the live admin field; do not invent a number. SQL: `server/services/userCounts.ts`.
 - [x] Game Complete / Daily 5 score card PNG (2026-09-05): generation wrote to `/app/public/generated/share`, which the non-root `packpts` process cannot mkdir (`EACCES`). Confirmed in production deploy logs. Cards now write to the persistent volume `/app/data/masked-cards/generated/share/` and are served at `/generated/share/`. Failed rows (insert-then-EACCES) are repaired on `GET /api/content-assets/latest` and via `POST /api/content-assets/retry`. Finish handlers await generation up to 1.5s and return `shareImageUrl` so the 1080×1080 card can appear within ~2s on Safari. Locked Design contract: `docs/SCORE_CARD_CONTRACT.md` (1080 square, actual X/5, five `#22C55E` pips, “N locked. M open.”, masked-P + PackPTS, packpts.com/daily visual CTA, **§3b today identity** `{MON} {D} · TODAY'S FIVE` on the America/Chicago CT day key plus mini cream/gold masked-strip) and `docs/EMPTY_STATE.md` (no broken-image glyph; “Score card didn’t load.” + Retry `#2B6CEE` + Share without card). `/daily` is an alias for `/daily5`. Elevated OG lives at `client/public/og-image.png`; Daily 5 masked tease v2 at `client/public/daily5-masked-1080-v2.png`.
 - [x] Daily 5 Beat-me product loop (2026-09-08): Game Complete **Beat me** issues `POST /api/daily5/beat-me` (real completed-entry X/5 + CT `puzzle_day`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Day key shared with Daily 5 + streak: `America/Chicago` (`shared/packptsDay.ts`). Contract: `docs/DAILY_BEAT_ME.md`.
 - [x] Daily 5 resume desync (2026-09-08): in-progress reload showed card 1 + Submit; server returned `Position 1 already answered`. Root cause: `daily5.tsx` `startMutation` reset `currentPosition` to 1 / score to 0 and ignored `entry.answers`. Client now hydrates via `resolveDaily5Resume`. Blocks Design §3b Game Complete QA until deployed.
@@ -1882,7 +1899,8 @@ These can all be derived from the production DB at the time of sale:
 | Metric | How to Compute |
 |---|---|
 | Weekly Active Players (WAP) | Users with ≥1 finished match in last 7d — north-star metric |
-| DAU / WAU / MAU | Admin DAU: distinct `event_log.user_id` that day (`adminService.getMetrics`). Maker Rate MAU: distinct `event_log` users in 30d, staff excluded. Do not use `user_presence` for published admin proof. |
+| Registered users (non-staff) | `GET /api/admin/dashboard` → `overview.registeredUsersNonStaff`. SQL: `COUNT(*)` from `users` where `is_admin = false` AND `is_bot = false` (`REGISTERED_USERS_NON_STAFF_SQL`). Marketing cites this field only. Never all-rows `users` COUNT, never staff/bots, never an invented number. |
+| DAU / WAU / MAU | Admin DAU: distinct `event_log.user_id` that day (`adminService.getMetrics`) — **does not** join `users.is_admin` (staff play can inflate it). Maker Rate MAU: distinct `event_log` users in 30d, staff excluded. Do not use `user_presence` for published admin proof. |
 | D1 / D7 / D30 Retention | Weekly first-active cohorts from `event_log` (`GET /api/admin/retention`, `/admin/metrics`). First CT day with an event_log row; return = event on first-active + N. Staff + bots excluded. Pending = null. |
 | MRR | Sum of active `subscriptionProducts.priceCents` per billing cycle |
 | ARPU | MRR ÷ MAU |

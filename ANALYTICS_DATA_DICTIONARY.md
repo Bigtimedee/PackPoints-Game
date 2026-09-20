@@ -41,6 +41,41 @@ Event types: `answer_submitted` (outcome, latency), `listing_click`, `set_starte
 - null `player_key` rate on answer events (< 5% healthy)
 - event + price-capture freshness
 
+## Admin operational metrics (Registered users)
+
+| Metric | Formula | Source | Notes |
+|---|---|---|---|
+| **`registeredUsersNonStaff`** | `COUNT(*)` where `is_admin = false` AND `is_bot = false` | `users` | Honest registered-user number. **Cite this.** Shown on `/admin/dashboard` and `GET /api/admin/dashboard`. Legacy `overview.totalUsers` aliases it. Do not invent a public figure. |
+| `staffUsers` | `COUNT(*)` where `is_admin = true` | `users` | Same staff flag as Maker Rate / retention. Not product users. |
+| `botUsers` | `COUNT(*)` where `is_bot = true` | `users` | AI fallback opponents. Not product users. |
+| `allUserRows` | `COUNT(*)` | `users` | Reconciliation only. **Do not cite** as registered users. |
+| `newSignupsNonStaff` | same exclusion, `created_at` in last 7d | `users` | Dashboard 7d card. Scorecard weekly signups use the same exclusion. |
+
+Authoritative SQL: `REGISTERED_USERS_NON_STAFF_SQL` in `server/services/userCounts.ts` (Railway Postgres — the app `DATABASE_URL`, not Supabase).
+
+```sql
+SELECT
+  COUNT(*) FILTER (
+    WHERE COALESCE(is_admin, false) = false
+      AND COALESCE(is_bot, false) = false
+  ) AS registered_users_non_staff,
+  COUNT(*) FILTER (WHERE COALESCE(is_admin, false) = true) AS staff_users,
+  COUNT(*) FILTER (WHERE COALESCE(is_bot, false) = true) AS bot_users,
+  COUNT(*) AS all_user_rows
+FROM users;
+```
+
+**Marketing citation:** `registeredUsersNonStaff` from the live admin dashboard only. Never all-rows. Never staff. Never bots. Never a guessed “beyond Dave” number.
+
+**Do not cite these live public probes as registered users** (verified 2026-09-20 against packpts.com; they are not staff-excluded `users` counts):
+
+| Probe | Live read | Why it is not the GTM number |
+|---|---|---|
+| `GET /api/access/cap` → `currentActive` | `3` | Founders-cap `active_user_counter.count`. Includes staff. Not `COUNT(users)` and not staff-excluded. |
+| `GET /api/access/summary` → `waitlistSize` | `0` | Waitlist rows, not registered users. |
+| `GET /api/leaderboard` | 3 rows (`Bigtimedee`, `designqa`, `claude_e2e_test`) | Top 20 by points. Includes staff/test. Omits users with no score. |
+| `GET /api/admin/dashboard` | `401` from this environment | The cite field after deploy. Requires admin session. |
+
 ## Admin operational metrics (Making Layer)
 
 | Metric | Formula | Source | Notes |

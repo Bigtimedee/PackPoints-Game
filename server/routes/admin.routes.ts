@@ -10,10 +10,11 @@ import {
 import { fetchAdminRetentionPayload } from "../services/retentionCohorts";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
-import { eq, sql, desc, and, gt, gte } from "drizzle-orm";
+import { eq, sql, desc, and, gt } from "drizzle-orm";
 import { users, purchaseEvents, products, userEntitlements, gameSets, outboundClicks } from "@shared/schema";
 import type { User } from "@shared/schema";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "../services/cardHedge";
+import { summarizeUserCounts, USER_COUNT_DEFINITION } from "../services/userCounts";
 import { z } from "zod";
 
 // Middleware to require admin role
@@ -40,9 +41,7 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
 export function registerAdminRoutes(app: Express): void {
   app.get("/api/admin/dashboard", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-
-      const [allUsers, activeSubsResult, newSignupsResult] = await Promise.all([
+      const [allUsers, activeSubsResult] = await Promise.all([
         db.select().from(users),
         db.select({ count: sql<number>`COUNT(*)` })
           .from(userEntitlements)
@@ -50,19 +49,25 @@ export function registerAdminRoutes(app: Express): void {
             eq(userEntitlements.entitlementKey, "pro_subscription"),
             gt(userEntitlements.expiresAt, new Date()),
           )),
-        db.select({ count: sql<number>`COUNT(*)` })
-          .from(users)
-          .where(gte(users.createdAt, sevenDaysAgo)),
       ]);
 
-      const totalUsers = allUsers.length;
+      const counts = summarizeUserCounts(
+        allUsers.map((u: User) => ({
+          isAdmin: u.isAdmin,
+          isBot: u.isBot,
+          createdAt: u.createdAt,
+        })),
+        new Date(),
+      );
+      // Honest headline: non-staff, non-bot. Legacy `totalUsers` aliases this.
+      const totalUsers = counts.registeredUsersNonStaff;
       const totalPoints = allUsers.reduce((sum: number, u: User) => sum + u.points, 0);
       const totalGames = allUsers.reduce((sum: number, u: User) => sum + u.gamesPlayed, 0);
       const totalCorrect = allUsers.reduce((sum: number, u: User) => sum + u.correctAnswers, 0);
       const totalAnswers = allUsers.reduce((sum: number, u: User) => sum + u.totalAnswers, 0);
       const avgAccuracy = totalAnswers > 0 ? Math.round((totalCorrect / totalAnswers) * 100) : 0;
       const activeSubscriptions = Number(activeSubsResult[0]?.count ?? 0);
-      const newSignups = Number(newSignupsResult[0]?.count ?? 0);
+      const newSignups = counts.newSignupsNonStaff;
 
       const topPlayers = [...allUsers]
         .sort((a: User, b: User) => b.points - a.points)
@@ -85,12 +90,19 @@ export function registerAdminRoutes(app: Express): void {
       res.json({
         overview: {
           totalUsers,
+          registeredUsersNonStaff: counts.registeredUsersNonStaff,
+          staffUsers: counts.staffUsers,
+          botUsers: counts.botUsers,
+          allUserRows: counts.allUserRows,
           totalPoints,
           totalGames,
           avgAccuracy,
           activeSubscriptions,
           newSignups,
+          newSignupsNonStaff: counts.newSignupsNonStaff,
+          newSignupsAllRows: counts.newSignupsAllRows,
         },
+        userCountDefinition: USER_COUNT_DEFINITION,
         topPlayers,
         mostActive,
       });

@@ -11654,12 +11654,14 @@ export async function registerRoutes(
             WHERE m.status = 'FINISHED' AND m.created_at >= $1
           `, [weekStart]),
 
-          // Growth: signups this week vs last week
+          // Growth: signups this week vs last week (non-staff, non-bot)
           dbPool.query<{ this_week: string; last_week: string }>(`
             SELECT
               COUNT(*) FILTER (WHERE created_at >= $1) AS this_week,
               COUNT(*) FILTER (WHERE created_at >= $2 AND created_at < $1) AS last_week
-            FROM users WHERE is_bot = FALSE
+            FROM users
+            WHERE COALESCE(is_bot, false) = false
+              AND COALESCE(is_admin, false) = false
           `, [weekStart, prevWeekStart]),
 
           // D7: latest mature first-active cohort (event_log, staff/bot excluded).
