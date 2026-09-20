@@ -50,6 +50,7 @@ export interface ApplyResult {
   approvedRedeemPackpts: number;
   creditCents: number;
   redemptionCreditId: string;
+  purchaseIntentId?: string;
   message: string;
 }
 
@@ -123,7 +124,8 @@ class ProfitGuardrailService {
     listingId: string,
     listingUrl: string,
     priceCents: number,
-    currency: string = "usd"
+    currency: string = "usd",
+    listingTitle?: string
   ): Promise<QuoteResult> {
     const policy = await this.getActivePolicy();
     if (!policy) {
@@ -203,6 +205,7 @@ class ProfitGuardrailService {
         source,
         listingId,
         listingUrl,
+        listingTitle: listingTitle || null,
         priceCents,
         currency,
         computedRmax: marginBackedRmax, // Store margin-backed limit
@@ -492,7 +495,8 @@ class ProfitGuardrailService {
         approvedRedeemPackpts,
         creditCents,
         redemptionCreditId: credit.id,
-        message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS for $${(creditCents / 100).toFixed(2)} credit${clampedMessage}`,
+        purchaseIntentId,
+        message: `Reserved ${approvedRedeemPackpts.toLocaleString()} PackPTS. Buy on ${intent.source} at full price, then claim $${(creditCents / 100).toFixed(2)} PackPTS cashback.${clampedMessage}`,
       };
     });
   }
@@ -501,73 +505,9 @@ class ProfitGuardrailService {
     userId: string,
     purchaseIntentId: string,
     evidence?: string
-  ): Promise<{ success: boolean; message: string }> {
-    return await db.transaction(async (tx) => {
-      const [intent] = await tx
-        .select()
-        .from(externalPurchaseIntent)
-        .where(
-          and(
-            eq(externalPurchaseIntent.id, purchaseIntentId),
-            eq(externalPurchaseIntent.userId, userId)
-          )
-        )
-        .for("update");
-
-      if (!intent) {
-        throw new Error("Purchase intent not found");
-      }
-
-      if (intent.status !== "APPROVED") {
-        throw new Error(`Cannot confirm purchase: intent status is ${intent.status}`);
-      }
-
-      const [credit] = await tx
-        .select()
-        .from(redemptionCredit)
-        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
-
-      if (!credit) {
-        throw new Error("Redemption credit not found for this purchase intent");
-      }
-
-      // High-value confirmations require admin review before the credit is
-      // finalized (the confirm is a user self-attestation of purchase, so large
-      // credits are held pending human verification of the evidence). Low-value
-      // credits auto-grant. The wallet was already debited at apply time either
-      // way; review only gates FINALIZATION and reservation consumption.
-      const REVIEW_THRESHOLD_CENTS = 2500; // $25
-      if (credit.creditCents >= REVIEW_THRESHOLD_CENTS) {
-        await tx
-          .update(externalPurchaseIntent)
-          .set({ status: "PURCHASE_CONFIRMED", updatedAt: new Date() })
-          .where(eq(externalPurchaseIntent.id, purchaseIntentId));
-        return {
-          success: true,
-          message: "Purchase confirmed. Your credit is pending review and will be granted shortly.",
-        };
-      }
-
-      await treasuryService.consumeReservation(purchaseIntentId, credit.id, tx);
-
-      await tx
-        .update(externalPurchaseIntent)
-        .set({
-          status: "CREDIT_GRANTED",
-          updatedAt: new Date(),
-        })
-        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
-
-      await tx
-        .update(redemptionCredit)
-        .set({ status: "GRANTED" })
-        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
-
-      return {
-        success: true,
-        message: "Purchase confirmed. Credit has been granted.",
-      };
-    });
+  ): Promise<{ success: boolean; message: string; granted?: boolean; heldForReview?: boolean; receiptUrl?: string; creditCents?: number }> {
+    const { rebateService } = await import("./rebateService");
+    return rebateService.confirmPurchase(userId, purchaseIntentId, { evidence });
   }
 
   /**
@@ -575,28 +515,8 @@ class ProfitGuardrailService {
    * pending review. Consumes the reservation and grants the credit.
    */
   async adminGrantConfirmed(purchaseIntentId: string): Promise<{ success: boolean; message: string }> {
-    return await db.transaction(async (tx) => {
-      const [intent] = await tx
-        .select().from(externalPurchaseIntent)
-        .where(eq(externalPurchaseIntent.id, purchaseIntentId)).for("update");
-      if (!intent) throw new Error("Purchase intent not found");
-      if (intent.status !== "PURCHASE_CONFIRMED") {
-        throw new Error(`Cannot grant: intent status is ${intent.status}`);
-      }
-      const [credit] = await tx
-        .select().from(redemptionCredit)
-        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
-      if (!credit) throw new Error("Redemption credit not found");
-
-      await treasuryService.consumeReservation(purchaseIntentId, credit.id, tx);
-      await tx.update(externalPurchaseIntent)
-        .set({ status: "CREDIT_GRANTED", updatedAt: new Date() })
-        .where(eq(externalPurchaseIntent.id, purchaseIntentId));
-      await tx.update(redemptionCredit)
-        .set({ status: "GRANTED" })
-        .where(eq(redemptionCredit.purchaseIntentId, purchaseIntentId));
-      return { success: true, message: "Credit granted." };
-    });
+    const { rebateService } = await import("./rebateService");
+    return rebateService.adminGrant(purchaseIntentId);
   }
 
   async getPurchaseIntent(
@@ -785,7 +705,7 @@ class ProfitGuardrailService {
         throw new Error("Purchase intent not found");
       }
 
-      if (intent.status !== "APPROVED") {
+      if (intent.status !== "APPROVED" && intent.status !== "PURCHASE_CONFIRMED") {
         throw new Error(`Cannot cancel: intent status is ${intent.status}`);
       }
 

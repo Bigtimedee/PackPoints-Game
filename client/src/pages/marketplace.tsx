@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -234,6 +234,9 @@ interface LiveListingCardProps {
 
 function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, onRedemptionComplete, batchQuote, walletStatus = "NORMAL" }: LiveListingCardProps) {
   const [showRedemptionModal, setShowRedemptionModal] = useState(false);
+  const [showNextStep, setShowNextStep] = useState(false);
+  const [appliedCreditCents, setAppliedCreditCents] = useState(0);
+  const [appliedIntentId, setAppliedIntentId] = useState<string | null>(null);
   const [quote, setQuote] = useState<QuoteResult | null>(null);
   const [selectedAmount, setSelectedAmount] = useState(0);
   const { toast } = useToast();
@@ -265,6 +268,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
         listingUrl: listing.destinationUrl,
         priceCents: listing.priceCents || 0,
         currency: listing.currency || "usd",
+        listingTitle: listing.title,
       });
       return res.json() as Promise<QuoteResult>;
     },
@@ -302,12 +306,16 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
     onSuccess: (data) => {
       setShowRedemptionModal(false);
       if (data.success) {
+        setAppliedCreditCents(data.creditCents || 0);
+        setAppliedIntentId(data.purchaseIntentId || quote?.purchaseIntentId || null);
+        setShowNextStep(true);
         toast({
-          title: "PackPTS Reserved",
+          title: "PackPTS reserved",
           description: data.message,
         });
         onRedemptionComplete?.();
         queryClient.invalidateQueries({ queryKey: ["/wallet"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/marketplace/redemption/receipts"] });
       } else {
         toast({
           title: "Redemption Denied",
@@ -519,9 +527,9 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
       <Dialog open={showRedemptionModal} onOpenChange={setShowRedemptionModal}>
         <DialogContent data-testid="dialog-redemption">
           <DialogHeader>
-            <DialogTitle>Reserve PackPTS</DialogTitle>
+            <DialogTitle>Reserve PackPTS for cashback</DialogTitle>
             <DialogDescription>
-              PackPTS you apply are reserved in your PackPTS wallet. They do not change the price {platformName} charges. We may earn an affiliate commission.
+              {platformName} checkout stays full price. After you buy via our tracked link, PackPTS pays you back the cashback shown below. We may earn an affiliate commission.
             </DialogDescription>
           </DialogHeader>
           
@@ -553,12 +561,12 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
             </div>
             
             <div className="bg-muted rounded-lg p-4 text-center">
-              <p className="text-sm text-muted-foreground">PackPTS-side reservation</p>
+              <p className="text-sm text-muted-foreground">PackPTS cashback after you buy</p>
               <p className="text-2xl font-bold text-accent" data-testid="text-credit-value">
                 ${creditAmount}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                This is not a coupon on {platformName}.
+                Not a coupon on {platformName}. You pay full price there; we pay you back ${creditAmount}.
               </p>
             </div>
             
@@ -590,6 +598,40 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   Apply {selectedAmount.toLocaleString()} PackPTS
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNextStep} onOpenChange={setShowNextStep}>
+        <DialogContent data-testid="dialog-apply-next-step">
+          <DialogHeader>
+            <DialogTitle>Buy on {platformName}, then claim cashback</DialogTitle>
+            <DialogDescription>
+              {platformName} checkout stays full price. PackPTS pays you back ${(appliedCreditCents / 100).toFixed(2)} after the purchase is confirmed.
+            </DialogDescription>
+          </DialogHeader>
+          <ol className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground">
+            <li>Open the listing with our tracked link (required for eBay attribution).</li>
+            <li>Pay the normal {platformName} total.</li>
+            <li>Come back and tap “I’ve purchased — claim rebate.”</li>
+          </ol>
+          <DialogFooter className="gap-2 sm:flex-col">
+            <Button asChild data-testid="button-buy-on-partner">
+              <a href={listing.outboundUrl || listing.destinationUrl} target="_blank" rel="noopener noreferrer">
+                Buy on {platformName}
+                <ExternalLink className="h-3 w-3 ml-2" />
+              </a>
+            </Button>
+            {appliedIntentId && (
+              <Button variant="secondary" asChild data-testid="button-claim-rebate-cta">
+                <Link href={`/redemptions/${appliedIntentId}`}>
+                  I’ve purchased — claim rebate
+                </Link>
+              </Button>
+            )}
+            <Button variant="outline" asChild>
+              <Link href="/redemptions">My Redemptions</Link>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -802,7 +844,12 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Browse live listings. Applied PackPTS stay in your wallet and do not change the eBay price.</p>
+            <p className="text-muted-foreground">Browse live listings. eBay/Goldin checkout stays full price — PackPTS pays cashback after you buy.</p>
+            <p className="mt-1">
+              <Link href="/redemptions" className="text-sm text-accent underline-offset-4 hover:underline">
+                My Redemptions / receipts
+              </Link>
+            </p>
           </div>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
@@ -1073,6 +1120,18 @@ export default function Marketplace() {
           </TabsContent>
 
           <TabsContent value="redeem">
+            <Card className="mb-6 border-amber-500/40">
+              <CardContent className="p-4 text-sm space-y-2">
+                <p className="font-medium">These catalog SKUs are internal PackPTS tokens — not a payout rail.</p>
+                <p className="text-muted-foreground">
+                  They are not eBay or Goldin gift cards and nothing on those sites accepts the hex token.
+                  For real USD cashback, use Live Listings → Apply PackPTS → buy at full price → claim rebate.
+                </p>
+                <Button variant="secondary" asChild>
+                  <Link href="/redemptions">Go to My Redemptions</Link>
+                </Button>
+              </CardContent>
+            </Card>
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
               <aside className="lg:col-span-1">
                 <Card>

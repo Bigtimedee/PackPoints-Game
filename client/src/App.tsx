@@ -29,6 +29,7 @@ const Match = lazy(() => import("@/pages/match"));
 const Queue = lazy(() => import("@/pages/queue"));
 const Leaderboard = lazy(() => import("@/pages/leaderboard"));
 const Marketplace = lazy(() => import("@/pages/marketplace"));
+const Redemptions = lazy(() => import("@/pages/redemptions"));
 const Store = lazy(() => import("@/pages/store"));
 const StoreSuccess = lazy(() => import("@/pages/store-success"));
 const StoreCancel = lazy(() => import("@/pages/store-cancel"));
@@ -114,6 +115,20 @@ function Router() {
       <Route path="/match/:matchId" component={Match} />
       <Route path="/leaderboard" component={Leaderboard} />
       <Route path="/marketplace" component={Marketplace} />
+      <Route path="/redemptions/:intentId">
+        {() => (
+          <ProtectedRoute requireAuth>
+            <Redemptions />
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/redemptions">
+        {() => (
+          <ProtectedRoute requireAuth>
+            <Redemptions />
+          </ProtectedRoute>
+        )}
+      </Route>
       <Route path="/store" component={Store} />
       <Route path="/store/success" component={StoreSuccess} />
       <Route path="/store/cancel" component={StoreCancel} />

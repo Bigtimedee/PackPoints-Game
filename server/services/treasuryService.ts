@@ -117,7 +117,12 @@ class TreasuryService {
 
     const outstandingPackpts = Number(liabilityRow?.total ?? 0);
     // micro-USD → cents: /10000
-    const liabilityCents = Math.round((outstandingPackpts * packptsValueMicroUsd) / 10000);
+    const packptsLiabilityCents = Math.round((outstandingPackpts * packptsValueMicroUsd) / 10000);
+    const [rebateRow] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${wallets.rebateBalanceCents}), 0)::bigint` })
+      .from(wallets);
+    const rebateLiabilityCents = Number(rebateRow?.total ?? 0);
+    const liabilityCents = packptsLiabilityCents + rebateLiabilityCents;
     const fundedReserveCents = Number(marginRow?.total ?? 0) - Number(usedRow?.total ?? 0);
 
     const coverageRatio = liabilityCents > 0 ? fundedReserveCents / liabilityCents : Infinity;

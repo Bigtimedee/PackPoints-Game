@@ -774,6 +774,8 @@ export const wallets = pgTable("wallets", {
   balance: integer("balance").notNull().default(0),
   lifetimeEarned: integer("lifetime_earned").notNull().default(0),
   lifetimeSpent: integer("lifetime_spent").notNull().default(0),
+  // USD cashback from confirmed marketplace redemptions (cents). Not PackPTS.
+  rebateBalanceCents: integer("rebate_balance_cents").notNull().default(0),
   status: varchar("status", { length: 20 }).notNull().default("active"), // active, frozen, suspended
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -2520,6 +2522,16 @@ export const externalPurchaseIntent = pgTable("external_purchase_intent", {
   computedRmax: integer("computed_rmax").notNull().default(0),
   requestedRedeemPackpts: integer("requested_redeem_packpts").notNull().default(0),
   approvedRedeemPackpts: integer("approved_redeem_packpts").notNull().default(0),
+  listingTitle: text("listing_title"),
+  evidenceOrderId: text("evidence_order_id"),
+  evidenceNote: text("evidence_note"),
+  evidenceReceiptUrl: text("evidence_receipt_url"),
+  evidenceSubmittedAt: timestamp("evidence_submitted_at"),
+  grantMethod: text("grant_method"), // EPN_POSTBACK | USER_CONFIRM | ADMIN_GRANT
+  grantedAt: timestamp("granted_at"),
+  deniedReason: text("denied_reason"),
+  attributedPurchaseId: varchar("attributed_purchase_id"),
+  outboundClickId: varchar("outbound_click_id"),
   status: purchaseIntentStatusEnum("status").notNull().default("CREATED"),
   calcSnapshot: jsonb("calc_snapshot").$type<{
     P: number; // purchase price USD
@@ -2568,6 +2580,9 @@ export const redemptionCredit = pgTable("redemption_credit", {
   packptsSpent: integer("packpts_spent").notNull(),
   creditCents: integer("credit_cents").notNull(),
   status: redemptionCreditStatusEnum("status").notNull().default("PENDING"),
+  grantMethod: text("grant_method"),
+  grantedAt: timestamp("granted_at"),
+  rebateLedgerId: varchar("rebate_ledger_id"),
   ledgerSpendEntryId: varchar("ledger_spend_entry_id").references(() => ledgerEntries.id),
   ledgerCreditEntryId: varchar("ledger_credit_entry_id").references(() => ledgerEntries.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2594,6 +2609,7 @@ export const redemptionQuoteRequestSchema = z.object({
   priceCents: z.number().int().positive(),
   currency: z.string().default("usd"),
   cardhedgeCardId: z.string().optional(), // optional: enables price validation vs market data
+  listingTitle: z.string().max(300).optional(),
 });
 
 export type RedemptionQuoteRequest = z.infer<typeof redemptionQuoteRequestSchema>;
@@ -2607,10 +2623,74 @@ export type RedemptionApplyRequest = z.infer<typeof redemptionApplyRequestSchema
 
 export const purchaseConfirmRequestSchema = z.object({
   purchaseIntentId: z.string().uuid(),
-  evidence: z.string().optional(), // receipt URL or reference
+  evidence: z.string().optional(), // receipt URL or reference (legacy)
+  orderId: z.string().max(200).optional(),
+  evidenceNote: z.string().max(2000).optional(),
+  receiptUrl: z.string().url().optional().or(z.literal("")),
 });
 
 export type PurchaseConfirmRequest = z.infer<typeof purchaseConfirmRequestSchema>;
+
+export const rebatePayoutRequestSchema = z.object({
+  amountCents: z.number().int().positive(),
+  method: z.enum(["paypal", "venmo", "ach", "other"]).default("paypal"),
+  destination: z.string().min(3).max(200),
+  note: z.string().max(500).optional(),
+});
+
+export type RebatePayoutRequestInput = z.infer<typeof rebatePayoutRequestSchema>;
+
+export const rebateLedgerEntryTypeEnum = pgEnum("rebate_ledger_entry_type", [
+  "GRANT",
+  "PAYOUT",
+  "PAYOUT_REFUND",
+  "ADJUSTMENT",
+]);
+
+export const rebateLedger = pgTable("rebate_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  amountCents: integer("amount_cents").notNull(), // +grant / -payout / +refund
+  balanceAfterCents: integer("balance_after_cents").notNull(),
+  type: rebateLedgerEntryTypeEnum("type").notNull(),
+  purchaseIntentId: varchar("purchase_intent_id").references(() => externalPurchaseIntent.id),
+  payoutRequestId: varchar("payout_request_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_rebate_ledger_user").on(table.userId),
+  index("idx_rebate_ledger_intent").on(table.purchaseIntentId),
+  unique("rebate_ledger_idempotency_unique").on(table.idempotencyKey),
+]);
+
+export type RebateLedgerEntry = typeof rebateLedger.$inferSelect;
+
+export const rebatePayoutStatusEnum = pgEnum("rebate_payout_status", [
+  "REQUESTED",
+  "PAID",
+  "DENIED",
+]);
+
+export const rebatePayoutRequests = pgTable("rebate_payout_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  amountCents: integer("amount_cents").notNull(),
+  method: text("method").notNull(),
+  destination: text("destination").notNull(),
+  note: text("note"),
+  status: rebatePayoutStatusEnum("status").notNull().default("REQUESTED"),
+  adminNote: text("admin_note"),
+  reviewedBy: varchar("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_rebate_payout_user").on(table.userId),
+  index("idx_rebate_payout_status").on(table.status),
+]);
+
+export type RebatePayoutRequest = typeof rebatePayoutRequests.$inferSelect;
 
 // ============================================
 // TREASURY & MARGIN POOL SYSTEM

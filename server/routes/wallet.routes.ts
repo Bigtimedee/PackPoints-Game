@@ -95,6 +95,7 @@ export function registerWalletRoutes(app: Express): void {
           debtPts,
           lifetimeEarned: walletData.wallet.lifetimeEarned,
           lifetimeSpent: walletData.wallet.lifetimeSpent,
+          rebateBalanceCents: walletData.wallet.rebateBalanceCents ?? 0,
           status: walletData.wallet.status,
           createdAt: walletData.wallet.createdAt,
           updatedAt: walletData.wallet.updatedAt,
