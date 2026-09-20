@@ -3,7 +3,6 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "./theme-toggle";
 import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle, Coins, ShieldAlert } from "lucide-react";
-import packptsLogo from "@/assets/packpts-logo.png";
 import { useAuth } from "@/hooks/use-auth";
 import { useWallet } from "@/hooks/use-wallet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -94,7 +93,13 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
         <Link href="/" className="flex items-center gap-2">
-          <img src={packptsLogo} alt="PackPTS" className="h-10 w-auto" data-testid="img-logo" />
+          <img
+            src="/packpts-mark.svg"
+            alt=""
+            className="h-9 w-9 rounded-md"
+            data-testid="img-logo"
+          />
+          <span className="text-lg font-bold tracking-tight">PackPTS</span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">

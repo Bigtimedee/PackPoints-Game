@@ -10,11 +10,22 @@ import { Badge } from "@/components/ui/badge";
 interface DashboardData {
   overview: {
     totalUsers: number;
+    registeredUsersNonStaff: number;
+    staffUsers: number;
+    botUsers: number;
+    allUserRows: number;
     totalPoints: number;
     totalGames: number;
     avgAccuracy: number;
     activeSubscriptions: number;
     newSignups: number;
+    newSignupsNonStaff: number;
+    newSignupsAllRows: number;
+  };
+  userCountDefinition?: {
+    cite: string;
+    staff: string;
+    bots: string;
   };
   topPlayers: { username: string; points: number; gamesPlayed: number }[];
   mostActive: { username: string; gamesPlayed: number; points: number }[];
@@ -57,20 +68,29 @@ export default function AdminDashboard() {
 
   if (!data) return null;
 
+  const registeredUsers = data.overview.registeredUsersNonStaff ?? data.overview.totalUsers;
+  const newSignups = data.overview.newSignupsNonStaff ?? data.overview.newSignups;
+  const staffUsers = data.overview.staffUsers ?? 0;
+  const botUsers = data.overview.botUsers ?? 0;
+  const allUserRows = data.overview.allUserRows;
+
   const statCards = [
-    { title: "Total Users", value: data.overview.totalUsers.toLocaleString(), icon: Users, color: "text-blue-500" },
+    { title: "Registered users (non-staff)", value: registeredUsers.toLocaleString(), icon: Users, color: "text-blue-500" },
     { title: "Total Games", value: data.overview.totalGames.toLocaleString(), icon: Gamepad2, color: "text-green-500" },
     { title: "Total Points", value: data.overview.totalPoints.toLocaleString(), icon: Star, color: "text-yellow-500" },
     { title: "Avg Accuracy", value: `${data.overview.avgAccuracy}%`, icon: Target, color: "text-purple-500" },
     { title: "Active Subscriptions", value: data.overview.activeSubscriptions.toLocaleString(), icon: CreditCard, color: "text-orange-500" },
-    { title: "New Signups (7d)", value: data.overview.newSignups.toLocaleString(), icon: TrendingUp, color: "text-emerald-500" },
+    { title: "New Signups (7d, non-staff)", value: newSignups.toLocaleString(), icon: TrendingUp, color: "text-emerald-500" },
   ];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold" data-testid="text-admin-dashboard-title">Admin Dashboard</h1>
-        <p className="text-muted-foreground">Overview of PackPTS platform statistics</p>
+        <p className="text-muted-foreground">
+          Registered users exclude staff (<code className="text-xs">is_admin</code>) and bots (<code className="text-xs">is_bot</code>).
+          Cite that count — do not invent a public figure.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -89,6 +109,13 @@ export default function AdminDashboard() {
           );
         })}
       </div>
+
+      <p className="text-xs text-muted-foreground" data-testid="text-user-count-definition">
+        Honest registered users: {registeredUsers.toLocaleString()}
+        {typeof allUserRows === "number" ? ` · all-rows ${allUserRows.toLocaleString()}` : ""}
+        {` · staff ${staffUsers.toLocaleString()} · bots ${botUsers.toLocaleString()}`}.
+        Marketing cites <code>registeredUsersNonStaff</code> only.
+      </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
