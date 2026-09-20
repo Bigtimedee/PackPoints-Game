@@ -258,6 +258,30 @@ describe("marketplace cashback grant", () => {
     expect(adminReceipt?.plaque.grantMethodLabel).toBe("PackPTS review");
   });
 
+  it("listReceipts includes CREATED intents as PENDING chip receipts", async () => {
+    const listing = `created-${suffix}`;
+    const quote = await profitGuardrailService.createQuote(
+      userId,
+      "ebay",
+      listing,
+      `https://www.ebay.com/itm/${listing}`,
+      8_500,
+      "usd",
+      "CREATED list fixture"
+    );
+    const [intent] = await db
+      .select()
+      .from(externalPurchaseIntent)
+      .where(eq(externalPurchaseIntent.id, quote.purchaseIntentId));
+    expect(intent.status).toBe("CREATED");
+
+    const receipts = await rebateService.listReceipts(userId);
+    const created = receipts.find((row) => row.intent.id === quote.purchaseIntentId);
+    expect(created).toBeTruthy();
+    expect(created?.intent.status).toBe("CREATED");
+    expect(created?.plaque.chip.label).toBe("PENDING");
+  });
+
   it("payout request debits rebate balance; deny returns it", async () => {
     const wallet = await walletService.getWallet(userId);
     expect(wallet?.rebateBalanceCents).toBeGreaterThan(0);
