@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+
+vi.mock("../db", () => ({ db: {}, pool: {} }));
+
 import {
   DEFAULT_QA_RECEIPT_USERNAME,
   QA_RECEIPT_FIXTURES,
