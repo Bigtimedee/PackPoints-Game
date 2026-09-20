@@ -14,14 +14,14 @@ const MARKETPLACE_PARTNERS = [
   {
     name: "eBay",
     logo: "eBay",
-    description: "Redeem PackPTS for discounts on millions of sports cards from verified eBay sellers.",
-    features: ["10% discount on qualifying listings", "Verified seller network", "Buyer protection"],
+    description: "Browse live eBay sports-card listings from PackPTS. Outbound clicks are affiliate (EPN) links. Applying PackPTS does not change the eBay checkout price.",
+    features: ["Live sports-card listing search", "Affiliate (EPN) outbound links", "Buyer protection stays on eBay"],
     active: true,
   },
   {
     name: "Goldin Auctions",
     logo: "Goldin",
-    description: "Use your PackPTS at America's premier sports collectibles auction house.",
+    description: "Browse admin-curated Goldin listings on PackPTS. Applying PackPTS does not change what Goldin charges.",
     features: ["VIP auction access", "Exclusive lots", "Authentication included"],
     active: true,
   },
@@ -69,9 +69,9 @@ export default function Partners() {
         {/* Hero */}
         <div className="text-center mb-12">
           <Badge variant="secondary" className="mb-4">Marketplace</Badge>
-          <h1 className="text-4xl font-bold mb-4">Redeem PackPTS for Real Cards</h1>
+          <h1 className="text-4xl font-bold mb-4">Browse Real Cards from PackPTS</h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Your knowledge has value. Redeem the PackPTS you earn playing trivia for discounts on real sports cards from our marketplace partners.
+            Browse live eBay and Goldin listings from PackPTS. PackPTS you apply are reserved in your wallet and do not change the price those marketplaces charge.
           </p>
         </div>
 
@@ -80,7 +80,7 @@ export default function Partners() {
           {[
             { step: "1", title: "Earn PackPTS", desc: "Play trivia games and answer correctly to earn points.", icon: Zap },
             { step: "2", title: "Browse Cards", desc: "Find cards you want from our marketplace partners.", icon: TrendingUp },
-            { step: "3", title: "Redeem", desc: "Apply your PackPTS for discounts at checkout.", icon: Users },
+            { step: "3", title: "Reserve PackPTS", desc: "PackPTS you apply stay in your wallet. That does not change eBay or Goldin checkout.", icon: Users },
           ].map(({ step, title, desc, icon: Icon }) => (
             <Card key={step}>
               <CardContent className="p-6 text-center">

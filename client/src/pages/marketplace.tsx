@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle, Layers, TrendingDown } from "lucide-react";
+import { ShoppingBag, Zap, ExternalLink, DollarSign, Loader2, CheckCircle, Clock, Search, Timer, AlertCircle, Layers } from "lucide-react";
 import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { useWallet } from "@/hooks/use-wallet";
@@ -35,14 +35,6 @@ interface RedemptionCardProps {
 }
 
 function RedemptionCard({ option, userBalance, onRedeem, isRedeeming, walletStatus = "NORMAL" }: RedemptionCardProps) {
-  const platformIcon = option.platform === "goldin" ? (
-    <span className="font-bold text-xs">G</span>
-  ) : (
-    <SiEbay className="h-4 w-4" />
-  );
-
-  const platformName = option.platform === "goldin" ? "Goldin" : "eBay";
-  const platformColor = option.platform === "goldin" ? "bg-amber-500" : "bg-blue-500";
   const isWalletActive = walletStatus === "NORMAL";
   const hasEnoughPoints = userBalance >= option.pointsCost;
 
@@ -52,9 +44,9 @@ function RedemptionCard({ option, userBalance, onRedeem, isRedeeming, walletStat
         <div className="absolute inset-0 flex items-center justify-center">
           <ShoppingBag className="h-16 w-16 text-muted-foreground/30" />
         </div>
-        <Badge className={`absolute top-3 right-3 ${platformColor} text-white gap-1`}>
-          {platformIcon}
-          {platformName}
+        <Badge className="absolute top-3 right-3 bg-primary text-white gap-1">
+          <Zap className="h-3 w-3" />
+          PackPTS
         </Badge>
       </div>
       <CardContent className="p-4 space-y-4">
@@ -88,8 +80,7 @@ function RedemptionCard({ option, userBalance, onRedeem, isRedeeming, walletStat
             "Account Restricted"
           ) : hasEnoughPoints ? (
             <>
-              Get Discount
-              <ExternalLink className="h-4 w-4" />
+              Redeem Token
             </>
           ) : (
             "Not Enough Points"
@@ -338,7 +329,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
     if (!isAuthenticated) {
       toast({
         title: "Sign In Required",
-        description: "Please sign in to use PackPTS for discounts",
+        description: "Please sign in to reserve PackPTS in your wallet",
         variant: "destructive",
       });
       return;
@@ -414,28 +405,26 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   <div className="flex items-center justify-between gap-2 bg-accent/10 rounded-md px-2 py-1.5 border border-accent/20">
                     <div className="flex items-center gap-1.5">
                       <Zap className="h-3.5 w-3.5 text-accent" />
-                      <span className="text-xs font-medium text-accent">With PackPTS:</span>
+                      <span className="text-xs font-medium text-accent">PackPTS reserve:</span>
                     </div>
                     <div className="text-right">
                       <span className="font-mono font-semibold text-accent text-sm" data-testid={`text-packpts-price-${listing.id}`}>
-                        {ptsToApply.toLocaleString()} pts + ${priceWithPackPTS}
+                        {ptsToApply.toLocaleString()} pts
                       </span>
                     </div>
                   </div>
                 )}
+                {isAuthenticated && canApplyPackPTS && (
+                  <p className="text-xs text-muted-foreground">
+                    Does not change the {platformName} price
+                  </p>
+                )}
                 
-                {/* Savings badge */}
                 {isAuthenticated && canApplyPackPTS && parseFloat(savingsInDollars) >= 0.50 && (
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20 gap-1">
-                      <TrendingDown className="h-3 w-3" />
-                      Save ${savingsInDollars}
+                    <Badge variant="secondary" className="bg-accent/10 text-accent border-accent/20 gap-1">
+                      Reserve ${savingsInDollars} in PackPTS
                     </Badge>
-                    {parseFloat(savingsInDollars) >= 5 && (
-                      <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-xs">
-                        Best Price
-                      </Badge>
-                    )}
                   </div>
                 )}
                 
@@ -530,9 +519,9 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
       <Dialog open={showRedemptionModal} onOpenChange={setShowRedemptionModal}>
         <DialogContent data-testid="dialog-redemption">
           <DialogHeader>
-            <DialogTitle>Apply PackPTS to Purchase</DialogTitle>
+            <DialogTitle>Reserve PackPTS</DialogTitle>
             <DialogDescription>
-              Use your PackPTS as credit toward this purchase on {platformName}
+              PackPTS you apply are reserved in your PackPTS wallet. They do not change the price {platformName} charges. We may earn an affiliate commission.
             </DialogDescription>
           </DialogHeader>
           
@@ -564,9 +553,12 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
             </div>
             
             <div className="bg-muted rounded-lg p-4 text-center">
-              <p className="text-sm text-muted-foreground">Credit Value</p>
+              <p className="text-sm text-muted-foreground">PackPTS-side reservation</p>
               <p className="text-2xl font-bold text-accent" data-testid="text-credit-value">
                 ${creditAmount}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                This is not a coupon on {platformName}.
               </p>
             </div>
             
@@ -810,7 +802,7 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Browse live listings and redeem PackPTS for discounts</p>
+            <p className="text-muted-foreground">Browse live listings. Applied PackPTS stay in your wallet and do not change the eBay price.</p>
           </div>
           <Card>
             <CardContent className="p-4 flex items-center gap-3">
@@ -1008,7 +1000,7 @@ export default function Marketplace() {
                   <div>
                     <h3 className="font-semibold text-lg">Search for Cards</h3>
                     <p className="text-muted-foreground">
-                      Find live listings from eBay and Goldin Auctions. Use your PackPTS as a discount when you purchase!
+                      Find live listings from eBay and Goldin Auctions. PackPTS you apply stay in your wallet and do not change the price those sites charge. We may earn an affiliate commission.
                     </p>
                   </div>
                 </CardContent>
@@ -1098,21 +1090,21 @@ export default function Marketplace() {
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                         2
                       </div>
-                      <p className="text-muted-foreground">Browse available redemption options from Goldin and eBay</p>
+                      <p className="text-muted-foreground">Browse PackPTS token options — internal wallet tokens, not eBay or Goldin gift cards</p>
                     </div>
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                         3
                       </div>
-                      <p className="text-muted-foreground">Use your PackPTS as a discount toward the card of your choice</p>
+                      <p className="text-muted-foreground">Spend PackPTS to mint a hex token. Tokens are not usable at eBay or Goldin checkout.</p>
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card className="mt-4">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">Discount Tiers</CardTitle>
-                    <CardDescription className="text-xs">PackPTS = discounts, not cash</CardDescription>
+                    <CardTitle className="text-lg">Token Tiers</CardTitle>
+                    <CardDescription className="text-xs">PackPTS tokens stay in PackPTS — not cash, not an eBay discount</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     {tiers.length > 0 ? (
@@ -1121,7 +1113,7 @@ export default function Marketplace() {
                         return (
                           <div key={tier.id} className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted" data-testid={`tier-${tier.id}`}>
                             <span className="font-mono">{tier.packptsRequired.toLocaleString()} PTS</span>
-                            <span className="font-mono text-accent">Up to ${(actualPayout / 100).toFixed(2)} off</span>
+                            <span className="font-mono text-accent">Token value up to ${(actualPayout / 100).toFixed(2)}</span>
                           </div>
                         );
                       })
@@ -1138,9 +1130,7 @@ export default function Marketplace() {
 
               <div className="lg:col-span-3">
                 <div className="flex items-center gap-2 mb-6">
-                  <Badge variant="outline">All Platforms</Badge>
-                  <Badge variant="secondary">Goldin</Badge>
-                  <Badge variant="secondary">eBay</Badge>
+                  <Badge variant="outline">PackPTS tokens</Badge>
                 </div>
 
                 {isLoading ? (
@@ -1180,7 +1170,7 @@ export default function Marketplace() {
           <DialogHeader>
             <DialogTitle>Confirm Redemption</DialogTitle>
             <DialogDescription>
-              You're about to redeem your PackPTS for store credit.
+              You're about to spend PackPTS for an internal PackPTS token. This is not store credit on eBay or Goldin.
             </DialogDescription>
           </DialogHeader>
           
@@ -1189,7 +1179,7 @@ export default function Marketplace() {
               <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
                 <div>
                   <p className="font-semibold">{selectedOption.title}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOption.platform === "goldin" ? "Goldin Auctions" : "eBay"}</p>
+                  <p className="text-sm text-muted-foreground">PackPTS wallet token</p>
                 </div>
                 <div className="text-right">
                   <p className="font-mono font-bold text-accent">${selectedOption.usdValue} USD</p>
@@ -1212,7 +1202,7 @@ export default function Marketplace() {
               {selectedOption.usdValue >= 25 && (
                 <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 text-sm">
                   <Clock className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  <p>Redemptions of $25 or more require admin review before the credit is issued.</p>
+                  <p>Redemptions of $25 or more require admin review before the token is created.</p>
                 </div>
               )}
             </div>
@@ -1266,11 +1256,11 @@ export default function Marketplace() {
           <div className="py-4 space-y-4">
             {lastRedemption?.status === "PENDING_REVIEW" ? (
               <p className="text-muted-foreground">
-                Your redemption request has been submitted for review. You'll receive your credit once an admin approves it.
+                Your redemption request has been submitted for review. The PackPTS token is created only after an admin approves it.
               </p>
             ) : (
               <p className="text-muted-foreground">
-                Your credit has been issued! Check your email for instructions on how to use it.
+                Your PackPTS token was created. No email is sent. This token is not accepted at eBay or Goldin checkout.
               </p>
             )}
             

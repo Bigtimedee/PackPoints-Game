@@ -183,8 +183,8 @@ function HowItWorks() {
     },
     {
       number: "03",
-      title: "Redeem for Real Cards",
-      description: "Use your PackPTS to get discounts on real sports cards from our marketplace partners.",
+      title: "Browse Real Listings",
+      description: "Visit Marketplace to browse live eBay and Goldin listings. PackPTS you apply stay in your wallet and do not change the price those sites charge.",
       emoji: "🏆",
     },
   ];
@@ -212,7 +212,7 @@ function FAQ() {
   const faqs = [
     {
       q: "What is PackPTS?",
-      a: "PackPTS is a sports card trivia game where you identify players from their trading cards. Correct answers earn PackPTS (points) that you can redeem for real card discounts.",
+      a: "PackPTS is a sports card trivia game where you identify players from their trading cards. Correct answers earn PackPTS (points) you can spend in the PackPTS wallet. Marketplace lets you browse live eBay and Goldin listings — applying PackPTS does not change the price those sites charge.",
     },
     {
       q: "Is PackPTS free to play?",
@@ -220,7 +220,7 @@ function FAQ() {
     },
     {
       q: "How do I redeem my points?",
-      a: "Visit the Marketplace section to browse available cards. Apply your PackPTS at checkout for discounts at partner stores including eBay and Goldin Auctions.",
+      a: "Visit Marketplace to browse live eBay and Goldin listings. PackPTS you apply are reserved or spent in your PackPTS wallet — they do not change the price eBay charges. We may earn an affiliate commission.",
     },
     {
       q: "What sports are covered?",
@@ -343,7 +343,7 @@ export default function Home() {
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto" data-testid="text-hero-description">
               The ultimate trivia game for sports card collectors. Guess the player on classic cards from your favorite sets,
-              earn PackPTS, and use them as a discount toward cards on Goldin and eBay.
+              earn PackPTS, and browse live eBay and Goldin listings. Applied PackPTS stay in your wallet and do not change the eBay price.
             </p>
             {!isAuthenticated && (
               <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/30 text-primary rounded-full px-5 py-2 text-sm font-semibold">
@@ -489,10 +489,10 @@ export default function Home() {
               <div className="space-y-2">
                 <div className="flex items-center justify-center md:justify-start gap-2 text-primary font-semibold">
                   <span className="text-2xl font-bold">3</span>
-                  <span>Use Your Discount</span>
+                  <span>Browse Listings</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Use your PackPTS as a discount toward cards on Goldin or eBay, or keep climbing the ranks.
+                  Browse live eBay and Goldin listings from PackPTS, or keep climbing the ranks. Applied PackPTS do not change the eBay price.
                 </p>
               </div>
             </div>
@@ -510,7 +510,7 @@ export default function Home() {
               <h2 className="text-2xl font-bold">Start with 250 Free PackPTS</h2>
               <p className="text-muted-foreground max-w-md mx-auto">
                 Create a free account today and we'll credit 250 PackPTS straight to your wallet.
-                Use them toward real cards on Goldin and eBay.
+                Browse live listings from Marketplace — applying PackPTS does not change the eBay price.
               </p>
               <div className="flex flex-wrap justify-center gap-3 pt-2">
                 <Link href="/auth">

@@ -28,6 +28,10 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
             Some links may include affiliate tracking. PackPTS may earn a commission on purchases
             made through these links at no additional cost to you.
           </p>
+          <p>
+            Applying PackPTS reserves or spends points in your PackPTS wallet. It does not change
+            the price eBay or Goldin charges.
+          </p>
         </div>
       </CardContent>
     </Card>

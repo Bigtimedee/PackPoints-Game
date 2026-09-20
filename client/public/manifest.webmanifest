@@ -1,7 +1,7 @@
 {
   "name": "PackPTS",
   "short_name": "PackPTS",
-  "description": "Sports card trivia. Guess the player. Knowledge pays — redeem PackPTS for real card discounts.",
+  "description": "Sports card trivia. Guess the player. Knowledge pays. Browse live eBay and Goldin listings from PackPTS.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b0f16",

@@ -55,7 +55,7 @@ export default function PrivacyPolicy() {
             <ul className="list-disc pl-5 space-y-2 mt-2">
               <li><strong>Service providers:</strong> Stripe (payments), Resend (email), WorkOS (authentication), Railway (hosting), OpenAI (card identification). Each is bound by their own privacy policies.</li>
               <li><strong>Social media platforms:</strong> when we publish promotional content on our own accounts on platforms such as TikTok, X (Twitter), and Discord, or when you choose to share content, data is handled under those platforms' respective privacy policies. We do not post to your personal social accounts without your action.</li>
-              <li><strong>Marketplace partners:</strong> eBay/EPN and Goldin, for the affiliate links and redemption offers you choose to use.</li>
+              <li><strong>Marketplace partners:</strong> eBay/EPN and Goldin, for the affiliate listing links you choose to click.</li>
               <li><strong>Legal requirements:</strong> if required by law, court order, or to protect our rights.</li>
             </ul>
           </section>
