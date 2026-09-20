@@ -1292,6 +1292,33 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  app.post("/api/admin/qa/seed-receipt-fixtures", isAuthenticated, requireAdmin, async (req, res) => {
+    const { seedReceiptFixtures, SeedReceiptFixturesError, DEFAULT_QA_RECEIPT_USERNAME } = await import(
+      "../services/seedReceiptFixtures"
+    );
+    try {
+      const username =
+        typeof req.body?.username === "string" && req.body.username.trim()
+          ? req.body.username.trim()
+          : undefined;
+      const result = await seedReceiptFixtures({ username });
+      const adminUserId = (req as any).user?.claims?.sub || (req as any).session?.localUserId;
+      if (adminUserId) {
+        await adminService.logAction(adminUserId, "seed_receipt_fixtures", result.userId, {
+          username: username || DEFAULT_QA_RECEIPT_USERNAME,
+          intentIds: result.intents.map((intent) => intent.id),
+        });
+      }
+      res.json(result);
+    } catch (error: any) {
+      if (error instanceof SeedReceiptFixturesError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      console.error("Error seeding receipt fixtures:", error);
+      res.status(500).json({ error: error.message || "Failed to seed receipt fixtures" });
+    }
+  });
+
   app.delete("/api/admin/set-of-week/:id", isAuthenticated, requireAdmin, async (req: any, res: Response) => {
     try {
       const { id } = req.params;
