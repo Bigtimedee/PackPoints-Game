@@ -149,7 +149,11 @@ describe("marketplace cashback grant", () => {
     const receipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
     expect(receipt?.intent.status).toBe("CREDIT_GRANTED");
     expect(receipt?.credit?.status).toBe("GRANTED");
-    expect(receipt?.honesty).toMatch(/full price/i);
+    expect(receipt?.grantMethod).toBe("USER_CONFIRM");
+    expect(receipt?.plaque.grantMethod).toBe("USER_CONFIRM");
+    expect(receipt?.plaque.grantMethodLabel).toBe("You confirmed");
+    expect(receipt?.plaque.chip.label).toBe("CREDIT_GRANTED");
+    expect(receipt?.honesty).toMatch(/Partner checkout unchanged/i);
   });
 
   it("EPN postback auto-grants when customid matches the apply", async () => {
@@ -196,6 +200,9 @@ describe("marketplace cashback grant", () => {
       .where(eq(externalPurchaseIntent.id, quote.purchaseIntentId));
     expect(intent.status).toBe("CREDIT_GRANTED");
     expect(intent.grantMethod).toBe("EPN_POSTBACK");
+    const epnReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
+    expect(epnReceipt?.grantMethod).toBe("EPN_POSTBACK");
+    expect(epnReceipt?.plaque.grantMethodLabel).toBe("Affiliate confirm");
 
     const replay = await processEpnPostback({
       customid,
@@ -236,12 +243,19 @@ describe("marketplace cashback grant", () => {
       .where(eq(externalPurchaseIntent.id, quote.purchaseIntentId));
     expect(intent.status).toBe("PURCHASE_CONFIRMED");
     expect(intent.evidenceOrderId).toBe("EBAY-HOLD");
+    const heldReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
+    expect(heldReceipt?.plaque.chip.label).toBe("PURCHASE_CONFIRMED");
+    expect(heldReceipt?.plaque.helper).toBe("Credit pending review");
+    expect(heldReceipt?.plaque.chip.label).not.toBe("PENDING");
 
     const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
     const granted = await rebateService.adminGrant(quote.purchaseIntentId);
     expect(granted.granted).toBe(true);
     const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
     expect(after).toBe(before + applied.creditCents);
+    const adminReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
+    expect(adminReceipt?.grantMethod).toBe("ADMIN_GRANT");
+    expect(adminReceipt?.plaque.grantMethodLabel).toBe("PackPTS review");
   });
 
   it("payout request debits rebate balance; deny returns it", async () => {
