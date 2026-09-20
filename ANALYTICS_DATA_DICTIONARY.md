@@ -67,6 +67,15 @@ FROM users;
 
 **Marketing citation:** `registeredUsersNonStaff` from the live admin dashboard only. Never all-rows. Never staff. Never bots. Never a guessed “beyond Dave” number.
 
+**Do not cite these live public probes as registered users** (verified 2026-09-20 against packpts.com; they are not staff-excluded `users` counts):
+
+| Probe | Live read | Why it is not the GTM number |
+|---|---|---|
+| `GET /api/access/cap` → `currentActive` | `3` | Founders-cap `active_user_counter.count`. Includes staff. Not `COUNT(users)` and not staff-excluded. |
+| `GET /api/access/summary` → `waitlistSize` | `0` | Waitlist rows, not registered users. |
+| `GET /api/leaderboard` | 3 rows (`Bigtimedee`, `designqa`, `claude_e2e_test`) | Top 20 by points. Includes staff/test. Omits users with no score. |
+| `GET /api/admin/dashboard` | `401` from this environment | The cite field after deploy. Requires admin session. |
+
 ## Admin operational metrics (Making Layer)
 
 | Metric | Formula | Source | Notes |
