@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-20 (single locked brand mark = masked-P / `client/public/packpts-mark.svg`; glossy shield `packpts-logo.png` removed from header/production. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number. Prior: 2026-09-19 between-card masked-image prefetch + deal preMask; PSA-slab cert-label bake v4.2; Social Media Agent Marketing SoR Daily 5-only auto X + FOMO preflight #91; play-sets CDN aliases #90; post-submit full-card reveal.)
+**Last verified against codebase:** 2026-09-20 (brand SoR: **B masked-P** = app/PWA/favicon/header; **A masked-card** = OG/social only; glossy shield deleted; maskable + `/assets/brand/playpackpts-avatar-masked-p-1024.png`. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number. Prior: 2026-09-19 between-card masked-image prefetch + deal preMask; PSA-slab cert-label bake v4.2; Social Media Agent Marketing SoR Daily 5-only auto X + FOMO preflight #91; play-sets CDN aliases #90; post-submit full-card reveal.)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -996,9 +996,20 @@ Admin (20+): `/admin/dashboard`, `/admin/users`, `/admin/users/:userId`, `/admin
 - Custom design tokens: border-radius (lg: 9px, md: 6px, sm: 3px)
 - Animations via Framer Motion (card reveals, point awards, leaderboard updates) — all < 500ms
 
-### Brand mark (locked)
+### Brand marks (two-role SoR — 2026-09-20)
 
-One mark ships: the **masked-P** (white P + gold `#F5C518` bar on `#0b0f16`). Master: `client/public/packpts-mark.svg` (same path as score-card / maker-share / play-sets footers). Favicon, apple-touch, PWA 192/512/1024, and the client header all use this mark. **Do not ship** the glossy 3-card shield (`packpts-logo.png`, deleted) or a three-square / yellow-P-on-white mark. OG (`og-image.png`) and play-sets kit PNGs are Design hotfix scene art — do not invent replacements; they must not embed a second logo. Header wordmark is the text **PackPTS** next to the SVG tile.
+Design lock is **two roles**, not one mark everywhere:
+
+| Role | Mark | Ships on |
+|---|---|---|
+| **B — masked-P** | White P + gold `#F5C518` bar on `#0b0f16`. Master `client/public/packpts-mark.svg` (same path as score-card / maker-share / play-sets footers). Rasters: `favicon.png`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `icon-1024.png`. | App / PWA / favicon / apple-touch / manifest / client header |
+| **A — masked-card** | Marketing scene (card / Daily 5 tease). `og-image.png` + play-sets / social kit PNGs. | OG, social, share kits only |
+
+**Kill:** glossy 3-card shield (`packpts-logo.png`, deleted from header), three-square / orange tiles, yellow-P-on-white, PackPoints spelling on product chrome, using B as a social hero, mixing A into app thumbnails.
+
+**X avatar (stable URL):** `https://packpts.com/assets/brand/playpackpts-avatar-masked-p-1024.png` (B at 1024). Manifest includes `icon-512-maskable.png` with `purpose: maskable`. Header wordmark is the text **PackPTS** next to the B tile.
+
+`packpts-design/` is gitignored and was not on disk in this workspace. Live packpts.com B/A rasters already byte-match `client/public/` (verified 2026-09-20). Do not invent replacements.
 
 ---
 
@@ -1711,7 +1722,7 @@ railway variables --service Postgres --json | python3 -c \
 ## 25. Known Bugs, Gaps, and Risks
 
 ### Gameplay
-- [x] Brand mark dual-logo (2026-09-20): header shipped the glossy 3-card shield (`client/src/assets/packpts-logo.png`) while favicon/PWA/score cards used the locked masked-P (`client/public/packpts-mark.svg`). Header now uses the SVG + PackPTS wordmark; the shield file is deleted. Favicon, apple-touch, PWA icons, score-card/maker-share/play-sets footers already matched the SVG. OG + play-sets kit PNGs left as Design hotfix scene art (no second logo invented).
+- [x] Brand mark dual-logo (2026-09-20): header shipped the glossy 3-card shield (`packpts-logo.png`) into app thumbnails. Two-role SoR: **B masked-P** on header/favicon/PWA/manifest (SVG + existing rasters, byte-match live); **A masked-card** stays on OG/social only. Shield deleted. Manifest now lists `icon-512-maskable.png`. X avatar hosted at `/assets/brand/playpackpts-avatar-masked-p-1024.png`. `packpts-design/` kill-list was not on disk; no new logo invented.
 - [x] Admin user-count honesty (2026-09-20): `/admin/dashboard` “Total Users” was `users.length` (staff + bots included). Headline is now `registeredUsersNonStaff` (`is_admin = false` AND `is_bot = false`). 7d signups and scorecard weekly signups use the same exclusion. Cite the live admin field; do not invent a number. SQL: `server/services/userCounts.ts`.
 - [x] Game Complete / Daily 5 score card PNG (2026-09-05): generation wrote to `/app/public/generated/share`, which the non-root `packpts` process cannot mkdir (`EACCES`). Confirmed in production deploy logs. Cards now write to the persistent volume `/app/data/masked-cards/generated/share/` and are served at `/generated/share/`. Failed rows (insert-then-EACCES) are repaired on `GET /api/content-assets/latest` and via `POST /api/content-assets/retry`. Finish handlers await generation up to 1.5s and return `shareImageUrl` so the 1080×1080 card can appear within ~2s on Safari. Locked Design contract: `docs/SCORE_CARD_CONTRACT.md` (1080 square, actual X/5, five `#22C55E` pips, “N locked. M open.”, masked-P + PackPTS, packpts.com/daily visual CTA, **§3b today identity** `{MON} {D} · TODAY'S FIVE` on the America/Chicago CT day key plus mini cream/gold masked-strip) and `docs/EMPTY_STATE.md` (no broken-image glyph; “Score card didn’t load.” + Retry `#2B6CEE` + Share without card). `/daily` is an alias for `/daily5`. Elevated OG lives at `client/public/og-image.png`; Daily 5 masked tease v2 at `client/public/daily5-masked-1080-v2.png`.
 - [x] Daily 5 Beat-me product loop (2026-09-08): Game Complete **Beat me** issues `POST /api/daily5/beat-me` (real completed-entry X/5 + CT `puzzle_day`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Day key shared with Daily 5 + streak: `America/Chicago` (`shared/packptsDay.ts`). Contract: `docs/DAILY_BEAT_ME.md`.

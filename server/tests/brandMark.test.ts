@@ -25,4 +25,13 @@ describe("PackPTS brand mark — single locked masked-P", () => {
     expect(header).not.toContain("packpts-logo");
     expect(header).toContain("/packpts-mark.svg");
   });
+
+  it("lists the maskable PWA icon and hosts the X avatar as B", () => {
+    const manifest = readFileSync(path.join(ROOT, "client/public/manifest.webmanifest"), "utf8");
+    expect(manifest).toContain("icon-512-maskable.png");
+    expect(manifest).toContain("maskable");
+    expect(
+      existsSync(path.join(ROOT, "client/public/assets/brand/playpackpts-avatar-masked-p-1024.png")),
+    ).toBe(true);
+  });
 });
