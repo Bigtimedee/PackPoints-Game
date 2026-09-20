@@ -1007,7 +1007,7 @@ Design lock is **two roles**, not one mark everywhere:
 
 **Kill:** glossy 3-card shield (`packpts-logo.png`, deleted from header), three-square / orange tiles, yellow-P-on-white, PackPoints spelling on product chrome, using B as a social hero, mixing A into app thumbnails.
 
-**X avatar (stable URL):** `https://packpts.com/assets/brand/playpackpts-avatar-masked-p-1024.png` (B at 1024). Manifest includes `icon-512-maskable.png` with `purpose: maskable`. Header wordmark is the text **PackPTS** next to the B tile.
+**X avatar (stable URL):** `https://packpts.com/assets/brand/playpackpts-avatar-masked-p-1024.png` (B at 1024). Manifest includes `icon-512-maskable.png` with `purpose: maskable`. Header `img-logo` is Design’s B companion PNG `client/src/assets/packpts-logo.png` (394×128 masked-P + PackPTS wordmark; Vite `/assets/packpts-logo-*.png`). Not the glossy shield.
 
 `packpts-design/` is gitignored and was not on disk in this workspace. Live packpts.com B/A rasters already byte-match `client/public/` (verified 2026-09-20). Do not invent replacements.
 

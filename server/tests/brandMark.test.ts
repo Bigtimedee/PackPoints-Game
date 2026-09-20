@@ -1,17 +1,19 @@
 /**
  * brandMark.test.ts
  *
- * Locks the single shipped PackPTS mark: masked-P (white P + gold bar).
- * The glossy 3-card shield (packpts-logo.png) must not ship.
+ * Two-role SoR: B masked-P in app chrome; A masked-card on marketing only.
+ * Header ships Design's B wordmark companion as packpts-logo.png (394×128).
+ * The glossy 3-card shield must not return.
  */
 import { existsSync, readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { describe, it, expect } from "vitest";
+import sharp from "sharp";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-describe("PackPTS brand mark — single locked masked-P", () => {
+describe("PackPTS brand mark — B in app chrome", () => {
   it("keeps the locked SVG master", () => {
     const svg = readFileSync(path.join(ROOT, "client/public/packpts-mark.svg"), "utf8");
     expect(svg).toContain("#0b0f16");
@@ -19,11 +21,16 @@ describe("PackPTS brand mark — single locked masked-P", () => {
     expect(svg).toContain("M292 196");
   });
 
-  it("does not ship the glossy shield mark", () => {
-    expect(existsSync(path.join(ROOT, "client/src/assets/packpts-logo.png"))).toBe(false);
+  it("ships Design B wordmark as packpts-logo.png (not the shield)", async () => {
+    const logoPath = path.join(ROOT, "client/src/assets/packpts-logo.png");
+    expect(existsSync(logoPath)).toBe(true);
+    const meta = await sharp(logoPath).metadata();
+    expect(meta.width).toBe(394);
+    expect(meta.height).toBe(128);
     const header = readFileSync(path.join(ROOT, "client/src/components/header.tsx"), "utf8");
-    expect(header).not.toContain("packpts-logo");
-    expect(header).toContain("/packpts-mark.svg");
+    expect(header).toContain("packpts-logo.png");
+    expect(header).toContain("img-logo");
+    expect(header).not.toContain("/packpts-mark.svg");
   });
 
   it("lists the maskable PWA icon and hosts the X avatar as B", () => {
