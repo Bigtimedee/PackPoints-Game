@@ -52,6 +52,16 @@ export type ReceiptIntentStatus =
   | "CREDIT_GRANTED"
   | "CANCELED";
 
+/** Statuses shown on GET /api/marketplace/redemption/receipts (`/redemptions` list). CREATED → PENDING chip. */
+export const RECEIPT_LIST_STATUSES: readonly ReceiptIntentStatus[] = [
+  "CREATED",
+  "APPROVED",
+  "PURCHASE_CONFIRMED",
+  "CREDIT_GRANTED",
+  "CANCELED",
+  "DENIED",
+];
+
 export type ReceiptChipLabel =
   | "PENDING"
   | "APPROVED"

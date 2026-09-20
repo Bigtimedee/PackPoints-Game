@@ -4,6 +4,7 @@ import {
   RECEIPT_BANNED_PHRASES,
   RECEIPT_COLORS,
   RECEIPT_COPY,
+  RECEIPT_LIST_STATUSES,
   buildReceiptPlaqueView,
   containsBannedReceiptCopy,
   formatHeroAmount,
@@ -40,6 +41,11 @@ describe("receipt chip map — Design enum lock", () => {
     expect(receiptChip("DENIED").label).toBe("DENIED");
     expect(receiptChip("CANCELED").label).toBe("CANCELED");
     expect(receiptChip("UNDER_REVIEW").label).toBe("PENDING");
+  });
+
+  it("includes CREATED on the /redemptions list so PENDING chip receipts appear", () => {
+    expect(RECEIPT_LIST_STATUSES).toContain("CREATED");
+    expect(receiptChip("CREATED").label).toBe("PENDING");
   });
 
   it("keeps ≥$25 review on PURCHASE_CONFIRMED, not PENDING", () => {

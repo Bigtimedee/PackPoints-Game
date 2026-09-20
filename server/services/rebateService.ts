@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { treasuryService } from "./treasuryService";
 import { sendRebateReceiptEmail } from "./emailService";
-import { buildReceiptPlaqueView, type ReceiptPlaqueView } from "@shared/receiptContract";
+import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 
 export const REVIEW_THRESHOLD_CENTS = 2500; // $25 user-attested confirms need admin
 
@@ -124,11 +124,9 @@ class RebateService {
         and(
           eq(externalPurchaseIntent.userId, userId),
           or(
-            eq(externalPurchaseIntent.status, "APPROVED"),
-            eq(externalPurchaseIntent.status, "PURCHASE_CONFIRMED"),
-            eq(externalPurchaseIntent.status, "CREDIT_GRANTED"),
-            eq(externalPurchaseIntent.status, "CANCELED"),
-            eq(externalPurchaseIntent.status, "DENIED")
+            ...RECEIPT_LIST_STATUSES.map((status) =>
+              eq(externalPurchaseIntent.status, status),
+            ),
           )
         )
       )
