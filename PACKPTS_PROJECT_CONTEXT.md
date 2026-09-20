@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-20 (eBay apply-PackPTS is an internal wallet reserve, **not** an eBay checkout discount — `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`. Product UI SoR: home/FAQ/partners/roadmap/store/marketplace/redeem-tab/meta copy must not claim apply-at-checkout, eBay price cuts, or real eBay gift cards — `server/tests/ebayApplyCopyHonesty.test.ts`. Brand SoR: **B masked-P** = app/PWA/favicon/header; **A masked-card** = OG/social only. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number.)
+**Last verified against codebase:** 2026-09-20 (eBay/Goldin checkout is never rewritten — #95/#96 honesty stands. Marketplace apply now completes as **post-purchase PackPTS cashback**: wallet debit → buy at full price via `/out/ebay|goldin` → EPN postback or confirm+evidence → USD `wallets.rebate_balance_cents` + receipt at `/redemptions/:id`. Plan: `docs/audits/REDEEM_REAL_VALUE_PLAN_2026-09-20.md`. Product UI SoR: must not claim apply-at-checkout, eBay price cuts, or real eBay gift cards — `server/tests/ebayApplyCopyHonesty.test.ts`. Brand SoR: **B masked-P** = app/PWA/favicon/header; **A masked-card** = OG/social only. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number.)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -488,15 +488,22 @@ Products have `guardrailsStatus` (PASS, WARN, BLOCK, OVERRIDE) and `guardrailsJs
 ## 11. Marketplace and Affiliate Commerce
 
 ### Purpose
-The PackPTS Marketplace lets users browse live eBay (and curated Goldin) listings and spend PackPTS **inside PackPTS**. Outbound clicks are EPN-attributed. **This is not an eBay checkout discount.** eBay still charges the full listing price. Audit: `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`.
+The PackPTS Marketplace lets users browse live eBay (and curated Goldin) listings and spend PackPTS toward a **PackPTS-funded cashback** after they buy at full partner price. Outbound clicks are EPN-attributed. **This is not an eBay checkout discount.** eBay/Goldin still charge the full listing price. Audits: `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`, `docs/audits/REDEEM_REAL_VALUE_PLAN_2026-09-20.md`.
 
 ### How It Works
 1. User plays games → earns PackPTS → visits `/marketplace`.
 2. Marketplace shows listings from eBay and Goldin, contextually matched to the user's recent gameplay (card sets, players, teams, years).
 3. User selects a listing → system calculates maximum redeemable PackPTS based on profit policy.
-4. `externalPurchaseIntent` is created with: listing price, computed max redemption (`computedRmax`), requested PackPTS spend.
-5. On apply, PackPTS are deducted from the wallet and a `redemptionCredit` row is created (`PENDING`). This is an internal reservation — not an eBay coupon, gift card, or price rewrite. (A separate Redeem-tab path, `POST /api/redeem`, mints a hex `creditToken` that nothing on eBay consumes.)
-6. User clicks **View Listing** (affiliate `/out/ebay/:listingId`) and pays **full price** on eBay/Goldin. `POST /api/marketplace/purchase/confirm` can flip status to `CREDIT_GRANTED` but has no client UI and pays the user no USD. Unused Path-A applies auto-refund PackPTS after 72 hours.
+4. `externalPurchaseIntent` is created with: listing price, computed max redemption (`computedRmax`), requested PackPTS spend, optional listing title.
+5. On apply, PackPTS are deducted from the wallet and a `redemptionCredit` row is created (`PENDING`) plus a treasury reservation. This is **not** an eBay coupon, gift card, or price rewrite. UI tells the user to buy at full price, then claim cashback.
+6. User clicks **Buy on eBay/Goldin** (`/out/ebay/:listingId` or `/out/goldin/:listingId`) and pays **full price**.
+7. **Grant (real USD liability):**
+   - eBay: `GET /api/webhooks/epn-postback` matches `customid` → outbound click → APPROVED/held intent and **auto-grants** (partner-verified; no $25 hold).
+   - Goldin / EPN gaps: user **I’ve purchased — claim rebate** on `/redemptions/:id` with order id / note / receipt URL. Under $25 auto-grants; ≥$25 holds at `PURCHASE_CONFIRMED` for admin (`POST /api/admin/redemption/intents/:id/grant` or deny).
+8. Grant consumes the treasury reservation, increments `wallets.rebate_balance_cents`, writes `rebate_ledger` (`GRANT`, idempotent key `rebate-grant:{intentId}`), sets `CREDIT_GRANTED` / `GRANTED`, emails a receipt (`sendRebateReceiptEmail`), and shows `/redemptions/:id`.
+9. User can request withdrawal (`POST /api/rebate/payout-request`). Admin marks paid after sending USD, or denies (refunds the rebate balance). Stripe Connect is **not** wired.
+10. Unused APPROVED applies still auto-refund PackPTS after 72 hours (`staleRedemptionCleanup`). PURCHASE_CONFIRMED / GRANTED are not cleaned.
+11. Redeem-tab `POST /api/redeem` hex tokens remain an internal catalog — not a payout rail; UI says so.
 
 ### Affiliate Integration
 **eBay Partner Network (EPN):**
@@ -539,9 +546,9 @@ Plus a **reserve-floor kill switch** (`reserveFloorCents`): if the funded reserv
 ### Redemption Flow
 Two parallel systems (do not conflate):
 
-**A. Listing apply** (`POST /api/marketplace/redemption/quote` + `apply`): wallet debit + `redemptionCredit` PENDING. Confirm/grant is status-only; no eBay price change.
+**A. Listing apply + cashback** (`POST /api/marketplace/redemption/quote` + `apply` + confirm or EPN): wallet debit + PENDING credit, then USD rebate grant. eBay/Goldin price unchanged. Receipt: `GET /api/marketplace/redemption/receipts/:intentId`. Tests: `server/tests/rebateGrant.test.ts`.
 
-**B. Tier redeem** (`POST /api/redemption/calculate` + `POST /api/redeem`): minimum 1,000 PackPTS; admin review if USD value ≥ threshold; hex `creditToken` shown in UI. `POST /api/redemption/validate-token` / `consume-token` exist but are not called by eBay or any PackPTS checkout UI. Redeem-tab cards are labeled **PackPTS Credit Token** (`server/storage.ts` `REDEMPTION_OPTIONS`) — internal hex tokens, not eBay/Goldin gift cards. Product copy must not call them gift cards or promise email/checkout use.
+**B. Tier redeem** (`POST /api/redemption/calculate` + `POST /api/redeem`): minimum 1,000 PackPTS; admin review if USD value ≥ threshold; hex `creditToken` shown in UI. `POST /api/redemption/validate-token` / `consume-token` exist but are not called by eBay or any PackPTS checkout UI. Redeem-tab cards are labeled **PackPTS Credit Token** (`server/storage.ts` `REDEMPTION_OPTIONS`) — internal hex tokens, not eBay/Goldin gift cards. Product copy must not call them gift cards or promise they change partner checkout.
 
 ### ⚠️ Affiliate Attribution Warning
 Affiliate redirect URLs and marketplace links MUST preserve tracking parameters. Any change to outbound URL construction, the `/out/ebay/:listingId` route, or the EPN parameter assembly must be tested to confirm affiliate attribution is not broken. Lost attribution = lost revenue.
@@ -550,7 +557,7 @@ Affiliate redirect URLs and marketplace links MUST preserve tracking parameters.
 Full funnel instrumented: card_view → outbound_click → affiliate postback → attributed_purchase.
 - **card_views** table: logged via `POST /api/attribution/card-view`. Captures userId, cardId, cardSetId, sessionId, ipHash, userAgent, pagePath, viewDurationMs.
 - **outbound_clicks** table: existing, written on `/out/ebay/:listingId` redirect with EPN customId.
-- **attributed_purchases** table: written by `GET /api/webhooks/epn-postback` when eBay EPN sends conversion confirmation. Links `customId` → `outbound_clicks.id` → `users.id`. Idempotent via unique constraint on `transaction_id`.
+- **attributed_purchases** table: written by `GET /api/webhooks/epn-postback` when eBay EPN sends conversion confirmation. Links `customId` → `outbound_clicks.id` → `users.id`. Idempotent via unique constraint on `transaction_id`. The same handler calls `processEpnPostback` → `rebateService.grantFromEpnPostback` so a matching apply is granted (not status-only).
 - EPN customId format: `packpts:u_<userId12>:i_<itemId16>:t_<timestamp>` — ties postback back to click.
 
 ---
@@ -973,7 +980,7 @@ PackPoints-Game/
 - **Layout:** `AppShell` wraps all pages with Header and MobileNav (hidden on fullscreen game/match routes and `/review/*`)
 
 ### Pages (30+)
-Public: `/`, `/game/:mode`, `/lobby`, `/match/:matchId`, `/queue`, `/daily5`, `/leaderboard`, `/marketplace`, `/store`, `/auth`, `/waitlist`, `/invite`, `/redeem`, `/forgot-password`, `/reset-password`, `/privacy-policy`, `/terms-of-service`, `/creators`, `/partners`, `/roadmap`, `/review/tiktok-sandbox` (TikTok App Review sandbox — not in nav)
+Public: `/`, `/game/:mode`, `/lobby`, `/match/:matchId`, `/queue`, `/daily5`, `/leaderboard`, `/marketplace`, `/redemptions`, `/redemptions/:id`, `/store`, `/auth`, `/waitlist`, `/invite`, `/redeem`, `/forgot-password`, `/reset-password`, `/privacy-policy`, `/terms-of-service`, `/creators`, `/partners`, `/roadmap`, `/review/tiktok-sandbox` (TikTok App Review sandbox — not in nav)
 
 Protected: `/profile`, `/friends`
 
@@ -1110,7 +1117,7 @@ The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM
 ### Economy Domain (18+ tables)
 | Table | Purpose |
 |-------|---------|
-| `wallets` | User PackPTS balance and status |
+| `wallets` | User PackPTS balance, USD `rebate_balance_cents` cashback, status |
 | `ledgerEntries` | Append-only transaction log with idempotency |
 | `packptsBucket` | FIFO point-source tracking with expiration |
 | `packptsSpendAllocation` | FIFO spend allocation |
@@ -1159,7 +1166,9 @@ The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM
 |-------|---------|
 | `profitPolicy` | Versioned margin/affiliate rules |
 | `externalPurchaseIntent` | Marketplace redemption calculations |
-| `redemptionCredit` | Issued store credits |
+| `redemptionCredit` | Issued store credits / cashback grant row |
+| `rebateLedger` | Append-only USD cashback ledger (GRANT / PAYOUT / PAYOUT_REFUND) |
+| `rebatePayoutRequests` | User withdrawal requests (REQUESTED / PAID / DENIED) |
 | `marginLedger` | Company-side revenue tracking |
 | `marginUsage` | Consumed margin tracking |
 | `redemptionReservations` | Race condition prevention |
@@ -1724,7 +1733,8 @@ railway variables --service Postgres --json | python3 -c \
 
 ### Gameplay
 - [x] Brand mark dual-logo (2026-09-20): header shipped the glossy 3-card shield (`packpts-logo.png`) into app thumbnails. Two-role SoR: **B masked-P** on header/favicon/PWA/manifest; **A masked-card** on OG/social only. Header `img-logo` is Design’s 394×128 B wordmark companion (same filename `packpts-logo.png` so Vite hashes `/assets/packpts-logo-*.png`). Manifest lists `icon-512-maskable.png`. X avatar `/assets/brand/playpackpts-avatar-masked-p-1024.png` matches attached B 1024 (`icon-1024.png` bytes).
-- [x] Product copy honesty — no eBay checkout discount / gift card claims (2026-09-20): live UI (home FAQ, partners, roadmap Done item, store, marketplace apply dialog, Redeem-tab catalog, meta/OG, `/api/redeem` success message) no longer claims Apply PackPTS reduces the eBay price or that PackPTS issues real eBay gift cards. Honest sentence: browse live listings; applied PackPTS stay in the PackPTS wallet; we may earn an affiliate commission. Guard: `server/tests/ebayApplyCopyHonesty.test.ts`. Audit: `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`.
+- [x] Product copy honesty — no eBay checkout discount / gift card claims (2026-09-20): live UI (home FAQ, partners, roadmap Done item, store, marketplace apply dialog, Redeem-tab catalog, meta/OG, `/api/redeem` success message) no longer claims Apply PackPTS reduces the eBay price or that PackPTS issues real eBay gift cards. Honest sentence: browse live listings; partner checkout stays full price; PackPTS may pay cashback after a confirmed purchase. Guard: `server/tests/ebayApplyCopyHonesty.test.ts`. Audits: `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`, `docs/audits/REDEEM_REAL_VALUE_PLAN_2026-09-20.md`.
+- [x] Marketplace cashback fulfillment (2026-09-20): apply → tracked outbound → EPN postback or confirm+evidence → `wallets.rebate_balance_cents` + `/redemptions` receipt + email. Admin grant/deny + payout queue. Fake gift-card SKUs stay labeled tokens. Ops: fund treasury; configure EPN postback URL; pay withdrawal requests.
 - [x] Admin user-count honesty (2026-09-20): `/admin/dashboard` “Total Users” was `users.length` (staff + bots included). Headline is now `registeredUsersNonStaff` (`is_admin = false` AND `is_bot = false`). 7d signups and scorecard weekly signups use the same exclusion. Cite the live admin field; do not invent a number. SQL: `server/services/userCounts.ts`.
 - [x] Game Complete / Daily 5 score card PNG (2026-09-05): generation wrote to `/app/public/generated/share`, which the non-root `packpts` process cannot mkdir (`EACCES`). Confirmed in production deploy logs. Cards now write to the persistent volume `/app/data/masked-cards/generated/share/` and are served at `/generated/share/`. Failed rows (insert-then-EACCES) are repaired on `GET /api/content-assets/latest` and via `POST /api/content-assets/retry`. Finish handlers await generation up to 1.5s and return `shareImageUrl` so the 1080×1080 card can appear within ~2s on Safari. Locked Design contract: `docs/SCORE_CARD_CONTRACT.md` (1080 square, actual X/5, five `#22C55E` pips, “N locked. M open.”, masked-P + PackPTS, packpts.com/daily visual CTA, **§3b today identity** `{MON} {D} · TODAY'S FIVE` on the America/Chicago CT day key plus mini cream/gold masked-strip) and `docs/EMPTY_STATE.md` (no broken-image glyph; “Score card didn’t load.” + Retry `#2B6CEE` + Share without card). `/daily` is an alias for `/daily5`. Elevated OG lives at `client/public/og-image.png`; Daily 5 masked tease v2 at `client/public/daily5-masked-1080-v2.png`.
 - [x] Daily 5 Beat-me product loop (2026-09-08): Game Complete **Beat me** issues `POST /api/daily5/beat-me` (real completed-entry X/5 + CT `puzzle_day`) and shares `https://packpts.com/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge={token}`. Recipient: `Beat {name} — they went {score}/5 today`. Stale CT day: `Challenge expired — play today's five.` Day key shared with Daily 5 + streak: `America/Chicago` (`shared/packptsDay.ts`). Contract: `docs/DAILY_BEAT_ME.md`.

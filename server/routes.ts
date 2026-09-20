@@ -15,7 +15,7 @@ import {
   resetPasswordLimiter,
   cardIdentifyLimiter,
 } from "./middleware/rateLimiter";
-import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
+import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, rebatePayoutRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "./services/cardHedge";
@@ -4473,6 +4473,7 @@ export async function registerRoutes(
 
   // GET /api/webhooks/epn-postback - Receive eBay EPN affiliate conversion postbacks
   // eBay sends: customid, item_id, transaction_id, sale_price, commission, transaction_date
+  // Also grants matching marketplace cashback when customid resolves to a click + apply.
   app.get("/api/webhooks/epn-postback", async (req: any, res) => {
     try {
       const {
@@ -4488,39 +4489,24 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      // Resolve the outbound click that originated this purchase
-      const [click] = await db
-        .select()
-        .from(outboundClicks)
-        .where(eq(outboundClicks.customId, customid))
-        .limit(1);
-
-      const salePriceCents = sale_price ? Math.round(parseFloat(sale_price) * 100) : null;
-      const commissionCents = commission ? Math.round(parseFloat(commission) * 100) : null;
-      const conversionDate = transaction_date ? new Date(transaction_date) : new Date();
-
-      // Idempotent: unique constraint on transactionId prevents duplicate records
-      await db.insert(attributedPurchases).values({
-        customId: customid,
-        outboundClickId: click?.id || null,
-        userId: click?.userId || null,
-        transactionId: transaction_id,
-        itemId: item_id || null,
-        salePriceCents,
-        commissionCents,
-        conversionDate,
-        rawPayload: req.query,
-      }).onConflictDoNothing();
+      const { processEpnPostback } = await import("./services/rebateService");
+      const result = await processEpnPostback({
+        customid,
+        item_id,
+        transaction_id,
+        sale_price,
+        commission,
+        transaction_date,
+      });
 
       console.log("[EPN postback]", {
         customid,
         transaction_id,
-        salePriceCents,
-        commissionCents,
-        resolvedUserId: click?.userId?.substring(0, 8) || "unknown",
+        grants: result.grants.length,
+        granted: result.grants.filter((g) => g.granted).length,
       });
 
-      res.json({ ok: true });
+      res.json({ ok: true, grants: result.grants.length });
     } catch (error) {
       console.error("[Attribution] EPN postback error:", error);
       res.status(500).json({ error: "Postback processing failed" });
@@ -8796,7 +8782,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
 
-      const { source, listingId, listingUrl, priceCents, currency, cardhedgeCardId } = parsed.data;
+      const { source, listingId, listingUrl, priceCents, currency, cardhedgeCardId, listingTitle } = parsed.data;
 
       // Price validation against CardHedge market data (non-blocking; advisory flag)
       let priceValidation: { valid: boolean; marketPriceCents: number | null; ratio: number | null } = {
@@ -8840,7 +8826,8 @@ export async function registerRoutes(
         listingId,
         listingUrl,
         priceCents,
-        currency
+        currency,
+        listingTitle
       );
 
       res.json({ ...quote, priceValidation });
@@ -8992,11 +8979,10 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/marketplace/purchase/confirm - Confirm a purchase (stub for admin review)
+  // POST /api/marketplace/purchase/confirm - User attests they bought on eBay/Goldin
   app.post("/api/marketplace/purchase/confirm", isAuthenticated, async (req: any, res) => {
     try {
-      const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      // @shared/schema imports moved to top of file
+      const { rebateService } = await import("./services/rebateService");
       
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) {
@@ -9008,13 +8994,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
 
-      const { purchaseIntentId, evidence } = parsed.data;
+      const { purchaseIntentId, evidence, orderId, evidenceNote, receiptUrl } = parsed.data;
       
-      const result = await profitGuardrailService.confirmPurchase(
-        userId,
-        purchaseIntentId,
-        evidence
-      );
+      const result = await rebateService.confirmPurchase(userId, purchaseIntentId, {
+        evidence,
+        orderId,
+        evidenceNote,
+        receiptUrl,
+      });
       
       res.json(result);
     } catch (error: any) {
@@ -9040,6 +9027,125 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Error getting purchase intents:", error);
       res.status(500).json({ error: error.message || "Failed to get purchase intents" });
+    }
+  });
+
+  app.get("/api/marketplace/redemption/receipts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const receipts = await rebateService.listReceipts(userId);
+      const payouts = await rebateService.listUserPayouts(userId);
+      const rebateBalanceCents = await rebateService.getRebateBalance(userId);
+      res.json({
+        receipts,
+        payouts,
+        rebateBalanceCents,
+        honesty: "eBay and Goldin checkout stay full price. PackPTS pays cashback after a confirmed purchase.",
+      });
+    } catch (error: any) {
+      console.error("Error listing redemption receipts:", error);
+      res.status(500).json({ error: error.message || "Failed to list receipts" });
+    }
+  });
+
+  app.get("/api/marketplace/redemption/receipts/:intentId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const receipt = await rebateService.getReceipt(userId, req.params.intentId);
+      if (!receipt) return res.status(404).json({ error: "Receipt not found" });
+      res.json(receipt);
+    } catch (error: any) {
+      console.error("Error getting redemption receipt:", error);
+      res.status(500).json({ error: error.message || "Failed to get receipt" });
+    }
+  });
+
+  app.post("/api/rebate/payout-request", isAuthenticated, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const parsed = rebatePayoutRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+      const result = await rebateService.requestPayout(
+        userId,
+        parsed.data.amountCents,
+        parsed.data.method,
+        parsed.data.destination,
+        parsed.data.note
+      );
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error requesting rebate payout:", error);
+      res.status(500).json({ error: error.message || "Failed to request payout" });
+    }
+  });
+
+  app.get("/api/admin/marketplace-intents", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const status = req.query.status as string | undefined;
+      const intents = await rebateService.listAdminIntents(status);
+      res.json({ intents });
+    } catch (error: any) {
+      console.error("Error listing marketplace intents:", error);
+      res.status(500).json({ error: error.message || "Failed to list intents" });
+    }
+  });
+
+  app.post("/api/admin/redemption/intents/:id/deny", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const reason = String(req.body?.reason || "").trim();
+      if (!reason) return res.status(400).json({ error: "reason is required" });
+      const result = await rebateService.adminDeny(req.params.id, reason);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error denying marketplace intent:", error);
+      res.status(500).json({ error: error.message || "Failed to deny" });
+    }
+  });
+
+  app.get("/api/admin/rebate-payouts", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const payouts = await rebateService.listPayoutRequests(req.query.status as string | undefined);
+      res.json({ payouts });
+    } catch (error: any) {
+      console.error("Error listing rebate payouts:", error);
+      res.status(500).json({ error: error.message || "Failed to list payouts" });
+    }
+  });
+
+  app.post("/api/admin/rebate-payouts/:id/pay", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const result = await rebateService.adminMarkPayoutPaid(req.params.id, adminUserId, req.body?.note);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error marking payout paid:", error);
+      res.status(500).json({ error: error.message || "Failed to mark paid" });
+    }
+  });
+
+  app.post("/api/admin/rebate-payouts/:id/deny", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try {
+      const { rebateService } = await import("./services/rebateService");
+      const adminUserId = req.user?.claims?.sub || req.session?.localUserId;
+      const reason = String(req.body?.reason || "").trim();
+      if (!reason) return res.status(400).json({ error: "reason is required" });
+      const result = await rebateService.adminDenyPayout(req.params.id, adminUserId, reason);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error denying payout:", error);
+      res.status(500).json({ error: error.message || "Failed to deny payout" });
     }
   });
 

@@ -11,6 +11,7 @@ const WalletResponseSchema = z.object({
     debtPts: z.number(),
     lifetimeEarned: z.number(),
     lifetimeSpent: z.number(),
+    rebateBalanceCents: z.number().optional(),
     status: z.string(),
     createdAt: z.string(),
     updatedAt: z.string(),

@@ -322,3 +322,61 @@ export async function sendMakerDigestEmail(
   const text = `Hey ${username}, your set "${setName}" was played ${playCount} time${playCount !== 1 ? "s" : ""} today on PackPTS. Visit ${siteUrl} to see your sets.`;
   return sendEmail({ to: email, subject: `Your set "${setName}" got played today`, html, text });
 }
+
+export async function sendRebateReceiptEmail(
+  email: string,
+  username: string,
+  details: {
+    listingTitle: string | null;
+    source: string;
+    packptsSpent: number;
+    creditCents: number;
+    receiptUrl: string;
+    method: string;
+  },
+): Promise<boolean> {
+  const dollars = (details.creditCents / 100).toFixed(2);
+  const sourceName = details.source === "goldin" ? "Goldin" : "eBay";
+  const listing = details.listingTitle || `${sourceName} listing`;
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; margin: 0; padding: 20px;">
+      <div style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden;">
+        <div style="background-color: #18181b; padding: 24px; text-align: center;">
+          <h1 style="color: #FFD700; margin: 0; font-size: 22px;">PackPTS cashback receipt</h1>
+        </div>
+        <div style="padding: 32px 24px; color: #18181b;">
+          <p>Hey ${username},</p>
+          <p>We granted <strong>$${dollars}</strong> PackPTS cashback after your ${sourceName} purchase.</p>
+          <p style="background:#f4f4f5;padding:16px;border-radius:8px;">
+            <strong>${listing}</strong><br/>
+            PackPTS spent: ${details.packptsSpent.toLocaleString()}<br/>
+            Cashback: $${dollars}<br/>
+            Status: GRANTED
+          </p>
+          <p style="font-size:13px;color:#52525b;">
+            ${sourceName} charged the full listing price. This cashback is paid by PackPTS, not as a ${sourceName} coupon.
+          </p>
+          <a href="${details.receiptUrl}" style="display:inline-block;background:#18181b;color:#FFD700;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">
+            View receipt
+          </a>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  const text = [
+    `PackPTS cashback receipt`,
+    `Granted $${dollars} after your ${sourceName} purchase of ${listing}.`,
+    `PackPTS spent: ${details.packptsSpent}`,
+    `${sourceName} charged full price. PackPTS paid this cashback.`,
+    details.receiptUrl,
+  ].join("\n");
+  return sendEmail({
+    to: email,
+    subject: `PackPTS cashback receipt — $${dollars}`,
+    html,
+    text,
+  });
+}

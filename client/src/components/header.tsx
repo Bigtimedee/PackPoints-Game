@@ -175,6 +175,12 @@ export function Header() {
                     Profile
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/redemptions" className="cursor-pointer">
+                    <ShoppingBag className="h-4 w-4 mr-2" />
+                    My Redemptions
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="cursor-pointer text-destructive"

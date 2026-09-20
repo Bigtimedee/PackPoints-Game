@@ -190,8 +190,22 @@ export default function AdminRedemptions() {
     <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold" data-testid="text-admin-redemptions-title">Redemption Management</h1>
-          <p className="text-muted-foreground">Review, approve, and manage PackPTS redemptions</p>
+          <p className="text-muted-foreground">Review token redemptions, marketplace cashback evidence, and USD payouts</p>
         </div>
+
+        <Tabs defaultValue="rebates">
+          <TabsList>
+            <TabsTrigger value="rebates" data-testid="tab-admin-rebates">Purchase rebates</TabsTrigger>
+            <TabsTrigger value="payouts" data-testid="tab-admin-payouts">Payouts</TabsTrigger>
+            <TabsTrigger value="tokens" data-testid="tab-admin-tokens">Credit tokens</TabsTrigger>
+          </TabsList>
+          <TabsContent value="rebates" className="mt-4">
+            <AdminMarketplaceIntents />
+          </TabsContent>
+          <TabsContent value="payouts" className="mt-4">
+            <AdminRebatePayouts />
+          </TabsContent>
+          <TabsContent value="tokens" className="mt-4 space-y-6">
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
@@ -438,6 +452,218 @@ export default function AdminRedemptions() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+          </TabsContent>
+        </Tabs>
     </div>
+  );
+}
+
+function AdminMarketplaceIntents() {
+  const { toast } = useToast();
+  const [denyId, setDenyId] = useState<string | null>(null);
+  const [denyReason, setDenyReason] = useState("");
+
+  const { data, isLoading } = useQuery<{ intents: any[] }>({
+    queryKey: ["/api/admin/marketplace-intents"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/marketplace-intents", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load intents");
+      return res.json();
+    },
+  });
+
+  const grantMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/redemption/intents/${id}/grant`),
+    onSuccess: async (res) => {
+      const body = await res.json();
+      toast({ title: "Granted", description: body.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/marketplace-intents"] });
+    },
+    onError: (error: Error) => toast({ title: "Grant failed", description: error.message, variant: "destructive" }),
+  });
+
+  const denyMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      apiRequest("POST", `/api/admin/redemption/intents/${id}/deny`, { reason }),
+    onSuccess: async (res) => {
+      const body = await res.json();
+      toast({ title: "Denied", description: body.message });
+      setDenyId(null);
+      setDenyReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/marketplace-intents"] });
+    },
+    onError: (error: Error) => toast({ title: "Deny failed", description: error.message, variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+  }
+
+  const intents = data?.intents || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Marketplace cashback</CardTitle>
+        <CardDescription>
+          Approve or deny evidence when EPN auto-attribution did not grant. Granting credits USD cashback; deny refunds PackPTS.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {intents.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No marketplace applies in review.</p>
+        ) : (
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>User</TableHead>
+                  <TableHead>Listing</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Evidence</TableHead>
+                  <TableHead className="text-right">USD</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {intents.map((row) => (
+                  <TableRow key={row.id} data-testid={`row-intent-${row.id}`}>
+                    <TableCell className="font-mono text-xs">{row.username || row.userId.slice(0, 8)}</TableCell>
+                    <TableCell className="max-w-[220px]">
+                      <p className="truncate text-sm">{row.listingTitle || row.listingId}</p>
+                      <p className="text-xs text-muted-foreground">{row.source}</p>
+                    </TableCell>
+                    <TableCell><Badge variant="outline">{row.status}</Badge></TableCell>
+                    <TableCell className="text-xs max-w-[200px]">
+                      {row.evidenceOrderId && <p>Order {row.evidenceOrderId}</p>}
+                      {row.evidenceNote && <p className="truncate">{row.evidenceNote}</p>}
+                      {row.evidenceReceiptUrl && (
+                        <a className="underline" href={row.evidenceReceiptUrl} target="_blank" rel="noreferrer">Receipt</a>
+                      )}
+                      {!row.evidenceOrderId && !row.evidenceNote && !row.evidenceReceiptUrl && "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      ${((row.credit?.creditCents || 0) / 100).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-right space-x-1">
+                      {(row.status === "PURCHASE_CONFIRMED" || row.status === "APPROVED") && (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => grantMutation.mutate(row.id)} data-testid={`button-grant-intent-${row.id}`}>
+                            Grant
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setDenyId(row.id)} data-testid={`button-deny-intent-${row.id}`}>
+                            Deny
+                          </Button>
+                        </>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <Dialog open={!!denyId} onOpenChange={() => setDenyId(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Deny cashback</DialogTitle>
+              <DialogDescription>Refunds reserved PackPTS. Reason is stored on the intent.</DialogDescription>
+            </DialogHeader>
+            <Textarea value={denyReason} onChange={(e) => setDenyReason(e.target.value)} placeholder="Why this evidence is not enough" />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDenyId(null)}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={!denyReason.trim() || denyMutation.isPending}
+                onClick={() => denyId && denyMutation.mutate({ id: denyId, reason: denyReason })}
+              >
+                Deny & refund
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdminRebatePayouts() {
+  const { toast } = useToast();
+  const { data, isLoading } = useQuery<{ payouts: any[] }>({
+    queryKey: ["/api/admin/rebate-payouts"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/rebate-payouts", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load payouts");
+      return res.json();
+    },
+  });
+
+  const payMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/pay`, { note: "Paid outside Stripe" }),
+    onSuccess: () => {
+      toast({ title: "Marked paid" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rebate-payouts"] });
+    },
+    onError: (error: Error) => toast({ title: "Failed", description: error.message, variant: "destructive" }),
+  });
+
+  const denyMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/deny`, { reason: "Could not send" }),
+    onSuccess: () => {
+      toast({ title: "Payout denied — cashback returned" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/rebate-payouts"] });
+    },
+    onError: (error: Error) => toast({ title: "Failed", description: error.message, variant: "destructive" }),
+  });
+
+  if (isLoading) {
+    return <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cashback payouts</CardTitle>
+        <CardDescription>Send USD via PayPal/Venmo/ACH, then mark paid. Deny returns the cashback balance.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {(data?.payouts || []).length === 0 ? (
+          <p className="text-sm text-muted-foreground">No payout requests.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Destination</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data?.payouts || []).map((p) => (
+                <TableRow key={p.id} data-testid={`row-payout-${p.id}`}>
+                  <TableCell className="font-mono text-xs">{p.userId.slice(0, 8)}</TableCell>
+                  <TableCell className="font-mono">${(p.amountCents / 100).toFixed(2)}</TableCell>
+                  <TableCell>{p.method}</TableCell>
+                  <TableCell>{p.destination}</TableCell>
+                  <TableCell><Badge variant="outline">{p.status}</Badge></TableCell>
+                  <TableCell className="text-right">
+                    {p.status === "REQUESTED" && (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => payMutation.mutate(p.id)}>Mark paid</Button>
+                        <Button size="sm" variant="ghost" onClick={() => denyMutation.mutate(p.id)}>Deny</Button>
+                      </>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
