@@ -2,7 +2,7 @@
 
 > **Canonical project brain.** Every future Claude Code session, developer, agent, or AI tool working on PackPTS must read this file before making changes. If your work changes product behavior, architecture, schema, routes, environment variables, payments, fraud controls, marketplace logic, or core assumptions, update this file in the same session.
 
-**Last verified against codebase:** 2026-09-20 (brand SoR: **B masked-P** = app/PWA/favicon/header; **A masked-card** = OG/social only; glossy shield deleted; maskable + `/assets/brand/playpackpts-avatar-masked-p-1024.png`. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number. Prior: 2026-09-19 between-card masked-image prefetch + deal preMask; PSA-slab cert-label bake v4.2; Social Media Agent Marketing SoR Daily 5-only auto X + FOMO preflight #91; play-sets CDN aliases #90; post-submit full-card reveal.)
+**Last verified against codebase:** 2026-09-20 (eBay apply-PackPTS is an internal wallet reserve, **not** an eBay checkout discount — `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`. Brand SoR: **B masked-P** = app/PWA/favicon/header; **A masked-card** = OG/social only. Admin registered-user count is non-staff + non-bot — cite `GET /api/admin/dashboard` `overview.registeredUsersNonStaff`; do not invent a number.)
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
@@ -59,7 +59,7 @@ Trading cards are one of the most emotionally resonant collectible categories in
 - **1v1 Random Match:** Join a matchmaking queue, get paired with a random opponent.
 - **Streaks:** Daily play maintains a streak; milestones grant bonus points; freeze tokens protect streaks.
 - **Leaderboard:** Global all-time and daily rankings.
-- **Marketplace:** Browse eBay/Goldin listings contextually matched to gameplay; redeem PackPTS as discounts.
+- **Marketplace:** Browse eBay/Goldin listings contextually matched to gameplay. PackPTS apply/redeem is internal wallet spend — it does **not** reduce the eBay checkout price (audit: `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`).
 - **Store:** Purchase PackPTS bundles or subscriptions via Stripe.
 - **Profile:** View stats, level, achievements, Founders Pass status, streak calendar.
 
@@ -488,15 +488,15 @@ Products have `guardrailsStatus` (PASS, WARN, BLOCK, OVERRIDE) and `guardrailsJs
 ## 11. Marketplace and Affiliate Commerce
 
 ### Purpose
-The PackPTS Marketplace lets users spend earned or purchased PackPTS toward real trading cards listed on eBay and Goldin Auctions. PackPTS acts as a discount/credit — users still pay the remaining balance in USD via the external marketplace.
+The PackPTS Marketplace lets users browse live eBay (and curated Goldin) listings and spend PackPTS **inside PackPTS**. Outbound clicks are EPN-attributed. **This is not an eBay checkout discount.** eBay still charges the full listing price. Audit: `docs/audits/APPLY_PACKPTS_EBAY_2026-09-20.md`.
 
 ### How It Works
 1. User plays games → earns PackPTS → visits `/marketplace`.
 2. Marketplace shows listings from eBay and Goldin, contextually matched to the user's recent gameplay (card sets, players, teams, years).
 3. User selects a listing → system calculates maximum redeemable PackPTS based on profit policy.
 4. `externalPurchaseIntent` is created with: listing price, computed max redemption (`computedRmax`), requested PackPTS spend.
-5. On approval, `redemptionCredit` is issued: PackPTS deducted from wallet, credit token generated.
-6. User clicks through affiliate link to complete purchase on eBay/Goldin.
+5. On apply, PackPTS are deducted from the wallet and a `redemptionCredit` row is created (`PENDING`). This is an internal reservation — not an eBay coupon, gift card, or price rewrite. (A separate Redeem-tab path, `POST /api/redeem`, mints a hex `creditToken` that nothing on eBay consumes.)
+6. User clicks **View Listing** (affiliate `/out/ebay/:listingId`) and pays **full price** on eBay/Goldin. `POST /api/marketplace/purchase/confirm` can flip status to `CREDIT_GRANTED` but has no client UI and pays the user no USD. Unused Path-A applies auto-refund PackPTS after 72 hours.
 
 ### Affiliate Integration
 **eBay Partner Network (EPN):**
@@ -537,10 +537,11 @@ Plus a **reserve-floor kill switch** (`reserveFloorCents`): if the funded reserv
 `marketplaceMarginConfig` table allows per-source overrides (eBay vs. Goldin haircut rates).
 
 ### Redemption Flow
-1. `POST /api/redemption/calculate` — estimate PackPTS → USD value for a given listing
-2. `POST /api/redeem` — execute redemption (minimum 1,000 PackPTS; admin review required if USD value ≥ threshold)
-3. `redemptionCredit` record created → wallet debited via ledger → credit token generated
-4. `POST /api/redemption/validate-token` / `consume-token` — verify and apply credit
+Two parallel systems (do not conflate):
+
+**A. Listing apply** (`POST /api/marketplace/redemption/quote` + `apply`): wallet debit + `redemptionCredit` PENDING. Confirm/grant is status-only; no eBay price change.
+
+**B. Tier redeem** (`POST /api/redemption/calculate` + `POST /api/redeem`): minimum 1,000 PackPTS; admin review if USD value ≥ threshold; hex `creditToken` shown in UI. `POST /api/redemption/validate-token` / `consume-token` exist but are not called by eBay or any PackPTS checkout UI. Redeem-tab cards labeled “eBay Gift Card” are a hardcoded catalog (`server/storage.ts` `REDEMPTION_OPTIONS`), not issued gift cards.
 
 ### ⚠️ Affiliate Attribution Warning
 Affiliate redirect URLs and marketplace links MUST preserve tracking parameters. Any change to outbound URL construction, the `/out/ebay/:listingId` route, or the EPN parameter assembly must be tested to confirm affiliate attribution is not broken. Lost attribution = lost revenue.
