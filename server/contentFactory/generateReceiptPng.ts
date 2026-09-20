@@ -14,7 +14,7 @@ import { loadDejaVuFonts, measureText, textToPath, type DejaVuFonts } from "./fo
 export const RECEIPT_PNG_SIZE = 1080;
 export const RECEIPT_PNG_MIN_BYTES = 50_000;
 
-const MASKED_P_MARK = `<g transform="scale(0.0546875)">
+const MASKED_P_MARK = `<g transform="scale(0.068359375)">
       <rect width="1024" height="1024" fill="${RECEIPT_COLORS.canvas}"/>
       <path fill="#ffffff" fill-rule="evenodd" d="M292 196 H560 C720 196 820 280 820 420 C820 560 720 644 560 644 H452 V828 H292 Z M452 340 V500 H548 C620 500 668 470 668 420 C668 370 620 340 548 340 Z"/>
       <rect x="292" y="448" width="528" height="96" fill="${RECEIPT_COLORS.gold}"/>
@@ -96,8 +96,15 @@ export function buildReceiptPngSvg(plaque: ReceiptPlaqueView): string {
     textToPath(fonts.bold, RECEIPT_COPY.eyebrow, 100, 196, 18, muted, { letterSpacing: 3.2 }),
     chipSvg(fonts, plaque.chip.label, plaque.chip.color, chipX, 196).svg,
     textToPath(fonts.monoBold, plaque.heroAmount, 100, 320, 72, heroColor),
-    textToPath(fonts.regular, plaque.helper, 100, 368, 22, helperColor),
-    textToPath(fonts.regular, plaque.subline, 100, 404, 22, muted),
+    ...(plaque.status === "CREDIT_GRANTED"
+      ? [
+          textToPath(fonts.regular, plaque.helper, 100, 368, 22, helperColor),
+          textToPath(fonts.regular, plaque.subline, 100, 404, 22, muted),
+        ]
+      : [
+          textToPath(fonts.regular, plaque.subline, 100, 368, 22, muted),
+          textToPath(fonts.regular, plaque.helper, 100, 404, 22, helperColor),
+        ]),
     textToPath(fonts.regular, "Partner", 100, 478, 20, muted),
     textToPath(fonts.bold, plaque.partner, 980, 478, 22, ink, { anchor: "end" }),
     textToPath(fonts.regular, RECEIPT_COPY.partnerPrice, 100, 522, 20, muted),
@@ -112,8 +119,8 @@ export function buildReceiptPngSvg(plaque: ReceiptPlaqueView): string {
       textToPath(fonts.regular, row[0], 560, 760 + i * 64, 18, muted),
       textToPath(i === 0 ? fonts.monoBold : fonts.bold, row[1], 560, 788 + i * 64, 22, ink),
     ]),
-    textToPath(fonts.bold, "PackPTS", 164, 1010, 28, ink),
-    textToPath(fonts.regular, `packpts.com/redemptions/${plaque.intentId.replace(/-/g, "").slice(0, 8)}`, 980, 1010, 18, muted, { anchor: "end" }),
+    textToPath(fonts.bold, "PackPTS", 176, 1012, 28, ink),
+    textToPath(fonts.regular, `packpts.com/redemptions/${plaque.intentId.replace(/-/g, "").slice(0, 8)}`, 980, 1012, 18, muted, { anchor: "end" }),
   ].join("\n  ");
 
   const desc = [
@@ -154,7 +161,7 @@ export function buildReceiptPngSvg(plaque: ReceiptPlaqueView): string {
   <line x1="100" y1="548" x2="980" y2="548" stroke="#2A3140" stroke-width="1"/>
   <line x1="100" y1="708" x2="980" y2="708" stroke="#2A3140" stroke-width="1"/>
   ${outlined}
-  <g transform="translate(88, 958)">
+  <g transform="translate(84, 952)">
     ${MASKED_P_MARK}
   </g>
 </svg>`;

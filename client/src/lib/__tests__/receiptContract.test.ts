@@ -122,4 +122,30 @@ describe("buildReceiptPlaqueView", () => {
     expect(view.partner).toBe("Goldin");
     expect(containsBannedReceiptCopy(JSON.stringify(view))).toEqual([]);
   });
+
+  it("hides grant meta until CREDIT_GRANTED", () => {
+    const held = buildReceiptPlaqueView({
+      intentId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      source: "ebay",
+      listingId: "1",
+      listingTitle: "Test",
+      listingUrl: "https://www.ebay.com/itm/1",
+      priceCents: 240000,
+      packptsSpent: 9000,
+      creditCents: 4500,
+      status: "PURCHASE_CONFIRMED",
+      grantMethod: "USER_CONFIRM",
+      grantedAt: "2026-09-19T12:00:00.000Z",
+      createdAt: "2026-09-19T12:00:00.000Z",
+      evidenceOrderId: "EBAY-1",
+      evidenceNote: null,
+      evidenceReceiptUrl: null,
+      deniedReason: null,
+      rebateBalanceCents: 1200,
+    });
+    expect(held.chip.label).toBe("PURCHASE_CONFIRMED");
+    expect(held.grantMethodLabel).toBe("");
+    expect(held.grantedAtLabel).toBe("");
+    expect(held.helper).toBe("Credit pending review");
+  });
 });

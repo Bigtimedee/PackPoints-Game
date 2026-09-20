@@ -73,14 +73,29 @@ export function ReceiptPlaque({
         >
           {plaque.heroAmount}
         </p>
-        {plaque.helper && (
-          <p className="mt-3 text-sm" style={{ color: helperColor }} data-testid="text-receipt-helper">
-            {plaque.helper}
-          </p>
+        {plaque.status === "CREDIT_GRANTED" ? (
+          <>
+            {plaque.helper && (
+              <p className="mt-3 text-sm" style={{ color: helperColor }} data-testid="text-receipt-helper">
+                {plaque.helper}
+              </p>
+            )}
+            <p className="mt-1 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-subline">
+              {plaque.subline}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="mt-3 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-subline">
+              {plaque.subline}
+            </p>
+            {plaque.helper && (
+              <p className="mt-1 text-sm" style={{ color: helperColor }} data-testid="text-receipt-helper">
+                {plaque.helper}
+              </p>
+            )}
+          </>
         )}
-        <p className="mt-1 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-subline">
-          {plaque.subline}
-        </p>
 
         <div className="mt-5 space-y-3 border-t pt-4" style={{ borderColor: "#2A3140" }}>
           <div className="flex items-baseline justify-between gap-4">
