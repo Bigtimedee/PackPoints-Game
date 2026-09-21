@@ -16,7 +16,7 @@ describe("1v1 replace stays masked during guessing", () => {
   });
 
   it("v4.x localization floor is unchanged", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.2");
+    expect(CURRENT_MASK_VERSION).toBe("v4.3");
     expect(DEFAULT_MASK_REGIONS[0]?.hPct).toBe(46);
   });
 });

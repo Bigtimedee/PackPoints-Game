@@ -19,6 +19,17 @@ export interface MaskResult {
   regions: MaskRegion[];
 }
 
+/** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
+const MASK_FILL = { r: 10, g: 14, b: 22 };
+
+/**
+ * Cover name/identity regions with a solid rect.
+ *
+ * v4.2 used `{ alpha: 0.94 }` and `.blur(8)` on that rect. The blur feathers
+ * the overlay; it does not blur the card. About 6% of the original contrast
+ * stayed sharp, so PSA cert text and Fleer top-plate names remained readable
+ * (Design re-QA 2026-09-21). An RGB overlay has no see-through window.
+ */
 async function applyPercentRegions(
   imageBuffer: Buffer,
   regions: MaskRegion[],
@@ -41,11 +52,10 @@ async function applyPercentRegions(
       create: {
         width: rw,
         height: rh,
-        channels: 4,
-        background: { r: 10, g: 14, b: 22, alpha: 0.94 },
+        channels: 3,
+        background: MASK_FILL,
       },
     })
-      .blur(8)
       .png()
       .toBuffer();
 

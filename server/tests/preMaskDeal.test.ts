@@ -33,7 +33,7 @@ describe("masked-image warm path", () => {
     expect(routeSrc).toContain('X-Mask-Cache');
     expect(routeSrc).toContain("Server-Timing");
     expect(routeSrc).toContain("max-age=86400");
-    expect(CURRENT_MASK_VERSION).toBe("v4.2");
+    expect(CURRENT_MASK_VERSION).toBe("v4.3");
   });
 
   it("kicks preMask on solo, Daily 5, and 1v1 deal start without awaiting", () => {
