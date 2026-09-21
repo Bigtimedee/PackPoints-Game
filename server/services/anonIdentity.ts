@@ -25,7 +25,6 @@ import {
   type AnonPlayerSnapshot,
   type PublicAnonGate,
   anonGateDeniedBody,
-  ANON_HARD_GAMES,
   creditIfNew,
   emptyAnonSnapshot,
   planEscrowClaim,
@@ -118,17 +117,21 @@ function snapshotOf(row: AnonPlayer): AnonPlayerSnapshot {
     escrowCorrect: row.escrowCorrect,
     escrowAnswers: row.escrowAnswers,
     lastPlayDay: row.lastPlayDay,
+    softDismissed: !!row.softDismissedAt,
     claimedAt: row.claimedAt,
   };
 }
 
-export function publicGateFor(row: Pick<AnonPlayer, "gamesCompleted" | "gamesStarted" | "lastPlayDay" | "escrowPoints">, today = getPackptsDayKey()): PublicAnonGate {
+export function publicGateFor(
+  row: Pick<AnonPlayer, "gamesCompleted" | "lastPlayDay" | "escrowPoints" | "softDismissedAt">,
+  today = getPackptsDayKey(),
+): PublicAnonGate {
   return toPublicAnonGate(
     {
       gamesCompleted: row.gamesCompleted,
-      gamesStarted: row.gamesStarted,
       lastPlayDay: row.lastPlayDay,
       escrowPoints: row.escrowPoints,
+      softDismissed: !!row.softDismissedAt,
     },
     today,
   );
@@ -227,32 +230,27 @@ export async function beginAnonGame(
   if (!gate.canStart) {
     return { ok: false, body: anonGateDeniedBody(gate) };
   }
-  const saved = await consumeAnonStart(player.id, surface);
-  if (!saved) {
-    const fresh = publicGateFor({ ...player, gamesStarted: ANON_HARD_GAMES });
-    return { ok: false, body: anonGateDeniedBody({ ...fresh, phase: "hard", canStart: false, prompt: "hard", reason: "game_cap" }) };
-  }
-  return { ok: true, player: saved, gate };
+  await db
+    .update(anonPlayers)
+    .set({ openSurface: surface, updatedAt: new Date() })
+    .where(and(eq(anonPlayers.id, player.id), isNull(anonPlayers.claimedAt)));
+  player.openSurface = surface;
+  return { ok: true, player, gate };
 }
 
-/** Counts a new guest round. Returns null when the cap was hit between the read and the write. */
-export async function consumeAnonStart(playerId: string, surface: AnonPlaySurface | null): Promise<AnonPlayer | null> {
+/** Soft sheet shows once. Dismiss does not spend the remaining guest round. */
+export async function dismissAnonSoft(req: GateRequest, res: Response): Promise<PublicAnonGate> {
   const today = getPackptsDayKey();
+  const player = await resolveAnonPlayer(req, res, { create: false });
+  if (!player || player.claimedAt || player.softDismissedAt || player.gamesCompleted < 1) {
+    return player ? publicGateFor(player, today) : toPublicAnonGate(emptyAnonSnapshot(), today);
+  }
   const [saved] = await db
     .update(anonPlayers)
-    .set({
-      gamesStarted: sql`${anonPlayers.gamesStarted} + 1`,
-      lastPlayDay: today,
-      ...(surface ? { openSurface: surface } : {}),
-      updatedAt: new Date(),
-    })
-    .where(and(
-      eq(anonPlayers.id, playerId),
-      isNull(anonPlayers.claimedAt),
-      sql`${anonPlayers.gamesStarted} < ${ANON_HARD_GAMES}`,
-    ))
+    .set({ softDismissedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(anonPlayers.id, player.id), isNull(anonPlayers.softDismissedAt)))
     .returning();
-  return saved ?? null;
+  return publicGateFor(saved ?? player, today);
 }
 
 export async function creditAnonGame(

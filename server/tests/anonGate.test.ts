@@ -10,7 +10,6 @@ import {
   anonGateDeniedBody,
   anonStartAllowed,
   applyCompletedGame,
-  noteAnonStart,
   creditIfNew,
   emptyAnonSnapshot,
   evaluateAnonGate,
@@ -102,30 +101,30 @@ describe("anon gate thresholds", () => {
     expect(gate.reason).toBe("next_day");
   });
 
-  it("does not treat a visitor who never started a round as a next-day block", () => {
-    const gate = evaluateAnonGate({ gamesCompleted: 0, gamesStarted: 0, lastPlayDay: null, today: TODAY });
+  it("does not treat a visitor who never finished a round as a next-day block", () => {
+    const gate = evaluateAnonGate({ gamesCompleted: 0, lastPlayDay: YESTERDAY, today: TODAY });
     expect(gate.canStart).toBe(true);
+    expect(gate.phase).toBe("open");
   });
 
-  it("hard-stops a next-day return after a start that was never finished", () => {
-    const row = noteAnonStart(emptyAnonSnapshot(), YESTERDAY);
-    const gate = evaluateAnonGate({ ...row, today: TODAY });
-    expect(row.gamesCompleted).toBe(0);
-    expect(gate.canStart).toBe(false);
-    expect(gate.reason).toBe("next_day");
+  it("does not count abandoned starts toward the cap", () => {
+    const gate = evaluateAnonGate({
+      gamesCompleted: 0,
+      lastPlayDay: null,
+      today: TODAY,
+    });
+    expect(gate.canStart).toBe(true);
+    expect(gate.prompt).toBe("none");
   });
 
-  it("stops a third start even when earlier rounds were abandoned", () => {
-    let row = emptyAnonSnapshot();
-    expect(evaluateAnonGate({ ...row, today: TODAY }).canStart).toBe(true);
-    row = noteAnonStart(row, TODAY);
-    expect(evaluateAnonGate({ ...row, today: TODAY }).canStart).toBe(true);
-    expect(evaluateAnonGate({ ...row, today: TODAY }).prompt).toBe("none");
-    row = noteAnonStart(row, TODAY);
-    const gate = evaluateAnonGate({ ...row, today: TODAY });
-    expect(row.gamesCompleted).toBe(0);
-    expect(gate.canStart).toBe(false);
-    expect(gate.reason).toBe("game_cap");
+  it("shows the soft sheet once, then stays quiet after dismiss", () => {
+    const open = evaluateAnonGate({ gamesCompleted: 1, lastPlayDay: TODAY, today: TODAY, softDismissed: false });
+    expect(open.prompt).toBe("soft");
+    expect(open.canStart).toBe(true);
+    const dismissed = evaluateAnonGate({ gamesCompleted: 1, lastPlayDay: TODAY, today: TODAY, softDismissed: true });
+    expect(dismissed.phase).toBe("soft");
+    expect(dismissed.prompt).toBe("none");
+    expect(dismissed.canStart).toBe(true);
   });
 
   it("allows Daily 5 resume after the hard gate, and still blocks a new solo start", () => {
@@ -203,6 +202,7 @@ describe("escrow claim", () => {
     const body = anonGateDeniedBody(gate);
     expect(body.code).toBe(ANON_GATE_CODE);
     expect(body.error).toBe(ANON_GATE_COPY.hardTitle);
+    expect(body.message).toBe(ANON_GATE_COPY.hardBody);
     expect(body.canStart).toBe(false);
     expect(body.escrowPoints).toBe(12);
   });
@@ -251,10 +251,15 @@ describe("registeredUsersNonStaff ignores anon", () => {
 });
 
 describe("gate copy", () => {
-  it("names the soft one-more-round prompt and the hard wall", () => {
-    expect(ANON_GATE_COPY.softBody).toContain("one more round");
-    expect(ANON_GATE_COPY.softSecondary).toBe("Play one more round");
+  it("uses the locked soft and hard strings", () => {
+    expect(ANON_GATE_COPY.softTitle).toBe("Keep your PackPTS");
+    expect(ANON_GATE_COPY.softBody).toBe("Create a free account to save streak and resume where you left off.");
+    expect(ANON_GATE_COPY.softCta).toBe("Create free account");
+    expect(ANON_GATE_COPY.softSecondary).toBe("Continue once more");
     expect(ANON_GATE_COPY.hardTitle).toBe("Register to keep playing");
-    expect(ANON_GATE_COPY.nextDayBody.toLowerCase()).toContain("new day");
+    expect(ANON_GATE_COPY.hardBody).toBe("You've played two games as a guest. Create a free PackPTS account to continue Daily 5 and sets.");
+    expect(ANON_GATE_COPY.hardCta).toBe("Create free account");
+    expect(ANON_GATE_COPY.signInCta).toBe("Sign in");
+    expect(ANON_GATE_COPY.escrowLabel).toBe("PackPTS held");
   });
 });

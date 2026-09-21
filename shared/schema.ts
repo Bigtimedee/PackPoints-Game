@@ -4199,6 +4199,8 @@ export const anonPlayers = pgTable("anon_players", {
   escrowCorrect: integer("escrow_correct").notNull().default(0),
   escrowAnswers: integer("escrow_answers").notNull().default(0),
   lastPlayDay: varchar("last_play_day", { length: 10 }),
+  /** Set when the guest dismisses the soft sheet. Not a completed-game counter. */
+  softDismissedAt: timestamp("soft_dismissed_at"),
   openSurface: varchar("open_surface", { length: 16 }),
   claimedByUserId: varchar("claimed_by_user_id").references(() => users.id, { onDelete: "set null" }),
   claimedAt: timestamp("claimed_at"),

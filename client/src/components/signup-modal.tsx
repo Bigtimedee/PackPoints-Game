@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ANON_GATE_COPY, type AnonGateReason } from "@shared/anonGate";
+import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 
 const signupModalSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
@@ -35,15 +36,47 @@ interface SignupModalProps {
   onOpenChange: (open: boolean) => void;
   pendingPoints: number;
   onSuccess?: () => void;
-  /** Soft gate only. Hard gate has no skip. */
+  /** Optional legacy modal only. Soft dismiss does not start another round. */
   onPlayAgain?: () => void;
   variant?: "optional" | "soft" | "hard";
   gateReason?: AnonGateReason;
+  /** Plaque is the locked sheet. signup/login skips to the account form. */
+  openOn?: "plaque" | "signup" | "login";
 }
 
-export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain, variant = "optional", gateReason }: SignupModalProps) {
+export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain, variant = "optional", gateReason: _gateReason, openOn = "plaque" }: SignupModalProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
+  const [step, setStep] = useState<"plaque" | "form">("plaque");
+  const isGate = variant === "soft" || variant === "hard";
+
+  useEffect(() => {
+    if (!open) return;
+    if (openOn === "signup" || openOn === "login") {
+      setActiveTab(openOn);
+      setStep("form");
+    } else {
+      setStep("plaque");
+    }
+  }, [open, openOn]);
+
+  async function dismissSoft() {
+    if (variant !== "soft") return;
+    try {
+      await apiRequest("POST", "/api/anon/soft-dismiss");
+    } catch {
+      /* still close; the sheet must not trap a guest who can play once more */
+    }
+    queryClient.invalidateQueries({ queryKey: ["/api/anon/status"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/daily5/status"] });
+  }
+
+  function handleOpenChange(next: boolean) {
+    if (!next && variant === "hard") return;
+    if (!next && variant === "soft") void dismissSoft();
+    if (!next) setStep("plaque");
+    onOpenChange(next);
+  }
   
   const signupForm = useForm<SignupModalFormData>({
     resolver: zodResolver(signupModalSchema),
@@ -147,15 +180,57 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       ? ANON_GATE_COPY.softTitle
       : "Save Your Points!";
   const description = variant === "hard"
-    ? (gateReason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody)
+    ? ANON_GATE_COPY.hardBody
     : variant === "soft"
       ? ANON_GATE_COPY.softBody
       : "Sign up for a new account or log in to your existing account to claim your points.";
-  const allowAnotherRound = variant !== "hard" && !!onPlayAgain;
+  const allowAnotherRound = variant === "optional" && !!onPlayAgain;
+
+  if (isGate && step === "plaque") {
+    return (
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          hideClose={variant === "hard"}
+          className="max-w-[390px] gap-0 border-0 bg-transparent p-0 shadow-none"
+          onEscapeKeyDown={(event) => {
+            if (variant === "hard") event.preventDefault();
+          }}
+          onPointerDownOutside={(event) => {
+            if (variant === "hard") event.preventDefault();
+          }}
+          data-testid={variant === "hard" ? "dialog-anon-hard-gate" : "dialog-anon-soft-gate"}
+        >
+          <AnonGatePlaque
+            variant={variant}
+            escrowPoints={pendingPoints}
+            onCreate={() => {
+              setActiveTab("signup");
+              setStep("form");
+            }}
+            onSignIn={() => {
+              setActiveTab("login");
+              setStep("form");
+            }}
+            onContinue={() => handleOpenChange(false)}
+          />
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto" data-testid={variant === "hard" ? "dialog-anon-hard-gate" : variant === "soft" ? "dialog-anon-soft-gate" : "dialog-signup"}>
+    <Dialog open={open} onOpenChange={isGate ? handleOpenChange : onOpenChange}>
+      <DialogContent
+        hideClose={variant === "hard"}
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        onEscapeKeyDown={(event) => {
+          if (variant === "hard") event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (variant === "hard") event.preventDefault();
+        }}
+        data-testid={variant === "hard" ? "dialog-anon-hard-gate" : variant === "soft" ? "dialog-anon-soft-gate" : "dialog-signup"}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trophy className="h-5 w-5 text-primary" />
@@ -166,7 +241,9 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
           </DialogDescription>
         </DialogHeader>
         
-        {pendingPoints > 0 ? (
+        {isGate ? (
+          <EscrowHeldChip points={pendingPoints} />
+        ) : pendingPoints > 0 ? (
           <div className="space-y-2">
             <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-md bg-primary/10">
               <Zap className="h-5 w-5 text-primary" />
@@ -332,7 +409,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                       data-testid="button-modal-play-again"
                     >
                       <RefreshCw className="h-4 w-4" />
-                      {variant === "soft" ? ANON_GATE_COPY.softSecondary : "Play Again"}
+                      Play Again
                     </Button>
                   ) : variant === "optional" ? (
                     <Button 
@@ -449,7 +526,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                       data-testid="button-modal-play-again-login"
                     >
                       <RefreshCw className="h-4 w-4" />
-                      {variant === "soft" ? ANON_GATE_COPY.softSecondary : "Play Again"}
+                      Play Again
                     </Button>
                   ) : variant === "optional" ? (
                     <Button 

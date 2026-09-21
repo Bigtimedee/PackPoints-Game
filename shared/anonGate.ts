@@ -30,7 +30,7 @@ export type AnonGateDecision = {
 
 export type AnonPlayerSnapshot = {
   gamesCompleted: number;
-  /** Starts, including abandoned rounds. The cap uses the larger of this and gamesCompleted. */
+  /** Not the cap. Abandoned starts stay at 0 completed games. */
   gamesStarted: number;
   daily5Completed: number;
   setsPlaysCompleted: number;
@@ -38,7 +38,10 @@ export type AnonPlayerSnapshot = {
   escrowPoints: number;
   escrowCorrect: number;
   escrowAnswers: number;
+  /** Chicago day of the first counted Game Complete. */
   lastPlayDay: string | null;
+  /** Soft sheet already dismissed. Hard still applies. */
+  softDismissed: boolean;
   claimedAt: Date | string | null;
 };
 
@@ -48,20 +51,17 @@ export type PublicAnonGate = AnonGateDecision & {
   anonymous: true;
 };
 
+/** Locked Design / Marketing strings. Do not paraphrase. */
 export const ANON_GATE_COPY = {
-  softTitle: "Save your PackPTS",
-  softBody:
-    "You finished a guest round. Create a free account or sign in and we will add these PackPTS to your wallet. You can play one more round before registering.",
-  softBanner: "Guest round saved. One more round, then create a free account to keep playing.",
-  softCta: "Create account and claim PackPTS",
-  softSecondary: "Play one more round",
+  softTitle: "Keep your PackPTS",
+  softBody: "Create a free account to save streak and resume where you left off.",
+  softCta: "Create free account",
+  softSecondary: "Continue once more",
   hardTitle: "Register to keep playing",
-  hardBody:
-    "Guest play covers two rounds. Your PackPTS are saved — create a free account or sign in to add them to your wallet and start another game.",
-  nextDayBody:
-    "Welcome back. Guest rounds do not carry into a new day. Sign in or create a free account to claim your PackPTS and play.",
-  hardCta: "Create account and claim PackPTS",
-  signInCta: "Sign in and claim PackPTS",
+  hardBody: "You've played two games as a guest. Create a free PackPTS account to continue Daily 5 and sets.",
+  hardCta: "Create free account",
+  signInCta: "Sign in",
+  escrowLabel: "PackPTS held",
 } as const;
 
 export function emptyAnonSnapshot(): AnonPlayerSnapshot {
@@ -75,52 +75,43 @@ export function emptyAnonSnapshot(): AnonPlayerSnapshot {
     escrowCorrect: 0,
     escrowAnswers: 0,
     lastPlayDay: null,
+    softDismissed: false,
     claimedAt: null,
   };
 }
 
 /**
- * Soft after the first completed Daily 5, /sets, or solo round (same day).
- * Hard when a third start would begin, or when they return on a later CT day
- * still anonymous. Does not describe an in-progress round — callers allow
- * resume separately via `anonStartAllowed`.
+ * Counts Game Complete only. Abandon, preview, and /make add nothing.
+ * Soft once after the first Daily 5 or /sets (or home solo) completion.
+ * Hard at 2 completions, or the next America/Chicago day after the first.
  */
-export function roundsUsed(state: { gamesCompleted: number; gamesStarted?: number }): number {
-  return Math.max(state.gamesCompleted, state.gamesStarted ?? 0);
-}
-
 export function evaluateAnonGate(state: {
   gamesCompleted: number;
-  gamesStarted?: number;
   lastPlayDay: string | null;
   today: string;
+  softDismissed?: boolean;
 }): AnonGateDecision {
-  const used = roundsUsed(state);
-  const playedOnEarlierDay =
+  const completed = state.gamesCompleted;
+  const dayAfterFirstComplete =
     state.lastPlayDay != null &&
     state.lastPlayDay !== state.today &&
-    used > 0;
+    completed > 0;
 
-  if (used >= ANON_HARD_GAMES) {
+  if (completed >= ANON_HARD_GAMES) {
     return { phase: "hard", canStart: false, prompt: "hard", reason: "game_cap" };
   }
-  if (playedOnEarlierDay) {
+  if (dayAfterFirstComplete) {
     return { phase: "hard", canStart: false, prompt: "hard", reason: "next_day" };
   }
-  if (state.gamesCompleted >= ANON_SOFT_GAMES) {
-    return { phase: "soft", canStart: true, prompt: "soft", reason: "after_first_game" };
+  if (completed >= ANON_SOFT_GAMES) {
+    return {
+      phase: "soft",
+      canStart: true,
+      prompt: state.softDismissed ? "none" : "soft",
+      reason: "after_first_game",
+    };
   }
   return { phase: "open", canStart: true, prompt: "none", reason: "under_limit" };
-}
-
-/** Call only after `evaluateAnonGate(...).canStart` is true. A resume must not call this. */
-export function noteAnonStart(row: AnonPlayerSnapshot, today: string): AnonPlayerSnapshot {
-  if (row.claimedAt) return row;
-  return {
-    ...row,
-    gamesStarted: row.gamesStarted + 1,
-    lastPlayDay: today,
-  };
 }
 
 /** A Daily 5 resume is the same round, not a new start. Solo start is always a new game. */
@@ -130,14 +121,14 @@ export function anonStartAllowed(decision: AnonGateDecision, hasInProgress: bool
 }
 
 export function toPublicAnonGate(
-  state: Pick<AnonPlayerSnapshot, "gamesCompleted" | "gamesStarted" | "lastPlayDay" | "escrowPoints">,
+  state: Pick<AnonPlayerSnapshot, "gamesCompleted" | "lastPlayDay" | "escrowPoints"> & { softDismissed?: boolean },
   today: string,
 ): PublicAnonGate {
   const decision = evaluateAnonGate({
     gamesCompleted: state.gamesCompleted,
-    gamesStarted: state.gamesStarted,
     lastPlayDay: state.lastPlayDay,
     today,
+    softDismissed: state.softDismissed,
   });
   return {
     ...decision,
@@ -150,7 +141,7 @@ export function toPublicAnonGate(
 export function anonGateDeniedBody(gate: PublicAnonGate) {
   return {
     error: ANON_GATE_COPY.hardTitle,
-    message: gate.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody,
+    message: ANON_GATE_COPY.hardBody,
     code: ANON_GATE_CODE,
     phase: gate.phase,
     reason: gate.reason,
@@ -185,7 +176,7 @@ export function applyCompletedGame(
     escrowPoints: row.escrowPoints + points,
     escrowCorrect: row.escrowCorrect + correct,
     escrowAnswers: row.escrowAnswers + answers,
-    lastPlayDay: input.today,
+    lastPlayDay: row.lastPlayDay ?? input.today,
   };
 }
 

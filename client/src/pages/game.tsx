@@ -28,7 +28,8 @@ import {
   replayCardCountFromSession,
   replaySetIdFromSession,
 } from "@/lib/playAgain";
-import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
+import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
+import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import {
   prefetchMaskedPlayCards,
@@ -168,6 +169,7 @@ export default function Game() {
     cappedReason?: string;
   } | null>(null);
   const [showSignupModal, setShowSignupModal] = useState(false);
+  const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("plaque");
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
   const [anonGate, setAnonGate] = useState<PublicAnonGate | null>(null);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
@@ -674,11 +676,9 @@ export default function Game() {
   const isGameOver = session?.status === "completed" || session?.status === "expired";
   useEffect(() => {
     if (!isGameOver || isAuthenticated || !anonGate) return;
-    if (anonGate.phase === "hard") {
-      setShowSignupModal(true);
-      return;
-    }
-    if (anonGate.phase === "soft" && !hasSeenSignupPrompt && !showSignupModal) {
+    if (anonGate.phase === "hard") return;
+    if (anonGate.prompt === "soft" && !hasSeenSignupPrompt && !showSignupModal) {
+      setGateOpenOn("plaque");
       const timer = setTimeout(() => setShowSignupModal(true), 500);
       return () => clearTimeout(timer);
     }
@@ -882,25 +882,20 @@ export default function Game() {
                 />
               </div>
               
-              {!isAuthenticated && guestGate?.phase === "soft" && (
-                <p className="text-sm text-center text-muted-foreground" data-testid="text-anon-soft-banner">
-                  {ANON_GATE_COPY.softBanner}
-                </p>
-              )}
               {!isAuthenticated && guestGate?.phase === "hard" ? (
-                <div className="space-y-3" data-testid="wall-anon-hard-gate">
-                  <p className="text-sm text-center">
-                    {guestGate.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody}
-                  </p>
-                  <Button
-                    className="w-full min-h-11 gap-2"
-                    size="lg"
-                    onClick={() => setShowSignupModal(true)}
-                    data-testid="button-register-to-play"
-                  >
-                    <UserPlus className="h-5 w-5" />
-                    Create a free account
-                  </Button>
+                <div data-testid="wall-anon-hard-gate">
+                  <AnonGatePlaque
+                    variant="hard"
+                    escrowPoints={guestGate.escrowPoints}
+                    onCreate={() => {
+                      setGateOpenOn("signup");
+                      setShowSignupModal(true);
+                    }}
+                    onSignIn={() => {
+                      setGateOpenOn("login");
+                      setShowSignupModal(true);
+                    }}
+                  />
                 </div>
               ) : (
                 <Button 
@@ -919,10 +914,10 @@ export default function Game() {
           <SignupModal
             open={showSignupModal}
             onOpenChange={setShowSignupModal}
-            variant={guestGate?.phase === "hard" ? "hard" : guestGate?.phase === "soft" ? "soft" : "optional"}
+            variant={guestGate?.phase === "hard" ? "hard" : "optional"}
             gateReason={guestGate?.reason}
+            openOn={gateOpenOn}
             pendingPoints={guestGate?.escrowPoints ?? 0}
-            onPlayAgain={guestGate?.phase === "soft" ? handleStartGame : undefined}
           />
         </div>
       </div>
@@ -1080,6 +1075,7 @@ export default function Game() {
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-bold" data-testid="text-game-over-title">Game Complete</h2>
+              {!isAuthenticated && <EscrowHeldChip points={anonGate?.escrowPoints ?? 0} />}
               <p className="text-muted-foreground uppercase tracking-wider text-sm">
                 {`Here's how well you know your ${currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards`}
               </p>
@@ -1106,15 +1102,20 @@ export default function Game() {
 
             <div className="flex flex-col gap-3 pt-2">
               {!isAuthenticated && anonGate?.phase === "hard" ? (
-                <Button
-                  onClick={() => setShowSignupModal(true)}
-                  size="lg"
-                  className={PLAY_AGAIN_BUTTON_CLASS}
-                  data-testid="button-register-to-play"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Create a free account
-                </Button>
+                <div data-testid="wall-anon-hard-gate">
+                  <AnonGatePlaque
+                    variant="hard"
+                    escrowPoints={anonGate.escrowPoints}
+                    onCreate={() => {
+                      setGateOpenOn("signup");
+                      setShowSignupModal(true);
+                    }}
+                    onSignIn={() => {
+                      setGateOpenOn("login");
+                      setShowSignupModal(true);
+                    }}
+                  />
+                </div>
               ) : (
                 <Button
                   onClick={handlePlayAgain}
@@ -1208,7 +1209,7 @@ export default function Game() {
               </div>
             )}
             
-            {!isAuthenticated && !hasSeenSignupPrompt && session.score > 0 && (
+            {!isAuthenticated && !anonGate && !hasSeenSignupPrompt && session.score > 0 && (
               <div className="pt-2">
                 <Button 
                   onClick={() => setShowSignupModal(true)} 
@@ -1232,10 +1233,11 @@ export default function Game() {
               setHasSeenSignupPrompt(true);
             }
           }}
-          variant={anonGate?.phase === "hard" ? "hard" : anonGate?.phase === "soft" ? "soft" : "optional"}
+          variant={anonGate?.phase === "hard" ? "hard" : anonGate?.prompt === "soft" ? "soft" : "optional"}
           gateReason={anonGate?.reason}
-          pendingPoints={anonGate?.escrowPoints ?? session.score}
-          onPlayAgain={anonGate?.phase === "hard" ? undefined : handlePlayAgain}
+          openOn={anonGate?.phase === "hard" ? gateOpenOn : "plaque"}
+          pendingPoints={anonGate?.escrowPoints ?? 0}
+          onPlayAgain={handlePlayAgain}
           onSuccess={() => {
             setHasSeenSignupPrompt(true);
             toast({

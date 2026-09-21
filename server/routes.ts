@@ -57,7 +57,7 @@ import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
 import { daily5Service } from "./services/daily5Service";
 import { createBeatMeFromSession } from "./services/daily5BeatMe";
-import { AnonGateError, beginAnonGame, claimAnonForUser, creditAnonGame, readAnonGate } from "./services/anonIdentity";
+import { AnonGateError, beginAnonGame, claimAnonForUser, creditAnonGame, dismissAnonSoft, readAnonGate } from "./services/anonIdentity";
 import { answerAnonDaily5, attachAnonDailyStatus, finishAnonDaily5, isAnonGateError, startAnonDaily5 } from "./services/anonDaily5";
 import type { AnonPlaySurface } from "@shared/anonGate";
 import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
@@ -1572,6 +1572,20 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[Anon] status error:", error);
       res.status(500).json({ error: "Failed to read guest play status" });
+    }
+  });
+
+  app.post("/api/anon/soft-dismiss", async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (userId) {
+        return res.json({ anonymous: false, phase: "registered", canStart: true, prompt: "none" });
+      }
+      const gate = await dismissAnonSoft(req, res);
+      res.json(gate);
+    } catch (error) {
+      console.error("[Anon] soft dismiss error:", error);
+      res.status(500).json({ error: "Failed to dismiss guest prompt" });
     }
   });
 

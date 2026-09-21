@@ -9,32 +9,28 @@ Day boundary is America/Chicago, same as Daily 5.
 | Moment | What the guest sees |
 |---|---|
 | First round, still playing | Nothing. Do not interrupt a round that already started. |
-| After the first finished Daily 5, `/sets` play, or home solo (same day) | **Soft modal** plus the soft banner. They may start one more round. |
-| Trying to start a third round (abandoned starts count) | **Hard wall.** No new game. |
-| Coming back on a later CT day after any guest start | **Hard wall.** Next-day body, not the two-round body. |
+| After the first Daily 5 or `/sets` Game Complete | **Soft sheet**, once. Play Again on that screen still works. |
+| Completed games ≥ 2, or the next Chicago day after the first completion | **Hard wall.** No new game. Same body either way. Abandon does not count. |
 | Register or sign in (local or WorkOS) | Escrow PackPTS move onto the wallet. Progress is not dropped. |
 
 `/sets` and a set page do not open the hard modal on load. It opens when they tap Play, or when the server refuses the start.
 
 ## Soft modal
 
-- **Title:** Save your PackPTS
-- **Body:** You finished a guest round. Create a free account or sign in and we will add these PackPTS to your wallet. You can play one more round before registering.
-- **Primary:** Create account and claim PackPTS
-- **Sign in:** Sign in and claim PackPTS
-- **Secondary:** Play one more round
-- **Banner** (solo setup, Daily 5 preview, Daily 5 results): Guest round saved. One more round, then create a free account to keep playing.
+- **Headline:** Keep your PackPTS
+- **Body:** Create a free account to save streak and resume where you left off.
+- **Primary:** Create free account
+- **Secondary:** Continue once more
 
-The modal can be dismissed. Play one more round starts (or returns to) that next round. It is not a wall.
+Continue once more closes the sheet. It does not start a round by itself. Game Complete Play Again still restarts the same set until the hard wall. Chip: `PackPTS held` plus a quiet integer, hidden at 0.
 
 ## Hard wall
 
-- **Title:** Register to keep playing
-- **Body (two rounds):** Guest play covers two rounds. Your PackPTS are saved — create a free account or sign in to add them to your wallet and start another game.
-- **Body (next day):** Welcome back. Guest rounds do not carry into a new day. Sign in or create a free account to claim your PackPTS and play.
-- **Primary:** Create account and claim PackPTS
-- **Sign in:** Sign in and claim PackPTS
-- No Play Again, no Skip, no “play one more.”
+- **Headline:** Register to keep playing
+- **Body:** You've played two games as a guest. Create a free PackPTS account to continue Daily 5 and sets.
+- **Primary:** Create free account
+- **Secondary:** Sign in
+- Same body on a next Chicago day. No continue-as-guest.
 
 Replace the start / Play Again control with this wall. An in-progress Daily 5 can still be finished. A solo round that already started can still be answered.
 

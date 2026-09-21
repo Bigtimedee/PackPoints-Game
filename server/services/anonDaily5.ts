@@ -16,12 +16,11 @@ import { getPackptsDayKey } from "@shared/packptsDay";
 import { daily5Service } from "./daily5Service";
 import {
   AnonGateError,
-  consumeAnonStart,
   creditAnonGame,
   publicGateFor,
   resolveAnonPlayer,
 } from "./anonIdentity";
-import { ANON_HARD_GAMES, anonStartAllowed } from "@shared/anonGate";
+import { anonStartAllowed } from "@shared/anonGate";
 
 const DAILY5_MAX_POINTS = parseInt(process.env.DAILY5_MAX_POINTS || "250", 10);
 const DAILY5_MIN_TIME_MS = parseInt(process.env.DAILY5_MIN_TIME_MS || "15000", 10);
@@ -95,7 +94,7 @@ export async function attachAnonDailyStatus(
   const player = await resolveAnonPlayer(req, res, { create: false });
   const gate = player
     ? publicGateFor(player)
-    : publicGateFor({ gamesCompleted: 0, gamesStarted: 0, lastPlayDay: null, escrowPoints: 0 });
+    : publicGateFor({ gamesCompleted: 0, lastPlayDay: null, escrowPoints: 0, softDismissedAt: null });
   if (player && status.challenge) {
     const run = await findAnonDailyRun(player.id, status.challenge.id);
     if (run) {
@@ -142,16 +141,7 @@ export async function startAnonDaily5(req: GateRequest, res: Response) {
       })
       .onConflictDoNothing()
       .returning();
-    if (!created) {
-      run = await findAnonDailyRun(player.id, challenge.id);
-    } else {
-      const consumed = await consumeAnonStart(player.id, "daily5");
-      if (!consumed) {
-        await db.delete(anonDailyRuns).where(eq(anonDailyRuns.id, created.id));
-        throw new AnonGateError(publicGateFor({ ...player, gamesStarted: ANON_HARD_GAMES }, today));
-      }
-      run = created;
-    }
+    run = created ?? (await findAnonDailyRun(player.id, challenge.id));
   }
   if (!run) throw new Error("Failed to create entry");
 

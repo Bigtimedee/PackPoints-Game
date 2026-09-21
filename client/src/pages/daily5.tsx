@@ -9,7 +9,8 @@ import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
+import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
+import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
@@ -378,6 +379,7 @@ export default function Daily5Page() {
   const { user, isAuthenticated } = useAuth();
   const [guestGate, setGuestGate] = useState<PublicAnonGate | null>(null);
   const [showGuestGate, setShowGuestGate] = useState(false);
+  const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("plaque");
   const searchString = useSearch();
   const [beatMe, setBeatMe] = useState<DailyBeatMeChallenge | null>(null);
   const [gameState, setGameState] = useState<"loading" | "preview" | "playing" | "results">("loading");
@@ -496,7 +498,10 @@ export default function Daily5Page() {
       setFinishResult(data);
       if (data.anonGate?.anonymous) {
         setGuestGate(data.anonGate);
-        setShowGuestGate(true);
+        if (data.anonGate.prompt === "soft") {
+          setGateOpenOn("plaque");
+          setShowGuestGate(true);
+        }
         queryClient.invalidateQueries({ queryKey: ["/api/anon/status"] });
       }
       setGameState("results");
@@ -783,23 +788,25 @@ export default function Daily5Page() {
           </div>
 
           <div className="space-y-3 mb-8 max-w-md mx-auto">
+            {!isAuthenticated && <div className="flex justify-center"><EscrowHeldChip points={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0} /></div>}
             <p className="text-sm text-muted-foreground text-center" data-testid="text-d5-next-play">
-              {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard"
-                ? ((guestGate ?? status?.anonGate)?.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody)
-                : !isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "soft"
-                  ? ANON_GATE_COPY.softBanner
-                  : DAILY5_NEXT_PLAY.doneNote}
+              {(guestGate ?? status?.anonGate)?.phase === "hard" ? null : DAILY5_NEXT_PLAY.doneNote}
             </p>
             {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard" ? (
-              <Button
-                size="lg"
-                className={PLAY_AGAIN_BUTTON_CLASS}
-                onClick={() => setShowGuestGate(true)}
-                data-testid="button-register-to-play"
-              >
-                <UserPlus className="h-4 w-4" />
-                Create a free account
-              </Button>
+              <div data-testid="wall-anon-hard-gate">
+                <AnonGatePlaque
+                  variant="hard"
+                  escrowPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
+                  onCreate={() => {
+                    setGateOpenOn("signup");
+                    setShowGuestGate(true);
+                  }}
+                  onSignIn={() => {
+                    setGateOpenOn("login");
+                    setShowGuestGate(true);
+                  }}
+                />
+              </div>
             ) : (
               <Link href={DAILY5_NEXT_PLAY.primary.href}>
                 <Button size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.primary.testId}>
@@ -821,8 +828,8 @@ export default function Daily5Page() {
               onOpenChange={setShowGuestGate}
               variant={(guestGate ?? status?.anonGate)?.phase === "hard" ? "hard" : "soft"}
               gateReason={(guestGate ?? status?.anonGate)?.reason}
-              pendingPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? finishResult?.score ?? 0}
-              onPlayAgain={(guestGate ?? status?.anonGate)?.phase === "hard" ? undefined : () => setShowGuestGate(false)}
+              openOn={(guestGate ?? status?.anonGate)?.phase === "hard" ? gateOpenOn : "plaque"}
+              pendingPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
             />
           )}
 
@@ -961,22 +968,22 @@ export default function Daily5Page() {
                       />
                     )}
                     {!user && (guestGate ?? status.anonGate)?.phase === "hard" ? (
-                      <div className="text-center space-y-3" data-testid="wall-anon-hard-gate">
-                        <p className="text-sm text-muted-foreground">
-                          {(guestGate ?? status.anonGate)?.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody}
-                        </p>
-                        <Button className="min-h-11" onClick={() => setShowGuestGate(true)} data-testid="button-d5-register">
-                          <UserPlus className="h-4 w-4" />
-                          Create a free account
-                        </Button>
+                      <div data-testid="wall-anon-hard-gate">
+                        <AnonGatePlaque
+                          variant="hard"
+                          escrowPoints={(guestGate ?? status.anonGate)?.escrowPoints ?? 0}
+                          onCreate={() => {
+                            setGateOpenOn("signup");
+                            setShowGuestGate(true);
+                          }}
+                          onSignIn={() => {
+                            setGateOpenOn("login");
+                            setShowGuestGate(true);
+                          }}
+                        />
                       </div>
                     ) : (
                       <>
-                      {!user && (guestGate ?? status.anonGate)?.phase === "soft" && (
-                        <p className="text-sm text-center text-muted-foreground" data-testid="text-anon-soft-banner">
-                          {ANON_GATE_COPY.softBanner}
-                        </p>
-                      )}
                       <Button
                         className="w-full gap-2 min-h-11"
                         onClick={() => startMutation.mutate()}
@@ -1068,6 +1075,7 @@ export default function Daily5Page() {
             onOpenChange={setShowGuestGate}
             variant="hard"
             gateReason={(guestGate ?? status?.anonGate)?.reason}
+            openOn={gateOpenOn}
             pendingPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
           />
         )}
