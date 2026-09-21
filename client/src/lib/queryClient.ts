@@ -1,4 +1,27 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { anonRequestHeaders } from "./anonFingerprint";
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  phase?: string;
+  reason?: string;
+  escrowPoints?: number;
+  gamesCompleted?: number;
+  detail?: string;
+
+  constructor(message: string, status: number, extra?: Partial<ApiError>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    if (extra?.code) this.code = extra.code;
+    if (extra?.phase) this.phase = extra.phase;
+    if (extra?.reason) this.reason = extra.reason;
+    if (typeof extra?.escrowPoints === "number") this.escrowPoints = extra.escrowPoints;
+    if (typeof extra?.gamesCompleted === "number") this.gamesCompleted = extra.gamesCompleted;
+    if (extra?.detail) this.detail = extra.detail;
+  }
+}
 
 /**
  * Capture UTM parameters from the current URL and store in sessionStorage.
@@ -45,14 +68,23 @@ async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     let message = `${res.status}: ${text}`;
+    let extra: Partial<ApiError> | undefined;
     try {
       const json = JSON.parse(text);
       if (json.error && typeof json.error === "string") {
         message = json.error;
       }
+      extra = {
+        code: typeof json.code === "string" ? json.code : undefined,
+        phase: typeof json.phase === "string" ? json.phase : undefined,
+        reason: typeof json.reason === "string" ? json.reason : undefined,
+        escrowPoints: typeof json.escrowPoints === "number" ? json.escrowPoints : undefined,
+        gamesCompleted: typeof json.gamesCompleted === "number" ? json.gamesCompleted : undefined,
+        detail: typeof json.message === "string" ? json.message : undefined,
+      };
     } catch {
     }
-    throw new Error(message);
+    throw new ApiError(message, res.status, extra);
   }
 }
 
@@ -71,7 +103,10 @@ export async function apiRequest(
   try {
     const res = await fetch(url, {
       method,
-      headers: data ? { "Content-Type": "application/json" } : {},
+      headers: {
+        ...anonRequestHeaders(),
+        ...(data ? { "Content-Type": "application/json" } : {}),
+      },
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
       signal: controller.signal,
@@ -100,6 +135,7 @@ export const getQueryFn: <T>(options: {
     try {
       res = await fetch(queryKey.join("/") as string, {
         credentials: "include",
+        headers: anonRequestHeaders(),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);

@@ -27,6 +27,10 @@ describe("isHonestRegisteredUser", () => {
     expect(isHonestRegisteredUser({ isAdmin: false, isBot: true })).toBe(false);
     expect(isHonestRegisteredUser({ isAdmin: true, isBot: true })).toBe(false);
   });
+
+  it("drops anonymous guest rows", () => {
+    expect(isHonestRegisteredUser({ isAdmin: false, isBot: false, isAnonymous: true })).toBe(false);
+  });
 });
 
 describe("summarizeUserCounts — staff + bot exclusion", () => {

@@ -29,6 +29,14 @@ interface DashboardData {
   };
   topPlayers: { username: string; points: number; gamesPlayed: number }[];
   mostActive: { username: string; gamesPlayed: number; points: number }[];
+  anonConversion?: {
+    anonIdentities: number;
+    anonPlayed: number;
+    claimed: number;
+    claimedPlayed: number;
+    unclaimedPlayed: number;
+    conversionRate: number;
+  };
 }
 
 export default function AdminDashboard() {
@@ -115,7 +123,33 @@ export default function AdminDashboard() {
         {typeof allUserRows === "number" ? ` · all-rows ${allUserRows.toLocaleString()}` : ""}
         {` · staff ${staffUsers.toLocaleString()} · bots ${botUsers.toLocaleString()}`}.
         Marketing cites <code>registeredUsersNonStaff</code> only.
+        Guest identities in <code>anon_players</code> are not included.
       </p>
+
+      {data.anonConversion && (
+        <Card data-testid="card-anon-conversion">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Anon → register</CardTitle>
+            <CardDescription>
+              Guests who finished a round, then claimed an account. Not a registered-user count.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold font-mono" data-testid="text-anon-conversion">
+              {data.anonConversion.anonPlayed === 0
+                ? "—"
+                : `${Math.round(data.anonConversion.conversionRate * 100)}%`}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {data.anonConversion.claimedPlayed.toLocaleString()} claimed of {data.anonConversion.anonPlayed.toLocaleString()} who played
+              {" · "}
+              {data.anonConversion.unclaimedPlayed.toLocaleString()} still guest
+              {" · "}
+              {data.anonConversion.anonIdentities.toLocaleString()} anon ids
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>

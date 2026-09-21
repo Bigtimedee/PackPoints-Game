@@ -11,7 +11,7 @@ import { fetchAdminRetentionPayload } from "../services/retentionCohorts";
 import { streakService } from "../services/streakService";
 import { db } from "../db";
 import { eq, sql, desc, and, gt } from "drizzle-orm";
-import { users, purchaseEvents, products, userEntitlements, gameSets, outboundClicks } from "@shared/schema";
+import { users, purchaseEvents, products, userEntitlements, gameSets, outboundClicks, anonPlayers } from "@shared/schema";
 import type { User } from "@shared/schema";
 import { fetch1987ToppsFromCardHedge, isCardHedgeConfigured } from "../services/cardHedge";
 import { summarizeUserCounts, USER_COUNT_DEFINITION } from "../services/userCounts";
@@ -69,6 +69,35 @@ export function registerAdminRoutes(app: Express): void {
       const activeSubscriptions = Number(activeSubsResult[0]?.count ?? 0);
       const newSignups = counts.newSignupsNonStaff;
 
+      let anonConversion = {
+        anonIdentities: 0,
+        anonPlayed: 0,
+        claimed: 0,
+        claimedPlayed: 0,
+        unclaimedPlayed: 0,
+        conversionRate: 0,
+      };
+      try {
+        const [conv] = await db.select({
+          anonIdentities: sql<number>`count(*)::int`,
+          anonPlayed: sql<number>`count(*) filter (where ${anonPlayers.gamesCompleted} > 0)::int`,
+          claimed: sql<number>`count(*) filter (where ${anonPlayers.claimedAt} is not null)::int`,
+          claimedPlayed: sql<number>`count(*) filter (where ${anonPlayers.gamesCompleted} > 0 and ${anonPlayers.claimedAt} is not null)::int`,
+        }).from(anonPlayers);
+        const anonPlayed = Number(conv?.anonPlayed ?? 0);
+        const claimedPlayed = Number(conv?.claimedPlayed ?? 0);
+        anonConversion = {
+          anonIdentities: Number(conv?.anonIdentities ?? 0),
+          anonPlayed,
+          claimed: Number(conv?.claimed ?? 0),
+          claimedPlayed,
+          unclaimedPlayed: Math.max(0, anonPlayed - claimedPlayed),
+          conversionRate: anonPlayed === 0 ? 0 : claimedPlayed / anonPlayed,
+        };
+      } catch (convErr) {
+        console.error("[Admin] anon conversion query failed:", convErr);
+      }
+
       const topPlayers = [...allUsers]
         .sort((a: User, b: User) => b.points - a.points)
         .slice(0, 5)
@@ -103,6 +132,7 @@ export function registerAdminRoutes(app: Express): void {
           newSignupsAllRows: counts.newSignupsAllRows,
         },
         userCountDefinition: USER_COUNT_DEFINITION,
+        anonConversion,
         topPlayers,
         mostActive,
       });

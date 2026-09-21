@@ -65,7 +65,9 @@ SELECT
 FROM users;
 ```
 
-**Marketing citation:** `registeredUsersNonStaff` from the live admin dashboard only. Never all-rows. Never staff. Never bots. Never a guessed “beyond Dave” number.
+**Marketing citation:** `registeredUsersNonStaff` from the live admin dashboard only. Never all-rows. Never staff. Never bots. Never `anon_players` (guest identities are not `users` and are not in this SQL). Never a guessed “beyond Dave” number.
+
+**Anon → register** is a separate dashboard field, `anonConversion` (`claimedPlayed / anonPlayed` among guests who finished a round). Do not add it to `registeredUsersNonStaff`. SQL shape: `ANON_CONVERSION_SQL` in `shared/anonGate.ts` (`FROM anon_players`).
 
 **Do not cite these live public probes as registered users** (verified 2026-09-20 against packpts.com; they are not staff-excluded `users` counts):
 
