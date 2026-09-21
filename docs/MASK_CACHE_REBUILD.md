@@ -1,4 +1,4 @@
-# Masked-image cache rebuild (v4.3)
+# Masked-image cache rebuild (v4.4)
 
 PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them at `/api/cards/:cardId/masked-image`. Gameplay (solo, Daily 5, 1v1) uses that URL. After a masking geometry change, old files stay on disk until the cache key changes.
 
@@ -8,15 +8,19 @@ PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them
 |---|---|---|
 | DB row `card_image_mask_cache` | `cardId` + `rawImageUrl` + `maskVersion` | `maskVersion` bump, or admin rebuild deleting the row |
 | File on volume | `/app/data/masked-cards/{cardId}_{maskVersion}.jpg` (local: `data/masked-cards/`) | version in filename, or deleting the file |
-| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.3`). `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` (not immutable). Warm volume hits skip DB/OCR (`X-Mask-Cache: hit`, `Server-Timing`). `ETag` + `X-Mask-Version` are the current bake id. |
+| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.4`). `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` (not immutable). Warm volume hits skip DB/OCR (`X-Mask-Cache: hit`, `Server-Timing`). `ETag` + `X-Mask-Version` are the current bake id. |
 
-Current version: **`v4.3`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
+Current version: **`v4.4`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
 
-**The handler ignores `?v=`.** `?v=v4.0` and `?v=v4.1` (and any other `v`) return the same on-disk JPEG. Design QA 2026-09-16 hashed those two URLs as byte-identical — that is expected from the route, not proof that v4.1 geometry ran. Gameplay must request the **current** `?v=` so CDNs treat it as a new object. Leftover `*_v4.2.jpg` / `*_v4.1.jpg` / `*_v4.0.jpg` files will not be used once gameplay requests `?v=v4.3`.
+**The handler ignores `?v=`.** `?v=v4.3` and `?v=v4.4` return the same on-disk JPEG until gameplay requests the current version and the file is regenerated. Design QA must use `?v=v4.4`. Leftover `*_v4.3.jpg` files are not the object the game loads.
 
-v4.2 geometry still applies: PSA/slab certificate labels (top ~22% of slab photos) via a center-column red→white detector plus a dark-holder fallback, and OCR tokens `PSA` / `GEM` / `MINT` / `PSA9` in the top third. Set plaque stays (1987 Topps bottom 46%, 1989 Fleer top plate).
+v4.2 geometry still applies: PSA/slab certificate labels (top ~22% of slab photos) via a center-column red→white detector plus a dark-holder fallback, and OCR tokens `PSA` / `GEM` / `MINT` / `PSA9` in the top third. 1987 Topps baseball stays the bottom 46% plaque. 1989 Fleer basketball stays the top plate.
 
-v4.3 changes the **fill**, not the regions. v4.2 composited `{ r:10, g:14, b:22, alpha:0.94 }` and blurred that rectangle. The blur does not blur the card, so ~6% of the original contrast stayed sharp. Design re-QA on 2026-09-21 (after `{ "all": true }` rebuild) still read **ROGER CLEMENS** / **MINT 9** on slab `c6e890d5-015d-4e33-868a-77a69ca320ef` and 1989 Fleer top-plate names. v4.3 composites an opaque RGB rect (`#0a0e16`, no alpha, no overlay blur). Photo pixels outside the name region are unchanged.
+v4.3 changes the **fill**, not the regions. v4.2 composited `{ r:10, g:14, b:22, alpha:0.94 }` and blurred that rectangle. The blur does not blur the card, so ~6% of the original contrast stayed sharp. Design re-QA on 2026-09-21 (after `{ "all": true }` rebuild) still read **ROGER CLEMENS** / **MINT 9** on slab `c6e890d5-015d-4e33-868a-77a69ca320ef` and 1989 Fleer top-plate names. v4.3 composites an opaque RGB rect (`#0a0e16`, no alpha, no overlay blur). Photo pixels outside the name region are unchanged. v4.4 keeps that opaque fill.
+
+v4.4 changes **which band** is painted when sport differs. Profiles are keyed by `gameSetId`, then `sport|year|brand`. A year+brand match that ignores sport is not used. **1987 Topps Football** (`91cfdf3f-a620-4e73-adc8-22b8df221716`) is `TOP_PLATE` (opaque top 24%: team + position + player name). **1987 Topps baseball** stays the bottom 46% plaque. **1994 Topps Football** (`a09b2fe7-728e-431b-9df8-bbf2652aa3b2`) was audited on live scans: every card is 1994 Topps Finest with the name on the **bottom** bar, so it is `BOTTOM_PLAQUE` at 28%, not a top plate and not the baseball 46% plaque.
+
+Before a JPEG is written or returned, `assertOpaqueIdentityCover` checks the name band is near-solid `#0a0e16`, the photo zone is not that fill, and a matched name token in the top or bottom identity zone sits inside a mask region. Failure does not write the file. `GET /api/cards/:id/masked-image` responds **422** `code: mask_name_uncovered` (`Cache-Control: no-store`, `X-Mask-Coverage: fail`) and the playable card is flagged (`isPlayable=false`, `blockedReason=mask_name_uncovered`, `quarantineStatus=QUARANTINED_ADMIN_REVIEW`).
 
 ## Production (Railway)
 
@@ -52,12 +56,41 @@ Content-Type: application/json
 { "cardIds": ["c6e890d5-015d-4e33-868a-77a69ca320ef"] }
 ```
 
-Response includes `deletedRows`, `deletedFiles`, `maskVersion`. The next player request to `/api/cards/:id/masked-image?v=v4.3` regenerates that card.
+Response includes `deletedRows`, `deletedFiles`, `maskVersion`. The next player request to `/api/cards/:id/masked-image?v=v4.4` regenerates that card.
 
-3. Optional: hit a known 1989 Fleer card URL once and confirm the top name plate is a flat dark cover (name not readable) and the photo is visible. Raw Fleer must not gain a full-slab top band.
-4. Optional: hit the Clemens PSA slab `c6e890d5-015d-4e33-868a-77a69ca320ef?v=v4.3` and confirm the top cert label (**ROGER CLEMENS**, grade, cert text) is not readable, and the photo mid-band is still visible. `?v=v4.2` is the previous translucent bake; only `?v=v4.3` is the opaque object.
+3. **Required for this release:** rebuild the two football sets (admin session). Version bump means `?v=v4.4` misses `*_v4.3.jpg`, but rebuild drops the stale rows so the volume does not keep them.
 
-**Eng, after this merges:** run `POST /api/admin/masks/rebuild` with `{ "all": true }` so leftover `*_v4.2.jpg` rows are dropped and the volume regenerates on the opaque fill. If admin rebuild is not used, new `?v=v4.3` URLs still miss the old cache row version check and regenerate on first request. Rebuild is for clearing leftover `*_v4.2.jpg` / `*_v4.1.jpg` / `*_v4.0.jpg` / `*_v3.0.jpg` files and DB rows so the volume does not keep serving stale paths if something requests the URL without `v`.
+```http
+POST /api/admin/masks/rebuild
+Content-Type: application/json
+
+{ "setId": "91cfdf3f-a620-4e73-adc8-22b8df221716" }
+```
+
+```http
+POST /api/admin/masks/rebuild
+Content-Type: application/json
+
+{ "setId": "a09b2fe7-728e-431b-9df8-bbf2652aa3b2" }
+```
+
+4. Design QA (`?v=v4.4`). Name must be unreadable. Photo must still be guessable.
+
+1987 Topps Football — opaque **top** band (team + name):
+
+- Hanford Dixon: `/api/cards/bf3b8f6e-cbff-4c20-ad1d-5abe9036f38e/masked-image?v=v4.4`
+- Bernie Kosar: `/api/cards/f0c65ed5-9531-4cf8-802f-eab6e4619efd/masked-image?v=v4.4`
+- Art Monk: `/api/cards/7953a361-3724-496d-963d-06ae6351e07b/masked-image?v=v4.4`
+
+1994 Topps Football (Finest, name on the **bottom** bar — not a top plate):
+
+- Albert Lewis: `/api/cards/f95170cd-265b-4fea-bc3f-8a26b150ecdc/masked-image?v=v4.4`
+- Emmitt Smith: `/api/cards/f5aa4450-fac4-40ff-bfab-0d61940a1f84/masked-image?v=v4.4`
+- Emmitt Smith (second scan): `/api/cards/cd853c68-c124-403a-90fd-50b6c7b8fffa/masked-image?v=v4.4`
+
+5. Optional: 1989 Fleer top plate still covers the name and leaves the photo. Clemens PSA slab `c6e890d5-015d-4e33-868a-77a69ca320ef?v=v4.4` still covers the top cert and the bottom plaque. `?v=v4.3` is the previous object.
+
+**Eng, after this merges:** run the two `setId` rebuilds above. `{ "all": true }` is optional; it clears leftover `*_v4.3.jpg` rows for every other set. Without it, the next `?v=v4.4` request still regenerates because the cache version will not match.
 
 ## Deal warmup (between-card lag)
 

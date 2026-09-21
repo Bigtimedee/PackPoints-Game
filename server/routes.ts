@@ -8592,7 +8592,7 @@ export async function registerRoutes(
     }
 
     try {
-      const { getMaskedImagePath, peekWarmMaskedFilename } = await import("./masking/maskingService");
+      const { getMaskedImagePath, peekWarmMaskedFilename, takeCoverageRefusal } = await import("./masking/maskingService");
       const path = await import("path");
       const fs = await import("fs");
       const { CURRENT_MASK_VERSION } = await import("./masking/maskProfiles");
@@ -8602,6 +8602,16 @@ export async function registerRoutes(
       const cacheStatus = warmName ? "hit" : "miss";
       
       if (!maskedPath) {
+        const refused = takeCoverageRefusal(cardId);
+        if (refused) {
+          res.setHeader("Cache-Control", "no-store");
+          res.setHeader("X-Mask-Coverage", "fail");
+          return res.status(422).json({
+            error: "Playable mask refused",
+            code: "mask_name_uncovered",
+            reason: refused,
+          });
+        }
         return res.status(404).json({ error: "Unable to generate masked image" });
       }
 

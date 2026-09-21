@@ -11,9 +11,10 @@ import {
   CURRENT_MASK_VERSION,
   maskedCardImageUrl,
 } from "@shared/maskGeometry";
-import { getMaskProfile } from "../masking/maskProfiles";
+import { getMaskProfile, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
 import { resolveNameMaskPlan, matchPlayerNameBoxes } from "../masking/nameLocalization";
-import { maskCardImage } from "../masking/maskCardImage";
+import { applyPercentRegions, maskCardImage } from "../masking/maskCardImage";
+import { assertOpaqueIdentityCover } from "../masking/maskCoverage";
 import { readFileSync } from "fs";
 import path from "path";
 import {
@@ -234,8 +235,8 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.3");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.3");
+    expect(CURRENT_MASK_VERSION).toBe("v4.4");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.4");
   });
 
   it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {
@@ -299,6 +300,7 @@ describe("baked mask fixtures", () => {
 
     const result = await maskCardImage(raw, "Spud Webb", "1989 Fleer Basketball", { skipOcr: true });
     expect(result.source).toBe("profile");
+    expect(result.coverageOk).toBe(true);
     expect(result.regions[0].yPct).toBe(0);
 
     const afterName = await sample(result.maskedBuffer, 18, 8);
@@ -311,6 +313,7 @@ describe("baked mask fixtures", () => {
     const raw = await bottomPlaqueCard();
     const result = await maskCardImage(raw, "Mike Trout", "1987 Topps", { skipOcr: true });
     expect(result.source).toBe("profile");
+    expect(result.coverageOk).toBe(true);
     expect(result.regions[0].yPct).toBeGreaterThanOrEqual(50);
 
     const afterName = await sample(result.maskedBuffer, 50, 90);
@@ -327,6 +330,7 @@ describe("baked mask fixtures", () => {
 
     const result = await maskCardImage(raw, "Roger Clemens", "1987 Topps", { skipOcr: true });
     expect(result.source).toBe("profile");
+    expect(result.coverageOk).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 40)).toBe(false);
@@ -347,6 +351,7 @@ describe("baked mask fixtures", () => {
 
     const result = await maskCardImage(raw, "Roger Clemens", "1987 Topps", { skipOcr: true });
     expect(result.source).toBe("profile");
+    expect(result.coverageOk).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 40)).toBe(false);
@@ -364,6 +369,7 @@ describe("baked mask fixtures", () => {
     expect(await detectPsaSlabLayout(raw)).toBe(true);
 
     const result = await maskCardImage(raw, "Roger Clemens", "1987 Topps", { skipOcr: true });
+    expect(result.coverageOk).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
     expect(anyRegionCoversPoint(result.regions, 50, 40)).toBe(false);
@@ -403,5 +409,69 @@ describe("baked mask fixtures", () => {
     expect(photo.r).toBeGreaterThan(200);
     expect(photo.g).toBeGreaterThan(200);
     expect(photo.b).toBeGreaterThan(200);
+  });
+
+  it("1987 Topps Football masks the top name plate and leaves the photo", async () => {
+    const raw = await fleerLikeTopNameCard();
+    const result = await maskCardImage(raw, "Hanford Dixon", "1987 Topps Football", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+    });
+    expect(result.source).toBe("profile");
+    expect(result.layoutClass).toBe("TOP_PLATE");
+    expect(result.regions[0].yPct).toBe(0);
+    expect(result.regions[0].hPct).toBe(24);
+    expect(result.coverageOk).toBe(true);
+
+    const afterName = await sample(result.maskedBuffer, 18, 8);
+    const afterPhoto = await sample(result.maskedBuffer, 50, 72);
+    expect(isDark(afterName.r, afterName.g, afterName.b)).toBe(true);
+    expect(isGreen(afterPhoto.r, afterPhoto.g, afterPhoto.b)).toBe(true);
+    expect(await luminanceSpan(result.maskedBuffer, 8, 2, 92, 16)).toBeLessThan(8);
+  });
+
+  it("refuses a bottom-only bake when the printed name is still in the top zone", async () => {
+    const raw = await fleerLikeTopNameCard();
+    const bottom = getMaskProfile("1987 Topps").regions;
+    const painted = await applyPercentRegions(raw, bottom);
+    const coverage = await assertOpaqueIdentityCover({
+      buffer: painted,
+      regions: bottom,
+      layoutClass: "BOTTOM_PLAQUE",
+      nameBoxes: [{ x: 20, y: 8, w: 90, h: 16 }],
+      imageWidth: W,
+      imageHeight: H,
+    });
+    expect(coverage.ok).toBe(false);
+    expect(coverage.reason).toBe("printed_name_outside_mask");
+  });
+
+  it("refuses a top-plate class painted with only the baseball bottom plaque", async () => {
+    const raw = await fleerLikeTopNameCard();
+    const bottom = getMaskProfile("1987 Topps").regions;
+    const painted = await applyPercentRegions(raw, bottom);
+    const coverage = await assertOpaqueIdentityCover({
+      buffer: painted,
+      regions: bottom,
+      layoutClass: "TOP_PLATE",
+      imageWidth: W,
+      imageHeight: H,
+    });
+    expect(coverage.ok).toBe(false);
+    expect(coverage.reason).toBe("name_band_missing");
+  });
+
+  it("refuses a top-plate class when the top band was not painted", async () => {
+    const raw = await fleerLikeTopNameCard();
+    const top = getMaskProfile("1987 Topps Football").regions;
+    const coverage = await assertOpaqueIdentityCover({
+      buffer: raw,
+      regions: top,
+      layoutClass: "TOP_PLATE",
+      imageWidth: W,
+      imageHeight: H,
+    });
+    expect(coverage.ok).toBe(false);
+    expect(coverage.reason).toBe("name_region_not_opaque");
   });
 });

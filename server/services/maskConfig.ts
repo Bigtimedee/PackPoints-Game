@@ -14,8 +14,8 @@ interface MaskConfig {
 const maskCache = new Map<string, { config: MaskConfig; expiresAt: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
-function regionsFromHint(hint: string): { regions: MaskRegion[]; profileId: string } {
-  const profile = getMaskProfile(hint);
+function regionsFromHint(hint: string, gameSetId?: string | null): { regions: MaskRegion[]; profileId: string } {
+  const profile = getMaskProfile(hint, gameSetId);
   return {
     regions: profile.regions.map((region) => ({ ...region })),
     profileId: profile.id,
@@ -69,7 +69,7 @@ export async function getMaskConfig(setKey: string): Promise<MaskConfig> {
       .limit(1);
 
     const hint = await hintFromSetKey(setKey);
-    const fromProfile = regionsFromHint(hint);
+    const fromProfile = regionsFromHint(hint, isMaskSetUuid(setKey) ? setKey : null);
     const dbRegions = row ? (row.regions as MaskRegion[]) : null;
     const dbIsDefault = !dbRegions || regionsEqual(dbRegions, DEFAULT_MASK_REGIONS);
 
