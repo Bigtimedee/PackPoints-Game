@@ -34,11 +34,25 @@ Continue once more closes the sheet. It does not start a round by itself. Game C
 
 Replace the start / Play Again control with this wall. An in-progress Daily 5 can still be finished. A solo round that already started can still be answered.
 
+## Account form
+
+Create free account and Sign in open the same `SignupModal` form (soft, hard, or the optional register path). The form reuses the locked headlines above. Held points use `PackPTS held` and stay hidden at 0. There is no green bonus banner.
+
+Do not put these on that form:
+
+- Save Your Points!
+- +250 bonus PackPTS
+- 250 free PackPTS
+- Create Account & Claim Points
+- Log In & Claim Points
+
+The server still credits the existing welcome bonus on a new account. This form does not advertise it. `/invite` referral rewards are a separate page and are not this modal.
+
 ## Do not say
 
 - Guest play is unlimited, or Play Again never requires an account.
 - PackPTS are already in the wallet. They are saved (escrow) until register or sign-in.
-- “250 free PackPTS” as the gate headline. The existing welcome bonus still applies on a new account; the gate’s job is to claim the guest score.
+- “250 free PackPTS” as the gate headline or on the account form. The existing welcome bonus still applies on a new account; the gate’s job is to keep the guest score in escrow until register or sign-in.
 - That anonymous visitors are registered users. Admin `registeredUsersNonStaff` stays non-staff, non-bot `users` only. The separate card is **Anon → register** (`anonConversion`). Do not add those identities to the registered-user number.
 - Anything that sends people to `/make` or asks them to publish a card. Users play Daily 5 and sets that are already in PackPTS.
 
