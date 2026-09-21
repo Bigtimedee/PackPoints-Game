@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Loader2, Trophy, Zap, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
+import { Loader2, Trophy, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -174,16 +174,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   };
 
   const isPending = registerMutation.isPending || loginMutation.isPending;
-  const title = variant === "hard"
-    ? ANON_GATE_COPY.hardTitle
-    : variant === "soft"
-      ? ANON_GATE_COPY.softTitle
-      : "Save Your Points!";
-  const description = variant === "hard"
-    ? ANON_GATE_COPY.hardBody
-    : variant === "soft"
-      ? ANON_GATE_COPY.softBody
-      : "Sign up for a new account or log in to your existing account to claim your points.";
+  const title = variant === "hard" ? ANON_GATE_COPY.hardTitle : ANON_GATE_COPY.softTitle;
+  const description = variant === "hard" ? ANON_GATE_COPY.hardBody : ANON_GATE_COPY.softBody;
   const allowAnotherRound = variant === "optional" && !!onPlayAgain;
 
   if (isGate && step === "plaque") {
@@ -241,27 +233,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
           </DialogDescription>
         </DialogHeader>
         
-        {isGate ? (
-          <EscrowHeldChip points={pendingPoints} />
-        ) : pendingPoints > 0 ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-md bg-primary/10">
-              <Zap className="h-5 w-5 text-primary" />
-              <span className="text-lg font-bold font-mono">{pendingPoints} points</span>
-              <span className="text-muted-foreground">earned this game</span>
-            </div>
-            <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-md bg-green-500/10 border border-green-500/20">
-              <Trophy className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-semibold text-green-700 dark:text-green-400">+250 bonus PackPTS for new accounts!</span>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center gap-2 py-4 px-4 rounded-md bg-primary/10">
-            <Zap className="h-5 w-5 text-primary" />
-            <span className="text-lg font-bold font-mono">250 free PackPTS</span>
-            <span className="text-muted-foreground">on signup!</span>
-          </div>
-        )}
+        <EscrowHeldChip points={pendingPoints} />
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "signup" | "login")}>
           <TabsList className="grid w-full grid-cols-2">
@@ -392,7 +364,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     ) : (
                       <>
                         <User className="h-4 w-4 mr-2" />
-                        {variant === "hard" ? ANON_GATE_COPY.hardCta : variant === "soft" ? ANON_GATE_COPY.softCta : "Create Account & Claim Points"}
+                        {variant === "hard" ? ANON_GATE_COPY.hardCta : ANON_GATE_COPY.softCta}
                       </>
                     )}
                   </Button>
@@ -509,7 +481,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     ) : (
                       <>
                         <LogIn className="h-4 w-4 mr-2" />
-                        {variant === "optional" ? "Log In & Claim Points" : ANON_GATE_COPY.signInCta}
+                        {ANON_GATE_COPY.signInCta}
                       </>
                     )}
                   </Button>

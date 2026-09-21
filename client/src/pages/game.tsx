@@ -28,7 +28,7 @@ import {
   replayCardCountFromSession,
   replaySetIdFromSession,
 } from "@/lib/playAgain";
-import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
+import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
 import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import {
@@ -1217,8 +1217,7 @@ export default function Game() {
                   className={PLAY_AGAIN_BUTTON_CLASS}
                   data-testid="button-save-points"
                 >
-                  <Zap className="h-4 w-4" />
-                  Save Your {session.score} Points - Create Account
+                  {ANON_GATE_COPY.softCta}
                 </Button>
               </div>
             )}

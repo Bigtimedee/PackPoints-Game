@@ -17,6 +17,7 @@ import {
   summarizeAnonConversion,
   toPublicAnonGate,
 } from "@shared/anonGate";
+import { getPackptsDayKey } from "@shared/packptsDay";
 import {
   isHonestRegisteredUser,
   REGISTERED_USERS_NON_STAFF_SQL,
@@ -99,6 +100,55 @@ describe("anon gate thresholds", () => {
     expect(gate.phase).toBe("hard");
     expect(gate.canStart).toBe(false);
     expect(gate.reason).toBe("next_day");
+  });
+
+  it("hard-stops on the next America/Chicago day, including across CDT and CST midnights", () => {
+    // 2026-09-21 20:00 UTC = 15:00 CDT. 04:30 UTC next calendar day is still 23:30 CDT.
+    const cdtPlay = getPackptsDayKey(new Date("2026-09-21T20:00:00.000Z"));
+    const cdtSameNight = getPackptsDayKey(new Date("2026-09-22T04:30:00.000Z"));
+    expect(cdtPlay).toBe("2026-09-21");
+    expect(cdtSameNight).toBe("2026-09-21");
+    expect(evaluateAnonGate({
+      gamesCompleted: 1,
+      lastPlayDay: cdtPlay,
+      today: cdtSameNight,
+    })).toMatchObject({ phase: "soft", canStart: true, reason: "after_first_game" });
+
+    // Midnight CDT is 05:00 UTC.
+    const cdtNext = getPackptsDayKey(new Date("2026-09-22T05:00:00.000Z"));
+    expect(cdtNext).toBe("2026-09-22");
+    const cdtHard = evaluateAnonGate({
+      gamesCompleted: 1,
+      lastPlayDay: cdtPlay,
+      today: cdtNext,
+    });
+    expect(cdtHard).toMatchObject({ phase: "hard", canStart: false, prompt: "hard", reason: "next_day" });
+    const denied = anonGateDeniedBody(toPublicAnonGate({
+      gamesCompleted: 1,
+      lastPlayDay: cdtPlay,
+      escrowPoints: 40,
+    }, cdtNext));
+    expect(denied.reason).toBe("next_day");
+    expect(denied.error).toBe(ANON_GATE_COPY.hardTitle);
+    expect(denied.message).toBe(ANON_GATE_COPY.hardBody);
+
+    // Midnight CST is 06:00 UTC. 05:30 UTC is still the previous Chicago day.
+    const cstPlay = getPackptsDayKey(new Date("2026-01-14T18:00:00.000Z"));
+    const cstLate = getPackptsDayKey(new Date("2026-01-15T05:30:00.000Z"));
+    const cstNext = getPackptsDayKey(new Date("2026-01-15T06:30:00.000Z"));
+    expect(cstPlay).toBe("2026-01-14");
+    expect(cstLate).toBe("2026-01-14");
+    expect(cstNext).toBe("2026-01-15");
+    expect(evaluateAnonGate({
+      gamesCompleted: 1,
+      lastPlayDay: cstPlay,
+      today: cstLate,
+    }).phase).toBe("soft");
+    expect(evaluateAnonGate({
+      gamesCompleted: 1,
+      lastPlayDay: cstPlay,
+      today: cstNext,
+    })).toMatchObject({ phase: "hard", canStart: false, reason: "next_day" });
   });
 
   it("does not treat a visitor who never finished a round as a next-day block", () => {
