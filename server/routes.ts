@@ -57,6 +57,9 @@ import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
 import { daily5Service } from "./services/daily5Service";
 import { createBeatMeFromSession } from "./services/daily5BeatMe";
+import { AnonGateError, beginAnonGame, claimAnonForUser, creditAnonGame, readAnonGate } from "./services/anonIdentity";
+import { answerAnonDaily5, attachAnonDailyStatus, finishAnonDaily5, isAnonGateError, startAnonDaily5 } from "./services/anonDaily5";
+import type { AnonPlaySurface } from "@shared/anonGate";
 import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
@@ -958,10 +961,13 @@ export async function registerRoutes(
       
       let guestSessionId: string | undefined;
       if (isGuest) {
-        if (!req.session.guestId) {
-          req.session.guestId = randomUUID();
+        const surface: AnonPlaySurface = setId ? "sets" : "solo";
+        const started = await beginAnonGame(req, res, surface);
+        if (!started.ok) {
+          return res.status(403).json(started.body);
         }
-        guestSessionId = req.session.guestId;
+        guestSessionId = started.player.id;
+        req.session.guestId = started.player.id;
       }
       
       let session;
@@ -1409,6 +1415,8 @@ export async function registerRoutes(
       
       const effectiveQuestionCount = Math.min(session.totalQuestions, session.questions.length);
       let shareImageUrl: string | undefined;
+      let anonGate: Awaited<ReturnType<typeof creditAnonGame>> = null;
+      const wasCompleted = session.status === "completed";
       if (session.currentQuestionIndex >= effectiveQuestionCount - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
@@ -1496,14 +1504,12 @@ export async function registerRoutes(
           } catch (streakError) {
             console.error("Failed to process streak:", streakError);
           }
-        } else if (session.guestSessionId) {
-          if (!req.session.pendingPoints) {
-            req.session.pendingPoints = { score: 0, correctAnswers: 0, totalAnswers: 0, gamesPlayed: 0 };
-          }
-          req.session.pendingPoints.score += finalScore;
-          req.session.pendingPoints.correctAnswers += session.correctAnswers;
-          req.session.pendingPoints.totalAnswers += effectiveTotal;
-          req.session.pendingPoints.gamesPlayed += 1;
+        } else if (session.guestSessionId && !wasCompleted) {
+          anonGate = await creditAnonGame(session.guestSessionId, `play:${session.id}`, {
+            points: finalScore,
+            correct: session.correctAnswers,
+            answers: effectiveTotal,
+          });
         }
         
         session.score = finalScore;
@@ -1518,7 +1524,7 @@ export async function registerRoutes(
       
       await storage.updateGameSession(session);
 
-      res.json({ ...sanitizeSessionForClient(session), shareImageUrl });
+      res.json({ ...sanitizeSessionForClient(session), shareImageUrl, ...(anonGate ? { anonGate } : {}) });
     } catch (error: any) {
       console.error("[Game Next] Error moving to next question:", {
         sessionId: req.body?.sessionId?.substring(0, 8),
@@ -1547,20 +1553,41 @@ export async function registerRoutes(
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       const status = await daily5Service.getStatus(userId || undefined);
-      res.json(status);
+      const anonGate = await attachAnonDailyStatus(req, res, status, userId || undefined);
+      res.json({ ...status, anonGate });
     } catch (error) {
       console.error("[Daily5] Error getting status:", error);
       res.status(500).json({ error: "Failed to get Daily 5 status" });
     }
   });
 
-  app.post("/api/daily5/start", isAuthenticated, async (req: any, res) => {
+  app.get("/api/anon/status", async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      if (userId) {
+        return res.json({ anonymous: false, phase: "registered", canStart: true, escrowPoints: 0, gamesCompleted: 0 });
+      }
+      const gate = await readAnonGate(req, res);
+      res.json(gate);
+    } catch (error) {
+      console.error("[Anon] status error:", error);
+      res.status(500).json({ error: "Failed to read guest play status" });
+    }
+  });
+
+  app.post("/api/daily5/start", async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub || req.session?.localUserId;
+      if (!userId) {
+        const result = await startAnonDaily5(req, res);
+        return res.json(result);
+      }
       const result = await daily5Service.startChallenge(userId);
       res.json(result);
     } catch (error: any) {
+      if (isAnonGateError(error)) {
+        return res.status(403).json(error.body);
+      }
       console.error("[Daily5] Error starting challenge:", error);
       if (error.message?.includes("already completed")) {
         return res.status(409).json({ error: error.message });
@@ -1572,10 +1599,18 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/daily5/answer", isAuthenticated, answerSubmitLimiter, async (req: any, res) => {
+  app.post("/api/daily5/answer", answerSubmitLimiter, async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+      if (!userId) {
+        const parsed = daily5AnswerSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.flatten() });
+        }
+        const { challengeId, position, selectedAnswer } = parsed.data;
+        const result = await answerAnonDaily5(req, res, challengeId, position, selectedAnswer);
+        return res.json(result);
+      }
       
       const parsed = daily5AnswerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1594,14 +1629,17 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/daily5/finish", isAuthenticated, async (req: any, res) => {
+  app.post("/api/daily5/finish", async (req: any, res) => {
     try {
       const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Not authenticated" });
-      
       const parsed = daily5FinishSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request" });
+      }
+
+      if (!userId) {
+        const result = await finishAnonDaily5(req, res, parsed.data.challengeId);
+        return res.json(result);
       }
       
       const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
@@ -1872,24 +1910,6 @@ export async function registerRoutes(
         }
       }
       
-      if (req.session.pendingPoints) {
-        const pending = req.session.pendingPoints;
-        await storage.updateUserStats(user.id, {
-          pointsEarned: pending.score,
-          correctAnswers: pending.correctAnswers,
-          totalAnswers: pending.totalAnswers,
-        });
-        
-        for (let i = 1; i < pending.gamesPlayed; i++) {
-          await db.update(users).set({
-            gamesPlayed: sql`${users.gamesPlayed} + 1`
-          }).where(eq(users.id, user.id));
-        }
-        
-        delete req.session.pendingPoints;
-        delete req.session.guestId;
-      }
-      
       req.session.localUserId = user.id;
 
       try {
@@ -1904,6 +1924,12 @@ export async function registerRoutes(
         );
       } catch (walletErr) {
         console.error("[Register] Error ensuring wallet exists (non-fatal):", walletErr);
+      }
+
+      try {
+        await claimAnonForUser(req, res, user.id);
+      } catch (claimErr) {
+        console.error("[Register] Guest escrow claim failed (non-fatal):", claimErr);
       }
       
       const updatedUser = await storage.getUser(user.id);
@@ -2084,31 +2110,6 @@ export async function registerRoutes(
         // Don't throw - risk pipeline errors shouldn't block login
       }
       
-      // Transfer any pending guest points to the logged-in user's account
-      if (req.session.pendingPoints) {
-        console.log("[Login] Transferring pending guest points");
-        try {
-          const pending = req.session.pendingPoints;
-          await storage.updateUserStats(user.id, {
-            pointsEarned: pending.score,
-            correctAnswers: pending.correctAnswers,
-            totalAnswers: pending.totalAnswers,
-          });
-          
-          for (let i = 1; i < pending.gamesPlayed; i++) {
-            await db.update(users).set({
-              gamesPlayed: sql`${users.gamesPlayed} + 1`
-            }).where(eq(users.id, user.id));
-          }
-          
-          delete req.session.pendingPoints;
-          delete req.session.guestId;
-        } catch (pointsError) {
-          console.error("[Login] Error transferring guest points (non-fatal):", pointsError);
-          // Don't throw - point transfer errors shouldn't block login
-        }
-      }
-      
       req.session.localUserId = user.id;
       console.log("[Login] Session localUserId set:", user.id);
 
@@ -2116,6 +2117,12 @@ export async function registerRoutes(
         await walletService.getOrCreateWallet(user.id);
       } catch (walletErr) {
         console.error("[Login] Error ensuring wallet exists (non-fatal):", walletErr);
+      }
+
+      try {
+        await claimAnonForUser(req, res, user.id);
+      } catch (claimErr) {
+        console.error("[Login] Guest escrow claim failed (non-fatal):", claimErr);
       }
       
       // Get updated user stats after transferring points
@@ -2154,8 +2161,20 @@ export async function registerRoutes(
 
   app.get("/api/guest/pending-points", async (req: any, res) => {
     try {
-      const pendingPoints = req.session?.pendingPoints || null;
-      res.json({ pendingPoints });
+      const gate = await readAnonGate(req, res);
+      const legacy = req.session?.pendingPoints || null;
+      const score = gate.escrowPoints > 0 ? gate.escrowPoints : (legacy?.score ?? 0);
+      res.json({
+        pendingPoints: score > 0 || gate.gamesCompleted > 0
+          ? {
+              score,
+              correctAnswers: legacy?.correctAnswers ?? 0,
+              totalAnswers: legacy?.totalAnswers ?? 0,
+              gamesPlayed: gate.gamesCompleted || legacy?.gamesPlayed || 0,
+            }
+          : legacy,
+        anonGate: gate,
+      });
     } catch (error) {
       console.error("Error getting pending points:", error);
       res.status(500).json({ error: "Failed to get pending points" });

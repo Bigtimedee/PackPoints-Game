@@ -4181,6 +4181,70 @@ export const insertDailyChallengeEntrySchema = createInsertSchema(dailyChallenge
 export type InsertDailyChallengeEntry = z.infer<typeof insertDailyChallengeEntrySchema>;
 export type DailyChallengeEntry = typeof dailyChallengeEntries.$inferSelect;
 
+/**
+ * Guest identity. Not a `users` row — do not count these in
+ * `registeredUsersNonStaff`. Cookie token is stored hashed. Points sit in
+ * `escrowPoints` until register/login/WorkOS claim writes the wallet ledger.
+ */
+export const anonPlayers = pgTable("anon_players", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  fingerprintHash: varchar("fingerprint_hash", { length: 64 }),
+  gamesCompleted: integer("games_completed").notNull().default(0),
+  gamesStarted: integer("games_started").notNull().default(0),
+  daily5Completed: integer("daily5_completed").notNull().default(0),
+  setsPlaysCompleted: integer("sets_plays_completed").notNull().default(0),
+  soloPlaysCompleted: integer("solo_plays_completed").notNull().default(0),
+  escrowPoints: integer("escrow_points").notNull().default(0),
+  escrowCorrect: integer("escrow_correct").notNull().default(0),
+  escrowAnswers: integer("escrow_answers").notNull().default(0),
+  lastPlayDay: varchar("last_play_day", { length: 10 }),
+  openSurface: varchar("open_surface", { length: 16 }),
+  claimedByUserId: varchar("claimed_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  claimedAt: timestamp("claimed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_anon_players_fingerprint").on(table.fingerprintHash),
+  index("idx_anon_players_claimed_at").on(table.claimedAt),
+]);
+
+export type AnonPlayer = typeof anonPlayers.$inferSelect;
+
+/** One credit per completed guest round (`play:<sessionId>` or `daily5:<runId>`). */
+export const anonGameCredits = pgTable("anon_game_credits", {
+  id: varchar("id").primaryKey(),
+  anonPlayerId: varchar("anon_player_id").notNull().references(() => anonPlayers.id, { onDelete: "cascade" }),
+  surface: varchar("surface", { length: 16 }).notNull(),
+  points: integer("points").notNull().default(0),
+  correct: integer("correct").notNull().default(0),
+  answers: integer("answers").notNull().default(0),
+  playDay: varchar("play_day", { length: 10 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/** Daily 5 progress for a guest. Not a `daily_challenge_entries` row until claim. */
+export const anonDailyRuns = pgTable("anon_daily_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  anonPlayerId: varchar("anon_player_id").notNull().references(() => anonPlayers.id, { onDelete: "cascade" }),
+  dailyChallengeId: varchar("daily_challenge_id").notNull().references(() => dailyChallenges.id),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  score: integer("score").notNull().default(0),
+  correctCount: integer("correct_count").notNull().default(0),
+  answers: jsonb("answers").$type<{ position: number; selected: string; correct: boolean; timeMs?: number }[]>(),
+  timeMs: integer("time_ms"),
+  flagged: boolean("flagged").default(false),
+  flagReason: text("flag_reason"),
+  gateCounted: boolean("gate_counted").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("anon_daily_runs_player_challenge").on(table.anonPlayerId, table.dailyChallengeId),
+  index("idx_anon_daily_runs_player").on(table.anonPlayerId),
+]);
+
+export type AnonDailyRun = typeof anonDailyRuns.$inferSelect;
+
 // ============================================
 // DAILY 5 API SCHEMAS
 // ============================================

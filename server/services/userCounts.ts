@@ -8,6 +8,8 @@
 export type UserCountRow = {
   isAdmin: boolean;
   isBot: boolean;
+  /** Guest identities are not users. A true value is excluded even if it lands in this list. */
+  isAnonymous?: boolean;
   createdAt?: Date | null;
 };
 
@@ -30,11 +32,16 @@ export const USER_COUNT_DEFINITION = {
   doNotCite: [
     "all-rows users COUNT(*)",
     "staff or bot rows",
+    "anon_players guest identities",
+    "anonymous plays before register/claim",
     "social/marketing FOMO copy",
   ],
 } as const;
 
-/** Authoritative SQL for Railway Postgres (the app DATABASE_URL). */
+/**
+ * Authoritative SQL for Railway Postgres (the app DATABASE_URL).
+ * Guest identities live in anon_players and are not users. Do not join that table.
+ */
 export const REGISTERED_USERS_NON_STAFF_SQL = `
 SELECT
   COUNT(*) FILTER (
@@ -56,7 +63,7 @@ WHERE COALESCE(is_admin, false) = false
 `.trim();
 
 export function isHonestRegisteredUser(row: UserCountRow): boolean {
-  return row.isAdmin !== true && row.isBot !== true;
+  return row.isAdmin !== true && row.isBot !== true && row.isAnonymous !== true;
 }
 
 export function summarizeUserCounts(

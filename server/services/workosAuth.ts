@@ -198,6 +198,13 @@ export function registerWorkosRoutes(app: Express): void {
         (req.session as any).workosUserId = workosUser.id;
         (req.session as any).localUserId = localUser.id;
 
+        try {
+          const { claimAnonForUser } = await import("./anonIdentity");
+          await claimAnonForUser(req, res, localUser.id);
+        } catch (claimErr) {
+          console.error("[WorkOS] Guest escrow claim failed (non-fatal):", claimErr);
+        }
+
         await identityService.logAudit(
           "LINK_COMPLETED",
           provider,
@@ -298,6 +305,13 @@ export function registerWorkosRoutes(app: Express): void {
 
       (req.session as any).workosUserId = workosUser.id;
       (req.session as any).localUserId = newUser.id;
+
+      try {
+        const { claimAnonForUser } = await import("./anonIdentity");
+        await claimAnonForUser(req, res, newUser.id);
+      } catch (claimErr) {
+        console.error("[WorkOS] Guest escrow claim failed (non-fatal):", claimErr);
+      }
 
       req.session.save((err) => {
         if (err) {

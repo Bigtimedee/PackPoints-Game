@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { ANON_GATE_COPY, type AnonGateReason } from "@shared/anonGate";
 
 const signupModalSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
@@ -34,10 +35,13 @@ interface SignupModalProps {
   onOpenChange: (open: boolean) => void;
   pendingPoints: number;
   onSuccess?: () => void;
+  /** Soft gate only. Hard gate has no skip. */
   onPlayAgain?: () => void;
+  variant?: "optional" | "soft" | "hard";
+  gateReason?: AnonGateReason;
 }
 
-export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain }: SignupModalProps) {
+export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain, variant = "optional", gateReason }: SignupModalProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   
@@ -137,17 +141,28 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   };
 
   const isPending = registerMutation.isPending || loginMutation.isPending;
+  const title = variant === "hard"
+    ? ANON_GATE_COPY.hardTitle
+    : variant === "soft"
+      ? ANON_GATE_COPY.softTitle
+      : "Save Your Points!";
+  const description = variant === "hard"
+    ? (gateReason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody)
+    : variant === "soft"
+      ? ANON_GATE_COPY.softBody
+      : "Sign up for a new account or log in to your existing account to claim your points.";
+  const allowAnotherRound = variant !== "hard" && !!onPlayAgain;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto" data-testid={variant === "hard" ? "dialog-anon-hard-gate" : variant === "soft" ? "dialog-anon-soft-gate" : "dialog-signup"}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Trophy className="h-5 w-5 text-primary" />
-            Save Your Points!
+            {title}
           </DialogTitle>
           <DialogDescription>
-            Sign up for a new account or log in to your existing account to claim your points.
+            {description}
           </DialogDescription>
         </DialogHeader>
         
@@ -289,7 +304,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                   <Button 
                     type="submit" 
                     disabled={registerMutation.isPending}
-                    className="w-full"
+                    className="w-full min-h-11"
                     data-testid="button-modal-signup-submit"
                   >
                     {registerMutation.isPending ? (
@@ -300,29 +315,46 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     ) : (
                       <>
                         <User className="h-4 w-4 mr-2" />
-                        Create Account & Claim Points
+                        {variant === "hard" ? ANON_GATE_COPY.hardCta : variant === "soft" ? ANON_GATE_COPY.softCta : "Create Account & Claim Points"}
                       </>
                     )}
                   </Button>
-                  <Button 
-                    type="button" 
-                    variant={onPlayAgain ? "outline" : "ghost"}
-                    className={onPlayAgain ? "w-full min-h-11" : undefined}
-                    onClick={() => {
-                      onOpenChange(false);
-                      onPlayAgain?.();
-                    }}
-                    disabled={registerMutation.isPending}
-                    data-testid={onPlayAgain ? "button-modal-play-again" : "button-modal-skip"}
+                  {allowAnotherRound ? (
+                    <Button 
+                      type="button" 
+                      variant="outline"
+                      className="w-full min-h-11"
+                      onClick={() => {
+                        onOpenChange(false);
+                        onPlayAgain?.();
+                      }}
+                      disabled={registerMutation.isPending}
+                      data-testid="button-modal-play-again"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      {variant === "soft" ? ANON_GATE_COPY.softSecondary : "Play Again"}
+                    </Button>
+                  ) : variant === "optional" ? (
+                    <Button 
+                      type="button" 
+                      variant="ghost"
+                      className="w-full min-h-11"
+                      onClick={() => onOpenChange(false)}
+                      disabled={registerMutation.isPending}
+                      data-testid="button-modal-skip"
+                    >
+                      Skip for Now
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full min-h-11"
+                    onClick={() => { window.location.href = "/api/auth/workos/start"; }}
+                    disabled={isPending}
+                    data-testid="button-modal-workos-signup"
                   >
-                    {onPlayAgain ? (
-                      <>
-                        <RefreshCw className="h-4 w-4" />
-                        Play Again
-                      </>
-                    ) : (
-                      "Skip for Now"
-                    )}
+                    Continue with WorkOS
                   </Button>
                 </div>
               </form>
@@ -389,7 +421,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                   <Button 
                     type="submit" 
                     disabled={loginMutation.isPending}
-                    className="w-full"
+                    className="w-full min-h-11"
                     data-testid="button-modal-login-submit"
                   >
                     {loginMutation.isPending ? (
@@ -400,29 +432,46 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     ) : (
                       <>
                         <LogIn className="h-4 w-4 mr-2" />
-                        Log In & Claim Points
+                        {variant === "optional" ? "Log In & Claim Points" : ANON_GATE_COPY.signInCta}
                       </>
                     )}
                   </Button>
-                  <Button 
-                    type="button" 
-                    variant={onPlayAgain ? "outline" : "ghost"}
-                    className={onPlayAgain ? "w-full min-h-11" : undefined}
-                    onClick={() => {
-                      onOpenChange(false);
-                      onPlayAgain?.();
-                    }}
-                    disabled={loginMutation.isPending}
-                    data-testid={onPlayAgain ? "button-modal-play-again" : "button-modal-skip"}
+                  {allowAnotherRound ? (
+                    <Button 
+                      type="button" 
+                      variant="outline"
+                      className="w-full min-h-11"
+                      onClick={() => {
+                        onOpenChange(false);
+                        onPlayAgain?.();
+                      }}
+                      disabled={loginMutation.isPending}
+                      data-testid="button-modal-play-again-login"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      {variant === "soft" ? ANON_GATE_COPY.softSecondary : "Play Again"}
+                    </Button>
+                  ) : variant === "optional" ? (
+                    <Button 
+                      type="button" 
+                      variant="ghost"
+                      className="w-full min-h-11"
+                      onClick={() => onOpenChange(false)}
+                      disabled={loginMutation.isPending}
+                      data-testid="button-modal-skip"
+                    >
+                      Skip for Now
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full min-h-11"
+                    onClick={() => { window.location.href = "/api/auth/workos/start"; }}
+                    disabled={isPending}
+                    data-testid="button-modal-workos"
                   >
-                    {onPlayAgain ? (
-                      <>
-                        <RefreshCw className="h-4 w-4" />
-                        Play Again
-                      </>
-                    ) : (
-                      "Skip for Now"
-                    )}
+                    Continue with WorkOS
                   </Button>
                 </div>
               </form>

@@ -254,6 +254,7 @@ export default function SetPage() {
               {cardCount} Card{cardCount === 1 ? "" : "s"}
             </div>
           </div>
+          {play.gatePrompt}
           {showPlayCue && play.canPlay && (
             <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-play-today">
               {SETS_POLISH.playTodayCue}

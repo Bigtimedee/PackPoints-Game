@@ -42,20 +42,23 @@ function PlayButton({
 }) {
   const play = usePlayMakerSet(setId, cardCount);
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (play.canPlay) play.mutate();
-      }}
-      disabled={!play.canPlay || play.isPending}
-      className="w-full min-h-11 rounded-md text-sm font-medium text-white disabled:opacity-50"
-      style={{ backgroundColor: SETS_POLISH.blue }}
-      data-testid={`button-play-set-${setId}`}
-    >
-      {play.isPending ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : label}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (play.canPlay) play.mutate();
+        }}
+        disabled={!play.canPlay || play.isPending}
+        className="w-full min-h-11 rounded-md text-sm font-medium text-white disabled:opacity-50"
+        style={{ backgroundColor: SETS_POLISH.blue }}
+        data-testid={`button-play-set-${setId}`}
+      >
+        {play.isPending ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : label}
+      </button>
+      {play.gatePrompt}
+    </>
   );
 }
 

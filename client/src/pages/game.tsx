@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
@@ -28,6 +28,7 @@ import {
   replayCardCountFromSession,
   replaySetIdFromSession,
 } from "@/lib/playAgain";
+import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import {
   prefetchMaskedPlayCards,
@@ -168,6 +169,7 @@ export default function Game() {
   } | null>(null);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
+  const [anonGate, setAnonGate] = useState<PublicAnonGate | null>(null);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
   const [selectedCardCount, setSelectedCardCount] = useState("10");
   const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession);
@@ -183,6 +185,14 @@ export default function Game() {
   });
 
   
+  const { data: anonStatus } = useQuery<PublicAnonGate | { anonymous: false; phase: string; canStart: boolean }>({
+    queryKey: ["/api/anon/status"],
+    enabled: !isAuthenticated,
+    staleTime: 10_000,
+  });
+  const guestGate: PublicAnonGate | null = anonGate
+    ?? (anonStatus && "anonymous" in anonStatus && anonStatus.anonymous === true ? anonStatus : null);
+
   const { data: playableSets, isLoading: setsLoading, error: setsError, refetch: refetchSets } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],
     staleTime: 5 * 60 * 1000,
@@ -238,6 +248,21 @@ export default function Game() {
       shownMilestones.current = new Set();
     },
     onError: (error: any) => {
+      if (error instanceof ApiError && error.code === ANON_GATE_CODE) {
+        setAnonGate({
+          phase: "hard",
+          canStart: false,
+          prompt: "hard",
+          reason: error.reason === "next_day" ? "next_day" : "game_cap",
+          escrowPoints: error.escrowPoints ?? 0,
+          gamesCompleted: error.gamesCompleted ?? 2,
+          anonymous: true,
+        });
+        setHasStartedGame(false);
+        setShowSignupModal(true);
+        setStartError(null);
+        return;
+      }
       const errorMessage = error?.message || "";
       const lowerMessage = errorMessage.toLowerCase();
       // apiRequest throws Error with format "status: responseText"
@@ -389,6 +414,10 @@ export default function Game() {
       setListingTarget(null);
       if (data?.shareImageUrl) {
         setShareImageUrl(data.shareImageUrl);
+      }
+      if (data?.anonGate?.anonymous) {
+        setAnonGate(data.anonGate);
+        queryClient.invalidateQueries({ queryKey: ["/api/anon/status"] });
       }
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
@@ -642,15 +671,18 @@ export default function Game() {
 
   // No longer auto-start - user selects card count first
 
-  // Show signup modal after game completion for unauthenticated users with points
-  // Only show once per session - track with hasSeenSignupPrompt
   const isGameOver = session?.status === "completed" || session?.status === "expired";
   useEffect(() => {
-    if (isGameOver && !isAuthenticated && !hasSeenSignupPrompt && session && session.score > 0 && !showSignupModal) {
+    if (!isGameOver || isAuthenticated || !anonGate) return;
+    if (anonGate.phase === "hard") {
+      setShowSignupModal(true);
+      return;
+    }
+    if (anonGate.phase === "soft" && !hasSeenSignupPrompt && !showSignupModal) {
       const timer = setTimeout(() => setShowSignupModal(true), 500);
       return () => clearTimeout(timer);
     }
-  }, [isGameOver, isAuthenticated, hasSeenSignupPrompt, session?.score, showSignupModal]);
+  }, [isGameOver, isAuthenticated, anonGate, hasSeenSignupPrompt, showSignupModal]);
 
   // Refresh daily progress tracker when game completes (regardless of score)
   useEffect(() => {
@@ -850,18 +882,48 @@ export default function Game() {
                 />
               </div>
               
-              <Button 
-                className="w-full gap-2" 
-                size="lg" 
-                onClick={handleStartGame}
-                disabled={!selectedSetId || setsLoading}
-                data-testid="button-start-game"
-              >
-                <Play className="h-5 w-5" />
-                Start Game
-              </Button>
+              {!isAuthenticated && guestGate?.phase === "soft" && (
+                <p className="text-sm text-center text-muted-foreground" data-testid="text-anon-soft-banner">
+                  {ANON_GATE_COPY.softBanner}
+                </p>
+              )}
+              {!isAuthenticated && guestGate?.phase === "hard" ? (
+                <div className="space-y-3" data-testid="wall-anon-hard-gate">
+                  <p className="text-sm text-center">
+                    {guestGate.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody}
+                  </p>
+                  <Button
+                    className="w-full min-h-11 gap-2"
+                    size="lg"
+                    onClick={() => setShowSignupModal(true)}
+                    data-testid="button-register-to-play"
+                  >
+                    <UserPlus className="h-5 w-5" />
+                    Create a free account
+                  </Button>
+                </div>
+              ) : (
+                <Button 
+                  className="w-full gap-2" 
+                  size="lg" 
+                  onClick={handleStartGame}
+                  disabled={!selectedSetId || setsLoading}
+                  data-testid="button-start-game"
+                >
+                  <Play className="h-5 w-5" />
+                  Start Game
+                </Button>
+              )}
             </CardContent>
           </Card>
+          <SignupModal
+            open={showSignupModal}
+            onOpenChange={setShowSignupModal}
+            variant={guestGate?.phase === "hard" ? "hard" : guestGate?.phase === "soft" ? "soft" : "optional"}
+            gateReason={guestGate?.reason}
+            pendingPoints={guestGate?.escrowPoints ?? 0}
+            onPlayAgain={guestGate?.phase === "soft" ? handleStartGame : undefined}
+          />
         </div>
       </div>
     );
@@ -1043,15 +1105,27 @@ export default function Game() {
             )}
 
             <div className="flex flex-col gap-3 pt-2">
-              <Button
-                onClick={handlePlayAgain}
-                size="lg"
-                className={PLAY_AGAIN_BUTTON_CLASS}
-                data-testid="button-play-again"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Play Again
-              </Button>
+              {!isAuthenticated && anonGate?.phase === "hard" ? (
+                <Button
+                  onClick={() => setShowSignupModal(true)}
+                  size="lg"
+                  className={PLAY_AGAIN_BUTTON_CLASS}
+                  data-testid="button-register-to-play"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  Create a free account
+                </Button>
+              ) : (
+                <Button
+                  onClick={handlePlayAgain}
+                  size="lg"
+                  className={PLAY_AGAIN_BUTTON_CLASS}
+                  data-testid="button-play-again"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Play Again
+                </Button>
+              )}
               <Link href="/">
                 <Button variant="outline" className={PLAY_AGAIN_BUTTON_CLASS} data-testid="button-back-home">
                   <ArrowLeft className="h-4 w-4" />
@@ -1154,12 +1228,14 @@ export default function Game() {
           open={showSignupModal} 
           onOpenChange={(open) => {
             setShowSignupModal(open);
-            if (!open) {
+            if (!open && anonGate?.phase !== "hard") {
               setHasSeenSignupPrompt(true);
             }
           }}
-          pendingPoints={session.score}
-          onPlayAgain={handlePlayAgain}
+          variant={anonGate?.phase === "hard" ? "hard" : anonGate?.phase === "soft" ? "soft" : "optional"}
+          gateReason={anonGate?.reason}
+          pendingPoints={anonGate?.escrowPoints ?? session.score}
+          onPlayAgain={anonGate?.phase === "hard" ? undefined : handlePlayAgain}
           onSuccess={() => {
             setHasSeenSignupPrompt(true);
             toast({

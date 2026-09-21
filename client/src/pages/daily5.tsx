@@ -5,9 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { SignupModal } from "@/components/signup-modal";
+import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
@@ -55,6 +57,7 @@ interface Daily5Status {
   } | null;
   timeUntilStart: number;
   timeUntilEnd: number;
+  anonGate?: PublicAnonGate | null;
 }
 
 interface Daily5Card {
@@ -81,6 +84,7 @@ interface FinishResult {
   correctAnswers?: { position: number; correctAnswer: string }[];
   pointsCredited?: number;
   shareImageUrl?: string;
+  anonGate?: PublicAnonGate | null;
 }
 
 interface LeaderboardEntry {
@@ -371,7 +375,9 @@ function AnswerButton({
 
 export default function Daily5Page() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
+  const [guestGate, setGuestGate] = useState<PublicAnonGate | null>(null);
+  const [showGuestGate, setShowGuestGate] = useState(false);
   const searchString = useSearch();
   const [beatMe, setBeatMe] = useState<DailyBeatMeChallenge | null>(null);
   const [gameState, setGameState] = useState<"loading" | "preview" | "playing" | "results">("loading");
@@ -446,6 +452,20 @@ export default function Daily5Page() {
       });
     },
     onError: (err: any) => {
+      if (err instanceof ApiError && err.code === ANON_GATE_CODE) {
+        setGuestGate({
+          phase: "hard",
+          canStart: false,
+          prompt: "hard",
+          reason: err.reason === "next_day" ? "next_day" : "game_cap",
+          escrowPoints: err.escrowPoints ?? 0,
+          gamesCompleted: err.gamesCompleted ?? 2,
+          anonymous: true,
+        });
+        setShowGuestGate(true);
+        setGameState("preview");
+        return;
+      }
       setGameState("preview");
       toast({ title: "Cannot start", description: err.message || "Failed to start Daily 5", variant: "destructive" });
     },
@@ -474,6 +494,11 @@ export default function Daily5Page() {
     onSuccess: async (res) => {
       const data: FinishResult = await res.json();
       setFinishResult(data);
+      if (data.anonGate?.anonymous) {
+        setGuestGate(data.anonGate);
+        setShowGuestGate(true);
+        queryClient.invalidateQueries({ queryKey: ["/api/anon/status"] });
+      }
       setGameState("results");
       queryClient.invalidateQueries({ queryKey: ["/api/daily5/status"] });
       queryClient.invalidateQueries({ queryKey: ["/api/daily5/leaderboard"] });
@@ -759,14 +784,30 @@ export default function Daily5Page() {
 
           <div className="space-y-3 mb-8 max-w-md mx-auto">
             <p className="text-sm text-muted-foreground text-center" data-testid="text-d5-next-play">
-              {DAILY5_NEXT_PLAY.doneNote}
+              {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard"
+                ? ((guestGate ?? status?.anonGate)?.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody)
+                : !isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "soft"
+                  ? ANON_GATE_COPY.softBanner
+                  : DAILY5_NEXT_PLAY.doneNote}
             </p>
-            <Link href={DAILY5_NEXT_PLAY.primary.href}>
-              <Button size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.primary.testId}>
-                <Play className="h-4 w-4" />
-                {DAILY5_NEXT_PLAY.primary.label}
+            {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard" ? (
+              <Button
+                size="lg"
+                className={PLAY_AGAIN_BUTTON_CLASS}
+                onClick={() => setShowGuestGate(true)}
+                data-testid="button-register-to-play"
+              >
+                <UserPlus className="h-4 w-4" />
+                Create a free account
               </Button>
-            </Link>
+            ) : (
+              <Link href={DAILY5_NEXT_PLAY.primary.href}>
+                <Button size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.primary.testId}>
+                  <Play className="h-4 w-4" />
+                  {DAILY5_NEXT_PLAY.primary.label}
+                </Button>
+              </Link>
+            )}
             <Link href={DAILY5_NEXT_PLAY.secondary.href}>
               <Button variant="outline" size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.secondary.testId}>
                 <Compass className="h-4 w-4" />
@@ -774,6 +815,16 @@ export default function Daily5Page() {
               </Button>
             </Link>
           </div>
+          {!isAuthenticated && (
+            <SignupModal
+              open={showGuestGate}
+              onOpenChange={setShowGuestGate}
+              variant={(guestGate ?? status?.anonGate)?.phase === "hard" ? "hard" : "soft"}
+              gateReason={(guestGate ?? status?.anonGate)?.reason}
+              pendingPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? finishResult?.score ?? 0}
+              onPlayAgain={(guestGate ?? status?.anonGate)?.phase === "hard" ? undefined : () => setShowGuestGate(false)}
+            />
+          )}
 
           <ShareResultCard
             score={finishResult?.score ?? status?.entry?.score ?? 0}
@@ -909,16 +960,25 @@ export default function Daily5Page() {
                         label="Time remaining"
                       />
                     )}
-                    {!user ? (
-                      <div className="text-center space-y-2">
-                        <p className="text-sm text-muted-foreground">Sign in to play the Daily 5</p>
-                        <Link href="/auth">
-                          <Button data-testid="button-d5-signin">Sign In to Play</Button>
-                        </Link>
+                    {!user && (guestGate ?? status.anonGate)?.phase === "hard" ? (
+                      <div className="text-center space-y-3" data-testid="wall-anon-hard-gate">
+                        <p className="text-sm text-muted-foreground">
+                          {(guestGate ?? status.anonGate)?.reason === "next_day" ? ANON_GATE_COPY.nextDayBody : ANON_GATE_COPY.hardBody}
+                        </p>
+                        <Button className="min-h-11" onClick={() => setShowGuestGate(true)} data-testid="button-d5-register">
+                          <UserPlus className="h-4 w-4" />
+                          Create a free account
+                        </Button>
                       </div>
                     ) : (
+                      <>
+                      {!user && (guestGate ?? status.anonGate)?.phase === "soft" && (
+                        <p className="text-sm text-center text-muted-foreground" data-testid="text-anon-soft-banner">
+                          {ANON_GATE_COPY.softBanner}
+                        </p>
+                      )}
                       <Button
-                        className="w-full gap-2"
+                        className="w-full gap-2 min-h-11"
                         onClick={() => startMutation.mutate()}
                         disabled={startMutation.isPending}
                         data-testid="button-d5-start"
@@ -930,6 +990,7 @@ export default function Daily5Page() {
                         )}
                         Start Challenge
                       </Button>
+                      </>
                     )}
                   </div>
                 )}
@@ -1001,6 +1062,15 @@ export default function Daily5Page() {
             )}
           </CardContent>
         </Card>
+        {!isAuthenticated && (
+          <SignupModal
+            open={showGuestGate}
+            onOpenChange={setShowGuestGate}
+            variant="hard"
+            gateReason={(guestGate ?? status?.anonGate)?.reason}
+            pendingPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
+          />
+        )}
       </div>
     </div>
   );
