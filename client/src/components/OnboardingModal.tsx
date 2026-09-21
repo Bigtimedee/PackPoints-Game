@@ -34,12 +34,11 @@ const steps = [
   },
   {
     icon: UserPlus,
-    title: "Get 250 Bonus Points Free",
-    description: "Create a free account and we'll instantly credit 250 PackPTS to your wallet. No purchase, no catch.",
+    title: "Create a Free Account",
+    description: "Create a free account to keep Daily 5 and your sets on one profile. You can play a round first.",
     badge: "Step 4 of 4",
     color: "text-primary",
     bg: "bg-primary/10",
-    isBonusStep: true,
   },
 ];
 
@@ -69,7 +68,7 @@ export function OnboardingModal() {
     setOpen(false);
   };
 
-  const step = steps[currentStep] as typeof steps[number] & { isBonusStep?: boolean };
+  const step = steps[currentStep];
   const Icon = step.icon;
   const isLastStep = currentStep === steps.length - 1;
 
@@ -93,13 +92,6 @@ export function OnboardingModal() {
             <p className="text-muted-foreground text-sm leading-relaxed">{step.description}</p>
           </div>
 
-          {step.isBonusStep && (
-            <div className="bg-primary/10 rounded-lg p-3 text-center">
-              <p className="text-2xl font-bold font-mono text-primary">250 PackPTS</p>
-              <p className="text-xs text-muted-foreground mt-1">credited instantly on signup</p>
-            </div>
-          )}
-
           {/* Step indicators */}
           <div className="flex justify-center gap-2">
             {steps.map((_, i) => (
@@ -117,7 +109,7 @@ export function OnboardingModal() {
           <Button variant="ghost" size="sm" onClick={handleComplete} className="text-muted-foreground">
             Skip
           </Button>
-          {isLastStep && step.isBonusStep ? (
+          {isLastStep ? (
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleComplete} className="gap-2">
                 <Check className="w-4 h-4" />
@@ -126,7 +118,7 @@ export function OnboardingModal() {
               <Link href="/auth">
                 <Button onClick={handleComplete} className="gap-2">
                   <UserPlus className="w-4 h-4" />
-                  Claim Bonus
+                  Create free account
                 </Button>
               </Link>
             </div>
