@@ -36,6 +36,35 @@ function isGreen(r: number, g: number, b: number): boolean {
   return g > 120 && r < 80 && b < 80;
 }
 
+/** Luminance span inside a percent box. Identity text that survives a translucent fill shows up as a wide span. */
+async function luminanceSpan(
+  buf: Buffer,
+  x0Pct: number,
+  y0Pct: number,
+  x1Pct: number,
+  y1Pct: number,
+): Promise<number> {
+  const meta = await sharp(buf).metadata();
+  const width = meta.width || W;
+  const height = meta.height || H;
+  const left = Math.max(0, Math.min(width - 1, Math.round((x0Pct / 100) * width)));
+  const top = Math.max(0, Math.min(height - 1, Math.round((y0Pct / 100) * height)));
+  const right = Math.max(left + 1, Math.min(width, Math.round((x1Pct / 100) * width)));
+  const bottom = Math.max(top + 1, Math.min(height, Math.round((y1Pct / 100) * height)));
+  const { data, info } = await sharp(buf)
+    .extract({ left, top, width: right - left, height: bottom - top })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < data.length; i += info.channels) {
+    const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+    if (lum < min) min = lum;
+    if (lum > max) max = lum;
+  }
+  return max - min;
+}
+
 async function sample(buf: Buffer, xPct: number, yPct: number): Promise<{ r: number; g: number; b: number }> {
   const meta = await sharp(buf).metadata();
   const width = meta.width || W;
@@ -205,8 +234,8 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.2");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.2");
+    expect(CURRENT_MASK_VERSION).toBe("v4.3");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.3");
   });
 
   it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {
@@ -345,5 +374,34 @@ describe("baked mask fixtures", () => {
     expect(isDark(afterLabel.r, afterLabel.g, afterLabel.b)).toBe(true);
     expect(afterPhoto.r).toBeGreaterThan(80);
     expect(isDark(afterPlaque.r, afterPlaque.g, afterPlaque.b)).toBe(true);
+    // Interior of the cert band, inset from the JPEG edge so ringing is not the signal.
+    const rawCertSpan = await luminanceSpan(raw, 20, 6, 80, 16);
+    const maskedCertSpan = await luminanceSpan(result.maskedBuffer, 20, 6, 80, 16);
+    expect(rawCertSpan).toBeGreaterThan(40);
+    expect(maskedCertSpan).toBeLessThan(8);
+  });
+
+  it("opaque fill hides high-contrast name bars without covering the photo", async () => {
+    const bars: { input: Buffer; top: number; left: number }[] = [];
+    for (let i = 0; i < 8; i++) {
+      const bar = await sharp({
+        create: { width: 16, height: 36, channels: 3, background: { r: 0, g: 0, b: 0 } },
+      }).png().toBuffer();
+      bars.push({ input: bar, top: 10, left: 20 + i * 24 });
+    }
+    const raw = await sharp({
+      create: { width: W, height: H, channels: 3, background: WHITE },
+    }).composite(bars).png().toBuffer();
+
+    expect(await luminanceSpan(raw, 8, 3, 92, 14)).toBeGreaterThan(200);
+
+    const result = await maskCardImage(raw, "A.C. Green", "1989 Fleer Basketball", { skipOcr: true });
+    expect(result.source).toBe("profile");
+    expect(result.regions.every((region) => region.yPct + region.hPct <= 25)).toBe(true);
+    expect(await luminanceSpan(result.maskedBuffer, 8, 3, 92, 14)).toBeLessThan(8);
+    const photo = await sample(result.maskedBuffer, 50, 55);
+    expect(photo.r).toBeGreaterThan(200);
+    expect(photo.g).toBeGreaterThan(200);
+    expect(photo.b).toBeGreaterThan(200);
   });
 });

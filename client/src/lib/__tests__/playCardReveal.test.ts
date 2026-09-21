@@ -21,7 +21,7 @@ describe("resolvePlayCardSrc", () => {
       `/api/cards/${CARD_ID}/masked-image?v=${CURRENT_MASK_VERSION}`,
     );
     expect(maskedPlayUrl(CARD_ID)).toContain(`/masked-image?v=${CURRENT_MASK_VERSION}`);
-    expect(CURRENT_MASK_VERSION).toBe("v4.2");
+    expect(CURRENT_MASK_VERSION).toBe("v4.3");
   });
 
   it("swaps to the original scan proxy after successful submit", () => {
