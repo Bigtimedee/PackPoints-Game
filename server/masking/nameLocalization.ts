@@ -4,7 +4,7 @@ import {
   pixelBoxToRegion,
   unionMaskRegions,
 } from "@shared/maskGeometry";
-import { getMaskProfile } from "./maskProfiles";
+import { getMaskProfile, type LayoutClass } from "./maskProfiles";
 import { ocrLooksLikeSlab, slabMaskRegions } from "./slabLayout";
 
 export interface OcrWordBox {
@@ -20,6 +20,8 @@ export interface LocalizedNamePlan {
   source: "ocr+profile" | "profile" | "ocr" | "default";
   matchedTokens: string[];
   profileId: string;
+  layoutClass: LayoutClass;
+  nameBoxes: OcrWordBox[];
 }
 
 const OCR_PAD_PCT = 1.6;
@@ -123,12 +125,13 @@ export function boxesToPaddedRegions(
 export function resolveNameMaskPlan(input: {
   playerName: string;
   setHint: string | null | undefined;
+  gameSetId?: string | null;
   words?: OcrWordBox[];
   imageWidth: number;
   imageHeight: number;
   slabLayout?: boolean;
 }): LocalizedNamePlan {
-  const profile = getMaskProfile(input.setHint);
+  const profile = getMaskProfile(input.setHint, input.gameSetId);
   const ocr = matchPlayerNameBoxes(input.playerName, input.words || []);
   const ocrRegions = boxesToPaddedRegions(ocr.boxes, input.imageWidth, input.imageHeight);
   const lastName = tokenizePlayerName(input.playerName).slice(-1)[0];
@@ -145,6 +148,8 @@ export function resolveNameMaskPlan(input: {
       source: lastNameMatched && ocrRegions.length > 0 ? "ocr+profile" : "profile",
       matchedTokens: ocr.tokens,
       profileId: "psa-slab",
+      layoutClass: "PSA_SLAB",
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
     };
   }
 
@@ -154,6 +159,8 @@ export function resolveNameMaskPlan(input: {
       source: "ocr+profile",
       matchedTokens: ocr.tokens,
       profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: ocr.boxes,
     };
   }
 
@@ -163,15 +170,20 @@ export function resolveNameMaskPlan(input: {
       source: "profile",
       matchedTokens: ocr.tokens,
       profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
     };
   }
 
   if (ocrRegions.length > 0 && lastNameMatched) {
+    const topName = ocr.boxes.some((box) => (box.y + box.h / 2) / input.imageHeight <= 0.35);
     return {
       regions: ocrRegions,
       source: "ocr",
       matchedTokens: ocr.tokens,
       profileId: profile.id,
+      layoutClass: topName ? "TOP_PLATE" : "BOTTOM_PLAQUE",
+      nameBoxes: ocr.boxes,
     };
   }
 
@@ -180,5 +192,7 @@ export function resolveNameMaskPlan(input: {
     source: "default",
     matchedTokens: ocr.tokens,
     profileId: profile.id,
+    layoutClass: profile.layoutClass,
+    nameBoxes: lastNameMatched ? ocr.boxes : [],
   };
 }

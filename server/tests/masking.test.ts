@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from '../utils/questionSanitizer';
 import type { GameQuestion, GameSession } from '@shared/schema';
 import { DEFAULT_MASK_REGIONS, SLABBED_MASK_REGIONS } from "@shared/schema";
-import { getMaskProfile, CURRENT_MASK_VERSION } from "../masking/maskProfiles";
+import { getMaskProfile, CURRENT_MASK_VERSION, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
 
 // ── Shared mock data ─────────────────────────────────────────────────────────
 
@@ -253,8 +253,8 @@ describe("Masking redesign — schema constants", () => {
 // ── Visual masking redesign v3.0 — maskProfiles ───────────────────────────────
 
 describe("Masking redesign — maskProfiles", () => {
-  it("CURRENT_MASK_VERSION is v4.3", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.3");
+  it("CURRENT_MASK_VERSION is v4.4", () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.4");
   });
 
   it("default profile uses the 46% bottom plaque and no top band", () => {
@@ -309,6 +309,48 @@ describe("Masking redesign — maskProfiles", () => {
     const profile = getMaskProfile("1989 Fleer Baseball");
     expect(profile.id).not.toBe("fleer-bball-top");
     expect(profile.nameAnchor).toBe("bottom");
+  });
+
+  it("1987 Topps Football is a top plate, including when the hint is only year and brand", () => {
+    const fromName = getMaskProfile("1987 Topps Football");
+    const fromHint = getMaskProfile("1987 Topps football 1987 Topps Football Football");
+    const fromSetId = getMaskProfile("1987 Topps", MASK_LAYOUT_SET_IDS.toppsFootball1987);
+    for (const profile of [fromName, fromHint, fromSetId]) {
+      expect(profile.id).toBe("1987-topps-football");
+      expect(profile.layoutClass).toBe("TOP_PLATE");
+      expect(profile.nameAnchor).toBe("top");
+      expect(profile.topBandPct).toBe(0.24);
+      expect(profile.bottomBandPct).toBe(0);
+      expect(profile.regions[0].yPct).toBe(0);
+      expect(profile.regions[0].hPct).toBe(24);
+    }
+    expect(fromName.id).not.toBe("1987-topps");
+  });
+
+  it("1987 Topps baseball stays the bottom plaque and does not follow football", () => {
+    const profile = getMaskProfile("1987 Topps baseball", MASK_LAYOUT_SET_IDS.toppsBaseball1987);
+    expect(profile.id).toBe("1987-topps");
+    expect(profile.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(profile.bottomBandPct).toBe(0.46);
+    expect(profile.topBandPct).toBe(0);
+  });
+
+  it("1989 Topps baseball stays the 46% bottom plaque", () => {
+    const profile = getMaskProfile("1989 Topps baseball");
+    expect(profile.id).toBe("1989-topps");
+    expect(profile.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(profile.bottomBandPct).toBe(0.46);
+  });
+
+  it("1994 Topps Football is the Finest bottom bar, not a top plate or the baseball 46% plaque", () => {
+    const profile = getMaskProfile("1994 Topps Finest Football", MASK_LAYOUT_SET_IDS.toppsFootball1994);
+    expect(profile.id).toBe("1994-topps-football");
+    expect(profile.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(profile.nameAnchor).toBe("bottom");
+    expect(profile.bottomBandPct).toBe(0.28);
+    expect(profile.topBandPct).toBe(0);
+    expect(profile.regions[0].yPct).toBe(72);
+    expect(profile.regions[0].hPct).toBe(28);
   });
 });
 

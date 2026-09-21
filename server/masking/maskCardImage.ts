@@ -6,6 +6,7 @@ import {
   type OcrWordBox,
 } from "./nameLocalization";
 import { detectPsaSlabLayout } from "./slabLayout";
+import { assertOpaqueIdentityCover } from "./maskCoverage";
 import type { MaskRegion } from "@shared/schema";
 
 const OCR_TIMEOUT_MS = 3500;
@@ -17,6 +18,10 @@ export interface MaskResult {
   ocrMatches: string[];
   source: "ocr+profile" | "profile" | "ocr" | "default";
   regions: MaskRegion[];
+  layoutClass: "TOP_PLATE" | "BOTTOM_PLAQUE" | "PSA_SLAB" | "UNKNOWN";
+  /** False means the printed name is still readable or the photo was wiped. Do not serve. */
+  coverageOk: boolean;
+  coverageReason: string | null;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -124,7 +129,7 @@ export async function maskCardImage(
   rawImageBuffer: Buffer,
   playerName: string,
   setName: string | null | undefined,
-  opts: { skipOcr?: boolean; words?: OcrWordBox[] } = {},
+  opts: { skipOcr?: boolean; words?: OcrWordBox[]; gameSetId?: string | null } = {},
 ): Promise<MaskResult> {
   const metadata = await sharp(rawImageBuffer).metadata();
   const originalWidth = metadata.width || 800;
@@ -150,6 +155,7 @@ export async function maskCardImage(
   const plan = resolveNameMaskPlan({
     playerName,
     setHint: setName,
+    gameSetId: opts.gameSetId,
     words,
     imageWidth: originalWidth,
     imageHeight: originalHeight,
@@ -157,6 +163,14 @@ export async function maskCardImage(
   });
 
   const maskedBuffer = await applyPercentRegions(rawImageBuffer, plan.regions);
+  const coverage = await assertOpaqueIdentityCover({
+    buffer: maskedBuffer,
+    regions: plan.regions,
+    layoutClass: plan.layoutClass,
+    nameBoxes: plan.nameBoxes,
+    imageWidth: originalWidth,
+    imageHeight: originalHeight,
+  });
 
   return {
     maskedBuffer,
@@ -164,6 +178,9 @@ export async function maskCardImage(
     ocrMatches: plan.matchedTokens,
     source: plan.source,
     regions: plan.regions,
+    layoutClass: plan.layoutClass,
+    coverageOk: coverage.ok,
+    coverageReason: coverage.reason,
   };
 }
 

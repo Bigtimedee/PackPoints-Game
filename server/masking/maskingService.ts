@@ -21,6 +21,7 @@ export function peekWarmMaskedFilename(cardId: string): string | null {
 }
 
 const maskingQueue: Map<string, Promise<string | null>> = new Map();
+const coverageRefusals = new Map<string, string>();
 let activeMaskingJobs = 0;
 const MAX_CONCURRENT_OCR = 2;
 
@@ -53,6 +54,13 @@ async function downloadImage(url: string): Promise<Buffer | null> {
   }
 }
 
+/** Set when a bake is refused. The masked-image route reads this once. */
+export function takeCoverageRefusal(cardId: string): string | null {
+  const reason = coverageRefusals.get(cardId) ?? null;
+  if (reason) coverageRefusals.delete(cardId);
+  return reason;
+}
+
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
   const warm = peekWarmMaskedFilename(cardId);
   if (warm) {
@@ -80,6 +88,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
   let imageUrl: string | null = null;
   let playerName: string | null = null;
   let setHint: string | null = null;
+  let gameSetId: string | null = null;
 
   const [baseballCard] = await db
     .select()
@@ -108,6 +117,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       let brand: string | null = null;
       let sport: string | null = null;
       if (playableCard.gameSetId) {
+        gameSetId = playableCard.gameSetId;
         const [gameSet] = await db
           .select({
             year: gameSets.year,
@@ -179,7 +189,20 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       imageBuffer,
       playerName || "",
       setHint,
+      { gameSetId },
     );
+
+    if (!result.coverageOk) {
+      const reason = result.coverageReason || "mask_name_uncovered";
+      coverageRefusals.set(cardId, reason);
+      console.error(`[MaskingService] Refusing playable mask for ${cardId}: ${reason}`, {
+        source: result.source,
+        layoutClass: result.layoutClass,
+        maskVersion: CURRENT_MASK_VERSION,
+      });
+      await quarantineUncoveredName(cardId, reason);
+      return null;
+    }
 
     const filename = warmMaskedFilename(cardId);
     const filePath = path.join(MASKED_CARDS_DIR, filename);
@@ -243,6 +266,24 @@ export async function preMaskCards(cardIds: string[]): Promise<Map<string, strin
 
 export function getMaskedImageUrl(cardId: string, _maskedPath?: string): string {
   return maskedCardImageUrl(cardId);
+}
+
+async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
+  try {
+    await db
+      .update(playableCards)
+      .set({
+        isPlayable: false,
+        blockedReason: "mask_name_uncovered",
+        imageReviewStatus: "flagged",
+        quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
+        lastValidationReason: reason.slice(0, 240),
+        updatedAt: new Date(),
+      })
+      .where(eq(playableCards.id, cardId));
+  } catch (error) {
+    console.error(`[MaskingService] Failed to quarantine uncovered name for ${cardId}:`, error);
+  }
 }
 
 export function getMaskedCardsDir(): string {
