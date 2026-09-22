@@ -30,6 +30,25 @@ describe("HOME_PLAY_VANITY gate", () => {
   });
 });
 
+/** Home-surface signup-bonus ads. Register still credits 250; home must not say so. */
+const HOME_VANITY_250_BANNED = [
+  "New players get 250 free PackPTS on signup",
+  "Claim 250 Free PackPTS",
+  "Start with 250 Free PackPTS",
+  "we'll credit 250",
+  "250 free PackPTS",
+  "250 PackPTS",
+  "free PackPTS",
+  "no purchase needed",
+  "button-claim-bonus",
+  "button-signup-bonus",
+  "signup bonus",
+  "welcome bonus",
+  "Claim Bonus",
+  "No credit card required",
+  "Free forever",
+];
+
 describe("home quarantine surfaces", () => {
   it("omits vanity rows while loading and never uses an em-dash placeholder", () => {
     expect(homeSrc).toContain("shouldShowHomePlayVanity");
@@ -46,13 +65,20 @@ describe("home quarantine surfaces", () => {
     expect(homeSrc).not.toMatch(/Claim Your Spot/);
   });
 
-  it("keeps the 250 PackPTS signup promo only because register still credits 250", () => {
+  it("keeps the register welcome credit and does not advertise it on home", () => {
     expect(registerSrc).toMatch(/walletService\.earn\(\s*user\.id,\s*250,/);
     expect(registerSrc).toMatch(/welcome_bonus:\$\{user\.id\}/);
     expect(registerSrc).toMatch(/source:\s*["']signup_bonus["']/);
-    expect(homeSrc).toMatch(/250 free PackPTS/);
-    expect(homeSrc).toMatch(/Start with 250 Free PackPTS/);
-    expect(homeSrc).toMatch(/data-testid=["']button-signup-bonus["']/);
+    const lower = homeSrc.toLowerCase();
+    for (const phrase of HOME_VANITY_250_BANNED) {
+      expect(lower.includes(phrase.toLowerCase()), phrase).toBe(false);
+    }
+    expect(homeSrc).not.toMatch(/\b250\b/);
+    expect(homeSrc).toContain("Create a Free Account");
+    expect(homeSrc).toContain("Create free account");
+    expect(homeSrc).toContain("Play a round first");
+    expect(homeSrc).toContain('data-testid="button-create-free-account"');
+    expect(homeSrc).toContain('data-testid="button-home-create-account"');
     expect(homeSrc).not.toMatch(/PackPoints/);
     const vanityBlock = homeSrc.slice(
       homeSrc.indexOf("quickStats.length > 0"),
