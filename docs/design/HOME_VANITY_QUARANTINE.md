@@ -17,13 +17,23 @@ Gate lives in `shared/homePlayVanity.ts`: `HOME_PLAY_VANITY_MIN_GAMES` + `should
 
 The home “Limited Founder spots” / depleting progress bar is **hidden**. Cap API (`GET /api/access/cap`) stays real for auth, waitlist, and admin Cap UX. Do not amplify `currentActive / maxActive` as home-hero theater.
 
-## 3. 250 Free PackPTS
+## 3. Welcome credit is not home copy
 
-Keep the signup promo **only** while server signup still credits **250 PackPTS**. Local register (`POST /api/auth/register`) does: `walletService.earn(..., 250, ..., welcome_bonus:{userId})`.
+`POST /api/auth/register` still credits **250 PackPTS**: `walletService.earn(..., 250, ..., welcome_bonus:{userId})`.
+
+Home does **not** advertise that credit. Guest hero and the mid-page account card use quiet copy (create a free account / play a round first). Banned on `client/src/pages/home.tsx`:
+
+- `New players get 250 free PackPTS on signup`
+- `Claim 250 Free PackPTS`
+- `Start with 250 Free PackPTS`
+- sibling claims (`we'll credit 250`, `free PackPTS`, `button-claim-bonus`, `button-signup-bonus`)
+
+Rules:
 
 - Spelling is **PackPTS**, never PackPoints
-- Promo DOM stays **separate** from play-vanity counters
-- If the grant is removed, delete the promo — do not leave theater
+- The account card stays **separate** from play-vanity counters
+- Do not put the 250 grant, a claim CTA, or signup-bonus theater back on home
+- Gate plaque, `SignupModal`, `OnboardingModal`, and `/invite` referral rewards are outside this section
 
 ## 4. Acceptance checklist
 
@@ -32,6 +42,6 @@ Keep the signup promo **only** while server signup still credits **250 PackPTS**
 - [ ] Staff flag `home.show_play_vanity` shows the real counts before 500 games
 - [ ] Home does not mount Founders FOMO / spots-remaining / countdown theater
 - [ ] `/api/access/cap` is unchanged for Cap UX elsewhere
-- [ ] 250 promo kept iff register still earns 250; copy says PackPTS; not inside the vanity grid
+- [ ] Register still earns 250; home does not advertise it (no 250 / claim / free PackPTS); copy says PackPTS; not inside the vanity grid
 - [ ] No Maker Rate, no ≥10 UGC volume claims, no PackPoints spelling, no FireMarket/Norma
 - [ ] `/make` stays dark for non-staff; home does not send users to create cards

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, Gift, UserPlus, Play, X, Compass } from "lucide-react";
+import { Monitor, Users, Trophy, Zap, Star, Shuffle, Calendar, MessageCircle, UserPlus, Play, X, Compass } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
@@ -347,8 +347,8 @@ export default function Home() {
             </p>
             {!isAuthenticated && (
               <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/30 text-primary rounded-full px-5 py-2 text-sm font-semibold">
-                <Gift className="h-4 w-4" />
-                New players get 250 free PackPTS on signup — no purchase needed
+                <UserPlus className="h-4 w-4" />
+                Create a free account to keep Daily 5 and your sets
               </div>
             )}
             <div className="flex flex-wrap justify-center gap-4 pt-4">
@@ -366,9 +366,9 @@ export default function Home() {
               </Link>
               {!isAuthenticated && (
                 <Link href="/auth">
-                  <Button size="lg" variant="outline" className="gap-2" data-testid="button-claim-bonus">
-                    <Gift className="h-5 w-5" />
-                    Claim 250 Free PackPTS
+                  <Button size="lg" variant="outline" className="gap-2" data-testid="button-create-free-account">
+                    <UserPlus className="h-5 w-5" />
+                    Create free account
                   </Button>
                 </Link>
               )}
@@ -505,28 +505,27 @@ export default function Home() {
           <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-background">
             <CardContent className="p-6 md:p-8 text-center space-y-4">
               <div className="mx-auto p-3 rounded-full bg-primary/10 w-fit">
-                <Gift className="h-8 w-8 text-primary" />
+                <UserPlus className="h-8 w-8 text-primary" />
               </div>
-              <h2 className="text-2xl font-bold">Start with 250 Free PackPTS</h2>
+              <h2 className="text-2xl font-bold">Create a Free Account</h2>
               <p className="text-muted-foreground max-w-md mx-auto">
-                Create a free account today and we'll credit 250 PackPTS straight to your wallet.
-                Browse live listings from Marketplace — applying PackPTS does not change the eBay price.
+                Create a free account to keep Daily 5 and your sets on one profile.
+                You can play a round first.
               </p>
               <div className="flex flex-wrap justify-center gap-3 pt-2">
                 <Link href="/auth">
-                  <Button size="lg" className="gap-2" data-testid="button-signup-bonus">
+                  <Button size="lg" className="gap-2" data-testid="button-home-create-account">
                     <UserPlus className="h-5 w-5" />
-                    Create Free Account
+                    Create free account
                   </Button>
                 </Link>
                 <Link href="/game/solo">
                   <Button size="lg" variant="outline" className="gap-2">
                     <Play className="h-5 w-5" />
-                    Try Without Signing Up
+                    Play a round first
                   </Button>
                 </Link>
               </div>
-              <p className="text-xs text-muted-foreground pt-1">No credit card required. Free forever.</p>
             </CardContent>
           </Card>
         </section>
