@@ -59,6 +59,7 @@ describe("describeGameSetDeleteError", () => {
     expect(failure.constraint).toBe("playable_cards_game_set_id_game_sets_id_fk");
     expect(failure.error).toContain("playable_cards_game_set_id_game_sets_id_fk");
     expect(failure.error).toContain("import");
+    expect(failure.error).toContain('violates foreign key constraint "playable_cards_game_set_id_game_sets_id_fk"');
     expect(failure.error).not.toBe("Failed to delete game set");
   });
 
@@ -118,6 +119,29 @@ describe("admin playable-sets UI delete action", () => {
 
   it("does not abort a CardHedge import at the default 15s client timeout", () => {
     expect(src).toContain("timeoutMs: 10 * 60 * 1000");
+  });
+
+  it("refreshes the blocking card count before confirm and does not label an in-progress import as Never", () => {
+    expect(src).toContain("staleTime: 0");
+    expect(src).toContain("Import in progress");
+    expect(src).toContain("Cards stored, import not finished");
+    expect(src).toContain("lastImportLabel(set)");
+  });
+});
+
+describe("GET /api/admin/game-sets card count", () => {
+  it("counts every playable_cards row that FK-blocks delete", () => {
+    const routesPath = join(dirname(fileURLToPath(import.meta.url)), "../routes.ts");
+    const src = readFileSync(routesPath, "utf8");
+    const marker = 'app.get("/api/admin/game-sets"';
+    const start = src.indexOf(marker);
+    expect(start).toBeGreaterThan(-1);
+    const handler = src.slice(start, src.indexOf("app.post(", start));
+    expect(handler).toContain("SELECT COUNT(*)::int FROM playable_cards pc");
+    expect(handler).toContain("pc.game_set_id = game_sets.id");
+    expect(handler).not.toContain("pc.is_playable");
+    expect(handler).not.toContain("content_verified");
+    expect(handler).toContain("latest_import_status");
   });
 });
 

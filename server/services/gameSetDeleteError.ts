@@ -24,11 +24,12 @@ export function describeGameSetDeleteError(error: unknown): GameSetDeleteFailure
     const constraint = pg.constraint || "foreign_key";
     const table = pg.table || "a related table";
     const detail = pg.detail ? ` ${pg.detail}` : "";
+    const pgMessage = typeof pg.message === "string" && pg.message.trim() ? ` ${pg.message.trim()}` : "";
     const cardsStillReferenced =
       table === "playable_cards" || constraint.includes("playable_cards");
     const message = cardsStillReferenced
-      ? `Cannot delete this set while playable cards still reference it (${constraint}). An import may still be writing cards. Wait for that import to finish, then delete again.${detail}`
-      : `Cannot delete this set because ${table} still references it (${constraint}).${detail}`;
+      ? `Cannot delete this set while playable cards still reference it (${constraint}). An import may still be writing cards. Wait for that import to finish, then delete again.${detail}${pgMessage}`
+      : `Cannot delete this set because ${table} still references it (${constraint}).${detail}${pgMessage}`;
     return { status: 409, error: message, code: "23503", constraint };
   }
 

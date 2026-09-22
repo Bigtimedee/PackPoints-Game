@@ -5032,19 +5032,19 @@ export async function registerRoutes(
           isActive: gameSets.isActive,
           cardhedgeSetQuery: gameSets.cardhedgeSetQuery,
           cardhedgeCategory: gameSets.cardhedgeCategory,
-          // Return actual playable count matching gameplay query logic
-          // Allow NULL or true for content_verified (same as getRandomCardsFromSet)
+          // Every playable_cards row FK-blocks DELETE on game_sets. The
+          // gameplay filter (playable + https image + player + sport) can
+          // read 0 while those rows exist.
           cardsImportedCount: sql<number>`(
-            SELECT COUNT(*) FROM playable_cards pc 
-            WHERE pc.game_set_id = game_sets.id 
-            AND pc.is_playable = true 
-            AND (pc.content_verified IS NULL OR pc.content_verified = true)
-            AND pc.image_url IS NOT NULL
-            AND pc.image_url LIKE 'https://%'
-            AND pc.player IS NOT NULL
-            AND pc.player != ''
-            AND LOWER(pc.category) = LOWER(game_sets.sport)
+            SELECT COUNT(*)::int FROM playable_cards pc
+            WHERE pc.game_set_id = game_sets.id
           )`.as('cards_imported_count'),
+          latestImportStatus: sql<string | null>`(
+            SELECT r.status FROM cardhedge_import_runs r
+            WHERE r.game_set_id = game_sets.id
+            ORDER BY r.started_at DESC NULLS LAST
+            LIMIT 1
+          )`.as('latest_import_status'),
           lastImportAt: gameSets.lastImportAt,
           marketplaceKeywords: gameSets.marketplaceKeywords,
           createdAt: gameSets.createdAt,
