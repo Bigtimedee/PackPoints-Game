@@ -60,6 +60,7 @@ interface GameSet {
   cardhedgeSetQuery: string | null;
   cardhedgeCategory: string | null;
   cardsImportedCount: number;
+  latestImportStatus?: string | null;
   lastImportAt: string | null;
   marketplaceKeywords: string[];
   createdAt: string;
@@ -117,6 +118,20 @@ const defaultFormData: SetFormData = {
   isActive: true,
 };
 
+async function loadGameSets(): Promise<GameSet[]> {
+  const res = await fetch("/api/admin/game-sets", { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to fetch game sets");
+  return res.json();
+}
+
+function lastImportLabel(set: GameSet): string {
+  const status = (set.latestImportStatus || "").toLowerCase();
+  if (status === "running" || status === "pending") return "Import in progress";
+  if (set.lastImportAt) return format(new Date(set.lastImportAt), "MMM d, yyyy h:mm a");
+  if (set.cardsImportedCount > 0) return "Cards stored, import not finished";
+  return "Never";
+}
+
 const sports = ["baseball", "basketball", "football", "hockey"];
 const categories = ["Baseball", "Basketball", "Football", "Hockey"];
 
@@ -135,11 +150,7 @@ export default function AdminPlayableSets() {
 
   const { data: gameSets, isLoading } = useQuery<GameSet[]>({
     queryKey: ["/api/admin/game-sets"],
-    queryFn: async () => {
-      const res = await fetch("/api/admin/game-sets", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch game sets");
-      return res.json();
-    },
+    queryFn: loadGameSets,
   });
 
   const searchMutation = useMutation({
@@ -219,9 +230,12 @@ export default function AdminPlayableSets() {
 
   const importMutation = useMutation({
     mutationFn: async (setId: string) => {
+      // CardHedge paging runs longer than the default 15s client abort.
+      // Aborting the browser request does not stop the server insert loop,
+      // which then races a delete that still shows "Never imported".
       const res = await apiRequest("POST", `/api/admin/playable-sets/${setId}/import`, {
         page_size: 100,
-      });
+      }, { timeoutMs: 10 * 60 * 1000 });
       return res.json();
     },
     onSuccess: (data) => {
@@ -361,13 +375,28 @@ export default function AdminPlayableSets() {
       setDeleteTargetSet(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+      const serverMessage = error.message?.trim();
+      toast({
+        title: "Delete failed",
+        description: serverMessage || "Delete failed",
+        variant: "destructive",
+      });
     },
   });
 
   const handleDelete = (set: GameSet) => {
     setDeleteTargetSet(set);
     setShowDeleteConfirm(true);
+    // The list is cached until an import finishes. Refresh so the confirm
+    // count is the playable_cards rows that FK-block the delete.
+    void queryClient.fetchQuery({
+      queryKey: ["/api/admin/game-sets"],
+      queryFn: loadGameSets,
+      staleTime: 0,
+    }).then((fresh) => {
+      const updated = fresh.find((row) => row.id === set.id);
+      if (updated) setDeleteTargetSet(updated);
+    }).catch(() => undefined);
   };
 
   const confirmDelete = () => {
@@ -522,10 +551,7 @@ export default function AdminPlayableSets() {
                   </TableCell>
                   <TableCell>{getStatusBadge(set)}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {set.lastImportAt 
-                      ? format(new Date(set.lastImportAt), "MMM d, yyyy h:mm a")
-                      : "Never"
-                    }
+                    {lastImportLabel(set)}
                   </TableCell>
                   <TableCell>
                     {set.isActive 

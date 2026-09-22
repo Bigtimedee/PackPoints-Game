@@ -43,6 +43,7 @@ import {
 } from "@shared/homePlayVanity";
 import { adminService } from "./services/adminService";
 import { hardDeleteGameSet } from "./services/gameSetDelete";
+import { describeGameSetDeleteError } from "./services/gameSetDeleteError";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
 import { redemptionService } from "./services/redemptionService";
@@ -5031,19 +5032,19 @@ export async function registerRoutes(
           isActive: gameSets.isActive,
           cardhedgeSetQuery: gameSets.cardhedgeSetQuery,
           cardhedgeCategory: gameSets.cardhedgeCategory,
-          // Return actual playable count matching gameplay query logic
-          // Allow NULL or true for content_verified (same as getRandomCardsFromSet)
+          // Every playable_cards row FK-blocks DELETE on game_sets. The
+          // gameplay filter (playable + https image + player + sport) can
+          // read 0 while those rows exist.
           cardsImportedCount: sql<number>`(
-            SELECT COUNT(*) FROM playable_cards pc 
-            WHERE pc.game_set_id = game_sets.id 
-            AND pc.is_playable = true 
-            AND (pc.content_verified IS NULL OR pc.content_verified = true)
-            AND pc.image_url IS NOT NULL
-            AND pc.image_url LIKE 'https://%'
-            AND pc.player IS NOT NULL
-            AND pc.player != ''
-            AND LOWER(pc.category) = LOWER(game_sets.sport)
+            SELECT COUNT(*)::int FROM playable_cards pc
+            WHERE pc.game_set_id = game_sets.id
           )`.as('cards_imported_count'),
+          latestImportStatus: sql<string | null>`(
+            SELECT r.status FROM cardhedge_import_runs r
+            WHERE r.game_set_id = game_sets.id
+            ORDER BY r.started_at DESC NULLS LAST
+            LIMIT 1
+          )`.as('latest_import_status'),
           lastImportAt: gameSets.lastImportAt,
           marketplaceKeywords: gameSets.marketplaceKeywords,
           createdAt: gameSets.createdAt,
@@ -5141,7 +5142,12 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting game set:", error);
-      res.status(500).json({ error: "Failed to delete game set" });
+      const failure = describeGameSetDeleteError(error);
+      res.status(failure.status).json({
+        error: failure.error,
+        ...(failure.code ? { code: failure.code } : {}),
+        ...(failure.constraint ? { constraint: failure.constraint } : {}),
+      });
     }
   });
 
@@ -6589,15 +6595,29 @@ export async function registerRoutes(
           pagesFetched: page,
         });
       } catch (importError: any) {
+        const setDeletedDuringImport =
+          importError?.code === "23503" &&
+          String(importError?.constraint || "").includes("game_sets");
+        const importErrorText = setDeletedDuringImport
+          ? "Import stopped because this game set was deleted."
+          : importError.message || "Unknown error";
         await db
           .update(cardhedgeImportRuns)
           .set({
             status: "FAILED",
             finishedAt: new Date(),
-            error: importError.message || "Unknown error",
+            error: importErrorText,
           })
           .where(eq(cardhedgeImportRuns.id, importRun.id));
-        
+
+        if (setDeletedDuringImport) {
+          return res.status(409).json({
+            error: importErrorText,
+            code: "23503",
+            constraint: importError.constraint,
+          });
+        }
+
         throw importError;
       }
     } catch (error: any) {
