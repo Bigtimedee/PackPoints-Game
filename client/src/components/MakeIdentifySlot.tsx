@@ -18,8 +18,8 @@ import { Check, Loader2 } from "lucide-react";
 
 interface IdentifiedCard {
   playerName: string;
-  year: number;
-  brand: string;
+  year?: number;
+  brand?: string;
   imageUrl?: string | null;
 }
 
@@ -113,12 +113,14 @@ export function MakeIdentifySlot({
         <p className="truncate text-xs font-medium" style={{ color: MAKE_INK }}>
           {title}
         </p>
-        <p
-          className="mt-0.5 text-[11px]"
-          style={{ color: chrome.success ? MAKE_GREEN : MAKE_MUTED }}
-        >
-          {chrome.label}
-        </p>
+        {chrome.label && (
+          <p
+            className="mt-0.5 text-[11px]"
+            style={{ color: chrome.success ? MAKE_GREEN : MAKE_MUTED }}
+          >
+            {chrome.label}
+          </p>
+        )}
       </div>
       {status === "error" && (
         <div className="space-y-1.5">
@@ -160,7 +162,7 @@ export function MakeDraftBoard({
 }) {
   return (
     <div
-      data-testid="make-draft-board"
+      data-testid="make-identify-board"
       className="rounded-2xl border p-4"
       style={{ background: MAKE_PANEL, borderColor: "rgba(143, 150, 163, 0.18)" }}
     >

@@ -1,6 +1,7 @@
-# Design IDENTIFY_RETRY — `/make` draft-row sequential identify
+# Design IDENTIFY_RETRY — `/make` sequential identify
 
-Eng-ready contract for a failed identify slot in the Snap-to-Set draft row.
+Eng-ready contract for a failed identify slot on catalog-match Snap-to-Set.
+Success advances to a match result (found / ambiguous / no match). It does not save a draft.
 Pipeline stays sequential (one identify at a time). A failure must not block later slots.
 
 ## Slot states (locked labels)
@@ -8,9 +9,9 @@ Pipeline stays sequential (one identify at a time). A failure must not block lat
 |--------|-------|--------|
 | `queued` | `Queued` | Quiet / muted |
 | `loading` | `Identifying…` | Spinner + muted |
-| `ok` | `Saved` | Green check `#22C55E` on thumb + `{year} {brand}` |
+| `ok` | (check only) | Green check `#22C55E` on thumb + `{year} {brand}`, then the match screen |
 
-Draft chrome (match `make-identify-retry-1080.png`): headline `Identifying your stack`; subline `One card at a time. Failed slots stay actionable — skip anytime.`; board `Draft • N cards` + `Sequential`. Failed: gold 40% border, **Try again** `#2B6CEE` over **Skip** text.
+Identify chrome: headline `Identifying…`; subline `Matching to sets already in PackPTS.`; board `Identifying · N` + `Sequential`; crumb `/make`. Failed: gold 40% border, **Try again** `#2B6CEE` over **Skip** text. Rate limit: `You've hit today's identify pace — try again in a bit.` Decode: `Couldn't read that photo — try exporting as JPEG`.
 | `error` | `Couldn't identify` | Quiet border (optional gold at 40%) |
 
 ## Failed slot
@@ -39,4 +40,4 @@ Non-staff: param and storage are ignored with no toast, redirect, or empty-state
 
 ## Non-goals
 - Parallel identify
-- Changing `POST /api/sets/identify-card` or publish gates (≥5 ok cards)
+- Writing a playable card or user set from the photo

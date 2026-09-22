@@ -7,6 +7,7 @@ export interface IdentifiedCard {
   brand: string;
   sport: string;
   setName: string;
+  cardNumber: string | null;
   confidence: "high" | "medium" | "low";
   rawText: string;
 }
@@ -34,6 +35,7 @@ Return a JSON object with these exact fields:
   "brand": "Topps",
   "sport": "baseball",
   "setName": "1987 Topps Baseball",
+  "cardNumber": "14",
   "confidence": "high",
   "rawText": "All text visible on the card"
 }
@@ -42,6 +44,7 @@ Rules:
 - confidence: "high" if you can clearly read the player name and year; "medium" if you can read one but not both; "low" if the image is blurry or a non-player card
 - sport: one of "baseball", "basketball", "football", "hockey", "soccer", "other"
 - year: integer, best estimate from the card design if not printed
+- cardNumber: the printed card number without a leading #, or null if it is not visible
 - If this is not a sports card at all, set playerName to null and confidence to "low"
 - Return only valid JSON, no markdown`;
 
@@ -104,6 +107,7 @@ export async function identifyCardFromPhoto(imageBase64: string): Promise<CardId
       brand: String(parsed.brand || "Unknown"),
       sport: String(parsed.sport || "baseball"),
       setName: String(parsed.setName || `${parsed.year} ${parsed.brand}`),
+      cardNumber: parsed.cardNumber ? String(parsed.cardNumber).replace(/^#/, "").trim() || null : null,
       confidence: ["high", "medium", "low"].includes(parsed.confidence)
         ? parsed.confidence
         : "medium",

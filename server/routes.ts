@@ -1,7 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type Stripe from "stripe";
 import { createServer, type Server } from "http";
-import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
 import {
@@ -46,6 +45,8 @@ import { hardDeleteGameSet } from "./services/gameSetDelete";
 import { describeGameSetDeleteError } from "./services/gameSetDeleteError";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
+import { identifyAndMatchReadOnly, matchCatalogCardById } from "./services/catalogMatch";
+import { USER_SET_PUBLISH_CLOSED } from "@shared/catalogMatch";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
@@ -349,7 +350,7 @@ export async function registerRoutes(
   });
 
   // ========================================
-  // MAKING LAYER — SNAP-TO-SET (staff-only; public UGC path is dark)
+  // SNAP-TO-SET — catalog match only (read-only; no user-set publish)
   // ========================================
 
   app.post("/api/make/start", async (req: any, res) => {
@@ -378,6 +379,52 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch {
       res.json({ ok: true });
+    }
+  });
+
+  app.post("/api/make/identify", isAuthenticated, cardIdentifyLimiter, async (req: any, res) => {
+    const userId = requestUserId(req);
+    try {
+      const { imageBase64 } = req.body ?? {};
+      if (!imageBase64 || typeof imageBase64 !== "string") {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "missing_image" });
+        return res.status(400).json({ error: "imageBase64 is required" });
+      }
+      if (imageBase64.length > 6_700_000) {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "too_large" });
+        return res.status(400).json({ error: "Couldn't read that photo — try exporting as JPEG" });
+      }
+
+      const outcome = await identifyAndMatchReadOnly(imageBase64);
+      if (outcome.kind === "retry") {
+        logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: outcome.reason });
+        return res.status(outcome.status).json({ error: outcome.error, reason: outcome.reason });
+      }
+
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.identifySuccess, userId, {
+        matchStatus: outcome.body.match.status,
+        catalogCardId: outcome.body.catalogCardId,
+        setCount: outcome.body.match.sets.length,
+      });
+      res.json(outcome.body);
+    } catch (error) {
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "exception" });
+      console.error("[SnapToSet] identify match error:", error);
+      res.status(500).json({ error: "Couldn't identify" });
+    }
+  });
+
+  app.get("/api/make/match", isAuthenticated, async (req, res) => {
+    try {
+      const catalogCardId = typeof req.query.catalogCardId === "string" ? req.query.catalogCardId : "";
+      if (!catalogCardId) {
+        return res.status(400).json({ error: "catalogCardId is required" });
+      }
+      const body = await matchCatalogCardById(catalogCardId);
+      res.json(body);
+    } catch (error) {
+      console.error("[SnapToSet] match error:", error);
+      res.status(500).json({ error: "Couldn't identify" });
     }
   });
 
@@ -417,33 +464,12 @@ export async function registerRoutes(
         });
       }
 
-      // Store the photo (downscaled) in Postgres so the card is playable
-      // in-game. Served back via GET /api/card-photos/:id. On failure the
-      // card can still be published, but gameplay excludes imageless cards.
-      let imageUrl: string | null = null;
-      try {
-        const sharp = (await import("sharp")).default;
-        const resized = await sharp(Buffer.from(imageBase64, "base64"))
-          .rotate() // respect EXIF orientation
-          .resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer();
-        const [photo] = await db.insert(cardPhotos).values({
-          data: resized,
-          contentType: "image/jpeg",
-          uploadedByUserId: userId,
-        }).returning({ id: cardPhotos.id });
-        const baseUrl = process.env.APP_BASE_URL || `https://${req.get("host")}`;
-        imageUrl = `${baseUrl}/api/card-photos/${photo.id}`;
-      } catch (uploadError) {
-        console.error("[SnapToSet] photo store failed (continuing without image):", uploadError);
-      }
-
       logMakingLayerEvent(MAKING_LAYER_EVENTS.identifySuccess, userId, {
-        photoStored: !!imageUrl,
+        photoStored: false,
         confidence: result.card.confidence,
+        readOnly: true,
       });
-      res.json({ card: { ...result.card, imageUrl } });
+      res.json({ card: result.card });
     } catch (error) {
       logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "exception" });
       console.error("[SnapToSet] identify-card error:", error);
@@ -465,104 +491,9 @@ export async function registerRoutes(
     }
   });
 
-  const createUserSetSchema = z.object({
-    setName: z.string().min(1).max(60),
-    makerNote: z.string().min(1).max(140),
-    cards: z.array(z.object({
-      playerName: z.string(),
-      year: z.number().int(),
-      brand: z.string(),
-      sport: z.string(),
-      setName: z.string(),
-      confidence: z.enum(["high", "medium", "low"]),
-      rawText: z.string(),
-      imageUrl: z.string().url().startsWith("https://").nullable().optional(),
-    })).min(5).max(20),
-  });
-
-  app.post("/api/sets/create", isAuthenticated, requireAdmin, async (req: any, res) => {
-    const userId = requestUserId(req);
-    try {
-      const parsed = createUserSetSchema.safeParse(req.body);
-      if (!parsed.success) {
-        logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, userId, { reason: "invalid_request" });
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
-      }
-
-      if (!userId) {
-        logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, null, { reason: "unauthorized" });
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      const { setName, makerNote, cards } = parsed.data;
-
-      // Derive sport/brand/year from majority of cards
-      const firstCard = cards[0];
-      const rawSport = firstCard.sport.toLowerCase();
-      const sport = ["baseball", "basketball", "football", "hockey"].includes(rawSport)
-        ? rawSport
-        : "baseball";
-
-      const [newSet] = await db.insert(gameSets).values({
-        sport,
-        brand: firstCard.brand || "Mixed",
-        year: firstCard.year || new Date().getFullYear(),
-        setName,
-        isActive: true,
-        isUserCreated: true,
-        createdByUserId: userId,
-        makerNote,
-        marketplaceKeywords: [],
-      }).returning({ id: gameSets.id });
-
-      const setId = newSet.id;
-
-      await db.insert(playableCards).values(
-        cards.map(card => ({
-          gameSetId: setId,
-          cardhedgeCardId: `snap2set:${randomUUID()}`,
-          player: card.playerName,
-          set: card.setName,
-          description: `${card.year} ${card.brand} ${card.setName} — ${card.playerName}`,
-          imageUrl: card.imageUrl ?? null,
-          // category must match the set's sport or getRandomCardsFromSet filters the card out
-          category: sport,
-          isPlayable: true,
-        }))
-      );
-
-      track({
-        eventType: "set_published",
-        userId,
-        gameSetId: setId,
-        setName,
-        sport,
-        isUserCreatedSet: true,
-        payload: { cardCount: cards.length },
-      });
-      logMakingLayerEvent(MAKING_LAYER_EVENTS.publishSuccess, userId, {
-        setId,
-        cardCount: cards.length,
-      });
-
-      let shareImageUrl: string | undefined;
-      try {
-        const { onSetPublished, awaitScoreCard } = await import("./contentFactory/index");
-        const generated = await awaitScoreCard(onSetPublished({ setId, userId }).catch((err) => {
-          console.error("[ContentFactory] Maker share error:", err?.message);
-          return null;
-        }));
-        shareImageUrl = generated?.imageUrl || undefined;
-      } catch (cfErr) {
-        console.error("[ContentFactory] Maker share import error:", cfErr);
-      }
-
-      res.json({ setId, setUrl: `/sets/${setId}`, cardCount: cards.length, shareImageUrl });
-    } catch (error) {
-      logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, userId, { reason: "exception" });
-      console.error("[SnapToSet] create-set error:", error);
-      res.status(500).json({ error: "Failed to create set" });
-    }
+  app.post("/api/sets/create", (_req, res) => {
+    logMakingLayerEvent(MAKING_LAYER_EVENTS.publishFail, requestUserId(_req), { reason: "publish_closed" });
+    res.status(USER_SET_PUBLISH_CLOSED.status).json({ error: USER_SET_PUBLISH_CLOSED.error });
   });
 
   // In-memory daily dedup for maker play notifications (clears at midnight UTC)

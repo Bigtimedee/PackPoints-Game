@@ -44,4 +44,4 @@ Rules:
 - [ ] `/api/access/cap` is unchanged for Cap UX elsewhere
 - [ ] Register still earns 250; home does not advertise it (no 250 / claim / free PackPTS); copy says PackPTS; not inside the vanity grid
 - [ ] No Maker Rate, no ≥10 UGC volume claims, no PackPoints spelling, no FireMarket/Norma
-- [ ] `/make` stays dark for non-staff; home does not send users to create cards
+- [ ] `/make` is catalog-match only (no create/publish). Home still does not link to `/make` or ask users to create cards.

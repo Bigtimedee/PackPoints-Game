@@ -15,13 +15,13 @@ Match mock, not Surface A share art.
 |------|-----------|
 | Canvas | Full-bleed `#0b0f16` (page, not a light-theme card) |
 | Eyebrow | `SNAP-TO-SET` — muted `#8F96A3`, tracking wide |
-| Headline | `Photo the stack. Name it. Publish.` — ink `#F0F2F5`, large bold |
-| Subline | `Sample cards below — not your PC. Snap yours to start.` |
-| Badge | Centered over stack: gold 40% border, gold `EXAMPLE · NOT YOUR PC` |
+| Headline | `Snap a card. Find its set.` — ink `#F0F2F5`, large bold |
+| Subline | `Match to a set already in PackPTS — then play it.` |
+| Badge | Centered over stack: gold 40% border, gold `EXAMPLE · CATALOG DEMO` |
 | Stack | **5** fanned sample cards. Cream + gold inner stroke. **One navy** mid-stack. Front card: `DESK` + silhouette + eye mask + `PTS` / `1990`. Soft drop shadow. CSS only. |
 | Primary | Full-width fill `#2B6CEE` — `Take photo` |
 | Secondary | Full-width dark fill, gray stroke — `Choose from library` |
-| Soft auth | Signed-out only: `Sign in to photo your stack.` MAKE_FLOW intent unchanged. |
+| Soft auth | Signed-out only: `Sign in to snap a card.` MAKE_FLOW intent unchanged. |
 | Do not ship | Mock footer `Eng mock · …` |
 
 Auth chrome (PackPTS mark / Signed in) is the existing app header — do not duplicate.
@@ -29,13 +29,13 @@ Auth chrome (PackPTS mark / Signed in) is the existing app header — do not dup
 ## Identify retry (draft row)
 | Zone | Implement |
 |------|-----------|
-| Crumb | `/make · draft` (quiet, top-right of page column) |
+| Crumb | `/make` (quiet, top-right of page column) |
 | Eyebrow | `SNAP-TO-SET` muted |
-| Headline | `Identifying your stack` |
-| Subline | `One card at a time. Failed slots stay actionable — skip anytime.` |
-| Board | Dark panel `Draft • N cards` + `Sequential` |
+| Headline | `Identifying…` |
+| Subline | `Matching to sets already in PackPTS.` |
+| Board | Dark panel `Identifying · N` + `Sequential` |
 | Slots | Horizontal row. Thumb + title + status. |
-| Success | Cream thumb, green check badge, title `{year} {brand}`, status `Saved` `#22C55E` |
+| Success | Cream thumb, green check badge, title `{year} {brand}`, then match found / ambiguous / no match |
 | Identifying | Blue spinner on thumb, `Photo 0N`, `Identifying…` |
 | Failed | Quiet gold 40% border, dark thumb, `Couldn't identify`, primary **Try again** `#2B6CEE`, **Skip** text under |
 | Queued | Cream thumb, `Photo 0N`, `Queued` |
