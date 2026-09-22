@@ -12,7 +12,6 @@ import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccessMake, MAKE_PUBLIC_REDIRECT } from "@/lib/makeAccess";
 
 // Critical path — eager imports
 import Home from "@/pages/home";
@@ -85,20 +84,10 @@ function BrandedLoadingScreen() {
   );
 }
 
-/** Staff-only: non-admin visitors are sent to /sets. Make codebase stays mounted for ops. */
+/** Catalog-match Snap-to-Set. Open to guests and non-staff; auth gates the file picker. */
 function MakeRoute() {
-  const { user, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
-
-  useEffect(() => {
-    if (!isLoading && !canAccessMake(user)) {
-      setLocation(MAKE_PUBLIC_REDIRECT);
-    }
-  }, [isLoading, user, setLocation]);
-
-  if (isLoading || !canAccessMake(user)) {
-    return <BrandedLoadingScreen />;
-  }
+  const { isLoading } = useAuth();
+  if (isLoading) return <BrandedLoadingScreen />;
   return <Make />;
 }
 

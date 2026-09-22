@@ -17,12 +17,13 @@ import {
 describe("Design EMPTY_STATE copy", () => {
   it("locks /make empty chrome (not Surface A, not PackPoints)", () => {
     expect(MAKE_EMPTY_COPY.eyebrow).toBe("SNAP-TO-SET");
-    expect(MAKE_EMPTY_COPY.headline).toBe("Photo the stack. Name it. Publish.");
-    expect(MAKE_EMPTY_COPY.subline).toBe("Sample cards below — not your PC. Snap yours to start.");
-    expect(MAKE_EMPTY_COPY.exampleBadge).toBe("EXAMPLE · NOT YOUR PC");
+    expect(MAKE_EMPTY_COPY.headline).toBe("Snap a card. Find its set.");
+    expect(MAKE_EMPTY_COPY.subline).toBe("Match to a set already in PackPTS — then play it.");
+    expect(MAKE_EMPTY_COPY.exampleBadge).toBe("EXAMPLE · CATALOG DEMO");
     expect(MAKE_EMPTY_COPY.primaryCta).toBe("Take photo");
     expect(MAKE_EMPTY_COPY.secondaryCta).toBe("Choose from library");
-    expect(MAKE_EMPTY_COPY.softAuth).toBe("Sign in to photo your stack.");
+    expect(MAKE_EMPTY_COPY.softAuth).toBe("Sign in to snap a card.");
+    expect(Object.values(MAKE_EMPTY_COPY).join(" ")).not.toMatch(/Name it\. Publish/);
     const blob = Object.values(MAKE_EMPTY_COPY).join(" ");
     expect(blob).not.toMatch(/PackPoints/);
     expect(blob).not.toMatch(/Maker Rate/i);
@@ -43,7 +44,7 @@ describe("Design IDENTIFY_RETRY chrome", () => {
       success: false,
     });
     expect(identifySlotChrome("ok")).toMatchObject({
-      label: IDENTIFY_RETRY_COPY.saved,
+      label: null,
       success: true,
       showTryAgain: false,
       failBorder: false,
@@ -58,9 +59,12 @@ describe("Design IDENTIFY_RETRY chrome", () => {
     expect(IDENTIFY_RETRY_COPY.tryAgain).toBe("Try again");
     expect(IDENTIFY_RETRY_COPY.skip).toBe("Skip");
     expect(IDENTIFY_RETRY_COPY.failed).toBe("Couldn't identify");
-    expect(IDENTIFY_RETRY_COPY.headline).toBe("Identifying your stack");
-    expect(IDENTIFY_RETRY_COPY.saved).toBe("Saved");
-    expect(draftBoardTitle(4)).toBe("Draft • 4 cards");
+    expect(IDENTIFY_RETRY_COPY.headline).toBe("Identifying…");
+    expect(IDENTIFY_RETRY_COPY.subline).toBe("Matching to sets already in PackPTS.");
+    expect(IDENTIFY_RETRY_COPY.rateLimit).toBe("You've hit today's identify pace — try again in a bit.");
+    expect(IDENTIFY_RETRY_COPY.decode).toBe("Couldn't read that photo — try exporting as JPEG");
+    expect(draftBoardTitle(4)).toBe("Identifying · 4");
+    expect(draftBoardTitle(4).toLowerCase()).not.toContain("draft");
     expect(draftSlotTitle("ok", { year: 1992, brand: "Topps" }, 0)).toBe("1992 Topps");
     expect(draftSlotTitle("error", undefined, 2)).toBe("Photo 03");
   });

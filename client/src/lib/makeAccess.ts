@@ -1,10 +1,10 @@
 /**
- * Product lock (2026-09-08): users never create cards.
- * Snap-to-Set `/make` stays in the repo (darked) for staff ops only.
+ * Product lock: users never create cards.
+ * `/make` is catalog-match Snap-to-Set — open to non-staff.
+ * Auth is required before the file picker, not before the page.
  */
 
-export const MAKE_STAFF_ONLY_PATH = "/make";
-export const MAKE_PUBLIC_REDIRECT = "/sets";
+export const MAKE_PATH = "/make";
 
 /** Strings that must not appear as public CTAs / publish funnels. */
 export const FORBIDDEN_PUBLIC_MAKE_COPY = [
@@ -17,8 +17,8 @@ export const FORBIDDEN_PUBLIC_MAKE_COPY = [
   "snap a set from the pc",
 ] as const;
 
-export function canAccessMake(user: { isAdmin?: boolean | null } | null | undefined): boolean {
-  return user?.isAdmin === true;
+export function canAccessMake(_user?: { isAdmin?: boolean | null } | null): boolean {
+  return true;
 }
 
 export function containsForbiddenPublicMakeCopy(text: string): boolean {

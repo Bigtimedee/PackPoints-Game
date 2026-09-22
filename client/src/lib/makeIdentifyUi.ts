@@ -5,12 +5,27 @@
 
 export const MAKE_EMPTY_COPY = {
   eyebrow: "SNAP-TO-SET",
-  headline: "Photo the stack. Name it. Publish.",
-  subline: "Sample cards below — not your PC. Snap yours to start.",
-  exampleBadge: "EXAMPLE · NOT YOUR PC",
+  headline: "Snap a card. Find its set.",
+  subline: "Match to a set already in PackPTS — then play it.",
+  exampleBadge: "EXAMPLE · CATALOG DEMO",
   primaryCta: "Take photo",
   secondaryCta: "Choose from library",
-  softAuth: "Sign in to photo your stack.",
+  softAuth: "Sign in to snap a card.",
+} as const;
+
+export const CATALOG_MATCH_COPY = {
+  foundHeadline: "Match found",
+  catalogLine: "In PackPTS catalog",
+  play: "Play this set",
+  snapAnother: "Snap another",
+  honesty: "Matches what’s already in PackPTS.",
+  ambiguousHeadline: "A few possible sets",
+  ambiguousSub: "Pick the one that matches your card.",
+  tryAnother: "Try another photo",
+  browse: "Browse sets",
+  noneHeadline: "No set match yet",
+  noneSub: "That card isn’t in a playable PackPTS set right now.",
+  daily5: "Daily 5 stays on the shelf if you want a round today.",
 } as const;
 
 export const IDENTIFY_RETRY_COPY = {
@@ -19,18 +34,19 @@ export const IDENTIFY_RETRY_COPY = {
   failed: "Couldn't identify",
   tryAgain: "Try again",
   skip: "Skip",
-  saved: "Saved",
+  rateLimit: "You've hit today's identify pace — try again in a bit.",
+  decode: "Couldn't read that photo — try exporting as JPEG",
   eyebrow: "SNAP-TO-SET",
-  headline: "Identifying your stack",
-  subline: "One card at a time. Failed slots stay actionable — skip anytime.",
+  headline: "Identifying…",
+  subline: "Matching to sets already in PackPTS.",
   sequential: "Sequential",
-  crumb: "/make · draft",
+  crumb: "/make",
 } as const;
 
 export type IdentifySlotStatus = "queued" | "loading" | "ok" | "error";
 
 export function draftBoardTitle(count: number): string {
-  return `Draft • ${count} card${count === 1 ? "" : "s"}`;
+  return `Identifying · ${count}`;
 }
 
 export function draftPhotoLabel(index: number): string {
@@ -56,6 +72,20 @@ export interface IdentifySlotChrome {
   failBorder: boolean;
 }
 
+export function friendlyIdentifyError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/429|too many|identify pace|rate limit/i.test(msg)) {
+    return IDENTIFY_RETRY_COPY.rateLimit;
+  }
+  if (/couldn't read that photo/i.test(msg)) {
+    return IDENTIFY_RETRY_COPY.decode;
+  }
+  if (/401|unauthorized|sign in/i.test(msg)) {
+    return MAKE_EMPTY_COPY.softAuth;
+  }
+  return IDENTIFY_RETRY_COPY.failed;
+}
+
 export function identifySlotChrome(status: IdentifySlotStatus): IdentifySlotChrome {
   switch (status) {
     case "queued":
@@ -76,7 +106,7 @@ export function identifySlotChrome(status: IdentifySlotStatus): IdentifySlotChro
       };
     case "ok":
       return {
-        label: IDENTIFY_RETRY_COPY.saved,
+        label: null,
         showTryAgain: false,
         showSkip: false,
         success: true,
