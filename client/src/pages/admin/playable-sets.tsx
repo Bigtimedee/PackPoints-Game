@@ -47,6 +47,11 @@ import {
   Trash2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  gameSetDeleteBlockedToast,
+  gameSetDeleteConfirmBody,
+  gameSetDeleteSuccessToast,
+} from "@/lib/gameSetDeleteToast";
 import { format } from "date-fns";
 
 interface GameSet {
@@ -362,23 +367,28 @@ export default function AdminPlayableSets() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: async (setId: string) => {
-      return apiRequest("DELETE", `/api/admin/game-sets/${setId}`);
+    mutationFn: async (payload: {
+      id: string;
+      setName: string;
+      storedCardCount: number;
+    }) => {
+      await apiRequest("DELETE", `/api/admin/game-sets/${payload.id}`);
+      return payload;
     },
-    onSuccess: () => {
-      toast({
-        title: "Set deleted",
-        description: "The game set has been permanently removed",
-      });
+    onSuccess: (payload) => {
+      toast(
+        gameSetDeleteSuccessToast({
+          setName: payload.setName,
+          storedCardCount: payload.storedCardCount,
+        }),
+      );
       queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
       setShowDeleteConfirm(false);
       setDeleteTargetSet(null);
     },
     onError: (error: Error) => {
-      const serverMessage = error.message?.trim();
       toast({
-        title: "Delete failed",
-        description: serverMessage || "Delete failed",
+        ...gameSetDeleteBlockedToast(error),
         variant: "destructive",
       });
     },
@@ -401,7 +411,11 @@ export default function AdminPlayableSets() {
 
   const confirmDelete = () => {
     if (deleteTargetSet) {
-      deleteMutation.mutate(deleteTargetSet.id);
+      deleteMutation.mutate({
+        id: deleteTargetSet.id,
+        setName: setDisplayName(deleteTargetSet),
+        storedCardCount: deleteTargetSet.cardsImportedCount ?? 0,
+      });
     }
   };
 
@@ -954,9 +968,10 @@ export default function AdminPlayableSets() {
           <DialogHeader>
             <DialogTitle>Delete Game Set</DialogTitle>
             <DialogDescription>
-              Permanently delete "{deleteTargetSet ? setDisplayName(deleteTargetSet) : "this set"}"?
-              This will hard-delete the set and{" "}
-              {deleteTargetSet?.cardsImportedCount ?? 0} imported cards. This cannot be undone.
+              {gameSetDeleteConfirmBody(
+                deleteTargetSet ? setDisplayName(deleteTargetSet) : "this set",
+                deleteTargetSet?.cardsImportedCount ?? 0,
+              )}
             </DialogDescription>
           </DialogHeader>
 
