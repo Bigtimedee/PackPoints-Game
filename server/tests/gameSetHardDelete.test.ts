@@ -92,7 +92,7 @@ describe("admin playable-sets UI delete action", () => {
   const src = readFileSync(pagePath, "utf8");
 
   it("calls DELETE /api/admin/game-sets/:id with credentials via apiRequest", () => {
-    expect(src).toContain('apiRequest("DELETE", `/api/admin/game-sets/${setId}`)');
+    expect(src).toContain('apiRequest("DELETE", `/api/admin/game-sets/${payload.id}`)');
     expect(src).toContain("Trash2");
     expect(src).toContain('data-testid={`button-delete-${set.id}`}');
     expect(src).toContain('data-testid="button-confirm-delete"');
@@ -102,6 +102,7 @@ describe("admin playable-sets UI delete action", () => {
     expect(src).toContain("showDeleteConfirm");
     expect(src).toContain("setDisplayName(deleteTargetSet)");
     expect(src).toContain("cardsImportedCount");
+    expect(src).toContain("gameSetDeleteConfirmBody");
     expect(src).toContain("Delete permanently");
     expect(src).toContain('variant="destructive"');
   });
@@ -110,11 +111,13 @@ describe("admin playable-sets UI delete action", () => {
     const marker = "const deleteMutation = useMutation({";
     const start = src.indexOf(marker);
     expect(start).toBeGreaterThan(-1);
-    const mutation = src.slice(start, start + 1200);
+    const mutation = src.slice(start, start + 1600);
     expect(mutation).toContain('queryKey: ["/api/admin/game-sets"]');
     expect(mutation).toContain("invalidateQueries");
-    expect(mutation).toContain("error.message");
+    expect(mutation).toContain("gameSetDeleteSuccessToast");
+    expect(mutation).toContain("gameSetDeleteBlockedToast");
     expect(mutation).not.toContain("Failed to delete game set");
+    expect(mutation).not.toContain('title: "Delete failed"');
   });
 
   it("does not abort a CardHedge import at the default 15s client timeout", () => {
