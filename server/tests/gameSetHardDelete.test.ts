@@ -30,12 +30,56 @@ describe("DELETE /api/admin/game-sets/:id handler", () => {
     const marker = 'app.delete("/api/admin/game-sets/:id"';
     const start = src.indexOf(marker);
     expect(start).toBeGreaterThan(-1);
-    const handler = src.slice(start, start + 900);
+    const handler = src.slice(start, start + 1600);
     expect(handler).toContain("isAuthenticated, requireAdmin");
     expect(handler).toContain("hardDeleteGameSet");
+    expect(handler).toContain("describeGameSetDeleteError");
     expect(handler).toContain('res.json({ success: true })');
     expect(handler).toContain("404");
+    expect(handler).toContain("failure.status");
+    expect(handler).toContain("failure.constraint");
+    expect(handler).not.toContain('error: "Failed to delete game set"');
     expect(handler).not.toMatch(/\.set\(\{\s*isActive:\s*false\s*\}\)/);
+  });
+});
+
+describe("describeGameSetDeleteError", () => {
+  it("names the playable_cards constraint instead of a generic failure", async () => {
+    const { describeGameSetDeleteError } = await import("../services/gameSetDeleteError");
+    const failure = describeGameSetDeleteError({
+      code: "23503",
+      constraint: "playable_cards_game_set_id_game_sets_id_fk",
+      table: "playable_cards",
+      detail: 'Key (id)=(abc) is still referenced from table "playable_cards".',
+      message:
+        'update or delete on table "game_sets" violates foreign key constraint "playable_cards_game_set_id_game_sets_id_fk" on table "playable_cards"',
+    });
+    expect(failure.status).toBe(409);
+    expect(failure.code).toBe("23503");
+    expect(failure.constraint).toBe("playable_cards_game_set_id_game_sets_id_fk");
+    expect(failure.error).toContain("playable_cards_game_set_id_game_sets_id_fk");
+    expect(failure.error).toContain("import");
+    expect(failure.error).not.toBe("Failed to delete game set");
+  });
+
+  it("names a different blocking table and constraint", async () => {
+    const { describeGameSetDeleteError } = await import("../services/gameSetDeleteError");
+    const failure = describeGameSetDeleteError({
+      code: "23503",
+      constraint: "set_of_week_set_id_game_sets_id_fk",
+      table: "set_of_week",
+    });
+    expect(failure.status).toBe(409);
+    expect(failure.error).toContain("set_of_week");
+    expect(failure.error).toContain("set_of_week_set_id_game_sets_id_fk");
+    expect(failure.error).not.toBe("Failed to delete game set");
+  });
+
+  it("keeps a specific non-FK server message", async () => {
+    const { describeGameSetDeleteError } = await import("../services/gameSetDeleteError");
+    const failure = describeGameSetDeleteError(new Error("deadlock detected"));
+    expect(failure.status).toBe(500);
+    expect(failure.error).toBe("deadlock detected");
   });
 });
 
@@ -65,9 +109,15 @@ describe("admin playable-sets UI delete action", () => {
     const marker = "const deleteMutation = useMutation({";
     const start = src.indexOf(marker);
     expect(start).toBeGreaterThan(-1);
-    const mutation = src.slice(start, start + 900);
+    const mutation = src.slice(start, start + 1200);
     expect(mutation).toContain('queryKey: ["/api/admin/game-sets"]');
     expect(mutation).toContain("invalidateQueries");
+    expect(mutation).toContain("error.message");
+    expect(mutation).not.toContain("Failed to delete game set");
+  });
+
+  it("does not abort a CardHedge import at the default 15s client timeout", () => {
+    expect(src).toContain("timeoutMs: 10 * 60 * 1000");
   });
 });
 
@@ -150,5 +200,128 @@ describe.skipIf(!hasDb)("hardDeleteGameSet", () => {
 
   it("returns false when the set is already gone (handler 404)", async () => {
     expect(await hardDeleteGameSet(alreadyGoneId)).toBe(false);
+  });
+
+  it("removes an active never-imported set with no playable cards", async () => {
+    const id = randomUUID();
+    await db.insert(gameSets).values({
+      id,
+      sport: "basketball",
+      brand: "Panini",
+      year: 2018,
+      setName: "2018 Panini Prizm Basketball",
+      isActive: true,
+      cardsImportedCount: 0,
+      lastImportAt: null,
+    });
+
+    try {
+      expect(await hardDeleteGameSet(id)).toBe(true);
+      const listedAfter = await db.select({ id: gameSets.id }).from(gameSets).where(eq(gameSets.id, id));
+      expect(listedAfter).toHaveLength(0);
+    } finally {
+      await db.delete(gameSets).where(eq(gameSets.id, id)).catch(() => null);
+    }
+  });
+
+  it("removes an active set while the import counter is still zero but rows exist", async () => {
+    const id = randomUUID();
+    const partialCardId = randomUUID();
+    await db.insert(gameSets).values({
+      id,
+      sport: "basketball",
+      brand: "Panini",
+      year: 2018,
+      setName: "Partial Import Active Set",
+      isActive: true,
+      cardsImportedCount: 0,
+      lastImportAt: null,
+    });
+    await db.insert(playableCards).values({
+      id: partialCardId,
+      gameSetId: id,
+      cardhedgeCardId: `hard-delete-partial:${randomUUID()}`,
+      player: "",
+      imageUrl: null,
+      category: "basketball",
+      isPlayable: false,
+    });
+    await db.insert(cardhedgeImportRuns).values({
+      gameSetId: id,
+      status: "RUNNING",
+      cardsImported: 0,
+    });
+
+    try {
+      expect(await hardDeleteGameSet(id)).toBe(true);
+      expect(await db.select({ id: gameSets.id }).from(gameSets).where(eq(gameSets.id, id))).toHaveLength(0);
+      expect(
+        await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.gameSetId, id)),
+      ).toHaveLength(0);
+      expect(
+        await db.select({ id: cardhedgeImportRuns.id }).from(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, id)),
+      ).toHaveLength(0);
+    } finally {
+      await db.delete(playableCards).where(eq(playableCards.id, partialCardId)).catch(() => null);
+      await db.delete(cardhedgeImportRuns).where(eq(cardhedgeImportRuns.gameSetId, id)).catch(() => null);
+      await db.delete(gameSets).where(eq(gameSets.id, id)).catch(() => null);
+    }
+  });
+
+  it("waits for an in-flight playable_cards insert, then deletes the active set", async () => {
+    const id = randomUUID();
+    const cardId = randomUUID();
+    await db.insert(gameSets).values({
+      id,
+      sport: "basketball",
+      brand: "Panini",
+      year: 2018,
+      setName: "In Flight Import Active Set",
+      isActive: true,
+      cardsImportedCount: 0,
+      lastImportAt: null,
+    });
+
+    const { pool } = await import("../db");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO playable_cards (id, game_set_id, cardhedge_card_id, player, category, is_playable)
+         VALUES ($1, $2, $3, $4, $5, true)`,
+        [cardId, id, `hard-delete-race:${randomUUID()}`, "In Flight", "basketball"],
+      );
+
+      const removed = hardDeleteGameSet(id);
+      const started = Date.now();
+      let blocked = false;
+      while (Date.now() - started < 5000) {
+        const waiting = await pool.query(
+          `SELECT pid FROM pg_stat_activity
+           WHERE state = 'active'
+             AND wait_event_type = 'Lock'
+             AND query ILIKE '%game_sets%'
+             AND pid <> pg_backend_pid()`,
+        );
+        if (waiting.rows.length > 0) {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(blocked).toBe(true);
+
+      await client.query("COMMIT");
+      expect(await removed).toBe(true);
+      expect(await db.select({ id: gameSets.id }).from(gameSets).where(eq(gameSets.id, id))).toHaveLength(0);
+      expect(
+        await db.select({ id: playableCards.id }).from(playableCards).where(eq(playableCards.id, cardId)),
+      ).toHaveLength(0);
+    } finally {
+      await client.query("ROLLBACK").catch(() => null);
+      client.release();
+      await db.delete(playableCards).where(eq(playableCards.id, cardId)).catch(() => null);
+      await db.delete(gameSets).where(eq(gameSets.id, id)).catch(() => null);
+    }
   });
 });

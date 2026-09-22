@@ -43,6 +43,7 @@ import {
 } from "@shared/homePlayVanity";
 import { adminService } from "./services/adminService";
 import { hardDeleteGameSet } from "./services/gameSetDelete";
+import { describeGameSetDeleteError } from "./services/gameSetDeleteError";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
 import { redemptionService } from "./services/redemptionService";
@@ -5141,7 +5142,12 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting game set:", error);
-      res.status(500).json({ error: "Failed to delete game set" });
+      const failure = describeGameSetDeleteError(error);
+      res.status(failure.status).json({
+        error: failure.error,
+        ...(failure.code ? { code: failure.code } : {}),
+        ...(failure.constraint ? { constraint: failure.constraint } : {}),
+      });
     }
   });
 
@@ -6589,15 +6595,29 @@ export async function registerRoutes(
           pagesFetched: page,
         });
       } catch (importError: any) {
+        const setDeletedDuringImport =
+          importError?.code === "23503" &&
+          String(importError?.constraint || "").includes("game_sets");
+        const importErrorText = setDeletedDuringImport
+          ? "Import stopped because this game set was deleted."
+          : importError.message || "Unknown error";
         await db
           .update(cardhedgeImportRuns)
           .set({
             status: "FAILED",
             finishedAt: new Date(),
-            error: importError.message || "Unknown error",
+            error: importErrorText,
           })
           .where(eq(cardhedgeImportRuns.id, importRun.id));
-        
+
+        if (setDeletedDuringImport) {
+          return res.status(409).json({
+            error: importErrorText,
+            code: "23503",
+            constraint: importError.constraint,
+          });
+        }
+
         throw importError;
       }
     } catch (error: any) {

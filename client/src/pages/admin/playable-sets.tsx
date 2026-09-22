@@ -219,9 +219,12 @@ export default function AdminPlayableSets() {
 
   const importMutation = useMutation({
     mutationFn: async (setId: string) => {
+      // CardHedge paging runs longer than the default 15s client abort.
+      // Aborting the browser request does not stop the server insert loop,
+      // which then races a delete that still shows "Never imported".
       const res = await apiRequest("POST", `/api/admin/playable-sets/${setId}/import`, {
         page_size: 100,
-      });
+      }, { timeoutMs: 10 * 60 * 1000 });
       return res.json();
     },
     onSuccess: (data) => {
@@ -361,7 +364,12 @@ export default function AdminPlayableSets() {
       setDeleteTargetSet(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+      const serverMessage = error.message?.trim();
+      toast({
+        title: "Delete failed",
+        description: serverMessage || "Delete failed",
+        variant: "destructive",
+      });
     },
   });
 

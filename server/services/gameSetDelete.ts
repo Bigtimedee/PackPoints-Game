@@ -17,6 +17,13 @@ import {
  * Permanently remove a game_sets row and the dependent rows that FK-block
  * the delete. Order matches schema.ts references (no ON DELETE CASCADE).
  * Returns true if the set existed and was removed.
+ *
+ * Locks the set row first. CardHedge import inserts each card in its own
+ * autocommit, and that insert takes FOR KEY SHARE on game_sets. Without
+ * this lock, a delete can remove the cards it sees and then lose the race
+ * to the next committed insert (23503 playable_cards_game_set_id_game_sets_id_fk).
+ * The admin list still shows "No cards" / "Never" while that import is running,
+ * because lastImportAt is written only when the import request finishes.
  */
 export async function hardDeleteGameSet(id: string): Promise<boolean> {
   return db.transaction(async (tx) => {
@@ -24,6 +31,7 @@ export async function hardDeleteGameSet(id: string): Promise<boolean> {
       .select({ id: gameSets.id })
       .from(gameSets)
       .where(eq(gameSets.id, id))
+      .for("update")
       .limit(1);
 
     if (!existing) {
