@@ -33,6 +33,12 @@ RUN test -f /app/server/contentFactory/assets/fonts/Inter-Bold.ttf && \
     test -f /app/assets/fonts/DejaVuSans.ttf && \
     test -f /usr/share/fonts/dejavu/DejaVuSans.ttf
 
+# Railway forwards RAILWAY_GIT_COMMIT_SHA into a Docker build only when the
+# Dockerfile declares the ARG. .dockerignore excludes .git, so without this
+# resolveBuildId() and the /api/version sha canary fall back to a timestamp.
+ARG RAILWAY_GIT_COMMIT_SHA
+ENV RAILWAY_GIT_COMMIT_SHA=${RAILWAY_GIT_COMMIT_SHA}
+
 # Build the application
 RUN npm run build
 
