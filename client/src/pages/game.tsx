@@ -968,7 +968,7 @@ export default function Game() {
     const skipNote = (session.skippedQuestions ?? 0) > 0
       ? ` (${session.skippedQuestions} skipped)`
       : "";
-    const shareText = `I scored ${session.score} points on PackPTS! I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} with ${accuracy}% accuracy. Can you beat my score?`;
+    const shareText = `I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} on PackPTS with ${accuracy}% accuracy.`;
     const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
     
     const logShareEvent = async (shareType: string, target: string, contentAssetId?: string) => {
@@ -1054,7 +1054,7 @@ export default function Game() {
         });
         const data = await res.json();
         if (data.url) {
-          const challengeText = `I scored ${session.score} points on PackPTS! Think you can beat me? ${data.url}`;
+          const challengeText = `I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} on PackPTS. ${data.url}`;
           await navigator.clipboard.writeText(challengeText);
           logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
           toast({ title: "Challenge link copied!", description: "Share it with a friend" });

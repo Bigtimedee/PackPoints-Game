@@ -43,9 +43,18 @@ TTL = that CT day key. If `d` is not today’s CT key → **stale**. Recipient s
 
 ## Recipient UI
 
-- Active: `Beat {name} — they went {score}/5 today`
-- Stale: `Challenge expired — play today's five.`
-- After the recipient finishes: quiet compare (`You went X/5. They went Y/5.` / tie / they led). No casino copy.
+- Active: `Beat {name} — they went {score}/5 today` (no username → `a collector`). Quiet bar, not a neon toast. Dismiss hides the bar for the session; play continues.
+- Stale: `Challenge expired — play today's five.` Do not show yesterday’s score as live.
+- Invalid token: no banner. Normal Daily 5.
+- After the recipient finishes an **active** challenge only:
+  - You led: `You went X/5. They went Y/5.`
+  - Tie: `Tied at N/5.`
+  - They led: `They led — Y/5 to your X/5.`
+- Optional after that compare: `Want more?` + **Browse sets** → `/sets`. No Maker Rate. No `/make` publish.
+
+## Challenger UI
+
+Game Complete primary CTA is **Beat me.** It calls `POST /api/daily5/beat-me` and opens the system share sheet with the full challenge URL plus the challenge PNG. Secondary **Share** / **Save** are the session score card and must not emit bare `/daily`. Helper: `Challenge a friend to today's five.` Caption: `I went {X}/5. Beat me. Play today's Daily 5.`
 
 ## Endpoints
 
@@ -54,6 +63,14 @@ TTL = that CT day key. If `d` is not today’s CT key → **stale**. Recipient s
 
 Helpers: `shared/packptsDay.ts`, `server/lib/daily5BeatMeToken.ts`, `client/src/lib/dailyBeatMe.ts`.
 
-## Share image (v1)
+## Share image
 
-Challenge share still uses the **1080×1080** score card (`docs/SCORE_CARD_CONTRACT.md`). Live overlay is the session `X/5` (never kit 4/5) plus optional real `{n}-day streak`. Palette: canvas `#0b0f16`, gold `#F5C518`, green `#22C55E`, ink `#F0F2F5`, muted `#8F96A3`. Corner mark is the masked-P (white P + gold bar). The PNG may say `packpts.com/daily`; the href copied/shared is the challenge token URL.
+Session score card stays `docs/SCORE_CARD_CONTRACT.md` (today identity + mini strip + “N locked. M open.”).
+
+Challenge share PNG (`buildChallengeShareSvg` / `generateChallengeShare`) is the kit D surface the **Beat me.** sheet attaches:
+
+- 1080×1080, canvas `#0b0f16`, gold `#F5C518`, green `#22C55E`, ink `#F0F2F5`, muted `#8F96A3`
+- `{MON} {D} · TODAY'S FIVE` on the CT session day, five cream/gold masked tiles
+- Honest session `X/5` and green pips — never a canned kit 4/5
+- Hook `Beat me.` · sub `I went {X}/5.` · `Play today's Daily 5.` · TODAY plaque
+- Footer masked-P + PackPTS. The PNG may say `packpts.com/daily`; the href copied/shared is the challenge token URL.

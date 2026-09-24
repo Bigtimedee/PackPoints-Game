@@ -60,22 +60,57 @@ export function isBeatMeShareUrl(url: string): boolean {
   }
 }
 
+/** Locked Design SoR chrome. PackPTS only — never PackPoints, never a branded “points”. */
+export const BEAT_ME_COPY = {
+  primary: "Beat me.",
+  share: "Share",
+  save: "Save",
+  helper: "Challenge a friend to today's five.",
+  stale: "Challenge expired — play today's five.",
+  anonymous: "a collector",
+  sameFive: "Same five as today.",
+  wantMore: "Want more?",
+  browseSets: "Browse sets",
+  browseHref: "/sets",
+} as const;
+
+const DISMISS_KEY = "packpts_daily_beat_me_dismissed";
+
+export function beatMeCollectorName(displayName?: string): string {
+  const name = displayName?.trim();
+  return name || BEAT_ME_COPY.anonymous;
+}
+
 export function formatBeatMeBanner(challenge: DailyBeatMeChallenge): string {
-  if (challenge.status === "stale") {
-    return "Challenge expired — play today's five.";
-  }
-  const who = challenge.displayName ?? "them";
+  if (challenge.status !== "active") return BEAT_ME_COPY.stale;
+  const who = beatMeCollectorName(challenge.displayName);
   return `Beat ${who} — they went ${challenge.correctCount}/5 today`;
 }
 
 export function formatBeatMeShareCaption(correctCount: number): string {
-  return `I went ${correctCount}/5 on today's Daily 5.`;
+  return `I went ${correctCount}/5. Beat me. Play today's Daily 5.`;
 }
 
 export function formatBeatMeCompare(yours: number, theirs: number): string {
+  if (yours === theirs) return `Tied at ${yours}/5.`;
   if (yours > theirs) return `You went ${yours}/5. They went ${theirs}/5.`;
-  if (yours < theirs) return `They went ${theirs}/5. You went ${yours}/5.`;
-  return `You both went ${yours}/5.`;
+  return `They led — ${theirs}/5 to your ${yours}/5.`;
+}
+
+export function dismissBeatMeBanner(token: string): void {
+  try {
+    sessionStorage.setItem(DISMISS_KEY, token);
+  } catch {
+    // private mode / quota — banner can stay
+  }
+}
+
+export function isBeatMeBannerDismissed(token: string): boolean {
+  try {
+    return sessionStorage.getItem(DISMISS_KEY) === token;
+  } catch {
+    return false;
+  }
 }
 
 export function persistBeatMeChallenge(challenge: DailyBeatMeChallenge): void {

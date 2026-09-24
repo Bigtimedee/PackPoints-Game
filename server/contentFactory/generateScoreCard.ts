@@ -389,21 +389,133 @@ function getOutputDir(date: string): string {
   return dir;
 }
 
+export interface ChallengeShareInput {
+  correctCount: number;
+  date: string;
+  streak?: number;
+}
+
+/**
+ * Kit D challenge PNG. Session X/5 only — never a canned 4/5.
+ * Visual CTA stays packpts.com/daily; the shared href is the token URL.
+ */
+export function buildChallengeShareSvg(input: ChallengeShareInput): string {
+  const correct = asCount(input.correctCount);
+  if (correct > 5) throw new Error("Challenge share score must be a real 0–5 count");
+  const W = SCORE_CARD_SIZE;
+  const H = SCORE_CARD_SIZE;
+  const cx = W / 2;
+  const identity = formatSessionDayIdentity(input.date, true);
+  const went = `I went ${correct}/5.`;
+  const playLine = "Play today's Daily 5.";
+  const streakLabel = buildStreakOverlayLabel(input.streak);
+  const fonts = loadScoreCardFonts();
+  const { ink, muted, gold, canvas } = SCORE_CARD_COLORS;
+  const surface = "#161B24";
+  const border = "#2A303C";
+
+  const scoreNum = String(correct);
+  const scoreDen = "/5";
+  const scoreSize = 168;
+  const numWidth = measureText(fonts.bold, scoreNum, scoreSize);
+  const denWidth = measureText(fonts.bold, scoreDen, scoreSize);
+  const scoreX = cx - (numWidth + denWidth) / 2;
+
+  const plaqueX = 760;
+  const plaqueY = 690;
+  const plaqueW = 240;
+  const plaqueCx = plaqueX + plaqueW / 2;
+  const plaqueScoreSize = 48;
+  const plaqueNumW = measureText(fonts.bold, scoreNum, plaqueScoreSize);
+  const plaqueDenW = measureText(fonts.bold, scoreDen, plaqueScoreSize);
+  const plaqueScoreX = plaqueCx - (plaqueNumW + plaqueDenW) / 2;
+
+  const outlined = [
+    textToPath(fonts.bold, "DAILY 5", 80, 108, 22, muted, { letterSpacing: 4 }),
+    identity
+      ? textToPath(fonts.bold, identity, 1000, 108, 22, muted, { anchor: "end", letterSpacing: 2 })
+      : "",
+    textToPath(fonts.bold, scoreNum, scoreX, 360, scoreSize, ink),
+    textToPath(fonts.bold, scoreDen, scoreX + numWidth, 360, scoreSize, muted),
+    textToPath(fonts.bold, "Beat me.", 80, 760, 64, gold),
+    textToPath(fonts.semibold, went, 80, 820, 36, ink),
+    textToPath(fonts.semibold, playLine, 80, 868, 26, muted),
+    streakLabel
+      ? textToPath(fonts.semibold, streakLabel, 80, 912, 24, muted)
+      : "",
+    textToPath(fonts.bold, "TODAY", plaqueCx, 748, 18, muted, { anchor: "middle", letterSpacing: 2 }),
+    textToPath(fonts.bold, scoreNum, plaqueScoreX, 810, plaqueScoreSize, ink),
+    textToPath(fonts.bold, scoreDen, plaqueScoreX + plaqueNumW, 810, plaqueScoreSize, muted),
+    textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
+    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, ink, { anchor: "end" }),
+  ].filter(Boolean).join("\n  ");
+
+  const desc = [
+    "DAILY 5",
+    identity,
+    `${scoreNum}${scoreDen}`,
+    "Beat me.",
+    went,
+    playLine,
+    streakLabel,
+    "TODAY",
+    "PackPTS",
+    "packpts.com/daily",
+  ].filter(Boolean).join(" | ");
+
+  return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+  <desc>${escapeXml(desc)}</desc>
+  <defs>
+    <style type="text/css">${buildEmbeddedFontCss(fonts)}</style>
+    <radialGradient id="glow" cx="85%" cy="12%" r="55%">
+      <stop offset="0%" stop-color="#1e3a5f" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="${canvas}" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="${W}" height="${H}" fill="${canvas}"/>
+  <rect width="${W}" height="${H}" fill="url(#glow)"/>
+  <rect x="${plaqueX}" y="${plaqueY}" width="${plaqueW}" height="150" rx="8" fill="${surface}" stroke="${border}" stroke-width="2"/>
+
+  ${outlined}
+
+  ${buildMaskedStripSvg()}
+
+  ${buildPipsSvg(correct, 5)}
+
+  <g transform="translate(80, 940)">
+    <g transform="scale(0.0546875)">
+      <rect width="1024" height="1024" fill="${canvas}"/>
+      <path fill="#ffffff" fill-rule="evenodd" d="M292 196 H560 C720 196 820 280 820 420 C820 560 720 644 560 644 H452 V828 H292 Z M452 340 V500 H548 C620 500 668 470 668 420 C668 370 620 340 548 340 Z"/>
+      <rect x="292" y="448" width="528" height="96" fill="${gold}"/>
+    </g>
+  </g>
+</svg>`;
+}
+
+async function writeSharePng(svg: string, date: string, filename: string): Promise<ScoreCardOutput> {
+  const dir = getOutputDir(date);
+  const imagePath = path.join(dir, filename);
+  await sharp(Buffer.from(svg))
+    .png({ quality: 90 })
+    .toFile(imagePath);
+  const imageUrl = `${SHARE_URL_PREFIX}/${safeDateDir(date)}/${filename}`;
+  return { imagePath, imageUrl };
+}
+
 export async function generateScoreCard(
   input: ScoreCardInput,
   assetId: string,
 ): Promise<ScoreCardOutput> {
-  const svg = buildScoreCardSvg(input);
-  const dir = getOutputDir(input.date);
-  const filename = `${assetId}.png`;
-  const imagePath = path.join(dir, filename);
+  return writeSharePng(buildScoreCardSvg(input), input.date, `${assetId}.png`);
+}
 
-  await sharp(Buffer.from(svg))
-    .png({ quality: 90 })
-    .toFile(imagePath);
-
-  const imageUrl = `${SHARE_URL_PREFIX}/${safeDateDir(input.date)}/${filename}`;
-  return { imagePath, imageUrl };
+export async function generateChallengeShare(
+  input: ChallengeShareInput,
+  assetId: string,
+): Promise<ScoreCardOutput> {
+  const safeId = assetId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 96) || "beatme";
+  return writeSharePng(buildChallengeShareSvg(input), input.date, `${safeId}.png`);
 }
 
 export async function generateStreakBadge(

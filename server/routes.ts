@@ -1631,7 +1631,19 @@ export async function registerRoutes(
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const created = await createBeatMeFromSession(userId);
-      res.json(created);
+      let shareImageUrl: string | undefined;
+      try {
+        const { generateChallengeShare } = await import("./contentFactory/generateScoreCard");
+        const safeUser = String(userId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48);
+        const card = await generateChallengeShare(
+          { correctCount: created.correctCount, date: created.puzzleDay },
+          `beatme-${safeUser}-${created.puzzleDay}`,
+        );
+        shareImageUrl = card.imageUrl;
+      } catch (artErr) {
+        console.error("[Daily5] Beat-me share art error:", artErr);
+      }
+      res.json({ ...created, shareImageUrl });
     } catch (error: any) {
       const message = error?.message || "Failed to create Beat-me challenge";
       if (message.includes("Finish today's Daily 5") || message.includes("No Daily 5")) {
