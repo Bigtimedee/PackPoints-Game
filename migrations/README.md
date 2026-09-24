@@ -4,17 +4,14 @@ This directory contains all SQL migration files for the PackPTS PostgreSQL datab
 
 ## Migration Approach
 
-Migrations are applied automatically at container startup via `start.sh` using Drizzle ORM:
+`start.sh` runs `npx drizzle-kit push --force` on every boot, after writing a compressed `pg_dump` restore point. Push syncs the database to `shared/schema.ts` and drops tables that are not defined there.
+
+**Supplementary SQL files in this directory are not applied automatically.** A table the app reads or writes must be declared in `shared/schema.ts`. If it exists only in a supplementary `.sql` file, the next boot's `push --force` drops it.
 
 ```sh
-# Production
-npx drizzle-kit push
-
-# Development (force mode — allows schema drift)
+# What start.sh runs (both production and development)
 npx drizzle-kit push --force
 ```
-
-The `start.sh` script (project root) detects `NODE_ENV` and applies the appropriate command before starting the Node server.
 
 ### Manual Application
 
@@ -47,9 +44,9 @@ These files are generated and tracked by Drizzle ORM. The `meta/` subdirectory c
 
 ---
 
-### Supplementary SQL migrations (applied manually)
+### Supplementary SQL migrations (NOT applied automatically)
 
-These files are not tracked by Drizzle and must be applied manually when needed.
+These files are not tracked by Drizzle and are not run by `start.sh`. They are historical. Any table they create that the app still uses is now declared in `shared/schema.ts` (`job_queue`, `promotions`, `user_attribution`, `creator_applications`, `partner_inquiries`, `user_feedback`). Do not add a new app table only here — `drizzle-kit push --force` will drop it.
 
 | File | Description |
 |------|-------------|
@@ -57,7 +54,7 @@ These files are not tracked by Drizzle and must be applied manually when needed.
 | `add_fact_check_fields.sql` | **Fact-check guardrails.** Adds `fact_check_status`, `fact_check_score`, `fact_check_notes`, and `fact_check_reviewed_at` columns to `growth_content_items` to support the AI content moderation pipeline. Apply after `add_social_media_agent.sql`. |
 | `add_notion_fields_to_publishing_queue.sql` | **Notion integration.** Adds `notion_page_id`, `notion_synced_at`, and `notion_sync_error` columns to `publishing_queue` for syncing published content to a Notion database. Apply after `add_social_media_agent.sql`. |
 | `drop_growth_tables.sql` | **Growth table cleanup.** Drops `growth_follower_dm_log`, `publishing_queue`, `growth_content_items`, and `growth_content_plans` when the social media agent is disabled or removed. **Destructive — back up data before applying.** |
-| `add_job_queue.sql` | **Persistent job queue.** Creates the `job_queue` table used by `server/jobs/pgJobQueue.ts` to replace volatile `setInterval` jobs with crash-resistant, PostgreSQL-backed, retry-safe job processing. Includes indexes on `(status, scheduled_at)` and `(job_type)`. Apply before deploying B7 job queue changes. |
+| `add_job_queue.sql` | **Persistent job queue.** Historical CREATE for `job_queue`, now declared in `shared/schema.ts` (`jobQueue`). Not applied automatically. |
 
 ---
 
@@ -81,6 +78,8 @@ These files are not tracked by Drizzle and must be applied manually when needed.
 4. Commit both the SQL file and the updated `meta/` snapshot.
 
 ### Supplementary SQL (for additive patches)
+
+Do not use this path for a table the app queries. `push --force` drops it on the next boot unless the table is also in `shared/schema.ts`.
 
 1. Create a new `.sql` file in this directory with a descriptive name.
 2. Test it locally: `psql $DATABASE_URL -f migrations/<your_file>.sql`

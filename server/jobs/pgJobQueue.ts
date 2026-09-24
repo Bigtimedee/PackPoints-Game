@@ -156,6 +156,15 @@ export function stopAllJobs(): void {
 /**
  * Clean up old completed/failed jobs older than retentionDays.
  */
+/**
+ * True when public.job_queue exists. Callers skip scheduling when this is false
+ * so a missing table is logged once at boot instead of every hour.
+ */
+export async function jobQueueTableExists(): Promise<boolean> {
+  const result = await pool.query(`SELECT to_regclass('public.job_queue') AS rel`);
+  return result.rows[0]?.rel != null;
+}
+
 export async function cleanupOldJobs(retentionDays = 7): Promise<number> {
   const result = await pool.query(
     `DELETE FROM job_queue

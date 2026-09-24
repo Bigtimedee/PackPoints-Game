@@ -35,11 +35,9 @@ export async function cleanupStaleLobbiesAndMatches(): Promise<{ expiredLobbies:
     )
     .returning({ id: matches.id });
 
-  if (staleLobbies.length > 0 || staleMatches.length > 0) {
-    console.log(
-      `[MatchCleanup] Cleaned up ${staleLobbies.length} stale lobbies (>${LOBBY_STALE_HOURS}h) and ${staleMatches.length} stale matches (>${MATCH_STALE_HOURS}h)`
-    );
-  }
+  console.log(
+    `[MatchCleanup] Cleaned up ${staleLobbies.length} stale lobbies (>${LOBBY_STALE_HOURS}h) and ${staleMatches.length} stale matches (>${MATCH_STALE_HOURS}h)`
+  );
 
   return { expiredLobbies: staleLobbies.length, cancelledMatches: staleMatches.length };
 }

@@ -18,9 +18,7 @@ export async function cleanupStaleGameSessions(): Promise<{ expired: number }> {
     )
     .returning({ id: gameSessionsTable.id });
 
-  if (result.length > 0) {
-    console.log(`[GameSessionCleanup] Expired ${result.length} stale game sessions older than ${STALE_THRESHOLD_HOURS}h`);
-  }
+  console.log(`[GameSessionCleanup] Expired ${result.length} stale game sessions older than ${STALE_THRESHOLD_HOURS}h`);
 
   return { expired: result.length };
 }
