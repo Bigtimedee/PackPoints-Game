@@ -260,9 +260,20 @@ export interface GameSession {
   completedAt?: string;
 }
 
-// Client-safe question type — correctAnswer and card.playerName stripped before API response
-export type ClientGameQuestion = Omit<GameQuestion, 'correctAnswer' | 'card'> & {
-  card: Omit<GameplayCard, 'playerName'>;
+/** Pre-answer card. No raw id, name, number, team, or year+set. */
+export interface ClientGameplayCard {
+  imageUrl: string;
+  imageRotation?: number;
+  gameSetId?: string;
+  /** Present only after this question's answer was accepted. */
+  revealUrl?: string;
+}
+
+export type ClientGameQuestion = {
+  options: string[];
+  pointValue: number;
+  answered?: boolean;
+  card: ClientGameplayCard;
 };
 
 export type ClientGameSession = Omit<GameSession, 'questions'> & {

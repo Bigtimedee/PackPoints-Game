@@ -11,7 +11,8 @@ import {
   anonDailyRuns,
   dailyChallengeCards,
 } from "@shared/schema";
-import { maskedCardImageUrl } from "@shared/maskGeometry";
+import { maskedPlayPath } from "./playImageToken";
+import { mintDailyRevealUrl } from "./playImageAccess";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { daily5Service } from "./daily5Service";
 import {
@@ -67,7 +68,12 @@ async function maskedCards(challengeId: string, anonId: string) {
   return cards.map((card) => ({
     position: card.position,
     cardId: card.cardId,
-    imageUrl: maskedCardImageUrl(card.cardId),
+    imageUrl: maskedPlayPath({
+      scope: "d5",
+      sessionId: challengeId,
+      index: card.position,
+      cardId: card.cardId,
+    }),
     choices: shuffle((card.choices as string[]) ?? [], choiceSeed(challengeId, anonId, card.position)),
     pointValue: card.pointValue,
     correctAnswer: card.correctAnswer,
@@ -151,7 +157,7 @@ export async function startAnonDaily5(req: GateRequest, res: Response) {
 
   return {
     entry: mapRun(run),
-    cards: cards.map(({ correctAnswer: _correct, ...card }) => card),
+    cards: cards.map(({ correctAnswer: _correct, cardId: _cardId, ...card }) => card),
     setId: challenge.setId ?? null,
     anonGate: gate,
   };
@@ -191,7 +197,13 @@ export async function answerAnonDaily5(
     .set({ answers: newAnswers, score: newScore, correctCount: newCorrectCount })
     .where(eq(anonDailyRuns.id, run.id));
 
-  return { correct, pointsEarned, score: newScore, correctCount: newCorrectCount };
+  const revealUrl = await mintDailyRevealUrl({
+    scope: "ad5",
+    sessionId: run.id,
+    challengeId,
+    position,
+  });
+  return { correct, pointsEarned, score: newScore, correctCount: newCorrectCount, revealUrl };
 }
 
 export async function finishAnonDaily5(req: GateRequest, res: Response, challengeId: string) {

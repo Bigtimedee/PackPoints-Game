@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { CardSetPicker } from "@/components/CardSetPicker";
 import { MobileSelect } from "@/components/MobileSelect";
 import { SiX, SiFacebook } from "react-icons/si";
-import type { ClientGameSession, ClientGameQuestion, GameSet, PlayableSet } from "@shared/schema";
+import type { ClientGameSession, GameSet, PlayableSet } from "@shared/schema";
 import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,7 +34,7 @@ import { resolvePlayCardSrc } from "@shared/playCardImage";
 import {
   prefetchMaskedPlayCards,
   prefetchRevealPlayCard,
-  remainingPlayCardIds,
+  remainingPlayCardUrls,
 } from "@/lib/prefetchPlayCardImages";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
@@ -329,8 +329,8 @@ export default function Game() {
         // Trigger marketplace listing fetch for user-created sets
         const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
         const card = freshSession?.questions?.[freshSession.currentQuestionIndex]?.card;
-        const setId = (card as any)?.gameSetId;
-        const cardId = (card as any)?.playableCardId || card?.id;
+        const setId = card?.gameSetId;
+        const cardId = data.cardId as string | undefined;
         if (setId && cardId && currentGameSet?.isUserCreated) {
           setListingTarget({ setId, cardId });
         }
@@ -469,15 +469,15 @@ export default function Game() {
   });
 
   const reportCardMutation = useMutation({
-    mutationFn: async ({ cardId, reason }: { cardId: string; reason: string }) => {
-      const res = await apiRequest("POST", `/api/cards/${cardId}/report`, {
+    mutationFn: async ({ questionIndex, reason }: { questionIndex: number; reason: string }) => {
+      const res = await apiRequest("POST", `/api/game/session/${sessionId}/report-image`, {
         reason,
-        sessionId,
+        questionIndex,
       });
       return res.json();
     },
     onSuccess: (_, variables) => {
-      setReportedCardIds(prev => new Set(prev).add(variables.cardId));
+      setReportedCardIds(prev => new Set(prev).add(String(variables.questionIndex)));
       setReportDialogOpen(false);
       toast({
         title: "Report Submitted",
@@ -522,10 +522,9 @@ export default function Game() {
 
   // Replace card when image fails to load - user doesn't lose PackPTS opportunity
   const replaceCardMutation = useMutation({
-    mutationFn: async (failedCardId: string) => {
+    mutationFn: async (questionIndex: number) => {
       const res = await apiRequest("POST", `/api/game/session/${sessionId}/replace-card`, {
-        failedCardId,
-        excludeCardIds: failedCardIds
+        questionIndex,
       });
       return res.json();
     },
@@ -545,8 +544,8 @@ export default function Game() {
         if (replacedIndex != null) {
           setReplacedQuestionIndices(prev => new Set(prev).add(replacedIndex));
         }
-        logger.debug(`[Game] Card replaced successfully with ${data.question.card.id}`);
-        prefetchMaskedPlayCards([data.question.card.playableCardId || data.question.card.id]);
+        logger.debug(`[Game] Card replaced successfully`);
+        prefetchMaskedPlayCards([data.question.card.imageUrl]);
       }
     },
     onError: (error) => {
@@ -636,21 +635,14 @@ export default function Game() {
     }
     
     // Otherwise try to get a replacement card
-    if (!replaceCardMutation.isPending) {
-      const currentCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
-      if (currentCardId) {
-        // Reset the skip button state while we try to get a replacement
-        setShowSkipButton(false);
-        replaceCardMutation.mutate(currentCardId);
-      }
+    if (!replaceCardMutation.isPending && currentIdx >= 0) {
+      setShowSkipButton(false);
+      replaceCardMutation.mutate(currentIdx);
     }
   };
 
   // Handle image error - try to replace card first, only skip if replacement unavailable
-  const handleCardImageError = (failedCardId: string) => {
-    // Track this failed card to exclude from future replacements
-    setFailedCardIds(prev => [...prev, failedCardId]);
-    
+  const handleCardImageError = () => {
     const currentIndex = session?.currentQuestionIndex ?? -1;
     
     // Check if we've already attempted a replacement for this question
@@ -669,8 +661,8 @@ export default function Game() {
     }
     
     // Try to get a replacement card
-    if (!isRevealed && !replaceCardMutation.isPending) {
-      replaceCardMutation.mutate(failedCardId);
+    if (!isRevealed && !replaceCardMutation.isPending && currentIndex >= 0) {
+      replaceCardMutation.mutate(currentIndex);
     }
   };
 
@@ -731,28 +723,34 @@ export default function Game() {
     }
   }, [isGameOver, isAuthenticated, session?.id, session?.score, pointsUpdatedForSession]);
 
-  const remainingCardIds = remainingPlayCardIds(
-    (session?.questions ?? []).map((q) => q.card?.playableCardId || q.card?.id),
+  const remainingMaskedUrls = remainingPlayCardUrls(
+    (session?.questions ?? []).map((q) => q.card?.imageUrl),
     session?.currentQuestionIndex ?? 0,
   );
   useEffect(() => {
-    if (remainingCardIds.length === 0) return;
+    if (remainingMaskedUrls.length === 0) return;
     const started = typeof performance !== "undefined" ? performance.now() : 0;
-    prefetchMaskedPlayCards(remainingCardIds);
+    prefetchMaskedPlayCards(remainingMaskedUrls);
     if (typeof performance !== "undefined") {
       console.debug(
-        `[Prefetch] solo remaining=${remainingCardIds.length} queued in ${Math.round(performance.now() - started)}ms`,
+        `[Prefetch] solo remaining=${remainingMaskedUrls.length} queued in ${Math.round(performance.now() - started)}ms`,
       );
     }
-  }, [session?.id, session?.currentQuestionIndex, remainingCardIds.join(",")]);
+  }, [session?.id, session?.currentQuestionIndex, remainingMaskedUrls.join(",")]);
 
-  const currentPlayCardId = session?.questions?.[session?.currentQuestionIndex ?? 0]?.card?.playableCardId
-    || session?.questions?.[session?.currentQuestionIndex ?? 0]?.card?.id;
+  const currentRevealUrl = isRevealed
+    ? session?.questions?.[session?.currentQuestionIndex ?? 0]?.card?.revealUrl
+    : null;
   useEffect(() => {
-    if (isRevealed && currentPlayCardId) {
-      prefetchRevealPlayCard(currentPlayCardId);
+    if (isRevealed && currentRevealUrl) {
+      prefetchRevealPlayCard(currentRevealUrl);
     }
-  }, [isRevealed, currentPlayCardId]);
+  }, [isRevealed, currentRevealUrl]);
+
+  useEffect(() => {
+    const current = session?.questions?.[session.currentQuestionIndex ?? 0];
+    if (current?.answered && current.card?.revealUrl) setIsRevealed(true);
+  }, [session?.id, session?.currentQuestionIndex, session?.questions]);
 
   const handleSelectAnswer = (answer: string) => {
     if (isRevealed) return;
@@ -1321,9 +1319,10 @@ export default function Game() {
         <div className="flex items-center justify-center py-1 relative" data-testid="solo-card-slot">
           <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
               <GameCard 
-                key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}-${isRevealed ? "revealed" : "masked"}`}
+                key={`${session.id}-${session.currentQuestionIndex}-${isRevealed ? "revealed" : "masked"}`}
                 imageUrl={resolvePlayCardSrc({
-                  cardId: currentQuestion.card.playableCardId || currentQuestion.card.id,
+                  maskedUrl: currentQuestion.card.imageUrl,
+                  revealUrl: currentQuestion.card.revealUrl,
                   submitted: isRevealed,
                 })} 
                 isRevealed={isRevealed}
@@ -1335,12 +1334,8 @@ export default function Game() {
                 onSkip={handleManualSkip}
                 skipButtonMode={(replacementAttempts.get(session.currentQuestionIndex) ?? 0) >= 2 ? 'skip' : 'replace'}
                 onImageError={() => {
-                  const failedCardId = currentQuestion?.card?.playableCardId || currentQuestion?.card?.id;
-                  if (failedCardId) {
-                    handleCardImageError(failedCardId);
-                  }
+                  handleCardImageError();
                 }}
-                cardId={currentQuestion.card.playableCardId || currentQuestion.card.id}
                 sessionId={session?.id}
               />
           </div>
@@ -1434,7 +1429,7 @@ export default function Game() {
                       </div>
                     )}
 
-                    {currentQuestion?.card?.id && !reportedCardIds.has(currentQuestion.card.id) && (
+                    {session && !reportedCardIds.has(String(session.currentQuestionIndex)) && (
                       <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
                         <DialogTrigger asChild>
                           <Button
@@ -1496,12 +1491,10 @@ export default function Game() {
                             </Button>
                             <Button
                               onClick={() => {
-                                if (currentQuestion?.card?.id) {
-                                  reportCardMutation.mutate({
-                                    cardId: currentQuestion.card.id,
-                                    reason: reportReason,
-                                  });
-                                }
+                                reportCardMutation.mutate({
+                                  questionIndex: session.currentQuestionIndex,
+                                  reason: reportReason,
+                                });
                               }}
                               disabled={reportCardMutation.isPending}
                               data-testid="button-submit-report"
@@ -1515,7 +1508,7 @@ export default function Game() {
                         </DialogContent>
                       </Dialog>
                     )}
-                    {currentQuestion?.card?.id && reportedCardIds.has(currentQuestion.card.id) && (
+                    {session && reportedCardIds.has(String(session.currentQuestionIndex)) && (
                       <p className="text-center text-xs text-muted-foreground" data-testid="text-report-submitted">
                         <CheckCircle className="h-3 w-3 inline mr-1" />
                         Report submitted

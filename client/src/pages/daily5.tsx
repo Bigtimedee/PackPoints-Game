@@ -67,7 +67,6 @@ interface Daily5Status {
 
 interface Daily5Card {
   position: number;
-  cardId: string;
   imageUrl: string;
   choices: string[];
   pointValue: number;
@@ -78,6 +77,7 @@ interface AnswerResult {
   pointsEarned: number;
   score: number;
   correctCount: number;
+  revealUrl?: string | null;
 }
 
 interface FinishResult {
@@ -686,16 +686,16 @@ export default function Daily5Page() {
   }, [gameState]);
 
   useEffect(() => {
-    const remaining = cards.filter((card) => card.position >= currentPosition).map((card) => card.cardId);
+    const remaining = cards.filter((card) => card.position >= currentPosition).map((card) => card.imageUrl);
     if (remaining.length === 0) return;
     prefetchMaskedPlayCards(remaining);
   }, [cards, currentPosition]);
 
   useEffect(() => {
-    if (isRevealed && currentCard?.cardId) {
-      prefetchRevealPlayCard(currentCard.cardId);
+    if (isRevealed && answerResult?.revealUrl) {
+      prefetchRevealPlayCard(answerResult.revealUrl);
     }
-  }, [isRevealed, currentCard?.cardId]);
+  }, [isRevealed, answerResult?.revealUrl]);
 
   if (
     statusQuery.isLoading
@@ -734,11 +734,14 @@ export default function Daily5Page() {
             <div className="flex justify-center">
               <div className="w-full max-w-xs aspect-[3/4] relative">
                 <GameCard
-                  key={`${currentCard.cardId}-${isRevealed ? "revealed" : "masked"}`}
-                  imageUrl={resolvePlayCardSrc({ cardId: currentCard.cardId, submitted: isRevealed })}
+                  key={`${currentCard.position}-${isRevealed ? "revealed" : "masked"}`}
+                  imageUrl={resolvePlayCardSrc({
+                    maskedUrl: currentCard.imageUrl,
+                    revealUrl: answerResult?.revealUrl,
+                    submitted: isRevealed,
+                  })}
                   isRevealed={isRevealed}
                   imageRotation={0}
-                  cardId={currentCard.cardId}
                   setKey={challengeSetId ?? statusQuery.data?.challenge?.setId ?? undefined}
                   allowClientImageReject={false}
                 />

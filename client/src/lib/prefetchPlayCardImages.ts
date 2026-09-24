@@ -1,5 +1,3 @@
-import { maskedPlayUrl, revealPlayUrl } from "@shared/playCardImage";
-
 const inFlight = new Set<string>();
 const readyUrls = new Set<string>();
 
@@ -11,16 +9,19 @@ export function isPlayCardImageReady(url: string): boolean {
   return !!url && readyUrls.has(url);
 }
 
-export function remainingPlayCardIds(
-  cardIds: Array<string | null | undefined>,
+export function remainingPlayCardUrls(
+  urls: Array<string | null | undefined>,
   currentIndex: number,
 ): string[] {
   const start = Math.max(0, currentIndex);
-  return cardIds.slice(start).filter((id): id is string => typeof id === "string" && id.length > 0);
+  return urls.slice(start).filter((url): url is string => typeof url === "string" && url.length > 0);
 }
 
-function uniqueCardIds(cardIds: Array<string | null | undefined>): string[] {
-  return [...new Set(cardIds.filter((id): id is string => typeof id === "string" && id.length > 0))];
+/** @deprecated Use remainingPlayCardUrls. Kept so older call sites still slice the deal. */
+export const remainingPlayCardIds = remainingPlayCardUrls;
+
+function uniqueUrls(urls: Array<string | null | undefined>): string[] {
+  return [...new Set(urls.filter((url): url is string => typeof url === "string" && url.length > 0))];
 }
 
 function prefetchUrl(url: string, label: string): void {
@@ -54,22 +55,22 @@ function ensurePreloadLink(href: string): void {
   document.head.appendChild(link);
 }
 
-/** Prefetch baked (masked) JPEGs only. Never prefetch the unmasked reveal URL. */
-export function prefetchMaskedPlayCards(cardIds: Array<string | null | undefined>): string[] {
-  const ids = uniqueCardIds(cardIds);
-  const urls = ids.map((id) => maskedPlayUrl(id));
-  if (urls[0]) ensurePreloadLink(urls[0]);
-  if (urls[1]) ensurePreloadLink(urls[1]);
-  for (let i = 0; i < ids.length; i++) {
-    prefetchUrl(urls[i], `masked ${ids[i]}`);
-  }
-  return urls;
+function isMaskedPlayUrl(url: string): boolean {
+  return url.includes("/masked-image") || url.includes("/api/play/m/");
 }
 
-/** Call only after a successful answer submit so the printed name is allowed. */
-export function prefetchRevealPlayCard(cardId: string | null | undefined): string | null {
-  if (!cardId) return null;
-  const url = revealPlayUrl(cardId);
-  prefetchUrl(url, `reveal ${cardId}`);
+/** Prefetch baked (masked) JPEGs only. Never prefetch an unmasked reveal URL. */
+export function prefetchMaskedPlayCards(urls: Array<string | null | undefined>): string[] {
+  const masked = uniqueUrls(urls).filter((url) => isMaskedPlayUrl(url) && !url.includes("/api/images/card/") && !url.includes("/api/play/r/"));
+  if (masked[0]) ensurePreloadLink(masked[0]);
+  if (masked[1]) ensurePreloadLink(masked[1]);
+  for (const url of masked) prefetchUrl(url, "masked");
+  return masked;
+}
+
+/** Call only after a successful answer submit, with the ACK reveal URL. */
+export function prefetchRevealPlayCard(url: string | null | undefined): string | null {
+  if (!url || !url.includes("/api/play/r/")) return null;
+  prefetchUrl(url, "reveal");
   return url;
 }

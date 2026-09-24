@@ -102,6 +102,9 @@ import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panic
 import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from "./utils/questionSanitizer";
+import { handleCardIdUnmasked, handleMaskedToken, handleRevealToken, setUnmaskedHeaders } from "./services/playImageHttp";
+import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveRevealCard } from "./services/playImageAccess";
+import { sendMaskedCard, sendUnmaskedCard } from "./services/playImageSend";
 import { setIdPrefixFromShareSlug } from "./contentFactory/makerShareSlug";
 import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
 
@@ -1015,11 +1018,8 @@ export async function registerRoutes(
   app.post("/api/game/session/:id/replace-card", async (req, res) => {
     try {
       const { id } = req.params;
-      const { failedCardId, excludeCardIds = [] } = req.body;
-      
-      if (!failedCardId) {
-        return res.status(400).json({ error: "failedCardId is required" });
-      }
+      const { excludeCardIds = [] } = req.body;
+      const requestedIndex = req.body?.questionIndex;
 
       const session = await storage.getGameSession(id);
       if (!session) {
@@ -1030,14 +1030,26 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Session is not active" });
       }
 
+      const failedIndex = typeof requestedIndex === "number"
+        && requestedIndex >= 0
+        && requestedIndex < session.questions.length
+        ? requestedIndex
+        : findQuestionIndexByCardId(
+          session.questions,
+          typeof req.body?.failedCardId === "string" ? req.body.failedCardId : "",
+          session.currentQuestionIndex,
+        );
+      const failedQuestion = session.questions[failedIndex];
+      const failedCardId = (typeof req.body?.failedCardId === "string" && req.body.failedCardId)
+        || failedQuestion?.card?.playableCardId
+        || failedQuestion?.card?.id;
+
+      if (!failedCardId) {
+        return res.status(400).json({ error: "questionIndex is required" });
+      }
+
       // Always flag the failed card for admin review (regardless of replacement availability)
       await storage.flagCardForImageFailure(failedCardId);
-
-      const failedIndex = findQuestionIndexByCardId(
-        session.questions,
-        failedCardId,
-        session.currentQuestionIndex,
-      );
       (session.questions[failedIndex] as any).imageFailure = true;
 
       const result = await storage.getReplacementCardForSession(id, failedCardId, excludeCardIds);
@@ -1051,6 +1063,10 @@ export async function registerRoutes(
       // Update the session with the replacement question, preserving imageFailure flag
       const replacement = result.question as any;
       replacement.imageFailure = true;
+      const priorIds = Array.isArray((failedQuestion as any)?.replacedFromIds)
+        ? (failedQuestion as any).replacedFromIds
+        : [];
+      replacement.replacedFromIds = [...priorIds, failedCardId];
       session.questions[failedIndex] = replacement;
       await storage.updateGameSession(session);
 
@@ -1061,7 +1077,7 @@ export async function registerRoutes(
 
       res.json({
         success: true,
-        question: sanitizeQuestionForClient(result.question),
+        question: sanitizeQuestionForClient(result.question, { scope: "solo", sessionId: id, index: failedIndex }),
         flagged: result.flagged
       });
     } catch (error) {
@@ -1282,9 +1298,15 @@ export async function registerRoutes(
         console.error("[RiskPipeline] Failed to log gameplay event:", riskError);
       }
       
+      const answeredCardId = currentQuestion.card?.playableCardId || currentQuestion.card?.id;
+      const revealUrl = answeredCardId
+        ? await mintSoloRevealUrl(sessionId, questionIndex, answeredCardId)
+        : null;
       res.json({
         correct: isCorrect,
         correctAnswer: currentQuestion.correctAnswer, // post-submission reveal — intentionally sent
+        revealUrl,
+        cardId: currentQuestion.card?.playableCardId || currentQuestion.card?.id,
         pointsEarned,
         totalScore: session.score,
         session: sanitizeSessionForClient(session),
@@ -1495,7 +1517,10 @@ export async function registerRoutes(
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       const status = await daily5Service.getStatus(userId || undefined);
       const anonGate = await attachAnonDailyStatus(req, res, status, userId || undefined);
-      res.json({ ...status, anonGate });
+      const challenge = status.challenge
+        ? (({ seed: _dealSeed, ...publicChallenge }) => publicChallenge)(status.challenge)
+        : null;
+      res.json({ ...status, challenge, anonGate });
     } catch (error) {
       console.error("[Daily5] Error getting status:", error);
       res.status(500).json({ error: "Failed to get Daily 5 status" });
@@ -1574,7 +1599,11 @@ export async function registerRoutes(
       
       const { challengeId, position, selectedAnswer } = parsed.data;
       const result = await daily5Service.submitAnswer(userId, challengeId, position, selectedAnswer);
-      res.json(result);
+      const entryId = await registeredDailyEntryId(userId, challengeId);
+      const revealUrl = entryId
+        ? await mintDailyRevealUrl({ scope: "d5", sessionId: entryId, challengeId, position })
+        : null;
+      res.json({ ...result, revealUrl });
     } catch (error: any) {
       console.error("[Daily5] Error submitting answer:", error);
       if (error.message?.includes("already answered") || error.message?.includes("already completed")) {
@@ -6172,6 +6201,10 @@ export async function registerRoutes(
   // Public: Get Card Details by ID (with caching and rate limiting)
   app.get("/api/cardhedge/card/:cardId", async (req, res) => {
     try {
+      if (!(await callerIsAdmin(req))) {
+        setUnmaskedHeaders(res);
+        return res.status(403).json({ error: "Not available" });
+      }
       const { cardId } = req.params;
       const rawImagesOnly = req.query.rawImagesOnly === "true";
       
@@ -6229,6 +6262,7 @@ export async function registerRoutes(
           },
         });
       
+      setUnmaskedHeaders(res);
       res.json(normalized);
     } catch (error: any) {
       console.error("Error getting card details:", error);
@@ -6261,6 +6295,10 @@ export async function registerRoutes(
   // Gameplay helper: Get card image for gameplay (prefers raw images)
   app.get("/api/cardhedge/gameplay-image/:cardId", async (req, res) => {
     try {
+      if (!(await callerIsAdmin(req))) {
+        setUnmaskedHeaders(res);
+        return res.status(403).json({ error: "Not available" });
+      }
       const { cardId } = req.params;
       
       if (!cardId) {
@@ -6286,6 +6324,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Card not found" });
       }
       
+      setUnmaskedHeaders(res);
       res.json({
         cardId: normalized.cardId,
         imageUrl: normalized.imageUrl,
@@ -7415,9 +7454,17 @@ export async function registerRoutes(
 
   // User: Report a card with a wrong/mismatched image (allows anonymous reports)
   // Supports both playableCards (solo mode) and baseballCards (1v1 mode)
-  app.post("/api/cards/:cardId/report", async (req: any, res) => {
+  const reportCardImage = async (req: any, res: Response) => {
     try {
-      const { cardId } = req.params;
+      let { cardId } = req.params;
+      if (req.body?.questionIndex !== undefined && req.body?.sessionId) {
+        const session = await storage.getGameSession(String(req.body.sessionId));
+        const idx = Number(req.body.questionIndex);
+        const dealt = session?.questions?.[idx]?.card;
+        const resolved = dealt?.playableCardId || dealt?.id;
+        if (!resolved) return res.status(404).json({ error: "Card not found" });
+        cardId = resolved;
+      }
       // @shared/schema imports moved to top of file
       
       const parsed = createCardImageReportSchema.safeParse({ cardId, ...req.body });
@@ -7566,6 +7613,12 @@ export async function registerRoutes(
       console.error("Error creating card report:", error);
       res.status(500).json({ error: "Failed to submit report" });
     }
+  };
+  app.post("/api/cards/:cardId/report", reportCardImage);
+  app.post("/api/game/session/:id/report-image", (req: any, res) => {
+    req.body = { ...(req.body || {}), sessionId: req.params.id };
+    req.params.cardId = req.params.cardId || "session";
+    return reportCardImage(req, res);
   });
 
   // Report an image load failure during gameplay (auto-flag mechanism)
@@ -8411,6 +8464,10 @@ export async function registerRoutes(
 
   app.get("/api/images/proxy", async (req, res) => {
     try {
+      if (!(await callerIsAdmin(req))) {
+        setUnmaskedHeaders(res);
+        return res.status(403).json({ error: "Not available" });
+      }
       const proxyEnabled = process.env.CARD_IMAGE_PROXY_ENABLED !== "false";
       if (!proxyEnabled) {
         return res.status(403).json({ error: "Image proxy is disabled" });
@@ -8529,8 +8586,8 @@ export async function registerRoutes(
             return res.status(400).json({ error: "URL does not point to an image" });
           }
 
+          setUnmaskedHeaders(res);
           res.setHeader("Content-Type", contentType);
-          res.setHeader("Cache-Control", "public, max-age=86400");
           res.setHeader("X-Content-Type-Options", "nosniff");
 
           const arrayBuffer = await response.arrayBuffer();
@@ -8555,145 +8612,37 @@ export async function registerRoutes(
   // ============================================
   // MASKED CARD IMAGE ENDPOINT
   // ============================================
+  const playImageDeps = {
+    authorizeCardId: async () => "denied" as const,
+    resolveReveal: (req: Request, scope: "solo" | "d5" | "ad5" | "match", sessionId: string, index: number, exp: number, token: string) =>
+      resolveRevealCard(req, scope, sessionId, index, exp, token),
+    resolveMask: resolveMaskCard,
+    sendUnmasked: sendUnmaskedCard,
+    sendMasked: sendMaskedCard,
+  };
+
   app.get("/api/cards/:cardId/masked-image", async (req, res) => {
-    const { cardId } = req.params;
-    const started = Date.now();
+    // Legacy path still bakes the name-covered JPEG. New deals use /api/play/m, which
+    // does not contain the card id, so this URL is not derivable from the guessing payload.
+    await sendMaskedCard(req, res, req.params.cardId);
+  });
 
-    if (!cardId || cardId.length > 100) {
-      return res.status(400).json({ error: "Invalid card ID" });
-    }
-
-    try {
-      const { getMaskedImagePath, peekWarmMaskedFilename, takeCoverageRefusal } = await import("./masking/maskingService");
-      const path = await import("path");
-      const fs = await import("fs");
-      const { CURRENT_MASK_VERSION } = await import("./masking/maskProfiles");
-
-      const warmName = peekWarmMaskedFilename(cardId);
-      const maskedPath = warmName || await getMaskedImagePath(cardId);
-      const cacheStatus = warmName ? "hit" : "miss";
-      
-      if (!maskedPath) {
-        const refused = takeCoverageRefusal(cardId);
-        if (refused) {
-          res.setHeader("Cache-Control", "no-store");
-          res.setHeader("X-Mask-Coverage", "fail");
-          return res.status(422).json({
-            error: "Playable mask refused",
-            code: "mask_name_uncovered",
-            reason: refused,
-          });
-        }
-        return res.status(404).json({ error: "Unable to generate masked image" });
-      }
-
-      const filePath = path.join(process.cwd(), "data", "masked-cards", maskedPath);
-      
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "Masked image not found" });
-      }
-
-      const etag = `"${CURRENT_MASK_VERSION}"`;
-      if (req.headers["if-none-match"] === etag) {
-        res.setHeader("ETag", etag);
-        res.setHeader("X-Mask-Cache", cacheStatus);
-        return res.status(304).end();
-      }
-
-      res.setHeader("Content-Type", "image/jpeg");
-      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-      res.setHeader("ETag", etag);
-      res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
-      res.setHeader("X-Mask-Cache", cacheStatus);
-      res.setHeader("Server-Timing", `mask;dur=${Date.now() - started};desc="${cacheStatus}"`);
-      res.setHeader("Content-Security-Policy", "default-src 'none'");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      
-      const fileStream = fs.createReadStream(filePath);
-      fileStream.pipe(res);
-    } catch (error) {
-      console.error("[MaskedImage] Error serving masked image:", error);
-      res.status(500).json({ error: "Server error" });
-    }
+  app.get("/api/play/m/:scope/:sessionId/:index/:token", async (req, res) => {
+    await handleMaskedToken(req, res, playImageDeps);
   });
 
   // ============================================
   // CARD IMAGE PROXY BY CARD ID
   // ============================================
   app.get("/api/images/card/:cardId", async (req, res) => {
-    const { cardId } = req.params;
+    await handleCardIdUnmasked(req, res, {
+      ...playImageDeps,
+      authorizeCardId: (request, cardId) => authorizeCardId(request, res, cardId),
+    });
+  });
 
-    if (!cardId || cardId.length > 100) {
-      return res.status(400).json({ error: "Invalid card ID" });
-    }
-
-    try {
-      const { getSourceUrlForCard, getCachedImageUrl, getOrValidateCardImage, markImageBad } = await import("./services/images/imageGate");
-      const { normalizeImageUrl } = await import("./services/cards/imageQuality");
-
-      let sourceUrl = await getCachedImageUrl(cardId);
-
-      if (!sourceUrl) {
-        sourceUrl = await getSourceUrlForCard(cardId);
-      }
-
-      if (!sourceUrl) {
-        console.warn(`[ImageProxy] Card ${cardId} has no source URL`);
-        return res.status(404).json({ error: "Card image not found" });
-      }
-
-      const normalized = normalizeImageUrl(sourceUrl);
-      if (!normalized) {
-        return res.status(404).json({ error: "Invalid image URL" });
-      }
-
-      const validation = await getOrValidateCardImage(cardId, normalized);
-      
-      if (validation.status !== "ok") {
-        console.warn(`[ImageProxy] Card ${cardId} failed validation: ${validation.status}`);
-        return res.status(404).json({ error: "Image not available" });
-      }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-      const response = await fetch(normalized, {
-        signal: controller.signal,
-        redirect: "follow",
-        headers: {
-          "User-Agent": "PackPTS/1.0 ImageProxy",
-        },
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        await markImageBad(cardId, `proxy_fetch_failed:${response.status}`);
-        return res.status(502).json({ error: "Failed to fetch image" });
-      }
-
-      const contentType = response.headers.get("content-type") || "image/jpeg";
-      if (!contentType.toLowerCase().startsWith("image/")) {
-        await markImageBad(cardId, `invalid_content_type:${contentType}`);
-        return res.status(502).json({ error: "Invalid content type" });
-      }
-
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=86400");
-      res.setHeader("X-Card-Id", cardId);
-      res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-
-      const arrayBuffer = await response.arrayBuffer();
-      return res.send(Buffer.from(arrayBuffer));
-    } catch (error: any) {
-      if (error.name === "AbortError") {
-        console.error(`[ImageProxy] Timeout for card ${cardId}`);
-        return res.status(504).json({ error: "Image fetch timed out" });
-      }
-      console.error(`[ImageProxy] Error for card ${cardId}:`, error);
-      return res.status(500).json({ error: "Failed to proxy image" });
-    }
+  app.get("/api/play/r/:scope/:sessionId/:index/:exp/:token", async (req, res) => {
+    await handleRevealToken(req, res, playImageDeps);
   });
 
   // ============================================
@@ -10943,11 +10892,13 @@ export async function registerRoutes(
         });
       }
       
+      const revealUrl = await mintMatchRevealUrl(matchId, userId, idx);
       return res.json({ 
         ok: true, 
         correct: result.correct,
         correctAnswer: result.correctAnswer,
         pointsEarned: result.pointsEarned,
+        revealUrl,
       });
     } catch (error: unknown) {
       console.error("Error submitting answer via REST:", error);
@@ -10981,7 +10932,13 @@ export async function registerRoutes(
         status: matchState.status,
         currentIndex: matchState.currentQuestionIndex,
         totalQuestions: matchState.totalQuestions,
-        question: currentQuestion ? sanitizeQuestionForClient(currentQuestion) : null,
+        question: currentQuestion
+          ? sanitizeQuestionForClient(currentQuestion, {
+            scope: "match",
+            sessionId: matchId,
+            index: matchState.currentQuestionIndex,
+          })
+          : null,
         participants: matchState.participants.map(p => ({
           userId: p.userId,
           username: p.username,
@@ -11023,11 +10980,13 @@ export async function registerRoutes(
       return res.json({
         ok: true,
         idx,
-        newQuestion: result.newQuestion ? {
-          card: result.newQuestion.card,
-          options: result.newQuestion.options,
-          pointValue: result.newQuestion.pointValue,
-        } : null,
+        newQuestion: result.newQuestion
+          ? sanitizeQuestionForClient(result.newQuestion, {
+            scope: "match",
+            sessionId: matchId,
+            index: idx,
+          })
+          : null,
       });
     } catch (error: unknown) {
       console.error("Error resyncing card:", error);

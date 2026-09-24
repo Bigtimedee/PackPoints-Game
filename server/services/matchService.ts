@@ -870,6 +870,25 @@ class MatchService {
     return await db.select().from(matchParticipants).where(eq(matchParticipants.matchId, matchId));
   }
 
+  /** Keep the DB deal in sync so the opaque mask URL resolves to this card. */
+  private async persistQuestion(matchId: string, idx: number, question: GameQuestion): Promise<void> {
+    const [match] = await db
+      .select({ questionsData: matches.questionsData })
+      .from(matches)
+      .where(eq(matches.id, matchId))
+      .limit(1);
+    if (!match?.questionsData) return;
+    let questions: GameQuestion[] = [];
+    try {
+      questions = JSON.parse(match.questionsData);
+    } catch {
+      return;
+    }
+    if (idx < 0 || idx >= questions.length) return;
+    questions[idx] = question;
+    await db.update(matches).set({ questionsData: JSON.stringify(questions) }).where(eq(matches.id, matchId));
+  }
+
   async resyncCard(matchId: string, idx: number, userId: string): Promise<{ success: boolean; newQuestion?: GameQuestion; error?: string }> {
     const matchState = this.matchStates.get(matchId);
     if (!matchState) {
@@ -898,6 +917,7 @@ class MatchService {
 
     const replacedQuestion = await this.replaceCard(matchId, idx);
     if (replacedQuestion) {
+      await this.persistQuestion(matchId, idx, replacedQuestion);
       console.info(`[MatchService] Replaced card from queue at idx ${idx} for match ${matchId}`, {
         oldCardId,
         newCardId: replacedQuestion.card.id.toString(),
@@ -941,6 +961,7 @@ class MatchService {
     const newQuestion = this.generateQuestionWithProxiedUrl(newCard);
 
     matchState.questions[idx] = newQuestion;
+    await this.persistQuestion(matchId, idx, newQuestion);
 
     console.info(`[MatchService] Resynced card from database at idx ${idx} for match ${matchId}`, {
       oldCardId,

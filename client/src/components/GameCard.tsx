@@ -365,12 +365,14 @@ export function GameCard({
       {imageError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200 z-30" data-testid="game-card-image-error">
           <div className="text-center space-y-3 px-4">
-            {cardNumber && (
+            {isRevealed && cardNumber ? (
               <div className="mb-4">
                 <p className="text-2xl font-bold text-amber-800">Image Failed to Load</p>
                 <p className="text-lg text-amber-700">#{cardNumber}</p>
                 {team && <p className="text-sm text-amber-600 mt-2">{team}</p>}
               </div>
+            ) : (
+              <p className="text-2xl font-bold text-amber-800 mb-4">Image Failed to Load</p>
             )}
             {imageErrorKind === "honest" && (
               <p className="text-sm text-amber-900" data-testid="text-game-card-image-error">
@@ -433,7 +435,7 @@ export function GameCard({
       {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
       <img
         src={cdnImageUrl}
-        alt={[team, "sports card"].filter(Boolean).join(" ")}
+        alt={isRevealed && team ? `${team} sports card` : "sports card"}
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         crossOrigin="anonymous"
         loading="eager"

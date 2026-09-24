@@ -29,12 +29,15 @@ describe("Card Image Pipeline", () => {
   });
 
   describe.skipIf(!process.env.TEST_BASE_URL)("2) Proxy Endpoint Test", () => {
-    it("should return 404 for non-existent card", async () => {
+    it("returns 403 with private, no-store for an unanswered card and no x-card-id", async () => {
       const response = await fetch(`${BASE_URL}/api/images/card/non-existent-card-id-12345`);
-      expect(response.status).toBe(404);
+      expect([403, 404]).toContain(response.status);
+      const cacheControl = response.headers.get("cache-control") || "";
+      expect(cacheControl).toContain("no-store");
+      expect(response.headers.get("x-card-id")).toBeNull();
     });
 
-    it("should proxy valid card images with correct headers", async () => {
+    it("does not serve a catalog card's original scan to an anonymous caller", async () => {
       const cardsResponse = await fetch(`${BASE_URL}/api/cards`);
       if (!cardsResponse.ok) {
         console.log("Skipping proxy test - no cards available");
@@ -49,19 +52,9 @@ describe("Card Image Pipeline", () => {
       
       const testCard = cards[0];
       const proxyResponse = await fetch(`${BASE_URL}/api/images/card/${testCard.id}`);
-      
-      if (proxyResponse.status === 200) {
-        const contentType = proxyResponse.headers.get("content-type");
-        expect(contentType).toMatch(/^image\//);
-        
-        const cacheControl = proxyResponse.headers.get("cache-control");
-        expect(cacheControl).toContain("max-age=86400");
-        
-        const body = await proxyResponse.arrayBuffer();
-        expect(body.byteLength).toBeGreaterThan(0);
-      } else {
-        console.log(`Card ${testCard.id} returned ${proxyResponse.status} - may not have validated image`);
-      }
+      expect([403, 404]).toContain(proxyResponse.status);
+      expect(proxyResponse.headers.get("cache-control") || "").toContain("no-store");
+      expect(proxyResponse.headers.get("x-card-id")).toBeNull();
     });
   });
 
@@ -113,7 +106,8 @@ describe("Card Image Pipeline", () => {
         expect(questions.length).toBe(10);
         
         for (const q of questions) {
-          expect(q.card.imageUrl).toMatch(/^\/api\/images\/card\//);
+          expect(q.card.imageUrl).not.toMatch(/\/api\/images\/card\//);
+          expect(JSON.stringify(q)).not.toContain(q.card?.id || "___missing_card_id___");
         }
       }
     });

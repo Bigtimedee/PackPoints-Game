@@ -41,15 +41,12 @@ interface MatchState {
   currentQuestionIndex: number;
   totalQuestions: number;
   gameSetId?: string;
-  upcomingMaskedCardIds?: string[];
+  upcomingMaskedUrls?: string[];
   currentQuestion: {
     card: {
-      id: string;
       imageUrl: string;
-      team: string;
-      year: number;
-      setName: string;
-      cardNumber: string;
+      imageRotation?: number;
+      gameSetId?: string;
     };
     options: string[];
     pointValue: number;
@@ -121,7 +118,7 @@ export default function Match() {
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lockedIn, setLockedIn] = useState(false);
-  const [answerResult, setAnswerResult] = useState<{ correct: boolean; correctAnswer: string } | null>(null);
+  const [answerResult, setAnswerResult] = useState<{ correct: boolean; correctAnswer: string; revealUrl?: string | null } | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingClientMsgId, setPendingClientMsgId] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
@@ -711,7 +708,7 @@ export default function Match() {
               submittingRef.current = false;
               setPendingClientMsgId(null);
               pendingClientMsgIdRef.current = null;
-              setAnswerResult({ correct: data.correct, correctAnswer: data.correctAnswer });
+              setAnswerResult({ correct: data.correct, correctAnswer: data.correctAnswer, revealUrl: data.revealUrl });
             } else {
               setSubmitError(data.reason || "Failed to submit");
               setSubmitting(false);
@@ -745,16 +742,16 @@ export default function Match() {
   useEffect(() => {
     if (!matchState) return;
     prefetchMaskedPlayCards([
-      matchState.currentQuestion?.card.id,
-      ...(matchState.upcomingMaskedCardIds ?? []),
+      matchState.currentQuestion?.card.imageUrl,
+      ...(matchState.upcomingMaskedUrls ?? []),
     ]);
-  }, [matchState?.matchId, matchState?.currentQuestionIndex, matchState?.currentQuestion?.card.id, matchState?.upcomingMaskedCardIds?.join(",")]);
+  }, [matchState?.matchId, matchState?.currentQuestionIndex, matchState?.currentQuestion?.card.imageUrl, matchState?.upcomingMaskedUrls?.join(",")]);
 
   useEffect(() => {
-    if (answerResult && matchState?.currentQuestion?.card.id) {
-      prefetchRevealPlayCard(matchState.currentQuestion.card.id);
+    if (answerResult?.revealUrl) {
+      prefetchRevealPlayCard(answerResult.revealUrl);
     }
-  }, [answerResult, matchState?.currentQuestion?.card.id]);
+  }, [answerResult?.revealUrl]);
 
   if (!matchState) {
     return (
@@ -1146,7 +1143,8 @@ export default function Match() {
   const progress = ((matchState.currentQuestionIndex + 1) / matchState.totalQuestions) * 100;
   const playCardSrc = currentQuestion
     ? resolvePlayCardSrc({
-        cardId: currentQuestion.card.id,
+        maskedUrl: currentQuestion.card.imageUrl,
+        revealUrl: answerResult?.revealUrl,
         submitted: answerResult !== null,
       })
     : "";
@@ -1247,15 +1245,8 @@ export default function Match() {
                   reason: "image_load_failed",
                 });
               }}
-              cardNumber={currentQuestion.card.cardNumber}
-              team={currentQuestion.card.team}
-              cardId={(currentQuestion.card as any).playableCardId || currentQuestion.card.id}
               sessionId={matchId}
             />
-            
-            <div className="flex items-center justify-between">
-              <Badge variant="outline">{currentQuestion.card.team}</Badge>
-            </div>
             
             <div className="grid grid-cols-2 gap-3" role="group" aria-label="Answer choices">
               {currentQuestion.options.map((option, index) => {

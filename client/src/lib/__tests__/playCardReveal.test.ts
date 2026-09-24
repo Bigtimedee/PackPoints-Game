@@ -1,11 +1,7 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
-import {
-  maskedPlayUrl,
-  revealPlayUrl,
-  resolvePlayCardSrc,
-} from "@shared/playCardImage";
+import { resolvePlayCardSrc } from "@shared/playCardImage";
 
 const gameSrc = readFileSync(new URL("../../pages/game.tsx", import.meta.url), "utf8");
 const daily5Src = readFileSync(new URL("../../pages/daily5.tsx", import.meta.url), "utf8");
@@ -13,28 +9,31 @@ const matchSrc = readFileSync(new URL("../../pages/match.tsx", import.meta.url),
 const gameCardSrc = readFileSync(new URL("../../components/GameCard.tsx", import.meta.url), "utf8");
 const playAgainSrc = readFileSync(new URL("../playAgain.ts", import.meta.url), "utf8");
 
-const CARD_ID = "card-abc";
+const MASKED = `/api/play/m/solo/session/0/token?v=${CURRENT_MASK_VERSION}`;
+const REVEAL = "/api/play/r/solo/session/0/123/token";
 
 describe("resolvePlayCardSrc", () => {
   it("keeps the baked JPEG until a successful submit", () => {
-    expect(resolvePlayCardSrc({ cardId: CARD_ID, submitted: false })).toBe(
-      `/api/cards/${CARD_ID}/masked-image?v=${CURRENT_MASK_VERSION}`,
-    );
-    expect(maskedPlayUrl(CARD_ID)).toContain(`/masked-image?v=${CURRENT_MASK_VERSION}`);
+    expect(resolvePlayCardSrc({ maskedUrl: MASKED, submitted: false })).toBe(MASKED);
+    expect(MASKED).toContain(`v=${CURRENT_MASK_VERSION}`);
     expect(CURRENT_MASK_VERSION).toBe("v4.4");
   });
 
-  it("swaps to the original scan proxy after successful submit", () => {
-    expect(resolvePlayCardSrc({ cardId: CARD_ID, submitted: true })).toBe(
-      `/api/images/card/${CARD_ID}`,
-    );
-    expect(revealPlayUrl(CARD_ID)).not.toContain("masked-image");
+  it("swaps to the ACK reveal URL after successful submit", () => {
+    expect(resolvePlayCardSrc({ maskedUrl: MASKED, revealUrl: REVEAL, submitted: true })).toBe(REVEAL);
+    expect(REVEAL).not.toContain("masked-image");
+    expect(REVEAL).not.toContain("/api/images/card/");
   });
 
-  it("select-without-submit (submitted=false) is never the original URL", () => {
-    const src = resolvePlayCardSrc({ cardId: CARD_ID, submitted: false });
-    expect(src).toContain("masked-image");
+  it("select-without-submit stays on the masked URL even if a reveal URL is sitting around", () => {
+    const src = resolvePlayCardSrc({ maskedUrl: MASKED, revealUrl: REVEAL, submitted: false });
+    expect(src).toBe(MASKED);
+    expect(src).not.toContain("/api/play/r/");
     expect(src).not.toContain("/api/images/card/");
+  });
+
+  it("does not invent an unmasked URL when the ACK has not arrived", () => {
+    expect(resolvePlayCardSrc({ maskedUrl: MASKED, submitted: true })).toBe(MASKED);
   });
 });
 
@@ -60,6 +59,7 @@ describe("play surfaces: mask until successful submit, then full card", () => {
   it("solo wires GameCard src from resolvePlayCardSrc(isRevealed) and remounts on reveal", () => {
     expect(gameSrc).toContain("resolvePlayCardSrc");
     expect(gameSrc).toContain("submitted: isRevealed");
+    expect(gameSrc).toContain("revealUrl: currentQuestion.card.revealUrl");
     expect(gameSrc).toContain('isRevealed ? "revealed" : "masked"');
     expect(gameSrc).toContain("handleSelectAnswer");
     const select = gameSrc.slice(
@@ -102,6 +102,7 @@ describe("play surfaces: mask until successful submit, then full card", () => {
   it("Daily 5 next card starts masked and keeps #85 honest GameCard props", () => {
     expect(daily5Src).toContain("resolvePlayCardSrc");
     expect(daily5Src).toContain("submitted: isRevealed");
+    expect(daily5Src).toContain("revealUrl: answerResult?.revealUrl");
     expect(daily5Src).toContain("allowClientImageReject={false}");
     expect(daily5Src).toContain('isRevealed ? "revealed" : "masked"');
     const nextIdx = daily5Src.indexOf("const handleNext");
@@ -112,10 +113,13 @@ describe("play surfaces: mask until successful submit, then full card", () => {
   it("1v1 reveals only after answer_result and swaps src via resolvePlayCardSrc", () => {
     expect(matchSrc).toContain("isRevealed={answerResult !== null}");
     expect(matchSrc).toContain("submitted: answerResult !== null");
+    expect(matchSrc).toContain("revealUrl: answerResult?.revealUrl");
     expect(matchSrc).toContain("resolvePlayCardSrc");
     expect(matchSrc).toContain("setAnswerResult(null)");
     expect(matchSrc).toContain('answerResult ? "revealed" : "masked"');
     expect(matchSrc).toContain("setKey={matchState.gameSetId}");
+    expect(matchSrc).not.toContain("cardNumber=");
+    expect(matchSrc).not.toContain("team={currentQuestion");
   });
 
   it("solo reveal stays in the card slot — no dialog, zoom, or scrim", () => {
@@ -171,6 +175,7 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(gameCardSrc).toContain('"mask-name-band"');
     expect(gameCardSrc).toContain("{!isRevealed && !imageError");
     expect(gameCardSrc).toContain("isPlayCardImageReady(imageUrl)");
+    expect(gameCardSrc).toContain("isRevealed && cardNumber");
   });
 
   it("does not weaken #87 Play Again helpers", () => {
