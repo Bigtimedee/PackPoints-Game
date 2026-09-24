@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient, captureUtmParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { useAuth } from "@/hooks/use-auth";
+import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
 
 // Critical path — eager imports
 import Home from "@/pages/home";
@@ -389,6 +390,24 @@ function AppShell() {
   );
 }
 
+function StaleBuildWatcher() {
+  const [location] = useLocation();
+  const previous = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (previous.current === null) {
+      previous.current = location;
+      return;
+    }
+    if (previous.current === location) return;
+    const from = previous.current;
+    previous.current = location;
+    notifyStaleBuildRouteChange(from, location);
+  }, [location]);
+
+  return null;
+}
+
 function AppExtras() {
   const [location] = useLocation();
   if (location.startsWith("/review/")) return null;
@@ -439,6 +458,7 @@ function App() {
                 You appear to be offline. Some features may not work.
               </div>
             )}
+            <StaleBuildWatcher />
             <AppShell />
             <AppExtras />
             <Toaster />

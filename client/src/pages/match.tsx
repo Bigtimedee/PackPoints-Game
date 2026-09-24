@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
+import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -166,6 +167,12 @@ export default function Match() {
   
   const userId = user?.id || "";
   const username = user?.username || user?.firstName || "Player";
+
+  useEffect(() => {
+    const live = Boolean(matchState && matchState.status === "ACTIVE" && !matchEnded);
+    setStaleBuildActivity({ pageSubmitting: submitting, inProgressCard: live });
+    return () => setStaleBuildActivity({ pageSubmitting: false, inProgressCard: false });
+  }, [submitting, matchState, matchEnded]);
   
   const handleMessage = useCallback((message: any) => {
     switch (message.type) {

@@ -3,6 +3,7 @@ import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
 import { execSync } from "child_process";
 import { assertShareFontsPresent } from "../server/contentFactory/fonts";
+import { resolveBuildId } from "../server/lib/resolveBuildId";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -55,6 +56,10 @@ async function buildAll() {
   const fonts = assertShareFontsPresent();
   console.log("share fonts", fonts.interDir, fonts.dejaVuRegular);
 
+  const buildId = resolveBuildId();
+  process.env.PACKPTS_BUILD_ID = buildId;
+  console.log("packpts build id", buildId);
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");
@@ -77,6 +82,7 @@ async function buildAll() {
     define: {
       "process.env.NODE_ENV": '"production"',
       "process.env.BUILD_COMMIT_SHA": JSON.stringify(getCommitSha()),
+      "process.env.PACKPTS_BUILD_ID": JSON.stringify(buildId),
     },
     minify: true,
     external: externals,

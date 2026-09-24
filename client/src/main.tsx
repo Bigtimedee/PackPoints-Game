@@ -1,6 +1,9 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { installStaleBuildGuards } from "./lib/staleBuildClient";
 import "./index.css";
+
+installStaleBuildGuards();
 
 // Evict any service worker left by the pre-Railway deployment of this domain
 // (this app registers none, so ANY registration is foreign). Without this, a
