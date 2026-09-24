@@ -1,53 +1,123 @@
 /**
  * Card Price Capture (ANALYTICS_PROMPTS.md, Prompt 1 parallel action).
  *
- * Snapshots CardHedge market prices for recently-played players into a daily
- * time-series. The Attention Alpha correlation (Prompt 6) needs price HISTORY,
- * which cannot be backfilled — so this must start capturing NOW even though the
- * analysis that consumes it is months away. Idempotent per (day, player, year).
+ * Snapshots CardHedge market prices for cards played in the last 30 days.
+ * The on-demand card_details_cache is not filled by gameplay, so this worker
+ * fetches missing details itself (capped, throttled) and upserts the cache.
+ * Idempotent per (day, player, year).
  */
-import { sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../../db";
-import { cardPriceHistory } from "@shared/schema";
-import { PRICE_CAPTURE_SQL, mapPriceCaptureRow } from "./priceCaptureQuery";
+import { cardDetailsCache, cardPriceHistory } from "@shared/schema";
+import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "../cardhedge/client";
+import {
+  FALLBACK_CANDIDATES_SQL,
+  PLAYED_CANDIDATES_SQL,
+  RECENT_ANSWER_COUNT_SQL,
+  cacheUpsertValues,
+  limitedSql,
+  parseCandidateRows,
+  readCacheTtlSeconds,
+  readPriceCaptureMaxFetch,
+  runPriceCapture,
+  type CacheLookupRow,
+  type PriceCaptureInsert,
+} from "./priceCaptureQuery";
 
 const CAPTURE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-function todayUTC(): string {
-  return new Date().toISOString().slice(0, 10);
+function queryRows(result: unknown): Array<Record<string, unknown>> {
+  if (!result || typeof result !== "object" || !("rows" in result)) return [];
+  const rows = (result as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row): row is Record<string, unknown> => !!row && typeof row === "object");
 }
 
-async function capturePrices(): Promise<void> {
-  try {
-    // Year and sport live on game_sets. playable_cards has no year column.
-    const rows = await db.execute(sql.raw(PRICE_CAPTURE_SQL));
+async function executeRows(query: string): Promise<Array<Record<string, unknown>>> {
+  return queryRows(await db.execute(sql.raw(query)));
+}
 
-    const day = todayUTC();
-    let captured = 0;
-    let failed = 0;
-    let firstError = "";
-    for (const r of (rows.rows as any[])) {
-      try {
-        const values = mapPriceCaptureRow(r, day);
-        if (!values) continue;
-        await db.insert(cardPriceHistory).values(values).onConflictDoNothing();
-        captured++;
-      } catch (err) {
-        failed++;
-        if (!firstError) firstError = (err as any)?.message || String(err);
-      }
-    }
-    if (failed > 0) {
-      console.error(`[PriceCapture] ${failed} rows failed: ${firstError}`);
-    }
-    console.log(`[PriceCapture] captured ${captured} price points for ${day}`);
+async function upsertCache(cardId: string, payload: unknown): Promise<void> {
+  const now = new Date();
+  const write = cacheUpsertValues(
+    cardId,
+    payload,
+    now,
+    readCacheTtlSeconds(process.env.CARDHEDGE_CACHE_TTL_SECONDS),
+  );
+  await db.insert(cardDetailsCache).values({
+    cardId: write.values.cardId,
+    rawImagesOnly: write.values.rawImagesOnly,
+    payload: write.values.payload,
+    expiresAt: write.values.expiresAt,
+  }).onConflictDoUpdate({
+    target: [cardDetailsCache.cardId, cardDetailsCache.rawImagesOnly],
+    set: {
+      payload: write.update.payload,
+      fetchedAt: write.update.fetchedAt,
+      expiresAt: write.update.expiresAt,
+    },
+  });
+}
+
+async function insertPrice(values: PriceCaptureInsert): Promise<boolean> {
+  const inserted = await db.insert(cardPriceHistory).values(values).onConflictDoNothing().returning({
+    id: cardPriceHistory.id,
+  });
+  return inserted.length > 0;
+}
+
+async function loadCacheRows(cardIds: string[]): Promise<CacheLookupRow[]> {
+  if (cardIds.length === 0) return [];
+  const rows = await db
+    .select({
+      cardId: cardDetailsCache.cardId,
+      payload: cardDetailsCache.payload,
+      fetchedAt: cardDetailsCache.fetchedAt,
+    })
+    .from(cardDetailsCache)
+    .where(and(
+      eq(cardDetailsCache.rawImagesOnly, false),
+      inArray(cardDetailsCache.cardId, cardIds),
+    ));
+  return rows.map((row) => ({
+    cardId: row.cardId,
+    payload: row.payload,
+    fetchedAt: row.fetchedAt,
+  }));
+}
+
+export async function capturePrices(): Promise<void> {
+  try {
+    const maxFetch = readPriceCaptureMaxFetch(process.env.PRICE_CAPTURE_MAX_FETCH);
+    await runPriceCapture({
+      isConfigured: isCardHedgeConfigured,
+      maxFetch,
+      countRecentAnswers: async () => {
+        const rows = await executeRows(RECENT_ANSWER_COUNT_SQL);
+        const raw = rows[0]?.event_count;
+        const n = typeof raw === "number" ? raw : Number(raw ?? 0);
+        return Number.isFinite(n) ? n : 0;
+      },
+      loadPlayedCandidates: async (limit) => parseCandidateRows(
+        await executeRows(limitedSql(PLAYED_CANDIDATES_SQL, limit)),
+      ),
+      loadFallbackCandidates: async (limit) => parseCandidateRows(
+        await executeRows(limitedSql(FALLBACK_CANDIDATES_SQL, limit)),
+      ),
+      loadCacheRows,
+      fetchDetails: (cardhedgeCardId) => fetchCardDetailsNormalized(cardhedgeCardId, false),
+      upsertCache,
+      insertPrice,
+    });
   } catch (err) {
-    console.error("[PriceCapture] run failed:", (err as any)?.message);
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[PriceCapture] run failed:", message);
   }
 }
 
 export function startPriceCaptureWorker(): void {
-  void capturePrices(); // capture immediately on boot — every day counts
+  void capturePrices();
   const timer = setInterval(() => void capturePrices(), CAPTURE_INTERVAL_MS);
   timer.unref();
   console.log("[PriceCapture] worker started (daily)");
