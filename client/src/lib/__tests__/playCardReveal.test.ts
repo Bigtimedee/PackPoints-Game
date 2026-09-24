@@ -118,6 +118,53 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(matchSrc).toContain("setKey={matchState.gameSetId}");
   });
 
+  it("solo reveal stays in the card slot — no dialog, zoom, or scrim", () => {
+    const slot = gameSrc.slice(
+      gameSrc.indexOf('data-testid="solo-card-slot"'),
+      gameSrc.indexOf("{/* Zone 3: Answers */}"),
+    );
+    expect(slot).toContain("GameCard");
+    expect(slot).toContain("submitted: isRevealed");
+    expect(slot).not.toContain("Dialog");
+    expect(slot).not.toContain("fixed");
+    expect(slot).not.toContain("inset-0");
+    expect(slot).not.toContain("scale-");
+    expect(slot).not.toContain("zoom-");
+    expect(gameSrc).not.toContain("badge-point-value");
+    expect(gameSrc).not.toContain("Worth ");
+
+    const answerBtn = gameSrc.slice(
+      gameSrc.indexOf("function AnswerButton"),
+      gameSrc.indexOf("interface RewardDetails"),
+    );
+    expect(answerBtn).toContain("disabled:opacity-100");
+    expect(answerBtn).toContain("disabled={disabled || isRevealed}");
+  });
+
+  it("Daily 5 and 1v1 revealed rows are not a scrim and do not show a static pts badge", () => {
+    const d5Btn = daily5Src.slice(
+      daily5Src.indexOf("function AnswerButton"),
+      daily5Src.indexOf("export default function Daily5Page"),
+    );
+    expect(d5Btn).toContain("disabled:opacity-100");
+    expect(daily5Src).not.toContain("Worth ");
+    expect(daily5Src).not.toContain("badge-point-value");
+
+    expect(matchSrc).toContain("disabled:opacity-100");
+    expect(matchSrc).not.toContain("{currentQuestion.pointValue} pts");
+    expect(matchSrc).not.toContain("Worth ");
+  });
+
+  it("GameCard does not open a click-to-enlarge lightbox", () => {
+    expect(gameCardSrc).toContain('className="relative aspect-');
+    expect(gameCardSrc).not.toContain("createPortal");
+    expect(gameCardSrc).not.toContain("fixed inset");
+    const img = gameCardSrc.slice(gameCardSrc.indexOf("<img"), gameCardSrc.indexOf("data-testid=\"img-card\""));
+    expect(img).toContain("pointer-events-none");
+    expect(img).not.toContain("onClick");
+    expect(gameCardSrc).toContain("{!isRevealed && !imageError");
+  });
+
   it("GameCard stays dumb — it does not fetch originals from isRevealed", () => {
     expect(gameCardSrc).not.toContain("resolvePlayCardSrc");
     expect(gameCardSrc).not.toContain("/api/images/card/");
