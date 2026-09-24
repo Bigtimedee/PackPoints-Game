@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -4697,3 +4697,141 @@ export const setOfTheWeek = pgTable("set_of_week", {
 export const insertSetOfTheWeekSchema = createInsertSchema(setOfTheWeek).omit({ id: true, createdAt: true });
 export type SetOfTheWeek = typeof setOfTheWeek.$inferSelect;
 export type InsertSetOfTheWeek = z.infer<typeof insertSetOfTheWeekSchema>;
+
+// ============================================
+// RAW-SQL TABLES
+// These were created only by supplementary migrations/*.sql. drizzle-kit push
+// --force drops any table that is not in this file, so they must live here.
+// Column names match the raw SQL call sites (snake_case). User foreign keys
+// are varchar, matching users.id. The supplementary SQL typed some of them
+// as integer, which cannot store the uuid strings those call sites insert.
+// ============================================
+
+const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
+
+export const jobQueue = pgTable("job_queue", {
+  id: serial("id").primaryKey(),
+  jobType: varchar("job_type", { length: 100 }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  payload: jsonb("payload").default(sql`'{}'::jsonb`),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3),
+  lastError: text("last_error"),
+  scheduledAt: timestamptz("scheduled_at").notNull().defaultNow(),
+  startedAt: timestamptz("started_at"),
+  completedAt: timestamptz("completed_at"),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_job_queue_status_scheduled").on(table.status, table.scheduledAt),
+  index("idx_job_queue_type").on(table.jobType),
+  check("job_queue_status_check", sql`${table.status} IN ('pending', 'running', 'completed', 'failed')`),
+]);
+
+export type JobQueueRow = typeof jobQueue.$inferSelect;
+
+export const promotions = pgTable("promotions", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  startAt: timestamptz("start_at").notNull(),
+  endAt: timestamptz("end_at").notNull(),
+  pointsMultiplier: numeric("points_multiplier", { precision: 4, scale: 2 }).notNull().default("1.0"),
+  active: boolean("active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_promotions_active_dates").on(table.active, table.startAt, table.endAt),
+]);
+
+export type Promotion = typeof promotions.$inferSelect;
+
+export const userAttribution = pgTable("user_attribution", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  utmSource: varchar("utm_source", { length: 255 }),
+  utmMedium: varchar("utm_medium", { length: 255 }),
+  utmCampaign: varchar("utm_campaign", { length: 255 }),
+  utmTerm: varchar("utm_term", { length: 255 }),
+  utmContent: varchar("utm_content", { length: 255 }),
+  referrer: varchar("referrer", { length: 500 }),
+  landingPage: varchar("landing_page", { length: 500 }),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_user_attribution_user_id").on(table.userId),
+  index("idx_user_attribution_source").on(table.utmSource),
+  index("idx_user_attribution_campaign").on(table.utmCampaign),
+]);
+
+export type UserAttribution = typeof userAttribution.$inferSelect;
+
+export const creatorApplications = pgTable("creator_applications", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  socialHandle: varchar("social_handle", { length: 255 }).notNull(),
+  platform: varchar("platform", { length: 100 }).notNull(),
+  followerCount: integer("follower_count"),
+  contentDescription: text("content_description"),
+  whyPackpts: text("why_packpts"),
+  status: varchar("status", { length: 50 }).notNull().default("pending"),
+  tier: varchar("tier", { length: 50 }),
+  referralCode: varchar("referral_code", { length: 50 }).unique(),
+  notes: text("notes"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamptz("reviewed_at"),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_creator_applications_status").on(table.status),
+  index("idx_creator_applications_email").on(table.email),
+  uniqueIndex("idx_creator_applications_referral_code").on(table.referralCode).where(sql`${table.referralCode} IS NOT NULL`),
+  check("creator_applications_platform_check", sql`${table.platform} IN ('instagram', 'tiktok', 'youtube', 'twitter', 'other')`),
+  check("creator_applications_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected', 'waitlisted')`),
+  check("creator_applications_tier_check", sql`${table.tier} IN ('micro', 'partner', 'ambassador')`),
+]);
+
+export type CreatorApplication = typeof creatorApplications.$inferSelect;
+
+export const partnerInquiries = pgTable("partner_inquiries", {
+  id: serial("id").primaryKey(),
+  shopName: varchar("shop_name", { length: 255 }).notNull(),
+  contactName: varchar("contact_name", { length: 255 }).notNull(),
+  contactEmail: varchar("contact_email", { length: 255 }).notNull(),
+  website: varchar("website", { length: 500 }),
+  location: varchar("location", { length: 255 }),
+  monthlyVolume: varchar("monthly_volume", { length: 100 }),
+  message: text("message"),
+  status: varchar("status", { length: 50 }).notNull().default("new"),
+  notes: text("notes"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_partner_inquiries_status").on(table.status),
+  index("idx_partner_inquiries_email").on(table.contactEmail),
+  check("partner_inquiries_status_check", sql`${table.status} IN ('new', 'contacted', 'interested', 'declined', 'onboarded')`),
+]);
+
+export type PartnerInquiry = typeof partnerInquiries.$inferSelect;
+
+export const userFeedback = pgTable("user_feedback", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  category: varchar("category", { length: 100 }).notNull(),
+  message: text("message").notNull(),
+  pageUrl: varchar("page_url", { length: 500 }),
+  status: varchar("status", { length: 50 }).notNull().default("new"),
+  adminNotes: text("admin_notes"),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_user_feedback_category").on(table.category),
+  index("idx_user_feedback_status").on(table.status),
+  index("idx_user_feedback_user_id").on(table.userId),
+  check("user_feedback_category_check", sql`${table.category} IN ('bug', 'feature_request', 'card_set_request', 'general')`),
+  check("user_feedback_status_check", sql`${table.status} IN ('new', 'reviewing', 'planned', 'done', 'declined')`),
+]);
+
+export type UserFeedback = typeof userFeedback.$inferSelect;

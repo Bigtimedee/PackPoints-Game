@@ -19,6 +19,31 @@ export interface ExpirationJobResult {
   expiredBuckets: number;
   totalPointsExpired: number;
   errors: string[];
+  usersAffected: number;
+  bySource: Record<string, number>;
+  oldestExpiresAt: string | null;
+  remainingBuckets: number;
+}
+
+export interface ExpirationJobOptions {
+  /** Live runs only. Expire when expires_at + gracePeriodDays <= now. */
+  gracePeriodDays?: number;
+  /** Live runs only. Process at most this many eligible buckets. */
+  maxBuckets?: number;
+}
+
+export function expirationMode(): "dry_run" | "live" {
+  return process.env.EXPIRATION_MODE === "live" ? "live" : "dry_run";
+}
+
+export function expirationMaxBucketsPerRun(): number {
+  const parsed = Number.parseInt(process.env.EXPIRATION_MAX_BUCKETS_PER_RUN ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
+}
+
+export function formatExpirationBySource(bySource: Record<string, number>): string {
+  const body = Object.keys(bySource).sort().map((key) => `${key}:${bySource[key]}`).join(",");
+  return `{${body}}`;
 }
 
 export interface InactivityExpirationResult {
@@ -36,13 +61,20 @@ export interface LiabilitySnapshotResult {
 }
 
 class ExpirationEngine {
-  async runExpirationJob(dryRun: boolean = false): Promise<ExpirationJobResult> {
+  async runExpirationJob(dryRun: boolean = false, options: ExpirationJobOptions = {}): Promise<ExpirationJobResult> {
     const errors: string[] = [];
     let expiredBuckets = 0;
     let totalPointsExpired = 0;
+    const users = new Set<string>();
+    const bySource: Record<string, number> = {};
+    let oldestExpiresAtIso: string | null = null;
 
     const now = new Date();
     const dateKey = now.toISOString().split("T")[0];
+    const graceDays = options.gracePeriodDays ?? 0;
+    const cutoff = graceDays > 0
+      ? new Date(now.getTime() - graceDays * 24 * 60 * 60 * 1000)
+      : now;
 
     const expiredOpenBuckets = await db
       .select()
@@ -52,12 +84,27 @@ class ExpirationEngine {
           eq(packptsBucket.status, "OPEN"),
           gt(packptsBucket.remainingAmount, 0),
           sql`${packptsBucket.expiresAt} IS NOT NULL`,
-          lte(packptsBucket.expiresAt, now)
+          lte(packptsBucket.expiresAt, cutoff)
         )
       )
       .orderBy(asc(packptsBucket.expiresAt));
 
-    for (const bucket of expiredOpenBuckets) {
+    const bucketsToProcess = options.maxBuckets != null
+      ? expiredOpenBuckets.slice(0, options.maxBuckets)
+      : expiredOpenBuckets;
+    const remainingBuckets = expiredOpenBuckets.length - bucketsToProcess.length;
+
+    const noteBucket = (bucket: PackptsBucket, points: number) => {
+      users.add(bucket.userId);
+      bySource[bucket.sourceType] = (bySource[bucket.sourceType] ?? 0) + points;
+      if (bucket.expiresAt) {
+        const expiresAt = bucket.expiresAt instanceof Date ? bucket.expiresAt : new Date(bucket.expiresAt);
+        const iso = expiresAt.toISOString();
+        if (!oldestExpiresAtIso || iso < oldestExpiresAtIso) oldestExpiresAtIso = iso;
+      }
+    };
+
+    for (const bucket of bucketsToProcess) {
       const idempotencyKey = `expire_bucket_${bucket.id}_${dateKey}`;
 
       try {
@@ -74,6 +121,7 @@ class ExpirationEngine {
         if (dryRun) {
           expiredBuckets++;
           totalPointsExpired += bucket.remainingAmount;
+          noteBucket(bucket, bucket.remainingAmount);
           continue;
         }
 
@@ -153,6 +201,7 @@ class ExpirationEngine {
         if (expiredAmount > 0) {
           expiredBuckets++;
           totalPointsExpired += expiredAmount;
+          noteBucket(bucket, expiredAmount);
         }
       } catch (error) {
         errors.push(`Error expiring bucket ${bucket.id}: ${error instanceof Error ? error.message : String(error)}`);
@@ -164,6 +213,10 @@ class ExpirationEngine {
       expiredBuckets,
       totalPointsExpired,
       errors,
+      usersAffected: users.size,
+      bySource,
+      oldestExpiresAt: oldestExpiresAtIso,
+      remainingBuckets,
     };
   }
 

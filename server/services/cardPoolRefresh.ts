@@ -72,6 +72,7 @@ export async function getCardPoolStats(): Promise<{
 
 export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
   if (isJobRunning) {
+    console.log("[CardPoolRefresh] Job summary: processed=0 revalidated=0 failed=0 quarantined=0 skipped=already_running");
     return {
       cardsProcessed: 0,
       cardsRevalidated: 0,
@@ -84,6 +85,7 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
   }
 
   if (isKillSwitchEnabled()) {
+    console.log("[CardPoolRefresh] Job summary: processed=0 revalidated=0 failed=0 quarantined=0 skipped=kill_switch");
     console.log("[CardPoolRefresh] KILL SWITCH enabled, skipping refresh job");
     await writeAuditLog({
       actionType: "REFRESH_SKIPPED_KILL_SWITCH",
@@ -102,6 +104,7 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
   }
 
   if (!isCardHedgeConfigured()) {
+    console.log("[CardPoolRefresh] Job summary: processed=0 revalidated=0 failed=0 quarantined=0 skipped=cardhedge_unconfigured");
     return {
       cardsProcessed: 0,
       cardsRevalidated: 0,

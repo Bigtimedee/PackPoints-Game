@@ -249,18 +249,30 @@ app.use((req, res, next) => {
   const { registerOpenApiRoute } = await import('./openapi');
   registerOpenApiRoute(app);
 
+  // Recurring jobs all enqueue into job_queue. If push dropped the table, log once
+  // and do not schedule — otherwise every tick repeats "relation job_queue does not exist".
+  const { jobQueueTableExists, scheduleRecurringJob, cleanupOldJobs } = await import('./jobs/pgJobQueue');
+  let jobQueueReady = false;
+  try {
+    jobQueueReady = await jobQueueTableExists();
+  } catch {
+    jobQueueReady = false;
+  }
+  if (!jobQueueReady) {
+    console.error('[JobQueue] FATAL: job_queue table missing — recurring jobs disabled');
+  }
+
   // Sync publishing queue to Notion (every 15 minutes, if configured)
-  if (process.env.NOTION_API_KEY && process.env.NOTION_DATABASE_ID) {
+  if (jobQueueReady && process.env.NOTION_API_KEY && process.env.NOTION_DATABASE_ID) {
     const { syncPendingToNotion } = await import('./services/notionService');
-    const { scheduleRecurringJob: scheduleJob } = await import('./jobs/pgJobQueue');
-    scheduleJob(
+    scheduleRecurringJob(
       'notion_sync',
       async () => { await syncPendingToNotion(); },
       15 * 60 * 1000,
       true
     );
     console.log('[Notion] Sync job scheduled (every 15 minutes)');
-  } else {
+  } else if (jobQueueReady) {
     console.log('[Notion] Skipping sync job — NOTION_API_KEY or NOTION_DATABASE_ID not set');
   }
 
@@ -276,105 +288,126 @@ app.use((req, res, next) => {
     startHourlyRiskScan();
   }
   
-  // Initialize persistent job queue
-  const { scheduleRecurringJob } = await import('./jobs/pgJobQueue');
-
-  // Start the image validation job (runs every 6 hours)
+  // Start the image validation job (runs every 6 hours). Not backed by job_queue.
   if (process.env.IMAGE_VALIDATION_ENABLED !== "false") {
     const { startValidationJob } = await import("./services/imageValidation");
     startValidationJob();
   }
 
-  // Start the card pool refresh job (runs every 12 hours to revalidate excluded cards)
-  // Now wrapped in persistent job queue for crash-resistant, retry-safe execution
-  if (process.env.CARD_POOL_REFRESH_ENABLED !== "false") {
-    const { runCardPoolRefreshJob } = await import("./services/cardPoolRefresh");
-    console.log("[CardPoolRefresh] Registering with persistent job queue (every 12 hours)");
+  if (jobQueueReady) {
     scheduleRecurringJob(
-      'card_pool_refresh',
-      async () => { await runCardPoolRefreshJob(); },
-      12 * 60 * 60 * 1000,
-      true // run after 5-min delay via runImmediately flag
-    );
-  }
-
-  {
-    const { cleanupStaleGameSessions } = await import("./services/staleGameSessionCleanup");
-    console.log("[GameSessionCleanup] Registering with persistent job queue (every 1 hour)");
-    scheduleRecurringJob(
-      'stale_game_session_cleanup',
-      async () => { await cleanupStaleGameSessions(); },
-      60 * 60 * 1000,
-      true
-    );
-  }
-
-  {
-    const { cleanupStaleLobbiesAndMatches } = await import("./services/staleMatchCleanup");
-    console.log("[MatchCleanup] Registering with persistent job queue (every 1 hour)");
-    scheduleRecurringJob(
-      'stale_match_cleanup',
-      async () => { await cleanupStaleLobbiesAndMatches(); },
-      60 * 60 * 1000,
-      true
-    );
-  }
-
-  if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
-    const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
-    console.log("[StaleCleanup] Registering with persistent job queue (every 1 hour)");
-    scheduleRecurringJob(
-      'stale_redemption_cleanup',
-      async () => { await runStaleRedemptionCleanup(); },
-      60 * 60 * 1000,
-      true
-    );
-  }
-
-  if (process.env.EXPIRATION_ENABLED !== "false") {
-    const { expirationEngine } = await import("./services/expirationEngine");
-    const runHourUTC = parseInt(process.env.EXPIRATION_RUN_HOUR_UTC || "6", 10);
-    console.log(`[Expiration] Registering with persistent job queue (daily at ${runHourUTC}:00 UTC; hourly check)`);
-    scheduleRecurringJob(
-      'packpts_expiration',
+      'job_queue_cleanup',
       async () => {
-        const now = new Date();
-        if (now.getUTCHours() !== runHourUTC) return;
-        const result = await expirationEngine.runExpirationJob(false);
-        const errSuffix = result.errors.length > 0 ? `, errors=${result.errors.length}` : '';
-        console.log(`[Expiration] Date-based run complete: buckets=${result.expiredBuckets}, points=${result.totalPointsExpired}${errSuffix}`);
-        if (result.errors.length > 0) {
-          for (const err of result.errors.slice(0, 5)) {
-            console.error(`[Expiration] error: ${err}`);
-          }
-        }
+        const removed = await cleanupOldJobs(7);
+        console.log(`[JobQueue] cleanupOldJobs retentionDays=7 removed=${removed}`);
       },
-      60 * 60 * 1000,
-      false
+      24 * 60 * 60 * 1000,
+      true
     );
-  }
 
-  // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
-  // Using daily check pattern to avoid relying on exact 7-day timing
-  if (process.env.NEWSLETTER_ENABLED === 'true') {
-    const { sendWeeklyNewsletter } = await import('./services/newsletterService');
-    const { scheduleRecurringJob: scheduleNewsletterJob } = await import('./jobs/pgJobQueue');
+    // Start the card pool refresh job (runs every 12 hours to revalidate excluded cards)
+    // Now wrapped in persistent job queue for crash-resistant, retry-safe execution
+    if (process.env.CARD_POOL_REFRESH_ENABLED !== "false") {
+      const { runCardPoolRefreshJob } = await import("./services/cardPoolRefresh");
+      console.log("[CardPoolRefresh] Registering with persistent job queue (every 12 hours)");
+      scheduleRecurringJob(
+        'card_pool_refresh',
+        async () => { await runCardPoolRefreshJob(); },
+        12 * 60 * 60 * 1000,
+        true // run after 5-min delay via runImmediately flag
+      );
+    }
 
-    const checkAndSendNewsletter = async () => {
-      const now = new Date();
-      // Only send on Sundays at hour 10 UTC
-      if (now.getUTCDay() === 0 && now.getUTCHours() === 10) {
-        await sendWeeklyNewsletter();
-      }
-    };
+    {
+      const { cleanupStaleGameSessions } = await import("./services/staleGameSessionCleanup");
+      console.log("[GameSessionCleanup] Registering with persistent job queue (every 1 hour)");
+      scheduleRecurringJob(
+        'stale_game_session_cleanup',
+        async () => { await cleanupStaleGameSessions(); },
+        60 * 60 * 1000,
+        true
+      );
+    }
 
-    scheduleNewsletterJob(
-      'weekly_newsletter',
-      checkAndSendNewsletter,
-      60 * 60 * 1000, // Check every hour
-      false
-    );
-    console.log('[Newsletter] Weekly newsletter job scheduled');
+    {
+      const { cleanupStaleLobbiesAndMatches } = await import("./services/staleMatchCleanup");
+      console.log("[MatchCleanup] Registering with persistent job queue (every 1 hour)");
+      scheduleRecurringJob(
+        'stale_match_cleanup',
+        async () => { await cleanupStaleLobbiesAndMatches(); },
+        60 * 60 * 1000,
+        true
+      );
+    }
+
+    if (process.env.STALE_REDEMPTION_CLEANUP_ENABLED !== "false") {
+      const { runStaleRedemptionCleanup } = await import("./services/staleRedemptionCleanup");
+      console.log("[StaleCleanup] Registering with persistent job queue (every 1 hour)");
+      scheduleRecurringJob(
+        'stale_redemption_cleanup',
+        async () => { await runStaleRedemptionCleanup(); },
+        60 * 60 * 1000,
+        true
+      );
+    }
+
+    if (process.env.EXPIRATION_ENABLED !== "false") {
+      const { expirationEngine, expirationMode, expirationMaxBucketsPerRun, formatExpirationBySource } = await import("./services/expirationEngine");
+      const { bucketService } = await import("./services/bucketService");
+      const { DEFAULT_EXPIRATION_POLICY } = await import("@shared/schema");
+      const runHourUTC = parseInt(process.env.EXPIRATION_RUN_HOUR_UTC || "6", 10);
+      const mode = expirationMode();
+      console.log(`[Expiration] Registering with persistent job queue (daily at ${runHourUTC}:00 UTC; hourly check; mode=${mode})`);
+      scheduleRecurringJob(
+        'packpts_expiration',
+        async () => {
+          const now = new Date();
+          if (now.getUTCHours() !== runHourUTC) return;
+          if (mode === "dry_run") {
+            const result = await expirationEngine.runExpirationJob(true);
+            console.log(`[Expiration] DRY RUN: buckets=${result.expiredBuckets} users=${result.usersAffected} points=${result.totalPointsExpired} bySource=${formatExpirationBySource(result.bySource)} oldestExpiresAt=${result.oldestExpiresAt ?? "none"}`);
+            return;
+          }
+          const policy = await bucketService.getCurrentPolicy();
+          const gracePeriodDays = policy?.gracePeriodDays ?? DEFAULT_EXPIRATION_POLICY.gracePeriodDays;
+          const result = await expirationEngine.runExpirationJob(false, {
+            gracePeriodDays,
+            maxBuckets: expirationMaxBucketsPerRun(),
+          });
+          const errSuffix = result.errors.length > 0 ? `, errors=${result.errors.length}` : '';
+          console.log(`[Expiration] Date-based run complete: buckets=${result.expiredBuckets}, points=${result.totalPointsExpired}, remaining=${result.remainingBuckets}${errSuffix}`);
+          if (result.errors.length > 0) {
+            for (const err of result.errors.slice(0, 5)) {
+              console.error(`[Expiration] error: ${err}`);
+            }
+          }
+        },
+        60 * 60 * 1000,
+        false
+      );
+    }
+
+    // Weekly newsletter (Sundays at 10am UTC = 36 hours of weekly cycle check)
+    // Using daily check pattern to avoid relying on exact 7-day timing
+    if (process.env.NEWSLETTER_ENABLED === 'true') {
+      const { sendWeeklyNewsletter } = await import('./services/newsletterService');
+
+      const checkAndSendNewsletter = async () => {
+        const now = new Date();
+        // Only send on Sundays at hour 10 UTC
+        if (now.getUTCDay() === 0 && now.getUTCHours() === 10) {
+          await sendWeeklyNewsletter();
+        }
+      };
+
+      scheduleRecurringJob(
+        'weekly_newsletter',
+        checkAndSendNewsletter,
+        60 * 60 * 1000, // Check every hour
+        false
+      );
+      console.log('[Newsletter] Weekly newsletter job scheduled');
+    }
   }
 
   app.use(errorMonitor.expressErrorHandler());
