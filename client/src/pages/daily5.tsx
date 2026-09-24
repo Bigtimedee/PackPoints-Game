@@ -394,6 +394,7 @@ function AnswerButton({
   let variant: "default" | "outline" | "secondary" | "destructive" = "outline";
   let className = "w-full justify-start gap-3 text-left h-auto py-2.5 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
   if (isRevealed) {
+    className += " disabled:opacity-100";
     if (isSelected && wasCorrectAnswer) className += " bg-accent text-accent-foreground border-accent";
     else if (isSelected && !wasCorrectAnswer) className += " bg-destructive/10 text-destructive border-destructive";
   } else if (isSelected) {

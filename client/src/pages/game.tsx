@@ -56,6 +56,8 @@ function AnswerButton({
   let className = "w-full justify-start gap-3 text-left h-auto py-2.5 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
 
   if (isRevealed) {
+    // Stay full strength. disabled:opacity-50 reads as a scrim over the row.
+    className += " disabled:opacity-100";
     if (isCorrect) {
       className += " bg-accent text-accent-foreground border-accent";
     } else if (isSelected) {
@@ -1305,8 +1307,8 @@ export default function Game() {
           <Progress value={progress} className="h-1.5" data-testid="progress-game" />
         </div>
 
-        {/* Zone 2: Card */}
-        <div className="flex items-center justify-center py-1 relative">
+        {/* Zone 2: Card — same in-flow slot before and after submit. No dialog, no zoom. */}
+        <div className="flex items-center justify-center py-1 relative" data-testid="solo-card-slot">
           <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
               <GameCard 
                 key={`${session.id}-${session.currentQuestionIndex}-${currentQuestion.card.id}-${isRevealed ? "revealed" : "masked"}`}
@@ -1341,12 +1343,7 @@ export default function Game() {
             {currentGameSet?.isUserCreated && currentGameSet?.makerNote && (
               <p className="text-xs text-muted-foreground/60 italic mb-1 line-clamp-1">"{currentGameSet.makerNote}"</p>
             )}
-            <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
-              <p className="text-xs sm:text-sm text-muted-foreground">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
-              <Badge variant="outline" className="font-mono text-xs" data-testid="badge-point-value">
-                Worth {currentQuestion.pointValue} pts
-              </Badge>
-            </div>
+            <p className="text-xs sm:text-sm text-muted-foreground mb-1.5">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
 
             <div>
               <div className="space-y-1.5" role="group" aria-label="Answer choices">

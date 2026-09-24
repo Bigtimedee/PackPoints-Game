@@ -1248,7 +1248,6 @@ export default function Match() {
             
             <div className="flex items-center justify-between">
               <Badge variant="outline">{currentQuestion.card.team}</Badge>
-              <Badge>{currentQuestion.pointValue} pts</Badge>
             </div>
             
             <div className="grid grid-cols-2 gap-3" role="group" aria-label="Answer choices">
@@ -1269,7 +1268,7 @@ export default function Match() {
                   <Button
                     key={option}
                     variant={variant}
-                    className={`h-auto py-3 px-4 text-left justify-start ${isSelected && !showResult ? "ring-2 ring-primary" : ""}`}
+                    className={`h-auto py-3 px-4 text-left justify-start ${isSelected && !showResult ? "ring-2 ring-primary" : ""} ${showResult ? "disabled:opacity-100" : ""}`}
                     onClick={() => handleSelectChoice(option)}
                     disabled={lockedIn || submitting || showResult}
                     aria-label={`Answer option: ${option}`}
