@@ -8,7 +8,9 @@ import path from "path";
 import sharp from "sharp";
 import {
   generateScoreCard,
+  generateChallengeShare,
   buildScoreCardSvg,
+  buildChallengeShareSvg,
   buildPipsSvg,
   buildMaskedStripSvg,
   buildStreakOverlayLabel,
@@ -271,5 +273,46 @@ describe("score card PNG contract", () => {
     )).toBe(false);
     expect(await regionHasColor(result.imagePath, 80, 142, 104, 166, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 80, 148, 104, 160, isGold)).toBe(true);
+  });
+});
+
+describe("Beat-me challenge share PNG", () => {
+  it("paints honest X/5, today identity, Beat me., and packpts.com/daily — never a canned 4/5", async () => {
+    expect(() => buildChallengeShareSvg({ correctCount: 6, date: "2026-09-23" })).toThrow();
+    const svg = buildChallengeShareSvg({ correctCount: 3, date: "2026-09-23" });
+    const desc = svg.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
+    expect(svg).toContain('width="1080"');
+    expect(svg).toContain('height="1080"');
+    expect(desc).toContain("SEP 23 · TODAY'S FIVE");
+    expect(desc).toContain("3/5");
+    expect(desc).not.toContain("4/5");
+    expect(desc).toContain("Beat me.");
+    expect(desc).toContain("I went 3/5.");
+    expect(desc).toContain("Play today's Daily 5.");
+    expect(desc).toContain("PackPTS");
+    expect(desc).toContain("packpts.com/daily");
+    expect(desc).not.toContain("PackPoints");
+    expect(desc).not.toContain("streak");
+    expect(svg).not.toMatch(/<text[\s>]/);
+    expect((svg.match(/fill="#22C55E"/g) || []).length).toBe(3);
+    expect((svg.match(/fill="#F0F2F5"/g) || []).length).toBeGreaterThanOrEqual(5);
+
+    const withStreak = buildChallengeShareSvg({ correctCount: 4, date: "2026-09-23", streak: 2 });
+    const streakDesc = withStreak.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
+    expect(streakDesc).toContain("4/5");
+    expect(streakDesc).toContain("2-day streak");
+    expect(streakDesc).toContain("I went 4/5.");
+
+    const result = await generateChallengeShare(
+      { correctCount: 3, date: "2026-09-23" },
+      `beatme-render-${Date.now()}`,
+    );
+    created.push(result.imagePath);
+    expect(result.imageUrl).toContain("/generated/share/2026-09-23/");
+    const meta = await sharp(result.imagePath).metadata();
+    expect(meta.width).toBe(1080);
+    expect(meta.height).toBe(1080);
+    expect(await regionHasColor(result.imagePath, 80, 142, 104, 166, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 90, 710, 280, 770, isGold)).toBe(true);
   });
 });

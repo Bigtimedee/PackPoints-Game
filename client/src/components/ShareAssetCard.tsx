@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +28,9 @@ interface ShareAssetCardProps {
   resolveShareUrl?: () => Promise<string | null>;
   /** Maker-supply funnel: share sheet / share-without-card opened (Surface A). */
   onShareOpen?: () => void;
+  /** Daily 5 Beat-me owns Share / Save / Beat me. outside this card. */
+  previewOnly?: boolean;
+  onImageUrl?: (url: string | undefined) => void;
 }
 
 const GENERATE_WAIT_MS = 8_000;
@@ -120,6 +123,8 @@ export function ShareAssetCard({
   shareTitle = kind === "maker" ? "I MADE THIS SET" : "My PackPTS Score",
   resolveShareUrl,
   onShareOpen,
+  previewOnly = false,
+  onImageUrl,
 }: ShareAssetCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -161,6 +166,12 @@ export function ShareAssetCard({
     setImageLoaded(false);
     setImageFailed(false);
   }, [rawUrl]);
+
+  const onImageUrlRef = useRef(onImageUrl);
+  onImageUrlRef.current = onImageUrl;
+  useEffect(() => {
+    if (imageUrl) onImageUrlRef.current?.(imageUrl);
+  }, [imageUrl]);
 
   const handleRetry = async () => {
     if (!matchId && !challengeId && !setId) return;
@@ -326,7 +337,7 @@ export function ShareAssetCard({
           </div>
         </div>
 
-        {!showEmpty && (
+        {!showEmpty && !previewOnly && (
           <div className="p-3 flex flex-col gap-2">
             <Button
               variant="default"
