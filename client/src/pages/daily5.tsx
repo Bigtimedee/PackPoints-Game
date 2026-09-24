@@ -41,6 +41,7 @@ import {
 import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
+import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 interface Daily5Status {
   challenge: {
@@ -677,6 +678,12 @@ export default function Daily5Page() {
 
   const status = statusQuery.data;
   const currentCard = cards.find(c => c.position === currentPosition);
+
+  useEffect(() => {
+    const playing = gameState === "playing";
+    setStaleBuildActivity({ daily5Playing: playing, inProgressCard: playing });
+    return () => setStaleBuildActivity({ daily5Playing: false, inProgressCard: false });
+  }, [gameState]);
 
   useEffect(() => {
     const remaining = cards.filter((card) => card.position >= currentPosition).map((card) => card.cardId);

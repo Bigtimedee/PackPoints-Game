@@ -36,6 +36,7 @@ import {
   prefetchRevealPlayCard,
   remainingPlayCardIds,
 } from "@/lib/prefetchPlayCardImages";
+import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 function AnswerButton({
   option,
@@ -676,6 +677,15 @@ export default function Game() {
   // No longer auto-start - user selects card count first
 
   const isGameOver = session?.status === "completed" || session?.status === "expired";
+  useEffect(() => {
+    const live = Boolean(session && !isGameOver);
+    setStaleBuildActivity({
+      inProgressCard: live,
+      pageSubmitting: submitAnswerMutation.isPending,
+    });
+    return () => setStaleBuildActivity({ inProgressCard: false, pageSubmitting: false });
+  }, [session, isGameOver, submitAnswerMutation.isPending]);
+
   useEffect(() => {
     if (!isGameOver || isAuthenticated || !anonGate) return;
     if (anonGate.phase === "hard") return;
