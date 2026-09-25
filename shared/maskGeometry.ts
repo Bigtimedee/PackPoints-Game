@@ -5,7 +5,8 @@ import { DEFAULT_MASK_REGIONS, type MaskRegion } from "./schema";
  * Cache keys and `?v=` URLs follow this.
  * Stay on v4.4 while painted pixels match v4.4. The plaque plan is a sidecar
  * and nullable columns written on the next natural bake. A version bump would
- * rebake warm JPEGs through the coverage gate.
+ * rebake warm JPEGs through the coverage gate. Cards rotated upright before
+ * the mask use a filename suffix (`_r90`, `_r180`, `_r270`) instead of a new version.
  */
 export const CURRENT_MASK_VERSION = "v4.4";
 
