@@ -7,6 +7,7 @@ import {
   paintScoreShareStrip,
   restoreScoreCardBand,
   scoreShareStripLayout,
+  scoreShareStripRowCapacity,
   sessionShareTileSources,
   tilesForScoreShare,
   type StripPainter,
@@ -83,6 +84,30 @@ describe("masked share tile sources", () => {
     expect(maskedTileSource("/api/play/m/ad5/chal/4/tok")).toBe("/api/play/m/ad5/chal/4/tok");
   });
 
+  it("keeps all five Daily 5 masked URLs, including the version query and a base64url token", () => {
+    const token = "abc-DEF_0123456789xyz";
+    const session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const urls = [1, 2, 3, 4, 5].map(
+      (position) => `/api/play/m/d5/${session}/${position}/${token}?v=v4.4`,
+    );
+    expect(sessionShareTileSources(urls)).toEqual(urls);
+    expect(scoreShareStripLayout(urls.length)).toHaveLength(5);
+  });
+
+  it("retries a scored thumb once so a cold miss does not shrink a 5-card strip to 4", async () => {
+    const urls = [0, 1, 2, 3, 4].map((index) => `/api/play/m/solo/sess/${index}/tok-${index}?v=v4.4`);
+    const attempts = new Map<string, number>();
+    const images = await tilesForScoreShare(urls, async (src) => {
+      const n = (attempts.get(src) ?? 0) + 1;
+      attempts.set(src, n);
+      if (src.endsWith("tok-4?v=v4.4") && n === 1) return null;
+      return { width: 10, height: 14, src };
+    });
+    expect(images).toHaveLength(5);
+    expect(attempts.get(urls[4])).toBe(2);
+    expect(images.map((image) => (image as { src: string }).src)).toEqual(urls);
+  });
+
   it("omits a tile that fails to load or would taint the canvas and keeps the rest in order", async () => {
     const urls = [
       MASKED[0],
@@ -127,6 +152,33 @@ describe("score share strip paint", () => {
     expect(stripSrc).not.toContain("fillText");
     expect(scoreShareStripLayout(0)).toEqual([]);
     expect(stripSrc).not.toContain("fillRect(SCORE_SHARE_STRIP.clearX");
+
+    const five = scoreShareStripLayout(5);
+    expect(five).toHaveLength(5);
+    expect(five.every((box) => box.w >= 64 && box.h >= 64)).toBe(true);
+    expect(new Set(five.map((box) => box.y)).size).toBe(1);
+    const fiveGaps = five.slice(1).map((box, i) => box.x - (five[i].x + five[i].w));
+    expect(new Set(fiveGaps)).toEqual(new Set([SCORE_SHARE_STRIP.gap]));
+    expect(Math.max(...five.map((box) => box.y + box.h))).toBeLessThan(240);
+
+    const ten = scoreShareStripLayout(10);
+    expect(ten).toHaveLength(10);
+    expect(ten.every((box) => box.w >= SCORE_SHARE_STRIP.minTileW)).toBe(true);
+    expect(new Set(ten.map((box) => box.y)).size).toBe(1);
+    expect(Math.max(...ten.map((box) => box.y + box.h))).toBeLessThan(240);
+
+    const twenty = scoreShareStripLayout(20);
+    expect(twenty).toHaveLength(20);
+    expect(twenty.every((box) => box.w >= SCORE_SHARE_STRIP.minTileW)).toBe(true);
+    expect(new Set(twenty.map((box) => box.y)).size).toBe(2);
+    expect(Math.max(...twenty.map((box) => box.y + box.h))).toBeLessThanOrEqual(246);
+    expect(scoreShareStripRowCapacity()).toBeGreaterThanOrEqual(10);
+
+    const serverStrip = { x: 80, y: 136, w: 5 * 30 + 4 * 8, h: 42 };
+    expect(SCORE_SHARE_STRIP.clearX).toBeLessThanOrEqual(serverStrip.x);
+    expect(SCORE_SHARE_STRIP.clearY).toBeLessThanOrEqual(serverStrip.y);
+    expect(SCORE_SHARE_STRIP.clearX + SCORE_SHARE_STRIP.clearW).toBeGreaterThanOrEqual(serverStrip.x + serverStrip.w);
+    expect(SCORE_SHARE_STRIP.clearY + SCORE_SHARE_STRIP.clearH).toBeGreaterThanOrEqual(serverStrip.y + serverStrip.h);
   });
 
   it("repaints the strip band with the score-card radial glow, not a flat canvas fill", () => {
@@ -214,7 +266,7 @@ describe("score share strip paint", () => {
 
 describe("share card wiring", () => {
   it("passes masked image URLs only and leaves mode chrome on the server PNG", () => {
-    expect(gameSrc).toContain("maskedCardUrls={(session.questions ?? []).map((q) => q.card?.imageUrl)}");
+    expect(gameSrc).toContain("maskedCardUrls={(session.questions ?? []).filter((q) => q.answered).map((q) => q.card?.imageUrl)}");
     expect(gameSrc).toContain('shareUrl="https://packpts.com"');
     expect(gameSrc).not.toContain("packpts.com/daily");
     const soloShare = gameSrc.slice(gameSrc.indexOf("<ShareAssetCard"), gameSrc.indexOf("/>", gameSrc.indexOf("<ShareAssetCard")) + 2);

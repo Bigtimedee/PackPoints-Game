@@ -6,11 +6,15 @@
 
 export const SCORE_SHARE_STRIP = {
   canvasSize: 1080,
-  tileW: 30,
-  tileH: 42,
-  gap: 8,
-  y: 136,
+  /** ~64px wide at 1080. Height keeps the 30×42 card ratio (64 × 42/30). */
+  tileW: 64,
+  tileH: 90,
+  gap: 16,
+  rowGap: 12,
+  y: 128,
   sideInset: 80,
+  /** One row stays this wide. Wider deals wrap instead of shrinking. */
+  minTileW: 64,
   clearX: 60,
   clearY: 124,
   clearW: 960,
@@ -61,27 +65,51 @@ export function sessionShareTileSources(urls: readonly (string | null | undefine
   return out;
 }
 
+/** Lowest y the strip may use. Solo score caps start near y=254. */
+const STRIP_CLEAR_TOP = 246;
+
+/** How many 64px tiles fit in one row at the current gap. */
+export function scoreShareStripRowCapacity(): number {
+  const maxW = SCORE_SHARE_STRIP.canvasSize - SCORE_SHARE_STRIP.sideInset * 2;
+  const slot = SCORE_SHARE_STRIP.minTileW + SCORE_SHARE_STRIP.gap;
+  return Math.max(1, Math.floor((maxW + SCORE_SHARE_STRIP.gap) / slot));
+}
+
+/**
+ * One thumb per scored question, centered, equal gaps.
+ * Width stays at least `minTileW`. Ten solo cards fit on one 64×90 row.
+ * Twelve or more wrap to two rows. Those rows shorten so they stay above the score.
+ */
 export function scoreShareStripLayout(count: number): StripTileBox[] {
   if (count <= 0) return [];
-  const maxW = SCORE_SHARE_STRIP.canvasSize - SCORE_SHARE_STRIP.sideInset * 2;
-  let tileW: number = SCORE_SHARE_STRIP.tileW;
-  let tileH: number = SCORE_SHARE_STRIP.tileH;
-  let gap: number = SCORE_SHARE_STRIP.gap;
-  let rowW = count * tileW + (count - 1) * gap;
-  if (rowW > maxW) {
-    const scale = maxW / rowW;
-    tileW = Math.max(8, Math.floor(tileW * scale));
-    tileH = Math.max(12, Math.floor(tileH * scale));
-    gap = Math.max(2, Math.floor(gap * scale));
-    rowW = count * tileW + (count - 1) * gap;
+  const tileW = SCORE_SHARE_STRIP.tileW;
+  const gap = SCORE_SHARE_STRIP.gap;
+  const capacity = scoreShareStripRowCapacity();
+  const rows = count <= capacity ? 1 : 2;
+  let tileH = SCORE_SHARE_STRIP.tileH;
+  if (rows === 2) {
+    const room = STRIP_CLEAR_TOP - SCORE_SHARE_STRIP.y - SCORE_SHARE_STRIP.rowGap;
+    tileH = Math.min(tileH, Math.max(48, Math.floor(room / 2)));
   }
-  const x0 = Math.round((SCORE_SHARE_STRIP.canvasSize - rowW) / 2);
-  return Array.from({ length: count }, (_, i) => ({
-    x: x0 + i * (tileW + gap),
-    y: SCORE_SHARE_STRIP.y,
-    w: tileW,
-    h: tileH,
-  }));
+  const perRow = rows === 1 ? count : Math.ceil(count / 2);
+  const boxes: StripTileBox[] = [];
+  let index = 0;
+  for (let row = 0; row < rows && index < count; row++) {
+    const n = Math.min(perRow, count - index);
+    const rowW = n * tileW + (n - 1) * gap;
+    const x0 = Math.round((SCORE_SHARE_STRIP.canvasSize - rowW) / 2);
+    const y = SCORE_SHARE_STRIP.y + row * (tileH + SCORE_SHARE_STRIP.rowGap);
+    for (let i = 0; i < n; i++) {
+      boxes.push({
+        x: x0 + i * (tileW + gap),
+        y,
+        w: tileW,
+        h: tileH,
+      });
+    }
+    index += n;
+  }
+  return boxes;
 }
 
 export type StripPainter = {
@@ -220,6 +248,14 @@ export function paintScoreShareStrip(ctx: StripPainter, images: readonly StripTi
   return drawScoreShareTiles(ctx, images);
 }
 
+/**
+ * A 5-card game was painting 4 thumbs. `sessionShareTileSources` keeps every
+ * valid `/api/play/m/` URL (including `?v=`). The missing thumb was a load
+ * that returned null or threw — a cold mask 503, or `Image()` decoding a
+ * non-bitmap — and this loop skipped it. One retry covers the bake race.
+ * A second failure still omits that tile. A tainted bitmap still omits it
+ * so `toBlob` can read the canvas.
+ */
 export async function tilesForScoreShare(
   urls: readonly (string | null | undefined)[],
   loadTile: (src: string) => Promise<StripTileImage | null>,
@@ -227,13 +263,16 @@ export async function tilesForScoreShare(
 ): Promise<StripTileImage[]> {
   const images: StripTileImage[] = [];
   for (const src of sessionShareTileSources(urls)) {
-    try {
-      const image = await loadTile(src);
-      if (!image || taints(image)) continue;
-      images.push(image);
-    } catch {
-      // Omit a tile that fails to load.
+    let image: StripTileImage | null = null;
+    for (let attempt = 0; attempt < 2 && !image; attempt++) {
+      try {
+        image = await loadTile(src);
+      } catch {
+        image = null;
+      }
     }
+    if (!image || taints(image)) continue;
+    images.push(image);
   }
   return images;
 }
@@ -244,6 +283,30 @@ type ShareCanvas = {
   getContext(kind: "2d"): StripPainter | null;
   toBlob(callback: (blob: Blob | null) => void, type?: string): void;
 };
+
+/**
+ * Fetch the masked JPEG as a blob, then decode it. Same-origin `Image()`
+ * drops the thumb when the response is a 503 JSON bake miss or the canvas
+ * read throws. A blob bitmap is not cross-origin, so the taint check passes
+ * for a real masked card.
+ */
+async function loadMaskedTile(src: string): Promise<StripTileImage | null> {
+  if (typeof fetch !== "function") return loadHtmlImage(src);
+  try {
+    const res = await fetch(src, { credentials: "include" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const type = (res.headers.get("content-type") || blob.type || "").toLowerCase();
+    if (type && !type.startsWith("image/")) return null;
+    if (blob.size === 0) return null;
+    const image = await blobToImage(blob);
+    if (!image) return null;
+    const { width, height } = imagePixelSize(image);
+    return width > 0 && height > 0 ? image : null;
+  } catch {
+    return null;
+  }
+}
 
 function loadHtmlImage(src: string): Promise<StripTileImage | null> {
   return new Promise((resolve) => {
@@ -329,7 +392,7 @@ export async function composeScoreSharePng(
 
   const images = await tilesForScoreShare(
     sources,
-    deps?.loadTile ?? loadHtmlImage,
+    deps?.loadTile ?? loadMaskedTile,
     deps?.taints ?? imageTaintsCanvas,
   );
   if (images.length === 0) return base;
