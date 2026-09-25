@@ -189,7 +189,7 @@ describe("score share strip paint", () => {
       const bottom = Math.max(...frame.boxes.map((box) => box.y + box.h));
       expect(bottom).toBe(frame.stripBottom);
       expect(frame.scoreInkTop - bottom).toBeGreaterThanOrEqual(SCORE_STRIP_CLEARANCE);
-      expect(SCORE_STRIP_CLEARANCE).toBe(32);
+      expect(SCORE_STRIP_CLEARANCE).toBe(36);
       expect(Math.abs(frame.topGap - frame.bottomGap)).toBeLessThanOrEqual(1);
       const glow = scoreShareGlowBand(count);
       expect(glow.y).toBeLessThanOrEqual(frame.stripY);

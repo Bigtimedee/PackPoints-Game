@@ -85,7 +85,7 @@ export function scoreShareStripRowCapacity(): number {
 
 /**
  * One thumb per scored question, centered, equal gaps.
- * The row sits in the centered share block, 32px above the score digits.
+ * The row sits in the centered share block, 36px above the score digits.
  */
 export function scoreShareStripLayout(count: number): StripTileBox[] {
   return scoreCardFrame(count).boxes;

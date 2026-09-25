@@ -61,11 +61,15 @@ describe("no per-question earnings between the answers and next", () => {
     expect(gap).not.toMatch(EARNINGS_COPY);
     expect(gap).not.toContain("min-h");
     expect(gap).toContain('data-testid="button-d5-next"');
+    expect(playing).not.toContain("finishResult?.score");
+    expect(playing).not.toContain("d5Points");
 
-    const results = sliceBetween(daily5Src, 'data-testid="text-d5-complete"', "ShareResultCard");
+    const results = sliceBetween(daily5Src, 'if (gameState === "results")', "ShareResultCard");
     expect(results).toContain("Game Complete");
     expect(results).toContain('data-testid="text-d5-final-score"');
-    expect(results).toContain("finishResult?.score");
+    expect(results).toContain("const d5Points = finishResult?.score ?? status?.entry?.score ?? 0");
+    expect(results).toContain("{d5Points}");
+    expect(results).not.toContain("pointsEarned");
   });
 
   it("1v1 in-match header shows correct-answer counts and no pts", () => {
