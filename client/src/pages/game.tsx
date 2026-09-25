@@ -36,6 +36,7 @@ import {
   prefetchRevealPlayCard,
   remainingPlayCardUrls,
 } from "@/lib/prefetchPlayCardImages";
+import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 function AnswerButton({
@@ -1319,7 +1320,7 @@ export default function Game() {
         <div className="flex items-center justify-center py-1 relative" data-testid="solo-card-slot">
           <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
               <GameCard 
-                key={`${session.id}-${session.currentQuestionIndex}-${isRevealed ? "revealed" : "masked"}`}
+                key={gameCardMountKey(session.id, session.currentQuestionIndex, currentQuestion.card.imageUrl)}
                 imageUrl={resolvePlayCardSrc({
                   maskedUrl: currentQuestion.card.imageUrl,
                   revealUrl: currentQuestion.card.revealUrl,
@@ -1337,6 +1338,8 @@ export default function Game() {
                   handleCardImageError();
                 }}
                 sessionId={session?.id}
+                playScope="solo"
+                questionIndex={session.currentQuestionIndex}
               />
           </div>
           <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />

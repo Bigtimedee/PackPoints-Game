@@ -18,6 +18,8 @@ import {
   GAME_CARD_REPLACEMENT_PENDING_COPY,
   resolveGameCardImageErrorKind,
 } from "@/lib/gameCardImageError";
+import { nextGameCardImageState } from "@/lib/gameCardImageState";
+import { playImageReportRequest, type PlayReportScope } from "@/lib/playImageReport";
 import {
   isPlaceholderBitmap,
   isPlaceholderUrl,
@@ -151,6 +153,9 @@ interface GameCardProps {
   team?: string;
   cardId?: string;
   sessionId?: string;
+  /** With sessionId + questionIndex, reports resolve the card on the server. */
+  playScope?: PlayReportScope;
+  questionIndex?: number;
   onReportSubmitted?: () => void;
   isSetOfWeek?: boolean;
   setOfWeekMultiplier?: number;
@@ -176,6 +181,8 @@ export function GameCard({
   team,
   cardId,
   sessionId,
+  playScope,
+  questionIndex,
   onReportSubmitted,
   isSetOfWeek = false,
   setOfWeekMultiplier,
@@ -184,13 +191,19 @@ export function GameCard({
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
 
-  const [imageLoaded, setImageLoaded] = useState(() => isPlayCardImageReady(imageUrl));
-  const [imageError, setImageError] = useState(() => {
-    if (imageUrl && isPlaceholderUrl(imageUrl)) {
-      return true;
-    }
-    return false;
-  });
+  const [imageLoaded, setImageLoaded] = useState(
+    () => nextGameCardImageState(imageUrl, isPlayCardImageReady(imageUrl)).imageLoaded,
+  );
+  const [imageError, setImageError] = useState(
+    () => nextGameCardImageState(imageUrl, false).imageError,
+  );
+  const [imageUrlSeen, setImageUrlSeen] = useState(imageUrl);
+  if (imageUrl !== imageUrlSeen) {
+    const next = nextGameCardImageState(imageUrl, isPlayCardImageReady(imageUrl));
+    setImageUrlSeen(imageUrl);
+    setImageError(next.imageError);
+    setImageLoaded(next.imageLoaded);
+  }
   const [reportOpen, setReportOpen] = useState(false);
   const [reportPending, setReportPending] = useState(false);
   const [reportSubmitted, setReportSubmitted] = useState(false);
@@ -232,26 +245,38 @@ export function GameCard({
   const nameBandRegion = largestMaskRegion(regions);
 
   useEffect(() => {
-    if (imageUrl && isPlaceholderUrl(imageUrl) && cardId) {
-      apiRequest("POST", `/api/cards/${cardId}/report`, { 
-        reason: "bad_image", 
+    if (imageUrl && isPlaceholderUrl(imageUrl)) {
+      const target = playImageReportRequest({
+        imageUrl,
+        cardId,
+        scope: playScope,
         sessionId,
+        questionIndex,
+        reason: "bad_image",
         autoDetected: true,
-        detectionReason: "placeholder_url_pattern"
-      }).catch(() => {});
+        detectionReason: "placeholder_url_pattern",
+      });
+      if (target) {
+        apiRequest("POST", target.url, target.body).catch(() => {});
+      }
       onImageError?.();
     }
-  }, [imageUrl, cardId, sessionId, onImageError]);
+  }, [imageUrl, cardId, playScope, sessionId, questionIndex, onImageError]);
 
   const autoReportPlaceholder = async (reason: string) => {
-    if (!cardId) return;
+    const target = playImageReportRequest({
+      imageUrl,
+      cardId,
+      scope: playScope,
+      sessionId,
+      questionIndex,
+      reason: "bad_image",
+      autoDetected: true,
+      detectionReason: reason,
+    });
+    if (!target) return;
     try {
-      await apiRequest("POST", `/api/cards/${cardId}/report`, { 
-        reason: "bad_image", 
-        sessionId,
-        autoDetected: true,
-        detectionReason: reason
-      });
+      await apiRequest("POST", target.url, target.body);
     } catch {}
   };
 
@@ -291,6 +316,7 @@ export function GameCard({
     }
 
     markPlayCardImageReady(imageUrl);
+    if (!isPlaceholderUrl(imageUrl)) setImageError(false);
     setImageLoaded(true);
   };
 
@@ -300,7 +326,15 @@ export function GameCard({
   };
 
   const handleReport = async (reason: string) => {
-    if (!cardId) {
+    const target = playImageReportRequest({
+      imageUrl,
+      cardId,
+      scope: playScope,
+      sessionId,
+      questionIndex,
+      reason,
+    });
+    if (!target) {
       toast({
         title: "Unable to report",
         description: "Card information not available",
@@ -311,7 +345,7 @@ export function GameCard({
 
     setReportPending(true);
     try {
-      await apiRequest("POST", `/api/cards/${cardId}/report`, { reason, sessionId });
+      await apiRequest("POST", target.url, target.body);
       
       setReportSubmitted(true);
       setReportOpen(false);
@@ -344,6 +378,14 @@ export function GameCard({
   }, []);
 
   const imageErrorKind = resolveGameCardImageErrorKind({ showSkipButton, showReplaceButton, onImageError });
+  const canReportImage = playImageReportRequest({
+    imageUrl,
+    cardId,
+    scope: playScope,
+    sessionId,
+    questionIndex,
+    reason: "bad_image",
+  }) !== null;
 
   return (
     <div 
@@ -434,6 +476,7 @@ export function GameCard({
       {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
       {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
       <img
+        key={imageUrl}
         src={cdnImageUrl}
         alt={isRevealed && team ? `${team} sports card` : "sports card"}
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
@@ -513,7 +556,7 @@ export function GameCard({
           </span>
         </div>
       )}
-      {cardId && !imageError && (
+      {canReportImage && !imageError && (
         <div className="absolute top-2 right-2 z-30">
           <Popover open={reportOpen} onOpenChange={setReportOpen}>
             <PopoverTrigger asChild>

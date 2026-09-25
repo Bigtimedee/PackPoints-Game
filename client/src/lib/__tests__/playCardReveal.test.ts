@@ -56,11 +56,12 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(submitMutation).toContain("setIsRevealed(false)");
   });
 
-  it("solo wires GameCard src from resolvePlayCardSrc(isRevealed) and remounts on reveal", () => {
+  it("solo wires GameCard src from resolvePlayCardSrc(isRevealed); replacement remounts on the masked URL", () => {
     expect(gameSrc).toContain("resolvePlayCardSrc");
     expect(gameSrc).toContain("submitted: isRevealed");
     expect(gameSrc).toContain("revealUrl: currentQuestion.card.revealUrl");
-    expect(gameSrc).toContain('isRevealed ? "revealed" : "masked"');
+    expect(gameSrc).toContain("gameCardMountKey(session.id, session.currentQuestionIndex, currentQuestion.card.imageUrl)");
+    expect(gameSrc).not.toContain('isRevealed ? "revealed" : "masked"');
     expect(gameSrc).toContain("handleSelectAnswer");
     const select = gameSrc.slice(
       gameSrc.indexOf("const handleSelectAnswer"),
@@ -104,7 +105,8 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(daily5Src).toContain("submitted: isRevealed");
     expect(daily5Src).toContain("revealUrl: answerResult?.revealUrl");
     expect(daily5Src).toContain("allowClientImageReject={false}");
-    expect(daily5Src).toContain('isRevealed ? "revealed" : "masked"');
+    expect(daily5Src).toContain("gameCardMountKey(challengeId || \"daily5\", currentCard.position, currentCard.imageUrl)");
+    expect(daily5Src).not.toContain("onImageError");
     const nextIdx = daily5Src.indexOf("const handleNext");
     const next = daily5Src.slice(nextIdx, nextIdx + 600);
     expect(next).toContain("setIsRevealed(false)");
@@ -116,7 +118,9 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(matchSrc).toContain("revealUrl: answerResult?.revealUrl");
     expect(matchSrc).toContain("resolvePlayCardSrc");
     expect(matchSrc).toContain("setAnswerResult(null)");
-    expect(matchSrc).toContain('answerResult ? "revealed" : "masked"');
+    expect(matchSrc).toContain("currentQuestion.card.imageUrl");
+    expect(matchSrc).toContain("gameCardMountKey(");
+    expect(matchSrc).not.toContain('answerResult ? "revealed" : "masked"');
     expect(matchSrc).toContain("setKey={matchState.gameSetId}");
     expect(matchSrc).not.toContain("cardNumber=");
     expect(matchSrc).not.toContain("team={currentQuestion");
