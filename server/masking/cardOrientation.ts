@@ -1,8 +1,32 @@
 import sharp from "sharp";
 import type { MaskProfile } from "./maskProfiles";
 import { matchPlayerNameBoxes, tokenizePlayerName, type OcrWordBox } from "./nameLocalization";
-import { recognizeWords, type OcrWordResult } from "./ocrRuntime";
+import { ocrDeadlineMs, recognizeWords, type OcrWordResult } from "./ocrRuntime";
 import { normalizeQuarterTurn, type QuarterTurn } from "./orientNote";
+
+/** Shared across 0°, 90°, and 270°. Three full 8s passes blow the 20s bake deadline. */
+export const ORIENTATION_OCR_BUDGET_MS = 12_000;
+export const ORIENTATION_BAKE_RESERVE_MS = 1_500;
+/** Stop once a last-name hit in the name anchor is at least this confident (0–100). */
+export const CONFIDENT_ORIENTATION_CONFIDENCE = 70;
+/** 0° is cheapest (no rotate) and the likely hit for a real landscape card. */
+export const ORIENTATION_OCR_PASS_ORDER: QuarterTurn[] = [0, 90, 270];
+
+export function orientationOcrBudgetMs(input: {
+  deadlineMs: number;
+  elapsedMs: number;
+  reserveMs?: number;
+  capMs?: number;
+}): number {
+  const cap = input.capMs ?? ORIENTATION_OCR_BUDGET_MS;
+  const reserve = input.reserveMs ?? ORIENTATION_BAKE_RESERVE_MS;
+  const left = input.deadlineMs - input.elapsedMs - reserve;
+  return Math.max(0, Math.min(cap, left));
+}
+
+export function isConfidentOrientationHit(probe: { inAnchor: boolean; confidence: number }): boolean {
+  return probe.inAnchor && probe.confidence >= CONFIDENT_ORIENTATION_CONFIDENCE;
+}
 
 /** A file wider than this is landscape. Card-shaped sideways scans sit near 1.40. */
 export const LANDSCAPE_FILE_ASPECT = 1.3;
@@ -100,7 +124,9 @@ export async function uprightCardImage(
     profile: MaskProfile;
     cardOrientation?: "portrait" | "landscape";
     skipOcr?: boolean;
-    recognize?: (buffer: Buffer, width: number) => Promise<OcrWordResult>;
+    recognize?: (buffer: Buffer, width: number, opts?: { deadlineMs?: number }) => Promise<OcrWordResult>;
+    /** Wall-clock cap for every orientation pass together. Default 12s. */
+    orientationBudgetMs?: number;
   },
 ): Promise<UprightCard> {
   const field = normalizeQuarterTurn(input.imageRotation);
@@ -151,18 +177,26 @@ export async function uprightCardImage(
   const recognize = input.recognize ?? recognizeWords;
   if (input.skipOcr) return ambiguousStay(raw, 0, false);
 
+  const budget = input.orientationBudgetMs ?? ORIENTATION_OCR_BUDGET_MS;
+  const started = Date.now();
   let ocrMs = 0;
   let best: NameProbe | null = null;
-  for (const rotation of [0, 90, 270] as const) {
-    const turned = await rotateBuffer(raw, rotation);
+  let timedOut = false;
+  for (const rotation of ORIENTATION_OCR_PASS_ORDER) {
+    const remaining = budget - (Date.now() - started);
+    if (remaining < 250) return ambiguousStay(raw, ocrMs, true);
+    const turned = rotation === 0 ? raw : await rotateBuffer(raw, rotation);
     const turnedMeta = await sharp(turned).metadata();
     const turnedWidth = turnedMeta.width || 1;
     const turnedHeight = turnedMeta.height || 1;
-    const ocr = await recognize(turned, turnedWidth);
+    const ocr = await recognize(turned, turnedWidth, {
+      deadlineMs: Math.min(ocrDeadlineMs(), remaining),
+    });
     ocrMs += ocr.ms;
     if (ocr.timedOut) {
-      if (best) break;
-      return ambiguousStay(raw, ocrMs, true);
+      timedOut = true;
+      if (budget - (Date.now() - started) < 250) return ambiguousStay(raw, ocrMs, true);
+      continue;
     }
     const matched = lastNameHit(input.playerName, ocr.words);
     if (!matched.hit) continue;
@@ -173,10 +207,22 @@ export async function uprightCardImage(
       inAnchor: lastNameInAnchor(matched.boxes, input.profile, turnedHeight),
       confidence: meanConfidence(matched.boxes),
     };
+    if (isConfidentOrientationHit(probe)) {
+      return {
+        buffer: probe.buffer,
+        rotation: probe.rotation,
+        source: "ocr",
+        landscapeDesign: probe.rotation === 0,
+        orientationAmbiguous: false,
+        words: probe.words,
+        ocrTimedOut: false,
+        ocrMs,
+      };
+    }
     if (!best || betterProbe(probe, best)) best = probe;
   }
 
-  if (!best) return ambiguousStay(raw, ocrMs, false);
+  if (!best) return ambiguousStay(raw, ocrMs, timedOut);
   return {
     buffer: best.buffer,
     rotation: best.rotation,

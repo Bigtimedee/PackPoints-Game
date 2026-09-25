@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
+import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { shouldHoldOneVOne } from "@/lib/oneVOneHold";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -67,6 +69,13 @@ export default function Queue() {
   const [selectedSetId, setSelectedSetId] = useState("random");
   const [activeTab, setActiveTab] = useState<"random" | "friends">("random");
   const { toast } = useToast();
+
+  useEffect(() => {
+    setStaleBuildActivity({
+      holdPlay: shouldHoldOneVOne({ surface: "queue", queuePhase: status }),
+    });
+    return () => setStaleBuildActivity({ holdPlay: false });
+  }, [status]);
 
   const { data: playableSets, isLoading: setsLoading } = useQuery<PlayableSet[]>({
     queryKey: ["/api/playable-sets"],

@@ -1,7 +1,7 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
-import { createServer } from "http";
+import type { Server } from "http";
 import { storage } from "./storage";
 import { setupWebSocket } from "./websocket";
 import { matchService } from "./services/matchService";
@@ -18,6 +18,12 @@ import { errorMonitor } from './services/errorMonitor';
 import { validateStripeEnvVars } from "./services/productMap";
 import { enforceProductionSecrets } from "./utils/secretsCheck";
 import { getShareOutputBase, SHARE_URL_PREFIX } from "./contentFactory/generateScoreCard";
+import { logServerError } from "./lib/httpErrorLog";
+import { logBootPhase } from "./startup/bootPhase";
+import { markSchemaReady } from "./startup/schemaGate";
+import { installBootSchemaShutdownHook, runBootSchema, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout } from "./startup/bootSchema";
+import { addShutdownHook } from "./startup/shutdownHooks";
+import { stopAllJobs } from "./jobs/pgJobQueue";
 
 // --- Environment validation ---
 function validateEnvironment() {
@@ -52,15 +58,27 @@ validateEnvironment();
 enforceProductionSecrets();
 validateStripeEnvVars();
 
-const app = express();
-const httpServer = createServer(app);
-
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
   }
 }
 
+export function log(message: string, source = "express") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+
+export async function bootAfterListen(
+  app: Express,
+  httpServer: Server,
+): Promise<void> {
 app.use((req, res, next) => {
   if (req.path.startsWith('/webhooks/')) {
     return next();
@@ -152,17 +170,6 @@ function sanitizeForLog(obj: any, depth = 0): any {
   return result;
 }
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -190,10 +197,19 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
+  installBootSchemaShutdownHook();
+  addShutdownHook(() => stopAllJobs());
+  if (process.env.NODE_ENV === "production" && process.env.PACKPTS_SKIP_BOOT_SCHEMA !== "1") {
+    await runBootSchema();
+  }
+
   try {
-    await storage.initialize();
+    await withStartupTimeout(storage.initialize(), STORAGE_INIT_TIMEOUT_MS, "storage setup");
   } catch (err) {
+    if (err instanceof StartupTimeoutError) {
+      console.error(`[Startup] FATAL: storage setup timed out after ${STORAGE_INIT_TIMEOUT_MS / 1000}s. Exiting so Railway keeps the previous deploy.`);
+      process.exit(1);
+    }
     console.error("[Startup] storage.initialize() failed:", err);
     // Non-fatal: app can still serve requests without pre-loaded card data
   }
@@ -426,8 +442,8 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    console.error('[Error]', err);
+    if (!res.headersSent) res.status(status).json({ message });
+    logServerError(err, _req);
   });
 
   // importantly only setup vite in development and after
@@ -440,112 +456,90 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.on("error", (err: NodeJS.ErrnoException) => {
-    console.error(`[FATAL] HTTP server error (${err.code}):`, err.message);
-    process.exit(1);
-  });
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-    },
-    () => {
-      log(`serving on port ${port}`);
+  // Routes exist and the schema step has finished. Open DB routes, then start
+  // workers that were previously tied to the listen callback.
+  markSchemaReady();
+  logBootPhase("routes_ready");
+  log("schema ready");
 
-      (async () => {
-        try {
-          const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");
-          const result = await backfillProgressForFinishedMatches();
-          if (result.matchesProcessed > 0) {
-            console.log(`[StartupBackfill] Backfilled ${result.matchesProcessed} matches, skipped ${result.matchesSkipped}, errors: ${result.errors.length}`);
-          }
-        } catch (err) {
-          console.error("[StartupBackfill] Progress backfill failed:", err);
-        }
+  try {
+    const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");
+    const result = await backfillProgressForFinishedMatches();
+    if (result.matchesProcessed > 0) {
+      console.log(`[StartupBackfill] Backfilled ${result.matchesProcessed} matches, skipped ${result.matchesSkipped}, errors: ${result.errors.length}`);
+    }
+  } catch (err) {
+    console.error("[StartupBackfill] Progress backfill failed:", err);
+  }
 
-        try {
-          const { backfillUncreditedWalletPoints } = await import("./services/rewards/dailyGameplayBase");
-          const walletResult = await backfillUncreditedWalletPoints();
-          if (walletResult.totalPointsCredited > 0) {
-            console.log(`[StartupBackfill] Wallet backfill: ${walletResult.totalPointsCredited} pts credited to ${walletResult.details.length} user-days, ${walletResult.errors.length} errors`);
-          }
-        } catch (err) {
-          console.error("[StartupBackfill] Wallet backfill failed:", err);
-        }
+  try {
+    const { backfillUncreditedWalletPoints } = await import("./services/rewards/dailyGameplayBase");
+    const walletResult = await backfillUncreditedWalletPoints();
+    if (walletResult.totalPointsCredited > 0) {
+      console.log(`[StartupBackfill] Wallet backfill: ${walletResult.totalPointsCredited} pts credited to ${walletResult.details.length} user-days, ${walletResult.errors.length} errors`);
+    }
+  } catch (err) {
+    console.error("[StartupBackfill] Wallet backfill failed:", err);
+  }
 
-        try {
-          const { backfillPointsAwardsToWallet } = await import("./services/rewards/dailyGameplayBase");
-          const awardsResult = await backfillPointsAwardsToWallet();
-          if (awardsResult.totalPointsCredited > 0) {
-            console.log(`[StartupBackfill] Points awards backfill: ${awardsResult.totalPointsCredited} pts credited to ${awardsResult.usersProcessed} users, ${awardsResult.errors.length} errors`);
-          }
-        } catch (err) {
-          console.error("[StartupBackfill] Points awards backfill failed:", err);
-        }
+  try {
+    const { backfillPointsAwardsToWallet } = await import("./services/rewards/dailyGameplayBase");
+    const awardsResult = await backfillPointsAwardsToWallet();
+    if (awardsResult.totalPointsCredited > 0) {
+      console.log(`[StartupBackfill] Points awards backfill: ${awardsResult.totalPointsCredited} pts credited to ${awardsResult.usersProcessed} users, ${awardsResult.errors.length} errors`);
+    }
+  } catch (err) {
+    console.error("[StartupBackfill] Points awards backfill failed:", err);
+  }
 
-        try {
-          const { startWebhookRetryWorker } = await import("./services/webhookRetryWorker");
-          startWebhookRetryWorker();
-        } catch (err) {
-          console.error("[WebhookRetryWorker] Failed to start:", err);
-        }
+  try {
+    const { startWebhookRetryWorker } = await import("./services/webhookRetryWorker");
+    startWebhookRetryWorker();
+  } catch (err) {
+    console.error("[WebhookRetryWorker] Failed to start:", err);
+  }
 
-        try {
-          const { startDbBackupService } = await import("./services/dbBackupService");
-          startDbBackupService();
-        } catch (err) {
-          console.error("[DbBackup] Failed to start:", err);
-        }
+  try {
+    const { startDbBackupService } = await import("./services/dbBackupService");
+    startDbBackupService();
+  } catch (err) {
+    console.error("[DbBackup] Failed to start:", err);
+  }
 
-        try {
-          const { startRiskScanWorker } = await import("./services/riskScanWorker");
-          startRiskScanWorker();
-        } catch (err) {
-          console.error("[RiskScan] Failed to start:", err);
-        }
+  try {
+    const { startRiskScanWorker } = await import("./services/riskScanWorker");
+    startRiskScanWorker();
+  } catch (err) {
+    console.error("[RiskScan] Failed to start:", err);
+  }
 
-        try {
-          const { startPriceCaptureWorker } = await import("./services/analytics/priceCaptureWorker");
-          startPriceCaptureWorker();
-        } catch (err) {
-          console.error("[PriceCapture] Failed to start:", err);
-        }
+  try {
+    const { startPriceCaptureWorker } = await import("./services/analytics/priceCaptureWorker");
+    startPriceCaptureWorker();
+  } catch (err) {
+    console.error("[PriceCapture] Failed to start:", err);
+  }
 
-        try {
-          const { startRollupWorker } = await import("./services/analytics/rollupWorker");
-          startRollupWorker();
-        } catch (err) {
-          console.error("[Rollup] Failed to start:", err);
-        }
+  try {
+    const { startRollupWorker } = await import("./services/analytics/rollupWorker");
+    startRollupWorker();
+  } catch (err) {
+    console.error("[Rollup] Failed to start:", err);
+  }
 
-        if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
-          try {
-            const { initSocialMediaAgent } = await import("./services/socialMedia");
-            await initSocialMediaAgent();
-          } catch (err) {
-            console.error("[SocialMediaAgent] Failed to initialize:", err);
-          }
-        }
+  if (process.env.SOCIAL_MEDIA_AGENT_ENABLED === "true") {
+    try {
+      const { initSocialMediaAgent } = await import("./services/socialMedia");
+      await initSocialMediaAgent();
+    } catch (err) {
+      console.error("[SocialMediaAgent] Failed to initialize:", err);
+    }
+  }
 
-        try {
-          const { startRetentionEmailLoops } = await import("./services/retentionEmails");
-          startRetentionEmailLoops();
-        } catch (err) {
-          console.error("[RetentionEmails] Failed to start loops:", err);
-        }
-
-
-      })().catch((err) => {
-        console.error("[StartupBackfill] Unhandled error in post-listen initialization:", err);
-      });
-    },
-  );
-})().catch((err) => {
-  console.error("[FATAL] Unhandled startup error — server is shutting down:", err);
-  process.exit(1);
-});
+  try {
+    const { startRetentionEmailLoops } = await import("./services/retentionEmails");
+    startRetentionEmailLoops();
+  } catch (err) {
+    console.error("[RetentionEmails] Failed to start loops:", err);
+  }
+}

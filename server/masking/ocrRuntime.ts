@@ -139,15 +139,21 @@ function startTesseractJob(imageBuffer: Buffer, originalWidth: number): OcrJob {
 }
 
 /** One OCR pass. On the deadline the worker is killed and this resolves as a timeout. */
-export async function recognizeWords(imageBuffer: Buffer, originalWidth: number): Promise<OcrWordResult> {
+export async function recognizeWords(
+  imageBuffer: Buffer,
+  originalWidth: number,
+  opts?: { deadlineMs?: number },
+): Promise<OcrWordResult> {
   const started = Date.now();
+  const limit = opts?.deadlineMs ?? ocrDeadlineMs();
+  if (limit <= 0) return { words: [], timedOut: true, ms: 0 };
   const job = (jobFactoryOverride ?? startTesseractJob)(imageBuffer, originalWidth);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => {
       resolve("timeout");
       job.cancel();
-    }, ocrDeadlineMs());
+    }, limit);
   });
   const work = job.promise
     .then((value) => ({ kind: "ok" as const, words: value.words }))

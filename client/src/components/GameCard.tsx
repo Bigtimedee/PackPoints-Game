@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,14 @@ import {
   gameCardReplaceOverlay,
   type SoloReplacePhase,
 } from "@/lib/soloImageReplace";
+import {
+  isMaskedPlayImageUrl,
+  isUnmaskedCardUrl,
+  maskedImageRetrySrc,
+  probeMaskedImageStatus,
+  shouldRetryMaskedImageLoad,
+  TRANSIENT_RETRY_MS,
+} from "@/lib/transientLoad";
 import { isPlayCardImageReady, markPlayCardImageReady } from "@/lib/prefetchPlayCardImages";
 
 interface MaskConfig {
@@ -220,10 +228,14 @@ export function GameCard({
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const [honestRetry, setHonestRetry] = useState(0);
+  const [deployRetry, setDeployRetry] = useState(0);
+  const deployRetryRef = useRef(0);
+  const imageEpoch = useRef(0);
   const baseImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
-  const cdnImageUrl = honestRetry > 0
+  const honestUrl = honestRetry > 0
     ? `${baseImageUrl}${baseImageUrl.includes("?") ? "&" : "?"}retry=${honestRetry}`
     : baseImageUrl;
+  const cdnImageUrl = maskedImageRetrySrc(honestUrl, deployRetry);
 
   const [imageLoaded, setImageLoaded] = useState(
     () => nextGameCardImageState(imageUrl, isPlayCardImageReady(imageUrl)).imageLoaded,
@@ -244,6 +256,9 @@ export function GameCard({
     setRevealLoaded(false);
     setRevealFailed(false);
     setHonestRetry(0);
+    setDeployRetry(0);
+    deployRetryRef.current = 0;
+    imageEpoch.current += 1;
   }
   // A reveal URL always paints. The failed masked image must not keep the spinner up.
   if (revealUrl && imageError) {
@@ -381,14 +396,40 @@ export function GameCard({
     setImageLoaded(true);
   };
 
+  const failImage = () => {
+    setImageError(true);
+    onImageError?.();
+  };
+
   const handleRevealError = () => {
     setRevealFailed(true);
   };
 
   const handleError = () => {
     if (revealUrl) return;
-    setImageError(true);
-    onImageError?.();
+    const url = baseImageUrl || "";
+    const canProbe = deployRetryRef.current < 1
+      && isMaskedPlayImageUrl(url)
+      && !isUnmaskedCardUrl(url);
+    if (!canProbe) {
+      failImage();
+      return;
+    }
+    const epoch = imageEpoch.current;
+    void (async () => {
+      const status = await probeMaskedImageStatus(url);
+      if (epoch !== imageEpoch.current) return;
+      if (!shouldRetryMaskedImageLoad({ url, status, alreadyRetried: deployRetryRef.current > 0 })) {
+        failImage();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_MS));
+      if (epoch !== imageEpoch.current) return;
+      deployRetryRef.current = 1;
+      setImageError(false);
+      setImageLoaded(false);
+      setDeployRetry(1);
+    })();
   };
 
   const handleReport = async (reason: string) => {

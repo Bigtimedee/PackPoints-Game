@@ -155,6 +155,50 @@ export interface StaleReloadInput {
   tabHidden?: boolean;
   reloadedBuildIds: string | null;
   chunkPending?: boolean;
+  /** Set by the chunk-error probe. Omitted means the URL was not checked yet. */
+  chunkProbe?: ChunkProbe | null;
+  chunkBuildChanged?: boolean;
+  chunkImportRetried?: boolean;
+}
+
+export type ChunkProbe = "missing" | "present" | "network";
+
+export interface ChunkLoadInput {
+  submitting: boolean;
+  /** Session, results, or a 1v1 lobby that is not finished. */
+  midSession: boolean;
+  probe: ChunkProbe | null;
+  buildChanged: boolean;
+  alreadyReloaded: boolean;
+  importRetried: boolean;
+}
+
+export type ChunkLoadAction = "reload" | "hold" | "retry-import" | "toast";
+
+/**
+ * A failed dynamic import reloads only when the chunk is gone (404) or the
+ * server build id changed. A network error retries the import once, then a
+ * toast. An in-flight answer submit always holds.
+ */
+export function decideChunkLoadFailure(input: ChunkLoadInput): ChunkLoadAction {
+  if (input.submitting) return "hold";
+  const gone = input.probe === "missing" || input.buildChanged;
+  if (gone) {
+    if (input.alreadyReloaded) return "hold";
+    return "reload";
+  }
+  // A chunk that is still on the server, or a network blip, is not a deploy.
+  // That includes mid-session: do not reload the live card.
+  if (input.midSession && input.probe === "present" && input.importRetried) return "toast";
+  if (input.importRetried) return "toast";
+  return "retry-import";
+}
+
+export function chunkUrlFromLoadMessage(message: string): string | null {
+  const match = message.match(/(\/assets\/[A-Za-z0-9._~/-]+\.js(?:\?[^)\s]*)?)/);
+  if (match?.[1]) return match[1];
+  const absolute = message.match(/https?:\/\/[^\s)'"]+/);
+  return absolute?.[0] ?? null;
 }
 
 export interface StaleReloadDecision {
@@ -163,19 +207,23 @@ export interface StaleReloadDecision {
   reloadBuildId: string | null;
   nextReloadedBuildIds: string | null;
   chunkPending: boolean;
+  retryImport: boolean;
+  chunkToast: boolean;
 }
 
 function passiveVersionTrigger(trigger: StaleReloadTrigger): boolean {
   return trigger === "focus" || trigger === "visibility" || trigger === "online" || trigger === "interval";
 }
 
-function holdDecision(pending: boolean, chunkPending: boolean): StaleReloadDecision {
+function holdDecision(pending: boolean, chunkPending: boolean, extra?: { retryImport?: boolean; chunkToast?: boolean }): StaleReloadDecision {
   return {
     updatePending: pending,
     reload: false,
     reloadBuildId: null,
     nextReloadedBuildIds: null,
     chunkPending,
+    retryImport: extra?.retryImport === true,
+    chunkToast: extra?.chunkToast === true,
   };
 }
 
@@ -186,6 +234,8 @@ function reloadDecision(pending: boolean, guardId: string, stored: string | null
     reloadBuildId: guardId,
     nextReloadedBuildIds: rememberReloadedBuild(stored, guardId),
     chunkPending: false,
+    retryImport: false,
+    chunkToast: false,
   };
 }
 
@@ -202,11 +252,29 @@ export function decideStaleReload(input: StaleReloadInput): StaleReloadDecision 
   const chunkAlready = hasReloadedForBuild(input.reloadedBuildIds, chunkGuard);
   const sessionUp = isActiveGameRoute(input);
 
-  // A failed dynamic import 404s the module the screen needs. That hard-breaks
-  // the page, including mid-session, so reload once. The guard stops a loop.
+  // Reload a failed dynamic import only when that chunk 404s or the build id
+  // changed. Network errors retry the import once. A submit in flight holds.
   if (input.trigger === "chunk-error") {
-    if (chunkAlready) return holdDecision(pending, false);
-    return reloadDecision(pending, chunkGuard, input.reloadedBuildIds);
+    const changedId = input.chunkBuildChanged ? sanitizeBuildId(input.serverBuildId) : "";
+    const action = decideChunkLoadFailure({
+      submitting: input.submitting,
+      midSession: sessionUp,
+      probe: input.chunkProbe ?? null,
+      buildChanged: input.chunkBuildChanged === true && changedId.length > 0,
+      alreadyReloaded: changedId
+        ? hasReloadedForBuild(input.reloadedBuildIds, changedId)
+        : chunkAlready,
+      importRetried: input.chunkImportRetried === true,
+    });
+    if (action === "reload") {
+      const changedId = input.chunkBuildChanged ? sanitizeBuildId(input.serverBuildId) : "";
+      const guard = changedId || chunkGuard;
+      if (hasReloadedForBuild(input.reloadedBuildIds, guard)) return holdDecision(pending, false);
+      return reloadDecision(pending, guard, input.reloadedBuildIds);
+    }
+    if (action === "retry-import") return holdDecision(pending, true, { retryImport: true });
+    if (action === "toast") return holdDecision(pending, false, { chunkToast: true });
+    return holdDecision(pending, false);
   }
 
   if (!pending || input.submitting) return holdDecision(pending, false);

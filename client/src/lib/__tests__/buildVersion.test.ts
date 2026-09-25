@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   chunkReloadGuardId,
+  chunkUrlFromLoadMessage,
+  decideChunkLoadFailure,
   decideStaleReload,
   hasReloadedForBuild,
   isActiveGameRoute,
@@ -260,7 +262,7 @@ describe("decideStaleReload", () => {
     expect(same.updatePending).toBe(true);
   });
 
-  it("does not reload a version change during a submit, and does reload a broken chunk", () => {
+  it("does not reload a version change or a missing chunk during a submit", () => {
     expect(decideStaleReload(input({ submitting: true })).reload).toBe(false);
     expect(decideStaleReload(input({
       trigger: "navigation",
@@ -273,7 +275,8 @@ describe("decideStaleReload", () => {
       submitting: true,
       inProgressCard: true,
       holdPlay: true,
-    })).reload).toBe(true);
+      chunkProbe: "missing",
+    })).reload).toBe(false);
   });
 
   it("reloads once per server build id", () => {
@@ -289,11 +292,12 @@ describe("decideStaleReload", () => {
     expect(rememberReloadedBuild(stored, "ccc")).toBe("bbb,ccc");
   });
 
-  it("reloads once for a chunk load failure tied to the embedded build", () => {
+  it("reloads once for a missing chunk tied to the embedded build", () => {
     const first = decideStaleReload(input({
       trigger: "chunk-error",
       serverBuildId: null,
       embeddedBuildId: "aaa",
+      chunkProbe: "missing",
     }));
     expect(first.reload).toBe(true);
     expect(first.reloadBuildId).toBe(chunkReloadGuardId("aaa"));
@@ -301,28 +305,54 @@ describe("decideStaleReload", () => {
       trigger: "chunk-error",
       serverBuildId: null,
       embeddedBuildId: "aaa",
+      chunkProbe: "missing",
       reloadedBuildIds: first.nextReloadedBuildIds,
     })).reload).toBe(false);
   });
 
-  it("reloads a chunk-load failure during a live question because the module is gone", () => {
-    const first = decideStaleReload(input({
+  it("reloads mid-session only when the chunk 404s or the build id changed", () => {
+    const missing = decideStaleReload(input({
       trigger: "chunk-error",
       serverBuildId: null,
       embeddedBuildId: "aaa",
       inProgressCard: true,
       holdPlay: true,
+      chunkProbe: "missing",
     }));
-    expect(first.reload).toBe(true);
-    expect(first.reloadBuildId).toBe(chunkReloadGuardId("aaa"));
-    expect(decideStaleReload(input({
+    expect(missing.reload).toBe(true);
+    expect(missing.reloadBuildId).toBe(chunkReloadGuardId("aaa"));
+    const network = decideStaleReload(input({
       trigger: "chunk-error",
-      serverBuildId: null,
+      serverBuildId: "aaa",
       embeddedBuildId: "aaa",
       inProgressCard: true,
       holdPlay: true,
-      reloadedBuildIds: first.nextReloadedBuildIds,
-    })).reload).toBe(false);
+      chunkProbe: "network",
+    }));
+    expect(network.reload).toBe(false);
+    expect(network.retryImport).toBe(true);
+    const changed = decideStaleReload(input({
+      trigger: "chunk-error",
+      serverBuildId: "bbb",
+      embeddedBuildId: "aaa",
+      inProgressCard: true,
+      holdPlay: true,
+      chunkProbe: "network",
+      chunkBuildChanged: true,
+    }));
+    expect(changed.reload).toBe(true);
+    expect(changed.reloadBuildId).toBe("bbb");
+    const present = decideStaleReload(input({
+      trigger: "chunk-error",
+      serverBuildId: "aaa",
+      embeddedBuildId: "aaa",
+      inProgressCard: true,
+      holdPlay: true,
+      chunkProbe: "present",
+      chunkImportRetried: true,
+    }));
+    expect(present.reload).toBe(false);
+    expect(present.chunkToast).toBe(true);
   });
 
   it("does not reload when the server id is missing or already matches", () => {
@@ -342,5 +372,30 @@ describe("submit and chunk helpers", () => {
     expect(isGameSubmitRequest("POST", "/api/store/checkout")).toBe(false);
     expect(isChunkLoadErrorMessage("Failed to fetch dynamically imported module: /assets/game-abc.js")).toBe(true);
     expect(isChunkLoadErrorMessage("Network down")).toBe(false);
+    expect(chunkUrlFromLoadMessage("Failed to fetch dynamically imported module: /assets/game-abc.js")).toBe("/assets/game-abc.js");
+    expect(decideChunkLoadFailure({
+      submitting: true,
+      midSession: true,
+      probe: "missing",
+      buildChanged: true,
+      alreadyReloaded: false,
+      importRetried: false,
+    })).toBe("hold");
+    expect(decideChunkLoadFailure({
+      submitting: false,
+      midSession: false,
+      probe: "network",
+      buildChanged: false,
+      alreadyReloaded: false,
+      importRetried: false,
+    })).toBe("retry-import");
+    expect(decideChunkLoadFailure({
+      submitting: false,
+      midSession: true,
+      probe: "network",
+      buildChanged: false,
+      alreadyReloaded: false,
+      importRetried: true,
+    })).toBe("toast");
   });
 });
