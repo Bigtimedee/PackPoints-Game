@@ -14,6 +14,7 @@ import { maskedPlayPath } from "./playImageToken";
 import { buildSetMaskHint } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { readWarmMaskPlan } from "../masking/maskPlanStore";
+import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -207,7 +208,7 @@ export class Daily5Service {
       .where(eq(gameSets.id, setId))
       .limit(1);
 
-    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl));
+    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description));
     if (filtered.length < 5) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
       return;
@@ -226,10 +227,7 @@ export class Daily5Service {
       gameSetId: card.gameSetId || setId,
     })));
 
-    const allPlayerNames = candidates
-      .map(c => c.player)
-      .filter((p): p is string => !!p);
-    const uniqueNames = Array.from(new Set(allPlayerNames));
+    const uniqueNames = Array.from(new Set(omitNonPlayerNames(candidates.map(c => c.player))));
 
     for (let i = 0; i < selected.length; i++) {
       const card = selected[i];

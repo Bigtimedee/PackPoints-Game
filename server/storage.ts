@@ -14,6 +14,7 @@ import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "./masking/maskProfiles";
+import { isNonPlayerCard, omitNonPlayerCards, omitNonPlayerNames } from "@shared/nonPlayerCard";
 
 // Known silhouette/placeholder URL patterns that should NEVER be served
 // These are stock images from Card Hedge that indicate missing card scans
@@ -290,7 +291,7 @@ export class DatabaseStorage implements IStorage {
       }
       
       const allCards = await db.select().from(baseballCards);
-      this.playerNames = allCards.map(card => card.playerName);
+      this.playerNames = omitNonPlayerNames(allCards.map(card => card.playerName));
       const verifiedCount = allCards.filter(c => c.imageVerified).length;
       
       console.log(`Loaded ${allCards.length} cards for 1987 Topps set (${verifiedCount} with verified images)`);
@@ -544,7 +545,7 @@ export class DatabaseStorage implements IStorage {
     if (!this.initialized) {
       await this.initialize();
     }
-    const verifiedCards = await this.getVerifiedCards();
+    const verifiedCards = omitNonPlayerCards(await this.getVerifiedCards());
     const shuffled = [...verifiedCards].sort(() => Math.random() - 0.5);
     const picked = shuffled.slice(0, Math.min(count, shuffled.length));
     // Legacy baseballCards rows are baseball even when setName has no sport token.
@@ -560,7 +561,7 @@ export class DatabaseStorage implements IStorage {
 
   async addCard(card: InsertBaseballCard): Promise<BaseballCard> {
     const [newCard] = await db.insert(baseballCards).values(card).returning();
-    if (newCard && !this.playerNames.includes(newCard.playerName)) {
+    if (newCard && !isNonPlayerCard(newCard.playerName) && !this.playerNames.includes(newCard.playerName)) {
       this.playerNames.push(newCard.playerName);
     }
     return newCard;
@@ -650,7 +651,7 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Get cards to serve and refresh stale images
-    const cardsToServe = validCards.slice(0, count);
+    const cardsToServe = omitNonPlayerCards(validCards).slice(0, count);
     logDealtDefaultMaskProfiles(cardsToServe.map((card) => ({
       setHint: buildSetMaskHint({
         year: gameSet?.year,
@@ -686,9 +687,7 @@ export class DatabaseStorage implements IStorage {
         )
       );
     
-    return cards
-      .map(c => c.player)
-      .filter((name): name is string => !!name);
+    return omitNonPlayerNames(cards.map(c => c.player));
   }
 
   async getSamplePlayerNamesFromSet(setId: string, sampleSize: number): Promise<string[]> {
@@ -710,9 +709,7 @@ export class DatabaseStorage implements IStorage {
           )
         );
 
-      allNames = cards
-        .map(c => c.player)
-        .filter((name): name is string => !!name);
+      allNames = omitNonPlayerNames(cards.map(c => c.player));
       this.playerNameCache.set(setId, { names: allNames, fetchedAt: Date.now() });
     }
 
@@ -797,7 +794,7 @@ export class DatabaseStorage implements IStorage {
 
   private async generateQuestionFromPlayableCard(card: PlayableCard, playerNames: string[]): Promise<GameQuestion> {
     const correctAnswer = card.player || "Unknown Player";
-    const uniqueNames = Array.from(new Set(playerNames));
+    const uniqueNames = omitNonPlayerNames(Array.from(new Set(playerNames)));
     let wrongOptions = uniqueNames
       .filter(name => name !== correctAnswer && name)
       .sort(() => Math.random() - 0.5)
@@ -851,7 +848,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   private generateQuestion(card: BaseballCard): GameQuestion {
-    const wrongOptions = this.playerNames
+    const wrongOptions = omitNonPlayerNames(this.playerNames)
       .filter(name => name !== card.playerName)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
@@ -1060,7 +1057,7 @@ export class DatabaseStorage implements IStorage {
         .limit(50);
       
       // Filter out used cards, silhouettes, and filter by sport category
-      let available = candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl));
+      let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl)));
       
       // Also filter by sport category for additional safety
       if (expectedSport) {
@@ -1119,7 +1116,7 @@ export class DatabaseStorage implements IStorage {
           .limit(50);
         
         // Filter by sport category and silhouettes for extra safety
-        let available = candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl));
+        let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl)));
         available = available.filter(c => {
           const cardCategory = (c.category || "").toLowerCase();
           return cardCategory === expectedSport;

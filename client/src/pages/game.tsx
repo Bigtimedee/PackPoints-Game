@@ -36,6 +36,12 @@ import {
   remainingPlayCardUrls,
 } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
+import {
+  reduceSoloReplacePhase,
+  soloAnswersLocked,
+  SOLO_REPLACE_HARD_CAP_MS,
+  type SoloReplacePhase,
+} from "@/lib/soloImageReplace";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 function AnswerButton({
@@ -503,53 +509,47 @@ export default function Game() {
   
   // Track when to show skip button (after timeout or replacement failure)
   const [showSkipButton, setShowSkipButton] = useState(false);
+  const [replacePhase, setReplacePhase] = useState<SoloReplacePhase>("idle");
+  const replaceStartedForIndex = useRef<number | null>(null);
 
   // Replace card when image fails to load - user doesn't lose PackPTS opportunity
   const replaceCardMutation = useMutation({
     mutationFn: async (questionIndex: number) => {
       const res = await apiRequest("POST", `/api/game/session/${sessionId}/replace-card`, {
         questionIndex,
-      });
+      }, { timeoutMs: SOLO_REPLACE_HARD_CAP_MS });
       return res.json();
     },
-    onSuccess: (data) => {
-      if (data.success && data.question) {
-        // Snapshot the index before entering the updater to avoid a race condition
-        // where nextQuestionMutation.onSuccess advances currentQuestionIndex first
-        const replacedIndex = queryClient.getQueryData<any>(["/api/game/session", sessionId])?.currentQuestionIndex;
+    onSuccess: (data, questionIndex) => {
+      if (data?.success && data.question?.card?.imageUrl) {
         queryClient.setQueryData(["/api/game/session", sessionId], (oldData: any) => {
           if (!oldData) return oldData;
-          const targetIndex = replacedIndex ?? oldData.currentQuestionIndex;
+          if (questionIndex < 0 || questionIndex >= oldData.questions.length) return oldData;
           const newQuestions = [...oldData.questions];
-          newQuestions[targetIndex] = data.question;
+          newQuestions[questionIndex] = data.question;
           return { ...oldData, questions: newQuestions };
         });
-        // Move setState outside of setQueryData updater (pure-function requirement)
-        if (replacedIndex != null) {
-          setReplacedQuestionIndices(prev => new Set(prev).add(replacedIndex));
-        }
+        setReplacedQuestionIndices(prev => new Set(prev).add(questionIndex));
+        setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "replace-succeeded" }));
         logger.debug(`[Game] Card replaced successfully`);
         prefetchMaskedPlayCards([data.question.card.imageUrl]);
+        return;
       }
+      setReplacedQuestionIndices(prev => new Set(prev).add(questionIndex));
+      setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "replace-empty" }));
+      setShowSkipButton(true);
     },
-    onError: (error) => {
+    onError: (error, questionIndex) => {
       logger.debug(`[Game] Card replacement failed:`, error);
-      // Mark this question as having had a replacement attempt
-      if (session) {
-        const currentIdx = session.currentQuestionIndex;
-        setReplacedQuestionIndices(prev => new Set(prev).add(currentIdx));
-        // If the server definitively says no replacement exists, jump straight to the
-        // skip threshold so the next button press advances to the next question
-        // rather than making the user click twice more.
-        const noReplacement = error instanceof Error &&
-          error.message.includes("No replacement card available");
-        setReplacementAttempts(prev => {
-          const newMap = new Map(prev);
-          newMap.set(currentIdx, noReplacement ? 2 : (newMap.get(currentIdx) || 0) + 1);
-          return newMap;
-        });
-      }
-      // Show the skip button again so user can try again or skip entirely
+      setReplacedQuestionIndices(prev => new Set(prev).add(questionIndex));
+      const noReplacement = error instanceof Error &&
+        error.message.includes("No replacement card available");
+      setReplacementAttempts(prev => {
+        const newMap = new Map(prev);
+        newMap.set(questionIndex, noReplacement ? 2 : (newMap.get(questionIndex) || 0) + 1);
+        return newMap;
+      });
+      setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "replace-failed" }));
       setShowSkipButton(true);
     }
   });
@@ -565,6 +565,19 @@ export default function Game() {
       setReplacementStartTime(null);
     }
   }, [replaceCardMutation.isPending, replacementStartTime]);
+
+  useEffect(() => {
+    replaceStartedForIndex.current = null;
+    setReplacePhase("idle");
+  }, [session?.currentQuestionIndex]);
+
+  useEffect(() => {
+    if (replacePhase !== "replacing") return;
+    const timer = window.setTimeout(() => {
+      setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "replace-timeout" }));
+    }, SOLO_REPLACE_HARD_CAP_MS);
+    return () => window.clearTimeout(timer);
+  }, [replacePhase, session?.currentQuestionIndex]);
   
   // Show skip button after timeout OR when replacement has already been attempted
   useEffect(() => {
@@ -625,29 +638,37 @@ export default function Game() {
     }
   };
 
-  // Handle image error - try to replace card first, only skip if replacement unavailable
+  // Handle image error - one automatic replace, then an honest retry/skip. Never a stuck spinner.
   const handleCardImageError = () => {
     const currentIndex = session?.currentQuestionIndex ?? -1;
-    
-    // Check if we've already attempted a replacement for this question
-    // If so, increment the attempt counter (image failed after replacement succeeded)
-    // and show skip button rather than trying again automatically
-    if (replacedQuestionIndices.has(currentIndex)) {
-      logger.debug(`[Game] Replacement card image also failed at question ${currentIndex + 1}, incrementing attempts`);
-      // Count this as another failed attempt toward the skip threshold
-      setReplacementAttempts(prev => {
-        const newMap = new Map(prev);
-        newMap.set(currentIndex, (newMap.get(currentIndex) || 0) + 1);
-        return newMap;
-      });
+    if (isRevealed || currentIndex < 0) return;
+
+    const allowReplace = !replacedQuestionIndices.has(currentIndex)
+      && replacePhase !== "replacing"
+      && replacePhase !== "failed"
+      && replacePhase !== "revealed";
+    const nextPhase = reduceSoloReplacePhase(replacePhase, { type: "image-rejected", allowReplace });
+    setReplacePhase(nextPhase);
+    if (nextPhase !== "replacing") {
       setShowSkipButton(true);
       return;
     }
-    
-    // Try to get a replacement card
-    if (!isRevealed && !replaceCardMutation.isPending && currentIndex >= 0) {
-      replaceCardMutation.mutate(currentIndex);
+    if (replaceStartedForIndex.current === currentIndex) return;
+    replaceStartedForIndex.current = currentIndex;
+    replaceCardMutation.mutate(currentIndex);
+  };
+
+  const handleSkipBrokenCard = () => {
+    if (nextQuestionMutation.isPending) return;
+    nextQuestionMutation.mutate("image_failure");
+  };
+
+  const handleRetryBrokenCard = () => {
+    const currentIndex = session?.currentQuestionIndex ?? -1;
+    if (currentIndex >= 0) {
+      setReplacedQuestionIndices(prev => new Set(prev).add(currentIndex));
     }
+    setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "retry" }));
   };
 
   // No longer auto-start - user selects card count first
@@ -728,6 +749,7 @@ export default function Game() {
   useEffect(() => {
     if (isRevealed && currentRevealUrl) {
       prefetchRevealPlayCard(currentRevealUrl);
+      setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "reveal" }));
     }
   }, [isRevealed, currentRevealUrl]);
 
@@ -736,13 +758,15 @@ export default function Game() {
     if (current?.answered && current.card?.revealUrl) setIsRevealed(true);
   }, [session?.id, session?.currentQuestionIndex, session?.questions]);
 
+  const answersLocked = soloAnswersLocked(replacePhase);
+
   const handleSelectAnswer = (answer: string) => {
-    if (isRevealed) return;
+    if (isRevealed || answersLocked) return;
     setSelectedAnswer(answer);
   };
 
   const handleSubmit = () => {
-    if (!selectedAnswer) return;
+    if (!selectedAnswer || answersLocked) return;
     submitAnswerMutation.mutate(selectedAnswer);
   };
 
@@ -1315,11 +1339,13 @@ export default function Game() {
                 imageRotation={currentQuestion.card.imageRotation}
                 showSkipButton={showSkipButton}
                 skipPending={replaceCardMutation.isPending || nextQuestionMutation.isPending}
-                onSkip={handleManualSkip}
                 skipButtonMode={(replacementAttempts.get(session.currentQuestionIndex) ?? 0) >= 2 ? 'skip' : 'replace'}
                 onImageError={() => {
                   handleCardImageError();
                 }}
+                replacePhase={replacePhase}
+                onRetryImage={handleRetryBrokenCard}
+                onSkip={replacePhase === "failed" ? handleSkipBrokenCard : handleManualSkip}
                 sessionId={session?.id}
                 playScope="solo"
                 questionIndex={session.currentQuestionIndex}
@@ -1345,7 +1371,7 @@ export default function Game() {
                     isCorrect={option === revealedCorrectAnswer}
                     isRevealed={isRevealed}
                     onSelect={() => handleSelectAnswer(option)}
-                    disabled={submitAnswerMutation.isPending}
+                    disabled={submitAnswerMutation.isPending || answersLocked}
                   />
                 ))}
               </div>
@@ -1355,7 +1381,7 @@ export default function Game() {
                 {!isRevealed && !currentQuestionAnswered ? (
                   <Button
                     onClick={handleSubmit}
-                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending || nextQuestionMutation.isPending || currentQuestionAnswered}
+                    disabled={!selectedAnswer || !sessionId || submitAnswerMutation.isPending || nextQuestionMutation.isPending || currentQuestionAnswered || answersLocked}
                     className="w-full gap-2"
                     data-testid="button-submit-answer"
                   >
