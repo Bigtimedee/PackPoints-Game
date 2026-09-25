@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, utimes, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DRIZZLE_PUSH_TIMEOUT_MS, PG_DUMP_TIMEOUT_MS, pruneBootDumps, runBootSchema, schemaDumpRequired, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout, type BootSpawn } from "../startup/bootSchema";
+import { DRIZZLE_PUSH_TIMEOUT_MS, PG_DUMP_TIMEOUT_MS, pruneBootDumps, runBootSchema, schemaDumpRequired, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withSessionLockTimeout, withStartupTimeout, type BootSpawn } from "../startup/bootSchema";
 
 function fakeSpawn(failCommand?: string): { spawn: BootSpawn; calls: string[][] } {
   const calls: string[][] = [];
@@ -201,6 +201,42 @@ describe("boot schema", () => {
     expect(pushHang.killed).toEqual(["SIGKILL"]);
     expect(pushHang.calls.map((call) => call[0])).toEqual(["pg_dump", "npx"]);
     await expect(readFile(pushMarker, "utf8")).rejects.toThrow();
+
+    const quietDir = await mkdtemp(path.join(tmpdir(), "packpts-push-quiet-"));
+    const quietSchema = path.join(quietDir, "schema.ts");
+    const quietMarker = path.join(quietDir, ".schema-push-hash");
+    await writeFile(quietSchema, "export const schema = 1;\n");
+    const seenEnv: Array<string | undefined> = [];
+    const quietSpawn: BootSpawn = (command, args, env) => {
+      seenEnv.push(env?.DATABASE_URL);
+      if (command === "pg_dump") {
+        const fileArg = args.find((arg) => arg.startsWith("--file="));
+        if (fileArg) writeFileSync(fileArg.slice("--file=".length), "dump");
+      }
+      const child = new EventEmitter() as ReturnType<BootSpawn>;
+      child.killed = false;
+      child.kill = () => true;
+      queueMicrotask(() => child.emit("close", command === "npx" ? 1 : 0));
+      return child;
+    };
+    const quietExit = vi.fn();
+    const background = await runBootSchema({
+      backupDir: quietDir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: quietSpawn,
+      schemaPath: quietSchema,
+      markerPath: quietMarker,
+      exit: quietExit,
+      exitOnPushFailure: false,
+      lockTimeout: "3s",
+    });
+    expect(background.pushed).toBe(false);
+    expect(quietExit).not.toHaveBeenCalled();
+    expect(seenEnv[1]).toBe(withSessionLockTimeout("postgres://local/packpts", "3s"));
+    expect(withSessionLockTimeout("postgres://local/packpts?sslmode=require", "3s")).toContain("sslmode=require");
+    expect(withSessionLockTimeout("postgres://local/packpts?sslmode=require", "3s")).toContain("lock_timeout%3D3s");
+    const fatal = vi.mocked(console.error).mock.calls.map((args) => String(args[0])).join("\n");
+    expect(fatal).toContain("Not exiting");
 
     vi.useFakeTimers();
     const hung = withStartupTimeout(new Promise<void>(() => {}), STORAGE_INIT_TIMEOUT_MS, "storage setup");

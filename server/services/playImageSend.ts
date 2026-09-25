@@ -5,6 +5,7 @@ import { getCachedImageUrl, getOrValidateCardImage, getSourceUrlForCard, markIma
 import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { normalizeImageUrl } from "./cards/imageQuality";
 import { acceptWarmMaskedFile, getMaskedImagePath, isMaskBakeTimeout, orientUnmaskedScan, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
+import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
 
@@ -126,6 +127,8 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
       res.status(404).json({ error: "Masked image not found" });
       return;
     }
+
+    await maybeWriteWarmOkSidecar(cardId, maskedPath);
 
     const etagMatch = maskedPath.match(/_(v[\d.]+(?:_r\d+)?)\.jpg$/);
     const etag = `"${etagMatch?.[1] ?? CURRENT_MASK_VERSION}"`;

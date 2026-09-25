@@ -11,7 +11,7 @@ export const BOOT_BACKUP_KEEP = 14;
 /** A hung dump is killed and the push is skipped, same as a failed dump. */
 export const PG_DUMP_TIMEOUT_MS = 90_000;
 
-/** A hung push or storage setup exits so Railway keeps the previous deploy. */
+/** A hung foreground push or storage setup exits so a closed schema gate cannot sit forever. */
 export const DRIZZLE_PUSH_TIMEOUT_MS = 120_000;
 export const STORAGE_INIT_TIMEOUT_MS = 60_000;
 
@@ -61,7 +61,22 @@ export function schemaDumpRequired(currentHash: string, storedHash: string | nul
 }
 
 export interface BootSpawn {
-  (command: string, args: string[]): ChildProcess;
+  (command: string, args: string[], env?: NodeJS.ProcessEnv): ChildProcess;
+}
+
+/** Session options for the push child only. node-postgres honors `options` on the URL. */
+export function withSessionLockTimeout(databaseUrl: string, lockTimeout: string): string {
+  const flag = `-c lock_timeout=${lockTimeout}`;
+  const encoded = encodeURIComponent(flag);
+  const hashAt = databaseUrl.indexOf("#");
+  const base = hashAt === -1 ? databaseUrl : databaseUrl.slice(0, hashAt);
+  const fragment = hashAt === -1 ? "" : databaseUrl.slice(hashAt);
+  const existing = base.match(/([?&]options=)([^&]*)/);
+  if (existing) {
+    return `${base.replace(existing[0], `${existing[1]}${existing[2]}%20${encoded}`)}${fragment}`;
+  }
+  const joiner = base.includes("?") ? "&" : "?";
+  return `${base}${joiner}options=${encoded}${fragment}`;
 }
 
 let activeChild: ChildProcess | null = null;
@@ -72,8 +87,8 @@ export function cancelBootSchema(): void {
   }
 }
 
-function defaultSpawn(command: string, args: string[]): ChildProcess {
-  const child = spawn(command, args, { stdio: "inherit" });
+function defaultSpawn(command: string, args: string[], env?: NodeJS.ProcessEnv): ChildProcess {
+  const child = spawn(command, args, { stdio: "inherit", env: env ?? process.env });
   activeChild = child;
   child.on("close", () => {
     if (activeChild === child) activeChild = null;
@@ -86,6 +101,7 @@ function run(
   command: string,
   args: string[],
   timeoutMs: number,
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ code: number; timedOut: boolean }> {
   return new Promise((resolve) => {
     let settled = false;
@@ -105,7 +121,7 @@ function run(
       done(1, true);
     }, timeoutMs);
     try {
-      child = spawnImpl(command, args);
+      child = spawnImpl(command, args, env);
     } catch (err) {
       console.error(`[Startup] ${command} failed to start:`, err instanceof Error ? err.message : err);
       done(1, false);
@@ -140,8 +156,9 @@ export async function pruneBootDumps(backupDir: string, keep = BOOT_BACKUP_KEEP)
 /**
  * `drizzle-kit push --force` against shared/schema.ts on every boot.
  * `pg_dump` runs first only when that file's hash differs from the volume marker.
- * The push drops tables that are not in that file, so it runs before any
- * DB-dependent route is unmarked. A required dump that fails skips the push.
+ * A required dump that fails skips the push. A foreground timeout exits.
+ * A background push (fast schema path) logs and stays up; its connection sets
+ * lock_timeout so a surprise DDL statement cannot sit on AccessExclusive.
  */
 export async function runBootSchema(opts?: {
   backupDir?: string;
@@ -154,7 +171,11 @@ export async function runBootSchema(opts?: {
   dumpTimeoutMs?: number;
   pushTimeoutMs?: number;
   exit?: (code: number) => void;
-}): Promise<{ pushed: boolean; dumpFile: string | null; dumped: boolean }> {
+  /** Default true. Background pushes pass false: this process is already the live deploy. */
+  exitOnPushFailure?: boolean;
+  /** When set, the push child gets DATABASE_URL with this lock_timeout. */
+  lockTimeout?: string;
+}): Promise<{ pushed: boolean; dumpFile: string | null; dumped: boolean; timedOut?: boolean; code?: number }> {
   const databaseUrl = opts?.databaseUrl ?? process.env.DATABASE_URL ?? "";
   const backupDir = opts?.backupDir ?? "/app/data/masked-cards/.db-backups";
   const spawnImpl = opts?.spawn ?? defaultSpawn;
@@ -162,6 +183,7 @@ export async function runBootSchema(opts?: {
   const dumpTimeoutMs = opts?.dumpTimeoutMs ?? PG_DUMP_TIMEOUT_MS;
   const pushTimeoutMs = opts?.pushTimeoutMs ?? DRIZZLE_PUSH_TIMEOUT_MS;
   const exit = opts?.exit ?? ((code: number) => process.exit(code));
+  const exitOnPushFailure = opts?.exitOnPushFailure !== false;
   const schemaPath = opts?.schemaPath ?? path.join(opts?.cwd ?? process.cwd(), "shared/schema.ts");
   const markerPath = opts?.markerPath ?? SCHEMA_PUSH_MARKER;
   if (!databaseUrl) {
@@ -206,16 +228,27 @@ export async function runBootSchema(opts?: {
   logBootPhase("drizzle_push_start");
   const pushStarted = Date.now();
   console.log("[Startup] Running database migrations (drizzle-kit push --force)...");
-  const push = await run(spawnImpl, "npx", ["drizzle-kit", "push", "--force"], pushTimeoutMs);
+  const pushEnv = opts?.lockTimeout
+    ? { ...process.env, DATABASE_URL: withSessionLockTimeout(databaseUrl, opts.lockTimeout) }
+    : undefined;
+  const push = await run(spawnImpl, "npx", ["drizzle-kit", "push", "--force"], pushTimeoutMs, pushEnv);
   logBootPhase("drizzle_push_end", { ms: Date.now() - pushStarted, code: push.code, timedOut: push.timedOut });
   if (push.timedOut) {
+    if (!exitOnPushFailure) {
+      console.error(`[Startup] FATAL: background drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Not exiting. The fast probe already matched schema.ts, this container is already the live deploy, and exit(1) would only restart it.`);
+      return { pushed: false, dumpFile, dumped, timedOut: true, code: 1 };
+    }
     console.error(`[Startup] FATAL: drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Exiting so Railway keeps the previous deploy.`);
     exit(1);
-    return { pushed: false, dumpFile, dumped };
+    return { pushed: false, dumpFile, dumped, timedOut: true, code: 1 };
   }
   if (push.code !== 0) {
-    console.error(`[Startup] WARNING: drizzle-kit push exited ${push.code}. DB routes stay on the schema the push left.`);
-    return { pushed: false, dumpFile, dumped };
+    if (!exitOnPushFailure) {
+      console.error(`[Startup] FATAL: background drizzle-kit push exited ${push.code}. Not exiting. DB routes stay on the schema the probe already accepted.`);
+    } else {
+      console.error(`[Startup] WARNING: drizzle-kit push exited ${push.code}. DB routes stay on the schema the push left.`);
+    }
+    return { pushed: false, dumpFile, dumped, timedOut: false, code: push.code };
   }
   await mkdir(path.dirname(markerPath), { recursive: true });
   await writeFile(markerPath, `${currentHash}\n`);
