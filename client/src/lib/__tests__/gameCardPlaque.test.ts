@@ -56,9 +56,10 @@ describe("MaskPlaque chrome", () => {
 });
 
 describe("solo points stay off the card", () => {
-  it("renders the server award under the answers with no bounce or blur", () => {
-    expect(gameSrc).toContain("typeof data.pointsEarned === \"number\"");
-    expect(gameSrc).toContain("+{points} pts");
+  it("does not paint a per-question award on or under the card", () => {
+    expect(gameSrc).not.toContain("typeof data.pointsEarned === \"number\"");
+    expect(gameSrc).not.toContain("+{points} pts");
+    expect(gameSrc).not.toContain("PointsQuiet");
     expect(gameSrc).not.toContain("animate-bounce");
     expect(gameSrc).not.toContain("backdrop-blur");
     const slot = gameSrc.slice(
@@ -67,6 +68,7 @@ describe("solo points stay off the card", () => {
     );
     expect(slot).not.toContain("PointsQuiet");
     expect(slot).not.toContain("+{points}");
+    expect(slot).not.toMatch(/\bpts\b/);
   });
 
   it("Daily 5 does not show replacement copy", () => {
