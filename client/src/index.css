@@ -354,3 +354,29 @@
     display: none !important;
   }
 }
+
+/* Game Complete stat tiles. The label follows this tile's content width
+   (solo and Daily 5), not a viewport breakpoint. Under 76px of content,
+   ACCURACY at 12px / tracking-wider (72px) does not fit. Padding keeps
+   at least 60px of content for the 10px label and the 18px value floor. */
+.stat-tile {
+  container-type: inline-size;
+  container-name: stat-tile;
+  min-width: 0;
+  padding-inline: clamp(0px, calc((100% - 60px) / 2), 16px);
+}
+
+.stat-tile-label {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  line-height: 16px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@container stat-tile (width < 76px) {
+  .stat-tile-label {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+}
