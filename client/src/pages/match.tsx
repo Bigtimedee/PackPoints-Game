@@ -17,6 +17,7 @@ import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { notifyStaleBuildSafePoint } from "@/lib/staleBuildClient";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -236,6 +237,7 @@ export default function Match() {
           clearTimeout(resyncTimeoutRef.current);
           resyncTimeoutRef.current = null;
         }
+        if (message.type === "next_question") void notifyStaleBuildSafePoint();
         break;
       case "question_replaced":
         // Card was replaced - update current question WITHOUT changing idx
@@ -433,6 +435,7 @@ export default function Match() {
           };
         });
         queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
+        void notifyStaleBuildSafePoint();
         break;
       }
       case "battle_rematch_pending": {

@@ -67,13 +67,19 @@ export function isUpdatePending(
   return embedded !== server;
 }
 
+export type VersionCheckReason = "focus" | "visibility" | "online" | "interval" | "navigation" | "safe-point";
+
+export function versionCheckUrl(now: number): string {
+  return `/api/version?t=${now}`;
+}
+
 export function shouldFetchBuildVersion(input: {
-  reason: "focus" | "visibility" | "navigation";
+  reason: VersionCheckReason;
   now: number;
   lastFetchAt: number | null;
   minIntervalMs?: number;
 }): boolean {
-  if (input.reason === "navigation") return true;
+  if (input.reason === "navigation" || input.reason === "safe-point") return true;
   if (input.lastFetchAt == null) return true;
   const min = input.minIntervalMs ?? VERSION_CHECK_MIN_INTERVAL_MS;
   return input.now - input.lastFetchAt >= min;
@@ -85,25 +91,9 @@ export function normalizeAppPath(path: string): string {
   return raw || "/";
 }
 
-export function isGamePath(pathname: string): boolean {
-  const path = normalizeAppPath(pathname);
-  return path === "/game" || path.startsWith("/game/");
-}
-
-export function isMatchPath(pathname: string): boolean {
-  const path = normalizeAppPath(pathname);
-  return path === "/match" || path.startsWith("/match/");
-}
-
-export function isDaily5Path(pathname: string): boolean {
-  const path = normalizeAppPath(pathname);
-  return path === "/daily" || path === "/daily5" || path.startsWith("/daily/") || path.startsWith("/daily5/");
-}
-
 /**
- * Routes where a focus reload would interrupt a live card.
- * /game/* (including /game/solo) and /match/* are always live game routes.
- * Daily 5 is live only while a card is in play.
+ * A question is on screen. The version poll must not reload here.
+ * The game route itself is not enough: card-count setup and Game Complete are safe.
  */
 export function isActiveGameRoute(input: {
   pathname: string;
@@ -111,7 +101,6 @@ export function isActiveGameRoute(input: {
   inProgressCard: boolean;
 }): boolean {
   if (input.inProgressCard) return true;
-  if (isGamePath(input.pathname) || isMatchPath(input.pathname)) return true;
   if (input.daily5Playing) return true;
   return false;
 }
@@ -134,7 +123,7 @@ export function chunkReloadGuardId(embeddedBuildId: string): string {
   return `chunk:${id}`;
 }
 
-export type StaleReloadTrigger = "focus" | "visibility" | "navigation" | "chunk-error";
+export type StaleReloadTrigger = VersionCheckReason | "chunk-error";
 
 export interface StaleReloadInput {
   trigger: StaleReloadTrigger;
@@ -149,6 +138,8 @@ export interface StaleReloadInput {
   daily5Playing: boolean;
   inProgressCard: boolean;
   reloadedBuildIds: string | null;
+  /** A chunk-load reload was deferred until the next safe point. */
+  chunkPending?: boolean;
 }
 
 export interface StaleReloadDecision {
@@ -156,56 +147,77 @@ export interface StaleReloadDecision {
   reload: boolean;
   reloadBuildId: string | null;
   nextReloadedBuildIds: string | null;
+  chunkPending: boolean;
 }
 
-export function decideStaleReload(input: StaleReloadInput): StaleReloadDecision {
-  const pending = input.updatePending || isUpdatePending(input.embeddedBuildId, input.serverBuildId);
-  const hold: StaleReloadDecision = {
+function passiveVersionTrigger(trigger: StaleReloadTrigger): boolean {
+  return trigger === "focus" || trigger === "visibility" || trigger === "online" || trigger === "interval";
+}
+
+function holdDecision(pending: boolean, chunkPending: boolean): StaleReloadDecision {
+  return {
     updatePending: pending,
     reload: false,
     reloadBuildId: null,
     nextReloadedBuildIds: null,
+    chunkPending,
   };
+}
+
+function reloadDecision(pending: boolean, guardId: string, stored: string | null): StaleReloadDecision {
+  return {
+    updatePending: pending,
+    reload: true,
+    reloadBuildId: guardId,
+    nextReloadedBuildIds: rememberReloadedBuild(stored, guardId),
+    chunkPending: false,
+  };
+}
+
+export function decideStaleReload(input: StaleReloadInput): StaleReloadDecision {
+  const pending = input.updatePending || isUpdatePending(input.embeddedBuildId, input.serverBuildId);
+  const chunkGuard = chunkReloadGuardId(input.embeddedBuildId);
+  const chunkAlready = hasReloadedForBuild(input.reloadedBuildIds, chunkGuard);
+  const chunkPending = Boolean(input.chunkPending) && !chunkAlready;
+  const questionLive = input.submitting || input.inProgressCard || input.daily5Playing;
 
   if (input.trigger === "chunk-error") {
-    const guardId = chunkReloadGuardId(input.embeddedBuildId);
-    if (input.submitting || hasReloadedForBuild(input.reloadedBuildIds, guardId)) {
-      return { ...hold, updatePending: pending };
-    }
-    return {
-      updatePending: pending,
-      reload: true,
-      reloadBuildId: guardId,
-      nextReloadedBuildIds: rememberReloadedBuild(input.reloadedBuildIds, guardId),
-    };
+    if (chunkAlready) return holdDecision(pending, false);
+    if (questionLive) return holdDecision(true, true);
+    return reloadDecision(pending, chunkGuard, input.reloadedBuildIds);
   }
 
-  if (!pending || input.submitting) return hold;
+  if (chunkPending && !input.submitting) {
+    const samePath = normalizeAppPath(input.pathname) === normalizeAppPath(input.targetPath);
+    const boundary = input.trigger === "safe-point" || (input.trigger === "navigation" && !samePath);
+    const idle = passiveVersionTrigger(input.trigger) && !isActiveGameRoute(input);
+    if (boundary || idle) return reloadDecision(true, chunkGuard, input.reloadedBuildIds);
+  }
+
+  if (!pending || input.submitting) return holdDecision(pending, chunkPending);
 
   const serverId = sanitizeBuildId(input.serverBuildId);
-  if (!serverId || hasReloadedForBuild(input.reloadedBuildIds, serverId)) return hold;
+  if (!serverId || hasReloadedForBuild(input.reloadedBuildIds, serverId)) {
+    return holdDecision(pending, chunkPending);
+  }
 
-  if (input.trigger === "focus" || input.trigger === "visibility") {
-    if (isActiveGameRoute(input)) return hold;
-    return {
-      updatePending: true,
-      reload: true,
-      reloadBuildId: serverId,
-      nextReloadedBuildIds: rememberReloadedBuild(input.reloadedBuildIds, serverId),
-    };
+  if (passiveVersionTrigger(input.trigger)) {
+    if (isActiveGameRoute(input)) return holdDecision(true, chunkPending);
+    return reloadDecision(true, serverId, input.reloadedBuildIds);
+  }
+
+  if (input.trigger === "safe-point") {
+    return reloadDecision(true, serverId, input.reloadedBuildIds);
   }
 
   if (input.trigger === "navigation") {
-    if (normalizeAppPath(input.pathname) === normalizeAppPath(input.targetPath)) return hold;
-    return {
-      updatePending: true,
-      reload: true,
-      reloadBuildId: serverId,
-      nextReloadedBuildIds: rememberReloadedBuild(input.reloadedBuildIds, serverId),
-    };
+    if (normalizeAppPath(input.pathname) === normalizeAppPath(input.targetPath)) {
+      return holdDecision(true, chunkPending);
+    }
+    return reloadDecision(true, serverId, input.reloadedBuildIds);
   }
 
-  return hold;
+  return holdDecision(pending, chunkPending);
 }
 
 export function isGameSubmitRequest(method: string, url: string): boolean {

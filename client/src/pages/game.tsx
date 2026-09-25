@@ -43,6 +43,7 @@ import {
   type SoloReplacePhase,
 } from "@/lib/soloImageReplace";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { notifyStaleBuildSafePoint } from "@/lib/staleBuildClient";
 
 function AnswerButton({
   option,
@@ -372,6 +373,7 @@ export default function Game() {
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
+      void notifyStaleBuildSafePoint();
     },
     onError: (error: Error) => {
       const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
@@ -629,6 +631,9 @@ export default function Game() {
   // No longer auto-start - user selects card count first
 
   const isGameOver = session?.status === "completed" || session?.status === "expired";
+  useEffect(() => {
+    if (isGameOver) void notifyStaleBuildSafePoint();
+  }, [isGameOver]);
   useEffect(() => {
     const live = Boolean(session && !isGameOver);
     setStaleBuildActivity({

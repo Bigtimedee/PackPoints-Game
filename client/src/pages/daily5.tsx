@@ -42,6 +42,7 @@ import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { notifyStaleBuildSafePoint } from "@/lib/staleBuildClient";
 
 interface Daily5Status {
   challenge: {
@@ -667,14 +668,17 @@ export default function Daily5Page() {
   }, [selectedAnswer, challengeId, currentPosition, answeredPositions]);
 
   const handleNext = useCallback(() => {
-    if (currentPosition >= 5) {
-      finishMutation.mutate({ challengeId });
-    } else {
-      setCurrentPosition(prev => prev + 1);
-      setSelectedAnswer(null);
-      setAnswerResult(null);
-      setIsRevealed(false);
-    }
+    void notifyStaleBuildSafePoint().then((reloading) => {
+      if (reloading) return;
+      if (currentPosition >= 5) {
+        finishMutation.mutate({ challengeId });
+      } else {
+        setCurrentPosition(prev => prev + 1);
+        setSelectedAnswer(null);
+        setAnswerResult(null);
+        setIsRevealed(false);
+      }
+    });
   }, [currentPosition, challengeId]);
 
   const status = statusQuery.data;
@@ -684,6 +688,11 @@ export default function Daily5Page() {
     const playing = gameState === "playing";
     setStaleBuildActivity({ daily5Playing: playing, inProgressCard: playing });
     return () => setStaleBuildActivity({ daily5Playing: false, inProgressCard: false });
+  }, [gameState]);
+
+  useEffect(() => {
+    if (gameState !== "results") return;
+    void notifyStaleBuildSafePoint();
   }, [gameState]);
 
   useEffect(() => {
