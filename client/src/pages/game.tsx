@@ -167,10 +167,6 @@ export default function Game() {
   const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
 
-  // Milestone tracking
-  const [consecutiveCorrect, setConsecutiveCorrect] = useState(0);
-  const shownMilestones = useRef<Set<string>>(new Set());
-
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<ClientGameSession>({
     queryKey: ["/api/game/session", sessionId],
     enabled: !!sessionId,
@@ -235,9 +231,6 @@ export default function Game() {
       setReplacementAttempts(new Map());
       setShowSkipButton(false);
       setReplacementStartTime(null);
-      // Reset milestone tracking for new session
-      setConsecutiveCorrect(0);
-      shownMilestones.current = new Set();
     },
     onError: (error: any) => {
       if (error instanceof ApiError && error.code === ANON_GATE_CODE) {
@@ -326,47 +319,9 @@ export default function Game() {
           setRewardDetails(data.reward || null);
           setShowPointsAnimation(true);
         }
-        
-        // Show toast when daily cap is reached
-        if (data.reward?.capped && data.reward?.cappedReason === "daily_card_cap_reached") {
-          toast({
-            title: "Daily Limit Reached",
-            description: "You've earned the maximum PackPTS for today. Keep playing for practice - your limit resets at midnight!",
-          });
-        } else if (data.reward?.capped && data.reward?.cappedReason?.includes("daily_cap_partial")) {
-          toast({
-            title: "Approaching Daily Limit",
-            description: "You're close to your daily PackPTS limit. Points may be reduced.",
-          });
-        }
-
-        // Milestone toasts — correct streak and score thresholds
-        const newStreak = consecutiveCorrect + 1;
-        setConsecutiveCorrect(newStreak);
-
-        if (newStreak === 3 && !shownMilestones.current.has("streak3")) {
-          shownMilestones.current.add("streak3");
-          toast({ title: "3 in a row! 🔥", description: "You're on a hot streak!" });
-        } else if (newStreak === 5 && !shownMilestones.current.has("streak5")) {
-          shownMilestones.current.add("streak5");
-          toast({ title: "5 in a row! 🔥🔥", description: "Unstoppable!" });
-        } else if (newStreak === 10 && !shownMilestones.current.has("streak10")) {
-          shownMilestones.current.add("streak10");
-          toast({ title: "10 in a row! 🏆", description: "You're a card expert!" });
-        }
-
-        const newScore = data.totalScore;
-        for (const threshold of [500, 1000, 2000, 5000]) {
-          const key = `score${threshold}`;
-          if (newScore >= threshold && !shownMilestones.current.has(key)) {
-            shownMilestones.current.add(key);
-            toast({ title: `${threshold.toLocaleString()} pts! 💰`, description: `You've earned ${threshold.toLocaleString()} PackPTS this game!` });
-          }
-        }
       } else {
         setRewardDetails(null);
         setShowPointsAnimation(false);
-        setConsecutiveCorrect(0);
       }
       if (data.session) {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
