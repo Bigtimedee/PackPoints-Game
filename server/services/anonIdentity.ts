@@ -149,6 +149,22 @@ async function insertPlayer(token: string, fingerprintHash: string | null): Prom
 }
 
 /**
+ * Guest id for a request that already has the HttpOnly anon cookie.
+ * Does not consult `x-packpts-fp`, mint a row, or rewrite the cookie.
+ * Image routes use this so a cookieless probe cannot inherit someone else's answers.
+ */
+export async function anonPlayerIdFromCookie(req: Request): Promise<string | null> {
+  const token = readCookie(req, ANON_COOKIE_NAME);
+  if (!token) return null;
+  const [byToken] = await db
+    .select({ id: anonPlayers.id })
+    .from(anonPlayers)
+    .where(and(eq(anonPlayers.tokenHash, hashSecret("token", token)), isNull(anonPlayers.claimedAt)))
+    .limit(1);
+  return byToken?.id ?? null;
+}
+
+/**
  * Resolve the guest row from the cookie, else from the fingerprint.
  * `create` mints a row and sets the cookie. Claimed rows are not reused.
  */

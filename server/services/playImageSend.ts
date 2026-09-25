@@ -6,15 +6,24 @@ import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { normalizeImageUrl } from "./cards/imageQuality";
 import { acceptWarmMaskedFile, getMaskedImagePath, isMaskBakeTimeout, orientUnmaskedScan, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
+import { setUnmaskedHeaders } from "./playImageHttp";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
-  res.setHeader("Content-Type", contentType);
-  res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
+  setUnmaskedHeaders(res);
   res.removeHeader("X-Card-Id");
+  res.removeHeader("x-card-id");
+  res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'");
   res.setHeader("X-Content-Type-Options", "nosniff");
+}
+
+function endUnmasked(res: Response, body?: Buffer): void {
+  if (res.req?.method === "HEAD" || body === undefined) {
+    res.end();
+    return;
+  }
+  res.setHeader("Content-Length", String(body.length));
+  res.end(body);
 }
 
 /** Original scan. Caller must already have authorized this card. */
@@ -23,21 +32,21 @@ export async function sendUnmaskedCard(res: Response, cardId: string): Promise<v
     let sourceUrl = await getCachedImageUrl(cardId);
     if (!sourceUrl) sourceUrl = await getSourceUrlForCard(cardId);
     if (!sourceUrl) {
-      res.setHeader("Cache-Control", "private, no-store");
+      setUnmaskedHeaders(res);
       res.status(404).json({ error: "Card image not found" });
       return;
     }
 
     const normalized = normalizeImageUrl(sourceUrl);
     if (!normalized) {
-      res.setHeader("Cache-Control", "private, no-store");
+      setUnmaskedHeaders(res);
       res.status(404).json({ error: "Invalid image URL" });
       return;
     }
 
     const validation = await getOrValidateCardImage(cardId, normalized);
     if (validation.status !== "ok") {
-      res.setHeader("Cache-Control", "private, no-store");
+      setUnmaskedHeaders(res);
       res.status(404).json({ error: "Image not available" });
       return;
     }
@@ -56,23 +65,23 @@ export async function sendUnmaskedCard(res: Response, cardId: string): Promise<v
 
     if (fetched.kind === "status") {
       await markImageBad(cardId, `proxy_fetch_failed:${fetched.status}`);
-      res.setHeader("Cache-Control", "private, no-store");
+      setUnmaskedHeaders(res);
       res.status(502).json({ error: "Failed to fetch image" });
       return;
     }
 
     if (fetched.kind === "type") {
       await markImageBad(cardId, `invalid_content_type:${fetched.contentType}`);
-      res.setHeader("Cache-Control", "private, no-store");
+      setUnmaskedHeaders(res);
       res.status(502).json({ error: "Invalid content type" });
       return;
     }
 
     const oriented = await orientUnmaskedScan(cardId, fetched.bytes);
     setUnmaskedResponseHeaders(res, fetched.contentType);
-    res.send(oriented);
+    endUnmasked(res, oriented);
   } catch (error: any) {
-    res.setHeader("Cache-Control", "private, no-store");
+    setUnmaskedHeaders(res);
     if (error?.name === "AbortError") {
       res.status(504).json({ error: "Image fetch timed out" });
       return;
