@@ -1,10 +1,12 @@
 import type { Request, Response } from "express";
+import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { classifyRevealToken, isPlayScope, maskTokenMatches, type PlayScope, type RevealTokenStatus } from "./playImageToken";
 
+/** Unmasked bytes are per player. A shared cache must not replay one player's 200. */
 export function setUnmaskedHeaders(res: Response): void {
-  res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
+  if (res.req) stripConditionalValidators(res.req);
+  applyNoStoreHeaders(res);
+  res.setHeader("Vary", "Cookie");
   res.removeHeader("X-Card-Id");
   res.removeHeader("x-card-id");
 }

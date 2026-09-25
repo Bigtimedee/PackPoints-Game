@@ -10,7 +10,7 @@ import {
   type GameQuestion,
 } from "@shared/schema";
 import { storage } from "../storage";
-import { resolveAnonPlayer } from "./anonIdentity";
+import { anonPlayerIdFromCookie } from "./anonIdentity";
 import {
   classifyRevealToken,
   isPlayScope,
@@ -37,14 +37,20 @@ export async function callerIsAdmin(req: Request): Promise<boolean> {
   return !!user?.isAdmin;
 }
 
-async function callerAnonId(req: Request, res: Response): Promise<string | null> {
-  const sessionGuest = (req as AuthedRequest).session?.guestId;
+/**
+ * Identity for an unmasked scan. The fingerprint header is not a secret and is
+ * enough, with no cookies, to revive the guest who already answered a card.
+ * Only the HttpOnly anon cookie, or guestId on the logged session cookie, counts.
+ */
+async function callerAnonId(req: Request): Promise<string | null> {
   try {
-    const player = await resolveAnonPlayer(req as Parameters<typeof resolveAnonPlayer>[0], res, { create: false });
-    if (player?.id) return player.id;
-  } catch {
-    // Image GETs must not mint a guest.
+    const fromCookie = await anonPlayerIdFromCookie(req);
+    if (fromCookie) return fromCookie;
+  } catch (err) {
+    console.error("[PlayImage] anon cookie lookup failed:", err);
+    return null;
   }
+  const sessionGuest = (req as AuthedRequest).session?.guestId;
   return sessionGuest || null;
 }
 
@@ -52,6 +58,7 @@ function rowHit(result: { rows?: unknown[] }): boolean {
   return Array.isArray(result.rows) && result.rows.length > 0;
 }
 
+/** True only when this caller submitted the answer. Another player's row must not match. */
 async function soloAnswered(cardId: string, userId: string | null, anonId: string | null): Promise<boolean> {
   if (userId) {
     const byUser = await db.execute(sql`
@@ -132,9 +139,9 @@ async function matchAnswered(cardId: string, userId: string | null): Promise<boo
   return rowHit(hit);
 }
 
-export async function callerHasAcceptedAnswer(req: Request, res: Response, cardId: string): Promise<boolean> {
+export async function callerHasAcceptedAnswer(req: Request, _res: Response, cardId: string): Promise<boolean> {
   const userId = requestUserId(req as AuthedRequest);
-  const anonId = userId ? null : await callerAnonId(req, res);
+  const anonId = userId ? null : await callerAnonId(req);
   if (!userId && !anonId) return false;
   try {
     if (await soloAnswered(cardId, userId, anonId)) return true;
