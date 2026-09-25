@@ -3,7 +3,11 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 
 export type NameAnchor = "top" | "bottom" | "both";
 
-/** Where the printed player name lives. UNKNOWN is not served as playable. */
+/**
+ * Where the printed player name lives.
+ * UNKNOWN is a wire sentinel only. Bakes do not emit it.
+ * TODO: excluding UNKNOWN cards from dealing is deferred until every active set has a registered profile.
+ */
 export type LayoutClass = "TOP_PLATE" | "BOTTOM_PLAQUE" | "PSA_SLAB" | "UNKNOWN";
 
 export interface MaskProfile {
@@ -102,7 +106,7 @@ const toppsFootball1994 = profile("1994-topps-football", "bottom", BOTTOM_PLAQUE
   topBandPct: 0,
 });
 
-/** Year+brand keys. Applied only when sport is confirmed baseball. */
+/** Year+brand keys. Applied when sport is baseball or absent. A present non-baseball sport must not hit these. */
 const baseballNamedProfiles: Record<string, MaskProfile> = {
   "1987 topps": toppsBaseball1987,
   "1989 upper deck": profile("1989-upper-deck", "bottom", BOTTOM_PLAQUE_20, { bottomBandPct: 0.20, topBandPct: 0 }),
@@ -135,11 +139,13 @@ export function parseSetHint(setName: string | null | undefined): ParsedSetHint 
   const yearMatch = raw.match(/\b((?:19|20)\d{2})\b/);
   const sportMatch = raw.match(/\b(basketball|baseball|football|hockey)\b/);
   const brandMatch = raw.match(/\b(fleer|topps|upper deck|bowman|donruss|score|ud|panini|prizm|chrome)\b/);
+  // MLB is baseball. A real sport token wins when both appear, so football stays football.
+  const sport = sportMatch ? sportMatch[1] : (/\bmlb\b/.test(raw) ? "baseball" : "");
   return {
     raw,
     year: yearMatch ? Number(yearMatch[1]) : null,
     brand: brandMatch ? brandMatch[1] : "",
-    sport: sportMatch ? sportMatch[1] : "",
+    sport,
   };
 }
 
@@ -157,7 +163,7 @@ function sportLayoutKey(hint: ParsedSetHint): string | null {
 }
 
 function baseballYearBrandProfile(hint: ParsedSetHint): MaskProfile | null {
-  if (hint.sport !== "baseball") return null;
+  if (hint.sport && hint.sport !== "baseball") return null;
   const exact = baseballNamedProfiles[hint.raw];
   if (exact) return exact;
   for (const [key, value] of Object.entries(baseballNamedProfiles)) {
@@ -167,16 +173,9 @@ function baseballYearBrandProfile(hint: ParsedSetHint): MaskProfile | null {
 }
 
 /**
- * Unregistered sets are not a bottom plaque. Dealing skips them so play never
- * receives an UNKNOWN card. A confirmed baseball year+brand hint still matches.
+ * TODO: UNKNOWN exclusion is deferred until every active set has a registered profile.
+ * Unmatched hints stay dealable and bake the default bottom 46% plaque.
  */
-export function shouldDealMaskedCard(input: {
-  setHint?: string | null;
-  gameSetId?: string | null;
-}): boolean {
-  return getMaskProfile(input.setHint, input.gameSetId).matched;
-}
-
 export function getMaskProfile(setName: string | null | undefined, gameSetId?: string | null): MaskProfile {
   const id = (gameSetId || "").trim().toLowerCase();
   if (id && setIdProfiles[id]) return setIdProfiles[id];
@@ -199,6 +198,24 @@ export function getMaskProfile(setName: string | null | undefined, gameSetId?: s
 
 export function profileToRegions(setName: string | null | undefined, gameSetId?: string | null): MaskRegion[] {
   return getMaskProfile(setName, gameSetId).regions.map((region) => ({ ...region }));
+}
+
+export interface DealtMaskHint {
+  setHint?: string | null;
+  gameSetId?: string | null;
+}
+
+/** One line per set when a dealt or baked card uses the unmatched default profile. */
+export function logDealtDefaultMaskProfiles(cards: DealtMaskHint[]): void {
+  const counts = new Map<string, number>();
+  for (const card of cards) {
+    if (getMaskProfile(card.setHint, card.gameSetId).matched) continue;
+    const set = (card.gameSetId || "").trim() || "none";
+    counts.set(set, (counts.get(set) || 0) + 1);
+  }
+  for (const [set, count] of counts) {
+    console.log(`[MaskProfile] default profile used set=${set} count=${count}`);
+  }
 }
 
 export { CURRENT_MASK_VERSION };

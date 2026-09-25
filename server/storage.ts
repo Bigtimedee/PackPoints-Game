@@ -13,7 +13,7 @@ import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
-import { shouldDealMaskedCard } from "./masking/maskProfiles";
+import { logDealtDefaultMaskProfiles } from "./masking/maskProfiles";
 
 // Known silhouette/placeholder URL patterns that should NEVER be served
 // These are stock images from Card Hedge that indicate missing card scans
@@ -545,15 +545,17 @@ export class DatabaseStorage implements IStorage {
       await this.initialize();
     }
     const verifiedCards = await this.getVerifiedCards();
-    const dealable = verifiedCards.filter((card) => shouldDealMaskedCard({
+    const shuffled = [...verifiedCards].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+    // Legacy baseballCards rows are baseball even when setName has no sport token.
+    logDealtDefaultMaskProfiles(picked.map((card) => ({
       setHint: buildSetMaskHint({
         setName: card.setName,
         year: card.year,
         sport: "baseball",
       }),
-    }));
-    const shuffled = [...dealable].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, Math.min(count, shuffled.length));
+    })));
+    return picked;
   }
 
   async addCard(card: InsertBaseballCard): Promise<BaseballCard> {
@@ -648,7 +650,8 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Get cards to serve and refresh stale images
-    const registeredCards = validCards.filter((card) => shouldDealMaskedCard({
+    const cardsToServe = validCards.slice(0, count);
+    logDealtDefaultMaskProfiles(cardsToServe.map((card) => ({
       setHint: buildSetMaskHint({
         year: gameSet?.year,
         brand: gameSet?.brand,
@@ -657,9 +660,7 @@ export class DatabaseStorage implements IStorage {
         category: card.category,
       }),
       gameSetId: card.gameSetId || setId,
-    }));
-
-    const cardsToServe = registeredCards.slice(0, count);
+    })));
     
     // Log if serving unverified cards (contentVerified is null)
     const unverifiedCount = cardsToServe.filter(c => c.contentVerified === null).length;

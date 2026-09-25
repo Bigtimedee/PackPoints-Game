@@ -1,4 +1,4 @@
-import type { MaskRegion } from "@shared/schema";
+import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import {
   pixelBoxToRegion,
   unionMaskRegions,
@@ -187,11 +187,11 @@ export function resolveNameMaskPlan(input: {
   }
 
   return {
-    regions: [],
+    regions: DEFAULT_MASK_REGIONS.map((region) => ({ ...region })),
     source: "default",
     matchedTokens: ocr.tokens,
     profileId: profile.id,
-    layoutClass: "UNKNOWN",
-    nameBoxes: [],
+    layoutClass: profile.layoutClass,
+    nameBoxes: lastNameMatched ? ocr.boxes : [],
   };
 }

@@ -7,6 +7,7 @@ import { eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
+import { logDealtDefaultMaskProfiles } from "./maskProfiles";
 
 export { readWarmMaskPlan };
 
@@ -187,6 +188,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       return null;
     }
 
+    logDealtDefaultMaskProfiles([{ setHint, gameSetId }]);
     const result = await maskCardImage(
       imageBuffer,
       playerName || "",

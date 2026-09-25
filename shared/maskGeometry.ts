@@ -1,7 +1,13 @@
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "./schema";
 
-/** Bump whenever baked JPEG geometry, OCR rules, or fill change. Cache keys and `?v=` URLs follow this. */
-export const CURRENT_MASK_VERSION = "v4.5";
+/**
+ * Bump whenever baked JPEG geometry, OCR rules, or fill change.
+ * Cache keys and `?v=` URLs follow this.
+ * Stay on v4.4 while painted pixels match v4.4. The plaque plan is a sidecar
+ * and nullable columns written on the next natural bake. A version bump would
+ * rebake warm JPEGs through the coverage gate.
+ */
+export const CURRENT_MASK_VERSION = "v4.4";
 
 export function maskedCardImageUrl(cardId: string): string {
   return `/api/cards/${encodeURIComponent(cardId)}/masked-image?v=${CURRENT_MASK_VERSION}`;

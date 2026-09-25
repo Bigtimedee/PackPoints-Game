@@ -12,7 +12,7 @@ import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
 import { maskedPlayPath } from "./playImageToken";
 import { buildSetMaskHint } from "@shared/maskGeometry";
-import { shouldDealMaskedCard } from "../masking/maskProfiles";
+import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { readWarmMaskPlan } from "../masking/maskPlanStore";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
@@ -207,19 +207,7 @@ export class Daily5Service {
       .where(eq(gameSets.id, setId))
       .limit(1);
 
-    const filtered = candidates.filter((c) => {
-      if (isKnownSilhouetteUrl(c.imageUrl)) return false;
-      return shouldDealMaskedCard({
-        setHint: buildSetMaskHint({
-          year: setRow?.year,
-          brand: setRow?.brand,
-          sport: setRow?.sport || c.category,
-          setName: c.set || setRow?.setName,
-          category: c.category,
-        }),
-        gameSetId: c.gameSetId || setId,
-      });
-    });
+    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl));
     if (filtered.length < 5) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
       return;
@@ -227,6 +215,16 @@ export class Daily5Service {
 
     const shuffled = deterministicShuffle(filtered, seed);
     const selected = shuffled.slice(0, 5);
+    logDealtDefaultMaskProfiles(selected.map((card) => ({
+      setHint: buildSetMaskHint({
+        year: setRow?.year,
+        brand: setRow?.brand,
+        sport: setRow?.sport || card.category,
+        setName: card.set || setRow?.setName,
+        category: card.category,
+      }),
+      gameSetId: card.gameSetId || setId,
+    })));
 
     const allPlayerNames = candidates
       .map(c => c.player)

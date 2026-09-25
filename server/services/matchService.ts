@@ -8,7 +8,7 @@ import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImage
 import { getOrValidateCardImage } from "./images/imageGate";
 import { logCardDelivery } from "./telemetry/cardDelivery";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
-import { shouldDealMaskedCard } from "../masking/maskProfiles";
+import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -376,16 +376,6 @@ class MatchService {
           console.warn(`[MatchService] Card ${card.id} (${card.player}) skipped: placeholder image detected`);
           return false;
         }
-        if (!shouldDealMaskedCard({
-          setHint: buildSetMaskHint({
-            setName: card.set,
-            category: card.category,
-            sport: card.category,
-          }),
-          gameSetId: card.gameSetId,
-        })) {
-          return false;
-        }
         return true;
       });
       
@@ -398,6 +388,7 @@ class MatchService {
       const candidateBatch = shuffled.slice(0, VALIDATION_BATCH_SIZE);
       
       const validatedCards: BaseballCard[] = [];
+      const validatedSources: PlayableCard[] = [];
       let invalidCount = 0;
       
       for (const pc of candidateBatch) {
@@ -431,6 +422,7 @@ class MatchService {
             }
 
             validatedCards.push(playableCardToBaseballCard(pc));
+            validatedSources.push(pc);
           } else {
             invalidCount++;
             await logCardDelivery("validate_fail", {
@@ -501,6 +493,14 @@ class MatchService {
           spares: spareCards.length,
           attempt 
         });
+        logDealtDefaultMaskProfiles(validatedSources.slice(0, count).map((card) => ({
+          setHint: buildSetMaskHint({
+            setName: card.set,
+            category: card.category,
+            sport: card.category,
+          }),
+          gameSetId: card.gameSetId,
+        })));
         return primaryCards.map(card => this.generateQuestionWithProxiedUrl(card));
       }
       
