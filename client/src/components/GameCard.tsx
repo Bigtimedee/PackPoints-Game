@@ -612,6 +612,7 @@ export function GameCard({
           style={{ aspectRatio: naturalSize ? `${naturalSize.w} / ${naturalSize.h}` : "2.5 / 3.5" }}
         >
           {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
+          {/* Server serves upright pixels for the bake and the reveal. CSS rotation would move only this frame. */}
           <img
             key={imageUrl}
             src={cdnImageUrl}
@@ -622,7 +623,6 @@ export function GameCard({
             decoding="async"
             style={{
               opacity: imageLoaded ? 1 : 0,
-              transform: imageRotation ? `rotate(${imageRotation}deg)` : undefined,
               WebkitUserDrag: "none",
             } as React.CSSProperties}
             onLoad={handleImageLoad}

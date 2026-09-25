@@ -99,7 +99,10 @@ function PlaqueBand({
       data-testid={`mask-region-${index}`}
     >
       <div
-        className={`absolute inset-x-0 h-px transition-colors duration-150 ease-out ${topSeam ? "top-0" : "bottom-0"} ${armed ? "bg-plaque-seam-armed" : "bg-plaque-seam"}`}
+        data-testid="plaque-seam"
+        data-armed={armed ? "true" : "false"}
+        className={`absolute inset-x-0 z-10 transition-[height,background-color] duration-150 ease-out ${topSeam ? "top-0" : "bottom-0"} ${armed ? "h-[3px] bg-plaque-seam-armed" : "h-px bg-plaque-seam"}`}
+        style={{ backgroundColor: armed ? "var(--plaque-seam-armed)" : "var(--plaque-seam)" }}
       />
       {showFrame && (
         <div className="absolute inset-[6px] rounded-[3px] border border-plaque-frame" />

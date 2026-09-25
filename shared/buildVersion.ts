@@ -67,7 +67,7 @@ export function isUpdatePending(
   return embedded !== server;
 }
 
-export type VersionCheckReason = "focus" | "visibility" | "online" | "interval" | "navigation" | "safe-point";
+export type VersionCheckReason = "focus" | "visibility" | "online" | "interval" | "navigation" | "leave-results";
 
 export function versionCheckUrl(now: number): string {
   return `/api/version?t=${now}`;
@@ -79,7 +79,7 @@ export function shouldFetchBuildVersion(input: {
   lastFetchAt: number | null;
   minIntervalMs?: number;
 }): boolean {
-  if (input.reason === "navigation" || input.reason === "safe-point") return true;
+  if (input.reason === "navigation" || input.reason === "leave-results") return true;
   if (input.lastFetchAt == null) return true;
   const min = input.minIntervalMs ?? VERSION_CHECK_MIN_INTERVAL_MS;
   return input.now - input.lastFetchAt >= min;
@@ -91,15 +91,27 @@ export function normalizeAppPath(path: string): string {
   return raw || "/";
 }
 
+export function playSurfaceFamily(pathname: string): "game" | "match" | "daily" | null {
+  const path = normalizeAppPath(pathname);
+  if (path === "/game" || path.startsWith("/game/")) return "game";
+  if (path === "/match" || path.startsWith("/match/")) return "match";
+  if (path === "/daily" || path === "/daily5" || path.startsWith("/daily/") || path.startsWith("/daily5/")) {
+    return "daily";
+  }
+  return null;
+}
+
 /**
- * A question is on screen. The version poll must not reload here.
- * The game route itself is not enough: card-count setup and Game Complete are safe.
+ * A session or its results are still on screen. The version poll must not reload.
+ * Setup screens (no session yet) are not held.
  */
 export function isActiveGameRoute(input: {
   pathname: string;
   daily5Playing: boolean;
   inProgressCard: boolean;
+  holdPlay?: boolean;
 }): boolean {
+  if (input.holdPlay) return true;
   if (input.inProgressCard) return true;
   if (input.daily5Playing) return true;
   return false;
@@ -137,8 +149,11 @@ export interface StaleReloadInput {
   submitting: boolean;
   daily5Playing: boolean;
   inProgressCard: boolean;
+  /** Session or results screen still mounted. */
+  holdPlay?: boolean;
+  /** Tab is in the background. A hidden tab may reload only when no session is up. */
+  tabHidden?: boolean;
   reloadedBuildIds: string | null;
-  /** A chunk-load reload was deferred until the next safe point. */
   chunkPending?: boolean;
 }
 
@@ -174,50 +189,51 @@ function reloadDecision(pending: boolean, guardId: string, stored: string | null
   };
 }
 
+function leavesPlaySession(from: string, to: string): boolean {
+  if (normalizeAppPath(from) === normalizeAppPath(to)) return false;
+  const fromFamily = playSurfaceFamily(from);
+  if (!fromFamily) return true;
+  return fromFamily !== playSurfaceFamily(to);
+}
+
 export function decideStaleReload(input: StaleReloadInput): StaleReloadDecision {
   const pending = input.updatePending || isUpdatePending(input.embeddedBuildId, input.serverBuildId);
   const chunkGuard = chunkReloadGuardId(input.embeddedBuildId);
   const chunkAlready = hasReloadedForBuild(input.reloadedBuildIds, chunkGuard);
-  const chunkPending = Boolean(input.chunkPending) && !chunkAlready;
-  const questionLive = input.submitting || input.inProgressCard || input.daily5Playing;
+  const sessionUp = isActiveGameRoute(input);
 
+  // A failed dynamic import 404s the module the screen needs. That hard-breaks
+  // the page, including mid-session, so reload once. The guard stops a loop.
   if (input.trigger === "chunk-error") {
     if (chunkAlready) return holdDecision(pending, false);
-    if (questionLive) return holdDecision(true, true);
     return reloadDecision(pending, chunkGuard, input.reloadedBuildIds);
   }
 
-  if (chunkPending && !input.submitting) {
-    const samePath = normalizeAppPath(input.pathname) === normalizeAppPath(input.targetPath);
-    const boundary = input.trigger === "safe-point" || (input.trigger === "navigation" && !samePath);
-    const idle = passiveVersionTrigger(input.trigger) && !isActiveGameRoute(input);
-    if (boundary || idle) return reloadDecision(true, chunkGuard, input.reloadedBuildIds);
-  }
-
-  if (!pending || input.submitting) return holdDecision(pending, chunkPending);
+  if (!pending || input.submitting) return holdDecision(pending, false);
 
   const serverId = sanitizeBuildId(input.serverBuildId);
   if (!serverId || hasReloadedForBuild(input.reloadedBuildIds, serverId)) {
-    return holdDecision(pending, chunkPending);
+    return holdDecision(pending, false);
   }
 
   if (passiveVersionTrigger(input.trigger)) {
-    if (isActiveGameRoute(input)) return holdDecision(true, chunkPending);
+    if (sessionUp) return holdDecision(true, false);
     return reloadDecision(true, serverId, input.reloadedBuildIds);
   }
 
-  if (input.trigger === "safe-point") {
+  // Play Again leaves the results screen without a route change.
+  // Mid-question and between cards are not this trigger.
+  if (input.trigger === "leave-results") {
+    if (input.inProgressCard || input.daily5Playing) return holdDecision(true, false);
     return reloadDecision(true, serverId, input.reloadedBuildIds);
   }
 
   if (input.trigger === "navigation") {
-    if (normalizeAppPath(input.pathname) === normalizeAppPath(input.targetPath)) {
-      return holdDecision(true, chunkPending);
-    }
+    if (!leavesPlaySession(input.pathname, input.targetPath)) return holdDecision(true, false);
     return reloadDecision(true, serverId, input.reloadedBuildIds);
   }
 
-  return holdDecision(pending, chunkPending);
+  return holdDecision(pending, false);
 }
 
 export function isGameSubmitRequest(method: string, url: string): boolean {

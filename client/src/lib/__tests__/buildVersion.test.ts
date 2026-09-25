@@ -81,7 +81,7 @@ describe("shouldFetchBuildVersion", () => {
     expect(shouldFetchBuildVersion({ reason: "visibility", now: 60_000, lastFetchAt: 0 })).toBe(true);
     expect(shouldFetchBuildVersion({ reason: "interval", now: 60_000, lastFetchAt: 0 })).toBe(true);
     expect(shouldFetchBuildVersion({ reason: "navigation", now: 1_000, lastFetchAt: 500 })).toBe(true);
-    expect(shouldFetchBuildVersion({ reason: "safe-point", now: 1_000, lastFetchAt: 500 })).toBe(true);
+    expect(shouldFetchBuildVersion({ reason: "leave-results", now: 1_000, lastFetchAt: 500 })).toBe(true);
   });
 });
 
@@ -96,6 +96,7 @@ describe("isActiveGameRoute", () => {
     expect(isActiveGameRoute({ pathname: "/daily", daily5Playing: false, inProgressCard: false })).toBe(false);
     expect(isActiveGameRoute({ pathname: "/", daily5Playing: false, inProgressCard: true })).toBe(true);
     expect(isActiveGameRoute({ pathname: "/leaderboard", daily5Playing: false, inProgressCard: false })).toBe(false);
+    expect(isActiveGameRoute({ pathname: "/game/solo", daily5Playing: false, inProgressCard: false, holdPlay: true })).toBe(true);
   });
 });
 
@@ -129,21 +130,114 @@ describe("decideStaleReload", () => {
     expect(decideStaleReload(input({ pathname: "/daily", targetPath: "/daily" })).reload).toBe(true);
   });
 
-  it("reloads at Next Question or Game Complete without dropping an in-flight answer", () => {
-    const next = decideStaleReload(input({
-      trigger: "safe-point",
-      pathname: "/game/solo",
-      targetPath: "/game/solo",
-      inProgressCard: true,
-    }));
-    expect(next.reload).toBe(true);
-    expect(next.reloadBuildId).toBe("bbb");
+  it("does not reload a solo session on the poll, including Game Complete", () => {
     expect(decideStaleReload(input({
-      trigger: "safe-point",
+      trigger: "interval",
       pathname: "/game/solo",
       targetPath: "/game/solo",
       inProgressCard: true,
-      submitting: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "leave-results",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+  });
+
+  it("reloads solo only when the player leaves Game Complete", () => {
+    const playAgain = decideStaleReload(input({
+      trigger: "leave-results",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      holdPlay: true,
+    }));
+    expect(playAgain.reload).toBe(true);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/game/solo",
+      targetPath: "/",
+      holdPlay: true,
+    })).reload).toBe(true);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/game/solo",
+      targetPath: "/game/ranked",
+      holdPlay: true,
+    })).reload).toBe(false);
+  });
+
+  it("does not reload Daily 5 between cards or on the results screen", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/daily5",
+      targetPath: "/daily5",
+      daily5Playing: true,
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/daily5",
+      targetPath: "/daily5",
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/daily5",
+      targetPath: "/game/solo",
+      holdPlay: true,
+    })).reload).toBe(true);
+  });
+
+  it("does not reload a live 1v1, including the next question, until the player leaves", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/match/abc",
+      targetPath: "/match/abc",
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/match/abc",
+      targetPath: "/match/def",
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/match/abc",
+      targetPath: "/match/abc",
+      holdPlay: true,
+      tabHidden: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/match/abc",
+      targetPath: "/",
+      holdPlay: true,
+    })).reload).toBe(true);
+  });
+
+  it("reloads a hidden tab only when no session is up", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      tabHidden: true,
+    })).reload).toBe(true);
+    expect(decideStaleReload(input({
+      trigger: "visibility",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      holdPlay: true,
+      tabHidden: true,
     })).reload).toBe(false);
   });
 
@@ -166,7 +260,7 @@ describe("decideStaleReload", () => {
     expect(same.updatePending).toBe(true);
   });
 
-  it("never reloads during a submit", () => {
+  it("does not reload a version change during a submit, and does reload a broken chunk", () => {
     expect(decideStaleReload(input({ submitting: true })).reload).toBe(false);
     expect(decideStaleReload(input({
       trigger: "navigation",
@@ -174,7 +268,12 @@ describe("decideStaleReload", () => {
       targetPath: "/store",
       submitting: true,
     })).reload).toBe(false);
-    expect(decideStaleReload(input({ trigger: "chunk-error", submitting: true })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "chunk-error",
+      submitting: true,
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(true);
   });
 
   it("reloads once per server build id", () => {
@@ -206,30 +305,23 @@ describe("decideStaleReload", () => {
     })).reload).toBe(false);
   });
 
-  it("defers a chunk error during a question until the next safe point", () => {
-    const deferred = decideStaleReload(input({
+  it("reloads a chunk-load failure during a live question because the module is gone", () => {
+    const first = decideStaleReload(input({
       trigger: "chunk-error",
       serverBuildId: null,
       embeddedBuildId: "aaa",
       inProgressCard: true,
+      holdPlay: true,
     }));
-    expect(deferred.reload).toBe(false);
-    expect(deferred.chunkPending).toBe(true);
-    const later = decideStaleReload(input({
-      trigger: "safe-point",
+    expect(first.reload).toBe(true);
+    expect(first.reloadBuildId).toBe(chunkReloadGuardId("aaa"));
+    expect(decideStaleReload(input({
+      trigger: "chunk-error",
       serverBuildId: null,
       embeddedBuildId: "aaa",
       inProgressCard: true,
-      chunkPending: true,
-    }));
-    expect(later.reload).toBe(true);
-    expect(later.reloadBuildId).toBe(chunkReloadGuardId("aaa"));
-    expect(decideStaleReload(input({
-      trigger: "safe-point",
-      serverBuildId: null,
-      embeddedBuildId: "aaa",
-      chunkPending: true,
-      reloadedBuildIds: later.nextReloadedBuildIds,
+      holdPlay: true,
+      reloadedBuildIds: first.nextReloadedBuildIds,
     })).reload).toBe(false);
   });
 

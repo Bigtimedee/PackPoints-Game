@@ -15,6 +15,13 @@ export interface MaskProfile {
   matched: boolean;
   nameAnchor: NameAnchor;
   layoutClass: LayoutClass;
+  /** Portrait trading cards. Landscape is a horizontal design and is not auto-rotated. */
+  cardOrientation: "portrait" | "landscape";
+  /**
+   * Degrees that upright a landscape file of a portrait set when OCR cannot see the last name.
+   * That miss also paints the 180° mirror of the profile band. 0 means there is no profile turn.
+   */
+  sidewaysFallbackDeg: 0 | 90 | 270;
   topBandPct: number;
   bottomBandPct: number;
   leftBandPct: number;
@@ -70,15 +77,19 @@ function profile(
   id: string,
   nameAnchor: NameAnchor,
   regions: MaskRegion[],
-  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma">> = {},
+  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg">> = {},
 ): MaskProfile {
   const topBandPct = extras.topBandPct ?? (nameAnchor === "top" || nameAnchor === "both" ? regions[0]?.hPct / 100 : 0);
   const bottomBandPct = extras.bottomBandPct ?? (nameAnchor === "bottom" ? (regions[0]?.hPct ?? 46) / 100 : 0);
+  const cardOrientation = extras.cardOrientation ?? "portrait";
+  const sidewaysFallbackDeg = extras.sidewaysFallbackDeg ?? (cardOrientation === "portrait" ? 90 : 0);
   return {
     id,
     matched: id !== "default",
     nameAnchor,
     layoutClass: layoutClassFor(nameAnchor),
+    cardOrientation,
+    sidewaysFallbackDeg,
     topBandPct: topBandPct || 0,
     bottomBandPct: bottomBandPct || 0,
     leftBandPct: 0,

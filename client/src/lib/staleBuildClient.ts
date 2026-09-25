@@ -122,6 +122,8 @@ function decisionFor(trigger: StaleReloadTrigger, pathname: string, targetPath: 
     submitting: isStaleBuildSubmitting(),
     daily5Playing: activity.daily5Playing,
     inProgressCard: activity.inProgressCard,
+    holdPlay: activity.holdPlay,
+    tabHidden: document.visibilityState === "hidden",
     reloadedBuildIds: readGuard(),
     chunkPending: trigger === "chunk-error" || chunkPending,
   });
@@ -129,7 +131,7 @@ function decisionFor(trigger: StaleReloadTrigger, pathname: string, targetPath: 
 
 export async function checkStaleBuild(trigger: Exclude<StaleReloadTrigger, "chunk-error">, fromPath?: string): Promise<boolean> {
   const now = Date.now();
-  const force = trigger === "navigation" || trigger === "safe-point";
+  const force = trigger === "navigation" || trigger === "leave-results";
   if (
     !force
     && !shouldFetchBuildVersion({ reason: trigger, now, lastFetchAt })
@@ -157,14 +159,16 @@ export async function checkStaleBuild(trigger: Exclude<StaleReloadTrigger, "chun
     submitting: submittingAtStart || isStaleBuildSubmitting(),
     daily5Playing: activityAtStart.daily5Playing || activityNow.daily5Playing,
     inProgressCard: activityAtStart.inProgressCard || activityNow.inProgressCard,
+    holdPlay: activityAtStart.holdPlay || activityNow.holdPlay,
+    tabHidden: document.visibilityState === "hidden",
     reloadedBuildIds: readGuard(),
     chunkPending,
   }));
 }
 
-/** Next Question or Game Complete. Reloads even while a card flag is still set. */
-export function notifyStaleBuildSafePoint(): Promise<boolean> {
-  return checkStaleBuild("safe-point");
+/** Player left Game Complete via Play Again. Does not run between questions. */
+export function notifyLeavingResults(): Promise<boolean> {
+  return checkStaleBuild("leave-results");
 }
 
 export function reloadForChunkError(): void {
@@ -209,7 +213,9 @@ export function installStaleBuildGuards(): void {
   window.addEventListener("online", () => wake("online"));
   window.addEventListener("pageshow", () => wake("focus"));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") wake("visibility");
+    // Hidden and idle is a reload point. Hidden during a session is not;
+    // decideStaleReload holds while a session or results screen is up.
+    wake("visibility");
   });
   // Background tabs clamp or freeze timers. The listeners above run the check
   // when the tab is focused, shown, or back online, so a missed tick still lands.

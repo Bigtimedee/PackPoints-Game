@@ -58,7 +58,7 @@ export async function assertOpaqueIdentityCover(input: {
     }
   }
 
-  const photo = photoProbe(input.layoutClass);
+  const photo = photoProbeForCover(input.layoutClass, input.regions);
   const photoSample = await sampleRegion(input.buffer, photo);
   if (
     photoSample &&
@@ -100,6 +100,60 @@ function photoProbe(layoutClass: LayoutClass): MaskRegion {
     return { xPct: 20, yPct: 32, wPct: 60, hPct: 14, type: "blur" };
   }
   return { xPct: 15, yPct: 12, wPct: 70, hPct: 22, type: "blur" };
+}
+
+/**
+ * Dual name bands (bottom 54/46 plus its top mirror) cover the usual photo probe.
+ * Sample the largest gap between full-width bands instead. A card with no gap
+ * keeps the class probe so a fully masked photo still fails.
+ */
+function photoProbeForCover(layoutClass: LayoutClass, regions: MaskRegion[]): MaskRegion {
+  const probe = photoProbe(layoutClass);
+  const cx = probe.xPct + probe.wPct / 2;
+  const cy = probe.yPct + probe.hPct / 2;
+  const covered = regions.some((region) =>
+    cx >= region.xPct &&
+    cx <= region.xPct + region.wPct &&
+    cy >= region.yPct &&
+    cy <= region.yPct + region.hPct
+  );
+  if (!covered) return probe;
+  const gap = largestFullWidthGap(regions);
+  if (!gap) return probe;
+  const hPct = Math.min(gap.hPct - 1, 14);
+  if (hPct < 2) return probe;
+  return {
+    xPct: 15,
+    yPct: gap.yPct + (gap.hPct - hPct) / 2,
+    wPct: 70,
+    hPct,
+    type: "blur",
+  };
+}
+
+function largestFullWidthGap(regions: MaskRegion[]): { yPct: number; hPct: number } | null {
+  const bands = regions
+    .filter((region) => region.wPct >= 90 && region.hPct >= 12)
+    .map((region) => ({ top: region.yPct, bottom: region.yPct + region.hPct }))
+    .sort((a, b) => a.top - b.top);
+  if (bands.length === 0) return null;
+  const merged: Array<{ top: number; bottom: number }> = [];
+  for (const band of bands) {
+    const last = merged[merged.length - 1];
+    if (last && band.top <= last.bottom) last.bottom = Math.max(last.bottom, band.bottom);
+    else merged.push({ ...band });
+  }
+  let best: { yPct: number; hPct: number } | null = null;
+  let cursor = 0;
+  for (const band of merged) {
+    const hPct = band.top - cursor;
+    if (hPct > (best?.hPct ?? 0)) best = { yPct: cursor, hPct };
+    cursor = Math.max(cursor, band.bottom);
+  }
+  const tail = 100 - cursor;
+  if (tail > (best?.hPct ?? 0)) best = { yPct: cursor, hPct: tail };
+  if (!best || best.hPct < 2) return null;
+  return best;
 }
 
 function printedNameOutsideMask(input: {

@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { injectPlaySetsOgHtml, isPlaySetsHtmlPath } from "./lib/playSetsOg";
 import { ASSET_CACHE_CONTROL, sendNoStoreBody, stripConditionalValidators } from "./lib/noStoreResponse";
+import { isViteHashedAsset } from "./lib/viteHashedAsset";
 
 async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
   const raw = await fs.promises.readFile(htmlPath, "utf8");
@@ -26,11 +27,12 @@ export function mountSpaStatic(app: Express, distPath: string): void {
 
   if (fs.existsSync(assetsPath)) {
     app.use("/assets", express.static(assetsPath, {
-      immutable: true,
-      maxAge: "365d",
       fallthrough: false,
-      setHeaders(res) {
-        res.setHeader("Cache-Control", ASSET_CACHE_CONTROL);
+      maxAge: 0,
+      setHeaders(res, filePath) {
+        if (isViteHashedAsset(filePath)) {
+          res.setHeader("Cache-Control", ASSET_CACHE_CONTROL);
+        }
       },
     }));
   }

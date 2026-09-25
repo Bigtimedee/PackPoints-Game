@@ -17,7 +17,6 @@ import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
-import { notifyStaleBuildSafePoint } from "@/lib/staleBuildClient";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -169,8 +168,12 @@ export default function Match() {
 
   useEffect(() => {
     const live = Boolean(matchState && matchState.status === "ACTIVE" && !matchEnded);
-    setStaleBuildActivity({ pageSubmitting: submitting, inProgressCard: live });
-    return () => setStaleBuildActivity({ pageSubmitting: false, inProgressCard: false });
+    setStaleBuildActivity({
+      pageSubmitting: submitting,
+      inProgressCard: live,
+      holdPlay: live || Boolean(matchEnded),
+    });
+    return () => setStaleBuildActivity({ pageSubmitting: false, inProgressCard: false, holdPlay: false });
   }, [submitting, matchState, matchEnded]);
   
   const handleMessage = useCallback((message: any) => {
@@ -237,7 +240,6 @@ export default function Match() {
           clearTimeout(resyncTimeoutRef.current);
           resyncTimeoutRef.current = null;
         }
-        if (message.type === "next_question") void notifyStaleBuildSafePoint();
         break;
       case "question_replaced":
         // Card was replaced - update current question WITHOUT changing idx
@@ -435,7 +437,6 @@ export default function Match() {
           };
         });
         queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
-        void notifyStaleBuildSafePoint();
         break;
       }
       case "battle_rematch_pending": {
@@ -1178,7 +1179,7 @@ export default function Match() {
             </div>
             <div>
               <p className="text-sm font-medium" data-testid="text-my-username">{me?.username}</p>
-              <p className="text-lg font-bold font-mono" data-testid="text-my-score">{me?.score}</p>
+              <p className="text-lg font-bold font-mono" data-testid="text-my-score">You {me?.correctAnswers ?? 0}</p>
             </div>
             {me?.hasAnsweredCurrent && (
               <Badge variant="secondary" className="ml-2">
@@ -1203,7 +1204,7 @@ export default function Match() {
             )}
             <div className="text-right">
               <p className="text-sm font-medium" data-testid="text-opponent-username">{opponent?.username}</p>
-              <p className="text-lg font-bold font-mono" data-testid="text-opponent-score">{opponent?.score}</p>
+              <p className="text-lg font-bold font-mono" data-testid="text-opponent-score">Opp {opponent?.correctAnswers ?? 0}</p>
             </div>
             <div className="h-8 w-8 rounded-full bg-secondary/20 flex items-center justify-center">
               <User className="h-4 w-4" />

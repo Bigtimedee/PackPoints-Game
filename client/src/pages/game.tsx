@@ -10,7 +10,7 @@ import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
-import { Zap, Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle, Download, UserPlus, Image } from "lucide-react";
+import { Check, X, Clock, Trophy, ArrowLeft, RefreshCw, Loader2, Share2, Copy, CheckCircle, Play, Monitor, ShoppingBag, Flag, AlertTriangle, Download, UserPlus, Image } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,7 +43,7 @@ import {
   type SoloReplacePhase,
 } from "@/lib/soloImageReplace";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
-import { notifyStaleBuildSafePoint } from "@/lib/staleBuildClient";
+import { notifyLeavingResults } from "@/lib/staleBuildClient";
 
 function AnswerButton({
   option,
@@ -92,48 +92,6 @@ function AnswerButton({
 }
 
 
-interface RewardDetails {
-  basePts: number;
-  finalPts: number;
-  fameScore: number;
-  vintageMultiplier: number;
-  rarityMultiplier: number;
-  capped: boolean;
-  cappedReason?: string;
-}
-
-function PointsQuiet({ points, show, reward }: { points: number; show: boolean; reward?: RewardDetails | null }) {
-  if (!show) return null;
-
-  const getFameLabel = (score: number) => {
-    if (score <= 0.2) return "Obscure";
-    if (score <= 0.5) return "Lesser Known";
-    if (score <= 0.8) return "Well Known";
-    return "Famous";
-  };
-
-  return (
-    <div className="pt-2 text-center" data-testid="text-points-earned">
-      <p className="font-mono text-sm text-muted-foreground">+{points} pts</p>
-      {reward && (
-        <div className="mt-1 space-y-0.5 text-xs text-muted-foreground" data-testid="reward-breakdown">
-          <p>Player: {getFameLabel(reward.fameScore)}</p>
-          <p className="font-mono">Base: {reward.basePts} pts</p>
-          {reward.vintageMultiplier !== 1.0 && (
-            <p className="font-mono">Vintage: x{reward.vintageMultiplier.toFixed(2)}</p>
-          )}
-          {reward.rarityMultiplier !== 1.0 && (
-            <p className="font-mono">Rarity: x{reward.rarityMultiplier.toFixed(2)}</p>
-          )}
-          {reward.capped && (
-            <p>{reward.cappedReason?.includes("daily") ? "Daily cap reached" : "Match cap reached"}</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function Game() {
   const { mode } = useParams<{ mode: string }>();
   const search = useSearch();
@@ -148,17 +106,6 @@ export default function Game() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [revealedCorrectAnswer, setRevealedCorrectAnswer] = useState<string | null>(null);
-  const [earnedPoints, setEarnedPoints] = useState(0);
-  const [showPointsAnimation, setShowPointsAnimation] = useState(false);
-  const [rewardDetails, setRewardDetails] = useState<{
-    basePts: number;
-    finalPts: number;
-    fameScore: number;
-    vintageMultiplier: number;
-    rarityMultiplier: number;
-    capped: boolean;
-    cappedReason?: string;
-  } | null>(null);
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("plaque");
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
@@ -223,7 +170,6 @@ export default function Game() {
       setSelectedAnswer(null);
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
-      setEarnedPoints(0);
       setStartError(null);
       setHasStartedGame(true);
       // Reset replacement tracking for new session
@@ -315,14 +261,6 @@ export default function Game() {
         if (setId && cardId && currentGameSet?.isUserCreated) {
           setListingTarget({ setId, cardId });
         }
-        if (typeof data.pointsEarned === "number") {
-          setEarnedPoints(data.pointsEarned);
-          setRewardDetails(data.reward || null);
-          setShowPointsAnimation(true);
-        }
-      } else {
-        setRewardDetails(null);
-        setShowPointsAnimation(false);
       }
       if (data.session) {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
@@ -361,7 +299,6 @@ export default function Game() {
       setSelectedAnswer(null);
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
-      setShowPointsAnimation(false);
       setListingTarget(null);
       if (data?.shareImageUrl) {
         setShareImageUrl(data.shareImageUrl);
@@ -373,7 +310,6 @@ export default function Game() {
       if (data) {
         queryClient.setQueryData(["/api/game/session", sessionId], data);
       }
-      void notifyStaleBuildSafePoint();
     },
     onError: (error: Error) => {
       const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
@@ -632,15 +568,13 @@ export default function Game() {
 
   const isGameOver = session?.status === "completed" || session?.status === "expired";
   useEffect(() => {
-    if (isGameOver) void notifyStaleBuildSafePoint();
-  }, [isGameOver]);
-  useEffect(() => {
     const live = Boolean(session && !isGameOver);
     setStaleBuildActivity({
+      holdPlay: Boolean(session),
       inProgressCard: live,
       pageSubmitting: submitAnswerMutation.isPending,
     });
-    return () => setStaleBuildActivity({ inProgressCard: false, pageSubmitting: false });
+    return () => setStaleBuildActivity({ holdPlay: false, inProgressCard: false, pageSubmitting: false });
   }, [session, isGameOver, submitAnswerMutation.isPending]);
 
   useEffect(() => {
@@ -745,7 +679,7 @@ export default function Game() {
     nextQuestionMutation.mutate(undefined);
   };
 
-  const handlePlayAgain = () => {
+  const startPlayAgain = () => {
     const setId = replaySetIdFromSession(session) || selectedSetId || currentGameSet?.id || null;
     const parsedCount = replayCardCountFromSession(session) ?? parseInt(selectedCardCount, 10);
     const cardCount = Number.isFinite(parsedCount) ? parsedCount : 10;
@@ -762,6 +696,13 @@ export default function Game() {
     setShowSkipButton(false);
     setReplacementStartTime(null);
     startGameMutation.mutate({ cardCount, setId });
+  };
+
+  const handlePlayAgain = () => {
+    void notifyLeavingResults().then((reloading) => {
+      if (reloading) return;
+      startPlayAgain();
+    });
   };
 
   const handleStartGame = () => {
@@ -1120,6 +1061,7 @@ export default function Game() {
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
                 shareUrl="https://packpts.com"
                 shareText={shareText}
+                maskedCardUrls={(session.questions ?? []).map((q) => q.card?.imageUrl)}
               />
             )}
 
@@ -1274,10 +1216,6 @@ export default function Game() {
                 <Clock className="h-3 w-3" />
                 {session.currentQuestionIndex + 1} / {session.totalQuestions}
               </Badge>
-              <Badge variant="secondary" className="gap-1.5 font-mono" data-testid="badge-score">
-                <Zap className="h-3 w-3" />
-                {session.score} pts
-              </Badge>
             </div>
           </div>
           <Progress value={progress} className="h-1.5" data-testid="progress-game" />
@@ -1337,7 +1275,6 @@ export default function Game() {
               </div>
 
               <div className="pt-2">
-                <PointsQuiet points={earnedPoints} show={showPointsAnimation && isRevealed} reward={rewardDetails} />
                 {!isRevealed && !currentQuestionAnswered ? (
                   <Button
                     onClick={handleSubmit}

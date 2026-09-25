@@ -1,30 +1,62 @@
 import fs from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, unlinkSync } from "fs";
 import path from "path";
 import { db } from "../db";
 import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
+import { applyServedRotation, uprightCardImage } from "./cardOrientation";
+import { getMaskProfile, logDealtDefaultMaskProfiles } from "./maskProfiles";
+import { recognizeWords, resetOcrRuntimeForTests } from "./ocrRuntime";
+import {
+  clearOrientNote,
+  isLandscapeJpegFile,
+  normalizeQuarterTurn,
+  readOrientNote,
+  writeOrientNote,
+  type QuarterTurn,
+} from "./orientNote";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
-import { logDealtDefaultMaskProfiles } from "./maskProfiles";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
 
-export function warmMaskedFilename(cardId: string): string {
+export function warmMaskedFilename(cardId: string, rotation: QuarterTurn = 0): string {
+  if (rotation === 90 || rotation === 180 || rotation === 270) {
+    return `${cardId}_${CURRENT_MASK_VERSION}_r${rotation}.jpg`;
+  }
   return `${cardId}_${CURRENT_MASK_VERSION}.jpg`;
 }
 
-/** Disk hit for the current bake — no DB. Filename is the cache key. */
+function filenameRotation(filename: string): QuarterTurn {
+  const match = filename.match(/_r(90|180|270)\.jpg$/);
+  return match ? normalizeQuarterTurn(Number(match[1])) : 0;
+}
+
+/**
+ * Disk hit for the current bake. Upright v4.4 files stay `{cardId}_v4.4.jpg`.
+ * A card that was rotated upright uses a suffix so those warm files are not rebaked.
+ */
 export function peekWarmMaskedFilename(cardId: string): string | null {
   if (!cardId) return null;
-  const filename = warmMaskedFilename(cardId);
-  return existsSync(path.join(MASKED_CARDS_DIR, filename)) ? filename : null;
+  const note = readOrientNote(cardId);
+  if (note) {
+    const named = warmMaskedFilename(cardId, note.rotation);
+    return existsSync(path.join(MASKED_CARDS_DIR, named)) ? named : null;
+  }
+  for (const deg of [90, 180, 270] as const) {
+    const named = warmMaskedFilename(cardId, deg);
+    if (existsSync(path.join(MASKED_CARDS_DIR, named))) return named;
+  }
+  const plain = warmMaskedFilename(cardId, 0);
+  return existsSync(path.join(MASKED_CARDS_DIR, plain)) ? plain : null;
 }
 
 const maskingQueue: Map<string, Promise<string | null>> = new Map();
 const coverageRefusals = new Map<string, string>();
+const OCR_FAILURE_MEMO_MS = 60 * 60 * 1000;
+const ocrSkipUntil = new Map<string, number>();
 let activeMaskingJobs = 0;
 const MAX_CONCURRENT_OCR = 2;
 const SLOT_POLL_MS = 50;
@@ -67,12 +99,30 @@ export function maskBakeSlotsInUse(): number {
   return activeMaskingJobs;
 }
 
+export function ocrSkipped(cardId: string, now = Date.now()): boolean {
+  const until = ocrSkipUntil.get(cardId);
+  if (until == null) return false;
+  if (now >= until) {
+    ocrSkipUntil.delete(cardId);
+    return false;
+  }
+  return true;
+}
+
+/** Remember a hung or failed OCR so the next bake skips it. Does not quarantine. */
+export function recordOcrTimeout(cardId: string, ms: number): void {
+  ocrSkipUntil.set(cardId, Date.now() + OCR_FAILURE_MEMO_MS);
+  console.log(`[MaskBake] ocr-timeout fallback=profile card=${cardId} ms=${Math.max(0, Math.round(ms))}`);
+}
+
 export function resetMaskBakeForTests(): void {
   activeMaskingJobs = 0;
   maskingQueue.clear();
   coverageRefusals.clear();
+  ocrSkipUntil.clear();
   pathLoaderOverride = null;
   bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
+  resetOcrRuntimeForTests();
 }
 
 export interface PreMaskBatch {
@@ -86,6 +136,7 @@ export interface MaskBakeSource {
   playerName: string;
   setHint: string | null;
   gameSetId: string | null;
+  imageRotation?: number | null;
 }
 
 async function ensureDirectory(): Promise<void> {
@@ -199,11 +250,50 @@ export function takeCoverageRefusal(cardId: string): string | null {
   return reason;
 }
 
+async function readImageRotation(cardId: string): Promise<QuarterTurn | null> {
+  try {
+    const [row] = await db
+      .select({ imageRotation: playableCards.imageRotation })
+      .from(playableCards)
+      .where(eq(playableCards.id, cardId))
+      .limit(1);
+    if (!row) return 0;
+    return normalizeQuarterTurn(row.imageRotation);
+  } catch {
+    return null;
+  }
+}
+
+/** Reject a warm file whose pixels are still in the raw sideways orientation. */
+export async function acceptWarmMaskedFile(cardId: string, filename: string): Promise<boolean> {
+  const note = readOrientNote(cardId);
+  if (note) return filename === warmMaskedFilename(cardId, note.rotation);
+
+  const field = await readImageRotation(cardId);
+  if (field == null) {
+    if (filenameRotation(filename) !== 0) return true;
+    return !isLandscapeJpegFile(path.join(MASKED_CARDS_DIR, filename));
+  }
+  if (field !== 0) {
+    if (filename !== warmMaskedFilename(cardId, field)) return false;
+    writeOrientNote(cardId, { rotation: field, landscapeDesign: false, coverBoth: false });
+    return true;
+  }
+  const turned = filenameRotation(filename);
+  if (turned !== 0) {
+    writeOrientNote(cardId, { rotation: turned, landscapeDesign: false, coverBoth: false });
+    return true;
+  }
+  if (isLandscapeJpegFile(path.join(MASKED_CARDS_DIR, filename))) return false;
+  writeOrientNote(cardId, { rotation: 0, landscapeDesign: false, coverBoth: false });
+  return true;
+}
+
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
 
   const warm = peekWarmMaskedFilename(cardId);
-  if (warm) {
+  if (warm && await acceptWarmMaskedFile(cardId, warm)) {
     return warm;
   }
 
@@ -220,6 +310,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
   let playerName: string | null = null;
   let setHint: string | null = null;
   let gameSetId: string | null = null;
+  let imageRotation = 0;
 
   const [baseballCard] = await db
     .select()
@@ -245,6 +336,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     if (playableCard?.imageUrl) {
       imageUrl = playableCard.imageUrl;
       playerName = playableCard.player;
+      imageRotation = playableCard.imageRotation ?? 0;
       let year: number | null = null;
       let brand: string | null = null;
       let sport: string | null = null;
@@ -298,10 +390,20 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     cached.rawImageUrl === imageUrl &&
     cached.maskVersion === CURRENT_MASK_VERSION
   ) {
+    const cachedName = cached.maskedImagePath;
+    const cachedPath = path.join(MASKED_CARDS_DIR, cachedName);
     try {
-      await fs.access(path.join(MASKED_CARDS_DIR, cached.maskedImagePath));
-      return cached.maskedImagePath;
+      await fs.access(cachedPath);
+      const note = readOrientNote(cardId);
+      const field = normalizeQuarterTurn(imageRotation);
+      const cachedTurn = filenameRotation(cachedName);
+      const landscape = isLandscapeJpegFile(cachedPath);
+      const staleField = field !== 0 && cachedTurn !== field;
+      const staleNote = note != null && cachedTurn !== note.rotation;
+      const staleSideways = field === 0 && cachedTurn === 0 && landscape && !note?.landscapeDesign;
+      if (!staleField && !staleNote && !staleSideways) return cachedName;
     } catch {
+      // file missing
     }
   }
 
@@ -311,6 +413,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     playerName: playerName || "",
     setHint,
     gameSetId,
+    imageRotation,
   });
 }
 
@@ -330,10 +433,17 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
         input.setHint,
         {
           gameSetId: input.gameSetId,
+          imageRotation: input.imageRotation,
+          cardId,
+          skipOcr: ocrSkipped(cardId),
           onStage: (stage) => setStage(stage),
         },
       );
       if (isCancelled()) return null;
+      if (result.ocrTimedOut) recordOcrTimeout(cardId, result.ocrMs);
+      if (result.orientationAmbiguous) {
+        console.log(`[MaskBake] orientation ambiguous cover=both card=${cardId}`);
+      }
 
       if (!result.coverageOk) {
         const reason = result.coverageReason || "mask_name_uncovered";
@@ -348,10 +458,19 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
       }
 
       setStage("bake");
-      const filename = warmMaskedFilename(cardId);
+      const rotation = result.servedRotation ?? 0;
+      const filename = warmMaskedFilename(cardId, rotation);
       const filePath = path.join(MASKED_CARDS_DIR, filename);
 
       await fs.writeFile(filePath, result.maskedBuffer);
+      for (const deg of [0, 90, 180, 270] as const) {
+        if (deg === rotation) continue;
+        try {
+          await fs.unlink(path.join(MASKED_CARDS_DIR, warmMaskedFilename(cardId, deg)));
+        } catch {
+          // sibling cache already gone
+        }
+      }
       await writeWarmMaskPlan(cardId, {
         layoutClass: result.layoutClass,
         regions: result.regions,
@@ -426,6 +545,109 @@ export async function preMaskCards(cardIds: string[]): Promise<PreMaskBatch> {
 
 export function getMaskedImageUrl(cardId: string, _maskedPath?: string): string {
   return maskedCardImageUrl(cardId);
+}
+
+async function loadOrientMeta(cardId: string): Promise<{
+  imageRotation: number;
+  playerName: string;
+  setHint: string | null;
+  gameSetId: string | null;
+}> {
+  const empty = { imageRotation: 0, playerName: "", setHint: null, gameSetId: null };
+  try {
+    const [playableCard] = await db
+      .select()
+      .from(playableCards)
+      .where(eq(playableCards.id, cardId))
+      .limit(1);
+    if (playableCard?.imageUrl) {
+      let setHint: string | null = null;
+      if (playableCard.gameSetId) {
+        const [gameSet] = await db
+          .select({
+            year: gameSets.year,
+            brand: gameSets.brand,
+            sport: gameSets.sport,
+            setName: gameSets.setName,
+          })
+          .from(gameSets)
+          .where(eq(gameSets.id, playableCard.gameSetId))
+          .limit(1);
+        if (gameSet) {
+          setHint = buildSetMaskHint({
+            year: gameSet.year,
+            brand: gameSet.brand,
+            sport: gameSet.sport,
+            setName: playableCard.set || gameSet.setName,
+            category: playableCard.category,
+          });
+        }
+      }
+      if (!setHint) {
+        setHint = buildSetMaskHint({ setName: playableCard.set, category: playableCard.category });
+      }
+      return {
+        imageRotation: playableCard.imageRotation ?? 0,
+        playerName: playableCard.player || "",
+        setHint,
+        gameSetId: playableCard.gameSetId,
+      };
+    }
+    const [baseballCard] = await db
+      .select()
+      .from(baseballCards)
+      .where(eq(baseballCards.id, cardId))
+      .limit(1);
+    if (baseballCard?.imageUrl) {
+      return {
+        imageRotation: 0,
+        playerName: baseballCard.playerName || "",
+        setHint: buildSetMaskHint({
+          setName: baseballCard.setName,
+          year: baseballCard.year,
+          sport: "baseball",
+        }),
+        gameSetId: null,
+      };
+    }
+  } catch {
+    return empty;
+  }
+  return empty;
+}
+
+/** Same upright turn as the bake, so the reveal frame lines up with the masked JPEG. */
+export async function orientUnmaskedScan(cardId: string, buffer: Buffer): Promise<Buffer> {
+  const note = readOrientNote(cardId);
+  if (note) return applyServedRotation(buffer, note.rotation);
+
+  const meta = await loadOrientMeta(cardId);
+  const upright = await uprightCardImage(buffer, {
+    imageRotation: meta.imageRotation,
+    playerName: meta.playerName,
+    profile: getMaskProfile(meta.setHint, meta.gameSetId),
+    skipOcr: ocrSkipped(cardId),
+    recognize: recognizeWords,
+  });
+  writeOrientNote(cardId, {
+    rotation: upright.rotation,
+    landscapeDesign: upright.landscapeDesign,
+    coverBoth: upright.orientationAmbiguous,
+  });
+  if (upright.ocrTimedOut) recordOcrTimeout(cardId, upright.ocrMs);
+  return upright.buffer;
+}
+
+/** Drop a locked orientation so the next bake honors a new imageRotation. */
+export function clearServedOrientation(cardId: string): void {
+  clearOrientNote(cardId);
+  for (const deg of [0, 90, 180, 270] as const) {
+    try {
+      unlinkSync(path.join(MASKED_CARDS_DIR, warmMaskedFilename(cardId, deg)));
+    } catch {
+      // already gone
+    }
+  }
 }
 
 async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {

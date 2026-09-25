@@ -9,6 +9,8 @@ import type { Request, Response } from "express";
 
 export const NO_STORE_CACHE_CONTROL = "private, no-store, no-cache, must-revalidate";
 export const ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
+/** express.static default when maxAge is 0. Revalidates with ETag / Last-Modified. */
+export const REVALIDATE_CACHE_CONTROL = "public, max-age=0";
 
 export function applyNoStoreHeaders(res: Response): void {
   res.setHeader("Cache-Control", NO_STORE_CACHE_CONTROL);

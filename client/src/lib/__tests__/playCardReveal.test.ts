@@ -152,7 +152,7 @@ describe("play surfaces: mask until successful submit, then full card", () => {
 
     const answerBtn = gameSrc.slice(
       gameSrc.indexOf("function AnswerButton"),
-      gameSrc.indexOf("interface RewardDetails"),
+      gameSrc.indexOf("export default function Game"),
     );
     expect(answerBtn).toContain("disabled:opacity-100");
     expect(answerBtn).toContain("disabled={disabled || isRevealed}");

@@ -7,7 +7,7 @@ import { BUILD_RELOAD_STORAGE_KEY } from "@shared/buildVersion";
 import { resetStaleBuildActivity, setStaleBuildActivity } from "../staleBuildActivity";
 import {
   checkStaleBuild,
-  notifyStaleBuildSafePoint,
+  notifyLeavingResults,
   reloadForChunkError,
   resetStaleBuildClientForTests,
 } from "../staleBuildClient";
@@ -86,25 +86,48 @@ describe("version check", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("defers a mid-question mismatch until Next Question or Game Complete", async () => {
+  it("does not reload a solo session or its Game Complete screen", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => versionResponse("bbb")));
     installDom("/game/solo");
-    setStaleBuildActivity({ inProgressCard: true });
+    setStaleBuildActivity({ inProgressCard: true, holdPlay: true });
+    expect(await checkStaleBuild("interval")).toBe(false);
 
+    setStaleBuildActivity({ inProgressCard: false, holdPlay: true });
     expect(await checkStaleBuild("interval")).toBe(false);
     expect(reload).not.toHaveBeenCalled();
+  });
 
-    expect(await notifyStaleBuildSafePoint()).toBe(true);
+  it("reloads when the player leaves Game Complete", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => versionResponse("bbb")));
+    installDom("/game/solo");
+    setStaleBuildActivity({ holdPlay: true });
+    expect(await notifyLeavingResults()).toBe(true);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps an in-flight answer when the safe point arrives during submit", async () => {
+  it("does not reload Daily 5 between cards", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => versionResponse("bbb")));
-    installDom("/game/solo");
-    setStaleBuildActivity({ inProgressCard: true, pageSubmitting: true });
-
-    expect(await notifyStaleBuildSafePoint()).toBe(false);
+    installDom("/daily5");
+    setStaleBuildActivity({ daily5Playing: true, inProgressCard: true, holdPlay: true });
+    expect(await checkStaleBuild("interval")).toBe(false);
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload a live 1v1", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => versionResponse("bbb")));
+    installDom("/match/abc");
+    setStaleBuildActivity({ inProgressCard: true, holdPlay: true });
+    expect(await checkStaleBuild("interval")).toBe(false);
+    expect(await checkStaleBuild("navigation", "/match/abc")).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("reloads when navigation leaves a finished play session", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => versionResponse("bbb")));
+    installDom("/");
+    setStaleBuildActivity({ holdPlay: true });
+    expect(await checkStaleBuild("navigation", "/game/solo")).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("reloads a chunk-load failure immediately, and once, outside a question", () => {
@@ -119,14 +142,10 @@ describe("version check", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("defers a chunk-load failure during a question to the safe point", async () => {
+  it("reloads a chunk-load failure during a session because the page cannot render", () => {
     installDom("/game/solo");
-    setStaleBuildActivity({ inProgressCard: true });
+    setStaleBuildActivity({ inProgressCard: true, holdPlay: true });
     reloadForChunkError();
-    expect(reload).not.toHaveBeenCalled();
-
-    vi.stubGlobal("fetch", vi.fn(async () => versionResponse("aaa")));
-    expect(await notifyStaleBuildSafePoint()).toBe(true);
     expect(reload).toHaveBeenCalledTimes(1);
     expect(store.get(BUILD_RELOAD_STORAGE_KEY)).toContain("chunk:aaa");
   });

@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Download, Copy, Share2, Loader2 } from "lucide-react";
 import { isUsableImageUrl } from "@/lib/shareAssetUrl";
+import { composeScoreSharePng, sessionShareTileSources } from "@/lib/scoreShareStrip";
 
 interface ContentAsset {
   id: string;
@@ -31,6 +32,8 @@ interface ShareAssetCardProps {
   /** Daily 5 Beat-me owns Share / Save / Beat me. outside this card. */
   previewOnly?: boolean;
   onImageUrl?: (url: string | undefined) => void;
+  /** Masked `/api/play/m/` URLs already on the client, in session order. Score cards only. */
+  maskedCardUrls?: readonly (string | null | undefined)[];
 }
 
 const GENERATE_WAIT_MS = 8_000;
@@ -125,6 +128,7 @@ export function ShareAssetCard({
   onShareOpen,
   previewOnly = false,
   onImageUrl,
+  maskedCardUrls,
 }: ShareAssetCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -133,6 +137,8 @@ export function ShareAssetCard({
   const [timedOut, setTimedOut] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const isMaker = kind === "maker";
+  const [composedUrl, setComposedUrl] = useState<string | null>(null);
+  const tileKey = !isMaker ? sessionShareTileSources(maskedCardUrls ?? []).join("\n") : "";
 
   const queryKey = ["content-asset", matchId, challengeId, setId];
 
@@ -169,9 +175,43 @@ export function ShareAssetCard({
 
   const onImageUrlRef = useRef(onImageUrl);
   onImageUrlRef.current = onImageUrl;
+
   useEffect(() => {
-    if (imageUrl) onImageUrlRef.current?.(imageUrl);
-  }, [imageUrl]);
+    if (!imageUrl || !tileKey) {
+      setComposedUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        const res = await fetch(imageUrl, { credentials: "include" });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const composed = await composeScoreSharePng(blob, tileKey.split("\n"));
+        if (cancelled || composed === blob) return;
+        const nextUrl = URL.createObjectURL(composed);
+        if (cancelled) {
+          URL.revokeObjectURL(nextUrl);
+          return;
+        }
+        objectUrl = nextUrl;
+        setComposedUrl(nextUrl);
+      } catch {
+        if (!cancelled) setComposedUrl(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [imageUrl, tileKey]);
+
+  const shareImageUrl = composedUrl || imageUrl;
+
+  useEffect(() => {
+    if (shareImageUrl) onImageUrlRef.current?.(shareImageUrl);
+  }, [shareImageUrl]);
 
   const handleRetry = async () => {
     if (!matchId && !challengeId && !setId) return;
@@ -234,12 +274,12 @@ export function ShareAssetCard({
   };
 
   const handleDownload = async () => {
-    if (!imageUrl) {
+    if (!shareImageUrl) {
       toast({ title: "Not ready", description: isMaker ? "Share art is still generating, try again in a moment" : "Score card is still generating, try again in a moment", variant: "destructive" });
       return;
     }
     try {
-      const imgRes = await fetch(imageUrl, { credentials: "include" });
+      const imgRes = await fetch(shareImageUrl, { credentials: "include" });
       if (!imgRes.ok) throw new Error("download fetch failed");
       const blob = await imgRes.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -252,7 +292,7 @@ export function ShareAssetCard({
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
       toast({ title: "Downloading!", description: isMaker ? "Share image saving to your device" : "Score card image saving to your device" });
     } catch {
-      window.open(imageUrl, "_blank", "noopener,noreferrer");
+      window.open(shareImageUrl, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -278,8 +318,8 @@ export function ShareAssetCard({
       return;
     }
     try {
-      if (imageUrl) {
-        const imgRes = await fetch(imageUrl, { credentials: "include" });
+      if (shareImageUrl) {
+        const imgRes = await fetch(shareImageUrl, { credentials: "include" });
         const blob = await imgRes.blob();
         const file = new File([blob], downloadFilename, { type: "image/png" });
         if (navigator.canShare?.({ files: [file] })) {
@@ -320,18 +360,21 @@ export function ShareAssetCard({
                 isMaker={isMaker}
               />
             )}
-            {imageUrl && !imageLoaded && (
+            {shareImageUrl && !imageLoaded && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-white/60" />
               </div>
             )}
-            {imageUrl ? (
+            {shareImageUrl ? (
               <img
-                src={imageUrl}
+                src={shareImageUrl}
                 alt={isMaker ? "I MADE THIS SET share art" : "Your PackPTS score card"}
                 className={`w-full h-full object-contain transition-opacity duration-300 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
                 onLoad={() => setImageLoaded(true)}
-                onError={() => setImageFailed(true)}
+                onError={() => {
+                  if (composedUrl) setComposedUrl(null);
+                  else setImageFailed(true);
+                }}
               />
             ) : null}
           </div>
@@ -344,7 +387,7 @@ export function ShareAssetCard({
               size="sm"
               className="w-full gap-2"
               onClick={handleDownload}
-              disabled={!imageUrl}
+              disabled={!shareImageUrl}
               data-testid="button-share-asset-download"
             >
               <Download className="h-4 w-4" />

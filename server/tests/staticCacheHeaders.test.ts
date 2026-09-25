@@ -8,9 +8,10 @@ import http from "http";
 import os from "os";
 import path from "path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ASSET_CACHE_CONTROL, NO_STORE_CACHE_CONTROL } from "../lib/noStoreResponse";
+import { ASSET_CACHE_CONTROL, NO_STORE_CACHE_CONTROL, REVALIDATE_CACHE_CONTROL } from "../lib/noStoreResponse";
 import { mountSpaStatic } from "../static";
 import { registerVersionRoute } from "../lib/versionRoute";
+import { isViteHashedAsset } from "../lib/viteHashedAsset";
 
 describe("deploy cache headers", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "packpts-static-"));
@@ -19,7 +20,9 @@ describe("deploy cache headers", () => {
     path.join(dir, "index.html"),
     `<!doctype html><meta name="packpts-build-id" content="abc123" /><title>PackPTS</title>`,
   );
-  fs.writeFileSync(path.join(dir, "assets", "index-abc123.js"), "console.log(1)\n");
+  fs.mkdirSync(path.join(dir, "assets", "play-sets"));
+  fs.writeFileSync(path.join(dir, "assets", "index-C5vKUtP0.js"), "console.log(1)\n");
+  fs.writeFileSync(path.join(dir, "assets", "play-sets", "integrated-shelf.png"), "png");
 
   const app = express();
   registerVersionRoute(app);
@@ -93,10 +96,33 @@ describe("deploy cache headers", () => {
     }
   });
 
-  it("keeps hashed /assets/* immutable", async () => {
-    const asset = await read("/assets/index-abc123.js");
-    expect(asset.res.status).toBe(200);
-    expect(asset.res.headers.get("cache-control")).toBe(ASSET_CACHE_CONTROL);
-    expect(asset.text).toContain("console.log");
+  it("makes only Vite content-hashed files immutable", async () => {
+    const hashed = await read("/assets/index-C5vKUtP0.js");
+    expect(hashed.res.status).toBe(200);
+    expect(hashed.res.headers.get("cache-control")).toBe(ASSET_CACHE_CONTROL);
+    expect(hashed.text).toContain("console.log");
+
+    const shelf = await read("/assets/play-sets/integrated-shelf.png");
+    expect(shelf.res.status).toBe(200);
+    expect(shelf.res.headers.get("cache-control")).toBe(REVALIDATE_CACHE_CONTROL);
+    expect(shelf.res.headers.get("cache-control")).not.toContain("immutable");
+    expect(shelf.res.headers.get("etag")).toBeTruthy();
+
+    const publicAssets = path.resolve(__dirname, "../../client/public/assets");
+    const files: string[] = [];
+    const walk = (dirPath: string) => {
+      for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+        const full = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else files.push(full);
+      }
+    };
+    walk(publicAssets);
+    expect(files.length).toBeGreaterThan(0);
+    expect(files.every((file) => !isViteHashedAsset(file))).toBe(true);
+    expect(isViteHashedAsset("/assets/index-C5vKUtP0.js")).toBe(true);
+    expect(isViteHashedAsset("/assets/play-sets/integrated-shelf.png")).toBe(false);
+    expect(isViteHashedAsset("/assets/play-sets/play-set-1080.png")).toBe(false);
+    expect(isViteHashedAsset("/assets/x-hotfix-2026-09-13/CAPTIONS.md")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import fs from "fs";
 import { getCachedImageUrl, getOrValidateCardImage, getSourceUrlForCard, markImageBad } from "./images/imageGate";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { normalizeImageUrl } from "./cards/imageQuality";
-import { getMaskedImagePath, isMaskBakeTimeout, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
+import { acceptWarmMaskedFile, getMaskedImagePath, isMaskBakeTimeout, orientUnmaskedScan, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
@@ -68,8 +68,9 @@ export async function sendUnmaskedCard(res: Response, cardId: string): Promise<v
       return;
     }
 
+    const oriented = await orientUnmaskedScan(cardId, fetched.bytes);
     setUnmaskedResponseHeaders(res, fetched.contentType);
-    res.send(fetched.bytes);
+    res.send(oriented);
   } catch (error: any) {
     res.setHeader("Cache-Control", "private, no-store");
     if (error?.name === "AbortError") {
@@ -91,7 +92,8 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
 
   try {
     const warmName = peekWarmMaskedFilename(cardId);
-    const maskedPath = warmName || await getMaskedImagePath(cardId);
+    const warmOk = warmName ? await acceptWarmMaskedFile(cardId, warmName) : false;
+    const maskedPath = warmOk && warmName ? warmName : await getMaskedImagePath(cardId);
     const cacheStatus = warmName ? "hit" : "miss";
 
     if (!maskedPath) {
@@ -116,7 +118,8 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
       return;
     }
 
-    const etag = `"${CURRENT_MASK_VERSION}"`;
+    const etagMatch = maskedPath.match(/_(v[\d.]+(?:_r\d+)?)\.jpg$/);
+    const etag = `"${etagMatch?.[1] ?? CURRENT_MASK_VERSION}"`;
     if (req.headers["if-none-match"] === etag) {
       res.setHeader("ETag", etag);
       res.setHeader("X-Mask-Cache", cacheStatus);

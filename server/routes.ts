@@ -7832,6 +7832,8 @@ export async function registerRoutes(
         const upd: Record<string, any> = { imageReviewStatus: "approved", updatedAt: new Date() };
         if (typeof imageRotation === "number" && [0, 90, 180, 270].includes(imageRotation)) {
           upd.imageRotation = imageRotation;
+          const { clearServedOrientation } = await import("./masking/maskingService");
+          clearServedOrientation(cardId);
         }
         await db.update(playableCards).set(upd).where(eq(playableCards.id, cardId));
       } else {
