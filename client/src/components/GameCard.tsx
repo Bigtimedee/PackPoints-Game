@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { logger } from "@/lib/logger";
 import { Loader2, SkipForward, RefreshCw, Flag, Users, ImageOff, RotateCw, HelpCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,10 +21,15 @@ import {
 import { nextGameCardImageState } from "@/lib/gameCardImageState";
 import { playImageReportRequest, type PlayReportScope } from "@/lib/playImageReport";
 import {
-  isPlaceholderBitmap,
+  analyzePlaceholderPixels,
+  evaluateCardImageValidity,
   isPlaceholderUrl,
   shouldRunClientCanvasReject,
 } from "@/lib/placeholderImageDetect";
+import {
+  gameCardReplaceOverlay,
+  type SoloReplacePhase,
+} from "@/lib/soloImageReplace";
 import { isPlayCardImageReady, markPlayCardImageReady } from "@/lib/prefetchPlayCardImages";
 
 interface MaskConfig {
@@ -52,11 +56,19 @@ function isPlaceholderImage(img: HTMLImageElement): boolean {
     ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
 
     const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
-    const analysis = isPlaceholderBitmap(imageData.data, sampleSize, sampleSize);
-    if (analysis) {
-      logger.warn(`[PlaceholderDetect] Silhouette bitmap (low unique colors AND near-flat histogram)`);
+    const analysis = analyzePlaceholderPixels(imageData.data, sampleSize, sampleSize, {
+      ignoreMaskFill: true,
+    });
+    if (analysis.isPlaceholder) {
+      console.warn("[GameCard] placeholder bitmap", {
+        uniqueColors: analysis.uniqueColors,
+        dominantPercent: Math.round(analysis.dominantPercent),
+        sampledPixels: analysis.sampledPixels,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      });
     }
-    return analysis;
+    return analysis.isPlaceholder;
   } catch (e) {
     if (e instanceof DOMException && e.name === 'SecurityError') {
       return false;
@@ -169,6 +181,9 @@ interface GameCardProps {
   answerStaged?: boolean;
   /** Used in alt text only after reveal. */
   revealedPlayerName?: string;
+  /** Solo replace lifecycle. Omitted on Daily 5 and 1v1. */
+  replacePhase?: SoloReplacePhase;
+  onRetryImage?: () => void;
 }
 
 export function GameCard({
@@ -200,6 +215,8 @@ export function GameCard({
   plaqueEyebrow,
   answerStaged = false,
   revealedPlayerName,
+  replacePhase,
+  onRetryImage,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const [honestRetry, setHonestRetry] = useState(0);
@@ -227,6 +244,10 @@ export function GameCard({
     setRevealLoaded(false);
     setRevealFailed(false);
     setHonestRetry(0);
+  }
+  // A reveal URL always paints. The failed masked image must not keep the spinner up.
+  if (revealUrl && imageError) {
+    setImageError(false);
   }
   const [reportOpen, setReportOpen] = useState(false);
   const [reportPending, setReportPending] = useState(false);
@@ -275,7 +296,7 @@ export function GameCard({
   }, [revealUrl, imageUrl]);
 
   useEffect(() => {
-    if (imageUrl && isPlaceholderUrl(imageUrl)) {
+    if (imageUrl && !revealUrl && isPlaceholderUrl(imageUrl)) {
       const target = playImageReportRequest({
         imageUrl,
         cardId,
@@ -291,7 +312,7 @@ export function GameCard({
       }
       onImageError?.();
     }
-  }, [imageUrl, cardId, playScope, sessionId, questionIndex, onImageError]);
+  }, [imageUrl, cardId, playScope, sessionId, questionIndex, onImageError, revealUrl]);
 
   const autoReportPlaceholder = async (reason: string) => {
     const target = playImageReportRequest({
@@ -312,20 +333,30 @@ export function GameCard({
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    const aspectRatio = img.naturalWidth / img.naturalHeight;
-    
-    if (img.naturalWidth < 50 || img.naturalHeight < 50) {
-      setImageError(true);
-      onImageError?.();
-      autoReportPlaceholder("image_too_small");
+    if (revealUrl) {
+      markPlayCardImageReady(imageUrl);
+      setImageError(false);
+      setImageLoaded(true);
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
+      }
       return;
     }
-    
-    if (aspectRatio > 1.3) {
+
+    const validity = evaluateCardImageValidity({
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      rotation: imageRotation,
+    });
+    if (!validity.ok) {
+      console.warn("[GameCard] rejected loaded image", validity);
       setImageError(true);
       onImageError?.();
-      autoReportPlaceholder("abnormal_aspect_ratio");
+      autoReportPlaceholder(validity.reason ?? "abnormal_aspect_ratio");
       return;
+    }
+    if (validity.acceptedSidewaysCard) {
+      console.warn("[GameCard] accepted sideways trading-card scan", validity);
     }
     
     // Canvas silhouette/blank checks. Daily 5 sets allowClientImageReject={false}.
@@ -356,6 +387,7 @@ export function GameCard({
   };
 
   const handleError = () => {
+    if (revealUrl) return;
     setImageError(true);
     onImageError?.();
   };
@@ -412,9 +444,18 @@ export function GameCard({
     return false;
   }, []);
 
-  const imageErrorKind = allowClientImageReject
-    ? resolveGameCardImageErrorKind({ showSkipButton, showReplaceButton, onImageError })
-    : "honest";
+  const forcedOverlay = gameCardReplaceOverlay({
+    allowClientImageReject,
+    replacePhase,
+    revealUrl,
+  });
+  const imageErrorKind = forcedOverlay === "spinner"
+    ? "replace-pending"
+    : forcedOverlay === "honest"
+      ? "honest"
+      : forcedOverlay === "replace-failed"
+        ? "replace-failed"
+        : resolveGameCardImageErrorKind({ showSkipButton, showReplaceButton, onImageError });
   const slotAspect = 2.5 / 3.5;
   const scanAspect = naturalSize && naturalSize.h > 0 ? naturalSize.w / naturalSize.h : slotAspect;
   const tallScan = scanAspect < slotAspect;
@@ -459,9 +500,11 @@ export function GameCard({
             <p className="font-sans text-[12px] font-semibold uppercase tracking-[0.14em] text-plaque-ink">
               CARD IMAGE DIDN'T LOAD
             </p>
-            <p className="mt-2 text-[13px] text-plaque-muted" data-testid="text-game-card-image-error">
-              You can still answer.
-            </p>
+            {imageErrorKind !== "replace-pending" && imageErrorKind !== "replace-failed" && (
+              <p className="mt-2 text-[13px] text-plaque-muted" data-testid="text-game-card-image-error">
+                You can still answer.
+              </p>
+            )}
             {imageErrorKind === "honest" && (
               <Button
                 variant="outline"
@@ -482,6 +525,38 @@ export function GameCard({
                 <p className="mt-2 text-[13px] text-plaque-muted" data-testid="text-game-card-image-error">
                   {GAME_CARD_REPLACEMENT_PENDING_COPY}
                 </p>
+              </>
+            )}
+            {imageErrorKind === "replace-failed" && (
+              <>
+                <p className="mt-2 text-[13px] text-plaque-muted" data-testid="text-game-card-replace-failed">
+                  Retry this card or skip it.
+                </p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    className={outlineButtonClass}
+                    onClick={() => {
+                      setImageError(false);
+                      setImageLoaded(false);
+                      setHonestRetry((count) => count + 1);
+                      onRetryImage?.();
+                    }}
+                    data-testid="button-retry-image"
+                  >
+                    Retry image
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={onSkip}
+                    disabled={skipPending || !onSkip}
+                    className={outlineButtonClass}
+                    data-testid="button-skip-broken-card"
+                  >
+                    {skipPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <SkipForward className="h-4 w-4 mr-2" />}
+                    Skip
+                  </Button>
+                </div>
               </>
             )}
             {imageErrorKind === "replace-button" && (
