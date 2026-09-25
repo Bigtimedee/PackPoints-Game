@@ -11,8 +11,9 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
-import type { MaskRegion } from "@shared/schema";
-import { largestMaskRegion, overlayMaskRegions } from "@shared/maskGeometry";
+import type { MaskRegion, PublicMaskPlan } from "@shared/schema";
+import { inferLayoutClass, overlayMaskRegions } from "@shared/maskGeometry";
+import { MaskPlaque, type PlaqueLayoutClass } from "@/components/MaskPlaque";
 import {
   GAME_CARD_HONEST_IMAGE_ERROR_COPY,
   GAME_CARD_REPLACEMENT_PENDING_COPY,
@@ -159,8 +160,15 @@ interface GameCardProps {
   onReportSubmitted?: () => void;
   isSetOfWeek?: boolean;
   setOfWeekMultiplier?: number;
-  /** Daily 5 must pass false — canvas reject has no replace path. Solo/1v1 default true. */
+  /** Daily 5 must pass false. Canvas reject has no replace path. Solo/1v1 default true. */
   allowClientImageReject?: boolean;
+  maskPlan?: PublicMaskPlan | null;
+  /** Set only after the server ACKs the answer. Never a raw card id. */
+  revealUrl?: string;
+  plaqueEyebrow?: string;
+  answerStaged?: boolean;
+  /** Used in alt text only after reveal. */
+  revealedPlayerName?: string;
 }
 
 export function GameCard({
@@ -187,9 +195,18 @@ export function GameCard({
   isSetOfWeek = false,
   setOfWeekMultiplier,
   allowClientImageReject = true,
+  maskPlan = null,
+  revealUrl,
+  plaqueEyebrow,
+  answerStaged = false,
+  revealedPlayerName,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
-  const cdnImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
+  const [honestRetry, setHonestRetry] = useState(0);
+  const baseImageUrl = CDN_BASE_URL && imageUrl ? `${CDN_BASE_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}` : imageUrl;
+  const cdnImageUrl = honestRetry > 0
+    ? `${baseImageUrl}${baseImageUrl.includes("?") ? "&" : "?"}retry=${honestRetry}`
+    : baseImageUrl;
 
   const [imageLoaded, setImageLoaded] = useState(
     () => nextGameCardImageState(imageUrl, isPlayCardImageReady(imageUrl)).imageLoaded,
@@ -197,12 +214,19 @@ export function GameCard({
   const [imageError, setImageError] = useState(
     () => nextGameCardImageState(imageUrl, false).imageError,
   );
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [revealLoaded, setRevealLoaded] = useState(false);
+  const [revealFailed, setRevealFailed] = useState(false);
   const [imageUrlSeen, setImageUrlSeen] = useState(imageUrl);
   if (imageUrl !== imageUrlSeen) {
     const next = nextGameCardImageState(imageUrl, isPlayCardImageReady(imageUrl));
     setImageUrlSeen(imageUrl);
     setImageError(next.imageError);
     setImageLoaded(next.imageLoaded);
+    setNaturalSize(null);
+    setRevealLoaded(false);
+    setRevealFailed(false);
+    setHonestRetry(0);
   }
   const [reportOpen, setReportOpen] = useState(false);
   const [reportPending, setReportPending] = useState(false);
@@ -241,8 +265,14 @@ export function GameCard({
     staleTime: 10 * 60 * 1000,
   });
 
-  const regions = overlayMaskRegions(maskConfig?.regions);
-  const nameBandRegion = largestMaskRegion(regions);
+  const regions = maskPlan?.regions?.length ? maskPlan.regions : overlayMaskRegions(maskConfig?.regions);
+  const layoutClass: PlaqueLayoutClass = maskPlan?.layoutClass ?? inferLayoutClass(regions);
+  const eyebrow = plaqueEyebrow || setLabel || undefined;
+
+  useEffect(() => {
+    setRevealLoaded(false);
+    setRevealFailed(false);
+  }, [revealUrl, imageUrl]);
 
   useEffect(() => {
     if (imageUrl && isPlaceholderUrl(imageUrl)) {
@@ -317,7 +347,12 @@ export function GameCard({
 
     markPlayCardImageReady(imageUrl);
     if (!isPlaceholderUrl(imageUrl)) setImageError(false);
+    setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
     setImageLoaded(true);
+  };
+
+  const handleRevealError = () => {
+    setRevealFailed(true);
   };
 
   const handleError = () => {
@@ -377,7 +412,16 @@ export function GameCard({
     return false;
   }, []);
 
-  const imageErrorKind = resolveGameCardImageErrorKind({ showSkipButton, showReplaceButton, onImageError });
+  const imageErrorKind = allowClientImageReject
+    ? resolveGameCardImageErrorKind({ showSkipButton, showReplaceButton, onImageError })
+    : "honest";
+  const slotAspect = 2.5 / 3.5;
+  const scanAspect = naturalSize && naturalSize.h > 0 ? naturalSize.w / naturalSize.h : slotAspect;
+  const tallScan = scanAspect < slotAspect;
+  const chromeOnBottom = layoutClass === "TOP_PLATE" || layoutClass === "PSA_SLAB";
+  const guessingAlt = `Masked card, ${eyebrow ?? "sports card"}`;
+  const imageAlt = isRevealed && revealedPlayerName ? `Masked card, ${revealedPlayerName}` : guessingAlt;
+  const outlineButtonClass = "border-plaque-frame text-plaque-ink";
   const canReportImage = playImageReportRequest({
     imageUrl,
     cardId,
@@ -388,8 +432,9 @@ export function GameCard({
   }) !== null;
 
   return (
+    <div className="w-full max-w-xs mx-auto">
     <div 
-      className="relative aspect-[2.5/3.5] w-full max-w-xs mx-auto overflow-hidden rounded-md border-4 border-card-border shadow-lg bg-slate-900 select-none max-h-full"
+      className="relative aspect-[2.5/3.5] w-full select-none max-h-full flex items-center justify-center"
       onContextMenu={handleContextMenu}
       style={{
         touchAction: "manipulation",
@@ -399,32 +444,42 @@ export function GameCard({
       }}
       data-testid="game-card-wrapper"
     >
-      {!imageLoaded && !imageError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted z-10">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      )}
       {imageError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200 z-30" data-testid="game-card-image-error">
-          <div className="text-center space-y-3 px-4">
+        <div
+          className="flex h-full w-full items-center justify-center rounded-md bg-plaque-surface ring-1 ring-plaque-frame"
+          data-testid="game-card-image-error"
+          aria-label={GAME_CARD_HONEST_IMAGE_ERROR_COPY}
+        >
+          <div className="w-[86%] border-y border-plaque-seam bg-plaque-fill px-4 py-6 text-center">
+            <div className="mx-auto mb-3 h-[3px] w-7 bg-plaque-bar" />
+            <div className="rounded-[3px] border border-plaque-frame px-3 py-4">
             {isRevealed && cardNumber ? (
-              <div className="mb-4">
-                <p className="text-2xl font-bold text-amber-800">Image Failed to Load</p>
-                <p className="text-lg text-amber-700">#{cardNumber}</p>
-                {team && <p className="text-sm text-amber-600 mt-2">{team}</p>}
-              </div>
-            ) : (
-              <p className="text-2xl font-bold text-amber-800 mb-4">Image Failed to Load</p>
-            )}
+              <p className="mb-2 text-xs text-plaque-muted">#{cardNumber}{team ? ` ${team}` : ""}</p>
+            ) : null}
+            <p className="font-sans text-[12px] font-semibold uppercase tracking-[0.14em] text-plaque-ink">
+              CARD IMAGE DIDN'T LOAD
+            </p>
+            <p className="mt-2 text-[13px] text-plaque-muted" data-testid="text-game-card-image-error">
+              You can still answer.
+            </p>
             {imageErrorKind === "honest" && (
-              <p className="text-sm text-amber-900" data-testid="text-game-card-image-error">
-                {GAME_CARD_HONEST_IMAGE_ERROR_COPY}
-              </p>
+              <Button
+                variant="outline"
+                className={`mt-3 ${outlineButtonClass}`}
+                onClick={() => {
+                  setImageError(false);
+                  setImageLoaded(false);
+                  setHonestRetry((count) => count + 1);
+                }}
+                data-testid="button-retry-image"
+              >
+                Retry image
+              </Button>
             )}
             {imageErrorKind === "replace-pending" && (
               <>
-                <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-                <p className="text-sm text-muted-foreground" data-testid="text-game-card-image-error">
+                <Loader2 className="mx-auto mt-3 h-4 w-4 animate-spin text-plaque-muted" />
+                <p className="mt-2 text-[13px] text-plaque-muted" data-testid="text-game-card-image-error">
                   {GAME_CARD_REPLACEMENT_PENDING_COPY}
                 </p>
               </>
@@ -432,11 +487,11 @@ export function GameCard({
             {imageErrorKind === "replace-button" && (
               <>
                 {!replacePending && (
-                  <Button 
-                    variant="secondary" 
+                  <Button
+                    variant="outline"
                     onClick={onReplace}
                     disabled={replacePending || !onReplace}
-                    className="gap-2"
+                    className={`mt-3 gap-2 ${outlineButtonClass}`}
                     data-testid="button-try-another-card"
                   >
                     <RefreshCw className="h-4 w-4" />
@@ -444,7 +499,7 @@ export function GameCard({
                   </Button>
                 )}
                 {replacePending && (
-                  <div className="flex items-center gap-2 text-amber-700">
+                  <div className="mt-3 flex items-center justify-center gap-2 text-plaque-muted">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span>Fetching another card...</span>
                   </div>
@@ -452,11 +507,12 @@ export function GameCard({
               </>
             )}
             {imageErrorKind === "skip-button" && (
-              <Button 
-                variant="default" 
+              <Button
+                variant="outline"
                 size="default"
                 onClick={onSkip}
                 disabled={skipPending || !onSkip}
+                className={`mt-3 ${outlineButtonClass}`}
                 data-testid="button-skip-broken-card"
               >
                 {skipPending ? (
@@ -464,143 +520,124 @@ export function GameCard({
                 ) : (
                   <SkipForward className="h-4 w-4 mr-2" />
                 )}
-                {skipPending 
-                  ? (skipButtonMode === 'skip' ? "Skipping..." : "Loading card...") 
+                {skipPending
+                  ? (skipButtonMode === 'skip' ? "Skipping..." : "Loading card...")
                   : (skipButtonMode === 'skip' ? "Skip to Next" : "Try Different Card")
                 }
               </Button>
             )}
+            </div>
           </div>
         </div>
       )}
-      {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
-      {/* srcSet hint: when CDN is configured, add ?w=400&q=80 for responsive images */}
-      <img
-        key={imageUrl}
-        src={cdnImageUrl}
-        alt={isRevealed && team ? `${team} sports card` : "sports card"}
-        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-        crossOrigin="anonymous"
-        loading="eager"
-        decoding="async"
-        style={{
-          opacity: imageLoaded && !imageError ? 1 : 0,
-          transform: imageRotation ? `rotate(${imageRotation}deg)` : undefined,
-          WebkitUserDrag: "none",
-        } as React.CSSProperties}
-        onLoad={handleImageLoad}
-        onError={handleError}
-        onDragStart={handleDragStart}
-        draggable={false}
-        referrerPolicy="no-referrer"
-        data-testid="img-card"
-      />
-      
-      {!isRevealed && !imageError && regions.map((region, index) => (
+      {!imageError && (
         <div
-          key={index}
-          className="absolute pointer-events-none transition-opacity duration-300 flex items-center justify-center"
-          style={{
-            left: `${region.xPct}%`,
-            top: `${region.yPct}%`,
-            width: `${region.wPct}%`,
-            height: `${region.hPct}%`,
-            backgroundColor: region.type === "solid" ? "#0b0f16" : "transparent",
-            borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            backdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
-            WebkitBackdropFilter: region.type === "blur" ? "blur(12px)" : undefined,
-            zIndex: 20,
-          }}
-          data-testid={`mask-region-${index}`}
+          data-testid="game-card-image-box"
+          className={`relative mx-auto overflow-hidden rounded-md bg-plaque-surface ring-1 ring-plaque-frame shadow-[0_6px_20px_rgba(0,0,0,0.45)] ${tallScan ? "h-full" : "w-full"}`}
+          style={{ aspectRatio: naturalSize ? `${naturalSize.w} / ${naturalSize.h}` : "2.5 / 3.5" }}
         >
-          {index === 0 && region.type === "solid" && (
-            <div className="w-full h-full bg-gradient-to-b from-slate-800 via-slate-700 to-slate-600 flex items-center justify-center border-b-2 border-slate-900">
-              <span className="text-xs font-bold text-slate-200 tracking-widest">{setLabel || "MYSTERY CARD"}</span>
-            </div>
-          )}
-          {index === 0 && region.type === "blur" && (
-            <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: "rgba(15, 23, 42, 0.45)" }}>
-              <span className="text-xs font-bold text-slate-100 tracking-widest drop-shadow-lg">{setLabel || "MYSTERY CARD"}</span>
-            </div>
-          )}
-        </div>
-      ))}
-
-      {!isRevealed && !imageError && regions.map((region, index) => {
-        const isPrimary = nameBandRegion === region || (index === 0 && !nameBandRegion);
-        return (
-          <div
-            key={`name-band-${index}`}
-            className="absolute pointer-events-none flex items-center justify-center"
+          {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
+          <img
+            key={imageUrl}
+            src={cdnImageUrl}
+            alt={imageAlt}
+            className="absolute inset-0 h-full w-full pointer-events-none"
+            crossOrigin="anonymous"
+            loading="eager"
+            decoding="async"
             style={{
-              left: `${region.xPct}%`,
-              top: `${region.yPct}%`,
-              width: `${region.wPct}%`,
-              height: `${region.hPct}%`,
-              backgroundColor: "#0a0e16",
-              zIndex: 21,
-            }}
-            data-testid={isPrimary ? "mask-name-band" : `mask-name-band-${index}`}
-          >
-            {isPrimary && region.hPct >= 8 && (
-              <span className="text-sm font-bold text-slate-100 tracking-widest drop-shadow-lg px-2 text-center">WHO IS THIS PLAYER?</span>
-            )}
-          </div>
-        );
-      })}
-      
-      {isSetOfWeek && !imageError && (
-        <div className="absolute top-2 left-2 z-30 pointer-events-none">
-          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-bold bg-yellow-400 text-yellow-900 shadow">
-            ⭐ FEATURED{setOfWeekMultiplier ? ` — ${setOfWeekMultiplier}x PTS` : ""}
-          </span>
-        </div>
-      )}
-      {canReportImage && !imageError && (
-        <div className="absolute top-2 right-2 z-30">
-          <Popover open={reportOpen} onOpenChange={setReportOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`h-8 w-8 bg-black/50 hover:bg-black/70 ${reportSubmitted ? 'text-green-400' : 'text-white/70 hover:text-white'}`}
-                disabled={reportSubmitted || reportPending}
-                aria-label="Report this card image"
-                data-testid="button-report-card"
-              >
-                {reportSubmitted ? (
-                  <Check className="h-4 w-4" />
-                ) : reportPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Flag className="h-4 w-4" />
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-64 p-2" align="end">
-              <div className="space-y-1">
-                <p className="text-sm font-medium px-2 py-1">Report this card</p>
-                {REPORT_REASONS.map((reason) => (
+              opacity: imageLoaded ? 1 : 0,
+              transform: imageRotation ? `rotate(${imageRotation}deg)` : undefined,
+              WebkitUserDrag: "none",
+            } as React.CSSProperties}
+            onLoad={handleImageLoad}
+            onError={handleError}
+            onDragStart={handleDragStart}
+            draggable={false}
+            referrerPolicy="no-referrer"
+            data-testid="img-card"
+          />
+          {revealUrl ? (
+            <img
+              src={revealUrl}
+              alt={imageAlt}
+              className={`absolute inset-0 h-full w-full pointer-events-none transition-opacity duration-240 ease-out motion-reduce:transition-none ${revealLoaded ? "opacity-100" : "opacity-0"}`}
+              loading="eager"
+              decoding="async"
+              draggable={false}
+              onLoad={() => setRevealLoaded(true)}
+              onError={handleRevealError}
+              data-testid="img-card-reveal"
+            />
+          ) : null}
+          <MaskPlaque
+            regions={regions}
+            layoutClass={layoutClass}
+            eyebrow={eyebrow}
+            armed={answerStaged}
+            hidden={revealLoaded}
+            pending={!imageLoaded}
+          />
+          {isSetOfWeek && (
+            <div className={`absolute z-30 pointer-events-none ${chromeOnBottom ? "bottom-2 left-2" : "top-2 left-2"}`}>
+              <span className="inline-flex items-center rounded-[3px] border border-plaque-bar bg-plaque-fill px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] text-plaque-bar">
+                {setOfWeekMultiplier ? `FEATURED ${setOfWeekMultiplier}x PTS` : "FEATURED"}
+              </span>
+            </div>
+          )}
+          {canReportImage && (
+            <div className={`absolute z-30 ${chromeOnBottom ? "bottom-2 right-2" : "top-2 right-2"}`}>
+              <Popover open={reportOpen} onOpenChange={setReportOpen}>
+                <PopoverTrigger asChild>
                   <Button
-                    key={reason.value}
                     variant="ghost"
-                    className="w-full justify-start gap-2 h-auto py-2"
-                    onClick={() => handleReport(reason.value)}
-                    disabled={reportPending}
-                    data-testid={`button-report-${reason.value}`}
+                    size="icon"
+                    className={`relative h-8 w-8 bg-black/50 hover:bg-black/70 before:absolute before:-inset-1 before:content-[''] ${reportSubmitted ? "text-green-400" : "text-white/70 hover:text-white"}`}
+                    disabled={reportSubmitted || reportPending}
+                    aria-label="Report this card image"
+                    data-testid="button-report-card"
                   >
-                    <reason.icon className="h-4 w-4 shrink-0" />
-                    <div className="text-left">
-                      <div className="text-sm font-medium">{reason.label}</div>
-                      <div className="text-xs text-muted-foreground">{reason.description}</div>
-                    </div>
+                    {reportSubmitted ? (
+                      <Check className="h-4 w-4" />
+                    ) : reportPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Flag className="h-4 w-4" />
+                    )}
                   </Button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-2" align="end">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium px-2 py-1">Report this card</p>
+                    {REPORT_REASONS.map((reason) => (
+                      <Button
+                        key={reason.value}
+                        variant="ghost"
+                        className="w-full justify-start gap-2 h-auto py-2"
+                        onClick={() => handleReport(reason.value)}
+                        disabled={reportPending}
+                        data-testid={`button-report-${reason.value}`}
+                      >
+                        <reason.icon className="h-4 w-4 shrink-0" />
+                        <div className="text-left">
+                          <div className="text-sm font-medium">{reason.label}</div>
+                          <div className="text-xs text-muted-foreground">{reason.description}</div>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
         </div>
       )}
+    </div>
+    {revealFailed && (
+      <p className="mt-2 text-center text-xs text-plaque-muted" data-testid="text-reveal-image-error">
+        Full card image didn't load.
+      </p>
+    )}
     </div>
   );
 }

@@ -6,8 +6,10 @@ import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@sha
 import { eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
+import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
+import { logDealtDefaultMaskProfiles } from "./maskProfiles";
 
-const MASKED_CARDS_DIR = path.join(process.cwd(), "data", "masked-cards");
+export { readWarmMaskPlan };
 
 export function warmMaskedFilename(cardId: string): string {
   return `${cardId}_${CURRENT_MASK_VERSION}.jpg`;
@@ -102,6 +104,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     setHint = buildSetMaskHint({
       setName: baseballCard.setName,
       year: baseballCard.year,
+      sport: "baseball",
     });
   } else {
     const [playableCard] = await db
@@ -185,6 +188,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       return null;
     }
 
+    logDealtDefaultMaskProfiles([{ setHint, gameSetId }]);
     const result = await maskCardImage(
       imageBuffer,
       playerName || "",
@@ -208,6 +212,11 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     const filePath = path.join(MASKED_CARDS_DIR, filename);
     
     await fs.writeFile(filePath, result.maskedBuffer);
+    await writeWarmMaskPlan(cardId, {
+      layoutClass: result.layoutClass,
+      regions: result.regions,
+      maskVersion: CURRENT_MASK_VERSION,
+    });
 
     await db
       .insert(cardImageMaskCache)
@@ -216,6 +225,8 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
         rawImageUrl: imageUrl,
         maskedImagePath: filename,
         maskVersion: CURRENT_MASK_VERSION,
+        layoutClass: result.layoutClass,
+        regions: result.regions,
       })
       .onConflictDoUpdate({
         target: cardImageMaskCache.cardId,
@@ -223,6 +234,8 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
           rawImageUrl: imageUrl,
           maskedImagePath: filename,
           maskVersion: CURRENT_MASK_VERSION,
+          layoutClass: result.layoutClass,
+          regions: result.regions,
           updatedAt: new Date(),
         },
       });
@@ -331,6 +344,11 @@ export async function invalidateMaskedImageCache(opts: {
       deletedFiles++;
     } catch {
       // already gone
+    }
+    try {
+      await fs.unlink(path.join(MASKED_CARDS_DIR, row.maskedImagePath.replace(/\.jpe?g$/i, ".json")));
+    } catch {
+      // plan sidecar already gone
     }
   }
 

@@ -10,7 +10,7 @@ PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them
 | File on volume | `/app/data/masked-cards/{cardId}_{maskVersion}.jpg` (local: `data/masked-cards/`) | version in filename, or deleting the file |
 | HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.4`). `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` (not immutable). Warm volume hits skip DB/OCR (`X-Mask-Cache: hit`, `Server-Timing`). `ETag` + `X-Mask-Version` are the current bake id. |
 
-Current version: **`v4.4`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
+Current version: **`v4.4`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). A successful bake also writes `{cardId}_v4.4.json` (layout class + regions) and nullable `layout_class` / `regions` columns on `card_image_mask_cache` (boot `drizzle-kit push` adds them). Cold bakes only: warm v4.4 JPEGs stay hits, so today's dealt cards are not rebaked. An unmatched profile with no OCR name hit still paints the default bottom 46% plaque. TODO: UNKNOWN exclusion is deferred until every active set has a registered profile. On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
 
 **The handler ignores `?v=`.** `?v=v4.3` and `?v=v4.4` return the same on-disk JPEG until gameplay requests the current version and the file is regenerated. Design QA must use `?v=v4.4`. Leftover `*_v4.3.jpg` files are not the object the game loads.
 
@@ -24,7 +24,7 @@ Before a JPEG is written or returned, `assertOpaqueIdentityCover` checks the nam
 
 ## Production (Railway)
 
-Do **not** run `drizzle-kit push` or wipe Postgres for this. Masked JPEGs are files + `card_image_mask_cache` rows, not schema.
+Do **not** wipe Postgres or run a hand `drizzle-kit push` just to rebuild JPEGs. Masked JPEGs are files plus `card_image_mask_cache` rows. The new nullable `layout_class` and `regions` columns are additive and land on the normal boot push.
 
 After this code is on `main` (auto-deploy):
 

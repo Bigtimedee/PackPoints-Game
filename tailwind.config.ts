@@ -75,6 +75,16 @@ export default {
           foreground: "hsl(var(--sidebar-accent-foreground) / <alpha-value>)",
           border: "var(--sidebar-accent-border)"
         },
+        plaque: {
+          fill: "var(--plaque-fill)",
+          frame: "var(--plaque-frame)",
+          seam: "var(--plaque-seam)",
+          "seam-armed": "var(--plaque-seam-armed)",
+          bar: "var(--plaque-bar)",
+          ink: "var(--plaque-ink)",
+          muted: "var(--plaque-muted)",
+          surface: "var(--plaque-surface)",
+        },
         status: {
           online: "rgb(34 197 94)",
           away: "rgb(245 158 11)",
@@ -86,6 +96,9 @@ export default {
         sans: ["var(--font-sans)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
+      },
+      transitionDuration: {
+        240: "240ms",
       },
       keyframes: {
         "accordion-down": {

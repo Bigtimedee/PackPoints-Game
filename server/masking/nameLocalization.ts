@@ -1,5 +1,4 @@
-import type { MaskRegion } from "@shared/schema";
-import { DEFAULT_MASK_REGIONS } from "@shared/schema";
+import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import {
   pixelBoxToRegion,
   unionMaskRegions,

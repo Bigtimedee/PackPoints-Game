@@ -98,11 +98,12 @@ export const PIP_SIZE = 56;
 export const PIP_GAP = 14;
 export const PIP_Y = 560;
 
-const STRIP_TILE = 24;
-const STRIP_GAP = 6;
+const STRIP_TILE_W = 30;
+const STRIP_TILE_H = 42;
+const STRIP_GAP = 8;
 const STRIP_COUNT = 5;
 const STRIP_X = 80;
-const STRIP_Y = 142;
+const STRIP_Y = 136;
 
 export function pipStartX(count: number): number {
   const n = Math.max(1, count);
@@ -136,15 +137,15 @@ export function formatSessionDayIdentity(date: string, isDaily5: boolean): strin
   return day;
 }
 
-/** Mini masked-strip: five cream tiles + gold redaction (Design v2 strip language). */
+/** Five mini masked cards. Cream body, navy plaque, gold seam and bar. No live text. */
 export function buildMaskedStripSvg(x = STRIP_X, y = STRIP_Y): string {
-  const barH = 5;
-  const barY = y + Math.round((STRIP_TILE - barH) / 2);
   return Array.from({ length: STRIP_COUNT }, (_, i) => {
-    const tx = x + i * (STRIP_TILE + STRIP_GAP);
+    const tx = x + i * (STRIP_TILE_W + STRIP_GAP);
     return [
-      `<rect x="${tx}" y="${y}" width="${STRIP_TILE}" height="${STRIP_TILE}" rx="4" fill="${SCORE_CARD_COLORS.ink}"/>`,
-      `<rect x="${tx}" y="${barY}" width="${STRIP_TILE}" height="${barH}" fill="${SCORE_CARD_COLORS.gold}"/>`,
+      `<rect x="${tx}" y="${y}" width="${STRIP_TILE_W}" height="${STRIP_TILE_H}" rx="4" fill="#F0F2F5" stroke="#D6CBB6" stroke-width="1"/>`,
+      `<rect x="${tx + 1}" y="${y + 24}" width="28" height="16" fill="#0A0E16"/>`,
+      `<rect x="${tx + 1}" y="${y + 24}" width="28" height="1.5" fill="#977C17"/>`,
+      `<rect x="${tx + 9}" y="${y + 31}" width="12" height="2" fill="#F5C518"/>`,
     ].join("");
   }).join("");
 }

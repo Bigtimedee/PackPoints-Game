@@ -12,7 +12,8 @@ import {
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/imageQuality";
 import { getOrValidateCardImage } from "../images/imageGate";
-import { maskedCardImageUrl } from "@shared/maskGeometry";
+import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
+import { logDealtDefaultMaskProfiles } from "../../masking/maskProfiles";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -95,6 +96,14 @@ async function findReplacementCard(
       try {
         const validation = await getOrValidateCardImage(card.id, normalizeImageUrl(card.imageUrl)!);
         if (validation.status === "ok") {
+          logDealtDefaultMaskProfiles([{
+            setHint: buildSetMaskHint({
+              setName: card.set,
+              category: card.category,
+              sport: card.category,
+            }),
+            gameSetId: card.gameSetId,
+          }]);
           return card;
         }
         console.warn(`[ReplaceQuestion] Card ${card.id} failed image validation: ${validation.status}`);

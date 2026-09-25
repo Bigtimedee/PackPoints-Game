@@ -273,21 +273,21 @@ describe("Masking redesign — maskProfiles", () => {
     expect(profile.nameAnchor).toBe("bottom");
   });
 
-  it("1987 Topps profile covers the team-color name band (bottom 46%)", () => {
-    const profile = getMaskProfile("1987 Topps");
+  it("1987 Topps baseball covers the team-color name band (bottom 46%)", () => {
+    const profile = getMaskProfile("1987 Topps baseball");
     expect(profile.bottomBandPct).toBe(0.46);
     expect(profile.topBandPct).toBe(0.0);
     expect(profile.nameAnchor).toBe("bottom");
   });
 
-  it("1989 Upper Deck profile has 20% bottom band", () => {
-    const profile = getMaskProfile("1989 Upper Deck");
+  it("1989 Upper Deck baseball has a 20% bottom band", () => {
+    const profile = getMaskProfile("1989 Upper Deck baseball");
     expect(profile.bottomBandPct).toBe(0.20);
     expect(profile.topBandPct).toBe(0.0);
   });
 
-  it("1952 Topps profile has 35% bottom band", () => {
-    const profile = getMaskProfile("1952 Topps");
+  it("1952 Topps baseball has a 35% bottom band", () => {
+    const profile = getMaskProfile("1952 Topps baseball");
     expect(profile.bottomBandPct).toBe(0.35);
     expect(profile.topBandPct).toBe(0.0);
   });
@@ -298,8 +298,8 @@ describe("Masking redesign — maskProfiles", () => {
     expect(profile.id).toBe("default");
   });
 
-  it("partial set name match works (case-insensitive)", () => {
-    const profile = getMaskProfile("Vintage 1952 Topps Heritage");
+  it("partial set name match works when the card is confirmed baseball", () => {
+    const profile = getMaskProfile("Vintage 1952 Topps Heritage baseball");
     expect(profile.bottomBandPct).toBe(0.35);
   });
 

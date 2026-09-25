@@ -141,10 +141,13 @@ describe("§3b today identity", () => {
 });
 
 describe("buildMaskedStripSvg()", () => {
-  it("paints five cream tiles with gold redaction bars", () => {
+  it("paints five mini masked cards with a navy plaque and gold bar", () => {
     const svg = buildMaskedStripSvg();
     expect((svg.match(/fill="#F0F2F5"/g) || []).length).toBe(5);
+    expect((svg.match(/fill="#0A0E16"/g) || []).length).toBe(5);
+    expect((svg.match(/fill="#977C17"/g) || []).length).toBe(5);
     expect((svg.match(/fill="#F5C518"/g) || []).length).toBe(5);
+    expect(svg).not.toContain("<text");
   });
 });
 
@@ -271,8 +274,8 @@ describe("score card PNG contract", () => {
       PIP_Y + PIP_SIZE,
       isGreen,
     )).toBe(false);
-    expect(await regionHasColor(result.imagePath, 80, 142, 104, 166, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 80, 148, 104, 160, isGold)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 82, 138, 108, 156, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 89, 167, 101, 169, isGold)).toBe(true);
   });
 });
 
@@ -312,7 +315,7 @@ describe("Beat-me challenge share PNG", () => {
     const meta = await sharp(result.imagePath).metadata();
     expect(meta.width).toBe(1080);
     expect(meta.height).toBe(1080);
-    expect(await regionHasColor(result.imagePath, 80, 142, 104, 166, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 82, 138, 108, 156, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 90, 710, 280, 770, isGold)).toBe(true);
   });
 });

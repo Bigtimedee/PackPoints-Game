@@ -11,6 +11,9 @@ import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
 import { maskedPlayPath } from "./playImageToken";
+import { buildSetMaskHint } from "@shared/maskGeometry";
+import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
+import { readWarmMaskPlan } from "../masking/maskPlanStore";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -193,6 +196,17 @@ export class Daily5Service {
         )
       );
 
+    const [setRow] = await db
+      .select({
+        year: gameSets.year,
+        brand: gameSets.brand,
+        sport: gameSets.sport,
+        setName: gameSets.setName,
+      })
+      .from(gameSets)
+      .where(eq(gameSets.id, setId))
+      .limit(1);
+
     const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl));
     if (filtered.length < 5) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
@@ -201,6 +215,16 @@ export class Daily5Service {
 
     const shuffled = deterministicShuffle(filtered, seed);
     const selected = shuffled.slice(0, 5);
+    logDealtDefaultMaskProfiles(selected.map((card) => ({
+      setHint: buildSetMaskHint({
+        year: setRow?.year,
+        brand: setRow?.brand,
+        sport: setRow?.sport || card.category,
+        setName: card.set || setRow?.setName,
+        category: card.category,
+      }),
+      gameSetId: card.gameSetId || setId,
+    })));
 
     const allPlayerNames = candidates
       .map(c => c.player)
@@ -331,7 +355,7 @@ export class Daily5Service {
 
   async startChallenge(userId: string): Promise<{
     entry: DailyChallengeEntry;
-    cards: { position: number; imageUrl: string; choices: string[]; pointValue: number }[];
+    cards: { position: number; imageUrl: string; choices: string[]; pointValue: number; maskPlan: ReturnType<typeof readWarmMaskPlan> }[];
     setId: string | null;
   }> {
     await this.updateChallengeStatuses();
@@ -419,6 +443,7 @@ export class Daily5Service {
         }),
         choices: shuffledChoices,
         pointValue: c.pointValue,
+        maskPlan: readWarmMaskPlan(c.cardId),
       };
     });
 

@@ -30,7 +30,6 @@ import {
 } from "@/lib/playAgain";
 import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
 import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
-import { resolvePlayCardSrc } from "@shared/playCardImage";
 import {
   prefetchMaskedPlayCards,
   prefetchRevealPlayCard,
@@ -96,7 +95,7 @@ interface RewardDetails {
   cappedReason?: string;
 }
 
-function PointsAnimation({ points, show, reward }: { points: number; show: boolean; reward?: RewardDetails | null }) {
+function PointsQuiet({ points, show, reward }: { points: number; show: boolean; reward?: RewardDetails | null }) {
   if (!show) return null;
 
   const getFameLabel = (score: number) => {
@@ -107,42 +106,23 @@ function PointsAnimation({ points, show, reward }: { points: number; show: boole
   };
 
   return (
-    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
-      <div className="flex flex-col items-center gap-2 animate-bounce">
-        <div className="flex items-center gap-2 bg-accent text-accent-foreground px-4 py-2 rounded-md shadow-lg">
-          <Zap className="h-5 w-5" />
-          <span className="font-bold font-mono text-xl" data-testid="text-points-earned">+{points}</span>
+    <div className="pt-2 text-center" data-testid="text-points-earned">
+      <p className="font-mono text-sm text-muted-foreground">+{points} pts</p>
+      {reward && (
+        <div className="mt-1 space-y-0.5 text-xs text-muted-foreground" data-testid="reward-breakdown">
+          <p>Player: {getFameLabel(reward.fameScore)}</p>
+          <p className="font-mono">Base: {reward.basePts} pts</p>
+          {reward.vintageMultiplier !== 1.0 && (
+            <p className="font-mono">Vintage: x{reward.vintageMultiplier.toFixed(2)}</p>
+          )}
+          {reward.rarityMultiplier !== 1.0 && (
+            <p className="font-mono">Rarity: x{reward.rarityMultiplier.toFixed(2)}</p>
+          )}
+          {reward.capped && (
+            <p>{reward.cappedReason?.includes("daily") ? "Daily cap reached" : "Match cap reached"}</p>
+          )}
         </div>
-        {reward && (
-          <div className="bg-card/95 backdrop-blur text-card-foreground px-3 py-2 rounded-md shadow-lg text-xs space-y-1 animate-fade-in" data-testid="reward-breakdown">
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Player:</span>
-              <span className="font-medium">{getFameLabel(reward.fameScore)}</span>
-            </div>
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Base:</span>
-              <span className="font-mono">{reward.basePts} pts</span>
-            </div>
-            {reward.vintageMultiplier !== 1.0 && (
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Vintage:</span>
-                <span className="font-mono text-green-500">x{reward.vintageMultiplier.toFixed(2)}</span>
-              </div>
-            )}
-            {reward.rarityMultiplier !== 1.0 && (
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Rarity:</span>
-                <span className="font-mono text-blue-500">x{reward.rarityMultiplier.toFixed(2)}</span>
-              </div>
-            )}
-            {reward.capped && (
-              <div className="text-amber-500 text-center pt-1 border-t border-border">
-                {reward.cappedReason?.includes("daily") ? "Daily cap reached" : "Match cap reached"}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -335,10 +315,11 @@ export default function Game() {
         if (setId && cardId && currentGameSet?.isUserCreated) {
           setListingTarget({ setId, cardId });
         }
-        setEarnedPoints(data.pointsEarned);
-        setRewardDetails(data.reward || null);
-        setShowPointsAnimation(true);
-        setTimeout(() => setShowPointsAnimation(false), 2000);
+        if (typeof data.pointsEarned === "number") {
+          setEarnedPoints(data.pointsEarned);
+          setRewardDetails(data.reward || null);
+          setShowPointsAnimation(true);
+        }
         
         // Show toast when daily cap is reached
         if (data.reward?.capped && data.reward?.cappedReason === "daily_card_cap_reached") {
@@ -378,6 +359,7 @@ export default function Game() {
         }
       } else {
         setRewardDetails(null);
+        setShowPointsAnimation(false);
         setConsecutiveCorrect(0);
       }
       if (data.session) {
@@ -417,6 +399,7 @@ export default function Game() {
       setSelectedAnswer(null);
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
+      setShowPointsAnimation(false);
       setListingTarget(null);
       if (data?.shareImageUrl) {
         setShareImageUrl(data.shareImageUrl);
@@ -1321,13 +1304,13 @@ export default function Game() {
           <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
               <GameCard 
                 key={gameCardMountKey(session.id, session.currentQuestionIndex, currentQuestion.card.imageUrl)}
-                imageUrl={resolvePlayCardSrc({
-                  maskedUrl: currentQuestion.card.imageUrl,
-                  revealUrl: currentQuestion.card.revealUrl,
-                  submitted: isRevealed,
-                })} 
+                imageUrl={currentQuestion.card.imageUrl}
+                revealUrl={isRevealed ? currentQuestion.card.revealUrl : undefined}
+                maskPlan={currentQuestion.card.maskPlan}
+                plaqueEyebrow={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
+                answerStaged={!!selectedAnswer && !isRevealed}
+                revealedPlayerName={isRevealed ? revealedCorrectAnswer ?? undefined : undefined}
                 isRevealed={isRevealed}
-                setLabel={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
                 setKey={currentGameSet?.id}
                 imageRotation={currentQuestion.card.imageRotation}
                 showSkipButton={showSkipButton}
@@ -1342,7 +1325,6 @@ export default function Game() {
                 questionIndex={session.currentQuestionIndex}
               />
           </div>
-          <PointsAnimation points={earnedPoints} show={showPointsAnimation} reward={rewardDetails} />
         </div>
 
         {/* Zone 3: Answers */}
@@ -1369,6 +1351,7 @@ export default function Game() {
               </div>
 
               <div className="pt-2">
+                <PointsQuiet points={earnedPoints} show={showPointsAnimation && isRevealed} reward={rewardDetails} />
                 {!isRevealed && !currentQuestionAnswered ? (
                   <Button
                     onClick={handleSubmit}

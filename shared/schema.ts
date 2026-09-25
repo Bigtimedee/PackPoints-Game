@@ -260,6 +260,13 @@ export interface GameSession {
   completedAt?: string;
 }
 
+/** Bake plan the plaque follows. Geometry only. Never a name, number, or team. */
+export interface PublicMaskPlan {
+  layoutClass: "TOP_PLATE" | "BOTTOM_PLAQUE" | "PSA_SLAB";
+  regions: MaskRegion[];
+  maskVersion: string;
+}
+
 /** Pre-answer card. No raw id, name, number, team, or year+set. */
 export interface ClientGameplayCard {
   imageUrl: string;
@@ -267,6 +274,8 @@ export interface ClientGameplayCard {
   gameSetId?: string;
   /** Present only after this question's answer was accepted. */
   revealUrl?: string;
+  /** Null while the bake for this version is still cold. */
+  maskPlan?: PublicMaskPlan | null;
 }
 
 export type ClientGameQuestion = {
@@ -4020,6 +4029,9 @@ export const cardImageMaskCache = pgTable("card_image_mask_cache", {
   rawImageUrl: text("raw_image_url").notNull(),
   maskedImagePath: text("masked_image_path").notNull(),
   maskVersion: text("mask_version").notNull(),
+  /** Additive. Null on rows baked before the plan was stored. */
+  layoutClass: text("layout_class"),
+  regions: jsonb("regions").$type<MaskRegion[]>(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_card_mask_cache_version").on(table.maskVersion),

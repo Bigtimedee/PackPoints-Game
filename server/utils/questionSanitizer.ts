@@ -1,5 +1,6 @@
 import type { GameQuestion, GameSession, ClientGameQuestion, ClientGameSession } from "@shared/schema";
 import { maskedPlayPath, revealPlayPath, type PlayScope } from "../services/playImageToken";
+import { readWarmMaskPlan } from "../masking/maskPlanStore";
 
 export type QuestionImageContext = {
   scope: PlayScope;
@@ -29,6 +30,7 @@ export function sanitizeQuestionForClient(q: GameQuestion, ctx: QuestionImageCon
     }),
     imageRotation: q.card.imageRotation ?? 0,
     gameSetId: q.card.gameSetId,
+    maskPlan: readWarmMaskPlan(cardId),
   };
   if (answered && ctx.scope !== "match") {
     card.revealUrl = revealPlayPath({

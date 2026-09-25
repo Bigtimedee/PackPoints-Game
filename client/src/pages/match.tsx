@@ -14,7 +14,6 @@ import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
-import { resolvePlayCardSrc } from "@shared/playCardImage";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
@@ -48,6 +47,7 @@ interface MatchState {
       imageUrl: string;
       imageRotation?: number;
       gameSetId?: string;
+      maskPlan?: import("@shared/schema").PublicMaskPlan | null;
     };
     options: string[];
     pointValue: number;
@@ -1142,16 +1142,10 @@ export default function Match() {
 
   const currentQuestion = matchState.currentQuestion;
   const progress = ((matchState.currentQuestionIndex + 1) / matchState.totalQuestions) * 100;
-  const playCardSrc = currentQuestion
-    ? resolvePlayCardSrc({
-        maskedUrl: currentQuestion.card.imageUrl,
-        revealUrl: answerResult?.revealUrl,
-        submitted: answerResult !== null,
-      })
-    : "";
-  const playCardSrcBusted = playCardSrc && imageRetryCount > 0
-    ? `${playCardSrc}${playCardSrc.includes("?") ? "&" : "?"}t=${seedVersion}-${imageRetryCount}`
-    : playCardSrc;
+  const maskedSrc = currentQuestion?.card.imageUrl ?? "";
+  const playCardSrcBusted = maskedSrc && imageRetryCount > 0
+    ? `${maskedSrc}${maskedSrc.includes("?") ? "&" : "?"}t=${seedVersion}-${imageRetryCount}`
+    : maskedSrc;
 
   const battleSeries = battleSession?.seriesRecord;
   const mySeriesWins = battleSession
@@ -1226,8 +1220,10 @@ export default function Match() {
                 [seedVersion, imageRetryCount],
               )}
               imageUrl={playCardSrcBusted}
+              revealUrl={answerResult?.revealUrl ?? undefined}
+              maskPlan={currentQuestion.card.maskPlan}
+              answerStaged={!!selectedChoice && !answerResult}
               isRevealed={answerResult !== null}
-              setLabel="MYSTERY CARD"
               setKey={matchState.gameSetId}
               onImageError={() => {
                 if (imageRetryCount < 2) {

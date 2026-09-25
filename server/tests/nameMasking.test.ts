@@ -311,7 +311,7 @@ describe("baked mask fixtures", () => {
 
   it("bottom-plaque card masks the name band and leaves the top photo", async () => {
     const raw = await bottomPlaqueCard();
-    const result = await maskCardImage(raw, "Mike Trout", "1987 Topps", { skipOcr: true });
+    const result = await maskCardImage(raw, "Mike Trout", "1987 Topps baseball", { skipOcr: true });
     expect(result.source).toBe("profile");
     expect(result.coverageOk).toBe(true);
     expect(result.regions[0].yPct).toBeGreaterThanOrEqual(50);

@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import type { MaskRegion } from "@shared/schema";
-import { overlayMaskRegions } from "@shared/maskGeometry";
+import { inferLayoutClass, overlayMaskRegions } from "@shared/maskGeometry";
+import { MaskPlaque } from "@/components/MaskPlaque";
 
 interface MaskConfig {
   setKey: string;
@@ -30,7 +31,6 @@ export function MaskedCardImage({
   showMasks = true,
   onImageLoad,
   onImageError,
-  maskColor = "#0b0f16",
 }: MaskedCardImageProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -94,19 +94,19 @@ export function MaskedCardImage({
     >
       {!imageLoaded && !imageError && (
         <div 
-          className="absolute inset-0 flex items-center justify-center bg-muted z-10"
+          className="absolute inset-0 flex items-center justify-center bg-plaque-surface z-10"
           data-testid="masked-card-loading"
         >
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <Loader2 className="h-8 w-8 animate-spin text-plaque-muted" />
         </div>
       )}
 
       {imageError && (
         <div 
-          className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-amber-100 to-amber-200 z-10"
+          className="absolute inset-0 flex items-center justify-center bg-plaque-surface ring-1 ring-plaque-frame z-10"
           data-testid="masked-card-error"
         >
-          <p className="text-amber-800 font-medium">Image failed to load</p>
+          <p className="text-center text-xs font-semibold uppercase tracking-[0.14em] text-plaque-ink">Card image didn't load</p>
         </div>
       )}
 
@@ -128,23 +128,13 @@ export function MaskedCardImage({
         data-testid="masked-card-image"
       />
 
-      {showMasks && regions.map((region, index) => (
-        <div
-          key={index}
-          className="absolute pointer-events-auto"
-          style={{
-            left: `${region.xPct}%`,
-            top: `${region.yPct}%`,
-            width: `${region.wPct}%`,
-            height: `${region.hPct}%`,
-            backgroundColor: maskColor,
-            borderRadius: region.radiusPct ? `${region.radiusPct}%` : undefined,
-            zIndex: 20,
-          }}
-          onContextMenu={handleContextMenu}
-          data-testid={`mask-region-${index}`}
+      {showMasks && !imageError && (
+        <MaskPlaque
+          regions={regions}
+          layoutClass={inferLayoutClass(regions)}
+          pending={!imageLoaded}
         />
-      ))}
+      )}
     </div>
   );
 }
