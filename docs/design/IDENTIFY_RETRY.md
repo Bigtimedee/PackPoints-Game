@@ -11,7 +11,7 @@ Pipeline stays sequential (one identify at a time). A failure must not block lat
 | `loading` | `Identifying…` | Spinner + muted |
 | `ok` | (check only) | Green check `#22C55E` on thumb + `{year} {brand}`, then the match screen |
 
-Identify chrome: headline `Identifying…`; subline `Matching to sets already in PackPTS.`; board `Identifying · N` + `Sequential`; crumb `/make`. Failed: gold 40% border, **Try again** `#2B6CEE` over **Skip** text. Rate limit: `You've hit today's identify pace — try again in a bit.` Decode: `Couldn't read that photo — try exporting as JPEG`.
+Identify chrome: headline `Identifying…`; subline `Matching to sets already in PackPTS.`; board `Identifying · N` + `Sequential`; crumb `/make`. Failed: gold 40% border, **Try again** `#2B6CEE` over **Skip** text. Rate limit: `You've hit today's identify pace. Try again in a bit.` Decode: `Couldn't read that photo. Try exporting as JPEG.`
 | `error` | `Couldn't identify` | Quiet border (optional gold at 40%) |
 
 ## Failed slot

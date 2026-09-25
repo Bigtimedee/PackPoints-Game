@@ -79,22 +79,22 @@ describe("Daily 5 Beat-me URL contract", () => {
   it("uses Design SoR copy — active, stale, anonymous, and quiet compare", () => {
     expect(
       formatBeatMeBanner({ status: "active", token: TOKEN, correctCount: 4, displayName: "Alex" }),
-    ).toBe("Beat Alex — they went 4/5 today");
+    ).toBe("Beat Alex. They went 4/5 today");
     expect(
       formatBeatMeBanner({ status: "active", token: TOKEN, correctCount: 4 }),
-    ).toBe("Beat a collector — they went 4/5 today");
+    ).toBe("Beat a collector. They went 4/5 today");
     const stale = formatBeatMeBanner({
       status: "stale",
       token: TOKEN,
       correctCount: 4,
       displayName: "Alex",
     });
-    expect(stale).toBe("Challenge expired — play today's five.");
+    expect(stale).toBe("Challenge expired. Play today's five.");
     expect(stale).not.toMatch(/4\/5/);
     expect(stale).not.toContain("Alex");
     expect(formatBeatMeShareCaption(3)).toBe("I went 3/5. Beat me. Play today's Daily 5.");
     expect(formatBeatMeCompare(5, 4)).toBe("You went 5/5. They went 4/5.");
-    expect(formatBeatMeCompare(2, 4)).toBe("They led — 4/5 to your 2/5.");
+    expect(formatBeatMeCompare(2, 4)).toBe("They led, 4/5 to your 2/5.");
     expect(formatBeatMeCompare(3, 3)).toBe("Tied at 3/5.");
     expect(BEAT_ME_COPY.primary).toBe("Beat me.");
     expect(BEAT_ME_COPY.helper).toBe("Challenge a friend to today's five.");

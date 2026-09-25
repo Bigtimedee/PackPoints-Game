@@ -1028,7 +1028,7 @@ export default function Match() {
                           : myRematchClicked
                             ? "Waiting for opponent..."
                             : opponentRematchReady
-                              ? "Opponent is ready — Play Again"
+                              ? "Opponent is ready. Play Again"
                               : "Play Again"}
                       </Button>
                       <Button
@@ -1173,7 +1173,7 @@ export default function Match() {
               Battle {battleSession.matchCount > 0 ? `· Match ${battleSession.matchCount}` : ""}
             </Badge>
             <Badge variant="secondary" className="font-mono" data-testid="battle-series-tally">
-              {mySeriesWins}–{opponentSeriesWins}{battleSeries && battleSeries.ties > 0 ? `–${battleSeries.ties}T` : ""}
+              {mySeriesWins}-{opponentSeriesWins}{battleSeries && battleSeries.ties > 0 ? `-${battleSeries.ties}T` : ""}
             </Badge>
           </div>
         )}

@@ -178,7 +178,7 @@ function ReferAndEarnCard() {
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <Gift className="h-4 w-4 text-primary" />
-          Refer a Friend — You Both Earn
+          Refer a Friend: You Both Earn
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -193,7 +193,7 @@ function ReferAndEarnCard() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Bonuses are credited to both wallets when your friend completes their first game — on top of the standard 250 PackPTS signup bonus.
+          Bonuses are credited to both wallets when your friend completes their first game, on top of the standard 250 PackPTS signup bonus.
         </p>
         {!isLoading && data?.referralUrl && (
           <div className="flex gap-2">

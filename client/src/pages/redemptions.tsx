@@ -132,7 +132,7 @@ function ReceiptDetail() {
       toast({
         title: result.granted ? "USD credit granted to PackPTS wallet" : "Credit pending review",
         description: result.heldForReview
-          ? "PURCHASE_CONFIRMED — PackPTS will finish review."
+          ? "Purchase confirmed. PackPTS will finish review."
           : result.message,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/marketplace/redemption/receipts"] });
@@ -205,7 +205,7 @@ function ReceiptDetail() {
       {canClaim && (
         <Card className="border-0" style={{ background: RECEIPT_COLORS.surface, color: RECEIPT_COLORS.ink }}>
           <CardHeader>
-            <CardTitle>I purchased — claim rebate</CardTitle>
+            <CardTitle>I purchased. Claim rebate</CardTitle>
             <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
               {RECEIPT_COPY.confirmToUnlock}. {RECEIPT_COPY.partnerCheckoutUnchanged}. PackPTS reserved {rebateUsd}.
               Rebates of $25 or more stay PURCHASE_CONFIRMED with Credit pending review until PackPTS review finishes.

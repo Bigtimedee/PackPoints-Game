@@ -29,7 +29,7 @@ impressions). We do not optimize for raw impressions alone.
 ## Marketing SoR (never violate — auto posts)
 
 Organic reference: https://x.com/PlayPackPTS/status/2100232354249728403
-Copy kit: `client/public/assets/x-hotfix-2026-09-13/CAPTIONS.md` (Daily 5 ritual / post2).
+Copy kit: `docs/x-hotfix-2026-09-13/CAPTIONS.md` (Daily 5 ritual / post2).
 
 Auto-generated posts MUST be Daily 5 announcement or recap. Sparse hashtags only:
 `#PackPTS` and `#Daily5` (max 2). CTA: packpts.com/daily.

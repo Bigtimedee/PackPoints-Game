@@ -18,7 +18,7 @@ describe("Design EMPTY_STATE copy", () => {
   it("locks /make empty chrome (not Surface A, not PackPoints)", () => {
     expect(MAKE_EMPTY_COPY.eyebrow).toBe("SNAP-TO-SET");
     expect(MAKE_EMPTY_COPY.headline).toBe("Snap a card. Find its set.");
-    expect(MAKE_EMPTY_COPY.subline).toBe("Match to a set already in PackPTS — then play it.");
+    expect(MAKE_EMPTY_COPY.subline).toBe("Match to a set already in PackPTS, then play it.");
     expect(MAKE_EMPTY_COPY.exampleBadge).toBe("EXAMPLE · CATALOG DEMO");
     expect(MAKE_EMPTY_COPY.primaryCta).toBe("Take photo");
     expect(MAKE_EMPTY_COPY.secondaryCta).toBe("Choose from library");
@@ -61,8 +61,8 @@ describe("Design IDENTIFY_RETRY chrome", () => {
     expect(IDENTIFY_RETRY_COPY.failed).toBe("Couldn't identify");
     expect(IDENTIFY_RETRY_COPY.headline).toBe("Identifying…");
     expect(IDENTIFY_RETRY_COPY.subline).toBe("Matching to sets already in PackPTS.");
-    expect(IDENTIFY_RETRY_COPY.rateLimit).toBe("You've hit today's identify pace — try again in a bit.");
-    expect(IDENTIFY_RETRY_COPY.decode).toBe("Couldn't read that photo — try exporting as JPEG");
+    expect(IDENTIFY_RETRY_COPY.rateLimit).toBe("You've hit today's identify pace. Try again in a bit.");
+    expect(IDENTIFY_RETRY_COPY.decode).toBe("Couldn't read that photo. Try exporting as JPEG.");
     expect(draftBoardTitle(4)).toBe("Identifying · 4");
     expect(draftBoardTitle(4).toLowerCase()).not.toContain("draft");
     expect(draftSlotTitle("ok", { year: 1992, brand: "Topps" }, 0)).toBe("1992 Topps");

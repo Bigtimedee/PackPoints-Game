@@ -20,7 +20,7 @@ export const SETS_POLISH = {
   indexTitle: "Sets",
   indexSub: "Play sets already in PackPTS.",
   shortShelfTitle: "A short shelf.",
-  shortShelfBody: "Integrated sets only — play what’s here, or open Daily 5.",
+  shortShelfBody: "Integrated sets only. Play what’s here, or open Daily 5.",
   playTodayCue: "Play today’s stack",
   fanMade: "FAN MADE",
   stackHeading: "THE STACK",

@@ -21,7 +21,7 @@ Re-enabling the flag is **safe** only because auto-generation is Daily 5 ritual-
 | Rule | Enforcement |
 |------|-------------|
 | Auto X copy = Daily 5 announcement (8 AM CT) + recap (9 PM CT) | `scheduler.ts` + `marketingSor.buildDaily5Copy` |
-| Kit / captions | `client/public/assets/x-hotfix-2026-09-13/CAPTIONS.md` post2 |
+| Kit / captions | `docs/x-hotfix-2026-09-13/CAPTIONS.md` post2 |
 | Organic reference | https://x.com/PlayPackPTS/status/2100232354249728403 |
 | Sparse hashtags (`#PackPTS` `#Daily5`, max 2) | `sparseHashtags` + publisher cap |
 | No signup bonus / 250 free / FOMO acquisition | `validatePostForPublishing` blocks at queue, publish, and startup audit |

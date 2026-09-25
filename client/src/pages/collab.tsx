@@ -211,7 +211,7 @@ function PublishForm({ sessionId, approvedCount, onPublished }: {
       <CardContent className="space-y-3">
         {!canPublish && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            {approvedCount}/5 cards approved — need {5 - approvedCount} more to publish
+            {approvedCount}/5 cards approved. Need {5 - approvedCount} more to publish.
           </p>
         )}
         <Input

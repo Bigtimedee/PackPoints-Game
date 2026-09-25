@@ -114,7 +114,7 @@ describe("social SVG composers outline type", () => {
       "PackPTS.com",
     ]);
     assertOutlined(buildStreakSvg(W, H, 7), ["STREAK", "7", "DAY STREAK", "Daily play = bonus points"]);
-    assertOutlined(buildChallengeSvg(W, H, 2500), ["CHALLENGE", "2,500", "Card experts only."]);
+    assertOutlined(buildChallengeSvg(W, H, 2500), ["CHALLENGE", "2,500", "points: the record to beat", "Card experts only."]);
     assertOutlined(buildNewUserSvg(W, H, 0), ["JOIN NOW", "Thousands", "Free to play. Real rewards."]);
     assertOutlined(buildRewardSvg(W, H, "500"), ["REWARD", "500", "PackPTS pays you to play."]);
     assertOutlined(buildCardOverlaySvg(W, H, "TRIVIA CARD", GAME_IMAGE_COLORS.gold, "1987 Topps"), [
@@ -122,6 +122,24 @@ describe("social SVG composers outline type", () => {
       "PackPTS.com",
       "1987 Topps",
     ]);
+  });
+});
+
+describe("missing share-image scores", () => {
+  function descOf(svg: string): string {
+    return svg.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
+  }
+
+  it("hides a zero leaderboard or challenge score instead of painting a dash", () => {
+    const board = buildLeaderboardSvg(W, H, "Charter", 0);
+    const challenge = buildChallengeSvg(W, H, 0);
+    expect(descOf(board)).not.toMatch(/\u2013|\u2014/);
+    expect(descOf(board)).not.toContain("pts today");
+    expect(descOf(challenge)).not.toMatch(/\u2013|\u2014/);
+    expect(descOf(challenge)).toContain("points: the record to beat");
+    expect(descOf(challenge)).not.toMatch(/\d/);
+    expect(board).not.toContain(">—<");
+    expect(challenge).not.toContain(">—<");
   });
 });
 

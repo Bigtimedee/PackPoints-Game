@@ -43,13 +43,13 @@ TTL = that CT day key. If `d` is not today’s CT key → **stale**. Recipient s
 
 ## Recipient UI
 
-- Active: `Beat {name} — they went {score}/5 today` (no username → `a collector`). Quiet bar, not a neon toast. Dismiss hides the bar for the session; play continues.
-- Stale: `Challenge expired — play today's five.` Do not show yesterday’s score as live.
+- Active: `Beat {name}. They went {score}/5 today` (no username → `a collector`). Quiet bar, not a neon toast. Dismiss hides the bar for the session; play continues.
+- Stale: `Challenge expired. Play today's five.` Do not show yesterday’s score as live.
 - Invalid token: no banner. Normal Daily 5.
 - After the recipient finishes an **active** challenge only:
   - You led: `You went X/5. They went Y/5.`
   - Tie: `Tied at N/5.`
-  - They led: `They led — Y/5 to your X/5.`
+  - They led: `They led, Y/5 to your X/5.`
 - Optional after that compare: `Want more?` + **Browse sets** → `/sets`. No Maker Rate. No `/make` publish.
 
 ## Challenger UI

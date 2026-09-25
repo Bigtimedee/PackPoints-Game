@@ -25,7 +25,7 @@ function SetOfWeekBanner() {
 
   return (
     <div className="bg-gradient-to-r from-yellow-500 to-amber-500 text-white px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2">
-      <span>⭐ SET OF THE WEEK: {label} — {multiplier}x PTS</span>
+      <span>⭐ SET OF THE WEEK: {label} · {multiplier}x PTS</span>
       <button
         onClick={() => setDismissed(true)}
         className="ml-2 opacity-70 hover:opacity-100 transition-opacity"
@@ -126,7 +126,7 @@ const gameModes = [
     href: "/sets",
     badge: "Play",
     badgeVariant: "secondary" as const,
-    pointRange: "—",
+    pointRange: "",
     difficulty: "Discover",
     disabled: false,
   },
@@ -158,10 +158,10 @@ function PromotionBanner() {
         <span className="ml-2">{promotion.pointsMultiplier}× Points!</span>
       )}
       {daysLeft > 0 && daysLeft <= 7 && (
-        <span className="ml-2 opacity-90">— Ends in {daysLeft} day{daysLeft !== 1 ? 's' : ''}</span>
+        <span className="ml-2 opacity-90">· Ends in {daysLeft} day{daysLeft !== 1 ? 's' : ''}</span>
       )}
       {promotion.description && (
-        <span className="ml-2 opacity-90">— {promotion.description}</span>
+        <span className="ml-2 opacity-90">· {promotion.description}</span>
       )}
     </div>
   );
@@ -212,7 +212,7 @@ function FAQ() {
   const faqs = [
     {
       q: "What is PackPTS?",
-      a: "PackPTS is a sports card trivia game where you identify players from their trading cards. Correct answers earn PackPTS (points) you can spend in the PackPTS wallet. Marketplace lets you browse live eBay and Goldin listings — applying PackPTS does not change the price those sites charge.",
+      a: "PackPTS is a sports card trivia game where you identify players from their trading cards. Correct answers earn PackPTS (points) you can spend in the PackPTS wallet. Marketplace lets you browse live eBay and Goldin listings. Applying PackPTS does not change the price those sites charge.",
     },
     {
       q: "Is PackPTS free to play?",
@@ -220,7 +220,7 @@ function FAQ() {
     },
     {
       q: "How do I redeem my points?",
-      a: "Visit Marketplace to browse live eBay and Goldin listings. PackPTS you apply are reserved or spent in your PackPTS wallet — they do not change the price eBay charges. We may earn an affiliate commission.",
+      a: "Visit Marketplace to browse live eBay and Goldin listings. PackPTS you apply are reserved or spent in your PackPTS wallet. They do not change the price eBay charges. We may earn an affiliate commission.",
     },
     {
       q: "What sports are covered?",
@@ -361,7 +361,7 @@ export default function Home() {
                   onClick={() => logAbEvent("click", variant.current)}
                 >
                   <Zap className="h-5 w-5" />
-                  {variant.current === "B" ? "Start Earning — It's Free" : "Play Now"}
+                  {variant.current === "B" ? "Start Earning. It's Free" : "Play Now"}
                 </Button>
               </Link>
               {!isAuthenticated && (
@@ -441,7 +441,7 @@ export default function Home() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">{mode.pointRange}</Badge>
+                      {mode.pointRange ? <Badge variant="outline">{mode.pointRange}</Badge> : null}
                       <Badge variant="outline">{mode.difficulty}</Badge>
                     </div>
                     {mode.disabled ? (
