@@ -33,6 +33,8 @@ function row(cardId: string, patch: Partial<WarmSidecarCardRow> = {}): WarmSidec
     cardId,
     inPlayable: true,
     inBaseball: false,
+    isPlayable: true,
+    setActive: true,
     blockedReason: null,
     imageRotation: 0,
     imageCacheStatus: "ok",
@@ -58,6 +60,9 @@ describe("warm sidecar backfill", () => {
     const wideId = "card-wide";
     const unknownId = "card-unknown";
     const markedId = "card-marked";
+    const unplayableId = "card-unplayable";
+    const inactiveId = "card-inactive";
+    const staleId = "card-stale";
     await writeFile(path.join(dir, `${okId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
     await writeFile(path.join(dir, `${namedId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
     await writeFile(path.join(dir, `${brokenId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
@@ -66,6 +71,11 @@ describe("warm sidecar backfill", () => {
     await writeFile(path.join(dir, `${unknownId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
     await writeFile(path.join(dir, `${markedId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
     await writeFile(path.join(dir, warmOkMarkerFilename(markedId)), "ok\n");
+    await writeFile(path.join(dir, `${unplayableId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
+    await writeFile(path.join(dir, `${inactiveId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
+    await writeFile(path.join(dir, `${staleId}_${CURRENT_MASK_VERSION}.jpg`), portrait);
+    await writeFile(path.join(dir, warmOkMarkerFilename(staleId)), "ok\n");
+    await writeFile(path.join(dir, `${staleId}_v0.ok`), "old\n");
     expect(isLandscapeJpegFile(path.join(dir, `${wideId}_${CURRENT_MASK_VERSION}.jpg`))).toBe(true);
     expect(isLandscapeJpegFile(path.join(dir, `${okId}_${CURRENT_MASK_VERSION}.jpg`))).toBe(false);
 
@@ -82,23 +92,32 @@ describe("warm sidecar backfill", () => {
           else if (id === brokenId) rows.set(id, row(id, { imageQuarantineReason: "placeholder" }));
           else if (id === cacheBadId) rows.set(id, row(id, { imageCacheStatus: "bad" }));
           else if (id === unknownId) rows.set(id, row(id, { inPlayable: false, inBaseball: false }));
+          else if (id === unplayableId) rows.set(id, row(id, { isPlayable: false }));
+          else if (id === inactiveId) rows.set(id, row(id, { setActive: false }));
+          else if (id === staleId) rows.set(id, row(id, { imageQuarantineReason: "broken" }));
           else rows.set(id, row(id));
         }
         return rows;
       },
     });
 
-    expect(asked.flat()).not.toContain(markedId);
+    expect(asked.flat()).toContain(markedId);
     expect(await readFile(path.join(dir, warmOkMarkerFilename(okId)), "utf8")).toBe("ok\n");
+    expect(await readFile(path.join(dir, warmOkMarkerFilename(markedId)), "utf8")).toBe("ok\n");
     await expect(readFile(path.join(dir, warmOkMarkerFilename(namedId)), "utf8")).rejects.toThrow();
     await expect(readFile(path.join(dir, warmOkMarkerFilename(brokenId)), "utf8")).rejects.toThrow();
     await expect(readFile(path.join(dir, warmOkMarkerFilename(cacheBadId)), "utf8")).rejects.toThrow();
     await expect(readFile(path.join(dir, warmOkMarkerFilename(wideId)), "utf8")).rejects.toThrow();
     await expect(readFile(path.join(dir, warmOkMarkerFilename(unknownId)), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(dir, warmOkMarkerFilename(unplayableId)), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(dir, warmOkMarkerFilename(inactiveId)), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(dir, warmOkMarkerFilename(staleId)), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(dir, `${staleId}_v0.ok`), "utf8")).rejects.toThrow();
     expect(counts.written).toBe(1);
-    expect(counts.skipped).toBe(5);
+    expect(counts.skipped).toBe(8);
+    expect(counts.removed).toBe(1);
     const summary = vi.mocked(console.log).mock.calls.map((args) => String(args[0])).join("\n");
-    expect(summary).toContain(`warm sidecar backfill scanned=${counts.scanned} written=1 skipped=5`);
+    expect(summary).toContain(`warm sidecar backfill scanned=${counts.scanned} written=1 skipped=8 removed=1`);
   });
 
   it("checks the database 50 files at a time", async () => {

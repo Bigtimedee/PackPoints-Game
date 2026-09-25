@@ -46,6 +46,16 @@ export async function hashSchemaFile(schemaPath: string): Promise<string> {
   return createHash("sha256").update(body).digest("hex");
 }
 
+/**
+ * A failed push must not leave a hash that still matches schema.ts. The next
+ * boot then sees a mismatch, takes `fast_schema_fallback`, dumps, and waits
+ * for the push. Leaving the marker would keep opening routes on a push that
+ * never succeeded.
+ */
+export async function clearSchemaPushMarker(markerPath: string): Promise<void> {
+  await rm(markerPath, { force: true });
+}
+
 export async function readSchemaPushMarker(markerPath: string): Promise<string | null> {
   try {
     const text = (await readFile(markerPath, "utf8")).trim();
@@ -81,14 +91,41 @@ export function withSessionLockTimeout(databaseUrl: string, lockTimeout: string)
 
 let activeChild: ChildProcess | null = null;
 
+/**
+ * drizzle-kit is `npx`, which spawns node. SIGTERM to that parent alone leaves
+ * the grandchildren running, and a deploy inside the push window can overlap
+ * them with the next container. `detached` puts the child in its own process
+ * group so one signal reaches the whole tree. Railway signals our PID only.
+ */
+export function killChildGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (pid && pid > 0) {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // not a group leader, or already gone
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // already gone
+  }
+}
+
 export function cancelBootSchema(): void {
   if (activeChild && !activeChild.killed) {
-    activeChild.kill("SIGTERM");
+    killChildGroup(activeChild, "SIGTERM");
   }
 }
 
 function defaultSpawn(command: string, args: string[], env?: NodeJS.ProcessEnv): ChildProcess {
-  const child = spawn(command, args, { stdio: "inherit", env: env ?? process.env });
+  const child = spawn(command, args, {
+    stdio: "inherit",
+    env: env ?? process.env,
+    detached: true,
+  });
   activeChild = child;
   child.on("close", () => {
     if (activeChild === child) activeChild = null;
@@ -113,11 +150,7 @@ function run(
       resolve({ code, timedOut });
     };
     const timer = setTimeout(() => {
-      try {
-        child?.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
+      if (child) killChildGroup(child, "SIGKILL");
       done(1, true);
     }, timeoutMs);
     try {
@@ -233,20 +266,21 @@ export async function runBootSchema(opts?: {
     : undefined;
   const push = await run(spawnImpl, "npx", ["drizzle-kit", "push", "--force"], pushTimeoutMs, pushEnv);
   logBootPhase("drizzle_push_end", { ms: Date.now() - pushStarted, code: push.code, timedOut: push.timedOut });
-  if (push.timedOut) {
-    if (!exitOnPushFailure) {
-      console.error(`[Startup] FATAL: background drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Not exiting. The fast probe already matched schema.ts, this container is already the live deploy, and exit(1) would only restart it.`);
+  if (push.timedOut || push.code !== 0) {
+    await clearSchemaPushMarker(markerPath);
+    if (push.timedOut) {
+      if (!exitOnPushFailure) {
+        console.error(`[Startup] FATAL: background drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Not exiting. Cleared the schema marker so the next boot runs the push in the foreground.`);
+        return { pushed: false, dumpFile, dumped, timedOut: true, code: 1 };
+      }
+      console.error(`[Startup] FATAL: drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Exiting so Railway keeps the previous deploy.`);
+      exit(1);
       return { pushed: false, dumpFile, dumped, timedOut: true, code: 1 };
     }
-    console.error(`[Startup] FATAL: drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Exiting so Railway keeps the previous deploy.`);
-    exit(1);
-    return { pushed: false, dumpFile, dumped, timedOut: true, code: 1 };
-  }
-  if (push.code !== 0) {
     if (!exitOnPushFailure) {
-      console.error(`[Startup] FATAL: background drizzle-kit push exited ${push.code}. Not exiting. DB routes stay on the schema the probe already accepted.`);
+      console.error(`[Startup] FATAL: background drizzle-kit push exited ${push.code}. Not exiting. Cleared the schema marker so the next boot runs the push in the foreground.`);
     } else {
-      console.error(`[Startup] WARNING: drizzle-kit push exited ${push.code}. DB routes stay on the schema the push left.`);
+      console.error(`[Startup] WARNING: drizzle-kit push exited ${push.code}. DB routes stay on the schema the push left. Cleared the schema marker so the next boot does not take the fast path.`);
     }
     return { pushed: false, dumpFile, dumped, timedOut: false, code: push.code };
   }

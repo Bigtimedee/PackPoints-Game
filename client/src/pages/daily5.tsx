@@ -820,23 +820,23 @@ export default function Daily5Page() {
             <h1 className="text-3xl font-bold" data-testid="text-d5-complete">Game Complete</h1>
             <p className="text-muted-foreground uppercase tracking-wider text-sm">DAILY 5</p>
             <div className="grid grid-cols-3 gap-3 items-stretch max-w-md mx-auto" data-testid="grid-d5-final-stats">
-              <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
+              <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Points) }} data-testid="text-d5-final-score">
                   {d5Points}
                 </p>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
+                <p className="stat-tile-label text-muted-foreground whitespace-nowrap">PTS</p>
               </div>
-              <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
+              <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Accuracy) }}>
                   {d5Accuracy}
                 </p>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
+                <p className="stat-tile-label text-muted-foreground whitespace-nowrap">Accuracy</p>
               </div>
-              <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
+              <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Fraction) }} data-testid="text-d5-final-correct">
                   {d5Fraction}
                 </p>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
+                <p className="stat-tile-label text-muted-foreground whitespace-nowrap">Score</p>
               </div>
             </div>
             {beatMe?.status === "active" && (

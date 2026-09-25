@@ -1040,17 +1040,17 @@ export default function Game() {
               </p>
             </div>
             <div className="grid grid-cols-3 gap-3 items-stretch" data-testid="grid-final-stats">
-              <div className="h-full p-4 max-[384px]:px-2.5 rounded-md bg-muted flex flex-col">
+              <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(session.score) }} data-testid="text-final-score">{session.score}</p>
-                <p className="text-xs max-[384px]:text-[10px] text-muted-foreground uppercase tracking-wider max-[384px]:tracking-normal whitespace-nowrap">PTS</p>
+                <p className="stat-tile-label text-muted-foreground whitespace-nowrap">PTS</p>
               </div>
-              <div className="h-full p-4 max-[384px]:px-2.5 rounded-md bg-muted flex flex-col">
+              <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(`${accuracy}%`) }} data-testid="text-accuracy">{accuracy}%</p>
-                <p className="text-xs max-[384px]:text-[10px] text-muted-foreground uppercase tracking-wider max-[384px]:tracking-normal whitespace-nowrap">Accuracy</p>
+                <p className="stat-tile-label text-muted-foreground whitespace-nowrap">Accuracy</p>
               </div>
-              <div className="h-full p-4 max-[384px]:px-2.5 rounded-md bg-muted flex flex-col">
+              <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(`${session.correctAnswers}/${effectiveTotal}`) }} data-testid="text-final-correct">{session.correctAnswers}/{effectiveTotal}</p>
-                <p className="text-xs max-[384px]:text-[10px] text-muted-foreground uppercase tracking-wider max-[384px]:tracking-normal whitespace-nowrap">Score</p>
+                <p className="stat-tile-label text-muted-foreground whitespace-nowrap">Score</p>
               </div>
             </div>
             {(session.skippedQuestions ?? 0) > 0 && (

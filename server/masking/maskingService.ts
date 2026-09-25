@@ -20,6 +20,7 @@ import {
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
+import { invalidateMaskReadySidecar } from "./maskReadySidecar";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -683,12 +684,8 @@ export function clearServedOrientation(cardId: string): void {
   }
 }
 
-async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
-  try {
-    unlinkSync(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)));
-  } catch {
-    // no sidecar yet
-  }
+export async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
+  invalidateMaskReadySidecar(cardId);
   try {
     await db
       .update(playableCards)

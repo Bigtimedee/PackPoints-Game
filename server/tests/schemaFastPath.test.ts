@@ -115,6 +115,23 @@ describe("fast schema gate", () => {
     expect(SCHEMA_PROBE_SQL).toContain("information_schema.columns");
   });
 
+  it("falls back when a unique index is missing", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const matched = liveFrom(fixture);
+    const missingUnique = compareSchema(fixture, {
+      columns: matched.columns,
+      indexes: matched.indexes.filter((index) => index.name !== "users_email_unique"),
+    });
+    expect(missingUnique.ok).toBe(false);
+    expect(missingUnique.reason).toContain("missing_unique:users_email_unique");
+    const waited = await boot(async () => missingUnique);
+    expect(waited.result.mode).toBe("fast_schema_fallback");
+    expect(waited.order).toEqual(["push", "routes"]);
+    const logged = vi.mocked(console.log).mock.calls.map((args) => String(args[0])).join("\n");
+    expect(logged).toContain("phase=fast_schema_fallback");
+    expect(logged).toContain("missing_unique:users_email_unique");
+  });
+
   it("falls back without probing when the schema hash differs", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     let probed = false;
