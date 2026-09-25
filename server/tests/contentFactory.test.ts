@@ -22,6 +22,7 @@ import { contentAssets, users, gameSets, playableCards, cardPhotos } from "@shar
 import { eq, and } from "drizzle-orm";
 import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, pipStartX, PIP_SIZE, PIP_GAP, PIP_Y, SCORE_CARD_SIZE, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
+import { scoreCardStackForCount } from "@shared/scoreCardStack";
 import sharp from "sharp";
 import { onMatchFinished, onDaily5Finished, ensureAssetImage, onSetPublished } from "../contentFactory/index";
 
@@ -181,9 +182,10 @@ describe("generateScoreCard()", () => {
     expect(meta.height).toBe(1080);
 
     const startX = pipStartX(5);
+    const frame = scoreCardStackForCount(5);
     // Outlined type must paint (missing fonts = blank navy / tofu).
-    expect(await regionHasColor(result.imagePath, 360, 230, 720, 430, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 200, 660, 880, 730, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 360, frame.scoreInkTop + 8, 720, frame.scoreBaseline - 8, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 200, frame.headlineBaseline - 20, 880, frame.headlineBaseline - 4, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
 

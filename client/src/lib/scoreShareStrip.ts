@@ -1,8 +1,13 @@
 /**
  * Client-only mini masked-card strip for the Game Complete share PNG.
  * Tiles use masked `/api/play/m/` URLs already on the client. The server
- * PNG keeps mode label, date, denominator, and footer.
+ * PNG keeps mode label, date, denominator, and footer. Strip, score, pts,
+ * pips, and tagline share one centered block (`shared/scoreCardStack`).
  */
+
+import { scoreCardFrame, SHARE_STRIP, type ShareStripBox } from "@shared/scoreCardStack";
+
+const FIVE_CARD_FRAME = scoreCardFrame(5);
 
 export const SCORE_SHARE_STRIP = {
   canvasSize: 1080,
@@ -11,17 +16,18 @@ export const SCORE_SHARE_STRIP = {
   tileH: 90,
   gap: 16,
   rowGap: 12,
-  y: 128,
+  /** Top of a 5-card strip. Taller deals use `scoreCardFrame`. */
+  y: FIVE_CARD_FRAME.stripY,
   sideInset: 80,
   /** One row stays this wide. Wider deals wrap instead of shrinking. */
   minTileW: 64,
-  /** Narrower full-ratio card when 64px no longer fits above the score. */
+  /** Narrower full-ratio card when 64px no longer fits on one row. */
   narrowTileW: 56,
   clearX: 60,
-  clearY: 124,
+  /** Glow band for a 5-card strip: 4px pad around the thumbs, above the score. */
+  clearY: FIVE_CARD_FRAME.stripY - 4,
   clearW: 960,
-  /** Through y=224. Covers a 90px thumb and stops above the Daily 5 score. */
-  clearH: 100,
+  clearH: FIVE_CARD_FRAME.stripHeight + 8,
   canvas: "#0b0f16",
   /** Same radial glow as `buildScoreCardSvg`: cx 85%, cy 12%, r 55%. */
   glowCx: 0.85,
@@ -38,7 +44,7 @@ export const SCORE_SHARE_STRIP = {
 
 const MASKED_PLAY_PATH = /^\/api\/play\/m\/(?:solo|d5|ad5|match)\/[^/?#]+\/\d{1,3}\/[^/?#]+$/;
 
-export type StripTileBox = { x: number; y: number; w: number; h: number };
+export type StripTileBox = ShareStripBox;
 
 export type StripTileImage = { width: number; height: number };
 
@@ -68,116 +74,32 @@ export function sessionShareTileSources(urls: readonly (string | null | undefine
   return out;
 }
 
-/** Cap of the 200px score sits near y=248. Keep 12px of air under the strip. */
-export const SCORE_DIGIT_TOP = 248;
-export const SCORE_STRIP_CLEARANCE = 12;
-const SCORE_TOP = SCORE_DIGIT_TOP - SCORE_STRIP_CLEARANCE;
+export { SCORE_CARD_STRIP_TO_DIGITS as SCORE_STRIP_CLEARANCE } from "@shared/scoreCardStack";
 
 /** How many 64px tiles fit in one row at the current gap. */
 export function scoreShareStripRowCapacity(): number {
-  const maxW = SCORE_SHARE_STRIP.canvasSize - SCORE_SHARE_STRIP.sideInset * 2;
-  const slot = SCORE_SHARE_STRIP.minTileW + SCORE_SHARE_STRIP.gap;
-  return Math.max(1, Math.floor((maxW + SCORE_SHARE_STRIP.gap) / slot));
-}
-
-function cardHeight(tileW: number): number {
-  return Math.round((tileW * SCORE_SHARE_STRIP.tileH) / SCORE_SHARE_STRIP.tileW);
-}
-
-/** Equal gap that keeps `count` tiles inside `maxW`, or null when `minGap` cannot. */
-function evenGap(count: number, tileW: number, maxW: number, preferred: number, minGap: number): number | null {
-  if (count <= 1) return 0;
-  const room = maxW - count * tileW;
-  if (room < 0) return null;
-  const exact = Math.floor(room / (count - 1));
-  if (exact < minGap) return null;
-  return Math.min(preferred, exact);
-}
-
-type StripTileSpec = { tileW: number; tileH: number; gap: number; rowGap: number; rows: number };
-
-/**
- * 64×90 on one row, including 12 cards once the gap tightens.
- * Two rows of 64×90 would cover the score, so the next step is 56px wide
- * at the same ratio. A 20-card stack still cannot clear the score at 56×79,
- * so that case scales in ratio instead of cropping a 64-wide thumb, and the
- * row gap tightens so the bottom row ends at least 12px above y=248.
- */
-function stripTileSpec(count: number): StripTileSpec {
-  const maxW = SCORE_SHARE_STRIP.canvasSize - SCORE_SHARE_STRIP.sideInset * 2;
-  const fullW: number = SCORE_SHARE_STRIP.tileW;
-  const fullH: number = SCORE_SHARE_STRIP.tileH;
-  const preferredGap: number = SCORE_SHARE_STRIP.gap;
-  const rowGap: number = SCORE_SHARE_STRIP.rowGap;
-  let tileW: number = fullW;
-  let tileH: number = fullH;
-  let gap: number = preferredGap;
-  let verticalGap = rowGap;
-  let rows = 1;
-
-  const wideGap = evenGap(count, fullW, maxW, preferredGap, 8);
-  const twoRowBottom = SCORE_SHARE_STRIP.y + fullH * 2 + rowGap;
-  if (wideGap != null) {
-    gap = wideGap;
-  } else if (twoRowBottom <= SCORE_TOP) {
-    rows = 2;
-  } else {
-    const narrowW: number = SCORE_SHARE_STRIP.narrowTileW;
-    const narrowH = cardHeight(narrowW);
-    const narrowGap = evenGap(count, narrowW, maxW, preferredGap, 4);
-    const narrowRowGap = 8;
-    if (narrowGap != null) {
-      tileW = narrowW;
-      tileH = narrowH;
-      gap = narrowGap;
-    } else if (SCORE_SHARE_STRIP.y + narrowH * 2 + narrowRowGap <= SCORE_TOP) {
-      tileW = narrowW;
-      tileH = narrowH;
-      gap = narrowRowGap;
-      rows = 2;
-    } else {
-      rows = 2;
-      const minVerticalGap = 4;
-      const per = Math.ceil(count / 2);
-      const room = SCORE_TOP - SCORE_SHARE_STRIP.y - minVerticalGap;
-      tileH = Math.floor(room / 2);
-      tileW = Math.max(1, Math.round((tileH * fullW) / fullH));
-      gap = evenGap(per, tileW, maxW, preferredGap, 2) ?? 2;
-      const stack = SCORE_SHARE_STRIP.y + tileH * 2;
-      verticalGap = Math.min(8, Math.max(minVerticalGap, SCORE_TOP - stack));
-    }
-  }
-
-  return { tileW, tileH, gap, rowGap: rows === 2 ? Math.min(verticalGap, 8) : rowGap, rows };
+  const maxW = SHARE_STRIP.canvas - SHARE_STRIP.sideInset * 2;
+  const slot = SHARE_STRIP.tileW + SHARE_STRIP.gap;
+  return Math.max(1, Math.floor((maxW + SHARE_STRIP.gap) / slot));
 }
 
 /**
  * One thumb per scored question, centered, equal gaps.
- * Ten solo cards are one 64×90 row. The glow band is tall enough for that
- * thumb and stops above the score, so nothing is clipped.
+ * The row sits in the centered share block, 32px above the score digits.
  */
 export function scoreShareStripLayout(count: number): StripTileBox[] {
-  if (count <= 0) return [];
-  const spec = stripTileSpec(count);
-  const perRow = spec.rows === 1 ? count : Math.ceil(count / 2);
-  const boxes: StripTileBox[] = [];
-  let index = 0;
-  for (let row = 0; row < spec.rows && index < count; row++) {
-    const n = Math.min(perRow, count - index);
-    const rowW = n * spec.tileW + (n - 1) * spec.gap;
-    const x0 = Math.round((SCORE_SHARE_STRIP.canvasSize - rowW) / 2);
-    const y = SCORE_SHARE_STRIP.y + row * (spec.tileH + spec.rowGap);
-    for (let i = 0; i < n; i++) {
-      boxes.push({
-        x: x0 + i * (spec.tileW + spec.gap),
-        y,
-        w: spec.tileW,
-        h: spec.tileH,
-      });
-    }
-    index += n;
-  }
-  return boxes;
+  return scoreCardFrame(count).boxes;
+}
+
+/** Glow restore rect for this strip. It moves with the thumbs and stops above the score. */
+export function scoreShareGlowBand(count: number): { x: number; y: number; w: number; h: number } {
+  const frame = scoreCardFrame(Math.max(1, count));
+  return {
+    x: SCORE_SHARE_STRIP.clearX,
+    y: frame.stripY - 4,
+    w: SCORE_SHARE_STRIP.clearW,
+    h: frame.stripHeight + 8,
+  };
 }
 
 export type StripPainter = {
@@ -221,11 +143,19 @@ function asGlowContext(ctx: StripPainter): ScoreCardGlowContext | null {
  * Repaints the strip band with the score-card canvas and radial glow so the
  * decorative Daily 5 tiles disappear without a flat dark bar.
  */
-export function restoreScoreCardBand(ctx: ScoreCardGlowContext): void {
+export function restoreScoreCardBand(
+  ctx: ScoreCardGlowContext,
+  band: { x: number; y: number; w: number; h: number } = {
+    x: SCORE_SHARE_STRIP.clearX,
+    y: SCORE_SHARE_STRIP.clearY,
+    w: SCORE_SHARE_STRIP.clearW,
+    h: SCORE_SHARE_STRIP.clearH,
+  },
+): void {
   const size = SCORE_SHARE_STRIP.canvasSize;
   ctx.save();
   ctx.beginPath();
-  ctx.rect(SCORE_SHARE_STRIP.clearX, SCORE_SHARE_STRIP.clearY, SCORE_SHARE_STRIP.clearW, SCORE_SHARE_STRIP.clearH);
+  ctx.rect(band.x, band.y, band.w, band.h);
   ctx.clip();
   ctx.fillStyle = SCORE_SHARE_STRIP.canvas;
   ctx.fillRect(0, 0, size, size);
@@ -312,7 +242,7 @@ export function drawScoreShareTiles(ctx: StripPainter, images: readonly StripTil
 /** Paints plaque tiles on the existing score card. Restores the glow under them when the context can. */
 export function paintScoreShareStrip(ctx: StripPainter, images: readonly StripTileImage[]): StripTileBox[] {
   const glow = asGlowContext(ctx);
-  if (glow) restoreScoreCardBand(glow);
+  if (glow && images.length > 0) restoreScoreCardBand(glow, scoreShareGlowBand(images.length));
   return drawScoreShareTiles(ctx, images);
 }
 
