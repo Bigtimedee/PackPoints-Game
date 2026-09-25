@@ -844,7 +844,7 @@ class StripePurchaseService {
           const { sendEmail } = await import("./emailService");
           await sendEmail({
             to: user.email,
-            subject: "PackPTS: Payment failed — update your billing info",
+            subject: "PackPTS: Payment failed. Update your billing info",
             html: `
               <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                 <h1>Payment failed</h1>

@@ -407,7 +407,7 @@ export async function registerRoutes(
       }
       if (imageBase64.length > 6_700_000) {
         logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "too_large" });
-        return res.status(400).json({ error: "Couldn't read that photo — try exporting as JPEG" });
+        return res.status(400).json({ error: "Couldn't read that photo. Try exporting as JPEG." });
       }
 
       const outcome = await identifyAndMatchReadOnly(imageBase64);
@@ -1942,7 +1942,7 @@ export async function registerRoutes(
         await walletService.earn(
           user.id,
           250,
-          "Welcome bonus — free PackPTS for new players",
+          "Welcome bonus: free PackPTS for new players",
           `welcome_bonus:${user.id}`,
           { source: "signup_bonus" }
         );
@@ -2546,10 +2546,10 @@ export async function registerRoutes(
       const { sendEmail } = await import("./services/emailService");
       await sendEmail({
         to: challenge.email,
-        subject: "Verify your PackPoints account link",
+        subject: "Verify your PackPTS account link",
         html: `
           <h2>Link Verification Request</h2>
-          <p>Someone is trying to link a new login method to your PackPoints account.</p>
+          <p>Someone is trying to link a new login method to your PackPTS account.</p>
           <p>If this was you, click the link below to verify:</p>
           <p><a href="${magicLink}">Verify and Link Account</a></p>
           <p>This link expires in 15 minutes.</p>
@@ -2949,7 +2949,7 @@ export async function registerRoutes(
         requiresReview: result.requiresReview,
         message: result.requiresReview 
           ? "Your redemption is pending admin review due to the high value."
-          : "Redemption successful. Your PackPTS token is shown below — it is not usable at eBay or Goldin checkout.",
+          : "Redemption successful. Your PackPTS token is shown below. It is not usable at eBay or Goldin checkout.",
       });
     } catch (error) {
       console.error("Error processing redemption:", error);

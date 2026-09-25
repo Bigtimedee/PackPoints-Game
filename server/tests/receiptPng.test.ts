@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { buildReceiptPlaqueView, containsBannedReceiptCopy, RECEIPT_COLORS } from "@shared/receiptContract";
-import { buildReceiptPngSvg, RECEIPT_PNG_MIN_BYTES, RECEIPT_PNG_SIZE, renderReceiptPng } from "../contentFactory/generateReceiptPng";
+import { buildReceiptPngSvg, receiptPngMetaLeft, RECEIPT_PNG_MIN_BYTES, RECEIPT_PNG_SIZE, renderReceiptPng } from "../contentFactory/generateReceiptPng";
 import { assertDejaVuReceiptFonts, DEJAVU_FILES } from "../contentFactory/fonts";
 
 const granted = buildReceiptPlaqueView({
@@ -43,6 +43,14 @@ describe("receipt PNG — SOCIAL_PNG_QA", () => {
     expect(svg).toContain("Partner price");
     expect(svg).toContain("M292 196");
     expect(containsBannedReceiptCopy(svg)).toEqual([]);
+  });
+
+  it("omits Created when the receipt has no date", () => {
+    const rows = receiptPngMetaLeft({ ...granted, createdAtLabel: "" });
+    expect(rows.map((row) => row[0])).toEqual(["PackPTS spent", "Grant"]);
+    expect(rows.flat().join(" ")).not.toMatch(/\u2013|\u2014|^-$/);
+    const svg = buildReceiptPngSvg({ ...granted, createdAtLabel: "" });
+    expect(svg).not.toMatch(/\u2013|\u2014/);
   });
 
   it("rasters a 1080 PNG over 50KB", async () => {

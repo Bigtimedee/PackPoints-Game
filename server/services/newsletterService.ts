@@ -57,7 +57,7 @@ function buildNewsletterHtml(data: NewsletterData, unsubscribeToken: string, app
     .join('');
 
   const hardestCardHtml = data.hardestCard
-    ? `<p>This week's hardest card: <strong>${data.hardestCard.setName} ${data.hardestCard.year}</strong> — ${data.hardestCard.wrongAnswerRate}% of players got it wrong!</p>`
+    ? `<p>This week's hardest card: <strong>${data.hardestCard.setName} ${data.hardestCard.year}</strong>. ${data.hardestCard.wrongAnswerRate}% of players got it wrong!</p>`
     : '';
 
   return `
@@ -132,7 +132,7 @@ export async function sendWeeklyNewsletter(): Promise<{ sent: number; errors: nu
       const html = buildNewsletterHtml(data, user.newsletter_unsubscribe_token, appUrl);
       await sendEmail({
         to: user.email,
-        subject: `PackPTS Weekly Digest — ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`,
+        subject: `PackPTS Weekly Digest: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`,
         html,
       });
       sent++;

@@ -81,7 +81,7 @@ router.post("/api/collab/:id/join", isAuthenticated, async (req: any, res: Respo
       .where(and(eq(collaborationSessions.id, id), eq(collaborationSessions.status, "waiting")))
       .returning();
 
-    if (!updated) return res.status(409).json({ error: "Race condition — session was already joined" });
+    if (!updated) return res.status(409).json({ error: "This session was already joined. Refresh and try again." });
 
     const [guest] = await db.select({ username: users.username }).from(users).where(eq(users.id, guestUserId)).limit(1);
     broadcastToCollab(id, {
@@ -212,7 +212,7 @@ router.post("/api/collab/:id/publish", isAuthenticated, requireAdmin, async (req
       cardhedgeCardId: `snap2set:${randomUUID()}`,
       player: card.playerName,
       set: parsed.data.setName,
-      description: `${card.year || newSet.year} ${card.brand || newSet.brand} — ${card.playerName}`,
+      description: `${card.year || newSet.year} ${card.brand || newSet.brand} · ${card.playerName}`,
       imageUrl: card.imageUrl ?? null,
       // category must match the set's sport or getRandomCardsFromSet filters the card out
       category: newSet.sport,

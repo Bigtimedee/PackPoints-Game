@@ -22,7 +22,7 @@ Result: low conversion from registration → first game, low D1 retention.
 ### Step 0 — Pre-Registration Hook (Landing Page)
 **No change required.** The hero section already sets up the value prop:
 - "Guess the Player → Earn Points → Get Real Discounts"
-- CTA: "Play Now" or "Start Earning — It's Free" (A/B test variant B)
+- CTA: "Play Now" or "Start Earning. It's Free" (A/B test variant B)
 
 **Trigger for onboarding:** User clicks "Play Now" → if not logged in → show registration modal → after success → enter onboarding flow.
 

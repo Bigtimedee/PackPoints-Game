@@ -125,7 +125,7 @@ export async function prepareIdentifyImage(file: File): Promise<PreparedIdentify
     try {
       source = await heicToJpegBlob(file);
     } catch {
-      throw new Error("Couldn't read that photo — try exporting as JPEG");
+      throw new Error("Couldn't read that photo. Try exporting as JPEG.");
     }
   }
 
@@ -133,7 +133,7 @@ export async function prepareIdentifyImage(file: File): Promise<PreparedIdentify
   try {
     bitmap = await loadBitmap(source);
   } catch {
-    throw new Error("Couldn't read that photo — try exporting as JPEG");
+    throw new Error("Couldn't read that photo. Try exporting as JPEG.");
   }
 
   try {
