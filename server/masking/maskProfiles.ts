@@ -19,7 +19,7 @@ export interface MaskProfile {
   cardOrientation: "portrait" | "landscape";
   /**
    * Degrees that upright a landscape file of a portrait set when OCR cannot see the last name.
-   * 0 means there is no profile turn to apply.
+   * That miss also paints the 180° mirror of the profile band. 0 means there is no profile turn.
    */
   sidewaysFallbackDeg: 0 | 90 | 270;
   topBandPct: number;

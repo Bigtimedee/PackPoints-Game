@@ -23,6 +23,7 @@ vi.mock("../db", () => ({
 }));
 
 import { maskCardImage } from "../masking/maskCardImage";
+import { MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import {
   acceptWarmMaskedFile,
@@ -85,6 +86,27 @@ async function uprightTopps(): Promise<Buffer> {
     .composite([
       { input: photo, top: 0, left: 0 },
       { input: name, top: photoH, left: 0 },
+    ])
+    .png()
+    .toBuffer();
+}
+
+/** Portrait card with the printed name in the top 24% (1987 Topps Football). */
+async function uprightTopPlate(): Promise<Buffer> {
+  const nameH = Math.round(H * 0.24);
+  const photoH = H - nameH;
+  const name = await sharp({
+    create: { width: W, height: nameH, channels: 3, background: WHITE },
+  }).png().toBuffer();
+  const photo = await sharp({
+    create: { width: W, height: photoH, channels: 3, background: GREEN },
+  }).png().toBuffer();
+  return sharp({
+    create: { width: W, height: H, channels: 3, background: GREEN },
+  })
+    .composite([
+      { input: name, top: 0, left: 0 },
+      { input: photo, top: nameH, left: 0 },
     ])
     .png()
     .toBuffer();
@@ -294,6 +316,110 @@ describe("upright mask bake", () => {
     const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).metadata();
     expect(baked.height || 0).toBeGreaterThan(baked.width || 0);
     expect(peekWarmMaskedFilename("card-plain")).toBeNull();
+  });
+
+  it("covers both name bands when OCR cannot choose a turn", async () => {
+    setOcrJobFactoryForTests(() => ({
+      promise: Promise.resolve({ words: [] }),
+      cancel() {},
+    }));
+    const upright = await uprightTopps();
+    const sideways = await sharp(upright).rotate(90).png().toBuffer();
+    const cardId = "ambiguous-orient";
+    track(cardId);
+    written.push(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`));
+    vi.stubGlobal("fetch", async () => new Response(new Uint8Array(sideways), {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    }));
+
+    const filename = await bakeMaskedCardFromUrl({
+      cardId,
+      imageUrl: "https://images.example/ambiguous.png",
+      playerName: "Ken Phelps",
+      setHint: "1987 Topps baseball",
+      gameSetId: null,
+    });
+    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}_r90.jpg`);
+    expect(dbUpdate).not.toHaveBeenCalled();
+    expect(readOrientNote(cardId)?.coverBoth).toBe(true);
+
+    const plan = JSON.parse(readFileSync(
+      path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`),
+      "utf8",
+    )) as { layoutClass: string; regions: Array<{ yPct: number; hPct: number; wPct: number }> };
+    expect(plan.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(plan.regions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ yPct: 54, hPct: 46 }),
+      expect.objectContaining({ yPct: 0, hPct: 46 }),
+    ]));
+    expect(plan.regions.filter((region) => region.wPct >= 90)).toHaveLength(2);
+
+    const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).toBuffer();
+    const top = await sample(baked, 50, 8);
+    const bottom = await sample(baked, 50, 90);
+    const gap = await sample(baked, 50, 50);
+    expect(isDark(top.r, top.g, top.b)).toBe(true);
+    expect(isDark(bottom.r, bottom.g, bottom.b)).toBe(true);
+    expect(isGreen(gap.r, gap.g, gap.b)).toBe(true);
+
+    const logLine = vi.mocked(console.log).mock.calls
+      .map((args) => String(args[0]))
+      .find((line) => line.includes("orientation ambiguous"));
+    expect(logLine).toBe(`[MaskBake] orientation ambiguous cover=both card=${cardId}`);
+
+    const again = await maskCardImage(sideways, "Ken Phelps", "1987 Topps baseball", { cardId });
+    expect(again.orientationAmbiguous).toBe(true);
+    expect(again.coverageOk).toBe(true);
+    expect(again.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(anyRegionCoversPoint(again.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(again.regions, 50, 90)).toBe(true);
+    expect(dbUpdate).not.toHaveBeenCalled();
+  });
+
+  it("mirrors a top plate onto the bottom band when the turn is a guess", async () => {
+    setOcrJobFactoryForTests(() => ({
+      promise: Promise.resolve({ words: [] }),
+      cancel() {},
+    }));
+    const upright = await uprightTopPlate();
+    const sideways = await sharp(upright).rotate(90).png().toBuffer();
+    const cardId = "ambiguous-top-plate";
+    track(cardId);
+    written.push(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`));
+    vi.stubGlobal("fetch", async () => new Response(new Uint8Array(sideways), {
+      status: 200,
+      headers: { "content-type": "image/png" },
+    }));
+
+    const filename = await bakeMaskedCardFromUrl({
+      cardId,
+      imageUrl: "https://images.example/ambiguous-top.png",
+      playerName: "Hanford Dixon",
+      setHint: "1987 Topps Football",
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+    });
+    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}_r90.jpg`);
+    expect(dbUpdate).not.toHaveBeenCalled();
+
+    const plan = JSON.parse(readFileSync(
+      path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`),
+      "utf8",
+    )) as { layoutClass: string; regions: Array<{ yPct: number; hPct: number }> };
+    expect(plan.layoutClass).toBe("TOP_PLATE");
+    expect(plan.regions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ yPct: 0, hPct: 24 }),
+      expect.objectContaining({ yPct: 76, hPct: 24 }),
+    ]));
+
+    const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).toBuffer();
+    const top = await sample(baked, 50, 8);
+    const bottom = await sample(baked, 50, 90);
+    const photo = await sample(baked, 50, 50);
+    expect(isDark(top.r, top.g, top.b)).toBe(true);
+    expect(isDark(bottom.r, bottom.g, bottom.b)).toBe(true);
+    expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
+    expect(dbUpdate).not.toHaveBeenCalled();
   });
 });
 

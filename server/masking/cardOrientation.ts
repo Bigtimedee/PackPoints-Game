@@ -12,6 +12,11 @@ export interface UprightCard {
   rotation: QuarterTurn;
   source: "field" | "ocr" | "profile" | "none";
   landscapeDesign: boolean;
+  /**
+   * Landscape file of a portrait set, no imageRotation, and OCR could not place
+   * the last name on either 90° candidate. The turn is a guess.
+   */
+  orientationAmbiguous: boolean;
   /** null: OCR has not run on the upright image. An array: probe already finished. */
   words: OcrWordBox[] | null;
   ocrTimedOut: boolean;
@@ -31,6 +36,11 @@ function fallbackTurn(profile: MaskProfile): QuarterTurn {
   const turn = profile.sidewaysFallbackDeg;
   if (turn === 90 || turn === 270) return turn;
   return 0;
+}
+
+/** A guessed quarter-turn can put the name on the opposite edge. Cover both. */
+function guessedTurn(rotation: QuarterTurn): boolean {
+  return rotation === 90 || rotation === 270;
 }
 
 function lastNameInAnchor(boxes: OcrWordBox[], profile: MaskProfile, imageHeight: number): boolean {
@@ -73,6 +83,7 @@ export async function uprightCardImage(
       rotation: field,
       source: "field",
       landscapeDesign: false,
+      orientationAmbiguous: false,
       words: null,
       ocrTimedOut: false,
       ocrMs: 0,
@@ -89,6 +100,7 @@ export async function uprightCardImage(
       rotation: 0,
       source: "none",
       landscapeDesign: false,
+      orientationAmbiguous: false,
       words: null,
       ocrTimedOut: false,
       ocrMs: 0,
@@ -102,6 +114,7 @@ export async function uprightCardImage(
       rotation: 0,
       source: "profile",
       landscapeDesign: true,
+      orientationAmbiguous: false,
       words: null,
       ocrTimedOut: false,
       ocrMs: 0,
@@ -116,6 +129,7 @@ export async function uprightCardImage(
       rotation,
       source: rotation ? "profile" : "none",
       landscapeDesign: false,
+      orientationAmbiguous: guessedTurn(rotation),
       words: [],
       ocrTimedOut: false,
       ocrMs: 0,
@@ -138,6 +152,7 @@ export async function uprightCardImage(
         rotation: fb,
         source: "profile",
         landscapeDesign: false,
+        orientationAmbiguous: guessedTurn(fb),
         words: [],
         ocrTimedOut: true,
         ocrMs,
@@ -151,6 +166,7 @@ export async function uprightCardImage(
         rotation,
         source: "ocr",
         landscapeDesign: false,
+        orientationAmbiguous: false,
         words: ocr.words,
         ocrTimedOut: false,
         ocrMs,
@@ -165,6 +181,7 @@ export async function uprightCardImage(
       rotation: loose.rotation,
       source: "ocr",
       landscapeDesign: false,
+      orientationAmbiguous: false,
       words: loose.words,
       ocrTimedOut: false,
       ocrMs,
@@ -177,6 +194,7 @@ export async function uprightCardImage(
     rotation: fb,
     source: fb ? "profile" : "none",
     landscapeDesign: false,
+    orientationAmbiguous: guessedTurn(fb),
     words: [],
     ocrTimedOut: false,
     ocrMs,

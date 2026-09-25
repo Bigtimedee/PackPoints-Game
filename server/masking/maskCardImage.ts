@@ -9,6 +9,7 @@ import { assertOpaqueIdentityCover } from "./maskCoverage";
 import { applyServedRotation, uprightCardImage } from "./cardOrientation";
 import { recognizeWords } from "./ocrRuntime";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
+import { clampRegion } from "@shared/maskGeometry";
 import type { MaskRegion } from "@shared/schema";
 
 export interface MaskResult {
@@ -27,6 +28,8 @@ export interface MaskResult {
   ocrTimedOut: boolean;
   ocrMs: number;
   landscapeDesign: boolean;
+  /** Guessed quarter-turn. Regions include the profile band and its 180° mirror. */
+  orientationAmbiguous: boolean;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -76,6 +79,26 @@ async function applyPercentRegions(
   return sharp(imageBuffer).composite(overlays).jpeg({ quality: 85 }).toBuffer();
 }
 
+/** Profile band first, then the same band flipped 180° so a wrong turn still hides the name. */
+function coverBothNameBands(regions: MaskRegion[]): MaskRegion[] {
+  const covered = regions.map((region) => ({ ...region }));
+  for (const region of regions) {
+    const mirror = clampRegion({
+      ...region,
+      yPct: 100 - (region.yPct + region.hPct),
+    });
+    if (mirror.wPct < 2 || mirror.hPct < 2) continue;
+    const already = covered.some((existing) =>
+      Math.abs(existing.xPct - mirror.xPct) < 0.5 &&
+      Math.abs(existing.yPct - mirror.yPct) < 0.5 &&
+      Math.abs(existing.wPct - mirror.wPct) < 0.5 &&
+      Math.abs(existing.hPct - mirror.hPct) < 0.5
+    );
+    if (!already) covered.push(mirror);
+  }
+  return covered;
+}
+
 export async function maskCardImage(
   rawImageBuffer: Buffer,
   playerName: string,
@@ -99,6 +122,7 @@ export async function maskCardImage(
       buffer: await applyServedRotation(rawImageBuffer, existing.rotation),
       rotation: existing.rotation,
       landscapeDesign: existing.landscapeDesign,
+      orientationAmbiguous: existing.coverBoth === true,
       words: null as null,
       ocrTimedOut: false,
       ocrMs: 0,
@@ -115,6 +139,7 @@ export async function maskCardImage(
     writeOrientNote(opts.cardId, {
       rotation: upright.rotation,
       landscapeDesign: upright.landscapeDesign,
+      coverBoth: upright.orientationAmbiguous,
     });
   }
 
@@ -158,11 +183,12 @@ export async function maskCardImage(
     imageHeight: originalHeight,
     slabLayout,
   });
+  const regions = upright.orientationAmbiguous ? coverBothNameBands(plan.regions) : plan.regions;
 
-  const maskedBuffer = await applyPercentRegions(upright.buffer, plan.regions);
+  const maskedBuffer = await applyPercentRegions(upright.buffer, regions);
   const coverage = await assertOpaqueIdentityCover({
     buffer: maskedBuffer,
-    regions: plan.regions,
+    regions,
     layoutClass: plan.layoutClass,
     nameBoxes: plan.nameBoxes,
     imageWidth: originalWidth,
@@ -174,7 +200,7 @@ export async function maskCardImage(
     ocrApplied: plan.source === "ocr" || plan.source === "ocr+profile",
     ocrMatches: plan.matchedTokens,
     source: plan.source,
-    regions: plan.regions,
+    regions,
     layoutClass: plan.layoutClass,
     coverageOk: coverage.ok,
     coverageReason: coverage.reason,
@@ -182,6 +208,7 @@ export async function maskCardImage(
     ocrTimedOut,
     ocrMs,
     landscapeDesign: upright.landscapeDesign,
+    orientationAmbiguous: upright.orientationAmbiguous,
   };
 }
 

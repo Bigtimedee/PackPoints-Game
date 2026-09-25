@@ -276,16 +276,16 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
   }
   if (field !== 0) {
     if (filename !== warmMaskedFilename(cardId, field)) return false;
-    writeOrientNote(cardId, { rotation: field, landscapeDesign: false });
+    writeOrientNote(cardId, { rotation: field, landscapeDesign: false, coverBoth: false });
     return true;
   }
   const turned = filenameRotation(filename);
   if (turned !== 0) {
-    writeOrientNote(cardId, { rotation: turned, landscapeDesign: false });
+    writeOrientNote(cardId, { rotation: turned, landscapeDesign: false, coverBoth: false });
     return true;
   }
   if (isLandscapeJpegFile(path.join(MASKED_CARDS_DIR, filename))) return false;
-  writeOrientNote(cardId, { rotation: 0, landscapeDesign: false });
+  writeOrientNote(cardId, { rotation: 0, landscapeDesign: false, coverBoth: false });
   return true;
 }
 
@@ -441,6 +441,9 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
       );
       if (isCancelled()) return null;
       if (result.ocrTimedOut) recordOcrTimeout(cardId, result.ocrMs);
+      if (result.orientationAmbiguous) {
+        console.log(`[MaskBake] orientation ambiguous cover=both card=${cardId}`);
+      }
 
       if (!result.coverageOk) {
         const reason = result.coverageReason || "mask_name_uncovered";
@@ -629,6 +632,7 @@ export async function orientUnmaskedScan(cardId: string, buffer: Buffer): Promis
   writeOrientNote(cardId, {
     rotation: upright.rotation,
     landscapeDesign: upright.landscapeDesign,
+    coverBoth: upright.orientationAmbiguous,
   });
   if (upright.ocrTimedOut) recordOcrTimeout(cardId, upright.ocrMs);
   return upright.buffer;

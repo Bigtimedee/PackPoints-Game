@@ -9,6 +9,8 @@ export interface OrientNote {
   rotation: QuarterTurn;
   /** True when a horizontal design was intentionally left landscape. */
   landscapeDesign: boolean;
+  /** Guessed quarter-turn: paint the profile name band and its 180° mirror. */
+  coverBoth: boolean;
 }
 
 export function normalizeQuarterTurn(value: unknown): QuarterTurn {
@@ -30,10 +32,15 @@ export function readOrientNote(cardId: string): OrientNote | null {
   const filePath = notePath(cardId);
   if (!existsSync(filePath)) return null;
   try {
-    const raw = JSON.parse(readFileSync(filePath, "utf8")) as { rotation?: unknown; landscapeDesign?: unknown };
+    const raw = JSON.parse(readFileSync(filePath, "utf8")) as {
+      rotation?: unknown;
+      landscapeDesign?: unknown;
+      coverBoth?: unknown;
+    };
     return {
       rotation: normalizeQuarterTurn(raw.rotation),
       landscapeDesign: raw.landscapeDesign === true,
+      coverBoth: raw.coverBoth === true,
     };
   } catch {
     return null;
@@ -46,6 +53,7 @@ export function writeOrientNote(cardId: string, note: OrientNote): void {
   writeFileSync(notePath(cardId), JSON.stringify({
     rotation: note.rotation,
     landscapeDesign: note.landscapeDesign,
+    coverBoth: note.coverBoth === true,
   }));
 }
 
