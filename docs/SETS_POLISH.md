@@ -12,7 +12,7 @@ Mocks: `sets-index-polish.png`, `sets-detail-polish.png`.
 | Canvas | `#0b0f16` | Page surface |
 | Ink | `#F0F2F5` | Titles |
 | Muted | `#8F96A3` | Meta, cues |
-| Gold | `#F5C518` | Accent only (short-shelf rule, FAN MADE outline) |
+| Gold | `#F5C518` | Accent only (FAN MADE outline) |
 | Green | `#22C55E` | Not required on these pages |
 | Blue | `#2B6CEE` | Play CTAs, sparingly |
 
@@ -30,16 +30,15 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 - **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack of that set’s cards**. Never keep a stock fan once the runtime cover exists.
 - Meta for an integrated set: honest `{n} cards` only. No `by Maker`, no date, no `AUTHORED`.
 - Meta for a user-created set that still has a maker username: `by {maker}` · honest `{n} cards` · optional `{MON D}` (America/Chicago via `shared/packptsDay.ts`) · `AUTHORED`
+- Title: the stored set name. If `brand` is set and the name does not already contain it, insert the brand after a leading year (`2024 Basketball` + brand `Topps` → `2024 Topps Basketball`). A blank brand leaves the stored name. Do not substitute the `year` column for the year already in the name.
+- Fanned card thumbs (no Surface A cover): the name plaque is a solid bar with the gold seam and no label text. The in-game card, the baked mask, and reveal stay as they are.
 - Play CTA: blue `#2B6CEE`, label `Play this set`. Starts that set's solo game (same flow as detail Play).
 - Do not render play count, Maker Rate, trending, or vanity tiles
+- Do not show a short-shelf banner. The honest `{n} sets` line is the list length only. Do not add a playable-card total.
 
-### Sparse shelf
+### Shelf length
 
-When published set volume is below the public gate (**10**), show a quiet banner:
-
-> **A short shelf.** Integrated sets only. Play what's here, or open Daily 5.
-
-Never fake inventory. Never publish Maker Rate / DAU / “N makers” here. The gate matches admin `publishedSetsNonStaff` diligence (≥10 non-staff); the public page only sees the honest list length, not the admin metric.
+Never fake inventory. Never publish Maker Rate / DAU / “N makers” here. Admin `publishedSetsNonStaff` diligence (≥10 non-staff) stays an admin metric. The public page only sees the honest list length.
 
 Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play Daily 5** (quiet outline). `/make` is staff-only.
 
@@ -51,7 +50,7 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 - Play + honest `{n} Cards` pill
 - Optional muted `Play today’s stack` **only if this visitor has not already played this set today** (America/Chicago). No clocks, no “hurry”, no “come back tomorrow”
 - Cover priority same as index. Caption: `Share cover · runtime Surface A` when Surface A is shown
-- **THE STACK:** staggered preview of this set’s cards (masked). Cream silhouette + redaction bar if a photo is missing. Never player names in copy, alt, or payload
+- **THE STACK:** staggered preview of this set’s cards (masked). Fanned thumbs use the same solid plaque and gold seam, with no label text. Cream silhouette + redaction bar if a photo is missing. Never player names in copy, alt, or payload
 - Share · Copy link · muted `packpts.com/sets/{slug}`
 - Share/copy href is `https://packpts.com/sets/{slug}?utm_source=share&utm_medium=play_sets&utm_campaign=integrated` (never `/make`). Display line stays the quiet canonical without UTMs.
 - **Cover / OG priority:** runtime Surface A (or play-sets runtime crop) when present and not stock fan `maker-set-1080.png`. Kit templates (`/assets/play-sets/*.png`) are Marketing cold posts / placeholders only — do not substitute kit A for a real set’s runtime cover. Story crops: `/assets/play-sets/play-set-story.png`, `play-shelf-story.png`, `play-beatme-story.png`. Contract: `docs/PLAY_SETS_SHARE.md`.
@@ -71,7 +70,7 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 ## Honesty / gate
 
 - Public Maker Rate / platform volume claims stay locked until **≥10 non-staff** published user-created sets
-- Short-shelf copy is the only volume language allowed below the gate
+- The index does not advertise how short the shelf is, and it does not publish a card total
 - Play starts with `totalQuestions = clamp(cardCount, 5, 20)` — the set’s real stack, not a hardcoded 10
 
 ## Non-goals

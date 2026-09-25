@@ -9,10 +9,11 @@ import {
   honestCardCountLabel,
   isStockFanUrl,
   playQuestionCount,
+  formatIndexSetTitle,
+  plaqueChromeShowsLabel,
   publicSetDisplayUrl,
   resolveSetCover,
   shouldShowPlayTodayCue,
-  shouldShowShortShelf,
 } from "../setsPolish";
 
 describe("resolveSetCover", () => {
@@ -106,14 +107,33 @@ describe("set meta", () => {
   });
 });
 
-describe("gates and play", () => {
-  it("shows the short-shelf banner only for a real, sub-gate list", () => {
-    expect(shouldShowShortShelf(0)).toBe(false);
-    expect(shouldShowShortShelf(2)).toBe(true);
-    expect(shouldShowShortShelf(9)).toBe(true);
-    expect(shouldShowShortShelf(10)).toBe(false);
-    expect(SETS_POLISH.volumeGate).toBe(10);
+describe("index title", () => {
+  it("inserts a stored brand the set name left out", () => {
+    expect(formatIndexSetTitle({ setName: "2024 Basketball", brand: "Topps" })).toBe("2024 Topps Basketball");
+    expect(formatIndexSetTitle({ setName: "1987 Topps", brand: "Topps" })).toBe("1987 Topps");
+    expect(formatIndexSetTitle({ setName: "1987 Topps Football", brand: "Topps" })).toBe("1987 Topps Football");
+    expect(formatIndexSetTitle({ setName: "1989 Fleer Basketball", brand: "Fleer" })).toBe("1989 Fleer Basketball");
+    expect(formatIndexSetTitle({ setName: "2022 Panini Chronicles Football", brand: "Panini" })).toBe(
+      "2022 Panini Chronicles Football",
+    );
   });
+
+  it("leaves the stored name when brand is missing and does not rewrite the year", () => {
+    expect(formatIndexSetTitle({ setName: "2024 Basketball", brand: null })).toBe("2024 Basketball");
+    expect(formatIndexSetTitle({ setName: "2024 Basketball", brand: "  " })).toBe("2024 Basketball");
+    expect(formatIndexSetTitle({ setName: "2024 Basketball" })).toBe("2024 Basketball");
+    expect(formatIndexSetTitle({ setName: "2024 Basketball", brand: "Topps" })).not.toBe("2025 Topps Basketball");
+  });
+});
+
+describe("fanned plaque", () => {
+  it("keeps the name label off the solid thumb bar", () => {
+    expect(plaqueChromeShowsLabel("bar")).toBe(false);
+    expect(plaqueChromeShowsLabel("full")).toBe(true);
+  });
+});
+
+describe("gates and play", () => {
 
   it("shows Play today’s stack unless this set was already played today", () => {
     expect(shouldShowPlayTodayCue(false)).toBe(true);
@@ -148,10 +168,12 @@ describe("display url + forbidden copy", () => {
   it("does not push Snap-to-Set publish copy on the public shelf", () => {
     expect(SETS_POLISH.indexTitle).toBe("Sets");
     expect(SETS_POLISH.indexSub).toBe("Play sets already in PackPTS.");
-    expect(SETS_POLISH.shortShelfBody.toLowerCase()).not.toContain("/make");
-    expect(SETS_POLISH.shortShelfBody.toLowerCase()).not.toContain("snap yours");
-    expect(SETS_POLISH.shortShelfBody).not.toMatch(/[\u2013\u2014]/);
+    expect(SETS_POLISH.indexSub.toLowerCase()).not.toContain("/make");
+    expect(SETS_POLISH.indexSub.toLowerCase()).not.toContain("snap yours");
+    expect(SETS_POLISH.indexSub).not.toMatch(/[\u2013\u2014]/);
     expect(SETS_POLISH.playThisSet).toBe("Play this set");
+    expect(SETS_POLISH).not.toHaveProperty("shortShelfTitle");
+    expect(SETS_POLISH).not.toHaveProperty("shortShelfBody");
   });
 
   it("keeps browse and detail pages free of vanity copy", () => {
