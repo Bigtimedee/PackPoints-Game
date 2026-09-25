@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
+import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 function getMatchSecret(): string | null {
@@ -1218,7 +1219,12 @@ export default function Match() {
         {currentQuestion && (
           <div className="space-y-4">
             <GameCard
-              key={`${matchState.currentQuestionIndex}-${seedVersion}-${imageRetryCount}-${answerResult ? "revealed" : "masked"}`}
+              key={gameCardMountKey(
+                matchId || matchState.matchId,
+                matchState.currentQuestionIndex,
+                currentQuestion.card.imageUrl,
+                [seedVersion, imageRetryCount],
+              )}
               imageUrl={playCardSrcBusted}
               isRevealed={answerResult !== null}
               setLabel="MYSTERY CARD"
@@ -1246,6 +1252,8 @@ export default function Match() {
                 });
               }}
               sessionId={matchId}
+              playScope="match"
+              questionIndex={matchState.currentQuestionIndex}
             />
             
             <div className="grid grid-cols-2 gap-3" role="group" aria-label="Answer choices">

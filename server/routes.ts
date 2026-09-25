@@ -103,7 +103,8 @@ import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from "./utils/questionSanitizer";
 import { handleCardIdUnmasked, handleMaskedToken, handleRevealToken, setUnmaskedHeaders } from "./services/playImageHttp";
-import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveRevealCard } from "./services/playImageAccess";
+import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveReportedCardId, resolveRevealCard } from "./services/playImageAccess";
+import { handlePlayImageReport } from "./services/playImageReport";
 import { sendMaskedCard, sendUnmaskedCard } from "./services/playImageSend";
 import { setIdPrefixFromShareSlug } from "./contentFactory/makerShareSlug";
 import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
@@ -7619,6 +7620,15 @@ export async function registerRoutes(
     req.body = { ...(req.body || {}), sessionId: req.params.id };
     req.params.cardId = req.params.cardId || "session";
     return reportCardImage(req, res);
+  });
+  app.post("/api/play/report", async (req, res) => {
+    await handlePlayImageReport(req, res, {
+      resolveCard: resolveReportedCardId,
+      submit: async (request, response, cardId) => {
+        request.params.cardId = cardId;
+        await reportCardImage(request, response);
+      },
+    });
   });
 
   // Report an image load failure during gameplay (auto-flag mechanism)

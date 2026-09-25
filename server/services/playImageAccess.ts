@@ -18,6 +18,7 @@ import {
   revealPlayPath,
   type PlayScope,
 } from "./playImageToken";
+import { pickReportedCardId } from "./playImageReport";
 import type { CardIdGrant, RevealResolution } from "./playImageHttp";
 
 type AuthedRequest = Request & {
@@ -245,6 +246,48 @@ export async function resolveMaskCard(
   if (!cardId) return null;
   if (!maskTokenMatches(scope, sessionId, index, cardId, token)) return null;
   return cardId;
+}
+
+async function soloReplacedFromIds(sessionId: string, index: number): Promise<string[]> {
+  const [row] = await db
+    .select({ questions: gameSessionsTable.questions })
+    .from(gameSessionsTable)
+    .where(eq(gameSessionsTable.id, sessionId))
+    .limit(1);
+  const question = ((row?.questions || []) as Array<{ replacedFromIds?: unknown }>)[index];
+  const ids = question?.replacedFromIds;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+/** Card a play-image report names. Token for a replaced solo card stays on that card. */
+export async function resolveReportedCardId(
+  scope: string,
+  sessionId: string,
+  index: number,
+  token?: string,
+): Promise<string | null> {
+  if (!isPlayScope(scope)) return null;
+  const current = await cardIdForMask(scope, sessionId, index);
+  if (!token) return current;
+  const onCurrent = pickReportedCardId({
+    scope,
+    sessionId,
+    index,
+    token,
+    currentCardId: current,
+  });
+  if (onCurrent) return onCurrent;
+  if (scope !== "solo") return null;
+  const priorCardIds = await soloReplacedFromIds(sessionId, index);
+  return pickReportedCardId({
+    scope,
+    sessionId,
+    index,
+    token,
+    currentCardId: current,
+    priorCardIds,
+  });
 }
 
 async function cardIdForMask(scope: PlayScope, sessionId: string, index: number): Promise<string | null> {

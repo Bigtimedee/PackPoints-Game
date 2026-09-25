@@ -41,6 +41,7 @@ import {
 import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
+import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 
 interface Daily5Status {
@@ -734,7 +735,7 @@ export default function Daily5Page() {
             <div className="flex justify-center">
               <div className="w-full max-w-xs aspect-[3/4] relative">
                 <GameCard
-                  key={`${currentCard.position}-${isRevealed ? "revealed" : "masked"}`}
+                  key={gameCardMountKey(challengeId || "daily5", currentCard.position, currentCard.imageUrl)}
                   imageUrl={resolvePlayCardSrc({
                     maskedUrl: currentCard.imageUrl,
                     revealUrl: answerResult?.revealUrl,
@@ -744,6 +745,9 @@ export default function Daily5Page() {
                   imageRotation={0}
                   setKey={challengeSetId ?? statusQuery.data?.challenge?.setId ?? undefined}
                   allowClientImageReject={false}
+                  sessionId={challengeId}
+                  playScope="d5"
+                  questionIndex={currentCard.position}
                 />
               </div>
             </div>
