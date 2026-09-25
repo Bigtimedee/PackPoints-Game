@@ -6,6 +6,8 @@ import {
   maskedTileSource,
   paintScoreShareStrip,
   restoreScoreCardBand,
+  SCORE_DIGIT_TOP,
+  SCORE_STRIP_CLEARANCE,
   scoreShareStripLayout,
   scoreShareStripRowCapacity,
   sessionShareTileSources,
@@ -175,15 +177,18 @@ describe("score share strip paint", () => {
     expect(fifteen).toHaveLength(15);
     expect(fifteen.every((box) => box.w === 56 && box.h === 79)).toBe(true);
     expect(new Set(fifteen.map((box) => box.y)).size).toBe(1);
-    expect(Math.max(...fifteen.map((box) => box.y + box.h))).toBeLessThanOrEqual(246);
+    expect(Math.max(...fifteen.map((box) => box.y + box.h))).toBeLessThanOrEqual(SCORE_DIGIT_TOP - SCORE_STRIP_CLEARANCE);
 
     const twenty = scoreShareStripLayout(20);
     expect(twenty).toHaveLength(20);
     expect(new Set(twenty.map((box) => box.y)).size).toBe(2);
     expect(twenty.every((box) => box.w === twenty[0].w && box.h === twenty[0].h)).toBe(true);
     expect(twenty[0].w / twenty[0].h).toBeCloseTo(64 / 90, 2);
+    expect(twenty[0].w).toBe(Math.round((twenty[0].h * 64) / 90));
     expect(twenty[0].w).not.toBe(64);
-    expect(Math.max(...twenty.map((box) => box.y + box.h))).toBeLessThanOrEqual(246);
+    const twentyBottom = Math.max(...twenty.map((box) => box.y + box.h));
+    expect(SCORE_DIGIT_TOP - twentyBottom).toBeGreaterThanOrEqual(SCORE_STRIP_CLEARANCE);
+    expect(twentyBottom).toBeLessThanOrEqual(236);
     expect(scoreShareStripRowCapacity()).toBeGreaterThanOrEqual(10);
 
     const serverStrip = { x: 80, y: 136, w: 5 * 30 + 4 * 8, h: 42 };

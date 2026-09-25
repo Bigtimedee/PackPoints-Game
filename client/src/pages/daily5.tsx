@@ -14,6 +14,7 @@ import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
+import { statTileValueFontPx } from "@/lib/statTileValue";
 import {
   BEAT_ME_COPY,
   dismissBeatMeBanner,
@@ -802,6 +803,10 @@ export default function Daily5Page() {
 
   if (gameState === "results") {
     const lb = leaderboardQuery.data;
+    const d5Points = finishResult?.score ?? status?.entry?.score ?? 0;
+    const d5Correct = finishResult?.correctCount ?? status?.entry?.correctCount ?? 0;
+    const d5Accuracy = `${Math.round((d5Correct / 5) * 100)}%`;
+    const d5Fraction = `${d5Correct}/5`;
     return (
       <div>
         <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -816,20 +821,20 @@ export default function Daily5Page() {
             <p className="text-muted-foreground uppercase tracking-wider text-sm">DAILY 5</p>
             <div className="grid grid-cols-3 gap-3 items-stretch max-w-md mx-auto" data-testid="grid-d5-final-stats">
               <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
-                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-d5-final-score">
-                  {finishResult?.score ?? status?.entry?.score ?? 0}
+                <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Points) }} data-testid="text-d5-final-score">
+                  {d5Points}
                 </p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
               </div>
               <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
-                <p className="text-3xl font-bold font-mono whitespace-nowrap">
-                  {Math.round(((finishResult?.correctCount ?? status?.entry?.correctCount ?? 0) / 5) * 100)}%
+                <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Accuracy) }}>
+                  {d5Accuracy}
                 </p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
               </div>
               <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
-                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-d5-final-correct">
-                  {finishResult?.correctCount ?? status?.entry?.correctCount ?? 0}/5
+                <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Fraction) }} data-testid="text-d5-final-correct">
+                  {d5Fraction}
                 </p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
               </div>

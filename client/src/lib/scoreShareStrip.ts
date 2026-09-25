@@ -68,8 +68,10 @@ export function sessionShareTileSources(urls: readonly (string | null | undefine
   return out;
 }
 
-/** Solo score caps start near y=248. The strip stops above them. */
-const SCORE_TOP = 246;
+/** Cap of the 200px score sits near y=248. Keep 12px of air under the strip. */
+export const SCORE_DIGIT_TOP = 248;
+export const SCORE_STRIP_CLEARANCE = 12;
+const SCORE_TOP = SCORE_DIGIT_TOP - SCORE_STRIP_CLEARANCE;
 
 /** How many 64px tiles fit in one row at the current gap. */
 export function scoreShareStripRowCapacity(): number {
@@ -98,7 +100,8 @@ type StripTileSpec = { tileW: number; tileH: number; gap: number; rowGap: number
  * 64×90 on one row, including 12 cards once the gap tightens.
  * Two rows of 64×90 would cover the score, so the next step is 56px wide
  * at the same ratio. A 20-card stack still cannot clear the score at 56×79,
- * so that case scales in ratio instead of cropping a 64-wide thumb.
+ * so that case scales in ratio instead of cropping a 64-wide thumb, and the
+ * row gap tightens so the bottom row ends at least 12px above y=248.
  */
 function stripTileSpec(count: number): StripTileSpec {
   const maxW = SCORE_SHARE_STRIP.canvasSize - SCORE_SHARE_STRIP.sideInset * 2;
@@ -109,6 +112,7 @@ function stripTileSpec(count: number): StripTileSpec {
   let tileW: number = fullW;
   let tileH: number = fullH;
   let gap: number = preferredGap;
+  let verticalGap = rowGap;
   let rows = 1;
 
   const wideGap = evenGap(count, fullW, maxW, preferredGap, 8);
@@ -133,16 +137,18 @@ function stripTileSpec(count: number): StripTileSpec {
       rows = 2;
     } else {
       rows = 2;
-      const fittedGap = 8;
-      const room = SCORE_TOP - SCORE_SHARE_STRIP.y - fittedGap;
+      const minVerticalGap = 4;
+      const per = Math.ceil(count / 2);
+      const room = SCORE_TOP - SCORE_SHARE_STRIP.y - minVerticalGap;
       tileH = Math.floor(room / 2);
       tileW = Math.max(1, Math.round((tileH * fullW) / fullH));
-      const per = Math.ceil(count / 2);
-      gap = evenGap(per, tileW, maxW, fittedGap, 2) ?? 2;
+      gap = evenGap(per, tileW, maxW, preferredGap, 2) ?? 2;
+      const stack = SCORE_SHARE_STRIP.y + tileH * 2;
+      verticalGap = Math.min(8, Math.max(minVerticalGap, SCORE_TOP - stack));
     }
   }
 
-  return { tileW, tileH, gap, rowGap: rows === 2 ? Math.min(rowGap, 8) : rowGap, rows };
+  return { tileW, tileH, gap, rowGap: rows === 2 ? Math.min(verticalGap, 8) : rowGap, rows };
 }
 
 /**

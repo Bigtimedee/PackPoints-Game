@@ -23,6 +23,7 @@ import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
+import { statTileValueFontPx } from "@/lib/statTileValue";
 import {
   PLAY_AGAIN_BUTTON_CLASS,
   replayCardCountFromSession,
@@ -1001,15 +1002,15 @@ export default function Game() {
             </div>
             <div className="grid grid-cols-3 gap-3 items-stretch" data-testid="grid-final-stats">
               <div className="h-full p-4 rounded-md bg-muted flex flex-col">
-                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-final-score">{session.score}</p>
+                <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(session.score) }} data-testid="text-final-score">{session.score}</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
               </div>
               <div className="h-full p-4 rounded-md bg-muted flex flex-col">
-                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-accuracy">{accuracy}%</p>
+                <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(`${accuracy}%`) }} data-testid="text-accuracy">{accuracy}%</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
               </div>
               <div className="h-full p-4 rounded-md bg-muted flex flex-col">
-                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-final-correct">{session.correctAnswers}/{effectiveTotal}</p>
+                <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(`${session.correctAnswers}/${effectiveTotal}`) }} data-testid="text-final-correct">{session.correctAnswers}/{effectiveTotal}</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
               </div>
             </div>
