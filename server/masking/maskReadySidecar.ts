@@ -45,10 +45,39 @@ export function invalidateMaskReadySidecar(cardId: string, dir = maskReadySideca
   return removed;
 }
 
+function sidecarCardId(name: string): string | null {
+  if (!name.endsWith(".ok")) return null;
+  const cut = name.indexOf("_");
+  if (cut <= 0) return null;
+  return name.slice(0, cut);
+}
+
+/** One directory scan for a set. Card ids are uuids, so the id is the filename prefix before `_`. */
 export function invalidateMaskReadySidecars(cardIds: Iterable<string>, dir = maskReadySidecarDir()): string[] {
-  const removed: string[] = [];
+  const ids = new Set<string>();
   for (const cardId of cardIds) {
-    removed.push(...invalidateMaskReadySidecar(cardId, dir));
+    if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
+      continue;
+    }
+    ids.add(cardId);
+  }
+  if (ids.size === 0) return [];
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    const cardId = sidecarCardId(name);
+    if (!cardId || !ids.has(cardId)) continue;
+    try {
+      unlinkSync(path.join(dir, name));
+      removed.push(name);
+    } catch {
+      // already gone
+    }
   }
   return removed;
 }

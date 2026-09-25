@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
-import { DRAIN_TIMEOUT_MS } from "../startup/gracefulShutdown";
+import { CLOSE_GRACE_MS, DRAIN_TIMEOUT_MS } from "../startup/gracefulShutdown";
 import { schemaGateBlocks } from "../startup/schemaGate";
 
 const startSh = readFileSync(new URL("../../start.sh", import.meta.url), "utf8");
@@ -65,6 +65,7 @@ describe("deploy gap", () => {
     expect(railway.deploy.healthcheckTimeout).toBe(120);
     expect(railway.deploy.drainingSeconds).toBe(30);
     expect(railway.deploy.overlapSeconds).toBeUndefined();
-    expect(DRAIN_TIMEOUT_MS).toBeLessThanOrEqual(25_000);
+    expect(DRAIN_TIMEOUT_MS).toBe(5_000);
+    expect(CLOSE_GRACE_MS).toBeLessThan(DRAIN_TIMEOUT_MS);
   });
 });

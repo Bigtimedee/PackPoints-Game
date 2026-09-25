@@ -52,6 +52,7 @@ import {
   rejectReportedCardImage,
 } from "./services/playableIneligible";
 import { invalidateMaskReadySidecars, invalidateMaskSidecarsForGameSet } from "./masking/maskReadySidecar";
+import { PlayableSetUpdateError, updatePlayableSet } from "./services/playableSetUpdate";
 import { describeGameSetDeleteError } from "./services/gameSetDeleteError";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
@@ -60,6 +61,7 @@ import { USER_SET_PUBLISH_CLOSED } from "@shared/catalogMatch";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
+import { requestPasswordReset } from "./auth/passwordResetRequest";
 import { validateImageUrl, recordImageLoadFailure, shouldAutoFlagCard } from "./services/imageValidator";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
@@ -2278,38 +2280,21 @@ export async function registerRoutes(
     }
   });
 
-  // Password reset - request reset link
+  // Password reset - request reset link. A failed send logs the masked
+  // recipient and the error. The token and the reset URL stay out of the logs.
   app.post("/api/auth/forgot-password", forgotPasswordLimiter, async (req, res) => {
     try {
-      const { email } = req.body;
-      if (!email || typeof email !== 'string') {
-        return res.status(400).json({ error: "Email is required" });
+      const result = await requestPasswordReset({
+        email: req.body?.email,
+        getUserByEmail: (email) => storage.getUserByEmail(email),
+        createPasswordResetToken: (userId) => storage.createPasswordResetToken(userId),
+        sendPasswordResetEmail,
+        baseUrl: process.env.APP_URL || "https://packpts.com",
+      });
+      if (result.status === 400) {
+        return res.status(400).json(result.body);
       }
-      
-      const user = await storage.getUserByEmail(email);
-      
-      // Always return success to prevent email enumeration attacks
-      if (!user) {
-        console.log(`Password reset requested for non-existent email: ${email}`);
-        return res.json({ success: true, message: "If an account exists, a reset link has been sent" });
-      }
-      
-      // Create reset token
-      const resetToken = await storage.createPasswordResetToken(user.id);
-      
-      // Determine base URL for reset link
-      const baseUrl = process.env.APP_URL || 'https://packpts.com';
-      
-      // Send password reset email
-      const emailSent = await sendPasswordResetEmail(email, resetToken.token, baseUrl);
-      
-      if (!emailSent) {
-        // Fallback: log the reset link if email fails
-        const resetLink = `${baseUrl}/reset-password?token=${resetToken.token}`;
-        console.log(`Email failed - Password reset link for ${email}: ${resetLink}`);
-      }
-      
-      res.json({ success: true, message: "If an account exists, a reset link has been sent" });
+      res.json(result.body);
     } catch (error) {
       console.error("Error requesting password reset:", error);
       res.status(500).json({ error: "Failed to process request" });
@@ -6367,17 +6352,6 @@ export async function registerRoutes(
     marketplaceKeywords: z.array(z.string()).optional().default([]),
   });
 
-  const UpdatePlayableSetSchema = z.object({
-    sport: z.string().min(1).optional(),
-    brand: z.string().min(1).optional(),
-    year: z.coerce.number().int().min(1850).max(2100).optional(),
-    setName: z.string().min(1).optional(),
-    cardhedgeSetQuery: z.string().nullable().optional(),
-    cardhedgeCategory: z.string().nullable().optional(),
-    marketplaceKeywords: z.array(z.string()).optional(),
-    isActive: z.boolean().optional(),
-  });
-
   // Admin: Create playable set (game set with Card Hedge config)
   app.post("/api/admin/playable-sets", isAuthenticated, requireAdmin, async (req, res) => {
     try {
@@ -6407,38 +6381,17 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Update playable set
+  // Admin: Update playable set. Deactivating the set drops mask-ready sidecars
+  // the same way PUT /api/admin/game-sets/:id does.
   app.put("/api/admin/playable-sets/:id", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const { id } = req.params;
-      const validated = UpdatePlayableSetSchema.parse(req.body);
-      
-      const updateData: any = {};
-      if (validated.sport !== undefined) updateData.sport = validated.sport;
-      if (validated.brand !== undefined) updateData.brand = validated.brand;
-      if (validated.year !== undefined) updateData.year = validated.year;
-      if (validated.setName !== undefined) updateData.setName = validated.setName;
-      if (validated.cardhedgeSetQuery !== undefined) updateData.cardhedgeSetQuery = validated.cardhedgeSetQuery;
-      if (validated.cardhedgeCategory !== undefined) updateData.cardhedgeCategory = validated.cardhedgeCategory;
-      if (validated.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = validated.marketplaceKeywords;
-      if (validated.isActive !== undefined) updateData.isActive = validated.isActive;
-      
-      const [updated] = await db
-        .update(gameSets)
-        .set(updateData)
-        .where(eq(gameSets.id, id))
-        .returning();
-      
-      if (!updated) {
-        return res.status(404).json({ error: "Playable set not found" });
-      }
-      
+      const updated = await updatePlayableSet(req.params.id, req.body);
       res.json(updated);
-    } catch (error: any) {
-      console.error("Error updating playable set:", error);
-      if (error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+    } catch (error: unknown) {
+      if (error instanceof PlayableSetUpdateError) {
+        return res.status(error.status).json(error.body);
       }
+      console.error("Error updating playable set:", error);
       res.status(500).json({ error: "Failed to update playable set" });
     }
   });

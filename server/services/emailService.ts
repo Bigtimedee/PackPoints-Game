@@ -69,6 +69,18 @@ interface SendEmailOptions {
   text?: string;
 }
 
+/** `dave@packpts.com` → `d***@packpts.com`. Never log the local part in full. */
+export function maskEmailAddress(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at <= 0 || at === email.length - 1) return "***";
+  return `${email.slice(0, 1)}***@${email.slice(at + 1)}`;
+}
+
+/** Tests inject a stub. Production builds a Resend client from RESEND_API_KEY. */
+export function setEmailClientForTests(client: { emails: { send: Resend["emails"]["send"] } } | null): void {
+  resend = client as Resend | null;
+}
+
 export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   if (!resend) {
     const apiKey = process.env.RESEND_API_KEY;
@@ -80,7 +92,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   }
 
   try {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
       to: options.to,
       subject: options.subject,
@@ -93,7 +105,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
       return false;
     }
 
-    console.log(`[EmailService] Email sent successfully to ${options.to}`);
+    console.log(`[EmailService] Email sent id=${data?.id ?? "unknown"} subject=${options.subject} to=${maskEmailAddress(options.to)}`);
     return true;
   } catch (error: any) {
     console.error('[EmailService] Failed to send email:', error.message);

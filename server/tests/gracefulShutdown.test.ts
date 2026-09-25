@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installGracefulShutdown } from "../startup/gracefulShutdown";
+import { CLOSE_GRACE_MS, DRAIN_TIMEOUT_MS, installGracefulShutdown } from "../startup/gracefulShutdown";
 import { addShutdownHook, resetShutdownHooksForTests } from "../startup/shutdownHooks";
 
 describe("graceful shutdown", () => {
@@ -13,57 +13,80 @@ describe("graceful shutdown", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps the listener open during the drain, then closes idle keep-alives and exits", async () => {
+  it("caps the drain at 5s with the close grace inside that cap", () => {
+    expect(DRAIN_TIMEOUT_MS).toBe(5_000);
+    expect(CLOSE_GRACE_MS).toBe(2_000);
+    expect(CLOSE_GRACE_MS).toBeLessThan(DRAIN_TIMEOUT_MS);
+  });
+
+  it("stops accepting and closes idle keep-alives immediately, then exits when in-flight work finishes", async () => {
     vi.useFakeTimers();
     const exit = vi.fn();
     const closePool = vi.fn(async () => {});
-    const close = vi.fn((callback: () => void) => callback());
+    let done: (() => void) | undefined;
+    const close = vi.fn((callback: () => void) => {
+      done = callback;
+    });
     const closeIdleConnections = vi.fn();
+    const closeAllConnections = vi.fn();
     const hook = vi.fn();
     addShutdownHook(hook);
     const stop = installGracefulShutdown({
-      server: { close, closeIdleConnections },
+      server: { close, closeIdleConnections, closeAllConnections },
       closePool,
       exit,
-      drainMs: 25_000,
-      closeGraceMs: 1_000,
+      drainMs: 5_000,
+      closeGraceMs: 2_000,
       signals: ["SIGUSR2"],
     });
     stops.push(stop);
     process.emit("SIGUSR2");
-    await Promise.resolve();
-    expect(hook).toHaveBeenCalled();
-    expect(close).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(24_999);
-    expect(close).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
-    expect(closeIdleConnections).toHaveBeenCalledTimes(1);
+    expect(hook).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(closeIdleConnections).toHaveBeenCalledTimes(1);
+    expect(closeAllConnections).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    done!();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(exit).toHaveBeenCalledWith(0);
     expect(closePool).toHaveBeenCalledTimes(1);
     expect(closePool.mock.invocationCallOrder[0]).toBeLessThan(exit.mock.invocationCallOrder[0]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(closeAllConnections).not.toHaveBeenCalled();
+    expect(exit).toHaveBeenCalledTimes(1);
   });
 
-  it("exits after the close grace when connections stay open past the drain", async () => {
+  it("closes every connection and exits at the hard cap when in-flight work stays open", async () => {
     vi.useFakeTimers();
     const exit = vi.fn();
     const closePool = vi.fn(async () => {});
     const close = vi.fn();
+    const closeIdleConnections = vi.fn();
+    const closeAllConnections = vi.fn();
     const stop = installGracefulShutdown({
-      server: { close },
+      server: { close, closeIdleConnections, closeAllConnections },
       closePool,
       exit,
-      drainMs: 25_000,
-      closeGraceMs: 1_000,
+      drainMs: 5_000,
+      closeGraceMs: 2_000,
       signals: ["SIGUSR2"],
     });
     stops.push(stop);
     process.emit("SIGUSR2");
-    await vi.advanceTimersByTimeAsync(25_000);
     expect(close).toHaveBeenCalledTimes(1);
-    expect(closePool).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1_000);
-    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(closeIdleConnections).toHaveBeenCalledTimes(1);
+    expect(closeAllConnections).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(closeAllConnections).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(closeAllConnections).toHaveBeenCalledTimes(1);
+    expect(exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(exit).toHaveBeenCalledWith(0);
     expect(closePool).toHaveBeenCalledTimes(1);
+    expect(closePool.mock.invocationCallOrder[0]).toBeLessThan(exit.mock.invocationCallOrder[0]);
   });
 });

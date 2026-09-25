@@ -11,6 +11,7 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { cardImageCache, cardImageQuarantine, gameSets, playableCards } from "@shared/schema";
 import {
   invalidateMaskReadySidecar,
+  invalidateMaskReadySidecars,
   invalidateMaskSidecarsForGameSet,
   setMaskReadySidecarDirForTests,
 } from "../masking/maskReadySidecar";
@@ -57,12 +58,19 @@ describe("mask sidecar invalidation wiring", () => {
     const masking = readFileSync(join(root, "../masking/maskingService.ts"), "utf8");
     const gameSetDelete = readFileSync(join(root, "../services/gameSetDelete.ts"), "utf8");
     const validation = readFileSync(join(root, "../services/imageValidation.ts"), "utf8");
+    const playableUpdate = readFileSync(join(root, "../services/playableSetUpdate.ts"), "utf8");
     expect(quality).toContain("invalidateMaskReadySidecar(cardId)");
     expect(gate).toContain("invalidateMaskReadySidecar(cardId)");
     expect(masking).toContain("invalidateMaskReadySidecar(cardId)");
     expect(gameSetDelete).toContain("invalidateMaskReadySidecars(outcome.cardIds)");
     expect(validation).toContain("invalidateMaskReadySidecar(cardId)");
     expect(validation).toContain("invalidateMaskReadySidecars(proposedCards.map((card) => card.id))");
+    expect(playableUpdate).toContain("updateData.isActive === false");
+    expect(playableUpdate).toContain("invalidateMaskSidecarsForGameSet(id)");
+    const putStart = routes.indexOf('app.put("/api/admin/playable-sets/:id"');
+    const putEnd = routes.indexOf('app.post("/api/admin/playable-sets/:id/import"');
+    const putHandler = routes.slice(putStart, putEnd);
+    expect(putHandler).toContain("updatePlayableSet");
     for (const name of [
       "invalidateMaskSidecarsForGameSet",
       "markPlayerMismatchUnplayable",
@@ -87,6 +95,26 @@ describe("invalidateMaskReadySidecar", () => {
     const removed = invalidateMaskReadySidecar(cardId, dir);
     expect(removed.sort()).toEqual([`${cardId}_${CURRENT_MASK_VERSION}.ok`, `${cardId}_v0.ok`].sort());
     await expectSidecarsGone(dir, cardId);
+  });
+
+  it("drops every listed card in one directory scan and leaves the rest", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "packpts-sidecar-bulk-"));
+    const keep = randomUUID();
+    const dropA = randomUUID();
+    const dropB = randomUUID();
+    await plant(dir, keep);
+    await plant(dir, dropA);
+    await plant(dir, dropB);
+    const removed = invalidateMaskReadySidecars([dropA, dropB, "../escape"], dir);
+    expect(removed.sort()).toEqual([
+      `${dropA}_${CURRENT_MASK_VERSION}.ok`,
+      `${dropA}_v0.ok`,
+      `${dropB}_${CURRENT_MASK_VERSION}.ok`,
+      `${dropB}_v0.ok`,
+    ].sort());
+    await expectSidecarsGone(dir, dropA);
+    await expectSidecarsGone(dir, dropB);
+    expect(await readFile(path.join(dir, `${keep}_${CURRENT_MASK_VERSION}.ok`), "utf8")).toBe("ok\n");
   });
 });
 
@@ -251,6 +279,68 @@ describe.skipIf(!hasDb)("ineligible card paths drop the sidecar", () => {
     const removed = await invalidateMaskSidecarsForGameSet(setId, dir);
     expect(removed.some((name) => name.startsWith(`${id}_`))).toBe(true);
     await expectSidecarsGone(dir, id);
+  });
+
+  it("PUT playable set inactive drops sidecars and a rename does not", async () => {
+    const { updatePlayableSet } = await import("../services/playableSetUpdate");
+    const activeId = randomUUID();
+    const activeSet = randomUUID();
+    const inactiveId = randomUUID();
+    const inactiveSet = randomUUID();
+    await db.insert(gameSets).values([
+      {
+        id: activeSet,
+        sport: "baseball",
+        brand: "Test",
+        year: 1989,
+        setName: "Playable Set Rename",
+        isActive: true,
+      },
+      {
+        id: inactiveSet,
+        sport: "baseball",
+        brand: "Test",
+        year: 1990,
+        setName: "Playable Set Off",
+        isActive: true,
+      },
+    ]);
+    await db.insert(playableCards).values([
+      {
+        id: activeId,
+        gameSetId: activeSet,
+        cardhedgeCardId: `sidecar-inv:rename:${randomUUID()}`,
+        player: "Tony Gwynn",
+        imageUrl: "https://images.cardhedger.com/real.jpg",
+        category: "baseball",
+        isPlayable: true,
+      },
+      {
+        id: inactiveId,
+        gameSetId: inactiveSet,
+        cardhedgeCardId: `sidecar-inv:off:${randomUUID()}`,
+        player: "Tony Gwynn",
+        imageUrl: "https://images.cardhedger.com/real.jpg",
+        category: "baseball",
+        isPlayable: true,
+      },
+    ]);
+    await plant(dir, activeId);
+    await plant(dir, inactiveId);
+    try {
+      const renamed = await updatePlayableSet(activeSet, { setName: "Playable Set Renamed" });
+      expect(renamed.isActive).toBe(true);
+      expect(await readFile(path.join(dir, `${activeId}_${CURRENT_MASK_VERSION}.ok`), "utf8")).toBe("ok\n");
+
+      const deactivated = await updatePlayableSet(inactiveSet, { isActive: false });
+      expect(deactivated.isActive).toBe(false);
+      await expectSidecarsGone(dir, inactiveId);
+    } finally {
+      await db.delete(playableCards).where(eq(playableCards.gameSetId, activeSet)).catch(() => null);
+      await db.delete(playableCards).where(eq(playableCards.gameSetId, inactiveSet)).catch(() => null);
+      await db.delete(gameSets).where(eq(gameSets.id, activeSet)).catch(() => null);
+      await db.delete(gameSets).where(eq(gameSets.id, inactiveSet)).catch(() => null);
+    }
   });
 
   it("hard-delete of a game set", async () => {
