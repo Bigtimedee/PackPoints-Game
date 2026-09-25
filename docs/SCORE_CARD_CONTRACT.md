@@ -23,7 +23,7 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 Same 1080 canvas, pips, and PackPTS mark. Branding follows **`mode === "daily5"`**, never `total === 5`:
 
 - Eyebrow: `SOLO` or `1V1 MATCH` — never `DAILY 5` for a 5-card solo
-- No `TODAY'S FIVE` and no mini masked-strip
+- No `TODAY'S FIVE`. The server SVG has no decorative mini strip (that strip is Daily 5 only).
 - Footer right: `packpts.com` (not `/daily`)
 - **Skips:** never fold `dealt − skipped` into a silent pip row. Dave’s 10-card solo with 1 skip (screenshot: Game Complete `6 of 9` + “1 card skipped”, share PNG `6/9` / `Six locked. Three open.`) keeps scored `6/9` and paints **10 pips** (6 locked `#22C55E`, 1 skipped muted outline + gold bar, 3 open) plus muted `1 skipped` under pts (with streak: `1-day streak · 1 skipped`). Accuracy stays 6/9 = 67%. Footer is `packpts.com`.
 
@@ -40,6 +40,7 @@ Quiet header identity for the session's PackPTS day — never "now", never a dif
 - `TODAY'S FIVE` only when `mode === "daily5"`. Other modes show the session date alone.
 - YYYY-MM-DD session dates format as that calendar day (do not UTC-shift).
 - **Optional mini masked-strip** under `DAILY 5`: five cream (`#F0F2F5`) tiles, each crossed by a gold (`#F5C518`) redaction bar (same strip language as `daily5-masked-1080-v2.png`).
+- **Client thumbs (2026-09-25):** `ShareAssetCard` paints the session's real masked `/api/play/m/` images over that band before show, download, and native share (solo and Daily 5). Plaque look, session order. A failed or canvas-tainting load drops that tile. Never `/api/images/card` or `/api/play/r/`. Mode label, date, scored denominator, and footer stay on the server PNG (`packpts.com/daily` only for Daily 5). The client does not hardcode that footer.
 - Honesty: session `X/5` only. A 3/5 finish stays 3/5.
 
 ## Brand

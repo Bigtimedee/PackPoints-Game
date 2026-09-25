@@ -170,11 +170,12 @@ async function pngFileFromUrl(url: string, filename: string): Promise<File | nul
   }
 }
 
-function ShareResultCard({ correctCount, date, challengeId, shareImageUrl }: {
+function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maskedCardUrls }: {
   correctCount: number;
   date?: string;
   challengeId?: string;
   shareImageUrl?: string;
+  maskedCardUrls?: readonly (string | null | undefined)[];
 }) {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
@@ -316,6 +317,7 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl }: {
           downloadFilename={sessionFilename}
           shareText={shareCaption}
           previewOnly
+          maskedCardUrls={maskedCardUrls}
           onImageUrl={setSessionImageUrl}
           resolveShareUrl={async () => {
             const created = beatMeUrl ? { url: beatMeUrl } : await issueBeatMe();
@@ -865,6 +867,7 @@ export default function Daily5Page() {
             date={status?.challenge?.date}
             challengeId={status?.challenge?.id}
             shareImageUrl={finishResult?.shareImageUrl}
+            maskedCardUrls={[...cards].sort((a, b) => a.position - b.position).map((card) => card.imageUrl)}
           />
 
           <div className="space-y-3 mb-8 max-w-md mx-auto">

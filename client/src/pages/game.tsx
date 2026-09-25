@@ -1052,6 +1052,7 @@ export default function Game() {
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
                 shareUrl="https://packpts.com"
                 shareText={shareText}
+                maskedCardUrls={(session.questions ?? []).map((q) => q.card?.imageUrl)}
               />
             )}
 
