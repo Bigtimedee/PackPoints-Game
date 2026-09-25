@@ -93,7 +93,7 @@ Select Mode → Receive Card (masked) → View Answer Options → Submit Answer
 
 ### Solo Play
 - **Status:** Implemented
-- **Flow:** Select card set → select card count (5/10/15/20) → play through cards → results screen. Game Complete **Play Again** starts a new solo session with the same set and card count (from session state / first-card `gameSetId`) when the server allows the start. If that tap is also a deploy reload, the set, card count, and mode are written to `sessionStorage` (`packpts_solo_play_again`, reason `play-again`) before the reload, and the new solo game auto-starts once after load. A later refresh does not start another game. Registered users always can. Guests get one more start the same CT day after the first finished round, then Play Again is replaced by register. Home solo and `/sets` play share that cap (both are `POST /api/game/start`). Home remains secondary.
+- **Flow:** Select card set → select card count (5/10/15/20) → play through cards → results screen. A duplicate `POST /api/game/answer` for a question that is already stored returns that result (`idempotent: true`) and does not award points again. The client retries that POST once after `Retry-After` on 502 or 503. Game Complete **Play Again** starts a new solo session with the same set and card count (from session state / first-card `gameSetId`) when the server allows the start. If that tap is also a deploy reload, the set, card count, and mode are written to `sessionStorage` (`packpts_solo_play_again`, reason `play-again`) before the reload, and the new solo game auto-starts once after load. A later refresh does not start another game. Registered users always can. Guests get one more start the same CT day after the first finished round, then Play Again is replaced by register. Home solo and `/sets` play share that cap (both are `POST /api/game/start`). Home remains secondary.
 - **Scoring:** Server-side reward engine; base points inversely proportional to player fame; vintage and rarity multipliers applied; per-match cap of 1,000 pts; daily cap of 5,000 pts (configurable via `rewardPolicy` table)
 - **Fairness:** Answer options are generated server-side from the card set's player pool; 4 choices per question
 - **Known gaps:** No adaptive difficulty (ELO-based card selection is planned, not implemented)
@@ -1044,7 +1044,7 @@ Design lock is **two roles**, not one mark everywhere:
 Entry point: `server/entry.ts` (production bundle `dist/index.cjs`). `server/index.ts` exports `bootAfterListen` and is imported after the port is bound.
 
 **Startup sequence:**
-1. Environment validation (DATABASE_URL, SESSION_SECRET required), then listen. `/api/version` and, in production, the static SPA are up. Other `/api/*` routes get 503 `Retry-After: 2` until the schema step finishes (`server/startup/schemaGate.ts`).
+1. Environment validation (DATABASE_URL, SESSION_SECRET required), then listen. `/api/version` and, in production, the static SPA are up. Other `/api/*` routes get 503 `Retry-After: 2` until the schema step finishes (`server/startup/schemaGate.ts`). A `GET /api/play/m/...` whose HMAC matches a warm JPEG already on the volume is served from that file with no database read. `/api/play/r/` and `/api/images/card` stay 503 until the schema step finishes.
 2. In production, `pg_dump` then `drizzle-kit push --force` (`server/startup/bootSchema.ts`). Dump failure skips the push. Dev skips this (`PACKPTS_SKIP_BOOT_SCHEMA=1` also skips it).
 3. CORS middleware with `ALLOWED_ORIGINS`
 4. JSON body parsing (with raw body capture for Stripe webhooks)

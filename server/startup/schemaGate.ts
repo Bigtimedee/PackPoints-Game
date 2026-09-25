@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { tryServeWarmMasked } from "./warmMaskGate";
 
 /**
  * DB routes stay closed until `drizzle-kit push --force` has finished.
@@ -25,9 +26,19 @@ export function schemaGateBlocks(path: string): boolean {
   return path === "/api" || path.startsWith("/api/");
 }
 
+/** Warm masked JPEGs can be HMAC-checked on disk. Reveal and raw scans stay closed. */
+export function schemaGateServesWarmMask(method: string, path: string): boolean {
+  if (schemaReady) return false;
+  if (method !== "GET" && method !== "HEAD") return false;
+  return /^\/api\/play\/m\/[^/]+\/[^/]+\/\d{1,3}\/[^/]+$/.test(path);
+}
+
 export function schemaGateMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (!schemaGateBlocks(req.path)) {
     next();
+    return;
+  }
+  if (schemaGateServesWarmMask(req.method, req.path) && tryServeWarmMasked(req, res)) {
     return;
   }
   res.setHeader("Retry-After", "2");

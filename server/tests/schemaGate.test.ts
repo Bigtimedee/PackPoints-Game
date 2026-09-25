@@ -1,8 +1,14 @@
+import { mkdtemp, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
 import express from "express";
 import http from "http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
+import { maskToken } from "../services/playImageToken";
 import { registerVersionRoute } from "../lib/versionRoute";
-import { markSchemaReady, resetSchemaGateForTests, schemaGateMiddleware } from "../startup/schemaGate";
+import { markSchemaReady, resetSchemaGateForTests, schemaGateMiddleware, schemaGateServesWarmMask } from "../startup/schemaGate";
+import { setWarmMaskDirForTests } from "../startup/warmMaskGate";
 
 describe("schema gate", () => {
   const app = express();
@@ -27,6 +33,29 @@ describe("schema gate", () => {
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });
+  });
+
+  it("serves a warm masked JPEG during the schema window and keeps reveal closed", async () => {
+    resetSchemaGateForTests();
+    const dir = await mkdtemp(path.join(tmpdir(), "packpts-warm-"));
+    const cardId = "card-warm-1";
+    await writeFile(path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    setWarmMaskDirForTests(dir);
+    const token = maskToken("solo", "session-1", 0, cardId);
+    const warm = await fetch(`${base}/api/play/m/solo/session-1/0/${token}`);
+    expect(warm.status).toBe(200);
+    expect(warm.headers.get("x-mask-cache")).toBe("hit");
+    expect(warm.headers.get("content-type")).toContain("image/jpeg");
+    const miss = await fetch(`${base}/api/play/m/solo/session-1/0/not-the-token`);
+    expect(miss.status).toBe(503);
+    expect(miss.headers.get("retry-after")).toBe("2");
+    const reveal = await fetch(`${base}/api/play/r/solo/session-1/0/1/token`);
+    expect(reveal.status).toBe(503);
+    const raw = await fetch(`${base}/api/images/card/${cardId}`);
+    expect(raw.status).toBe(503);
+    expect(schemaGateServesWarmMask("GET", `/api/play/m/solo/session-1/0/${token}`)).toBe(true);
+    expect(schemaGateServesWarmMask("GET", `/api/play/r/solo/session-1/0/1/token`)).toBe(false);
+    setWarmMaskDirForTests(null);
   });
 
   it("serves /api/version and 503s DB routes until the schema step finishes", async () => {
