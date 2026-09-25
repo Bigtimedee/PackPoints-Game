@@ -43,6 +43,7 @@ import {
   type SoloReplacePhase,
 } from "@/lib/soloImageReplace";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { notifyLeavingResults } from "@/lib/staleBuildClient";
 
 function AnswerButton({
   option,
@@ -569,10 +570,11 @@ export default function Game() {
   useEffect(() => {
     const live = Boolean(session && !isGameOver);
     setStaleBuildActivity({
+      holdPlay: Boolean(session),
       inProgressCard: live,
       pageSubmitting: submitAnswerMutation.isPending,
     });
-    return () => setStaleBuildActivity({ inProgressCard: false, pageSubmitting: false });
+    return () => setStaleBuildActivity({ holdPlay: false, inProgressCard: false, pageSubmitting: false });
   }, [session, isGameOver, submitAnswerMutation.isPending]);
 
   useEffect(() => {
@@ -677,7 +679,7 @@ export default function Game() {
     nextQuestionMutation.mutate(undefined);
   };
 
-  const handlePlayAgain = () => {
+  const startPlayAgain = () => {
     const setId = replaySetIdFromSession(session) || selectedSetId || currentGameSet?.id || null;
     const parsedCount = replayCardCountFromSession(session) ?? parseInt(selectedCardCount, 10);
     const cardCount = Number.isFinite(parsedCount) ? parsedCount : 10;
@@ -694,6 +696,13 @@ export default function Game() {
     setShowSkipButton(false);
     setReplacementStartTime(null);
     startGameMutation.mutate({ cardCount, setId });
+  };
+
+  const handlePlayAgain = () => {
+    void notifyLeavingResults().then((reloading) => {
+      if (reloading) return;
+      startPlayAgain();
+    });
   };
 
   const handleStartGame = () => {

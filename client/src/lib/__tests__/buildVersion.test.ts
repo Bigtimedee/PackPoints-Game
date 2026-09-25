@@ -13,6 +13,7 @@ import {
   selectServedBuildId,
   shouldFetchBuildVersion,
   upsertBuildIdMeta,
+  versionCheckUrl,
   type StaleReloadInput,
 } from "@shared/buildVersion";
 
@@ -31,6 +32,12 @@ function input(overrides: Partial<StaleReloadInput> = {}): StaleReloadInput {
     ...overrides,
   };
 }
+
+describe("versionCheckUrl", () => {
+  it("busts the cache key on every poll", () => {
+    expect(versionCheckUrl(1_700_000_000_000)).toBe("/api/version?t=1700000000000");
+  });
+});
 
 describe("pickBuildId", () => {
   it("prefers an explicit id, then Railway, then git, then a timestamp", () => {
@@ -65,40 +72,173 @@ describe("isUpdatePending", () => {
 });
 
 describe("shouldFetchBuildVersion", () => {
-  it("throttles focus and visibility to 60s and always allows navigation", () => {
+  it("throttles focus, visibility, online, and the interval to 60s and always allows navigation and safe points", () => {
     expect(shouldFetchBuildVersion({ reason: "focus", now: 1_000, lastFetchAt: null })).toBe(true);
     expect(shouldFetchBuildVersion({ reason: "focus", now: 30_000, lastFetchAt: 0 })).toBe(false);
     expect(shouldFetchBuildVersion({ reason: "visibility", now: 59_999, lastFetchAt: 0 })).toBe(false);
+    expect(shouldFetchBuildVersion({ reason: "online", now: 59_999, lastFetchAt: 0 })).toBe(false);
+    expect(shouldFetchBuildVersion({ reason: "interval", now: 59_999, lastFetchAt: 0 })).toBe(false);
     expect(shouldFetchBuildVersion({ reason: "visibility", now: 60_000, lastFetchAt: 0 })).toBe(true);
+    expect(shouldFetchBuildVersion({ reason: "interval", now: 60_000, lastFetchAt: 0 })).toBe(true);
     expect(shouldFetchBuildVersion({ reason: "navigation", now: 1_000, lastFetchAt: 500 })).toBe(true);
+    expect(shouldFetchBuildVersion({ reason: "leave-results", now: 1_000, lastFetchAt: 500 })).toBe(true);
   });
 });
 
 describe("isActiveGameRoute", () => {
-  it("treats solo, any game mode, and 1v1 as live, and Daily 5 only while playing", () => {
-    expect(isActiveGameRoute({ pathname: "/game/solo", daily5Playing: false, inProgressCard: false })).toBe(true);
-    expect(isActiveGameRoute({ pathname: "/game/ranked", daily5Playing: false, inProgressCard: false })).toBe(true);
-    expect(isActiveGameRoute({ pathname: "/match/abc", daily5Playing: false, inProgressCard: false })).toBe(true);
+  it("holds only while a card is in play, not for the whole game route", () => {
+    expect(isActiveGameRoute({ pathname: "/game/solo", daily5Playing: false, inProgressCard: true })).toBe(true);
+    expect(isActiveGameRoute({ pathname: "/game/solo", daily5Playing: false, inProgressCard: false })).toBe(false);
+    expect(isActiveGameRoute({ pathname: "/game/ranked", daily5Playing: false, inProgressCard: true })).toBe(true);
+    expect(isActiveGameRoute({ pathname: "/match/abc", daily5Playing: false, inProgressCard: true })).toBe(true);
+    expect(isActiveGameRoute({ pathname: "/match/abc", daily5Playing: false, inProgressCard: false })).toBe(false);
     expect(isActiveGameRoute({ pathname: "/daily5", daily5Playing: true, inProgressCard: false })).toBe(true);
     expect(isActiveGameRoute({ pathname: "/daily", daily5Playing: false, inProgressCard: false })).toBe(false);
     expect(isActiveGameRoute({ pathname: "/", daily5Playing: false, inProgressCard: true })).toBe(true);
     expect(isActiveGameRoute({ pathname: "/leaderboard", daily5Playing: false, inProgressCard: false })).toBe(false);
+    expect(isActiveGameRoute({ pathname: "/game/solo", daily5Playing: false, inProgressCard: false, holdPlay: true })).toBe(true);
   });
 });
 
 describe("decideStaleReload", () => {
-  it("reloads on focus away from a game and holds the update on a live game route", () => {
+  it("reloads on an interval away from a live question and holds while a card is in progress", () => {
     expect(decideStaleReload(input()).reload).toBe(true);
-    const solo = decideStaleReload(input({ pathname: "/game/solo", targetPath: "/game/solo" }));
-    expect(solo.reload).toBe(false);
-    expect(solo.updatePending).toBe(true);
-    expect(decideStaleReload(input({ pathname: "/match/1", targetPath: "/match/1" })).reload).toBe(false);
+    expect(decideStaleReload(input({ trigger: "interval" })).reload).toBe(true);
+    expect(decideStaleReload(input({ trigger: "online" })).reload).toBe(true);
+    const live = decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      inProgressCard: true,
+    }));
+    expect(live.reload).toBe(false);
+    expect(live.updatePending).toBe(true);
+    expect(decideStaleReload(input({
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+    })).reload).toBe(true);
+    expect(decideStaleReload(input({
+      pathname: "/match/1",
+      targetPath: "/match/1",
+      inProgressCard: true,
+    })).reload).toBe(false);
     expect(decideStaleReload(input({
       pathname: "/daily5",
       targetPath: "/daily5",
       daily5Playing: true,
     })).reload).toBe(false);
     expect(decideStaleReload(input({ pathname: "/daily", targetPath: "/daily" })).reload).toBe(true);
+  });
+
+  it("does not reload a solo session on the poll, including Game Complete", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "leave-results",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+  });
+
+  it("reloads solo only when the player leaves Game Complete", () => {
+    const playAgain = decideStaleReload(input({
+      trigger: "leave-results",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      holdPlay: true,
+    }));
+    expect(playAgain.reload).toBe(true);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/game/solo",
+      targetPath: "/",
+      holdPlay: true,
+    })).reload).toBe(true);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/game/solo",
+      targetPath: "/game/ranked",
+      holdPlay: true,
+    })).reload).toBe(false);
+  });
+
+  it("does not reload Daily 5 between cards or on the results screen", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/daily5",
+      targetPath: "/daily5",
+      daily5Playing: true,
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/daily5",
+      targetPath: "/daily5",
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/daily5",
+      targetPath: "/game/solo",
+      holdPlay: true,
+    })).reload).toBe(true);
+  });
+
+  it("does not reload a live 1v1, including the next question, until the player leaves", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/match/abc",
+      targetPath: "/match/abc",
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/match/abc",
+      targetPath: "/match/def",
+      holdPlay: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      pathname: "/match/abc",
+      targetPath: "/match/abc",
+      holdPlay: true,
+      tabHidden: true,
+    })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "navigation",
+      pathname: "/match/abc",
+      targetPath: "/",
+      holdPlay: true,
+    })).reload).toBe(true);
+  });
+
+  it("reloads a hidden tab only when no session is up", () => {
+    expect(decideStaleReload(input({
+      trigger: "interval",
+      tabHidden: true,
+    })).reload).toBe(true);
+    expect(decideStaleReload(input({
+      trigger: "visibility",
+      pathname: "/game/solo",
+      targetPath: "/game/solo",
+      holdPlay: true,
+      tabHidden: true,
+    })).reload).toBe(false);
   });
 
   it("reloads into the next route, including when leaving a game, and skips a no-op path change", () => {
@@ -120,7 +260,7 @@ describe("decideStaleReload", () => {
     expect(same.updatePending).toBe(true);
   });
 
-  it("never reloads during a submit", () => {
+  it("does not reload a version change during a submit, and does reload a broken chunk", () => {
     expect(decideStaleReload(input({ submitting: true })).reload).toBe(false);
     expect(decideStaleReload(input({
       trigger: "navigation",
@@ -128,7 +268,12 @@ describe("decideStaleReload", () => {
       targetPath: "/store",
       submitting: true,
     })).reload).toBe(false);
-    expect(decideStaleReload(input({ trigger: "chunk-error", submitting: true })).reload).toBe(false);
+    expect(decideStaleReload(input({
+      trigger: "chunk-error",
+      submitting: true,
+      inProgressCard: true,
+      holdPlay: true,
+    })).reload).toBe(true);
   });
 
   it("reloads once per server build id", () => {
@@ -156,6 +301,26 @@ describe("decideStaleReload", () => {
       trigger: "chunk-error",
       serverBuildId: null,
       embeddedBuildId: "aaa",
+      reloadedBuildIds: first.nextReloadedBuildIds,
+    })).reload).toBe(false);
+  });
+
+  it("reloads a chunk-load failure during a live question because the module is gone", () => {
+    const first = decideStaleReload(input({
+      trigger: "chunk-error",
+      serverBuildId: null,
+      embeddedBuildId: "aaa",
+      inProgressCard: true,
+      holdPlay: true,
+    }));
+    expect(first.reload).toBe(true);
+    expect(first.reloadBuildId).toBe(chunkReloadGuardId("aaa"));
+    expect(decideStaleReload(input({
+      trigger: "chunk-error",
+      serverBuildId: null,
+      embeddedBuildId: "aaa",
+      inProgressCard: true,
+      holdPlay: true,
       reloadedBuildIds: first.nextReloadedBuildIds,
     })).reload).toBe(false);
   });

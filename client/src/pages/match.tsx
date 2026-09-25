@@ -168,8 +168,12 @@ export default function Match() {
 
   useEffect(() => {
     const live = Boolean(matchState && matchState.status === "ACTIVE" && !matchEnded);
-    setStaleBuildActivity({ pageSubmitting: submitting, inProgressCard: live });
-    return () => setStaleBuildActivity({ pageSubmitting: false, inProgressCard: false });
+    setStaleBuildActivity({
+      pageSubmitting: submitting,
+      inProgressCard: live,
+      holdPlay: live || Boolean(matchEnded),
+    });
+    return () => setStaleBuildActivity({ pageSubmitting: false, inProgressCard: false, holdPlay: false });
   }, [submitting, matchState, matchEnded]);
   
   const handleMessage = useCallback((message: any) => {
