@@ -18,6 +18,7 @@ import {
 } from "./orientNote";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
+import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -468,6 +469,7 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
       const filePath = path.join(MASKED_CARDS_DIR, filename);
 
       await fs.writeFile(filePath, result.maskedBuffer);
+      await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
       for (const deg of [0, 90, 180, 270] as const) {
         if (deg === rotation) continue;
         try {
@@ -656,6 +658,11 @@ export function clearServedOrientation(cardId: string): void {
 }
 
 async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
+  try {
+    unlinkSync(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)));
+  } catch {
+    // no sidecar yet
+  }
   try {
     await db
       .update(playableCards)

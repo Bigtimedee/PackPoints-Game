@@ -35,6 +35,16 @@ describe("deploy gap", () => {
   it("logs each boot phase with a timestamp", () => {
     expect(startSh).toContain("phase=container_alive ts=");
     expect(startSh).toContain("phase=exec_node ts=");
+    expect(entry).toContain("mountSchemaWindowSpa");
+    expect(entry).not.toContain("serveStatic");
+    expect(entry).not.toContain("staticMounted");
+    const routesAt = indexSrc.indexOf("await registerRoutes");
+    const staticAt = indexSrc.indexOf("serveStatic(app)");
+    expect(routesAt).toBeGreaterThan(-1);
+    expect(staticAt).toBeGreaterThan(routesAt);
+    expect(indexSrc).toContain("STORAGE_INIT_TIMEOUT_MS");
+    expect(boot).toContain("PG_DUMP_TIMEOUT_MS");
+    expect(boot).toContain("DRIZZLE_PUSH_TIMEOUT_MS");
     expect(entry).toContain('logBootPhase("listen"');
     expect(boot).toContain('logBootPhase("pg_dump_start")');
     expect(boot).toContain('logBootPhase("pg_dump_end"');

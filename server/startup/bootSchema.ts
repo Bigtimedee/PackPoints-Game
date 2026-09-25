@@ -8,6 +8,36 @@ import { addShutdownHook } from "./shutdownHooks";
 /** Same restore-point rule as the old start.sh guard. Dump failure skips the push. */
 export const BOOT_BACKUP_KEEP = 14;
 
+/** A hung dump is killed and the push is skipped, same as a failed dump. */
+export const PG_DUMP_TIMEOUT_MS = 90_000;
+
+/** A hung push or storage setup exits so Railway keeps the previous deploy. */
+export const DRIZZLE_PUSH_TIMEOUT_MS = 120_000;
+export const STORAGE_INIT_TIMEOUT_MS = 60_000;
+
+export class StartupTimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`${label} timed out after ${ms}ms`);
+    this.name = "StartupTimeoutError";
+  }
+}
+
+export function withStartupTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new StartupTimeoutError(label, ms)), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 /** On the masked-card volume, so it survives the next container. */
 export const SCHEMA_PUSH_MARKER = "/app/data/masked-cards/.schema-push-hash";
 
@@ -51,27 +81,41 @@ function defaultSpawn(command: string, args: string[]): ChildProcess {
   return child;
 }
 
-function run(spawnImpl: BootSpawn, command: string, args: string[]): Promise<number> {
+function run(
+  spawnImpl: BootSpawn,
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<{ code: number; timedOut: boolean }> {
   return new Promise((resolve) => {
     let settled = false;
-    const done = (code: number) => {
+    let child: ChildProcess | undefined;
+    const done = (code: number, timedOut: boolean) => {
       if (settled) return;
       settled = true;
-      resolve(code);
+      clearTimeout(timer);
+      resolve({ code, timedOut });
     };
-    let child: ChildProcess;
+    const timer = setTimeout(() => {
+      try {
+        child?.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+      done(1, true);
+    }, timeoutMs);
     try {
       child = spawnImpl(command, args);
     } catch (err) {
       console.error(`[Startup] ${command} failed to start:`, err instanceof Error ? err.message : err);
-      done(1);
+      done(1, false);
       return;
     }
     child.on("error", (err) => {
       console.error(`[Startup] ${command} failed to start:`, err.message);
-      done(1);
+      done(1, false);
     });
-    child.on("close", (code) => done(code ?? 1));
+    child.on("close", (code) => done(code ?? 1, false));
   });
 }
 
@@ -107,11 +151,17 @@ export async function runBootSchema(opts?: {
   spawn?: BootSpawn;
   schemaPath?: string;
   markerPath?: string;
+  dumpTimeoutMs?: number;
+  pushTimeoutMs?: number;
+  exit?: (code: number) => void;
 }): Promise<{ pushed: boolean; dumpFile: string | null; dumped: boolean }> {
   const databaseUrl = opts?.databaseUrl ?? process.env.DATABASE_URL ?? "";
   const backupDir = opts?.backupDir ?? "/app/data/masked-cards/.db-backups";
   const spawnImpl = opts?.spawn ?? defaultSpawn;
   const now = opts?.now ?? new Date();
+  const dumpTimeoutMs = opts?.dumpTimeoutMs ?? PG_DUMP_TIMEOUT_MS;
+  const pushTimeoutMs = opts?.pushTimeoutMs ?? DRIZZLE_PUSH_TIMEOUT_MS;
+  const exit = opts?.exit ?? ((code: number) => process.exit(code));
   const schemaPath = opts?.schemaPath ?? path.join(opts?.cwd ?? process.cwd(), "shared/schema.ts");
   const markerPath = opts?.markerPath ?? SCHEMA_PUSH_MARKER;
   if (!databaseUrl) {
@@ -130,15 +180,20 @@ export async function runBootSchema(opts?: {
     logBootPhase("pg_dump_start");
     const dumpStarted = Date.now();
     console.log("[Startup] Taking pre-migration pg_dump...");
-    const dumpCode = await run(spawnImpl, "pg_dump", [
+    const dump = await run(spawnImpl, "pg_dump", [
       "--format=custom",
       "--compress=6",
       `--file=${dumpFile}`,
       databaseUrl,
-    ]);
-    logBootPhase("pg_dump_end", { ms: Date.now() - dumpStarted, code: dumpCode });
-    if (dumpCode !== 0) {
-      console.error("[Startup] WARNING: pg_dump FAILED — SKIPPING schema push. App boots on existing schema.");
+    ], dumpTimeoutMs);
+    logBootPhase("pg_dump_end", { ms: Date.now() - dumpStarted, code: dump.code, timedOut: dump.timedOut });
+    if (dump.timedOut) {
+      console.error(`[Startup] WARNING: pg_dump timed out after ${dumpTimeoutMs / 1000}s — killed it and SKIPPING schema push. App boots on existing schema.`);
+    }
+    if (dump.code !== 0) {
+      if (!dump.timedOut) {
+        console.error("[Startup] WARNING: pg_dump FAILED — SKIPPING schema push. App boots on existing schema.");
+      }
       await rm(dumpFile, { force: true });
       return { pushed: false, dumpFile: null, dumped: true };
     }
@@ -151,10 +206,15 @@ export async function runBootSchema(opts?: {
   logBootPhase("drizzle_push_start");
   const pushStarted = Date.now();
   console.log("[Startup] Running database migrations (drizzle-kit push --force)...");
-  const pushCode = await run(spawnImpl, "npx", ["drizzle-kit", "push", "--force"]);
-  logBootPhase("drizzle_push_end", { ms: Date.now() - pushStarted, code: pushCode });
-  if (pushCode !== 0) {
-    console.error(`[Startup] WARNING: drizzle-kit push exited ${pushCode}. DB routes stay on the schema the push left.`);
+  const push = await run(spawnImpl, "npx", ["drizzle-kit", "push", "--force"], pushTimeoutMs);
+  logBootPhase("drizzle_push_end", { ms: Date.now() - pushStarted, code: push.code, timedOut: push.timedOut });
+  if (push.timedOut) {
+    console.error(`[Startup] FATAL: drizzle-kit push timed out after ${pushTimeoutMs / 1000}s. Exiting so Railway keeps the previous deploy.`);
+    exit(1);
+    return { pushed: false, dumpFile, dumped };
+  }
+  if (push.code !== 0) {
+    console.error(`[Startup] WARNING: drizzle-kit push exited ${push.code}. DB routes stay on the schema the push left.`);
     return { pushed: false, dumpFile, dumped };
   }
   await mkdir(path.dirname(markerPath), { recursive: true });

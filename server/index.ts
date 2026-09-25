@@ -21,7 +21,7 @@ import { getShareOutputBase, SHARE_URL_PREFIX } from "./contentFactory/generateS
 import { logServerError } from "./lib/httpErrorLog";
 import { logBootPhase } from "./startup/bootPhase";
 import { markSchemaReady } from "./startup/schemaGate";
-import { installBootSchemaShutdownHook, runBootSchema } from "./startup/bootSchema";
+import { installBootSchemaShutdownHook, runBootSchema, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout } from "./startup/bootSchema";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -78,7 +78,6 @@ export function log(message: string, source = "express") {
 export async function bootAfterListen(
   app: Express,
   httpServer: Server,
-  opts?: { staticMounted?: boolean },
 ): Promise<void> {
 app.use((req, res, next) => {
   if (req.path.startsWith('/webhooks/')) {
@@ -205,8 +204,12 @@ app.use((req, res, next) => {
   }
 
   try {
-    await storage.initialize();
+    await withStartupTimeout(storage.initialize(), STORAGE_INIT_TIMEOUT_MS, "storage setup");
   } catch (err) {
+    if (err instanceof StartupTimeoutError) {
+      console.error(`[Startup] FATAL: storage setup timed out after ${STORAGE_INIT_TIMEOUT_MS / 1000}s. Exiting so Railway keeps the previous deploy.`);
+      process.exit(1);
+    }
     console.error("[Startup] storage.initialize() failed:", err);
     // Non-fatal: app can still serve requests without pre-loaded card data
   }
@@ -447,7 +450,7 @@ app.use((req, res, next) => {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
-    if (!opts?.staticMounted) serveStatic(app);
+    serveStatic(app);
   } else {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);

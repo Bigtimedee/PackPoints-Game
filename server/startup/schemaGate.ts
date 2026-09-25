@@ -26,7 +26,7 @@ export function schemaGateBlocks(path: string): boolean {
   return path === "/api" || path.startsWith("/api/");
 }
 
-/** Warm masked JPEGs can be HMAC-checked on disk. Reveal and raw scans stay closed. */
+/** Warm masked JPEGs with a bake ok sidecar can be HMAC-checked on disk. Reveal and raw scans stay closed. */
 export function schemaGateServesWarmMask(method: string, path: string): boolean {
   if (schemaReady) return false;
   if (method !== "GET" && method !== "HEAD") return false;

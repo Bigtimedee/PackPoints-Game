@@ -22,6 +22,11 @@ export function cardIdFromWarmJpeg(filename: string): string | null {
   return id;
 }
 
+/** Written by a successful bake. Warm serve during the schema window requires it. */
+export function warmOkMarkerFilename(cardId: string): string {
+  return `${cardId}_${CURRENT_MASK_VERSION}.ok`;
+}
+
 function warmFilename(cardId: string, rotation: number): string {
   if (rotation === 90 || rotation === 180 || rotation === 270) {
     return `${cardId}_${CURRENT_MASK_VERSION}_r${rotation}.jpg`;
@@ -84,7 +89,10 @@ export function parseMaskedPlayPath(urlPath: string): {
   };
 }
 
-/** HMAC match against warm JPEGs already on the volume. No database. */
+/**
+ * HMAC match against a warm JPEG that a successful bake marked ok.
+ * Landscape and quarantine live in Postgres, so a file with no sidecar stays closed.
+ */
 export function findWarmMaskedPath(args: {
   dir: string;
   scope: string;
@@ -95,6 +103,7 @@ export function findWarmMaskedPath(args: {
   if (!isPlayScope(args.scope)) return null;
   for (const cardId of cardIds(args.dir)) {
     if (!maskTokenMatches(args.scope, args.sessionId, args.index, cardId, args.token)) continue;
+    if (!existsSync(path.join(args.dir, warmOkMarkerFilename(cardId)))) return null;
     return warmFile(args.dir, cardId);
   }
   return null;
