@@ -57,6 +57,14 @@
   --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
+  --plaque-fill: #0A0E16;
+  --plaque-frame: #2A303C;
+  --plaque-seam: #977C17;
+  --plaque-seam-armed: #F5C518;
+  --plaque-bar: #F5C518;
+  --plaque-ink: #F0F2F5;
+  --plaque-muted: #8F96A3;
+  --plaque-surface: #161B24;
 
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -93,6 +101,14 @@
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
+  --plaque-fill: #0A0E16;
+  --plaque-frame: #2A303C;
+  --plaque-seam: #977C17;
+  --plaque-seam-armed: #F5C518;
+  --plaque-bar: #F5C518;
+  --plaque-ink: #F0F2F5;
+  --plaque-muted: #8F96A3;
+  --plaque-surface: #161B24;
   --background: 220 20% 8%;
   --foreground: 220 10% 95%;
   --border: 220 15% 20%;

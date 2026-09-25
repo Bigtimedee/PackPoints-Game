@@ -1,4 +1,4 @@
-# Masked-image cache rebuild (v4.4)
+# Masked-image cache rebuild (v4.5)
 
 PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them at `/api/cards/:cardId/masked-image`. Gameplay (solo, Daily 5, 1v1) uses that URL. After a masking geometry change, old files stay on disk until the cache key changes.
 
@@ -8,11 +8,11 @@ PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them
 |---|---|---|
 | DB row `card_image_mask_cache` | `cardId` + `rawImageUrl` + `maskVersion` | `maskVersion` bump, or admin rebuild deleting the row |
 | File on volume | `/app/data/masked-cards/{cardId}_{maskVersion}.jpg` (local: `data/masked-cards/`) | version in filename, or deleting the file |
-| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.4`). `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` (not immutable). Warm volume hits skip DB/OCR (`X-Mask-Cache: hit`, `Server-Timing`). `ETag` + `X-Mask-Version` are the current bake id. |
+| HTTP | `/api/cards/:cardId/masked-image?v={maskVersion}` | query string (`v4.5`). `Cache-Control: public, max-age=86400, stale-while-revalidate=604800` (not immutable). Warm volume hits skip DB/OCR (`X-Mask-Cache: hit`, `Server-Timing`). `ETag` + `X-Mask-Version` are the current bake id. |
 
-Current version: **`v4.4`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
+Current version: **`v4.5`** (`CURRENT_MASK_VERSION` in `shared/maskGeometry.ts`). v4.5 also writes a `{cardId}_v4.5.json` bake plan beside the JPEG and nullable `layout_class` / `regions` columns on `card_image_mask_cache` (boot `drizzle-kit push` adds them). Unregistered sets with no OCR name hit are `UNKNOWN` and are not served. On-demand generation in `server/masking/maskingService.ts` skips rebuild when the cached row already has this version and the file exists.
 
-**The handler ignores `?v=`.** `?v=v4.3` and `?v=v4.4` return the same on-disk JPEG until gameplay requests the current version and the file is regenerated. Design QA must use `?v=v4.4`. Leftover `*_v4.3.jpg` files are not the object the game loads.
+**The handler ignores `?v=`.** Older `?v=` values return the same on-disk JPEG until gameplay requests the current version and the file is regenerated. Design QA must use `?v=v4.5`. Leftover `*_v4.4.jpg` files are not the object the game loads.
 
 v4.2 geometry still applies: PSA/slab certificate labels (top ~22% of slab photos) via a center-column red→white detector plus a dark-holder fallback, and OCR tokens `PSA` / `GEM` / `MINT` / `PSA9` in the top third. 1987 Topps baseball stays the bottom 46% plaque. 1989 Fleer basketball stays the top plate.
 
@@ -24,7 +24,7 @@ Before a JPEG is written or returned, `assertOpaqueIdentityCover` checks the nam
 
 ## Production (Railway)
 
-Do **not** run `drizzle-kit push` or wipe Postgres for this. Masked JPEGs are files + `card_image_mask_cache` rows, not schema.
+Do **not** wipe Postgres or run a hand `drizzle-kit push` just to rebuild JPEGs. Masked JPEGs are files plus `card_image_mask_cache` rows. The new nullable `layout_class` and `regions` columns are additive and land on the normal boot push.
 
 After this code is on `main` (auto-deploy):
 

@@ -12,6 +12,7 @@ import {
   dailyChallengeCards,
 } from "@shared/schema";
 import { maskedPlayPath } from "./playImageToken";
+import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { mintDailyRevealUrl } from "./playImageAccess";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { daily5Service } from "./daily5Service";
@@ -76,6 +77,7 @@ async function maskedCards(challengeId: string, anonId: string) {
     }),
     choices: shuffle((card.choices as string[]) ?? [], choiceSeed(challengeId, anonId, card.position)),
     pointValue: card.pointValue,
+    maskPlan: readWarmMaskPlan(card.cardId),
     correctAnswer: card.correctAnswer,
   }));
 }

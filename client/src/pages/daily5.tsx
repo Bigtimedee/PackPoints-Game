@@ -39,7 +39,6 @@ import {
   Play, Award, Crown, Compass
 } from "lucide-react";
 import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
-import { resolvePlayCardSrc } from "@shared/playCardImage";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
@@ -71,6 +70,7 @@ interface Daily5Card {
   imageUrl: string;
   choices: string[];
   pointValue: number;
+  maskPlan?: import("@shared/schema").PublicMaskPlan | null;
 }
 
 interface AnswerResult {
@@ -733,14 +733,14 @@ export default function Daily5Page() {
 
           <div className="space-y-4">
             <div className="flex justify-center">
-              <div className="w-full max-w-xs aspect-[3/4] relative">
+              <div className="w-full max-w-xs aspect-[2.5/3.5] relative">
                 <GameCard
                   key={gameCardMountKey(challengeId || "daily5", currentCard.position, currentCard.imageUrl)}
-                  imageUrl={resolvePlayCardSrc({
-                    maskedUrl: currentCard.imageUrl,
-                    revealUrl: answerResult?.revealUrl,
-                    submitted: isRevealed,
-                  })}
+                  imageUrl={currentCard.imageUrl}
+                  revealUrl={isRevealed ? answerResult?.revealUrl ?? undefined : undefined}
+                  maskPlan={currentCard.maskPlan}
+                  plaqueEyebrow="DAILY 5"
+                  answerStaged={!!selectedAnswer && !isRevealed}
                   isRevealed={isRevealed}
                   imageRotation={0}
                   setKey={challengeSetId ?? statusQuery.data?.challenge?.setId ?? undefined}

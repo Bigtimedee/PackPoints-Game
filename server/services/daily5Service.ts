@@ -11,6 +11,9 @@ import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
 import { maskedPlayPath } from "./playImageToken";
+import { buildSetMaskHint } from "@shared/maskGeometry";
+import { shouldDealMaskedCard } from "../masking/maskProfiles";
+import { readWarmMaskPlan } from "../masking/maskPlanStore";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -193,7 +196,30 @@ export class Daily5Service {
         )
       );
 
-    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl));
+    const [setRow] = await db
+      .select({
+        year: gameSets.year,
+        brand: gameSets.brand,
+        sport: gameSets.sport,
+        setName: gameSets.setName,
+      })
+      .from(gameSets)
+      .where(eq(gameSets.id, setId))
+      .limit(1);
+
+    const filtered = candidates.filter((c) => {
+      if (isKnownSilhouetteUrl(c.imageUrl)) return false;
+      return shouldDealMaskedCard({
+        setHint: buildSetMaskHint({
+          year: setRow?.year,
+          brand: setRow?.brand,
+          sport: setRow?.sport || c.category,
+          setName: c.set || setRow?.setName,
+          category: c.category,
+        }),
+        gameSetId: c.gameSetId || setId,
+      });
+    });
     if (filtered.length < 5) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
       return;
@@ -331,7 +357,7 @@ export class Daily5Service {
 
   async startChallenge(userId: string): Promise<{
     entry: DailyChallengeEntry;
-    cards: { position: number; imageUrl: string; choices: string[]; pointValue: number }[];
+    cards: { position: number; imageUrl: string; choices: string[]; pointValue: number; maskPlan: ReturnType<typeof readWarmMaskPlan> }[];
     setId: string | null;
   }> {
     await this.updateChallengeStatuses();
@@ -419,6 +445,7 @@ export class Daily5Service {
         }),
         choices: shuffledChoices,
         pointValue: c.pointValue,
+        maskPlan: readWarmMaskPlan(c.cardId),
       };
     });
 

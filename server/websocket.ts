@@ -18,6 +18,7 @@ import { replaceMatchQuestion } from "./services/matches/replaceQuestion";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { maskedPlayPath } from "./services/playImageToken";
+import { readWarmMaskPlan } from "./masking/maskPlanStore";
 import { mintMatchRevealUrl } from "./services/playImageAccess";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
@@ -1115,6 +1116,7 @@ async function handleQuestionReplaceRequest(ws: WebSocket, payload: { matchId: s
           index: replaced.idx,
           cardId: replaced.card.id,
         }),
+        maskPlan: readWarmMaskPlan(replaced.card.id),
       },
       choices: replaced.choices,
       pointValue: replaced.pointValue,
@@ -1296,6 +1298,7 @@ function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number
         }),
         imageRotation: currentQuestion.card.imageRotation ?? 0,
         gameSetId: currentQuestion.card.gameSetId,
+        maskPlan: readWarmMaskPlan(currentQuestion.card.id),
       },
       options: currentQuestion.options,
       pointValue: currentQuestion.pointValue,

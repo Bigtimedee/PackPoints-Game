@@ -7,7 +7,8 @@ import { guardCanSubmit, type GuardRejectionReason } from "./matches/guardCanSub
 import { cardHasRealImage, getQuarantinedCardIds, quarantineCard, normalizeImageUrl, analyzeCardImageContent } from "./cards/imageQuality";
 import { getOrValidateCardImage } from "./images/imageGate";
 import { logCardDelivery } from "./telemetry/cardDelivery";
-import { maskedCardImageUrl } from "@shared/maskGeometry";
+import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
+import { shouldDealMaskedCard } from "../masking/maskProfiles";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -373,6 +374,16 @@ class MatchService {
           player: card.player,
         })) {
           console.warn(`[MatchService] Card ${card.id} (${card.player}) skipped: placeholder image detected`);
+          return false;
+        }
+        if (!shouldDealMaskedCard({
+          setHint: buildSetMaskHint({
+            setName: card.set,
+            category: card.category,
+            sport: card.category,
+          }),
+          gameSetId: card.gameSetId,
+        })) {
           return false;
         }
         return true;

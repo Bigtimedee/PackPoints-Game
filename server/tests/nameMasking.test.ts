@@ -235,8 +235,8 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.4");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.4");
+    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.5");
   });
 
   it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {
@@ -311,7 +311,7 @@ describe("baked mask fixtures", () => {
 
   it("bottom-plaque card masks the name band and leaves the top photo", async () => {
     const raw = await bottomPlaqueCard();
-    const result = await maskCardImage(raw, "Mike Trout", "1987 Topps", { skipOcr: true });
+    const result = await maskCardImage(raw, "Mike Trout", "1987 Topps baseball", { skipOcr: true });
     expect(result.source).toBe("profile");
     expect(result.coverageOk).toBe(true);
     expect(result.regions[0].yPct).toBeGreaterThanOrEqual(50);

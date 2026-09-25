@@ -12,7 +12,8 @@ import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
-import { maskedCardImageUrl } from "@shared/maskGeometry";
+import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
+import { shouldDealMaskedCard } from "./masking/maskProfiles";
 
 // Known silhouette/placeholder URL patterns that should NEVER be served
 // These are stock images from Card Hedge that indicate missing card scans
@@ -544,7 +545,14 @@ export class DatabaseStorage implements IStorage {
       await this.initialize();
     }
     const verifiedCards = await this.getVerifiedCards();
-    const shuffled = [...verifiedCards].sort(() => Math.random() - 0.5);
+    const dealable = verifiedCards.filter((card) => shouldDealMaskedCard({
+      setHint: buildSetMaskHint({
+        setName: card.setName,
+        year: card.year,
+        sport: "baseball",
+      }),
+    }));
+    const shuffled = [...dealable].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, Math.min(count, shuffled.length));
   }
 
@@ -566,7 +574,12 @@ export class DatabaseStorage implements IStorage {
   async getRandomCardsFromSet(setId: string, count: number): Promise<PlayableCard[]> {
     // First get the game set's sport for validation
     const [gameSet] = await db
-      .select({ sport: gameSets.sport })
+      .select({
+        sport: gameSets.sport,
+        year: gameSets.year,
+        brand: gameSets.brand,
+        setName: gameSets.setName,
+      })
       .from(gameSets)
       .where(eq(gameSets.id, setId))
       .limit(1);
@@ -635,7 +648,18 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Get cards to serve and refresh stale images
-    const cardsToServe = validCards.slice(0, count);
+    const registeredCards = validCards.filter((card) => shouldDealMaskedCard({
+      setHint: buildSetMaskHint({
+        year: gameSet?.year,
+        brand: gameSet?.brand,
+        sport: gameSet?.sport || card.category,
+        setName: card.set || gameSet?.setName,
+        category: card.category,
+      }),
+      gameSetId: card.gameSetId || setId,
+    }));
+
+    const cardsToServe = registeredCards.slice(0, count);
     
     // Log if serving unverified cards (contentVerified is null)
     const unverifiedCount = cardsToServe.filter(c => c.contentVerified === null).length;

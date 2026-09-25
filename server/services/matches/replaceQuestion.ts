@@ -12,7 +12,8 @@ import {
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/imageQuality";
 import { getOrValidateCardImage } from "../images/imageGate";
-import { maskedCardImageUrl } from "@shared/maskGeometry";
+import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
+import { shouldDealMaskedCard } from "../../masking/maskProfiles";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -82,6 +83,16 @@ async function findReplacementCard(
       }
       const normalized = normalizeImageUrl(c.imageUrl);
       if (!normalized) return false;
+      if (!shouldDealMaskedCard({
+        setHint: buildSetMaskHint({
+          setName: c.set,
+          category: c.category,
+          sport: c.category,
+        }),
+        gameSetId: c.gameSetId,
+      })) {
+        return false;
+      }
       return true;
     });
 

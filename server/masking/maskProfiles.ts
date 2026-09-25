@@ -102,7 +102,7 @@ const toppsFootball1994 = profile("1994-topps-football", "bottom", BOTTOM_PLAQUE
   topBandPct: 0,
 });
 
-/** Year+brand keys. Applied only when sport is baseball or absent. Football must not hit these. */
+/** Year+brand keys. Applied only when sport is confirmed baseball. */
 const baseballNamedProfiles: Record<string, MaskProfile> = {
   "1987 topps": toppsBaseball1987,
   "1989 upper deck": profile("1989-upper-deck", "bottom", BOTTOM_PLAQUE_20, { bottomBandPct: 0.20, topBandPct: 0 }),
@@ -157,13 +157,24 @@ function sportLayoutKey(hint: ParsedSetHint): string | null {
 }
 
 function baseballYearBrandProfile(hint: ParsedSetHint): MaskProfile | null {
-  if (hint.sport && hint.sport !== "baseball") return null;
+  if (hint.sport !== "baseball") return null;
   const exact = baseballNamedProfiles[hint.raw];
   if (exact) return exact;
   for (const [key, value] of Object.entries(baseballNamedProfiles)) {
     if (hint.raw.includes(key)) return value;
   }
   return null;
+}
+
+/**
+ * Unregistered sets are not a bottom plaque. Dealing skips them so play never
+ * receives an UNKNOWN card. A confirmed baseball year+brand hint still matches.
+ */
+export function shouldDealMaskedCard(input: {
+  setHint?: string | null;
+  gameSetId?: string | null;
+}): boolean {
+  return getMaskProfile(input.setHint, input.gameSetId).matched;
 }
 
 export function getMaskProfile(setName: string | null | undefined, gameSetId?: string | null): MaskProfile {

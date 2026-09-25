@@ -1,7 +1,7 @@
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "./schema";
 
 /** Bump whenever baked JPEG geometry, OCR rules, or fill change. Cache keys and `?v=` URLs follow this. */
-export const CURRENT_MASK_VERSION = "v4.4";
+export const CURRENT_MASK_VERSION = "v4.5";
 
 export function maskedCardImageUrl(cardId: string): string {
   return `/api/cards/${encodeURIComponent(cardId)}/masked-image?v=${CURRENT_MASK_VERSION}`;
@@ -47,6 +47,20 @@ export function buildSetMaskHint(parts: {
 export function overlayMaskRegions(regions: MaskRegion[] | null | undefined): MaskRegion[] {
   if (regions && regions.length > 0) return regions.map(cloneRegion);
   return DEFAULT_MASK_REGIONS.map(cloneRegion);
+}
+
+/**
+ * Plaque class from the regions that were actually painted.
+ * Top band only: TOP_PLATE. Bottom band only: BOTTOM_PLAQUE. Both: PSA_SLAB.
+ */
+export function inferLayoutClass(regions: MaskRegion[]): "TOP_PLATE" | "BOTTOM_PLAQUE" | "PSA_SLAB" {
+  const full = regions.filter((region) => region.wPct >= 90);
+  const bands = full.length > 0 ? full : regions;
+  const top = bands.some((region) => region.yPct <= 2);
+  const bottom = bands.some((region) => region.yPct >= 40);
+  if (top && bottom) return "PSA_SLAB";
+  if (top) return "TOP_PLATE";
+  return "BOTTOM_PLAQUE";
 }
 
 export function largestMaskRegion(regions: MaskRegion[]): MaskRegion | null {
