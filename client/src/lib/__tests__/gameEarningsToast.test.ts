@@ -1,8 +1,9 @@
 /**
  * In-game earnings toasts are gone. Crossing a score (500 and the other
- * thresholds) must not toast in solo or Daily 5. The quiet row +N and
- * Game Complete stay. Submit/network errors still toast, and on play routes
- * that toast sits in the bottom band so it does not cover the card.
+ * thresholds) must not toast in solo or Daily 5. The quiet +N row is gone
+ * too: points show on Game Complete only. Submit/network errors still toast,
+ * and on play routes that toast sits in the bottom band so it does not cover
+ * the card.
  */
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
@@ -35,7 +36,8 @@ describe("no earnings toast when a total crosses 500", () => {
     expect(onSuccess).not.toContain("toast(");
     expect(onSuccess).not.toContain("500");
     expect(onSuccess).not.toContain("1000");
-    expect(onSuccess).toContain('typeof data.pointsEarned === "number"');
+    expect(onSuccess).not.toContain("pointsEarned");
+    expect(onSuccess).not.toContain("setEarnedPoints");
     expect(gameSrc).not.toMatch(EARNINGS_TOAST);
     expect(gameSrc).not.toContain("consecutiveCorrect");
     expect(gameSrc).not.toContain("shownMilestones");
@@ -47,7 +49,8 @@ describe("no earnings toast when a total crosses 500", () => {
       "const answerMutation = useMutation({",
       "onError: (err: any) => {",
     );
-    expect(onSuccess).toContain("setScore(data.score)");
+    expect(onSuccess).not.toContain("setScore");
+    expect(onSuccess).not.toContain("pointsEarned");
     expect(onSuccess).not.toMatch(EARNINGS_TOAST);
     expect(onSuccess).not.toContain("toast(");
     expect(daily5Src).not.toMatch(EARNINGS_TOAST);
@@ -55,22 +58,28 @@ describe("no earnings toast when a total crosses 500", () => {
   });
 });
 
-describe("row +N and Game Complete still render", () => {
-  it("solo keeps the quiet +N under the answers and the Game Complete score", () => {
-    expect(gameSrc).toContain("+{points} pts");
-    expect(gameSrc).toContain('data-testid="text-points-earned"');
+describe("Game Complete still shows the session total", () => {
+  it("solo Game Complete score still renders and the quiet +N row is gone", () => {
+    expect(gameSrc).not.toContain("+{points} pts");
+    expect(gameSrc).not.toContain('data-testid="text-points-earned"');
+    expect(gameSrc).not.toContain("PointsQuiet");
+    expect(gameSrc).not.toContain('data-testid="badge-score"');
     const slot = sliceBetween(gameSrc, 'data-testid="solo-card-slot"', "{/* Zone 3: Answers */}");
     expect(slot).not.toContain("PointsQuiet");
     expect(slot).not.toContain("+{points}");
     const answers = sliceBetween(gameSrc, "{/* Zone 3: Answers */}", "button-submit-answer");
-    expect(answers).toContain("<PointsQuiet");
+    expect(answers).not.toContain("PointsQuiet");
+    expect(answers).not.toMatch(/\bpts\b/);
     expect(gameSrc).toContain('data-testid="text-game-over-title">Game Complete');
-    expect(gameSrc).toContain('data-testid="text-final-score"');
+    expect(gameSrc).toContain('data-testid="text-final-score">{session.score}');
   });
 
-  it("Daily 5 Game Complete score still renders", () => {
+  it("Daily 5 Game Complete score still renders and the in-play total is gone", () => {
+    expect(daily5Src).not.toContain('data-testid="text-d5-score"');
     expect(daily5Src).toContain('data-testid="text-d5-complete">Game Complete');
     expect(daily5Src).toContain('data-testid="text-d5-final-score"');
+    const results = sliceBetween(daily5Src, 'data-testid="text-d5-final-score"', "PTS");
+    expect(results).toContain("finishResult?.score");
   });
 });
 

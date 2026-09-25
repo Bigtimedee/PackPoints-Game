@@ -170,11 +170,12 @@ async function pngFileFromUrl(url: string, filename: string): Promise<File | nul
   }
 }
 
-function ShareResultCard({ correctCount, date, challengeId, shareImageUrl }: {
+function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maskedCardUrls }: {
   correctCount: number;
   date?: string;
   challengeId?: string;
   shareImageUrl?: string;
+  maskedCardUrls?: readonly (string | null | undefined)[];
 }) {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
@@ -316,6 +317,7 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl }: {
           downloadFilename={sessionFilename}
           shareText={shareCaption}
           previewOnly
+          maskedCardUrls={maskedCardUrls}
           onImageUrl={setSessionImageUrl}
           resolveShareUrl={async () => {
             const created = beatMeUrl ? { url: beatMeUrl } : await issueBeatMe();
@@ -428,7 +430,6 @@ export default function Daily5Page() {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [answerResult, setAnswerResult] = useState<AnswerResult | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
-  const [score, setScore] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
   const [finishResult, setFinishResult] = useState<FinishResult | null>(null);
   const [challengeId, setChallengeId] = useState<string>("");
@@ -459,7 +460,6 @@ export default function Daily5Page() {
     const resume = resolveDaily5Resume(entry);
     if (ids?.challengeId) setChallengeId(ids.challengeId);
     if (ids?.entryId) setEntryId(ids.entryId);
-    setScore(resume.score);
     setCorrectCount(resume.correctCount);
     setAnsweredPositions(resume.answeredPositions);
     setSelectedAnswer(null);
@@ -520,7 +520,6 @@ export default function Daily5Page() {
       const data: AnswerResult = await res.json();
       setAnswerResult(data);
       setIsRevealed(true);
-      setScore(data.score);
       setCorrectCount(data.correctCount);
       setAnsweredPositions((prev) => (
         prev.includes(variables.position) ? prev : [...prev, variables.position]
@@ -722,12 +721,9 @@ export default function Daily5Page() {
               <Calendar className="h-3 w-3" />
               Daily 5
             </Badge>
-            <div className="flex items-center gap-3">
-              <Badge variant="secondary" data-testid="text-d5-score">{score} pts</Badge>
-              <span className="text-sm text-muted-foreground" data-testid="text-d5-progress">
-                {currentPosition}/5
-              </span>
-            </div>
+            <span className="text-sm text-muted-foreground" data-testid="text-d5-progress">
+              {currentPosition}/5
+            </span>
           </div>
           <Progress value={(currentPosition - 1) / 5 * 100 + (isRevealed ? 20 : 0)} className="mb-4" />
 
@@ -871,6 +867,7 @@ export default function Daily5Page() {
             date={status?.challenge?.date}
             challengeId={status?.challenge?.id}
             shareImageUrl={finishResult?.shareImageUrl}
+            maskedCardUrls={[...cards].sort((a, b) => a.position - b.position).map((card) => card.imageUrl)}
           />
 
           <div className="space-y-3 mb-8 max-w-md mx-auto">
