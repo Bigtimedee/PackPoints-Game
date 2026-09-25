@@ -8,9 +8,9 @@ export function kickPreMask(cardIds: Array<string | null | undefined>, reason: s
   const started = Date.now();
   void import("./maskingService")
     .then(({ preMaskCards }) => preMaskCards(unique))
-    .then((results) => {
-      const hits = [...results.values()].filter(Boolean).length;
-      console.log(`[PreMask] ${reason} warmed ${hits}/${unique.length} in ${Date.now() - started}ms`);
+    .then(({ paths, timedOut }) => {
+      const hits = [...paths.values()].filter(Boolean).length;
+      console.log(`[PreMask] ${reason} warmed ${hits}/${unique.length} timedOut=${timedOut} in ${Date.now() - started}ms`);
     })
     .catch((err: { message?: string }) => {
       console.warn(`[PreMask] ${reason} failed:`, err?.message || err);

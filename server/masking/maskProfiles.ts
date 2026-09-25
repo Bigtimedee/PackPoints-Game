@@ -205,8 +205,15 @@ export interface DealtMaskHint {
   gameSetId?: string | null;
 }
 
-/** One line per set when a dealt or baked card uses the unmatched default profile. */
-export function logDealtDefaultMaskProfiles(cards: DealtMaskHint[]): void {
+const DEFAULT_PROFILE_LOG_INTERVAL_MS = 10 * 60 * 1000;
+const defaultProfileLoggedAt = new Map<string, number>();
+
+export function resetDefaultProfileLogForTests(): void {
+  defaultProfileLoggedAt.clear();
+}
+
+/** One line per set when a dealt or baked card uses the unmatched default profile. At most once per set per process per 10 minutes. */
+export function logDealtDefaultMaskProfiles(cards: DealtMaskHint[], now = Date.now()): void {
   const counts = new Map<string, number>();
   for (const card of cards) {
     if (getMaskProfile(card.setHint, card.gameSetId).matched) continue;
@@ -214,6 +221,9 @@ export function logDealtDefaultMaskProfiles(cards: DealtMaskHint[]): void {
     counts.set(set, (counts.get(set) || 0) + 1);
   }
   for (const [set, count] of counts) {
+    const last = defaultProfileLoggedAt.get(set);
+    if (last != null && now - last < DEFAULT_PROFILE_LOG_INTERVAL_MS) continue;
+    defaultProfileLoggedAt.set(set, now);
     console.log(`[MaskProfile] default profile used set=${set} count=${count}`);
   }
 }

@@ -3,6 +3,7 @@ import { playableCards } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
 import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
+import { withSourceFetchTimeout } from "./images/sourceFetch";
 
 const FRESHNESS_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RATE_LIMIT_DELAY_MS = 1000; // 1 second between requests
@@ -36,14 +37,10 @@ async function validateImageUrl(url: string): Promise<ImageValidationResult> {
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), IMAGE_VALIDATION_TIMEOUT_MS);
-    
-    const response = await fetch(url, { 
+    const response = await withSourceFetchTimeout((signal) => fetch(url, {
       method: "HEAD",
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+      signal,
+    }), IMAGE_VALIDATION_TIMEOUT_MS);
     
     if (!response.ok) {
       return { valid: false, error: `HTTP ${response.status}` };

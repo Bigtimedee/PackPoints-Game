@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { cardImageCache, cardImageQuarantine, baseballCards, playableCards } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { normalizeImageUrl, isPlaceholderImage, quarantineCard } from "../cards/imageQuality";
+import { withSourceFetchTimeout } from "./sourceFetch";
 
 const VALIDATION_TIMEOUT_MS = 6000;
 const MIN_IMAGE_BYTES = 5 * 1024;
@@ -27,20 +28,16 @@ export async function validateRemoteImage(url: string): Promise<ValidationResult
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
-
+    return await withSourceFetchTimeout(async (signal) => {
     const response = await fetch(normalized, {
       method: "GET",
       headers: {
         Range: "bytes=0-65535",
         "User-Agent": "PackPTS/1.0 ImageValidator",
       },
-      signal: controller.signal,
+      signal,
       redirect: "follow",
     });
-
-    clearTimeout(timeoutId);
 
     const httpStatus = response.status;
     const contentType = response.headers.get("content-type") || "";
@@ -112,6 +109,7 @@ export async function validateRemoteImage(url: string): Promise<ValidationResult
       contentType,
       bytes: estimatedBytes,
     };
+    }, VALIDATION_TIMEOUT_MS);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     

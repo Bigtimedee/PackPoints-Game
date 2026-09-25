@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import { toPublicMaskPlan } from "@shared/maskPlan";
 import { buildSetMaskHint, CURRENT_MASK_VERSION, inferLayoutClass } from "@shared/maskGeometry";
-import { getMaskProfile, logDealtDefaultMaskProfiles, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
+import { getMaskProfile, logDealtDefaultMaskProfiles, resetDefaultProfileLogForTests, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
 import { resolveNameMaskPlan } from "../masking/nameLocalization";
 import { applyPercentRegions } from "../masking/maskCardImage";
 import { assertOpaqueIdentityCover } from "../masking/maskCoverage";
@@ -159,6 +159,7 @@ describe("live hints stay dealable and bake a region", () => {
   });
 
   it("logs the default profile for unmatched dealt cards and skips matched baseball", () => {
+    resetDefaultProfileLogForTests();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     logDealtDefaultMaskProfiles([
       { setHint: LIVE_HINTS[0].hint, gameSetId: DAILY5_BASKETBALL_SET },
@@ -169,6 +170,27 @@ describe("live hints stay dealable and bake a region", () => {
       `[MaskProfile] default profile used set=${DAILY5_BASKETBALL_SET} count=2`,
     );
     spy.mockRestore();
+    resetDefaultProfileLogForTests();
+  });
+
+  it("logs an unmatched set at most once per 10 minutes", () => {
+    resetDefaultProfileLogForTests();
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const now = 1_700_000_000_000;
+    const card = { setHint: "unknown set", gameSetId: DAILY5_BASKETBALL_SET };
+    logDealtDefaultMaskProfiles([card], now);
+    logDealtDefaultMaskProfiles([card, card], now + 60_000);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(
+      `[MaskProfile] default profile used set=${DAILY5_BASKETBALL_SET} count=1`,
+    );
+    logDealtDefaultMaskProfiles([card, card, card], now + 10 * 60 * 1000);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenLastCalledWith(
+      `[MaskProfile] default profile used set=${DAILY5_BASKETBALL_SET} count=3`,
+    );
+    spy.mockRestore();
+    resetDefaultProfileLogForTests();
   });
 });
 

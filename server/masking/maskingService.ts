@@ -8,6 +8,7 @@ import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { logDealtDefaultMaskProfiles } from "./maskProfiles";
+import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
 
@@ -26,6 +27,66 @@ const maskingQueue: Map<string, Promise<string | null>> = new Map();
 const coverageRefusals = new Map<string, string>();
 let activeMaskingJobs = 0;
 const MAX_CONCURRENT_OCR = 2;
+const SLOT_POLL_MS = 50;
+
+export const SOURCE_FETCH_TIMEOUT_MS = 9_000;
+export const MASK_BAKE_DEADLINE_MS = 20_000;
+
+export type MaskBakeStage = "fetch" | "ocr" | "bake";
+
+export class MaskBakeTimeoutError extends Error {
+  readonly stage: MaskBakeStage;
+  readonly cardId: string;
+  readonly ms: number;
+
+  constructor(stage: MaskBakeStage, cardId: string, ms: number) {
+    super("mask bake timed out");
+    this.name = "MaskBakeTimeoutError";
+    this.stage = stage;
+    this.cardId = cardId;
+    this.ms = Math.max(0, Math.round(ms));
+  }
+}
+
+export function isMaskBakeTimeout(error: unknown): error is MaskBakeTimeoutError {
+  return error instanceof MaskBakeTimeoutError || (error instanceof Error && error.name === "MaskBakeTimeoutError");
+}
+
+let bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
+let pathLoaderOverride: ((cardId: string) => Promise<string | null>) | null = null;
+
+export function setMaskBakeTimingsForTests(next: { fetchMs: number; deadlineMs: number } | null): void {
+  bakeTimings = next ?? { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
+}
+
+export function setMaskPathLoaderForTests(loader: ((cardId: string) => Promise<string | null>) | null): void {
+  pathLoaderOverride = loader;
+}
+
+export function maskBakeSlotsInUse(): number {
+  return activeMaskingJobs;
+}
+
+export function resetMaskBakeForTests(): void {
+  activeMaskingJobs = 0;
+  maskingQueue.clear();
+  coverageRefusals.clear();
+  pathLoaderOverride = null;
+  bakeTimings = { fetchMs: SOURCE_FETCH_TIMEOUT_MS, deadlineMs: MASK_BAKE_DEADLINE_MS };
+}
+
+export interface PreMaskBatch {
+  paths: Map<string, string | null>;
+  timedOut: number;
+}
+
+export interface MaskBakeSource {
+  cardId: string;
+  imageUrl: string;
+  playerName: string;
+  setHint: string | null;
+  gameSetId: string | null;
+}
 
 async function ensureDirectory(): Promise<void> {
   try {
@@ -35,25 +96,100 @@ async function ensureDirectory(): Promise<void> {
   }
 }
 
-async function downloadImage(url: string): Promise<Buffer | null> {
+async function downloadImage(url: string, cardId: string): Promise<Buffer | null> {
+  const started = Date.now();
   try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "PackPTS-ImageMasker/1.0",
-      },
-    });
-    
-    if (!response.ok) {
-      console.error(`[MaskingService] Failed to download image: ${response.status}`);
-      return null;
-    }
-    
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    return await withSourceFetchTimeout(async (signal) => {
+      const response = await fetch(url, {
+        signal,
+        headers: {
+          "User-Agent": "PackPTS-ImageMasker/1.0",
+        },
+      });
+
+      if (!response.ok) {
+        console.error(`[MaskingService] Failed to download image: ${response.status}`);
+        return null;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }, bakeTimings.fetchMs);
   } catch (error) {
+    if (isSourceFetchTimeout(error)) {
+      throw new MaskBakeTimeoutError("fetch", cardId, Date.now() - started);
+    }
     console.error("[MaskingService] Error downloading image:", error);
     return null;
   }
+}
+
+function releaseBakeSlot(guard: { released: boolean }): void {
+  if (guard.released) return;
+  guard.released = true;
+  activeMaskingJobs--;
+}
+
+async function acquireBakeSlot(): Promise<void> {
+  while (activeMaskingJobs >= MAX_CONCURRENT_OCR) {
+    await new Promise((resolve) => setTimeout(resolve, SLOT_POLL_MS));
+  }
+  activeMaskingJobs++;
+}
+
+/**
+ * Holds one bake slot. The deadline rejects even when `work` never settles,
+ * and the slot is released once (timeout callback and `finally` share a guard).
+ */
+async function runInBakeSlot<T>(
+  cardId: string,
+  work: (setStage: (stage: MaskBakeStage) => void, isCancelled: () => boolean) => Promise<T>,
+): Promise<T> {
+  await acquireBakeSlot();
+  const guard = { released: false };
+  const started = Date.now();
+  let stage: MaskBakeStage = "fetch";
+  const gate = { cancelled: false };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      gate.cancelled = true;
+      releaseBakeSlot(guard);
+      reject(new MaskBakeTimeoutError(stage, cardId, Date.now() - started));
+    }, bakeTimings.deadlineMs);
+  });
+  const job = work((next) => {
+    stage = next;
+  }, () => gate.cancelled);
+  job.catch(() => {});
+  deadline.catch(() => {});
+  try {
+    return await Promise.race([job, deadline]);
+  } catch (error) {
+    if (isMaskBakeTimeout(error)) {
+      console.log(`[MaskBake] timeout stage=${error.stage} card=${error.cardId} ms=${error.ms}`);
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+    releaseBakeSlot(guard);
+  }
+}
+
+/** Share one in-flight bake per card. The entry is dropped when that promise settles, including timeout. */
+export function enqueueMaskBake(
+  cardId: string,
+  start: () => Promise<string | null>,
+): Promise<string | null> {
+  const existing = maskingQueue.get(cardId);
+  if (existing) return existing;
+  const promise = start();
+  maskingQueue.set(cardId, promise);
+  const drop = () => {
+    if (maskingQueue.get(cardId) === promise) maskingQueue.delete(cardId);
+  };
+  promise.then(drop, drop);
+  return promise;
 }
 
 /** Set when a bake is refused. The masked-image route reads this once. */
@@ -64,24 +200,17 @@ export function takeCoverageRefusal(cardId: string): string | null {
 }
 
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
+  if (pathLoaderOverride) return pathLoaderOverride(cardId);
+
   const warm = peekWarmMaskedFilename(cardId);
   if (warm) {
     return warm;
   }
 
-  if (maskingQueue.has(cardId)) {
-    return maskingQueue.get(cardId)!;
-  }
-
-  const promise = generateMaskedImage(cardId);
-  maskingQueue.set(cardId, promise);
-  
-  try {
-    const result = await promise;
-    return result;
-  } finally {
-    maskingQueue.delete(cardId);
-  }
+  return enqueueMaskBake(cardId, () => {
+    const promise = generateMaskedImage(cardId);
+    return promise;
+  });
 }
 
 async function generateMaskedImage(cardId: string): Promise<string | null> {
@@ -176,105 +305,123 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     }
   }
 
-  while (activeMaskingJobs >= MAX_CONCURRENT_OCR) {
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
+  return bakeMaskedCardFromUrl({
+    cardId,
+    imageUrl,
+    playerName: playerName || "",
+    setHint,
+    gameSetId,
+  });
+}
 
-  activeMaskingJobs++;
-
+export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<string | null> {
+  const { cardId, imageUrl } = input;
   try {
-    const imageBuffer = await downloadImage(imageUrl);
-    if (!imageBuffer) {
-      return null;
-    }
+    return await runInBakeSlot(cardId, async (setStage, isCancelled) => {
+      setStage("fetch");
+      const imageBuffer = await downloadImage(imageUrl, cardId);
+      if (!imageBuffer || isCancelled()) return null;
 
-    logDealtDefaultMaskProfiles([{ setHint, gameSetId }]);
-    const result = await maskCardImage(
-      imageBuffer,
-      playerName || "",
-      setHint,
-      { gameSetId },
-    );
+      setStage("ocr");
+      logDealtDefaultMaskProfiles([{ setHint: input.setHint, gameSetId: input.gameSetId }]);
+      const result = await maskCardImage(
+        imageBuffer,
+        input.playerName,
+        input.setHint,
+        {
+          gameSetId: input.gameSetId,
+          onStage: (stage) => setStage(stage),
+        },
+      );
+      if (isCancelled()) return null;
 
-    if (!result.coverageOk) {
-      const reason = result.coverageReason || "mask_name_uncovered";
-      coverageRefusals.set(cardId, reason);
-      console.error(`[MaskingService] Refusing playable mask for ${cardId}: ${reason}`, {
-        source: result.source,
-        layoutClass: result.layoutClass,
-        maskVersion: CURRENT_MASK_VERSION,
-      });
-      await quarantineUncoveredName(cardId, reason);
-      return null;
-    }
+      if (!result.coverageOk) {
+        const reason = result.coverageReason || "mask_name_uncovered";
+        coverageRefusals.set(cardId, reason);
+        console.error(`[MaskingService] Refusing playable mask for ${cardId}: ${reason}`, {
+          source: result.source,
+          layoutClass: result.layoutClass,
+          maskVersion: CURRENT_MASK_VERSION,
+        });
+        await quarantineUncoveredName(cardId, reason);
+        return null;
+      }
 
-    const filename = warmMaskedFilename(cardId);
-    const filePath = path.join(MASKED_CARDS_DIR, filename);
-    
-    await fs.writeFile(filePath, result.maskedBuffer);
-    await writeWarmMaskPlan(cardId, {
-      layoutClass: result.layoutClass,
-      regions: result.regions,
-      maskVersion: CURRENT_MASK_VERSION,
-    });
+      setStage("bake");
+      const filename = warmMaskedFilename(cardId);
+      const filePath = path.join(MASKED_CARDS_DIR, filename);
 
-    await db
-      .insert(cardImageMaskCache)
-      .values({
-        cardId,
-        rawImageUrl: imageUrl,
-        maskedImagePath: filename,
-        maskVersion: CURRENT_MASK_VERSION,
+      await fs.writeFile(filePath, result.maskedBuffer);
+      await writeWarmMaskPlan(cardId, {
         layoutClass: result.layoutClass,
         regions: result.regions,
-      })
-      .onConflictDoUpdate({
-        target: cardImageMaskCache.cardId,
-        set: {
+        maskVersion: CURRENT_MASK_VERSION,
+      });
+
+      await db
+        .insert(cardImageMaskCache)
+        .values({
+          cardId,
           rawImageUrl: imageUrl,
           maskedImagePath: filename,
           maskVersion: CURRENT_MASK_VERSION,
           layoutClass: result.layoutClass,
           regions: result.regions,
-          updatedAt: new Date(),
-        },
+        })
+        .onConflictDoUpdate({
+          target: cardImageMaskCache.cardId,
+          set: {
+            rawImageUrl: imageUrl,
+            maskedImagePath: filename,
+            maskVersion: CURRENT_MASK_VERSION,
+            layoutClass: result.layoutClass,
+            regions: result.regions,
+            updatedAt: new Date(),
+          },
+        });
+
+      console.log(`[MaskingService] Generated masked image for card ${cardId}`, {
+        ocrApplied: result.ocrApplied,
+        ocrMatches: result.ocrMatches,
+        source: result.source,
+        maskVersion: CURRENT_MASK_VERSION,
       });
 
-    console.log(`[MaskingService] Generated masked image for card ${cardId}`, {
-      ocrApplied: result.ocrApplied,
-      ocrMatches: result.ocrMatches,
-      source: result.source,
-      maskVersion: CURRENT_MASK_VERSION,
+      return filename;
     });
-
-    return filename;
   } catch (error) {
+    if (isMaskBakeTimeout(error)) throw error;
     console.error(`[MaskingService] Failed to mask card ${cardId}:`, error);
     return null;
-  } finally {
-    activeMaskingJobs--;
   }
 }
 
-export async function preMaskCards(cardIds: string[]): Promise<Map<string, string | null>> {
-  const results = new Map<string, string | null>();
-  
+export async function preMaskCards(cardIds: string[]): Promise<PreMaskBatch> {
+  const paths = new Map<string, string | null>();
+  let timedOut = 0;
+
   const batchSize = MAX_CONCURRENT_OCR;
   for (let i = 0; i < cardIds.length; i += batchSize) {
     const batch = cardIds.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (cardId) => {
-        const imagePath = await getMaskedImagePath(cardId);
-        return { cardId, path: imagePath };
+        try {
+          const imagePath = await getMaskedImagePath(cardId);
+          return { cardId, path: imagePath, timedOut: false };
+        } catch (error) {
+          if (isMaskBakeTimeout(error)) return { cardId, path: null, timedOut: true };
+          return { cardId, path: null, timedOut: false };
+        }
       })
     );
-    
-    for (const { cardId, path: imagePath } of batchResults) {
-      results.set(cardId, imagePath);
+
+    for (const row of batchResults) {
+      paths.set(row.cardId, row.path);
+      if (row.timedOut) timedOut++;
     }
   }
-  
-  return results;
+
+  return { paths, timedOut };
 }
 
 export function getMaskedImageUrl(cardId: string, _maskedPath?: string): string {

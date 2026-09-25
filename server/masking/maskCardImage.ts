@@ -129,7 +129,12 @@ export async function maskCardImage(
   rawImageBuffer: Buffer,
   playerName: string,
   setName: string | null | undefined,
-  opts: { skipOcr?: boolean; words?: OcrWordBox[]; gameSetId?: string | null } = {},
+  opts: {
+    skipOcr?: boolean;
+    words?: OcrWordBox[];
+    gameSetId?: string | null;
+    onStage?: (stage: "ocr" | "bake") => void;
+  } = {},
 ): Promise<MaskResult> {
   const metadata = await sharp(rawImageBuffer).metadata();
   const originalWidth = metadata.width || 800;
@@ -137,6 +142,7 @@ export async function maskCardImage(
 
   let words: OcrWordBox[] = opts.words || [];
   if (!opts.skipOcr && !opts.words) {
+    opts.onStage?.("ocr");
     try {
       words = await runOCRWords(rawImageBuffer, originalWidth);
     } catch (error) {
@@ -145,6 +151,7 @@ export async function maskCardImage(
     }
   }
 
+  opts.onStage?.("bake");
   let slabLayout = false;
   try {
     slabLayout = await detectPsaSlabLayout(rawImageBuffer);

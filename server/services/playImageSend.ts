@@ -2,8 +2,9 @@ import type { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import { getCachedImageUrl, getOrValidateCardImage, getSourceUrlForCard, markImageBad } from "./images/imageGate";
+import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { normalizeImageUrl } from "./cards/imageQuality";
-import { getMaskedImagePath, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
+import { getMaskedImagePath, isMaskBakeTimeout, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
@@ -41,33 +42,34 @@ export async function sendUnmaskedCard(res: Response, cardId: string): Promise<v
       return;
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const response = await fetch(normalized, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: { "User-Agent": "PackPTS/1.0 ImageProxy" },
-    });
-    clearTimeout(timeoutId);
+    const fetched = await withSourceFetchTimeout(async (signal) => {
+      const response = await fetch(normalized, {
+        signal,
+        redirect: "follow",
+        headers: { "User-Agent": "PackPTS/1.0 ImageProxy" },
+      });
+      if (!response.ok) return { kind: "status" as const, status: response.status };
+      const contentType = response.headers.get("content-type") || "image/jpeg";
+      if (!contentType.toLowerCase().startsWith("image/")) return { kind: "type" as const, contentType };
+      return { kind: "ok" as const, contentType, bytes: Buffer.from(await response.arrayBuffer()) };
+    }, 10_000);
 
-    if (!response.ok) {
-      await markImageBad(cardId, `proxy_fetch_failed:${response.status}`);
+    if (fetched.kind === "status") {
+      await markImageBad(cardId, `proxy_fetch_failed:${fetched.status}`);
       res.setHeader("Cache-Control", "private, no-store");
       res.status(502).json({ error: "Failed to fetch image" });
       return;
     }
 
-    const contentType = response.headers.get("content-type") || "image/jpeg";
-    if (!contentType.toLowerCase().startsWith("image/")) {
-      await markImageBad(cardId, `invalid_content_type:${contentType}`);
+    if (fetched.kind === "type") {
+      await markImageBad(cardId, `invalid_content_type:${fetched.contentType}`);
       res.setHeader("Cache-Control", "private, no-store");
       res.status(502).json({ error: "Invalid content type" });
       return;
     }
 
-    setUnmaskedResponseHeaders(res, contentType);
-    const arrayBuffer = await response.arrayBuffer();
-    res.send(Buffer.from(arrayBuffer));
+    setUnmaskedResponseHeaders(res, fetched.contentType);
+    res.send(fetched.bytes);
   } catch (error: any) {
     res.setHeader("Cache-Control", "private, no-store");
     if (error?.name === "AbortError") {
@@ -132,6 +134,12 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     res.setHeader("X-Content-Type-Options", "nosniff");
     fs.createReadStream(filePath).pipe(res);
   } catch (error) {
+    if (isMaskBakeTimeout(error)) {
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Retry-After", "5");
+      res.status(503).json({ error: "Masked image temporarily unavailable" });
+      return;
+    }
     console.error("[MaskedImage] Error serving masked image:", error);
     res.status(500).json({ error: "Server error" });
   }
