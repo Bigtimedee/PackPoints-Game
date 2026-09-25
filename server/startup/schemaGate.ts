@@ -2,9 +2,10 @@ import type { NextFunction, Request, Response } from "express";
 import { tryServeWarmMasked } from "./warmMaskGate";
 
 /**
- * DB routes stay closed until `drizzle-kit push --force` has finished.
- * `/api/version` and the static SPA stay up so a deploy is not a hard 502
- * for the whole schema step.
+ * DB routes stay closed until the schema step says the database matches
+ * shared/schema.ts. That is a fast catalog probe when the schema hash is
+ * unchanged, or `drizzle-kit push --force` when the probe fails or the hash
+ * changed. `/api/version` and the static SPA stay up for the whole step.
  */
 let schemaReady = false;
 

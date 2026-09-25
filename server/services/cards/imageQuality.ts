@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { cardImageQuarantine } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { analyzeImageContent, type ImageAnalysisResult } from "../imageContentAnalyzer";
+import { invalidateMaskReadySidecar } from "../../masking/maskReadySidecar";
 
 const PLACEHOLDER_URL_MARKERS = [
   "example.jpg",
@@ -179,6 +180,7 @@ export async function quarantineCard(
         },
       });
 
+    invalidateMaskReadySidecar(cardId);
     console.warn(`[ImageQuality] Quarantined card ${cardId}: ${reason}`);
   } catch (error) {
     console.error(`[ImageQuality] Failed to quarantine card ${cardId}:`, error);
