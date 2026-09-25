@@ -10,13 +10,14 @@ import {
   shouldShowShortShelf,
 } from "@/lib/setsPolish";
 
-interface BrowseSet {
+export interface BrowseSet {
   id: string;
   setName: string;
   makerNote: string | null;
   makerUsername: string | null;
+  isUserCreated?: boolean;
   cardCount: number;
-  createdAt: string;
+  createdAt: string | null;
   shareImageUrl?: string | null;
   coverCardUrls?: string[];
 }
@@ -34,7 +35,7 @@ function MaskedPMark({ size = 22 }: { size?: number }) {
 function PlayButton({
   setId,
   cardCount,
-  label = "Play",
+  label = SETS_POLISH.playThisSet,
 }: {
   setId: string;
   cardCount: number;
@@ -76,9 +77,10 @@ function SetRow({ set }: { set: BrowseSet }) {
           </h2>
           <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
             {formatSetMetaLine({
-              makerUsername: set.makerUsername,
+              makerUsername: set.isUserCreated ? set.makerUsername : null,
               cardCount: set.cardCount,
-              createdAt: set.createdAt,
+              createdAt: set.isUserCreated ? set.createdAt : null,
+              authored: set.isUserCreated === true,
             })}
           </p>
         </div>
@@ -99,17 +101,13 @@ function SetRowSkeleton() {
   );
 }
 
-export default function BrowseSets() {
-  const { data, isLoading } = useQuery<{ sets: BrowseSet[] }>({
-    queryKey: ["/api/sets"],
-    queryFn: async () => {
-      const res = await fetch("/api/sets?limit=50");
-      return res.json();
-    },
-    staleTime: 60_000,
-  });
-
-  const sets = data?.sets ?? [];
+export function BrowseSetsShelf({
+  sets,
+  isLoading,
+}: {
+  sets: BrowseSet[];
+  isLoading: boolean;
+}) {
   const shortShelf = shouldShowShortShelf(sets.length);
 
   return (
@@ -130,7 +128,7 @@ export default function BrowseSets() {
             {SETS_POLISH.indexSub}
           </p>
           {!isLoading && (
-            <p className="text-xs" style={{ color: SETS_POLISH.muted }}>
+            <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-sets-count">
               {sets.length} set{sets.length === 1 ? "" : "s"}
             </p>
           )}
@@ -154,7 +152,7 @@ export default function BrowseSets() {
             {[0, 1].map((i) => <SetRowSkeleton key={i} />)}
           </div>
         ) : sets.length === 0 ? (
-          <div className="py-16 text-center space-y-2">
+          <div className="py-16 text-center space-y-2" data-testid="text-empty-shelf">
             <p className="font-medium" style={{ color: SETS_POLISH.muted }}>The shelf is empty.</p>
             <p className="text-sm" style={{ color: SETS_POLISH.muted }}>Play Daily 5 while PackPTS adds more sets.</p>
           </div>
@@ -187,4 +185,17 @@ export default function BrowseSets() {
       </div>
     </div>
   );
+}
+
+export default function BrowseSets() {
+  const { data, isLoading } = useQuery<{ sets: BrowseSet[] }>({
+    queryKey: ["/api/sets"],
+    queryFn: async () => {
+      const res = await fetch("/api/sets?limit=50");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  return <BrowseSetsShelf sets={data?.sets ?? []} isLoading={isLoading} />;
 }

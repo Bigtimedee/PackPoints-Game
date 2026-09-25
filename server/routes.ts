@@ -80,9 +80,9 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
+import { eligibleDealFilter, eligiblePlayableCardCountSql, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
+import { handlePublicSetsIndex } from "./services/publicSets";
 import {
-  createdAtToIso,
-  sanitizeCoverCardUrls,
   toPublicPreviewCard,
   usablePublicImageUrl,
 } from "./routes/userSetPreview";
@@ -553,7 +553,7 @@ export async function registerRoutes(
         createdByUserId: gameSets.createdByUserId,
         coCreatorUserId: gameSets.coCreatorUserId,
         createdAt: gameSets.createdAt,
-        cardCount: userSetCardCountSql,
+        cardCount: eligiblePlayableCardCountSql,
         playCount: userSetPlayCountSql,
         makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
         coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
@@ -574,7 +574,7 @@ export async function registerRoutes(
             createdByUserId: gameSets.createdByUserId,
             coCreatorUserId: gameSets.coCreatorUserId,
             createdAt: gameSets.createdAt,
-            cardCount: userSetCardCountSql,
+            cardCount: eligiblePlayableCardCountSql,
             playCount: userSetPlayCountSql,
             makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
             coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
@@ -607,7 +607,11 @@ export async function registerRoutes(
         set: playableCards.set,
         description: playableCards.description,
       }).from(playableCards)
-        .where(and(eq(playableCards.gameSetId, resolved.id), eq(playableCards.isPlayable, true)))
+        .where(and(
+          eq(playableCards.gameSetId, resolved.id),
+          eligibleDealFilter("playable_cards"),
+          sql`LOWER(playable_cards.category) = LOWER(${resolved.sport})`,
+        ))
         .limit(8);
       const previewCards = previewRows.map(toPublicPreviewCard);
 
@@ -637,62 +641,9 @@ export async function registerRoutes(
     }
   });
 
-  // Public: Browse all user-created sets, sorted by play count
-  app.get("/api/sets", async (req, res) => {
-    try {
-      const limit = Math.min(Number(req.query.limit) || 20, 50);
-      const offset = Number(req.query.offset) || 0;
-
-      const rows = await db.execute(sql`
-        SELECT
-          gs.id,
-          gs.set_name AS "setName",
-          gs.sport,
-          gs.brand,
-          gs.year,
-          gs.maker_note AS "makerNote",
-          gs.created_at AS "createdAt",
-          u.username AS "makerUsername",
-          (SELECT COUNT(*) FROM playable_cards pc WHERE pc.game_set_id = gs.id AND pc.is_playable = true)::int AS "cardCount",
-          (SELECT COUNT(*) FROM game_sessions gs2 WHERE (gs2.questions->0->'card'->>'gameSetId') = gs.id AND gs2.status = 'completed')::int AS "playCount",
-          (SELECT ca.metadata->>'imageUrl'
-             FROM content_assets ca
-            WHERE ca.source_event_id = 'maker_set_' || gs.id::text
-              AND ca.asset_type = 'MAKER_SHARE_CARD'
-            LIMIT 1) AS "shareImageUrl",
-          COALESCE((
-            SELECT json_agg(sub.image_url)
-            FROM (
-              SELECT pc.image_url
-              FROM playable_cards pc
-              WHERE pc.game_set_id = gs.id
-                AND pc.is_playable = true
-                AND pc.image_url IS NOT NULL
-                AND pc.image_url <> ''
-              ORDER BY pc.created_at ASC
-              LIMIT 8
-            ) sub
-          ), '[]'::json) AS "coverCardUrls"
-        FROM game_sets gs
-        LEFT JOIN users u ON u.id = gs.created_by_user_id
-        WHERE gs.is_user_created = true
-          AND gs.is_active = true
-        ORDER BY gs.created_at DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `);
-
-      const sets = (rows.rows as Record<string, unknown>[]).map((row) => ({
-        ...row,
-        createdAt: createdAtToIso(row.createdAt),
-        shareImageUrl: usablePublicImageUrl(row.shareImageUrl) ?? undefined,
-        coverCardUrls: sanitizeCoverCardUrls(row.coverCardUrls),
-      }));
-
-      res.json({ sets });
-    } catch (error) {
-      console.error("[Sets] GET /api/sets error:", error);
-      res.status(500).json({ error: "Failed to list sets" });
-    }
+  // Public: integrated active sets the game can deal. UGC is not listed.
+  app.get("/api/sets", (req, res) => {
+    void handlePublicSetsIndex(req, res);
   });
 
   // Public: Get marketplace listings for a card in a user-created set (for post-reveal "Find this card")
@@ -7283,52 +7234,26 @@ export async function registerRoutes(
           isUserCreated: gameSets.isUserCreated,
           makerNote: gameSets.makerNote,
           createdByUserId: gameSets.createdByUserId,
-          // Get actual verified playable card count using correlated subquery
-          // Must match getRandomCardsFromSet() logic exactly
-          actualPlayableCards: sql<number>`(
-            SELECT COUNT(*) FROM playable_cards pc 
-            WHERE pc.game_set_id = game_sets.id 
-            AND pc.is_playable = true 
-            AND (pc.content_verified IS NULL OR pc.content_verified = true)
-            AND pc.image_url IS NOT NULL 
-            AND pc.image_url != ''
-            AND pc.image_url LIKE 'https://%'
-            AND pc.player IS NOT NULL 
-            AND pc.player != ''
-            AND LOWER(pc.category) = LOWER(game_sets.sport)
-          )`.as('actual_playable_cards'),
+          // Same eligible-card count getRandomCardsFromSet deals.
+          actualPlayableCards: eligiblePlayableCardCountSql,
         })
         .from(gameSets)
         .where(eq(gameSets.isActive, true))
         .orderBy(gameSets.year, gameSets.setName);
-      
-      // Deduplicate: keep only the set with the most actual playable cards for each setName
-      const deduplicatedMap = new Map<string, typeof setsWithCounts[0]>();
-      const duplicatesFound: string[] = [];
-      
-      for (const set of setsWithCounts) {
-        const key = `${set.setName}-${set.year}-${set.sport}`;
-        const existing = deduplicatedMap.get(key);
-        
-        if (existing) {
-          // Duplicate found - keep the one with more playable cards
-          duplicatesFound.push(set.setName || 'Unknown');
-          if ((set.actualPlayableCards || 0) > (existing.actualPlayableCards || 0)) {
-            deduplicatedMap.set(key, set);
-          }
-        } else {
-          deduplicatedMap.set(key, set);
-        }
-      }
-      
-      // Log warning if duplicates were found
-      if (duplicatesFound.length > 0) {
-        const uniqueDuplicates = Array.from(new Set(duplicatesFound));
+
+      const { kept, duplicateNames } = dedupeSetsByNameYearSport(
+        setsWithCounts.map((set) => ({
+          ...set,
+          actualPlayableCards: Number(set.actualPlayableCards) || 0,
+        })),
+      );
+
+      if (duplicateNames.length > 0) {
+        const uniqueDuplicates = Array.from(new Set(duplicateNames));
         console.warn(`[GameSets] Duplicate active sets detected and deduplicated: ${uniqueDuplicates.join(', ')}. Run /api/admin/game-sets/duplicates to review.`);
       }
-      
-      // Convert map back to array and use actualPlayableCards for display
-      const deduplicated = Array.from(deduplicatedMap.values()).map(set => ({
+
+      const deduplicated = kept.map(set => ({
         id: set.id,
         sport: set.sport,
         brand: set.brand,

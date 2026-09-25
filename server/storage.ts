@@ -7,7 +7,8 @@ function hashResetToken(rawToken: string): string {
 
 import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
-import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull } from "drizzle-orm";
+import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull, notInArray } from "drizzle-orm";
+import { eligibleDealFilter } from "./services/playableSetEligibility";
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
@@ -588,70 +589,57 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     
     const expectedSport = gameSet?.sport?.toLowerCase() || "";
-    
-    // Query playable cards with sport category validation
-    // Also filter out flagged/rejected cards (image quality issues)
-    // Allow cards where contentVerified is NULL (not yet verified) OR true (verified good)
-    // Only reject cards explicitly marked as contentVerified = false (confirmed silhouettes)
-    // CRITICAL: Also exclude known silhouette URL patterns at the SQL level
-    const cards = await db
-      .select()
-      .from(playableCards)
-      .where(
-        and(
-          eq(playableCards.gameSetId, setId),
-          eq(playableCards.isPlayable, true),
-          // Allow NULL (not verified yet) or true (verified good), reject only explicit false
-          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
-          isNotNull(playableCards.imageUrl),
-          ne(playableCards.imageUrl, ''),
-          not(like(playableCards.imageUrl, '%null%')),
-          like(playableCards.imageUrl, 'https://%'),
-          // CRITICAL: Exclude known silhouette URL patterns at DB level
-          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
-          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
-          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%')),
-          isNotNull(playableCards.player),
-          ne(playableCards.player, ''),
-          // Exclude only rejected cards (admin has confirmed bad image)
-          // Flagged cards still appear until admin reviews them
-          or(
-            isNull(playableCards.imageReviewStatus),
-            ne(playableCards.imageReviewStatus, 'rejected')
-          )
-        )
-      )
-      .orderBy(sql`RANDOM()`)
-      .limit(count * 5); // Fetch more to allow for silhouette filtering
-    
-    // LAYER 2: Post-query filter for silhouette URLs (defense in depth)
-    // This catches any silhouettes that slip through the SQL filter
-    const nonSilhouetteCards = cards.filter(card => !isKnownSilhouetteUrl(card.imageUrl));
-    
-    if (nonSilhouetteCards.length < cards.length) {
-      const silhouetteCount = cards.length - nonSilhouetteCards.length;
-      console.log(`[Storage] BLOCKED ${silhouetteCount} silhouette cards from set ${setId}`);
+    const want = Math.max(0, count);
+    const picked: PlayableCard[] = [];
+    const seen = new Set<string>();
+
+    // SQL eligibility matches the public cardCount. A short sample after the
+    // silhouette / non-player pass is refilled so a 20-card ask does not come
+    // back as 19 when the set still has eligible cards. If the set itself has
+    // fewer eligible cards than asked, the caller plays that shorter stack.
+    for (let pass = 0; pass < 6 && picked.length < want; pass++) {
+      const remaining = want - picked.length;
+      const filters = [
+        eq(playableCards.gameSetId, setId),
+        eligibleDealFilter("playable_cards"),
+      ];
+      if (expectedSport) {
+        filters.push(sql`LOWER(playable_cards.category) = LOWER(${expectedSport})`);
+      }
+      if (seen.size > 0) {
+        filters.push(notInArray(playableCards.id, [...seen]));
+      }
+
+      const batch = await db
+        .select()
+        .from(playableCards)
+        .where(and(...filters))
+        .orderBy(sql`RANDOM()`)
+        .limit(Math.max(remaining * 8, remaining));
+
+      if (batch.length === 0) break;
+      for (const card of batch) seen.add(card.id);
+
+      const nonSilhouetteCards = batch.filter(card => !isKnownSilhouetteUrl(card.imageUrl));
+      if (nonSilhouetteCards.length < batch.length) {
+        console.log(`[Storage] BLOCKED ${batch.length - nonSilhouetteCards.length} silhouette cards from set ${setId}`);
+      }
+
+      const sportCards = expectedSport
+        ? nonSilhouetteCards.filter(card => (card.category || "").toLowerCase() === expectedSport)
+        : nonSilhouetteCards;
+      if (sportCards.length < nonSilhouetteCards.length) {
+        console.log(`[Storage] Filtered ${nonSilhouetteCards.length - sportCards.length} wrong-sport cards from set ${setId} (expected sport: ${expectedSport})`);
+      }
+
+      for (const card of omitNonPlayerCards(sportCards)) {
+        if (card.quarantineStatus === "QUARANTINED_ADMIN_REVIEW" && card.proposedUnplayable) continue;
+        picked.push(card);
+        if (picked.length >= want) break;
+      }
     }
-    
-    // Filter cards whose category matches the game set's sport (case-insensitive)
-    // This is a strict safety check - only allow cards with matching category
-    const validCards = expectedSport 
-      ? nonSilhouetteCards.filter(card => {
-          const cardCategory = (card.category || "").toLowerCase();
-          // Require category to exist AND match the expected sport - no empty categories allowed
-          // This prevents wrong-sport cards from slipping through if Card Hedge omits category
-          return cardCategory && cardCategory === expectedSport;
-        })
-      : nonSilhouetteCards;
-    
-    // If we filtered out too many cards, log a warning
-    if (validCards.length < nonSilhouetteCards.length) {
-      const filteredCount = nonSilhouetteCards.length - validCards.length;
-      console.log(`[Storage] Filtered ${filteredCount} wrong-sport cards from set ${setId} (expected sport: ${expectedSport})`);
-    }
-    
-    // Get cards to serve and refresh stale images
-    const cardsToServe = omitNonPlayerCards(validCards).slice(0, count);
+
+    const cardsToServe = picked.slice(0, want);
     logDealtDefaultMaskProfiles(cardsToServe.map((card) => ({
       setHint: buildSetMaskHint({
         year: gameSet?.year,
@@ -903,7 +891,9 @@ export class DatabaseStorage implements IStorage {
       questions = cards.map(card => this.generateQuestion(card));
     }
     
-    // Final safety check - ensure we have questions
+    // Final safety check - ensure we have questions.
+    // A set with fewer eligible cards than requested still starts: the session
+    // plays the dealt stack (totalQuestions = questions.length), not a hole.
     if (questions.length === 0) {
       throw new Error("NO_CARDS_AVAILABLE");
     }

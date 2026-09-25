@@ -184,6 +184,14 @@ export default function SetPage() {
   const cardCount = Number(set.cardCount);
   const displayUrl = publicSetDisplayUrl(set.setName, set.id);
   const showPlayCue = shouldShowPlayTodayCue(set.playedToday);
+  const provenance = set.isUserCreated
+    ? formatDetailMetaLine({
+        makerUsername: set.makerUsername,
+        coCreatorUsername: set.coCreatorUsername,
+        createdAt: set.createdAt,
+        authored: true,
+      })
+    : "";
 
   return (
     <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
@@ -199,13 +207,13 @@ export default function SetPage() {
             {set.setName}
           </h1>
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
-              {formatDetailMetaLine({
-                makerUsername: set.makerUsername,
-                coCreatorUsername: set.coCreatorUsername,
-                createdAt: set.createdAt,
-              })}
-            </p>
+            {provenance ? (
+              <p className="text-sm" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
+                {provenance}
+              </p>
+            ) : (
+              <span />
+            )}
             {set.isUserCreated && (
               <span
                 className="shrink-0 rounded-sm px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em]"

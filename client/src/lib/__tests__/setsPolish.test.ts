@@ -51,8 +51,19 @@ describe("set meta", () => {
     ).toBe("by Bigtimedee · 5 cards · SEP 8 · AUTHORED");
   });
 
-  it("does not invent a maker name beyond the Maker fallback", () => {
-    expect(formatSetMetaLine({ cardCount: 1 })).toBe("by Maker · 1 card · AUTHORED");
+  it("does not invent a maker, date, or AUTHORED when the set has no maker", () => {
+    expect(formatSetMetaLine({ cardCount: 1 })).toBe("1 card");
+    expect(formatSetMetaLine({
+      cardCount: 695,
+      makerUsername: null,
+      createdAt: "2026-07-18T12:00:00.000Z",
+      authored: false,
+    })).toBe("695 cards");
+    expect(formatDetailMetaLine({
+      makerUsername: null,
+      createdAt: "2026-07-18T12:00:00.000Z",
+    })).toBe("");
+    expect(formatDetailMetaLine({ authored: false, makerUsername: "Maker" })).toBe("");
   });
 
   it("keeps co-creator provenance on detail without play counts", () => {
@@ -139,6 +150,8 @@ describe("display url + forbidden copy", () => {
     expect(SETS_POLISH.indexSub).toBe("Play sets already in PackPTS.");
     expect(SETS_POLISH.shortShelfBody.toLowerCase()).not.toContain("/make");
     expect(SETS_POLISH.shortShelfBody.toLowerCase()).not.toContain("snap yours");
+    expect(SETS_POLISH.shortShelfBody).not.toMatch(/[\u2013\u2014]/);
+    expect(SETS_POLISH.playThisSet).toBe("Play this set");
   });
 
   it("keeps browse and detail pages free of vanity copy", () => {

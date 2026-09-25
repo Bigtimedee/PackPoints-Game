@@ -28,15 +28,16 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 ### Cards
 
 - **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack of that set’s cards**. Never keep a stock fan once the runtime cover exists.
-- Meta: set name · `by {maker}` · honest `{n} cards` · optional `{MON D}` (America/Chicago via `shared/packptsDay.ts`) · `AUTHORED`
-- Play CTA: blue `#2B6CEE`
+- Meta for an integrated set: honest `{n} cards` only. No `by Maker`, no date, no `AUTHORED`.
+- Meta for a user-created set that still has a maker username: `by {maker}` · honest `{n} cards` · optional `{MON D}` (America/Chicago via `shared/packptsDay.ts`) · `AUTHORED`
+- Play CTA: blue `#2B6CEE`, label `Play this set`. Starts that set's solo game (same flow as detail Play).
 - Do not render play count, Maker Rate, trending, or vanity tiles
 
 ### Sparse shelf
 
 When published set volume is below the public gate (**10**), show a quiet banner:
 
-> **A short shelf.** Integrated sets only — play what’s here, or open Daily 5.
+> **A short shelf.** Integrated sets only. Play what's here, or open Daily 5.
 
 Never fake inventory. Never publish Maker Rate / DAU / “N makers” here. The gate matches admin `publishedSetsNonStaff` diligence (≥10 non-staff); the public page only sees the honest list length, not the admin metric.
 
@@ -44,7 +45,8 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 
 ## Detail `/sets/:id`
 
-- Provenance: title, `by {maker}` · optional date (same America/Chicago `{MON D}` as index) · `AUTHORED`, gold-outline `FAN MADE` if user-created
+- Provenance on a user-created set: title, `by {maker}` · optional date (same America/Chicago `{MON D}` as index) · `AUTHORED`, gold-outline `FAN MADE`
+- Integrated sets omit the maker line, the date, and `AUTHORED`. No `FAN MADE` tag.
 - Mixtape note in a quiet quoted panel (real `makerNote` only)
 - Play + honest `{n} Cards` pill
 - Optional muted `Play today’s stack` **only if this visitor has not already played this set today** (America/Chicago). No clocks, no “hurry”, no “come back tomorrow”
@@ -58,7 +60,7 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 
 ## API (minimal)
 
-`GET /api/sets` and `GET /api/sets/:id` already expose honest `cardCount`. Both emit `createdAt` as ISO UTC (browse maps raw pg timestamps via `createdAtToIso`). Authored `{MON D}` is America/Chicago (`formatPackptsMonDay`). Add:
+`GET /api/sets` lists active integrated sets (`is_user_created = false`) with at least 5 eligible cards. `cardCount` is that eligible count (same predicate as `GET /api/playable-sets` and the solo deal), after name/year/sport dedupe that keeps the most playable row. User-created sets are not listed. `GET /api/sets/:id` uses the same eligible `cardCount`. Both emit `createdAt` as ISO UTC (browse maps raw pg timestamps via `createdAtToIso`). Authored `{MON D}` is America/Chicago (`formatPackptsMonDay`) and only renders for a user-created set with a maker username. Add:
 
 - `shareImageUrl` on the browse list (same `content_assets` lookup as detail)
 - `coverCardUrls` (browse) / `previewCards: { imageUrl, year }[]` (detail) — **no player names**
