@@ -166,4 +166,16 @@ describe("Game Complete stat tiles", () => {
     expect(statTileLabelIsNarrow(daily390)).toBe(false);
     expect(Math.ceil(wideAccuracy - 1e-9)).toBeLessThanOrEqual(Math.floor(daily390 + 1e-9));
   });
+
+  it("uses a 10px label when container queries are unsupported", () => {
+    const from = cssSrc.indexOf("@supports not (container-type: inline-size)");
+    expect(from).toBeGreaterThanOrEqual(0);
+    const block = cssSrc.slice(from, cssSrc.indexOf("}", cssSrc.indexOf("}", from) + 1) + 1);
+    expect(block).toContain(".stat-tile-label");
+    expect(block).toContain(`font-size: ${STAT_TILE_LABEL_NARROW_PX}px`);
+    expect(block).toContain("letter-spacing: 0;");
+    expect(block).not.toContain(`font-size: ${STAT_TILE_LABEL_WIDE_PX}px`);
+    expect(block).not.toContain("0.05em");
+    expect(block).not.toContain("@media");
+  });
 });
