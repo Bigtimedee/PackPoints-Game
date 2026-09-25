@@ -27,6 +27,10 @@ import {
   PLAY_AGAIN_BUTTON_CLASS,
   replayCardCountFromSession,
   replaySetIdFromSession,
+  readSoloPlayAgainResume,
+  soloPlayAgainResumePayload,
+  SOLO_PLAY_AGAIN_RESUME_KEY,
+  type SoloPlayAgainResume,
 } from "@/lib/playAgain";
 import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
 import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
@@ -111,9 +115,13 @@ export default function Game() {
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
   const [anonGate, setAnonGate] = useState<PublicAnonGate | null>(null);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
-  const [selectedCardCount, setSelectedCardCount] = useState("10");
-  const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession);
-  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const playAgainBootRef = useRef<SoloPlayAgainResume | null>(
+    incomingSession ? null : readSoloPlayAgainResume(sessionStorage),
+  );
+  const playAgainBoot = playAgainBootRef.current;
+  const [selectedCardCount, setSelectedCardCount] = useState(playAgainBoot ? String(playAgainBoot.cardCount) : "10");
+  const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession || !!playAgainBoot);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(playAgainBoot?.setId ?? null);
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<ClientGameSession>({
     queryKey: ["/api/game/session", sessionId],
@@ -234,6 +242,20 @@ export default function Game() {
       });
     },
   });
+
+  const playAgainStarted = useRef(false);
+  useEffect(() => {
+    const resume = playAgainBootRef.current;
+    if (!resume || playAgainStarted.current || incomingSession) return;
+    if (mode && resume.mode && resume.mode !== mode) return;
+    playAgainStarted.current = true;
+    try {
+      sessionStorage.removeItem(SOLO_PLAY_AGAIN_RESUME_KEY);
+    } catch {
+      // private mode
+    }
+    startGameMutation.mutate({ cardCount: resume.cardCount, setId: resume.setId });
+  }, [incomingSession, mode, startGameMutation]);
 
   const submitAnswerMutation = useMutation({
     mutationFn: async (answer: string) => {
@@ -699,8 +721,25 @@ export default function Game() {
   };
 
   const handlePlayAgain = () => {
+    const setId = replaySetIdFromSession(session) || selectedSetId || currentGameSet?.id || null;
+    const parsedCount = replayCardCountFromSession(session) ?? parseInt(selectedCardCount, 10);
+    const cardCount = Number.isFinite(parsedCount) ? parsedCount : 10;
+    try {
+      sessionStorage.setItem(SOLO_PLAY_AGAIN_RESUME_KEY, soloPlayAgainResumePayload({
+        setId,
+        cardCount,
+        mode: mode || "solo",
+      }));
+    } catch {
+      // private mode
+    }
     void notifyLeavingResults().then((reloading) => {
       if (reloading) return;
+      try {
+        sessionStorage.removeItem(SOLO_PLAY_AGAIN_RESUME_KEY);
+      } catch {
+        // private mode
+      }
       startPlayAgain();
     });
   };

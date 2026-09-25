@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   DAILY5_NEXT_PLAY,
   PLAY_AGAIN_BUTTON_CLASS,
+  consumeSoloPlayAgainResume,
+  parseSoloPlayAgainResume,
   replayCardCountFromSession,
   replaySetIdFromSession,
+  SOLO_PLAY_AGAIN_RESUME_KEY,
+  soloPlayAgainResumePayload,
 } from "../playAgain";
 
 const gameSrc = readFileSync(new URL("../../pages/game.tsx", import.meta.url), "utf8");
@@ -46,6 +50,26 @@ describe("Daily 5 next play is honest", () => {
     expect(DAILY5_NEXT_PLAY.secondary.href).toBe("/sets");
     expect(DAILY5_NEXT_PLAY.doneNote).toMatch(/tomorrow/i);
     expect(DAILY5_NEXT_PLAY.primary.label).not.toMatch(/play again/i);
+  });
+});
+
+describe("Play Again reload resume", () => {
+  it("persists the chosen set once, and only for a Play Again reload", () => {
+    const raw = soloPlayAgainResumePayload({ setId: "set-1987", cardCount: 10, mode: "solo" });
+    expect(parseSoloPlayAgainResume(raw)).toEqual({ setId: "set-1987", cardCount: 10, mode: "solo" });
+    expect(parseSoloPlayAgainResume(JSON.stringify({ setId: "set-1987", cardCount: 10 }))).toBeNull();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+    };
+    storage.setItem(SOLO_PLAY_AGAIN_RESUME_KEY, raw);
+    expect(consumeSoloPlayAgainResume(storage)?.setId).toBe("set-1987");
+    expect(consumeSoloPlayAgainResume(storage)).toBeNull();
+    expect(gameSrc).toContain("soloPlayAgainResumePayload");
+    expect(gameSrc).toContain("readSoloPlayAgainResume");
+    expect(gameSrc).toContain("SOLO_PLAY_AGAIN_RESUME_KEY");
   });
 });
 

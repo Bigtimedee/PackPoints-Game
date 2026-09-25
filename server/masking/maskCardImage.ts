@@ -176,6 +176,8 @@ export async function maskCardImage(
     /** Horizontal design. Overrides the set profile when the caller already knows. */
     cardOrientation?: "portrait" | "landscape";
     onStage?: (stage: "ocr" | "bake") => void;
+    /** Shared cap for the 0°/90°/270° probes. The bake path shrinks this to fit 20s. */
+    orientationBudgetMs?: number;
   } = {},
 ): Promise<MaskResult> {
   const profile = getMaskProfile(setName, opts.gameSetId);
@@ -198,6 +200,7 @@ export async function maskCardImage(
       cardOrientation: opts.cardOrientation,
       skipOcr: Boolean(opts.skipOcr),
       recognize: recognizeWords,
+      orientationBudgetMs: opts.orientationBudgetMs,
     });
   if (opts.cardId && !existing) {
     writeOrientNote(opts.cardId, {

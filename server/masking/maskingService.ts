@@ -5,7 +5,7 @@ import { db } from "../db";
 import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
-import { applyServedRotation, uprightCardImage } from "./cardOrientation";
+import { applyServedRotation, orientationOcrBudgetMs, uprightCardImage } from "./cardOrientation";
 import { getMaskProfile, logDealtDefaultMaskProfiles } from "./maskProfiles";
 import { recognizeWords, resetOcrRuntimeForTests } from "./ocrRuntime";
 import {
@@ -422,6 +422,7 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
   try {
     return await runInBakeSlot(cardId, async (setStage, isCancelled) => {
       setStage("fetch");
+      const fetchStarted = Date.now();
       const imageBuffer = await downloadImage(imageUrl, cardId);
       if (!imageBuffer || isCancelled()) return null;
 
@@ -437,6 +438,10 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
           cardId,
           skipOcr: ocrSkipped(cardId),
           onStage: (stage) => setStage(stage),
+          orientationBudgetMs: orientationOcrBudgetMs({
+            deadlineMs: bakeTimings.deadlineMs,
+            elapsedMs: Date.now() - fetchStarted,
+          }),
         },
       );
       if (isCancelled()) return null;

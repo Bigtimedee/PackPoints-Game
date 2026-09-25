@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { injectPlaySetsOgHtml, isPlaySetsHtmlPath } from "./lib/playSetsOg";
 import { ASSET_CACHE_CONTROL, sendNoStoreBody, stripConditionalValidators } from "./lib/noStoreResponse";
+import { assetNotFoundLine, isAssetNotFound } from "./lib/httpErrorLog";
 import { isViteHashedAsset } from "./lib/viteHashedAsset";
 
 async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
@@ -35,6 +36,15 @@ export function mountSpaStatic(app: Express, distPath: string): void {
         }
       },
     }));
+    app.use("/assets", (err: { status?: number; statusCode?: number; code?: string }, req: Request, res: Response, next: NextFunction) => {
+      const fullPath = (req.originalUrl || `/assets${req.path}`).split("?")[0] || req.path;
+      if (!isAssetNotFound(err, fullPath)) {
+        next(err);
+        return;
+      }
+      console.log(assetNotFoundLine(req.method, fullPath));
+      if (!res.headersSent) res.status(404).end();
+    });
   }
 
   const sendIndex = (req: Request, res: Response, next: NextFunction) => {
@@ -49,6 +59,18 @@ export function mountSpaStatic(app: Express, distPath: string): void {
 
   app.use((req, res, next) => {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
+    // Mounted before API routes so the shell is up during the schema step.
+    // Those routes still have to run.
+    if (
+      req.path === "/api"
+      || req.path.startsWith("/api/")
+      || req.path.startsWith("/ws")
+      || req.path === "/health"
+      || req.path.startsWith("/webhooks")
+      || req.path.startsWith("/generated")
+    ) {
+      return next();
+    }
     sendSpaHtml(req, res, next, htmlPath);
   });
 }

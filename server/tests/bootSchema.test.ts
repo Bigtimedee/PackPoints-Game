@@ -1,0 +1,76 @@
+import { EventEmitter } from "events";
+import { writeFileSync } from "fs";
+import { mkdtemp, readdir, utimes, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { pruneBootDumps, runBootSchema, type BootSpawn } from "../startup/bootSchema";
+
+function fakeSpawn(failCommand?: string): { spawn: BootSpawn; calls: string[][] } {
+  const calls: string[][] = [];
+  const spawn: BootSpawn = (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "pg_dump" && command !== failCommand) {
+      const fileArg = args.find((arg) => arg.startsWith("--file="));
+      if (fileArg) writeFileSync(fileArg.slice("--file=".length), "dump");
+    }
+    const child = new EventEmitter() as ReturnType<BootSpawn>;
+    child.killed = false;
+    child.kill = () => {
+      child.killed = true;
+      return true;
+    };
+    const code = command === failCommand ? 1 : 0;
+    queueMicrotask(() => child.emit("close", code));
+    return child;
+  };
+  return { spawn, calls };
+}
+
+describe("boot schema", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("runs drizzle-kit push --force only after pg_dump succeeds", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "packpts-boot-"));
+    const ok = fakeSpawn();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await runBootSchema({
+      backupDir: dir,
+      databaseUrl: "postgres://local/packpts",
+      now: new Date("2026-09-25T20:00:00.000Z"),
+      spawn: ok.spawn,
+    });
+    expect(result.pushed).toBe(true);
+    expect(ok.calls[0][0]).toBe("pg_dump");
+    expect(ok.calls[0]).toContain("--format=custom");
+    expect(ok.calls[1]).toEqual(["npx", "drizzle-kit", "push", "--force"]);
+    expect((await readdir(dir)).some((name) => name.startsWith("pre-push-"))).toBe(true);
+
+    const failed = fakeSpawn("pg_dump");
+    const skipped = await runBootSchema({
+      backupDir: dir,
+      databaseUrl: "postgres://local/packpts",
+      now: new Date("2026-09-25T20:01:00.000Z"),
+      spawn: failed.spawn,
+    });
+    expect(skipped.pushed).toBe(false);
+    expect(failed.calls.map((call) => call[0])).toEqual(["pg_dump"]);
+  });
+
+  it("keeps the 14 newest boot dumps", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "packpts-dumps-"));
+    for (let i = 0; i < 16; i += 1) {
+      const name = path.join(dir, `pre-push-20260925T2000${String(i).padStart(2, "0")}Z.dump`);
+      await writeFile(name, "x");
+      const when = new Date(2026, 8, 25, 20, 0, i);
+      await utimes(name, when, when);
+    }
+    await pruneBootDumps(dir, 14);
+    const left = (await readdir(dir)).filter((name) => name.endsWith(".dump"));
+    expect(left).toHaveLength(14);
+    expect(left.some((name) => name.includes("200000"))).toBe(false);
+  });
+});
