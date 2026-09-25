@@ -1038,17 +1038,17 @@ export default function Game() {
                 {`Here's how well you know your ${currentGameSet ? getSetDisplayName(currentGameSet) : "classic"} cards`}
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-4 rounded-md bg-muted">
-                <p className="text-3xl font-bold font-mono" data-testid="text-final-score">{session.score}</p>
+            <div className="grid grid-cols-3 gap-3 items-stretch" data-testid="grid-final-stats">
+              <div className="h-full p-4 rounded-md bg-muted flex flex-col">
+                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-final-score">{session.score}</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
               </div>
-              <div className="p-4 rounded-md bg-muted">
-                <p className="text-3xl font-bold font-mono" data-testid="text-accuracy">{accuracy}%</p>
+              <div className="h-full p-4 rounded-md bg-muted flex flex-col">
+                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-accuracy">{accuracy}%</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
               </div>
-              <div className="p-4 rounded-md bg-muted">
-                <p className="text-3xl font-bold font-mono" data-testid="text-final-correct">{session.correctAnswers} of {effectiveTotal}</p>
+              <div className="h-full p-4 rounded-md bg-muted flex flex-col">
+                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-final-correct">{session.correctAnswers}/{effectiveTotal}</p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
               </div>
             </div>
@@ -1100,7 +1100,7 @@ export default function Game() {
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
                 shareUrl="https://packpts.com"
                 shareText={shareText}
-                maskedCardUrls={(session.questions ?? []).map((q) => q.card?.imageUrl)}
+                maskedCardUrls={(session.questions ?? []).filter((q) => q.answered).map((q) => q.card?.imageUrl)}
               />
             )}
 
