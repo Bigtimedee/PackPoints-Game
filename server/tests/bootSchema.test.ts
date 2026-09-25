@@ -1,10 +1,13 @@
+import { spawn } from "child_process";
 import { EventEmitter } from "events";
-import { writeFileSync } from "fs";
+import { readFileSync, writeFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 import { mkdtemp, readFile, readdir, utimes, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DRIZZLE_PUSH_TIMEOUT_MS, PG_DUMP_TIMEOUT_MS, pruneBootDumps, runBootSchema, schemaDumpRequired, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout, type BootSpawn } from "../startup/bootSchema";
+import { DRIZZLE_PUSH_TIMEOUT_MS, killChildGroup, PG_DUMP_TIMEOUT_MS, pruneBootDumps, runBootSchema, schemaDumpRequired, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withSessionLockTimeout, withStartupTimeout, type BootSpawn } from "../startup/bootSchema";
 
 function fakeSpawn(failCommand?: string): { spawn: BootSpawn; calls: string[][] } {
   const calls: string[][] = [];
@@ -202,11 +205,135 @@ describe("boot schema", () => {
     expect(pushHang.calls.map((call) => call[0])).toEqual(["pg_dump", "npx"]);
     await expect(readFile(pushMarker, "utf8")).rejects.toThrow();
 
+    const quietDir = await mkdtemp(path.join(tmpdir(), "packpts-push-quiet-"));
+    const quietSchema = path.join(quietDir, "schema.ts");
+    const quietMarker = path.join(quietDir, ".schema-push-hash");
+    await writeFile(quietSchema, "export const schema = 1;\n");
+    const seenEnv: Array<string | undefined> = [];
+    const quietSpawn: BootSpawn = (command, args, env) => {
+      seenEnv.push(env?.DATABASE_URL);
+      if (command === "pg_dump") {
+        const fileArg = args.find((arg) => arg.startsWith("--file="));
+        if (fileArg) writeFileSync(fileArg.slice("--file=".length), "dump");
+      }
+      const child = new EventEmitter() as ReturnType<BootSpawn>;
+      child.killed = false;
+      child.kill = () => true;
+      queueMicrotask(() => child.emit("close", command === "npx" ? 1 : 0));
+      return child;
+    };
+    const quietExit = vi.fn();
+    const background = await runBootSchema({
+      backupDir: quietDir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: quietSpawn,
+      schemaPath: quietSchema,
+      markerPath: quietMarker,
+      exit: quietExit,
+      exitOnPushFailure: false,
+      lockTimeout: "3s",
+    });
+    expect(background.pushed).toBe(false);
+    expect(quietExit).not.toHaveBeenCalled();
+    expect(seenEnv[1]).toBe(withSessionLockTimeout("postgres://local/packpts", "3s"));
+    expect(withSessionLockTimeout("postgres://local/packpts?sslmode=require", "3s")).toContain("sslmode=require");
+    expect(withSessionLockTimeout("postgres://local/packpts?sslmode=require", "3s")).toContain("lock_timeout%3D3s");
+    const fatal = vi.mocked(console.error).mock.calls.map((args) => String(args[0])).join("\n");
+    expect(fatal).toContain("Not exiting");
+    await writeFile(quietMarker, "stale-success\n");
+    const cleared = await runBootSchema({
+      backupDir: quietDir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: quietSpawn,
+      schemaPath: quietSchema,
+      markerPath: quietMarker,
+      exit: quietExit,
+      exitOnPushFailure: false,
+      lockTimeout: "3s",
+    });
+    expect(cleared.pushed).toBe(false);
+    expect(quietExit).not.toHaveBeenCalled();
+    await expect(readFile(quietMarker, "utf8")).rejects.toThrow();
+
+    const timeoutDir = await mkdtemp(path.join(tmpdir(), "packpts-push-bg-timeout-"));
+    const timeoutSchema = path.join(timeoutDir, "schema.ts");
+    const timeoutMarker = path.join(timeoutDir, ".schema-push-hash");
+    await writeFile(timeoutSchema, "export const schema = 1;\n");
+    await writeFile(timeoutMarker, "stale-success\n");
+    const timeoutHang = hang("npx");
+    const timeoutExit = vi.fn();
+    const timedOut = await runBootSchema({
+      backupDir: timeoutDir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: timeoutHang.spawn,
+      schemaPath: timeoutSchema,
+      markerPath: timeoutMarker,
+      pushTimeoutMs: 30,
+      exit: timeoutExit,
+      exitOnPushFailure: false,
+    });
+    expect(timedOut.pushed).toBe(false);
+    expect(timedOut.timedOut).toBe(true);
+    expect(timeoutExit).not.toHaveBeenCalled();
+    await expect(readFile(timeoutMarker, "utf8")).rejects.toThrow();
+
     vi.useFakeTimers();
     const hung = withStartupTimeout(new Promise<void>(() => {}), STORAGE_INIT_TIMEOUT_MS, "storage setup");
     const timeout = expect(hung).rejects.toBeInstanceOf(StartupTimeoutError);
     await vi.advanceTimersByTimeAsync(STORAGE_INIT_TIMEOUT_MS);
     await timeout;
     vi.useRealTimers();
+  });
+
+  it("starts schema children detached so one signal kills the process group", () => {
+    const src = readFileSync(path.join(dirname(fileURLToPath(import.meta.url)), "../startup/bootSchema.ts"), "utf8");
+    expect(src).toContain("detached: true");
+    expect(src).toContain("process.kill(-pid, signal)");
+    expect(src).toContain('killChildGroup(activeChild, "SIGTERM")');
+    expect(src).toContain('killChildGroup(child, "SIGKILL")');
+  });
+
+  it("SIGTERM kills the push child and the grandchild it spawned", async () => {
+    const marker = path.join(tmpdir(), `packpts-group-${process.pid}-${Date.now()}`);
+    const child = spawn(process.execPath, ["-e", `
+      const { spawn } = require("child_process");
+      const fs = require("fs");
+      const grand = spawn("sleep", ["60"], { stdio: "ignore" });
+      fs.writeFileSync(${JSON.stringify(marker)}, String(grand.pid));
+      setInterval(() => {}, 1000);
+    `], { detached: true, stdio: "ignore" });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      let grandPid = 0;
+      const started = Date.now();
+      while (Date.now() - started < 2000) {
+        try {
+          grandPid = Number((await readFile(marker, "utf8")).trim());
+          if (grandPid > 0) break;
+        } catch {
+          // file not written yet
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(grandPid).toBeGreaterThan(0);
+      expect(alive(child.pid!)).toBe(true);
+      expect(alive(grandPid)).toBe(true);
+      killChildGroup(child, "SIGTERM");
+      const stopped = Date.now();
+      while (Date.now() - stopped < 2000 && (alive(child.pid!) || alive(grandPid))) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(alive(child.pid!)).toBe(false);
+      expect(alive(grandPid)).toBe(false);
+    } finally {
+      try { killChildGroup(child, "SIGKILL"); } catch { /* already gone */ }
+    }
   });
 });

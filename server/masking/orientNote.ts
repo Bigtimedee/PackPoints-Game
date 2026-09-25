@@ -27,9 +27,9 @@ function notePath(cardId: string): string {
   return path.join(MASKED_CARDS_DIR, orientNoteFilename(cardId));
 }
 
-export function readOrientNote(cardId: string): OrientNote | null {
+export function readOrientNote(cardId: string, baseDir: string = MASKED_CARDS_DIR): OrientNote | null {
   if (!cardId) return null;
-  const filePath = notePath(cardId);
+  const filePath = path.join(baseDir, orientNoteFilename(cardId));
   if (!existsSync(filePath)) return null;
   try {
     const raw = JSON.parse(readFileSync(filePath, "utf8")) as {

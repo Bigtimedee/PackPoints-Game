@@ -21,7 +21,9 @@ import { getShareOutputBase, SHARE_URL_PREFIX } from "./contentFactory/generateS
 import { logServerError } from "./lib/httpErrorLog";
 import { logBootPhase } from "./startup/bootPhase";
 import { markSchemaReady } from "./startup/schemaGate";
-import { installBootSchemaShutdownHook, runBootSchema, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout } from "./startup/bootSchema";
+import { installBootSchemaShutdownHook, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout } from "./startup/bootSchema";
+import { runProductionSchemaBoot } from "./startup/schemaBoot";
+import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -200,7 +202,7 @@ app.use((req, res, next) => {
   installBootSchemaShutdownHook();
   addShutdownHook(() => stopAllJobs());
   if (process.env.NODE_ENV === "production" && process.env.PACKPTS_SKIP_BOOT_SCHEMA !== "1") {
-    await runBootSchema();
+    await runProductionSchemaBoot();
   }
 
   try {
@@ -456,11 +458,15 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // Routes exist and the schema step has finished. Open DB routes, then start
-  // workers that were previously tied to the listen callback.
+  // Routes exist. On the fast path the schema probe already passed and
+  // drizzle-kit push is still running in the background. On the fallback path
+  // that push finished before this function continued.
   markSchemaReady();
   logBootPhase("routes_ready");
   log("schema ready");
+  if (process.env.NODE_ENV === "production") {
+    startWarmSidecarBackfill();
+  }
 
   try {
     const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");

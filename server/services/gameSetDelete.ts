@@ -1,5 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
+import { invalidateMaskReadySidecars } from "../masking/maskReadySidecar";
 import {
   cardhedgeImportRuns,
   cardImageReports,
@@ -26,7 +27,7 @@ import {
  * because lastImportAt is written only when the import request finishes.
  */
 export async function hardDeleteGameSet(id: string): Promise<boolean> {
-  return db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({ id: gameSets.id })
       .from(gameSets)
@@ -35,7 +36,7 @@ export async function hardDeleteGameSet(id: string): Promise<boolean> {
       .limit(1);
 
     if (!existing) {
-      return false;
+      return null;
     }
 
     const cards = await tx
@@ -72,6 +73,9 @@ export async function hardDeleteGameSet(id: string): Promise<boolean> {
       .where(eq(gameSets.id, id))
       .returning({ id: gameSets.id });
 
-    return Boolean(deleted);
+    return { deleted: Boolean(deleted), cardIds };
   });
+  if (!outcome) return false;
+  invalidateMaskReadySidecars(outcome.cardIds);
+  return outcome.deleted;
 }
