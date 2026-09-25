@@ -380,3 +380,13 @@
     letter-spacing: 0;
   }
 }
+
+/* Safari 15 has no container queries, so the 12px tracked label is all it
+   would get. A min-width media query cannot keep 12px on Daily 5 at 390px
+   without also applying it to solo, where the content box is still 60px. */
+@supports not (container-type: inline-size) {
+  .stat-tile-label {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+}
