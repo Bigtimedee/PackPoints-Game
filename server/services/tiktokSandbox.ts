@@ -21,7 +21,7 @@ export const TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/";
 export const TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 export const TIKTOK_API_BASE = "https://open.tiktokapis.com/v2";
 
-export const TIKTOK_SANDBOX_TITLE = "Daily 5 — name the masked card";
+export const TIKTOK_SANDBOX_TITLE = "Daily 5: name the masked card";
 export const TIKTOK_SANDBOX_DESCRIPTION =
   "Guess the player on a masked sports card. Same five cards for everyone, every day. Play free at packpts.com";
 

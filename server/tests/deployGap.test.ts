@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
-import { DRAIN_TIMEOUT_MS } from "../startup/gracefulShutdown";
+import { CLOSE_GRACE_MS, DRAIN_TIMEOUT_MS } from "../startup/gracefulShutdown";
 import { schemaGateBlocks } from "../startup/schemaGate";
 
 const startSh = readFileSync(new URL("../../start.sh", import.meta.url), "utf8");
@@ -9,6 +9,7 @@ const railway = JSON.parse(readFileSync(new URL("../../railway.json", import.met
 };
 const entry = readFileSync(new URL("../entry.ts", import.meta.url), "utf8");
 const boot = readFileSync(new URL("../startup/bootSchema.ts", import.meta.url), "utf8");
+const schemaBoot = readFileSync(new URL("../startup/schemaBoot.ts", import.meta.url), "utf8");
 const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 
 describe("deploy gap", () => {
@@ -22,11 +23,15 @@ describe("deploy gap", () => {
     expect(startSh).not.toMatch(/^[^#\n]*\bpg_dump\b/m);
   });
 
-  it("listens before the schema push and keeps the push ahead of DB routes", () => {
+  it("listens before schema work and still runs drizzle-kit push --force every boot", () => {
     expect(entry).toContain("listening on");
     expect(entry.indexOf("httpServer.listen")).toBeLessThan(entry.indexOf('import("./index")'));
     expect(boot).toContain('["drizzle-kit", "push", "--force"]');
     expect(boot).toContain("pg_dump");
+    expect(indexSrc).toContain("runProductionSchemaBoot");
+    expect(schemaBoot).toContain('logBootPhase("fast_schema_ok")');
+    expect(schemaBoot).toContain('logBootPhase("fast_schema_fallback"');
+    expect(schemaBoot).toContain("lock_timeout");
     expect(schemaGateBlocks("/api/game/start")).toBe(true);
     expect(schemaGateBlocks("/api/version")).toBe(false);
     expect(schemaGateBlocks("/game/solo")).toBe(false);
@@ -50,6 +55,8 @@ describe("deploy gap", () => {
     expect(boot).toContain('logBootPhase("pg_dump_end"');
     expect(boot).toContain('logBootPhase("drizzle_push_start")');
     expect(boot).toContain('logBootPhase("drizzle_push_end"');
+    expect(schemaBoot).toContain('logBootPhase("fast_schema_ok")');
+    expect(schemaBoot).toContain('logBootPhase("fast_schema_fallback"');
     expect(indexSrc).toContain('logBootPhase("routes_ready")');
   });
 
@@ -58,6 +65,7 @@ describe("deploy gap", () => {
     expect(railway.deploy.healthcheckTimeout).toBe(120);
     expect(railway.deploy.drainingSeconds).toBe(30);
     expect(railway.deploy.overlapSeconds).toBeUndefined();
-    expect(DRAIN_TIMEOUT_MS).toBeLessThanOrEqual(25_000);
+    expect(DRAIN_TIMEOUT_MS).toBe(5_000);
+    expect(CLOSE_GRACE_MS).toBeLessThan(DRAIN_TIMEOUT_MS);
   });
 });

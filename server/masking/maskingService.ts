@@ -14,11 +14,13 @@ import {
   normalizeQuarterTurn,
   readOrientNote,
   writeOrientNote,
+  type OrientNote,
   type QuarterTurn,
 } from "./orientNote";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
+import { invalidateMaskReadySidecar } from "./maskReadySidecar";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -265,27 +267,52 @@ async function readImageRotation(cardId: string): Promise<QuarterTurn | null> {
   }
 }
 
+/** Same orientation rule as the masked route. A note wins. Null rotation is a failed DB read. */
+export function warmMaskedFileAllowed(args: {
+  cardId: string;
+  filename: string;
+  imageRotation: number | null;
+  note: OrientNote | null;
+  landscape: boolean;
+}): boolean {
+  if (args.note) return args.filename === warmMaskedFilename(args.cardId, args.note.rotation);
+  const field = args.imageRotation == null ? null : normalizeQuarterTurn(args.imageRotation);
+  if (field == null) {
+    if (filenameRotation(args.filename) !== 0) return true;
+    return !args.landscape;
+  }
+  if (field !== 0) return args.filename === warmMaskedFilename(args.cardId, field);
+  if (filenameRotation(args.filename) !== 0) return true;
+  return !args.landscape;
+}
+
 /** Reject a warm file whose pixels are still in the raw sideways orientation. */
 export async function acceptWarmMaskedFile(cardId: string, filename: string): Promise<boolean> {
   const note = readOrientNote(cardId);
   if (note) return filename === warmMaskedFilename(cardId, note.rotation);
 
   const field = await readImageRotation(cardId);
-  if (field == null) {
-    if (filenameRotation(filename) !== 0) return true;
-    return !isLandscapeJpegFile(path.join(MASKED_CARDS_DIR, filename));
-  }
+  const landscape = isLandscapeJpegFile(path.join(MASKED_CARDS_DIR, filename));
+  const allowed = warmMaskedFileAllowed({
+    cardId,
+    filename,
+    imageRotation: field,
+    note: null,
+    landscape,
+  });
+  if (!allowed || field == null) return allowed;
   if (field !== 0) {
-    if (filename !== warmMaskedFilename(cardId, field)) return false;
-    writeOrientNote(cardId, { rotation: field, landscapeDesign: false, coverBoth: false });
-    return true;
+    if (filename === warmMaskedFilename(cardId, field)) {
+      writeOrientNote(cardId, { rotation: field, landscapeDesign: false, coverBoth: false });
+    }
+    return allowed;
   }
   const turned = filenameRotation(filename);
   if (turned !== 0) {
     writeOrientNote(cardId, { rotation: turned, landscapeDesign: false, coverBoth: false });
     return true;
   }
-  if (isLandscapeJpegFile(path.join(MASKED_CARDS_DIR, filename))) return false;
+  if (landscape) return false;
   writeOrientNote(cardId, { rotation: 0, landscapeDesign: false, coverBoth: false });
   return true;
 }
@@ -657,12 +684,8 @@ export function clearServedOrientation(cardId: string): void {
   }
 }
 
-async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
-  try {
-    unlinkSync(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)));
-  } catch {
-    // no sidecar yet
-  }
+export async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
+  invalidateMaskReadySidecar(cardId);
   try {
     await db
       .update(playableCards)

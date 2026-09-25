@@ -2,6 +2,7 @@ import { db } from "../../db";
 import { cardImageCache, cardImageQuarantine, baseballCards, playableCards } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { normalizeImageUrl, isPlaceholderImage, quarantineCard } from "../cards/imageQuality";
+import { invalidateMaskReadySidecar } from "../../masking/maskReadySidecar";
 import { withSourceFetchTimeout } from "./sourceFetch";
 
 const VALIDATION_TIMEOUT_MS = 6000;
@@ -178,6 +179,7 @@ export async function getOrValidateCardImage(cardId: string, sourceUrl: string):
     });
 
   if (!validation.valid) {
+    invalidateMaskReadySidecar(cardId);
     quarantineCard(cardId, validation.error || "validation_failed", normalized).catch(() => {});
   }
 
@@ -242,6 +244,7 @@ export async function markImageBad(cardId: string, reason: string): Promise<void
     })
     .where(eq(cardImageCache.cardId, cardId));
 
+  invalidateMaskReadySidecar(cardId);
   await quarantineCard(cardId, reason, null);
 }
 

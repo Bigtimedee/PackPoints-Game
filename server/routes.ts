@@ -42,6 +42,17 @@ import {
 } from "@shared/homePlayVanity";
 import { adminService } from "./services/adminService";
 import { hardDeleteGameSet } from "./services/gameSetDelete";
+import {
+  excludePlayableCard,
+  flagMultiPlayerCards,
+  markPlayerMismatchUnplayable,
+  noteImportedCardUnplayable,
+  notePlayableClassification,
+  rejectCardReview,
+  rejectReportedCardImage,
+} from "./services/playableIneligible";
+import { invalidateMaskReadySidecars, invalidateMaskSidecarsForGameSet } from "./masking/maskReadySidecar";
+import { PlayableSetUpdateError, updatePlayableSet } from "./services/playableSetUpdate";
 import { describeGameSetDeleteError } from "./services/gameSetDeleteError";
 import { analyticsService } from "./services/analyticsService";
 import { isMakingLayerClientEvent, logMakingLayerEvent, MAKING_LAYER_EVENTS, requestUserId } from "./services/makingLayerEvents";
@@ -50,6 +61,7 @@ import { USER_SET_PUBLISH_CLOSED } from "@shared/catalogMatch";
 import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
+import { requestPasswordReset } from "./auth/passwordResetRequest";
 import { validateImageUrl, recordImageLoadFailure, shouldAutoFlagCard } from "./services/imageValidator";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
@@ -397,7 +409,7 @@ export async function registerRoutes(
       }
       if (imageBase64.length > 6_700_000) {
         logMakingLayerEvent(MAKING_LAYER_EVENTS.identifyFail, userId, { reason: "too_large" });
-        return res.status(400).json({ error: "Couldn't read that photo — try exporting as JPEG" });
+        return res.status(400).json({ error: "Couldn't read that photo. Try exporting as JPEG." });
       }
 
       const outcome = await identifyAndMatchReadOnly(imageBase64);
@@ -1883,7 +1895,7 @@ export async function registerRoutes(
         await walletService.earn(
           user.id,
           250,
-          "Welcome bonus — free PackPTS for new players",
+          "Welcome bonus: free PackPTS for new players",
           `welcome_bonus:${user.id}`,
           { source: "signup_bonus" }
         );
@@ -2219,38 +2231,21 @@ export async function registerRoutes(
     }
   });
 
-  // Password reset - request reset link
+  // Password reset - request reset link. A failed send logs the masked
+  // recipient and the error. The token and the reset URL stay out of the logs.
   app.post("/api/auth/forgot-password", forgotPasswordLimiter, async (req, res) => {
     try {
-      const { email } = req.body;
-      if (!email || typeof email !== 'string') {
-        return res.status(400).json({ error: "Email is required" });
+      const result = await requestPasswordReset({
+        email: req.body?.email,
+        getUserByEmail: (email) => storage.getUserByEmail(email),
+        createPasswordResetToken: (userId) => storage.createPasswordResetToken(userId),
+        sendPasswordResetEmail,
+        baseUrl: process.env.APP_URL || "https://packpts.com",
+      });
+      if (result.status === 400) {
+        return res.status(400).json(result.body);
       }
-      
-      const user = await storage.getUserByEmail(email);
-      
-      // Always return success to prevent email enumeration attacks
-      if (!user) {
-        console.log(`Password reset requested for non-existent email: ${email}`);
-        return res.json({ success: true, message: "If an account exists, a reset link has been sent" });
-      }
-      
-      // Create reset token
-      const resetToken = await storage.createPasswordResetToken(user.id);
-      
-      // Determine base URL for reset link
-      const baseUrl = process.env.APP_URL || 'https://packpts.com';
-      
-      // Send password reset email
-      const emailSent = await sendPasswordResetEmail(email, resetToken.token, baseUrl);
-      
-      if (!emailSent) {
-        // Fallback: log the reset link if email fails
-        const resetLink = `${baseUrl}/reset-password?token=${resetToken.token}`;
-        console.log(`Email failed - Password reset link for ${email}: ${resetLink}`);
-      }
-      
-      res.json({ success: true, message: "If an account exists, a reset link has been sent" });
+      res.json(result.body);
     } catch (error) {
       console.error("Error requesting password reset:", error);
       res.status(500).json({ error: "Failed to process request" });
@@ -2487,10 +2482,10 @@ export async function registerRoutes(
       const { sendEmail } = await import("./services/emailService");
       await sendEmail({
         to: challenge.email,
-        subject: "Verify your PackPoints account link",
+        subject: "Verify your PackPTS account link",
         html: `
           <h2>Link Verification Request</h2>
-          <p>Someone is trying to link a new login method to your PackPoints account.</p>
+          <p>Someone is trying to link a new login method to your PackPTS account.</p>
           <p>If this was you, click the link below to verify:</p>
           <p><a href="${magicLink}">Verify and Link Account</a></p>
           <p>This link expires in 15 minutes.</p>
@@ -2890,7 +2885,7 @@ export async function registerRoutes(
         requiresReview: result.requiresReview,
         message: result.requiresReview 
           ? "Your redemption is pending admin review due to the high value."
-          : "Redemption successful. Your PackPTS token is shown below — it is not usable at eBay or Goldin checkout.",
+          : "Redemption successful. Your PackPTS token is shown below. It is not usable at eBay or Goldin checkout.",
       });
     } catch (error) {
       console.error("Error processing redemption:", error);
@@ -5070,6 +5065,10 @@ export async function registerRoutes(
       if (!updated) {
         return res.status(404).json({ error: "Game set not found" });
       }
+
+      if (updateData.isActive === false) {
+        await invalidateMaskSidecarsForGameSet(id);
+      }
       
       res.json(updated);
     } catch (error) {
@@ -5251,6 +5250,7 @@ export async function registerRoutes(
               .update(gameSets)
               .set({ isActive: false })
               .where(eq(gameSets.id, set.id));
+            await invalidateMaskSidecarsForGameSet(set.id);
             deactivated.push(set.id);
             console.log(`[GameSets] Deactivated duplicate set: ${set.setName} (${set.id}) with ${set.actualPlayableCards} cards`);
           }
@@ -5638,17 +5638,10 @@ export async function registerRoutes(
                     actorUserId: (req as any).user?.id,
                     reason: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
                   });
-                  await db
-                    .update(playableCards)
-                    .set({
-                      isPlayable: false,
-                      blockedReason: "player_mismatch",
-                      imageReviewStatus: "excluded",
-                      imageLastError: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
-                      quarantineStatus: "REMOVED_BY_ADMIN",
-                      updatedAt: new Date(),
-                    })
-                    .where(eq(playableCards.id, card.id));
+                  await markPlayerMismatchUnplayable(
+                    card.id,
+                    `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
+                  );
                   console.log(`[PlayerMismatch] AUTO-QUARANTINED by admin: ${card.id.slice(0, 8)}`);
                 }
               }
@@ -5707,16 +5700,7 @@ export async function registerRoutes(
       
       for (const cardId of cardIds) {
         try {
-          await db
-            .update(playableCards)
-            .set({
-              isPlayable: false,
-              blockedReason: "player_mismatch",
-              imageReviewStatus: "excluded",
-              quarantineStatus: "REMOVED_BY_ADMIN",
-              updatedAt: new Date(),
-            })
-            .where(eq(playableCards.id, cardId));
+          await markPlayerMismatchUnplayable(cardId);
           quarantined++;
         } catch (err: any) {
           console.error(`[PlayerMismatch] Failed to quarantine ${cardId}: ${err.message}`);
@@ -6319,17 +6303,6 @@ export async function registerRoutes(
     marketplaceKeywords: z.array(z.string()).optional().default([]),
   });
 
-  const UpdatePlayableSetSchema = z.object({
-    sport: z.string().min(1).optional(),
-    brand: z.string().min(1).optional(),
-    year: z.coerce.number().int().min(1850).max(2100).optional(),
-    setName: z.string().min(1).optional(),
-    cardhedgeSetQuery: z.string().nullable().optional(),
-    cardhedgeCategory: z.string().nullable().optional(),
-    marketplaceKeywords: z.array(z.string()).optional(),
-    isActive: z.boolean().optional(),
-  });
-
   // Admin: Create playable set (game set with Card Hedge config)
   app.post("/api/admin/playable-sets", isAuthenticated, requireAdmin, async (req, res) => {
     try {
@@ -6359,38 +6332,17 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Update playable set
+  // Admin: Update playable set. Deactivating the set drops mask-ready sidecars
+  // the same way PUT /api/admin/game-sets/:id does.
   app.put("/api/admin/playable-sets/:id", isAuthenticated, requireAdmin, async (req, res) => {
     try {
-      const { id } = req.params;
-      const validated = UpdatePlayableSetSchema.parse(req.body);
-      
-      const updateData: any = {};
-      if (validated.sport !== undefined) updateData.sport = validated.sport;
-      if (validated.brand !== undefined) updateData.brand = validated.brand;
-      if (validated.year !== undefined) updateData.year = validated.year;
-      if (validated.setName !== undefined) updateData.setName = validated.setName;
-      if (validated.cardhedgeSetQuery !== undefined) updateData.cardhedgeSetQuery = validated.cardhedgeSetQuery;
-      if (validated.cardhedgeCategory !== undefined) updateData.cardhedgeCategory = validated.cardhedgeCategory;
-      if (validated.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = validated.marketplaceKeywords;
-      if (validated.isActive !== undefined) updateData.isActive = validated.isActive;
-      
-      const [updated] = await db
-        .update(gameSets)
-        .set(updateData)
-        .where(eq(gameSets.id, id))
-        .returning();
-      
-      if (!updated) {
-        return res.status(404).json({ error: "Playable set not found" });
-      }
-      
+      const updated = await updatePlayableSet(req.params.id, req.body);
       res.json(updated);
-    } catch (error: any) {
-      console.error("Error updating playable set:", error);
-      if (error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid request parameters", details: error.errors });
+    } catch (error: unknown) {
+      if (error instanceof PlayableSetUpdateError) {
+        return res.status(error.status).json(error.body);
       }
+      console.error("Error updating playable set:", error);
       res.status(500).json({ error: "Failed to update playable set" });
     }
   });
@@ -6475,7 +6427,7 @@ export async function registerRoutes(
             
             const imageUrl = normalizeImageUrl(card.image);
             
-            await db
+            const inserted = await db
               .insert(playableCards)
               .values({
                 gameSetId: id,
@@ -6491,22 +6443,24 @@ export async function registerRoutes(
                 isPlayable,
                 blockedReason,
               })
-              .onConflictDoUpdate({
-                target: playableCards.cardhedgeCardId,
-                set: {
-                  description: card.description,
-                  player: card.player,
-                  set: card.set,
-                  number: card.number,
-                  variant: card.variant,
-                  imageUrl,
-                  category: card.category,
-                  rookie: card.rookie,
-                  isPlayable,
-                  blockedReason,
-                  updatedAt: new Date(),
-                },
-              });
+            .onConflictDoUpdate({
+              target: playableCards.cardhedgeCardId,
+              set: {
+                description: card.description,
+                player: card.player,
+                set: card.set,
+                number: card.number,
+                variant: card.variant,
+                imageUrl,
+                category: card.category,
+                rookie: card.rookie,
+                isPlayable,
+                blockedReason,
+                updatedAt: new Date(),
+              },
+            })
+            .returning({ id: playableCards.id });
+            if (inserted[0]) noteImportedCardUnplayable(inserted[0].id, isPlayable);
             
             totalCardsImported++;
           }
@@ -6817,18 +6771,19 @@ export async function registerRoutes(
           .from(playableCards)
           .where(eq(playableCards.gameSetId, id));
         
-        if (cardIdsInSet.length > 0) {
-          const cardIds = cardIdsInSet.map(c => c.id);
+        const purgedCardIds = cardIdsInSet.map(c => c.id);
+        if (purgedCardIds.length > 0) {
           await db
             .delete(cardImageReports)
-            .where(inArray(cardImageReports.cardId, cardIds));
-          console.log(`[Purge & Reimport] Deleted card_image_reports for ${cardIds.length} cards`);
+            .where(inArray(cardImageReports.cardId, purgedCardIds));
+          console.log(`[Purge & Reimport] Deleted card_image_reports for ${purgedCardIds.length} cards`);
         }
         
         // Delete all existing cards for this set
         await db
           .delete(playableCards)
           .where(eq(playableCards.gameSetId, id));
+        invalidateMaskReadySidecars(purgedCardIds);
         
         const cardsPurged = existingCardCount;
         console.log(`[Purge & Reimport] Purged ${cardsPurged} cards, now inserting ${cardsToImport.length}...`);
@@ -6836,7 +6791,7 @@ export async function registerRoutes(
         // Insert all cards from dry-run
         let totalCardsImported = 0;
         for (const card of cardsToImport) {
-          await db
+          const inserted = await db
             .insert(playableCards)
             .values({
               gameSetId: id,
@@ -6871,7 +6826,9 @@ export async function registerRoutes(
                 contentVerified: null, // Re-import resets to pending
                 imageFailureCount: 0, // Reset failure count on reimport
               },
-            });
+            })
+            .returning({ id: playableCards.id });
+          if (inserted[0]) noteImportedCardUnplayable(inserted[0].id, card.isPlayable);
           
           totalCardsImported++;
         }
@@ -7354,14 +7311,7 @@ export async function registerRoutes(
         const classification = classifyCard({ player: card.player, description: card.description });
         
         if (card.isPlayable !== classification.isPlayable || card.blockedReason !== classification.blockedReason) {
-          await db
-            .update(playableCards)
-            .set({
-              isPlayable: classification.isPlayable,
-              blockedReason: classification.blockedReason,
-              updatedAt: new Date(),
-            })
-            .where(eq(playableCards.id, card.id));
+          await notePlayableClassification(card.id, classification.isPlayable, classification.blockedReason);
           
           changes.push({
             id: card.id,
@@ -7727,16 +7677,7 @@ export async function registerRoutes(
           actorUserId: req.user.id,
           reason: `Report ${reportId} rejected - image mismatch confirmed`,
         });
-        await db
-          .update(playableCards)
-          .set({
-            imageReviewStatus: "rejected",
-            isPlayable: false,
-            blockedReason: "Image mismatch confirmed via report",
-            quarantineStatus: "REMOVED_BY_ADMIN",
-            updatedAt: new Date(),
-          })
-          .where(eq(playableCards.id, report.cardId));
+        await rejectReportedCardImage(report.cardId);
       }
       
       console.log(`[Card Report] Report ${reportId} resolved with action: ${action} by admin ${req.user.id}`);
@@ -7788,13 +7729,7 @@ export async function registerRoutes(
         }
         await db.update(playableCards).set(upd).where(eq(playableCards.id, cardId));
       } else {
-        await db.update(playableCards).set({
-          imageReviewStatus: "rejected",
-          isPlayable: false,
-          blockedReason: resolution || "Image mismatch confirmed via admin review",
-          quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
-          updatedAt: new Date(),
-        }).where(eq(playableCards.id, cardId));
+        await rejectCardReview(cardId, resolution);
       }
       steps.push("card_updated");
 
@@ -7843,16 +7778,8 @@ export async function registerRoutes(
         reason: `Bulk flag ${cardIds.length} cards as multi-player`,
       });
       
-      const results = await db
-        .update(playableCards)
-        .set({
-          isPlayable: false,
-          blockedReason: "multi-player",
-          quarantineStatus: "REMOVED_BY_ADMIN",
-          updatedAt: new Date(),
-        })
-        .where(inArray(playableCards.id, cardIds))
-        .returning({ id: playableCards.id });
+      const flaggedIds = await flagMultiPlayerCards(cardIds);
+      const results = flaggedIds.map((id) => ({ id }));
       
       console.log(`[Card Flag] ${results.length} cards flagged as multi-player by admin ${req.user.id}`);
       
@@ -7932,16 +7859,7 @@ export async function registerRoutes(
         reason: reason || "Manual admin exclusion",
       });
       
-      await db
-        .update(playableCards)
-        .set({
-          isPlayable: false,
-          blockedReason: reason || "admin_manual_exclusion",
-          imageReviewStatus: "excluded",
-          quarantineStatus: "REMOVED_BY_ADMIN",
-          updatedAt: new Date(),
-        })
-        .where(eq(playableCards.id, cardId));
+      await excludePlayableCard(cardId, reason);
       
       console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${req.user.id}: ${reason || "no reason"}`);
       

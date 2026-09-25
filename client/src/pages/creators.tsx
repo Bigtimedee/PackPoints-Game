@@ -13,7 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 const TIERS = [
   {
     name: "Micro Creator",
-    requirement: "1K–10K followers",
+    requirement: "1K to 10K followers",
     icon: Zap,
     color: "text-blue-500",
     bg: "bg-blue-500/10",
@@ -26,7 +26,7 @@ const TIERS = [
   },
   {
     name: "Partner",
-    requirement: "10K–100K followers",
+    requirement: "10K to 100K followers",
     icon: Star,
     color: "text-yellow-500",
     bg: "bg-yellow-500/10",

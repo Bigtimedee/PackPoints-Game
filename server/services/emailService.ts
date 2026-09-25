@@ -1,5 +1,9 @@
 import { Resend } from 'resend';
 
+/** User-visible brand on every outbound email. */
+export const BRAND_NAME = "PackPTS";
+const EMAIL_FROM = `${BRAND_NAME} <noreply@packpts.com>`;
+
 let resend: Resend | null = null;
 let emailConfigValid = false;
 
@@ -65,6 +69,18 @@ interface SendEmailOptions {
   text?: string;
 }
 
+/** `dave@packpts.com` → `d***@packpts.com`. Never log the local part in full. */
+export function maskEmailAddress(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at <= 0 || at === email.length - 1) return "***";
+  return `${email.slice(0, 1)}***@${email.slice(at + 1)}`;
+}
+
+/** Tests inject a stub. Production builds a Resend client from RESEND_API_KEY. */
+export function setEmailClientForTests(client: { emails: { send: Resend["emails"]["send"] } } | null): void {
+  resend = client as Resend | null;
+}
+
 export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   if (!resend) {
     const apiKey = process.env.RESEND_API_KEY;
@@ -76,8 +92,8 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
   }
 
   try {
-    const { error } = await resend.emails.send({
-      from: 'PackPoints <noreply@packpts.com>',
+    const { data, error } = await resend.emails.send({
+      from: EMAIL_FROM,
       to: options.to,
       subject: options.subject,
       html: options.html,
@@ -89,7 +105,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<boolean> {
       return false;
     }
 
-    console.log(`[EmailService] Email sent successfully to ${options.to}`);
+    console.log(`[EmailService] Email sent id=${data?.id ?? "unknown"} subject=${options.subject} to=${maskEmailAddress(options.to)}`);
     return true;
   } catch (error: any) {
     console.error('[EmailService] Failed to send email:', error.message);
@@ -115,12 +131,12 @@ export async function sendStreakReminderEmail(
       <div style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <div style="background-color: #18181b; padding: 24px; text-align: center;">
           <h1 style="color: #FFD700; margin: 0; font-size: 28px;">🔥 ${streakDays}-Day Streak</h1>
-          <p style="color: #a1a1aa; margin: 8px 0 0; font-size: 14px;">PackPoints</p>
+          <p style="color: #a1a1aa; margin: 8px 0 0; font-size: 14px;">${BRAND_NAME}</p>
         </div>
         <div style="padding: 32px 24px;">
           <h2 style="color: #18181b; margin: 0 0 12px 0; font-size: 20px;">Don't break your streak, ${username}!</h2>
           <p style="color: #52525b; line-height: 1.6; margin: 0 0 24px 0;">
-            You're on a <strong>${streakDays}-day streak</strong> — that's seriously impressive. Play today's card challenge to keep it alive and earn your daily streak bonus.
+            You're on a <strong>${streakDays}-day streak</strong>. That's seriously impressive. Play today's card challenge to keep it alive and earn your daily streak bonus.
           </p>
           <div style="text-align: center; margin: 32px 0;">
             <a href="${siteUrl}" style="display: inline-block; background-color: #FFD700; color: #18181b; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
@@ -133,7 +149,7 @@ export async function sendStreakReminderEmail(
         </div>
         <div style="background-color: #fafafa; padding: 16px 24px; text-align: center;">
           <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
-            &copy; ${new Date().getFullYear()} PackPoints. All rights reserved.
+            &copy; ${new Date().getFullYear()} ${BRAND_NAME}. All rights reserved.
           </p>
         </div>
       </div>
@@ -147,7 +163,7 @@ You're on a ${streakDays}-day streak. Play today to keep it alive: ${siteUrl}
 
 Your streak resets at midnight.
 
-- The PackPoints Team`;
+- The ${BRAND_NAME} Team`;
 
   return sendEmail({
     to: email,
@@ -175,12 +191,12 @@ export async function sendReEngagementEmail(
     <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; margin: 0; padding: 20px;">
       <div style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <div style="background-color: #18181b; padding: 24px; text-align: center;">
-          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">PackPoints</h1>
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">${BRAND_NAME}</h1>
         </div>
         <div style="padding: 32px 24px;">
           <h2 style="color: #18181b; margin: 0 0 12px 0; font-size: 20px;">We miss you, ${username}!</h2>
           <p style="color: #52525b; line-height: 1.6; margin: 0 0 16px 0;">
-            It's been <strong>${daysSinceLastPlay} days</strong> since your last game. You've identified <strong>${totalCardsIdentified.toLocaleString()} cards</strong> so far — that's a collection worth coming back to.
+            It's been <strong>${daysSinceLastPlay} days</strong> since your last game. You've identified <strong>${totalCardsIdentified.toLocaleString()} cards</strong> so far. That's a collection worth coming back to.
           </p>
           <p style="color: #52525b; line-height: 1.6; margin: 0 0 24px 0;">
             New cards hit the market every week. Jump back in and see what you've been missing.
@@ -196,7 +212,7 @@ export async function sendReEngagementEmail(
         </div>
         <div style="background-color: #fafafa; padding: 16px 24px; text-align: center;">
           <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
-            &copy; ${new Date().getFullYear()} PackPoints. All rights reserved.
+            &copy; ${new Date().getFullYear()} ${BRAND_NAME}. All rights reserved.
           </p>
         </div>
       </div>
@@ -206,15 +222,15 @@ export async function sendReEngagementEmail(
 
   const text = `We miss you, ${username}!
 
-It's been ${daysSinceLastPlay} days since your last game. You've identified ${totalCardsIdentified.toLocaleString()} cards — that's impressive!
+It's been ${daysSinceLastPlay} days since your last game. You've identified ${totalCardsIdentified.toLocaleString()} cards. That's impressive!
 
 Jump back in and see what's new: ${siteUrl}
 
-- The PackPoints Team`;
+- The ${BRAND_NAME} Team`;
 
   return sendEmail({
     to: email,
-    subject: `It's been ${daysSinceLastPlay} days — come back to PackPoints`,
+    subject: `It's been ${daysSinceLastPlay} days. Come back to ${BRAND_NAME}`,
     html,
     text,
   });
@@ -238,7 +254,7 @@ export async function sendPasswordResetEmail(
     <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; margin: 0; padding: 20px;">
       <div style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <div style="background-color: #18181b; padding: 24px; text-align: center;">
-          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">PackPoints</h1>
+          <h1 style="color: #ffffff; margin: 0; font-size: 24px;">${BRAND_NAME}</h1>
         </div>
         <div style="padding: 32px 24px;">
           <h2 style="color: #18181b; margin: 0 0 16px 0; font-size: 20px;">Reset Your Password</h2>
@@ -261,7 +277,7 @@ export async function sendPasswordResetEmail(
         </div>
         <div style="background-color: #fafafa; padding: 16px 24px; text-align: center;">
           <p style="color: #a1a1aa; font-size: 12px; margin: 0;">
-            &copy; ${new Date().getFullYear()} PackPoints. All rights reserved.
+            &copy; ${new Date().getFullYear()} ${BRAND_NAME}. All rights reserved.
           </p>
         </div>
       </div>
@@ -272,7 +288,7 @@ export async function sendPasswordResetEmail(
   const text = `
 Reset Your Password
 
-We received a request to reset your PackPoints password.
+We received a request to reset your ${BRAND_NAME} password.
 
 Click this link to reset your password: ${resetLink}
 
@@ -280,12 +296,12 @@ This link will expire in 1 hour.
 
 If you didn't request this password reset, you can safely ignore this email.
 
-- The PackPoints Team
+- The ${BRAND_NAME} Team
   `.trim();
 
   return sendEmail({
     to: email,
-    subject: 'Reset Your PackPoints Password',
+    subject: `Reset Your ${BRAND_NAME} Password`,
     html,
     text,
   });
@@ -375,7 +391,7 @@ export async function sendRebateReceiptEmail(
   ].join("\n");
   return sendEmail({
     to: email,
-    subject: `PackPTS cashback receipt — $${dollars}`,
+    subject: `${BRAND_NAME} cashback receipt: $${dollars}`,
     html,
     text,
   });

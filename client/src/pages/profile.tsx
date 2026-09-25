@@ -79,7 +79,7 @@ function MySetsPanel() {
           <Paintbrush className="h-10 w-10 text-muted-foreground/50" />
           <div className="space-y-1">
             <p className="font-medium text-muted-foreground">No sets yet</p>
-            <p className="text-sm text-muted-foreground">Play sets already in PackPTS — users don’t publish their own.</p>
+            <p className="text-sm text-muted-foreground">Play sets already in PackPTS. Users don’t publish their own.</p>
           </div>
           <Button onClick={() => navigate("/sets")} size="sm">Browse sets</Button>
         </CardContent>

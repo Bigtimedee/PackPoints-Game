@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { invalidateMaskReadySidecar, invalidateMaskReadySidecars } from "../masking/maskReadySidecar";
 import { playableCards, baseballCards } from "@shared/schema";
 import { eq, lt, isNull, or, and, sql } from "drizzle-orm";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
@@ -623,6 +624,7 @@ export async function revalidateCard(
               updatedAt: new Date(),
             })
             .where(eq(playableCards.id, cardId));
+          invalidateMaskReadySidecar(cardId);
         }
       } else {
         const newFailCount = (card.validationFailCount || 0) + 1;
@@ -714,6 +716,7 @@ export async function applyProposedChanges(
       eq(playableCards.gameSetId, gameSetId),
       eq(playableCards.proposedUnplayable, true)
     ));
+  invalidateMaskReadySidecars(proposedCards.map((card) => card.id));
   
   const [afterCounts] = await db.select({
     total: sql<number>`count(*)`,

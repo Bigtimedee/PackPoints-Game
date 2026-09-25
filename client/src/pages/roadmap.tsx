@@ -44,7 +44,7 @@ export default function Roadmap() {
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold mb-3">PackPTS Roadmap</h1>
           <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-            Here's what we're building. Priorities shift based on your feedback — let us know what matters most!
+            Here's what we're building. Priorities shift based on your feedback. Let us know what matters most!
           </p>
           <div className="flex flex-wrap gap-3 justify-center mt-4">
             {statuses.map(status => {

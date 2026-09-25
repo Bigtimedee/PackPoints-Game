@@ -123,6 +123,6 @@ describe("deploy cache headers", () => {
     expect(isViteHashedAsset("/assets/index-C5vKUtP0.js")).toBe(true);
     expect(isViteHashedAsset("/assets/play-sets/integrated-shelf.png")).toBe(false);
     expect(isViteHashedAsset("/assets/play-sets/play-set-1080.png")).toBe(false);
-    expect(isViteHashedAsset("/assets/x-hotfix-2026-09-13/CAPTIONS.md")).toBe(false);
+    expect(isViteHashedAsset("/assets/x-hotfix-2026-09-13/post2-daily5-1080.png")).toBe(false);
   });
 });

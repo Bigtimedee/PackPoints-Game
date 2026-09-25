@@ -2,7 +2,7 @@
  * Vite's default Rollup names are `[name]-[hash].[ext]`. The hash is the
  * final hyphen segment: 8 characters of base64url (Rollup `DEFAULT_HASH_SIZE`).
  * Files copied from `client/public/assets/` do not get that suffix.
- * `play-set-1080.png` and `CAPTIONS.md` must not match.
+ * `play-set-1080.png` and `post2-daily5-1080.png` must not match.
  */
 const VITE_HASH_SEGMENT = /^(?=.*[A-Za-z])[A-Za-z0-9_]{8}\.[A-Za-z0-9]+$/;
 
