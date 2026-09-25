@@ -5,6 +5,7 @@ import {
   composeScoreSharePng,
   maskedTileSource,
   paintScoreShareStrip,
+  restoreScoreCardBand,
   scoreShareStripLayout,
   sessionShareTileSources,
   tilesForScoreShare,
@@ -117,13 +118,69 @@ describe("score share strip paint", () => {
     expect(boxes[1].x).toBeLessThan(boxes[2].x);
     expect(painter.images).toHaveLength(3);
     const colors = painter.fills.map((fill) => fill.color);
-    expect(colors).toContain(SCORE_SHARE_STRIP.canvas);
+    const flatBand = painter.fills.filter((fill) => fill.color === SCORE_SHARE_STRIP.canvas && fill.w >= 900);
+    expect(flatBand).toEqual([]);
     expect(colors.filter((color) => color === SCORE_SHARE_STRIP.plaqueFill)).toHaveLength(3);
     expect(colors.filter((color) => color === SCORE_SHARE_STRIP.seam)).toHaveLength(3);
     expect(colors.filter((color) => color === SCORE_SHARE_STRIP.bar)).toHaveLength(3);
     expect(stripSrc).not.toContain("packpts.com/daily");
     expect(stripSrc).not.toContain("fillText");
     expect(scoreShareStripLayout(0)).toEqual([]);
+    expect(stripSrc).not.toContain("fillRect(SCORE_SHARE_STRIP.clearX");
+  });
+
+  it("repaints the strip band with the score-card radial glow, not a flat canvas fill", () => {
+    const scoreCardSrc = readFileSync(new URL("../../../../server/contentFactory/generateScoreCard.ts", import.meta.url), "utf8");
+    expect(scoreCardSrc).toContain('radialGradient id="glow" cx="85%" cy="12%" r="55%"');
+    expect(scoreCardSrc).toContain('stop-color="#1e3a5f" stop-opacity="0.55"');
+    const stops: Array<{ offset: number; color: string }> = [];
+    let clipped = false;
+    let fillStyle: string | { addColorStop(offset: number, color: string): void } = "";
+    const fills: Array<{ color: string; w: number; h: number }> = [];
+    const ctx = {
+      fillStyle,
+      strokeStyle: "",
+      lineWidth: 1,
+      save() {},
+      restore() {},
+      beginPath() {},
+      moveTo() {},
+      arcTo() {},
+      closePath() {},
+      clip() { clipped = true; },
+      rect() {},
+      fillRect(_x: number, _y: number, w: number, h: number) {
+        fills.push({ color: typeof fillStyle === "string" ? fillStyle : "gradient", w, h });
+      },
+      stroke() {},
+      drawImage() {},
+      createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) {
+        expect(x0).toBe(1080 * 0.85);
+        expect(y0).toBeCloseTo(1080 * 0.12);
+        expect(r0).toBe(0);
+        expect(x1).toBe(x0);
+        expect(y1).toBe(y0);
+        expect(r1).toBe(1080 * 0.55);
+        return {
+          addColorStop(offset: number, color: string) {
+            stops.push({ offset, color });
+          },
+        };
+      },
+    };
+    Object.defineProperty(ctx, "fillStyle", {
+      get() { return fillStyle; },
+      set(value) { fillStyle = value; },
+    });
+    restoreScoreCardBand(ctx);
+    expect(clipped).toBe(true);
+    expect(fills.map((fill) => fill.color)).toEqual([SCORE_SHARE_STRIP.canvas, "gradient"]);
+    expect(fills[0].w).toBe(SCORE_SHARE_STRIP.canvasSize);
+    expect(stops).toEqual([
+      { offset: 0, color: SCORE_SHARE_STRIP.glowInner },
+      { offset: 1, color: SCORE_SHARE_STRIP.glowOuter },
+    ]);
+    expect(SCORE_SHARE_STRIP.glowInner).toBe("rgba(30, 58, 95, 0.55)");
   });
 
   it("composites only the tiles that loaded onto the score PNG", async () => {
