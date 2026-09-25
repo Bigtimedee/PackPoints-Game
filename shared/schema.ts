@@ -1526,7 +1526,7 @@ export type PackptsLiabilitySnapshot = typeof packptsLiabilitySnapshot.$inferSel
 // Default expiration policy values
 export const DEFAULT_EXPIRATION_POLICY = {
   earnedDaysToExpire: 365,
-  purchasedDaysToExpire: 730, // 2 years for purchased, or null for never
+  purchasedDaysToExpire: null, // purchased points never expire
   bonusDefaultDaysToExpire: 90,
   inactivityEnabled: false,
   inactivityDays: 90,

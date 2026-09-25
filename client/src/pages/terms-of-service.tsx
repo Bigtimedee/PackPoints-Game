@@ -52,7 +52,7 @@ export default function TermsOfService() {
               <li>PackPTS points have no cash value and cannot be transferred, sold, or exchanged outside the platform.</li>
               <li>We reserve the right to adjust point values, reward thresholds, and redemption options at any time.</li>
               <li>Points earned through manipulation, cheating, or exploiting bugs will be forfeited and the account may be banned.</li>
-              <li>Unused points may expire after 12 months of account inactivity.</li>
+              <li>Newly earned points may expire 365 days after they are earned, and newly granted bonus points may expire after 90 days. Purchased PackPTS do not expire.</li>
             </ul>
           </section>
 

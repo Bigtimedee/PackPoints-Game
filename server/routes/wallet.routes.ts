@@ -541,7 +541,7 @@ export function registerWalletRoutes(app: Express): void {
     }
   });
 
-  // PUT /api/admin/expiration/policy - Update expiration policy
+  // PUT /api/admin/expiration/policy - Upsert expiration policy (admin only)
   app.put("/api/admin/expiration/policy", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const policyUpdateSchema = z.object({
@@ -563,7 +563,7 @@ export function registerWalletRoutes(app: Express): void {
       const updatedPolicy = await expirationEngine.updateExpirationPolicy(parsed.data);
 
       if (!updatedPolicy) {
-        return res.status(404).json({ error: "No expiration policy found to update" });
+        return res.status(500).json({ error: "Failed to save expiration policy" });
       }
 
       res.json({ success: true, policy: updatedPolicy });

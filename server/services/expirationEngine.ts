@@ -1,7 +1,6 @@
 import { db } from "../db";
 import {
   packptsBucket,
-  packptsExpirationPolicy,
   packptsLiabilitySnapshot,
   ledgerEntries,
   wallets,
@@ -12,7 +11,7 @@ import {
   DEFAULT_EXPIRATION_POLICY,
 } from "@shared/schema";
 import { eq, and, lte, gt, sql, asc, isNull, not, gte } from "drizzle-orm";
-import { bucketService } from "./bucketService";
+import { bucketService, upsertExpirationPolicy } from "./bucketService";
 
 export interface ExpirationJobResult {
   success: boolean;
@@ -44,6 +43,50 @@ export function expirationMaxBucketsPerRun(): number {
 export function formatExpirationBySource(bySource: Record<string, number>): string {
   const body = Object.keys(bySource).sort().map((key) => `${key}:${bySource[key]}`).join(",");
   return `{${body}}`;
+}
+
+export function formatExpirationRunSummary(fields: {
+  policyId: string | null;
+  nullExpiryOpen: number;
+  nextExpiresAt: Date | string | null;
+}): string {
+  const policy = fields.policyId ?? "none";
+  let next = "none";
+  if (fields.nextExpiresAt != null && fields.nextExpiresAt !== "") {
+    const date = fields.nextExpiresAt instanceof Date ? fields.nextExpiresAt : new Date(fields.nextExpiresAt);
+    next = Number.isNaN(date.getTime()) ? "none" : date.toISOString();
+  }
+  return `policy=${policy} nullExpiryOpen=${fields.nullExpiryOpen} nextExpiresAt=${next}`;
+}
+
+/** OPEN buckets with remaining points: null expires_at count, and the soonest future expires_at. */
+export async function expirationRunSummary(): Promise<string> {
+  const policy = await bucketService.getCurrentPolicy();
+  const now = new Date();
+  const [nullRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(packptsBucket)
+    .where(and(
+      eq(packptsBucket.status, "OPEN"),
+      gt(packptsBucket.remainingAmount, 0),
+      isNull(packptsBucket.expiresAt),
+    ));
+  const [nextRow] = await db
+    .select({ expiresAt: packptsBucket.expiresAt })
+    .from(packptsBucket)
+    .where(and(
+      eq(packptsBucket.status, "OPEN"),
+      gt(packptsBucket.remainingAmount, 0),
+      sql`${packptsBucket.expiresAt} > ${now}`,
+    ))
+    .orderBy(asc(packptsBucket.expiresAt))
+    .limit(1);
+
+  return formatExpirationRunSummary({
+    policyId: policy?.id ?? null,
+    nullExpiryOpen: Number(nullRow?.count ?? 0),
+    nextExpiresAt: nextRow?.expiresAt ?? null,
+  });
 }
 
 export interface InactivityExpirationResult {
@@ -549,22 +592,7 @@ class ExpirationEngine {
   async updateExpirationPolicy(
     updates: Partial<PackptsExpirationPolicy>
   ): Promise<PackptsExpirationPolicy | null> {
-    const currentPolicy = await bucketService.getCurrentPolicy();
-    
-    if (!currentPolicy) {
-      return null;
-    }
-
-    const [updated] = await db
-      .update(packptsExpirationPolicy)
-      .set({
-        ...updates,
-        updatedAt: new Date(),
-      })
-      .where(eq(packptsExpirationPolicy.id, currentPolicy.id))
-      .returning();
-
-    return updated;
+    return upsertExpirationPolicy(updates);
   }
 }
 

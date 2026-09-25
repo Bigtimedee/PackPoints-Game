@@ -12,6 +12,7 @@ import { registerTiktokSandboxRoutes } from "./routes/tiktokSandbox.routes";
 import { initializeStripeConnection } from "./stripeClient";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
 import { seedRewardPolicy } from "./services/rewardEngine";
+import { ensureExpirationPolicy } from "./services/bucketService";
 import { requestIdMiddleware, structuredRequestLogger } from "./middleware/requestLogger";
 import { errorMonitor } from './services/errorMonitor';
 import { validateStripeEnvVars } from "./services/productMap";
@@ -217,6 +218,14 @@ app.use((req, res, next) => {
   } catch (error) {
     console.log('[RewardEngine] Seed failed:', error instanceof Error ? error.message : 'Unknown');
   }
+
+  // Expiration policy must exist before new buckets are created. Does not backfill.
+  try {
+    await ensureExpirationPolicy();
+  } catch (error) {
+    console.warn("[Expiration] WARNING: no active policy, buckets will not expire");
+    console.error("[Expiration] ensureExpirationPolicy failed:", error);
+  }
   
   // Verify email configuration
   try {
@@ -352,7 +361,7 @@ app.use((req, res, next) => {
     }
 
     if (process.env.EXPIRATION_ENABLED !== "false") {
-      const { expirationEngine, expirationMode, expirationMaxBucketsPerRun, formatExpirationBySource } = await import("./services/expirationEngine");
+      const { expirationEngine, expirationMode, expirationMaxBucketsPerRun, formatExpirationBySource, expirationRunSummary } = await import("./services/expirationEngine");
       const { bucketService } = await import("./services/bucketService");
       const { DEFAULT_EXPIRATION_POLICY } = await import("@shared/schema");
       const runHourUTC = parseInt(process.env.EXPIRATION_RUN_HOUR_UTC || "6", 10);
@@ -365,7 +374,8 @@ app.use((req, res, next) => {
           if (now.getUTCHours() !== runHourUTC) return;
           if (mode === "dry_run") {
             const result = await expirationEngine.runExpirationJob(true);
-            console.log(`[Expiration] DRY RUN: buckets=${result.expiredBuckets} users=${result.usersAffected} points=${result.totalPointsExpired} bySource=${formatExpirationBySource(result.bySource)} oldestExpiresAt=${result.oldestExpiresAt ?? "none"}`);
+            const summary = await expirationRunSummary();
+            console.log(`[Expiration] DRY RUN: buckets=${result.expiredBuckets} users=${result.usersAffected} points=${result.totalPointsExpired} bySource=${formatExpirationBySource(result.bySource)} oldestExpiresAt=${result.oldestExpiresAt ?? "none"} ${summary}`);
             return;
           }
           const policy = await bucketService.getCurrentPolicy();
@@ -374,8 +384,9 @@ app.use((req, res, next) => {
             gracePeriodDays,
             maxBuckets: expirationMaxBucketsPerRun(),
           });
+          const summary = await expirationRunSummary();
           const errSuffix = result.errors.length > 0 ? `, errors=${result.errors.length}` : '';
-          console.log(`[Expiration] Date-based run complete: buckets=${result.expiredBuckets}, points=${result.totalPointsExpired}, remaining=${result.remainingBuckets}${errSuffix}`);
+          console.log(`[Expiration] Date-based run complete: buckets=${result.expiredBuckets}, points=${result.totalPointsExpired}, remaining=${result.remainingBuckets}${errSuffix} ${summary}`);
           if (result.errors.length > 0) {
             for (const err of result.errors.slice(0, 5)) {
               console.error(`[Expiration] error: ${err}`);

@@ -4,11 +4,15 @@ import {
   packptsExpirationPolicy,
   packptsSpendAllocation,
   ledgerEntries,
+  DEFAULT_EXPIRATION_POLICY,
   type PackptsBucket,
   type PackptsExpirationPolicy,
   type BucketSourceType,
 } from "@shared/schema";
-import { eq, and, asc, isNull, lte, gt, sql } from "drizzle-orm";
+import { eq, and, asc, isNull, lte, gt, sql, type ExtractTablesWithRelations } from "drizzle-orm";
+import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
+import type { PgTransaction } from "drizzle-orm/pg-core";
+import type * as schema from "@shared/schema";
 
 export interface BucketCreationResult {
   success: boolean;
@@ -43,21 +47,126 @@ export interface WeeklyExpiration {
   amount: number;
 }
 
+export const NO_ACTIVE_EXPIRATION_POLICY_LOG =
+  "[Expiration] WARNING: no active policy, buckets will not expire";
+
+export function formatActiveExpirationPolicyLog(
+  policy: Pick<PackptsExpirationPolicy, "id" | "earnedDaysToExpire" | "bonusDefaultDaysToExpire" | "purchasedDaysToExpire"> | null
+): string {
+  if (!policy) return NO_ACTIVE_EXPIRATION_POLICY_LOG;
+  const purchased = policy.purchasedDaysToExpire == null ? "never" : String(policy.purchasedDaysToExpire);
+  return `[Expiration] policy=${policy.id} earned=${policy.earnedDaysToExpire} bonus=${policy.bonusDefaultDaysToExpire} purchased=${purchased}`;
+}
+
+type ExpirationPolicyTx = PgTransaction<
+  NodePgQueryResultHKT,
+  typeof schema,
+  ExtractTablesWithRelations<typeof schema>
+>;
+type PolicyExecutor = typeof db | ExpirationPolicyTx;
+
+async function selectCurrentPolicy(executor: PolicyExecutor): Promise<PackptsExpirationPolicy | null> {
+  const result = await executor
+    .select()
+    .from(packptsExpirationPolicy)
+    .where(
+      and(
+        eq(packptsExpirationPolicy.enabled, true),
+        lte(packptsExpirationPolicy.effectiveFrom, new Date())
+      )
+    )
+    .orderBy(sql`${packptsExpirationPolicy.effectiveFrom} DESC`)
+    .limit(1);
+
+  return result.length > 0 ? result[0] : null;
+}
+
+function defaultPolicyValues(overrides?: Partial<PackptsExpirationPolicy>) {
+  return {
+    effectiveFrom: new Date(),
+    earnedDaysToExpire: overrides?.earnedDaysToExpire ?? DEFAULT_EXPIRATION_POLICY.earnedDaysToExpire,
+    purchasedDaysToExpire: overrides?.purchasedDaysToExpire !== undefined
+      ? overrides.purchasedDaysToExpire
+      : DEFAULT_EXPIRATION_POLICY.purchasedDaysToExpire,
+    bonusDefaultDaysToExpire: overrides?.bonusDefaultDaysToExpire ?? DEFAULT_EXPIRATION_POLICY.bonusDefaultDaysToExpire,
+    inactivityEnabled: overrides?.inactivityEnabled ?? DEFAULT_EXPIRATION_POLICY.inactivityEnabled,
+    inactivityDays: overrides?.inactivityDays ?? DEFAULT_EXPIRATION_POLICY.inactivityDays,
+    inactivityMinAgeDays: overrides?.inactivityMinAgeDays ?? DEFAULT_EXPIRATION_POLICY.inactivityMinAgeDays,
+    gracePeriodDays: overrides?.gracePeriodDays ?? DEFAULT_EXPIRATION_POLICY.gracePeriodDays,
+    enabled: overrides?.enabled ?? true,
+  };
+}
+
+async function insertDefaultPolicy(
+  executor: PolicyExecutor,
+  overrides?: Partial<PackptsExpirationPolicy>
+): Promise<PackptsExpirationPolicy | null> {
+  const [created] = await executor
+    .insert(packptsExpirationPolicy)
+    .values(defaultPolicyValues(overrides))
+    .returning();
+  return created ?? null;
+}
+
+async function lockExpirationPolicy(tx: PolicyExecutor): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('packpts_expiration_policy'))`);
+}
+
+/**
+ * Boot-time ensure. Inserts one enabled policy when none is currently effective.
+ * Does not update an existing policy and does not backfill buckets.
+ * Serialized with pg_advisory_xact_lock so two instances cannot double-insert.
+ */
+export async function ensureExpirationPolicy(): Promise<PackptsExpirationPolicy | null> {
+  try {
+    const policy = await db.transaction(async (tx) => {
+      await lockExpirationPolicy(tx);
+      const existing = await selectCurrentPolicy(tx);
+      if (existing) return existing;
+      return insertDefaultPolicy(tx);
+    });
+
+    if (!policy) {
+      console.warn(NO_ACTIVE_EXPIRATION_POLICY_LOG);
+      return null;
+    }
+
+    console.log(formatActiveExpirationPolicyLog(policy));
+    return policy;
+  } catch (error) {
+    console.warn(NO_ACTIVE_EXPIRATION_POLICY_LOG);
+    console.error("[Expiration] ensureExpirationPolicy failed:", error);
+    return null;
+  }
+}
+
+/** Admin PUT. Updates the current effective policy, or inserts one when missing. */
+export async function upsertExpirationPolicy(
+  updates: Partial<PackptsExpirationPolicy>
+): Promise<PackptsExpirationPolicy | null> {
+  return db.transaction(async (tx) => {
+    await lockExpirationPolicy(tx);
+    const current = await selectCurrentPolicy(tx);
+    if (!current) {
+      return insertDefaultPolicy(tx, updates);
+    }
+
+    const [updated] = await tx
+      .update(packptsExpirationPolicy)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(packptsExpirationPolicy.id, current.id))
+      .returning();
+
+    return updated ?? null;
+  });
+}
+
 class BucketService {
   async getCurrentPolicy(): Promise<PackptsExpirationPolicy | null> {
-    const result = await db
-      .select()
-      .from(packptsExpirationPolicy)
-      .where(
-        and(
-          eq(packptsExpirationPolicy.enabled, true),
-          lte(packptsExpirationPolicy.effectiveFrom, new Date())
-        )
-      )
-      .orderBy(sql`${packptsExpirationPolicy.effectiveFrom} DESC`)
-      .limit(1);
-
-    return result.length > 0 ? result[0] : null;
+    return selectCurrentPolicy(db);
   }
 
   calculateExpirationDate(
@@ -137,6 +246,8 @@ class BucketService {
         overrideExpireDays
       );
       redeemableAt = this.calculateRedeemableAt(sourceType, earnedAt, policy);
+    } else {
+      console.warn(NO_ACTIVE_EXPIRATION_POLICY_LOG);
     }
 
     const [bucket] = await executor
