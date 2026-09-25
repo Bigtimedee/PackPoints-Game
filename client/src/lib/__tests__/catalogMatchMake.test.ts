@@ -25,7 +25,7 @@ const BANNED = [
 describe("/make catalog-match surface", () => {
   it("ships the entry copy and file-input honesty", () => {
     expect(MAKE_EMPTY_COPY.headline).toBe("Snap a card. Find its set.");
-    expect(MAKE_EMPTY_COPY.subline).toBe("Match to a set already in PackPTS — then play it.");
+    expect(MAKE_EMPTY_COPY.subline).toBe("Match to a set already in PackPTS, then play it.");
     expect(MAKE_EMPTY_COPY.exampleBadge).toBe("EXAMPLE · CATALOG DEMO");
     expect(MAKE_EMPTY_COPY.softAuth).toBe("Sign in to snap a card.");
     expect(makeSrc).toContain('capture="environment"');

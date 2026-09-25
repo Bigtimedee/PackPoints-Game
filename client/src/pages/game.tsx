@@ -1368,9 +1368,11 @@ export default function Game() {
                               className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs hover:bg-muted/50 transition-colors"
                             >
                               <span className="truncate flex-1 text-foreground">{listing.title}</span>
-                              <span className="shrink-0 font-mono font-semibold text-primary">
-                                {listing.price ?? "—"}
-                              </span>
+                              {listing.price ? (
+                                <span className="shrink-0 font-mono font-semibold text-primary">
+                                  {listing.price}
+                                </span>
+                              ) : null}
                               <Badge variant="outline" className="shrink-0 text-[10px] capitalize">{listing.platform}</Badge>
                             </a>
                           ))}

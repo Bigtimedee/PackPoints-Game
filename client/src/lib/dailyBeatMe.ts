@@ -66,7 +66,7 @@ export const BEAT_ME_COPY = {
   share: "Share",
   save: "Save",
   helper: "Challenge a friend to today's five.",
-  stale: "Challenge expired — play today's five.",
+  stale: "Challenge expired. Play today's five.",
   anonymous: "a collector",
   sameFive: "Same five as today.",
   wantMore: "Want more?",
@@ -84,7 +84,7 @@ export function beatMeCollectorName(displayName?: string): string {
 export function formatBeatMeBanner(challenge: DailyBeatMeChallenge): string {
   if (challenge.status !== "active") return BEAT_ME_COPY.stale;
   const who = beatMeCollectorName(challenge.displayName);
-  return `Beat ${who} — they went ${challenge.correctCount}/5 today`;
+  return `Beat ${who}. They went ${challenge.correctCount}/5 today`;
 }
 
 export function formatBeatMeShareCaption(correctCount: number): string {
@@ -94,7 +94,7 @@ export function formatBeatMeShareCaption(correctCount: number): string {
 export function formatBeatMeCompare(yours: number, theirs: number): string {
   if (yours === theirs) return `Tied at ${yours}/5.`;
   if (yours > theirs) return `You went ${yours}/5. They went ${theirs}/5.`;
-  return `They led — ${theirs}/5 to your ${yours}/5.`;
+  return `They led, ${theirs}/5 to your ${yours}/5.`;
 }
 
 export function dismissBeatMeBanner(token: string): void {

@@ -36,7 +36,7 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 
 When published set volume is below the public gate (**10**), show a quiet banner:
 
-> **A short shelf.** Integrated sets only — play what’s here, or open Daily 5.
+> **A short shelf.** Integrated sets only. Play what’s here, or open Daily 5.
 
 Never fake inventory. Never publish Maker Rate / DAU / “N makers” here. The gate matches admin `publishedSetsNonStaff` diligence (≥10 non-staff); the public page only sees the honest list length, not the admin metric.
 

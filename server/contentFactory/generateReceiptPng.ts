@@ -67,6 +67,17 @@ function chipSvg(fonts: DejaVuFonts, label: string, color: string, x: number, y:
   return { svg, width };
 }
 
+export function receiptPngMetaLeft(
+  plaque: Pick<ReceiptPlaqueView, "packptsSpentLabel" | "createdAtLabel" | "grantMethodLabel">,
+): Array<[string, string]> {
+  const metaLeft: Array<[string, string]> = [
+    ["PackPTS spent", plaque.packptsSpentLabel],
+  ];
+  if (plaque.createdAtLabel) metaLeft.push(["Created", plaque.createdAtLabel]);
+  if (plaque.grantMethodLabel) metaLeft.push(["Grant", plaque.grantMethodLabel]);
+  return metaLeft;
+}
+
 export function buildReceiptPngSvg(plaque: ReceiptPlaqueView): string {
   const fonts = loadDejaVuFonts();
   const W = RECEIPT_PNG_SIZE;
@@ -79,11 +90,7 @@ export function buildReceiptPngSvg(plaque: ReceiptPlaqueView): string {
   const chipX = 980 - chip.width;
   const listingLines = wrapLines(fonts.bold, plaque.listingTitle, 28, 820, 2);
 
-  const metaLeft: Array<[string, string]> = [
-    ["PackPTS spent", plaque.packptsSpentLabel],
-    ["Created", plaque.createdAtLabel || "—"],
-  ];
-  if (plaque.grantMethodLabel) metaLeft.push(["Grant", plaque.grantMethodLabel]);
+  const metaLeft = receiptPngMetaLeft(plaque);
 
   const metaRight: Array<[string, string]> = [
     ["Intent", plaque.intentId.replace(/-/g, "").slice(0, 8)],

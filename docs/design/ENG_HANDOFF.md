@@ -16,7 +16,7 @@ Match mock, not Surface A share art.
 | Canvas | Full-bleed `#0b0f16` (page, not a light-theme card) |
 | Eyebrow | `SNAP-TO-SET` — muted `#8F96A3`, tracking wide |
 | Headline | `Snap a card. Find its set.` — ink `#F0F2F5`, large bold |
-| Subline | `Match to a set already in PackPTS — then play it.` |
+| Subline | `Match to a set already in PackPTS, then play it.` |
 | Badge | Centered over stack: gold 40% border, gold `EXAMPLE · CATALOG DEMO` |
 | Stack | **5** fanned sample cards. Cream + gold inner stroke. **One navy** mid-stack. Front card: `DESK` + silhouette + eye mask + `PTS` / `1990`. Soft drop shadow. CSS only. |
 | Primary | Full-width fill `#2B6CEE` — `Take photo` |

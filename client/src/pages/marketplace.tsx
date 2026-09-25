@@ -614,7 +614,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <ol className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground">
             <li>Open the listing with our tracked link (required for eBay attribution).</li>
             <li>Pay the normal {platformName} total.</li>
-            <li>Come back and tap “I’ve purchased — claim rebate.”</li>
+            <li>Come back and tap “I’ve purchased. Claim rebate.”</li>
           </ol>
           <DialogFooter className="gap-2 sm:flex-col">
             <Button asChild data-testid="button-buy-on-partner">
@@ -626,7 +626,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
             {appliedIntentId && (
               <Button variant="secondary" asChild data-testid="button-claim-rebate-cta">
                 <Link href={`/redemptions/${appliedIntentId}`}>
-                  I’ve purchased — claim rebate
+                  I’ve purchased. Claim rebate
                 </Link>
               </Button>
             )}
@@ -844,7 +844,7 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Browse live listings. eBay/Goldin checkout stays full price — PackPTS pays cashback after you buy.</p>
+            <p className="text-muted-foreground">Browse live listings. eBay/Goldin checkout stays full price. PackPTS pays cashback after you buy.</p>
             <p className="mt-1">
               <Link href="/redemptions" className="text-sm text-accent underline-offset-4 hover:underline">
                 My Redemptions / receipts
@@ -1122,7 +1122,7 @@ export default function Marketplace() {
           <TabsContent value="redeem">
             <Card className="mb-6 border-amber-500/40">
               <CardContent className="p-4 text-sm space-y-2">
-                <p className="font-medium">These catalog SKUs are internal PackPTS tokens — not a payout rail.</p>
+                <p className="font-medium">These catalog SKUs are internal PackPTS tokens, not a payout rail.</p>
                 <p className="text-muted-foreground">
                   They are not eBay or Goldin gift cards and nothing on those sites accepts the hex token.
                   For real USD cashback, use Live Listings → Apply PackPTS → buy at full price → claim rebate.
@@ -1149,7 +1149,7 @@ export default function Marketplace() {
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                         2
                       </div>
-                      <p className="text-muted-foreground">Browse PackPTS token options — internal wallet tokens, not eBay or Goldin gift cards</p>
+                      <p className="text-muted-foreground">Browse PackPTS token options: internal wallet tokens, not eBay or Goldin gift cards</p>
                     </div>
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
@@ -1163,7 +1163,7 @@ export default function Marketplace() {
                 <Card className="mt-4">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg">Token Tiers</CardTitle>
-                    <CardDescription className="text-xs">PackPTS tokens stay in PackPTS — not cash, not an eBay discount</CardDescription>
+                    <CardDescription className="text-xs">PackPTS tokens stay in PackPTS. Not cash, not an eBay discount.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm">
                     {tiers.length > 0 ? (

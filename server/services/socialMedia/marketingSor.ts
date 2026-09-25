@@ -2,7 +2,7 @@
  * Marketing SoR lock for autonomous social posts.
  *
  * Organic Daily 5 reference: https://x.com/PlayPackPTS/status/2100232354249728403
- * Copy kit: client/public/assets/x-hotfix-2026-09-13/CAPTIONS.md (post2 ritual)
+ * Copy kit: docs/x-hotfix-2026-09-13/CAPTIONS.md (post2 ritual)
  *
  * Auto X posts: Daily 5 announcement/recap only, sparse hashtags (≤2).
  * Signup-bonus / 250-free / FOMO acquisition copy must never auto-publish.

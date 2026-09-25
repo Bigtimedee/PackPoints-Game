@@ -15,7 +15,7 @@ Auth-before-upload stays **MAKE_FLOW**: signed-out tap still stores intent and r
 |------|------|
 | Eyebrow | `SNAP-TO-SET` |
 | Headline | `Snap a card. Find its set.` |
-| Subline | `Match to a set already in PackPTS — then play it.` |
+| Subline | `Match to a set already in PackPTS, then play it.` |
 | Example badge | `EXAMPLE · CATALOG DEMO` |
 | Primary CTA | `Take photo` |
 | Secondary CTA | `Choose from library` |
