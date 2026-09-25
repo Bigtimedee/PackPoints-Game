@@ -130,14 +130,18 @@ describe("missing share-image scores", () => {
     return svg.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
   }
 
-  it("hides a zero leaderboard or challenge score instead of painting a dash", () => {
+  it("hides a zero leaderboard or challenge score instead of painting a dash", async () => {
     const board = buildLeaderboardSvg(W, H, "Charter", 0);
     const challenge = buildChallengeSvg(W, H, 0);
     expect(descOf(board)).not.toMatch(/\u2013|\u2014/);
     expect(descOf(board)).not.toContain("pts today");
     expect(descOf(challenge)).not.toMatch(/\u2013|\u2014/);
-    expect(descOf(challenge)).toContain("points: the record to beat");
+    expect(descOf(challenge)).not.toContain("points: the record to beat");
+    expect(descOf(challenge)).toContain("Card experts only.");
     expect(descOf(challenge)).not.toMatch(/\d/);
+    const png = await renderSocialSvgToPng(challenge);
+    expect(await regionHasColor(png, 200, 470, 880, 600, isNearWhite)).toBe(true);
+    expect(await regionHasColor(png, 200, 640, 880, 780, isNearWhite)).toBe(false);
     expect(board).not.toContain(">—<");
     expect(challenge).not.toContain(">—<");
   });

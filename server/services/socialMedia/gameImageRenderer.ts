@@ -250,9 +250,15 @@ export function buildChallengeSvg(w: number, h: number, topScore: number): strin
   const hasScore = topScore > 0;
   const scoreStr = hasScore ? topScore.toLocaleString() : "";
   const recordLine = "points: the record to beat";
-  const labelYDrawn = hasScore ? labelY : scoreY;
-  const ctaYDrawn = hasScore ? ctaY : labelY;
-  const desc = ["CHALLENGE", ...(hasScore ? [scoreStr] : []), recordLine, "Card experts only.", "PackPTS.com"].join(" | ");
+  const ctaSize = Math.round(w * 0.042);
+  // No score: drop the record caption too, and sit the remaining line in the open band.
+  const balancedCtaY = Math.round((barH + (h - barH)) / 2 + ctaSize * 0.35);
+  const desc = [
+    "CHALLENGE",
+    ...(hasScore ? [scoreStr, recordLine] : []),
+    "Card experts only.",
+    "PackPTS.com",
+  ].join(" | ");
 
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
     ${fontCss()}
@@ -263,14 +269,12 @@ export function buildChallengeSvg(w: number, h: number, topScore: number): strin
     <rect x="0" y="0" width="${w}" height="${barH}" fill="${C.panel}"/>
     ${mid(fonts.bold, "CHALLENGE", cx, Math.round(barH * 0.65), Math.round(barH * 0.42), C.blue, { letterSpacing: 5 })}
 
-    <!-- Score display (omitted when there is no value) -->
+    <!-- Score and record line (both omitted when there is no score) -->
     ${hasScore ? mid(fonts.bold, scoreStr, cx, scoreY, Math.round(w * 0.18), C.blue) : ""}
-
-    <!-- Label -->
-    ${mid(fonts.regular, recordLine, cx, labelYDrawn, Math.round(w * 0.048), C.muted)}
+    ${hasScore ? mid(fonts.regular, recordLine, cx, labelY, Math.round(w * 0.048), C.muted) : ""}
 
     <!-- CTA -->
-    ${mid(fonts.bold, "Card experts only.", cx, ctaYDrawn, Math.round(w * 0.042), C.white)}
+    ${mid(fonts.bold, "Card experts only.", cx, hasScore ? ctaY : balancedCtaY, ctaSize, C.white)}
 
     <!-- Bottom bar -->
     <rect x="0" y="${h - barH}" width="${w}" height="${barH}" fill="${C.bottomBar}"/>
