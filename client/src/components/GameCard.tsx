@@ -154,6 +154,7 @@ interface GameCardProps {
   setLabel?: string;
   setKey?: string;
   onImageError?: () => void;
+  /** Source-file hint. The served bake is already upright, so the aspect check ignores this. */
   imageRotation?: number;
   showSkipButton?: boolean;
   skipPending?: boolean;
@@ -192,7 +193,6 @@ export function GameCard({
   setLabel,
   setKey,
   onImageError,
-  imageRotation = 0,
   showSkipButton = false,
   skipPending = false,
   onSkip,
@@ -346,7 +346,6 @@ export function GameCard({
     const validity = evaluateCardImageValidity({
       width: img.naturalWidth,
       height: img.naturalHeight,
-      rotation: imageRotation,
     });
     if (!validity.ok) {
       console.warn("[GameCard] rejected loaded image", validity);

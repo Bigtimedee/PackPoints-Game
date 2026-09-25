@@ -107,8 +107,18 @@ describe("placeholder bitmap heuristic", () => {
 
     const rotated = evaluateCardImageValidity({ width: 700, height: 500, rotation: 90 });
     expect(rotated.ok).toBe(true);
-    expect(rotated.displayAspect).toBeCloseTo(500 / 700, 5);
-    expect(rotated.acceptedSidewaysCard).toBe(false);
+    expect(rotated.displayAspect).toBeCloseTo(1.4, 5);
+    expect(rotated.acceptedSidewaysCard).toBe(true);
+    expect(rotated.rotation).toBe(90);
+  });
+
+  it("does not reject an upright slab when imageRotation is 90", () => {
+    const slab = evaluateCardImageValidity({ width: 500, height: 820, rotation: 90 });
+    expect(slab.displayAspect).toBeCloseTo(500 / 820, 5);
+    expect(slab.displayAspect).toBeLessThan(1.3);
+    expect(slab.cardShaped).toBe(false);
+    expect(slab.ok).toBe(true);
+    expect(slab.reason).toBeNull();
   });
 
   it("still rejects a tiny image and a wide banner", () => {

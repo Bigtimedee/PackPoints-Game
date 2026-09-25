@@ -12,6 +12,8 @@ export interface OcrWordBox {
   y: number;
   w: number;
   h: number;
+  /** Tesseract word confidence, 0–100. Absent when the caller did not measure it. */
+  confidence?: number;
 }
 
 export interface LocalizedNamePlan {
