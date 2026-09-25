@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { shouldHoldOneVOne } from "@/lib/oneVOneHold";
 import { useLocation, useRoute } from "wouter";
 import { logger } from "@/lib/logger";
 import { useQuery } from "@tanstack/react-query";
@@ -82,6 +84,16 @@ export default function Lobby() {
     });
   };
   const lobby = lobbyState;
+  useEffect(() => {
+    setStaleBuildActivity({
+      holdPlay: shouldHoldOneVOne({
+        surface: "lobby",
+        lobbyOpen: Boolean(lobby),
+        lobbyStatus: lobby?.status ?? null,
+      }),
+    });
+    return () => setStaleBuildActivity({ holdPlay: false });
+  }, [lobby]);
   const userId = user?.id || "";
   const username = user?.username || "";
   

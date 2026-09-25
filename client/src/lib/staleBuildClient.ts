@@ -1,20 +1,25 @@
 import {
   BUILD_RELOAD_STORAGE_KEY,
   VERSION_CHECK_MIN_INTERVAL_MS,
+  chunkUrlFromLoadMessage,
   decideStaleReload,
   isChunkLoadErrorMessage,
   isGameSubmitRequest,
+  isUpdatePending,
   shouldFetchBuildVersion,
   versionCheckUrl,
+  type ChunkProbe,
   type StaleReloadDecision,
   type StaleReloadTrigger,
   type VersionCheckReason,
 } from "@shared/buildVersion";
+import { toast } from "../hooks/use-toast";
 import {
   getStaleBuildActivity,
   isStaleBuildSubmitting,
   noteSubmitDepth,
 } from "./staleBuildActivity";
+import { isTransientHttpStatus, TRANSIENT_RETRY_MS } from "./transientLoad";
 
 let lastFetchAt: number | null = null;
 let lastServerBuildId: string | null = null;
@@ -25,6 +30,8 @@ let guardsInstalled = false;
 let fetchPatched = false;
 let reloadStarted = false;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let chunkImportRetried = false;
+let chunkImporter: (url: string) => Promise<unknown> = (url) => import(/* @vite-ignore */ url);
 
 function embeddedBuildId(): string {
   const inlined = typeof __PACKPTS_BUILD_ID__ === "string" ? __PACKPTS_BUILD_ID__ : "";
@@ -39,6 +46,8 @@ export function resetStaleBuildClientForTests(): void {
   chunkPending = false;
   inFlight = null;
   reloadStarted = false;
+  chunkImportRetried = false;
+  chunkImporter = (url) => import(/* @vite-ignore */ url);
   if (pollTimer != null) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -57,7 +66,19 @@ function currentPath(): string {
   return window.location.pathname;
 }
 
-async function fetchServerBuildId(now: number): Promise<string | null> {
+export function chunkLoadFailureNotice(): { title: string; description: string; variant: "destructive" } {
+  return {
+    title: "Couldn't load that screen",
+    description: "Check your connection and try again.",
+    variant: "destructive",
+  };
+}
+
+export function setChunkImporterForTests(importer: ((url: string) => Promise<unknown>) | null): void {
+  chunkImporter = importer ?? ((url) => import(/* @vite-ignore */ url));
+}
+
+async function fetchServerBuildIdOnce(now: number): Promise<{ id: string | null; retry: boolean }> {
   try {
     // Raw fetch, not React Query. The app QueryClient uses staleTime: Infinity,
     // refetchInterval: false, and refetchOnWindowFocus: false, which would freeze
@@ -71,11 +92,36 @@ async function fetchServerBuildId(now: number): Promise<string | null> {
         Pragma: "no-cache",
       },
     });
-    if (!res.ok || res.status === 304) return null;
+    if (isTransientHttpStatus(res.status)) return { id: null, retry: true };
+    if (!res.ok || res.status === 304) return { id: null, retry: false };
     const body = await res.json() as { buildId?: unknown };
-    return typeof body.buildId === "string" && body.buildId ? body.buildId : null;
+    const id = typeof body.buildId === "string" && body.buildId ? body.buildId : null;
+    return { id, retry: false };
   } catch {
-    return null;
+    return { id: null, retry: true };
+  }
+}
+
+async function fetchServerBuildId(now: number): Promise<string | null> {
+  const first = await fetchServerBuildIdOnce(now);
+  if (first.id || !first.retry) return first.id;
+  await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_MS));
+  const second = await fetchServerBuildIdOnce(Date.now());
+  return second.id;
+}
+
+async function probeChunk(url: string): Promise<ChunkProbe> {
+  try {
+    let res = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (res.status === 405 || res.status === 501) {
+      res = await fetch(url, { cache: "no-store" });
+    }
+    if (res.status === 404) return "missing";
+    if (isTransientHttpStatus(res.status)) return "network";
+    if (res.ok) return "present";
+    return "network";
+  } catch {
+    return "network";
   }
 }
 
@@ -108,25 +154,6 @@ function commitReload(decision: StaleReloadDecision): boolean {
   reloadStarted = true;
   window.location.reload();
   return true;
-}
-
-function decisionFor(trigger: StaleReloadTrigger, pathname: string, targetPath: string, serverBuildId: string | null): StaleReloadDecision {
-  const activity = getStaleBuildActivity();
-  return decideStaleReload({
-    trigger,
-    embeddedBuildId: embeddedBuildId(),
-    serverBuildId,
-    updatePending,
-    pathname,
-    targetPath,
-    submitting: isStaleBuildSubmitting(),
-    daily5Playing: activity.daily5Playing,
-    inProgressCard: activity.inProgressCard,
-    holdPlay: activity.holdPlay,
-    tabHidden: document.visibilityState === "hidden",
-    reloadedBuildIds: readGuard(),
-    chunkPending: trigger === "chunk-error" || chunkPending,
-  });
 }
 
 export async function checkStaleBuild(trigger: Exclude<StaleReloadTrigger, "chunk-error">, fromPath?: string): Promise<boolean> {
@@ -171,9 +198,60 @@ export function notifyLeavingResults(): Promise<boolean> {
   return checkStaleBuild("leave-results");
 }
 
-export function reloadForChunkError(): void {
-  chunkPending = true;
-  commitReload(decisionFor("chunk-error", currentPath(), currentPath(), lastServerBuildId));
+export async function recoverChunkLoadError(message: string): Promise<boolean> {
+  const activity = getStaleBuildActivity();
+  const submitting = isStaleBuildSubmitting();
+  const url = chunkUrlFromLoadMessage(message);
+  const probe: ChunkProbe | null = submitting ? null : (url ? await probeChunk(url) : "network");
+  let serverBuildId = lastServerBuildId;
+  let buildChanged = false;
+  if (!submitting && probe !== "missing") {
+    serverBuildId = await fetchServerBuildId(Date.now());
+    buildChanged = isUpdatePending(embeddedBuildId(), serverBuildId);
+  }
+  const decision = decideStaleReload({
+    trigger: "chunk-error",
+    embeddedBuildId: embeddedBuildId(),
+    serverBuildId,
+    updatePending,
+    pathname: currentPath(),
+    targetPath: currentPath(),
+    submitting,
+    daily5Playing: activity.daily5Playing,
+    inProgressCard: activity.inProgressCard,
+    holdPlay: activity.holdPlay,
+    tabHidden: typeof document !== "undefined" && document.visibilityState === "hidden",
+    reloadedBuildIds: readGuard(),
+    chunkPending: true,
+    chunkProbe: probe,
+    chunkBuildChanged: buildChanged,
+    chunkImportRetried: chunkImportRetried,
+  });
+  if (decision.reload) {
+    chunkPending = true;
+    return commitReload(decision);
+  }
+  if (decision.retryImport && !chunkImportRetried) {
+    chunkImportRetried = true;
+    if (url) {
+      const bust = url.includes("?") ? `${url}&retry=1` : `${url}?retry=1`;
+      try {
+        await chunkImporter(bust);
+        return false;
+      } catch {
+        toast(chunkLoadFailureNotice());
+        return false;
+      }
+    }
+  }
+  if (decision.chunkToast || decision.retryImport) {
+    toast(chunkLoadFailureNotice());
+  }
+  return false;
+}
+
+export function reloadForChunkError(): Promise<boolean> {
+  return recoverChunkLoadError("Failed to fetch dynamically imported module: /assets/missing-chunk.js");
 }
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -225,14 +303,14 @@ export function installStaleBuildGuards(): void {
   }, VERSION_CHECK_MIN_INTERVAL_MS);
   window.addEventListener("vite:preloadError", (event) => {
     event.preventDefault();
-    reloadForChunkError();
+    void recoverChunkLoadError(event.payload.message);
   });
   window.addEventListener("unhandledrejection", (event) => {
     const reason = event.reason;
     const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "";
     if (!isChunkLoadErrorMessage(message)) return;
     event.preventDefault();
-    reloadForChunkError();
+    void recoverChunkLoadError(message);
   });
 }
 

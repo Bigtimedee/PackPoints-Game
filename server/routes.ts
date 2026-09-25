@@ -102,6 +102,7 @@ import { isPanicEnabled, setPanicSwitch, getPanicStatus } from "./services/panic
 import { isStripeConfiguredSync } from "./stripeClient";
 import type { ZodError } from "zod";
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from "./utils/questionSanitizer";
+import { replaySoloAnswer, soloAnswerAlreadyRecorded, type StoredSoloQuestion } from "./services/soloAnswerReplay";
 import { handleCardIdUnmasked, handleMaskedToken, handleRevealToken, setUnmaskedHeaders } from "./services/playImageHttp";
 import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveReportedCardId, resolveRevealCard } from "./services/playImageAccess";
 import { handlePlayImageReport } from "./services/playImageReport";
@@ -1116,6 +1117,29 @@ export async function registerRoutes(
         });
       }
       
+      const replayBody = async (question: { answered?: boolean; userAnswer?: string | null; correctAnswer?: string; pointsEarned?: number; card?: { id?: string; playableCardId?: string | null } | null }) => {
+        const replay = replaySoloAnswer(question);
+        const revealUrl = replay.cardId
+          ? await mintSoloRevealUrl(sessionId, questionIndex, replay.cardId)
+          : null;
+        return {
+          correct: replay.correct,
+          correctAnswer: replay.correctAnswer,
+          revealUrl,
+          cardId: replay.cardId,
+          pointsEarned: replay.pointsEarned,
+          totalScore: session.score,
+          session: sanitizeSessionForClient(session),
+          reward: null,
+          rewardWarning: null,
+          idempotent: true,
+        };
+      };
+
+      if (soloAnswerAlreadyRecorded(session.questions?.[questionIndex] as StoredSoloQuestion | undefined)) {
+        return res.json(await replayBody(session.questions[questionIndex] as StoredSoloQuestion));
+      }
+
       if (session.status === "completed" || session.status === "expired") {
         return res.status(400).json({ error: "Game already completed" });
       }
@@ -1145,8 +1169,9 @@ export async function registerRoutes(
         if (!freshSession) return res.status(404).json({ error: "Session not found" });
 
         freshCurrentQuestion = freshSession.questions[questionIndex];
-        if ((freshCurrentQuestion as any).answered) {
-          return res.status(400).json({ error: "Question already answered" });
+        if (soloAnswerAlreadyRecorded(freshCurrentQuestion as StoredSoloQuestion | undefined)) {
+          Object.assign(session, freshSession);
+          return res.json(await replayBody(freshCurrentQuestion as StoredSoloQuestion));
         }
 
         // BUG-13: Normalize both sides before comparing
@@ -1228,6 +1253,7 @@ export async function registerRoutes(
 
         (freshCurrentQuestion as any).answered = true;
         (freshCurrentQuestion as any).userAnswer = selectedAnswer;
+        (freshCurrentQuestion as any).pointsEarned = pointsEarned;
 
         // BUG-09: Stamp shownAt BEFORE updateGameSession so the value is persisted
         if (!(freshCurrentQuestion as any).shownAt) {

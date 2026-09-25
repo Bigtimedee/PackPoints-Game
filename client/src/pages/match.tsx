@@ -17,6 +17,7 @@ import { MATCH_FALLBACK_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { shouldHoldOneVOne } from "@/lib/oneVOneHold";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -171,7 +172,11 @@ export default function Match() {
     setStaleBuildActivity({
       pageSubmitting: submitting,
       inProgressCard: live,
-      holdPlay: live || Boolean(matchEnded),
+      holdPlay: shouldHoldOneVOne({
+        surface: "match",
+        matchStatus: matchState?.status ?? null,
+        matchEnded: Boolean(matchEnded),
+      }),
     });
     return () => setStaleBuildActivity({ pageSubmitting: false, inProgressCard: false, holdPlay: false });
   }, [submitting, matchState, matchEnded]);
