@@ -19,6 +19,7 @@ describe("GameCard reveal", () => {
     expect(gameCardSrc).not.toContain("/api/images/card/");
     expect(gameCardSrc).toContain("duration-240");
     expect(gameCardSrc).not.toContain("duration-[240ms]");
+    expect(gameCardSrc).not.toContain("rotate(${imageRotation}deg)");
     expect(plaqueSrc).toContain("duration-240");
   });
 

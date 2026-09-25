@@ -1,16 +1,16 @@
 import sharp from "sharp";
-import Tesseract from "tesseract.js";
-import { CURRENT_MASK_VERSION } from "./maskProfiles";
+import { CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
 import {
   resolveNameMaskPlan,
   type OcrWordBox,
 } from "./nameLocalization";
 import { detectPsaSlabLayout } from "./slabLayout";
 import { assertOpaqueIdentityCover } from "./maskCoverage";
+import { applyServedRotation, uprightCardImage } from "./cardOrientation";
+import { recognizeWords } from "./ocrRuntime";
+import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
+import { clampRegion } from "@shared/maskGeometry";
 import type { MaskRegion } from "@shared/schema";
-
-const OCR_TIMEOUT_MS = 3500;
-const OCR_DOWNSCALE_WIDTH = 700;
 
 export interface MaskResult {
   maskedBuffer: Buffer;
@@ -22,6 +22,14 @@ export interface MaskResult {
   /** False means the printed name is still readable or the photo was wiped. Do not serve. */
   coverageOk: boolean;
   coverageReason: string | null;
+  /** Clockwise degrees applied before the mask. 0 means the file was already served upright. */
+  servedRotation: QuarterTurn;
+  /** True when OCR hit its deadline. The bake still used profile or default geometry. */
+  ocrTimedOut: boolean;
+  ocrMs: number;
+  landscapeDesign: boolean;
+  /** Guessed quarter-turn. Regions include the profile band and its 180° mirror. */
+  orientationAmbiguous: boolean;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -71,58 +79,24 @@ async function applyPercentRegions(
   return sharp(imageBuffer).composite(overlays).jpeg({ quality: 85 }).toBuffer();
 }
 
-async function runOCRWords(
-  imageBuffer: Buffer,
-  originalWidth: number,
-): Promise<OcrWordBox[]> {
-  const scaledBuffer = await sharp(imageBuffer)
-    .resize(OCR_DOWNSCALE_WIDTH)
-    .grayscale()
-    .normalize()
-    .toBuffer();
-
-  const scaledMeta = await sharp(scaledBuffer).metadata();
-  const scaleFactor = originalWidth / (scaledMeta.width || OCR_DOWNSCALE_WIDTH);
-
-  const worker = await Tesseract.createWorker("eng", 1, { logger: () => {} });
-  let timedOut = false;
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    worker.terminate().catch(() => {});
-  }, OCR_TIMEOUT_MS);
-
-  let result: Awaited<ReturnType<typeof worker.recognize>> | null = null;
-  try {
-    result = await worker.recognize(scaledBuffer);
-  } catch {
-    // Worker terminated by timeout or failed
-  } finally {
-    clearTimeout(timeoutId);
-    if (!timedOut) {
-      await worker.terminate().catch(() => {});
-    }
-  }
-
-  if (!result || timedOut) {
-    if (timedOut) console.warn("[Masking] OCR timed out — worker terminated");
-    return [];
-  }
-
-  const words = ((result.data as { words?: Array<{ text?: string; bbox?: { x0: number; y0: number; x1: number; y1: number } }> }).words) || [];
-  const boxes: OcrWordBox[] = [];
-  for (const word of words) {
-    const text = (word.text || "").trim();
-    const bbox = word.bbox;
-    if (!text || !bbox) continue;
-    boxes.push({
-      text,
-      x: Math.round(bbox.x0 * scaleFactor),
-      y: Math.round(bbox.y0 * scaleFactor),
-      w: Math.round((bbox.x1 - bbox.x0) * scaleFactor),
-      h: Math.round((bbox.y1 - bbox.y0) * scaleFactor),
+/** Profile band first, then the same band flipped 180° so a wrong turn still hides the name. */
+function coverBothNameBands(regions: MaskRegion[]): MaskRegion[] {
+  const covered = regions.map((region) => ({ ...region }));
+  for (const region of regions) {
+    const mirror = clampRegion({
+      ...region,
+      yPct: 100 - (region.yPct + region.hPct),
     });
+    if (mirror.wPct < 2 || mirror.hPct < 2) continue;
+    const already = covered.some((existing) =>
+      Math.abs(existing.xPct - mirror.xPct) < 0.5 &&
+      Math.abs(existing.yPct - mirror.yPct) < 0.5 &&
+      Math.abs(existing.wPct - mirror.wPct) < 0.5 &&
+      Math.abs(existing.hPct - mirror.hPct) < 0.5
+    );
+    if (!already) covered.push(mirror);
   }
-  return boxes;
+  return covered;
 }
 
 export async function maskCardImage(
@@ -133,18 +107,59 @@ export async function maskCardImage(
     skipOcr?: boolean;
     words?: OcrWordBox[];
     gameSetId?: string | null;
+    imageRotation?: number | null;
+    cardId?: string | null;
+    /** Horizontal design. Overrides the set profile when the caller already knows. */
+    cardOrientation?: "portrait" | "landscape";
     onStage?: (stage: "ocr" | "bake") => void;
   } = {},
 ): Promise<MaskResult> {
-  const metadata = await sharp(rawImageBuffer).metadata();
+  const profile = getMaskProfile(setName, opts.gameSetId);
+  const existing = opts.cardId ? readOrientNote(opts.cardId) : null;
+  if (!existing && !opts.skipOcr && !opts.words) opts.onStage?.("ocr");
+  const upright = existing
+    ? {
+      buffer: await applyServedRotation(rawImageBuffer, existing.rotation),
+      rotation: existing.rotation,
+      landscapeDesign: existing.landscapeDesign,
+      orientationAmbiguous: existing.coverBoth === true,
+      words: null as null,
+      ocrTimedOut: false,
+      ocrMs: 0,
+    }
+    : await uprightCardImage(rawImageBuffer, {
+      imageRotation: opts.imageRotation,
+      playerName,
+      profile,
+      cardOrientation: opts.cardOrientation,
+      skipOcr: Boolean(opts.skipOcr),
+      recognize: recognizeWords,
+    });
+  if (opts.cardId && !existing) {
+    writeOrientNote(opts.cardId, {
+      rotation: upright.rotation,
+      landscapeDesign: upright.landscapeDesign,
+      coverBoth: upright.orientationAmbiguous,
+    });
+  }
+
+  const metadata = await sharp(upright.buffer).metadata();
   const originalWidth = metadata.width || 800;
   const originalHeight = metadata.height || 1000;
 
-  let words: OcrWordBox[] = opts.words || [];
-  if (!opts.skipOcr && !opts.words) {
+  let words: OcrWordBox[] = upright.words ?? [];
+  let ocrTimedOut = upright.ocrTimedOut;
+  let ocrMs = upright.ocrMs;
+  const suppliedWords = upright.rotation === 0 ? opts.words : undefined;
+  if (suppliedWords) {
+    words = suppliedWords;
+  } else if (!opts.skipOcr && upright.words == null && !ocrTimedOut) {
     opts.onStage?.("ocr");
     try {
-      words = await runOCRWords(rawImageBuffer, originalWidth);
+      const ocr = await recognizeWords(upright.buffer, originalWidth);
+      words = ocr.timedOut ? [] : ocr.words;
+      ocrTimedOut = ocr.timedOut;
+      ocrMs += ocr.ms;
     } catch (error) {
       console.error("[Masking] OCR processing failed:", error);
       words = [];
@@ -154,7 +169,7 @@ export async function maskCardImage(
   opts.onStage?.("bake");
   let slabLayout = false;
   try {
-    slabLayout = await detectPsaSlabLayout(rawImageBuffer);
+    slabLayout = await detectPsaSlabLayout(upright.buffer);
   } catch {
     slabLayout = false;
   }
@@ -168,11 +183,12 @@ export async function maskCardImage(
     imageHeight: originalHeight,
     slabLayout,
   });
+  const regions = upright.orientationAmbiguous ? coverBothNameBands(plan.regions) : plan.regions;
 
-  const maskedBuffer = await applyPercentRegions(rawImageBuffer, plan.regions);
+  const maskedBuffer = await applyPercentRegions(upright.buffer, regions);
   const coverage = await assertOpaqueIdentityCover({
     buffer: maskedBuffer,
-    regions: plan.regions,
+    regions,
     layoutClass: plan.layoutClass,
     nameBoxes: plan.nameBoxes,
     imageWidth: originalWidth,
@@ -184,10 +200,15 @@ export async function maskCardImage(
     ocrApplied: plan.source === "ocr" || plan.source === "ocr+profile",
     ocrMatches: plan.matchedTokens,
     source: plan.source,
-    regions: plan.regions,
+    regions,
     layoutClass: plan.layoutClass,
     coverageOk: coverage.ok,
     coverageReason: coverage.reason,
+    servedRotation: upright.rotation,
+    ocrTimedOut,
+    ocrMs,
+    landscapeDesign: upright.landscapeDesign,
+    orientationAmbiguous: upright.orientationAmbiguous,
   };
 }
 
