@@ -1,11 +1,14 @@
 import {
   BUILD_RELOAD_STORAGE_KEY,
+  VERSION_CHECK_MIN_INTERVAL_MS,
   decideStaleReload,
   isChunkLoadErrorMessage,
   isGameSubmitRequest,
   shouldFetchBuildVersion,
+  versionCheckUrl,
   type StaleReloadDecision,
   type StaleReloadTrigger,
+  type VersionCheckReason,
 } from "@shared/buildVersion";
 import {
   getStaleBuildActivity,
@@ -16,13 +19,30 @@ import {
 let lastFetchAt: number | null = null;
 let lastServerBuildId: string | null = null;
 let updatePending = false;
+let chunkPending = false;
 let inFlight: Promise<string | null> | null = null;
 let guardsInstalled = false;
 let fetchPatched = false;
 let reloadStarted = false;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 function embeddedBuildId(): string {
-  return __PACKPTS_BUILD_ID__ || "dev";
+  const inlined = typeof __PACKPTS_BUILD_ID__ === "string" ? __PACKPTS_BUILD_ID__ : "";
+  return inlined || "dev";
+}
+
+/** Test hook. Production callers never reset this. */
+export function resetStaleBuildClientForTests(): void {
+  lastFetchAt = null;
+  lastServerBuildId = null;
+  updatePending = false;
+  chunkPending = false;
+  inFlight = null;
+  reloadStarted = false;
+  if (pollTimer != null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 function readGuard(): string | null {
@@ -37,10 +57,21 @@ function currentPath(): string {
   return window.location.pathname;
 }
 
-async function fetchServerBuildId(): Promise<string | null> {
+async function fetchServerBuildId(now: number): Promise<string | null> {
   try {
-    const res = await fetch("/api/version", { cache: "no-store", credentials: "same-origin" });
-    if (!res.ok) return null;
+    // Raw fetch, not React Query. The app QueryClient uses staleTime: Infinity,
+    // refetchInterval: false, and refetchOnWindowFocus: false, which would freeze
+    // a version query for the life of the tab. cache: 'no-store' skips the
+    // browser HTTP cache; ?t= skips a CDN entry keyed on the bare URL.
+    const res = await fetch(versionCheckUrl(now), {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
+    if (!res.ok || res.status === 304) return null;
     const body = await res.json() as { buildId?: unknown };
     return typeof body.buildId === "string" && body.buildId ? body.buildId : null;
   } catch {
@@ -48,14 +79,13 @@ async function fetchServerBuildId(): Promise<string | null> {
   }
 }
 
-async function loadServerBuildId(force: boolean, now: number): Promise<string | null> {
-  const reason = force ? "navigation" : "focus";
+async function loadServerBuildId(reason: VersionCheckReason, now: number): Promise<string | null> {
   if (!shouldFetchBuildVersion({ reason, now, lastFetchAt }) && lastServerBuildId) {
     return lastServerBuildId;
   }
   if (inFlight) return inFlight;
   lastFetchAt = now;
-  inFlight = fetchServerBuildId()
+  inFlight = fetchServerBuildId(now)
     .then((id) => {
       if (id) lastServerBuildId = id;
       return id ?? lastServerBuildId;
@@ -66,16 +96,18 @@ async function loadServerBuildId(force: boolean, now: number): Promise<string | 
   return inFlight;
 }
 
-function commitReload(decision: StaleReloadDecision): void {
+function commitReload(decision: StaleReloadDecision): boolean {
   updatePending = decision.updatePending;
-  if (reloadStarted || !decision.reload || !decision.nextReloadedBuildIds) return;
+  chunkPending = decision.chunkPending;
+  if (reloadStarted || !decision.reload || !decision.nextReloadedBuildIds) return false;
   try {
     sessionStorage.setItem(BUILD_RELOAD_STORAGE_KEY, decision.nextReloadedBuildIds);
   } catch {
-    return;
+    return false;
   }
   reloadStarted = true;
   window.location.reload();
+  return true;
 }
 
 function decisionFor(trigger: StaleReloadTrigger, pathname: string, targetPath: string, serverBuildId: string | null): StaleReloadDecision {
@@ -90,25 +122,34 @@ function decisionFor(trigger: StaleReloadTrigger, pathname: string, targetPath: 
     submitting: isStaleBuildSubmitting(),
     daily5Playing: activity.daily5Playing,
     inProgressCard: activity.inProgressCard,
+    holdPlay: activity.holdPlay,
+    tabHidden: document.visibilityState === "hidden",
     reloadedBuildIds: readGuard(),
+    chunkPending: trigger === "chunk-error" || chunkPending,
   });
 }
 
-export async function checkStaleBuild(trigger: Exclude<StaleReloadTrigger, "chunk-error">, fromPath?: string): Promise<void> {
+export async function checkStaleBuild(trigger: Exclude<StaleReloadTrigger, "chunk-error">, fromPath?: string): Promise<boolean> {
   const now = Date.now();
-  const force = trigger === "navigation";
-  if (!force && !shouldFetchBuildVersion({ reason: trigger, now, lastFetchAt }) && !updatePending && !lastServerBuildId) {
-    return;
+  const force = trigger === "navigation" || trigger === "leave-results";
+  if (
+    !force
+    && !shouldFetchBuildVersion({ reason: trigger, now, lastFetchAt })
+    && !updatePending
+    && !chunkPending
+    && !lastServerBuildId
+  ) {
+    return false;
   }
   // Capture play/submit before the await. Leaving a match unmounts the page
   // and clears its flag while the answer is still in flight.
   const submittingAtStart = isStaleBuildSubmitting();
   const activityAtStart = getStaleBuildActivity();
-  const serverBuildId = await loadServerBuildId(force, now);
+  const serverBuildId = await loadServerBuildId(trigger, now);
   const targetPath = currentPath();
   const pathname = trigger === "navigation" && fromPath ? fromPath : targetPath;
   const activityNow = getStaleBuildActivity();
-  commitReload(decideStaleReload({
+  return commitReload(decideStaleReload({
     trigger,
     embeddedBuildId: embeddedBuildId(),
     serverBuildId,
@@ -118,11 +159,20 @@ export async function checkStaleBuild(trigger: Exclude<StaleReloadTrigger, "chun
     submitting: submittingAtStart || isStaleBuildSubmitting(),
     daily5Playing: activityAtStart.daily5Playing || activityNow.daily5Playing,
     inProgressCard: activityAtStart.inProgressCard || activityNow.inProgressCard,
+    holdPlay: activityAtStart.holdPlay || activityNow.holdPlay,
+    tabHidden: document.visibilityState === "hidden",
     reloadedBuildIds: readGuard(),
+    chunkPending,
   }));
 }
 
+/** Player left Game Complete via Play Again. Does not run between questions. */
+export function notifyLeavingResults(): Promise<boolean> {
+  return checkStaleBuild("leave-results");
+}
+
 export function reloadForChunkError(): void {
+  chunkPending = true;
   commitReload(decisionFor("chunk-error", currentPath(), currentPath(), lastServerBuildId));
 }
 
@@ -156,12 +206,23 @@ export function installStaleBuildGuards(): void {
   guardsInstalled = true;
   installFetchSubmitTracker();
 
-  window.addEventListener("focus", () => {
-    void checkStaleBuild("focus");
-  });
+  const wake = (trigger: "focus" | "visibility" | "online") => {
+    void checkStaleBuild(trigger);
+  };
+  window.addEventListener("focus", () => wake("focus"));
+  window.addEventListener("online", () => wake("online"));
+  window.addEventListener("pageshow", () => wake("focus"));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void checkStaleBuild("visibility");
+    // Hidden and idle is a reload point. Hidden during a session is not;
+    // decideStaleReload holds while a session or results screen is up.
+    wake("visibility");
   });
+  // Background tabs clamp or freeze timers. The listeners above run the check
+  // when the tab is focused, shown, or back online, so a missed tick still lands.
+  void checkStaleBuild("interval");
+  pollTimer = setInterval(() => {
+    void checkStaleBuild("interval");
+  }, VERSION_CHECK_MIN_INTERVAL_MS);
   window.addEventListener("vite:preloadError", (event) => {
     event.preventDefault();
     reloadForChunkError();

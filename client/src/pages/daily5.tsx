@@ -681,8 +681,13 @@ export default function Daily5Page() {
 
   useEffect(() => {
     const playing = gameState === "playing";
-    setStaleBuildActivity({ daily5Playing: playing, inProgressCard: playing });
-    return () => setStaleBuildActivity({ daily5Playing: false, inProgressCard: false });
+    const onResults = gameState === "results";
+    setStaleBuildActivity({
+      daily5Playing: playing,
+      inProgressCard: playing,
+      holdPlay: playing || onResults,
+    });
+    return () => setStaleBuildActivity({ daily5Playing: false, inProgressCard: false, holdPlay: false });
   }, [gameState]);
 
   useEffect(() => {

@@ -94,7 +94,7 @@ import { registerWalletRoutes } from "./routes/wallet.routes";
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerIosRoutes } from "./routes/ios.routes";
 import { registerGrowthRoutes } from "./routes/growth.routes";
-import { getServedBuildId } from "./lib/servedBuildId";
+import { registerVersionRoute } from "./lib/versionRoute";
 import * as matchEngine from "./services/matches/engine";
 import { retryFailedWebhookEvents } from "./services/webhookRetryWorker";
 import { reconcileAllWallets } from "./services/walletReconciliation";
@@ -191,18 +191,9 @@ export async function registerRoutes(
   registerIosRoutes(app);
   registerGrowthRoutes(app);
 
-  // Deployment version canary (no auth, lightweight, never cached).
+  // Deployment version canary (no auth, lightweight, never cached, never 304).
   // buildId matches the client bundle this process is serving.
-  app.get("/api/version", (_req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.json({
-      buildId: getServedBuildId(),
-      v: 34,
-      sha: process.env.BUILD_COMMIT_SHA || "dev",
-      deployed: "2026-06-15",
-      build: "prompt-26-auto-risk-scoring",
-    });
-  });
+  registerVersionRoute(app);
 
   // Diagnostic: test DB connectivity and playableCards table
   app.get("/api/diag/card-review-test", async (_req, res) => {

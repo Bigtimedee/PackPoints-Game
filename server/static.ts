@@ -1,7 +1,57 @@
-import express, { type Express } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import fs from "fs";
 import path from "path";
 import { injectPlaySetsOgHtml, isPlaySetsHtmlPath } from "./lib/playSetsOg";
+import { ASSET_CACHE_CONTROL, sendNoStoreBody, stripConditionalValidators } from "./lib/noStoreResponse";
+import { isViteHashedAsset } from "./lib/viteHashedAsset";
+
+async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
+  const raw = await fs.promises.readFile(htmlPath, "utf8");
+  if (!isPlaySetsHtmlPath(url)) return raw;
+  return injectPlaySetsOgHtml(raw, url);
+}
+
+function sendSpaHtml(req: Request, res: Response, next: NextFunction, htmlPath: string): void {
+  stripConditionalValidators(req);
+  readSpaHtml(htmlPath, req.originalUrl)
+    .then((html) => {
+      if (res.headersSent) return;
+      sendNoStoreBody(req, res, html, "text/html; charset=utf-8");
+    })
+    .catch(next);
+}
+
+export function mountSpaStatic(app: Express, distPath: string): void {
+  const htmlPath = path.resolve(distPath, "index.html");
+  const assetsPath = path.join(distPath, "assets");
+
+  if (fs.existsSync(assetsPath)) {
+    app.use("/assets", express.static(assetsPath, {
+      fallthrough: false,
+      maxAge: 0,
+      setHeaders(res, filePath) {
+        if (isViteHashedAsset(filePath)) {
+          res.setHeader("Cache-Control", ASSET_CACHE_CONTROL);
+        }
+      },
+    }));
+  }
+
+  const sendIndex = (req: Request, res: Response, next: NextFunction) => {
+    sendSpaHtml(req, res, next, htmlPath);
+  };
+
+  app.get(["/", "/index.html"], sendIndex);
+
+  app.use(express.static(distPath, {
+    index: false,
+  }));
+
+  app.use((req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    sendSpaHtml(req, res, next, htmlPath);
+  });
+}
 
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "public");
@@ -11,27 +61,5 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath, {
-    setHeaders: (res, filePath) => {
-      if (filePath.endsWith("index.html")) {
-        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      }
-    },
-  }));
-
-  // fall through to index.html if the file doesn't exist
-  app.use("*", async (req, res) => {
-    const htmlPath = path.resolve(distPath, "index.html");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    if (!isPlaySetsHtmlPath(req.originalUrl)) {
-      return res.sendFile(htmlPath);
-    }
-    try {
-      const raw = await fs.promises.readFile(htmlPath, "utf8");
-      const html = await injectPlaySetsOgHtml(raw, req.originalUrl);
-      res.type("html").send(html);
-    } catch {
-      res.sendFile(htmlPath);
-    }
-  });
+  mountSpaStatic(app, distPath);
 }

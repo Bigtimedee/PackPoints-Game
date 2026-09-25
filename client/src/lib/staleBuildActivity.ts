@@ -9,6 +9,8 @@ export interface StaleBuildActivity {
   pageSubmitting: boolean;
   daily5Playing: boolean;
   inProgressCard: boolean;
+  /** A play session or its results screen is still up. Polls must not reload. */
+  holdPlay: boolean;
 }
 
 const empty: StaleBuildActivity = {
@@ -16,6 +18,7 @@ const empty: StaleBuildActivity = {
   pageSubmitting: false,
   daily5Playing: false,
   inProgressCard: false,
+  holdPlay: false,
 };
 
 let activity: StaleBuildActivity = { ...empty };
