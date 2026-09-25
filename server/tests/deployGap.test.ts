@@ -9,6 +9,7 @@ const railway = JSON.parse(readFileSync(new URL("../../railway.json", import.met
 };
 const entry = readFileSync(new URL("../entry.ts", import.meta.url), "utf8");
 const boot = readFileSync(new URL("../startup/bootSchema.ts", import.meta.url), "utf8");
+const indexSrc = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
 
 describe("deploy gap", () => {
   it("skips a recursive chown when the mount root is already packpts", () => {
@@ -29,6 +30,17 @@ describe("deploy gap", () => {
     expect(schemaGateBlocks("/api/game/start")).toBe(true);
     expect(schemaGateBlocks("/api/version")).toBe(false);
     expect(schemaGateBlocks("/game/solo")).toBe(false);
+  });
+
+  it("logs each boot phase with a timestamp", () => {
+    expect(startSh).toContain("phase=container_alive ts=");
+    expect(startSh).toContain("phase=exec_node ts=");
+    expect(entry).toContain('logBootPhase("listen"');
+    expect(boot).toContain('logBootPhase("pg_dump_start")');
+    expect(boot).toContain('logBootPhase("pg_dump_end"');
+    expect(boot).toContain('logBootPhase("drizzle_push_start")');
+    expect(boot).toContain('logBootPhase("drizzle_push_end"');
+    expect(indexSrc).toContain('logBootPhase("routes_ready")');
   });
 
   it("sets a health check and drain without overlap while the volume exists", () => {

@@ -19,6 +19,7 @@ import { validateStripeEnvVars } from "./services/productMap";
 import { enforceProductionSecrets } from "./utils/secretsCheck";
 import { getShareOutputBase, SHARE_URL_PREFIX } from "./contentFactory/generateScoreCard";
 import { logServerError } from "./lib/httpErrorLog";
+import { logBootPhase } from "./startup/bootPhase";
 import { markSchemaReady } from "./startup/schemaGate";
 import { installBootSchemaShutdownHook, runBootSchema } from "./startup/bootSchema";
 import { addShutdownHook } from "./startup/shutdownHooks";
@@ -455,6 +456,7 @@ app.use((req, res, next) => {
   // Routes exist and the schema step has finished. Open DB routes, then start
   // workers that were previously tied to the listen callback.
   markSchemaReady();
+  logBootPhase("routes_ready");
   log("schema ready");
 
   try {

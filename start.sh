@@ -1,5 +1,6 @@
 #!/bin/sh
 
+echo "[Startup] phase=container_alive ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "[Startup] Container is alive"
 echo "[Startup] NODE_ENV=$NODE_ENV"
 echo "[Startup] PORT=$PORT"
@@ -29,6 +30,7 @@ echo "[Startup] Running as UID $(id -u)"
 # pg_dump and `drizzle-kit push --force` run inside the Node process after it
 # binds the port. The push still finishes before any DB-dependent route serves
 # traffic. Dump failure still skips the push. See server/startup/bootSchema.ts.
+echo "[Startup] phase=exec_node ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "[Startup] Starting Node server..."
 # Replace this shell so Railway's SIGTERM reaches Node's drain handler.
 exec env NODE_OPTIONS="--stack-trace-limit=3" node /app/dist/index.cjs

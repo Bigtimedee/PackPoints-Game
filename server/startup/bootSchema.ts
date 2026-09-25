@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { mkdir, readdir, rm, stat } from "fs/promises";
 import path from "path";
+import { logBootPhase } from "./bootPhase";
 import { addShutdownHook } from "./shutdownHooks";
 
 /** Same restore-point rule as the old start.sh guard. Dump failure skips the push. */
@@ -92,6 +93,8 @@ export async function runBootSchema(opts?: {
 
   await mkdir(backupDir, { recursive: true });
   const dumpFile = path.join(backupDir, `pre-push-${stamp(now)}.dump`);
+  logBootPhase("pg_dump_start");
+  const dumpStarted = Date.now();
   console.log("[Startup] Taking pre-migration pg_dump...");
   const dumpCode = await run(spawnImpl, "pg_dump", [
     "--format=custom",
@@ -99,6 +102,7 @@ export async function runBootSchema(opts?: {
     `--file=${dumpFile}`,
     databaseUrl,
   ]);
+  logBootPhase("pg_dump_end", { ms: Date.now() - dumpStarted, code: dumpCode });
   if (dumpCode !== 0) {
     console.error("[Startup] WARNING: pg_dump FAILED — SKIPPING schema push. App boots on existing schema.");
     await rm(dumpFile, { force: true });
@@ -106,8 +110,11 @@ export async function runBootSchema(opts?: {
   }
 
   await pruneBootDumps(backupDir);
+  logBootPhase("drizzle_push_start");
+  const pushStarted = Date.now();
   console.log("[Startup] Running database migrations (drizzle-kit push --force)...");
   const pushCode = await run(spawnImpl, "npx", ["drizzle-kit", "push", "--force"]);
+  logBootPhase("drizzle_push_end", { ms: Date.now() - pushStarted, code: pushCode });
   if (pushCode !== 0) {
     console.error(`[Startup] WARNING: drizzle-kit push exited ${pushCode}. DB routes stay on the schema the push left.`);
     return { pushed: false, dumpFile };

@@ -2,6 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import { registerVersionRoute } from "./lib/versionRoute";
 import { schemaGateMiddleware } from "./startup/schemaGate";
+import { logBootPhase } from "./startup/bootPhase";
 import { installGracefulShutdown } from "./startup/gracefulShutdown";
 import { serveStatic } from "./static";
 
@@ -44,6 +45,7 @@ httpServer.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 httpServer.listen({ port, host: "0.0.0.0" }, () => {
+  logBootPhase("listen", { port });
   console.log(`[Startup] listening on ${port} before schema`);
   import("./index")
     .then(({ bootAfterListen }) => bootAfterListen(app, httpServer, { staticMounted }))

@@ -1053,7 +1053,7 @@ Entry point: `server/entry.ts` (production bundle `dist/index.cjs`). `server/ind
 7. Auth setup (express-session → PostgreSQL store, Passport)
 8. Route registration (game, match, lobby, daily5, wallet, admin, marketplace, friends, referrals, CardHedge, iOS, health, growth)
 9. WebSocket server setup on `/ws`
-10. `markSchemaReady()` opens DB routes. Missing `/assets/*` files log `[Static] 404 METHOD path` and do not print an ENOENT stack.
+10. `markSchemaReady()` opens DB routes and logs `phase=routes_ready`. Boot logs also stamp `listen`, `pg_dump_start` / `pg_dump_end`, and `drizzle_push_start` / `drizzle_push_end` (`[Startup] phase=<name> ts=<iso>`). Missing `/assets/*` files log `[Static] 404 METHOD path` and do not print an ENOENT stack.
 11. Background jobs start only after the schema push: risk pipeline, image validation (6h), card pool refresh (12h), session cleanup (1h), match cleanup (1h), redemption cleanup (1h). SIGTERM/SIGINT drain in-flight HTTP for 25s, run shutdown hooks (cancel the schema child, stop jobs), close the pool, then exit.
 
 ### Middleware
