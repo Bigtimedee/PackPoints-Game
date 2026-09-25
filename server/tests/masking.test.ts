@@ -9,6 +9,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { sanitizeQuestionForClient, sanitizeSessionForClient } from '../utils/questionSanitizer';
+
+const SANITIZE_CTX = { scope: "solo" as const, sessionId: "session-test-1", index: 0 };
 import type { GameQuestion, GameSession } from '@shared/schema';
 import { DEFAULT_MASK_REGIONS, SLABBED_MASK_REGIONS } from "@shared/schema";
 import { getMaskProfile, CURRENT_MASK_VERSION, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
@@ -62,43 +64,50 @@ const MOCK_SESSION: GameSession = {
 
 describe('sanitizeQuestionForClient', () => {
   it('strips correctAnswer from question payload', () => {
-    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION);
+    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect(sanitized).not.toHaveProperty('correctAnswer');
   });
 
   it('strips playerName from card object', () => {
-    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION);
+    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect(sanitized.card).not.toHaveProperty('playerName');
   });
 
   it('preserves options array intact', () => {
-    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION);
+    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect(sanitized.options).toEqual(MOCK_QUESTION.options);
     expect(sanitized.options).toHaveLength(4);
   });
 
   it('preserves pointValue', () => {
-    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION);
+    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect(sanitized.pointValue).toBe(175);
   });
 
-  it('preserves non-sensitive card fields (id, imageUrl, setName, year, team)', () => {
-    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION);
-    expect(sanitized.card.id).toBe('card-test-1');
-    expect(sanitized.card.imageUrl).toBe('/api/cards/card-test-1/masked-image');
-    expect(sanitized.card.setName).toBe('2013 Topps');
-    expect(sanitized.card.year).toBe(2013);
-    expect(sanitized.card.team).toBe('Angels');
+  it('does not send the raw card id, number, team, or year+set before the answer', () => {
+    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
+    const wire = JSON.stringify(sanitized);
+    expect(wire).not.toContain('card-test-1');
+    expect(wire).not.toContain('Angels');
+    expect(wire).not.toContain('2013');
+    expect(wire).not.toContain('correctAnswer');
+    expect(wire).not.toContain('isCorrect');
+    expect(sanitized.card).not.toHaveProperty('playerName');
+    expect(sanitized.card.imageUrl).toContain('/api/play/m/solo/');
+    expect(sanitized.card.imageUrl).not.toContain('masked-image');
+    expect(sanitized.card.imageUrl).not.toContain('/api/images/card/');
+    expect(sanitized.card).not.toHaveProperty('revealUrl');
+    expect(sanitized.options).toContain('Mike Trout');
   });
 
   it('does not mutate the original question', () => {
-    sanitizeQuestionForClient(MOCK_QUESTION);
+    sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect(MOCK_QUESTION.correctAnswer).toBe('Mike Trout');
     expect(MOCK_QUESTION.card.playerName).toBe('Mike Trout');
   });
 
   it('image URL is opaque (does not contain player name)', () => {
-    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION);
+    const sanitized = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect(sanitized.card.imageUrl).not.toContain('Mike');
     expect(sanitized.card.imageUrl).not.toContain('Trout');
     expect(sanitized.card.imageUrl).not.toContain('mike-trout');
@@ -184,7 +193,7 @@ describe('answer options randomization', () => {
 
 describe('post-submission reveal contract', () => {
   it('sanitized question contains no correctAnswer (pre-submission shape)', () => {
-    const clientQ = sanitizeQuestionForClient(MOCK_QUESTION);
+    const clientQ = sanitizeQuestionForClient(MOCK_QUESTION, SANITIZE_CTX);
     expect((clientQ as any).correctAnswer).toBeUndefined();
   });
 
@@ -214,10 +223,10 @@ describe('card replacement masking contract', () => {
       card: { ...MOCK_QUESTION.card, id: 'replacement-card-1', playerName: 'Babe Ruth' },
       correctAnswer: 'Babe Ruth',
     };
-    const sanitized = sanitizeQuestionForClient(replacementQuestion);
+    const sanitized = sanitizeQuestionForClient(replacementQuestion, SANITIZE_CTX);
     expect(sanitized).not.toHaveProperty('correctAnswer');
     expect(sanitized.card).not.toHaveProperty('playerName');
-    expect(sanitized.card.id).toBe('replacement-card-1');
+    expect(JSON.stringify(sanitized)).not.toContain('replacement-card-1');
   });
 });
 

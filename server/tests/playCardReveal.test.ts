@@ -26,10 +26,15 @@ describe("1v1 overlay setKey: gameSetId on the wire", () => {
     expect(websocketSrc).toContain("gameSetId: matchState.gameSetId");
   });
 
-  it("sanitizeMatchStateForClient sends upcoming card ids for masked prefetch, not names", () => {
-    expect(websocketSrc).toContain("upcomingMaskedCardIds");
+  it("sanitizeMatchStateForClient sends upcoming masked URLs for prefetch, not card ids or names", () => {
+    expect(websocketSrc).toContain("upcomingMaskedUrls");
     expect(websocketSrc).toContain(".slice(matchState.currentQuestionIndex + 1)");
-    expect(websocketSrc).not.toContain("upcomingMaskedCardIds: matchState.questions.map");
+    expect(websocketSrc).toContain("maskedPlayPath");
+    expect(websocketSrc).not.toContain("upcomingMaskedCardIds");
+    expect(websocketSrc).not.toContain("cardNumber: currentQuestion.card.cardNumber");
+    expect(websocketSrc).not.toContain("id: currentQuestion.card.id");
+    expect(websocketSrc).not.toContain("card: result.newQuestion!.card");
+    expect(websocketSrc).not.toContain("correctAnswer: result.newQuestion");
   });
 
   it("match create persists lobby gameSetId as cardSetId", () => {

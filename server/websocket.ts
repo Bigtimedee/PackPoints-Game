@@ -17,6 +17,8 @@ import * as matchEngine from "./services/matches/engine";
 import { replaceMatchQuestion } from "./services/matches/replaceQuestion";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
+import { maskedPlayPath } from "./services/playImageToken";
+import { mintMatchRevealUrl } from "./services/playImageAccess";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
 let inviteExpirationInterval: NodeJS.Timeout | null = null;
@@ -789,7 +791,8 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
     return;
   }
   
-  // Send answer result to submitter
+  // Send answer result to submitter. Reveal URL is only for this player.
+  const revealUrl = await mintMatchRevealUrl(matchId, serverUserId, questionIndex);
   ws.send(JSON.stringify({
     type: "answer_result",
     payload: {
@@ -797,6 +800,7 @@ async function handleSubmitAnswer(ws: WebSocket, payload: { matchId: string; use
       correct: result.correct,
       pointsEarned: result.pointsEarned,
       correctAnswer: result.correctAnswer,
+      revealUrl,
     },
   }));
   
@@ -1096,16 +1100,24 @@ async function handleQuestionReplaceRequest(ws: WebSocket, payload: { matchId: s
 
   log(`[QuestionReplace] Success: matchId=${matchId}, idx=${idx}, newSeedVersion=${result.newQuestion?.seedVersion}`, "ws");
 
-  // Broadcast QUESTION_REPLACED to ALL players in the match (both 1vFriends and 1vRandom)
+  const replaced = result.newQuestion!;
+  // Guessing payload only. correctAnswer, card id, number, and team stay on the server.
   broadcastToMatch(matchId, {
     type: "question_replaced",
     payload: {
       matchId,
-      idx: result.newQuestion!.idx,
-      seedVersion: result.newQuestion!.seedVersion,
-      card: result.newQuestion!.card,
-      choices: result.newQuestion!.choices,
-      pointValue: result.newQuestion!.pointValue,
+      idx: replaced.idx,
+      seedVersion: replaced.seedVersion,
+      card: {
+        imageUrl: maskedPlayPath({
+          scope: "match",
+          sessionId: matchId,
+          index: replaced.idx,
+          cardId: replaced.card.id,
+        }),
+      },
+      choices: replaced.choices,
+      pointValue: replaced.pointValue,
     },
   });
 }
@@ -1252,10 +1264,19 @@ async function getSeedVersionForQuestion(matchId: string, idx: number): Promise<
 
 function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number = 1): any {
   const currentQuestion = matchState.questions[matchState.currentQuestionIndex];
-  const upcomingMaskedCardIds = matchState.questions
+  const upcomingMaskedUrls = matchState.questions
     .slice(matchState.currentQuestionIndex + 1)
-    .map((q) => q.card?.id)
-    .filter((id): id is string => typeof id === "string" && id.length > 0);
+    .map((q, offset) => {
+      const cardId = q.card?.id;
+      if (!cardId) return null;
+      return maskedPlayPath({
+        scope: "match",
+        sessionId: matchState.matchId,
+        index: matchState.currentQuestionIndex + 1 + offset,
+        cardId,
+      });
+    })
+    .filter((url): url is string => typeof url === "string" && url.length > 0);
   
   return {
     matchId: matchState.matchId,
@@ -1264,15 +1285,17 @@ function sanitizeMatchStateForClient(matchState: MatchState, seedVersion: number
     currentQuestionIndex: matchState.currentQuestionIndex,
     totalQuestions: matchState.totalQuestions,
     gameSetId: matchState.gameSetId,
-    upcomingMaskedCardIds,
+    upcomingMaskedUrls,
     currentQuestion: currentQuestion ? {
       card: {
-        id: currentQuestion.card.id,
-        imageUrl: currentQuestion.card.imageUrl,
-        team: currentQuestion.card.team,
-        year: currentQuestion.card.year,
-        setName: currentQuestion.card.setName,
-        cardNumber: currentQuestion.card.cardNumber,
+        imageUrl: maskedPlayPath({
+          scope: "match",
+          sessionId: matchState.matchId,
+          index: matchState.currentQuestionIndex,
+          cardId: currentQuestion.card.id,
+        }),
+        imageRotation: currentQuestion.card.imageRotation ?? 0,
+        gameSetId: currentQuestion.card.gameSetId,
       },
       options: currentQuestion.options,
       pointValue: currentQuestion.pointValue,

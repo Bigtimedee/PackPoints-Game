@@ -973,6 +973,7 @@ export class DatabaseStorage implements IStorage {
     // Get all card IDs already used in this session plus excluded ones
     const usedCardIds = new Set([
       ...session.questions.map(q => q.card.playableCardId || q.card.id),
+      ...session.questions.flatMap(q => Array.isArray((q as { replacedFromIds?: string[] }).replacedFromIds) ? (q as { replacedFromIds?: string[] }).replacedFromIds! : []),
       ...excludeCardIds,
       failedCardId
     ]);
