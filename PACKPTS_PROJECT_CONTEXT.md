@@ -1665,7 +1665,7 @@ The dev server runs on `http://localhost:5000` by default. Vite proxies the fron
 ### User-data retention (owner mandate — usernames, password hashes, PackPTS history must never be lost)
 
 Three layers, all writing compressed `pg_dump` restore points (full DB: users, wallets, ledger, everything) to `/app/data/masked-cards/.db-backups/` on the persistent volume:
-1. **Boot dumps** (`pre-push-*.dump`, `server/startup/bootSchema.ts`): after listen, before every schema push; dump failure skips the push. Keep 14.
+1. **Boot dumps** (`pre-push-*.dump`, `server/startup/bootSchema.ts`): after listen, before a schema push when `shared/schema.ts` sha256 differs from `/app/data/masked-cards/.schema-push-hash` (written only after a successful push, on the volume). `drizzle-kit push --force` still runs on every production boot before DB routes open. Dump failure still skips the push and does not update the marker. Keep 14.
 2. **Daily dumps** (`daily-*.dump`, `server/services/dbBackupService.ts`): scheduled every 24h plus a startup catch-up when no dump is fresher than 20h. Keep 30.
 3. **Owner retrieval without CLI:** `GET /api/admin/backups` (list) and `GET /api/admin/backups/:name/download` (stream) — admin-only.
 

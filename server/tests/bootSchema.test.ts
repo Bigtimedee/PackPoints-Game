@@ -1,10 +1,10 @@
 import { EventEmitter } from "events";
 import { writeFileSync } from "fs";
-import { mkdtemp, readdir, utimes, writeFile } from "fs/promises";
+import { mkdtemp, readFile, readdir, utimes, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pruneBootDumps, runBootSchema, type BootSpawn } from "../startup/bootSchema";
+import { pruneBootDumps, runBootSchema, schemaDumpRequired, type BootSpawn } from "../startup/bootSchema";
 
 function fakeSpawn(failCommand?: string): { spawn: BootSpawn; calls: string[][] } {
   const calls: string[][] = [];
@@ -37,11 +37,15 @@ describe("boot schema", () => {
     const ok = fakeSpawn();
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+    const schemaPath = path.join(dir, "schema.ts");
+    await writeFile(schemaPath, "export const schema = 1;\n");
     const result = await runBootSchema({
       backupDir: dir,
       databaseUrl: "postgres://local/packpts",
       now: new Date("2026-09-25T20:00:00.000Z"),
       spawn: ok.spawn,
+      schemaPath,
+      markerPath: path.join(dir, ".schema-push-hash"),
     });
     expect(result.pushed).toBe(true);
     expect(ok.calls[0][0]).toBe("pg_dump");
@@ -49,15 +53,68 @@ describe("boot schema", () => {
     expect(ok.calls[1]).toEqual(["npx", "drizzle-kit", "push", "--force"]);
     expect((await readdir(dir)).some((name) => name.startsWith("pre-push-"))).toBe(true);
 
+    const failedDir = await mkdtemp(path.join(tmpdir(), "packpts-boot-fail-"));
+    const failedSchema = path.join(failedDir, "schema.ts");
+    await writeFile(failedSchema, "export const schema = 2;\n");
     const failed = fakeSpawn("pg_dump");
     const skipped = await runBootSchema({
-      backupDir: dir,
+      backupDir: failedDir,
       databaseUrl: "postgres://local/packpts",
       now: new Date("2026-09-25T20:01:00.000Z"),
       spawn: failed.spawn,
+      schemaPath: failedSchema,
+      markerPath: path.join(failedDir, ".schema-push-hash"),
     });
     expect(skipped.pushed).toBe(false);
     expect(failed.calls.map((call) => call[0])).toEqual(["pg_dump"]);
+  });
+
+  it("skips pg_dump when the schema hash matches and still runs drizzle-kit push", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "packpts-hash-"));
+    const schemaPath = path.join(dir, "schema.ts");
+    const markerPath = path.join(dir, ".schema-push-hash");
+    await writeFile(schemaPath, "export const schema = 1;\n");
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const first = fakeSpawn();
+    const pushed = await runBootSchema({
+      backupDir: dir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: first.spawn,
+      schemaPath,
+      markerPath,
+    });
+    expect(pushed.dumped).toBe(true);
+    expect(pushed.pushed).toBe(true);
+    expect(schemaDumpRequired("abc", "abc")).toBe(false);
+    expect(schemaDumpRequired("abc", null)).toBe(true);
+
+    const second = fakeSpawn();
+    const again = await runBootSchema({
+      backupDir: dir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: second.spawn,
+      schemaPath,
+      markerPath,
+    });
+    expect(again.dumped).toBe(false);
+    expect(again.pushed).toBe(true);
+    expect(second.calls.map((call) => call[0])).toEqual(["npx"]);
+    expect(second.calls[0]).toEqual(["npx", "drizzle-kit", "push", "--force"]);
+    expect((await readFile(markerPath, "utf8")).trim().length).toBeGreaterThan(10);
+
+    await writeFile(schemaPath, "export const schema = 2;\n");
+    const third = fakeSpawn("pg_dump");
+    const changed = await runBootSchema({
+      backupDir: dir,
+      databaseUrl: "postgres://local/packpts",
+      spawn: third.spawn,
+      schemaPath,
+      markerPath,
+    });
+    expect(changed.dumped).toBe(true);
+    expect(changed.pushed).toBe(false);
+    expect(third.calls.map((call) => call[0])).toEqual(["pg_dump"]);
   });
 
   it("keeps the 14 newest boot dumps", async () => {

@@ -1,11 +1,34 @@
+import { createHash } from "crypto";
 import { spawn, type ChildProcess } from "child_process";
-import { mkdir, readdir, rm, stat } from "fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import { logBootPhase } from "./bootPhase";
 import { addShutdownHook } from "./shutdownHooks";
 
 /** Same restore-point rule as the old start.sh guard. Dump failure skips the push. */
 export const BOOT_BACKUP_KEEP = 14;
+
+/** On the masked-card volume, so it survives the next container. */
+export const SCHEMA_PUSH_MARKER = "/app/data/masked-cards/.schema-push-hash";
+
+export async function hashSchemaFile(schemaPath: string): Promise<string> {
+  const body = await readFile(schemaPath);
+  return createHash("sha256").update(body).digest("hex");
+}
+
+export async function readSchemaPushMarker(markerPath: string): Promise<string | null> {
+  try {
+    const text = (await readFile(markerPath, "utf8")).trim();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A dump is required only when this schema file is not the last successful push. */
+export function schemaDumpRequired(currentHash: string, storedHash: string | null): boolean {
+  return storedHash !== currentHash;
+}
 
 export interface BootSpawn {
   (command: string, args: string[]): ChildProcess;
@@ -71,9 +94,10 @@ export async function pruneBootDumps(backupDir: string, keep = BOOT_BACKUP_KEEP)
 }
 
 /**
- * `pg_dump` then `drizzle-kit push --force` against shared/schema.ts.
+ * `drizzle-kit push --force` against shared/schema.ts on every boot.
+ * `pg_dump` runs first only when that file's hash differs from the volume marker.
  * The push drops tables that are not in that file, so it runs before any
- * DB-dependent route is unmarked. A failed dump skips the push.
+ * DB-dependent route is unmarked. A required dump that fails skips the push.
  */
 export async function runBootSchema(opts?: {
   backupDir?: string;
@@ -81,35 +105,49 @@ export async function runBootSchema(opts?: {
   cwd?: string;
   now?: Date;
   spawn?: BootSpawn;
-}): Promise<{ pushed: boolean; dumpFile: string | null }> {
+  schemaPath?: string;
+  markerPath?: string;
+}): Promise<{ pushed: boolean; dumpFile: string | null; dumped: boolean }> {
   const databaseUrl = opts?.databaseUrl ?? process.env.DATABASE_URL ?? "";
   const backupDir = opts?.backupDir ?? "/app/data/masked-cards/.db-backups";
   const spawnImpl = opts?.spawn ?? defaultSpawn;
   const now = opts?.now ?? new Date();
+  const schemaPath = opts?.schemaPath ?? path.join(opts?.cwd ?? process.cwd(), "shared/schema.ts");
+  const markerPath = opts?.markerPath ?? SCHEMA_PUSH_MARKER;
   if (!databaseUrl) {
     console.error("[Startup] WARNING: DATABASE_URL missing — SKIPPING schema push.");
-    return { pushed: false, dumpFile: null };
+    return { pushed: false, dumpFile: null, dumped: false };
   }
 
   await mkdir(backupDir, { recursive: true });
-  const dumpFile = path.join(backupDir, `pre-push-${stamp(now)}.dump`);
-  logBootPhase("pg_dump_start");
-  const dumpStarted = Date.now();
-  console.log("[Startup] Taking pre-migration pg_dump...");
-  const dumpCode = await run(spawnImpl, "pg_dump", [
-    "--format=custom",
-    "--compress=6",
-    `--file=${dumpFile}`,
-    databaseUrl,
-  ]);
-  logBootPhase("pg_dump_end", { ms: Date.now() - dumpStarted, code: dumpCode });
-  if (dumpCode !== 0) {
-    console.error("[Startup] WARNING: pg_dump FAILED — SKIPPING schema push. App boots on existing schema.");
-    await rm(dumpFile, { force: true });
-    return { pushed: false, dumpFile: null };
+  const currentHash = await hashSchemaFile(schemaPath);
+  const storedHash = await readSchemaPushMarker(markerPath);
+  let dumpFile: string | null = null;
+  let dumped = false;
+  if (schemaDumpRequired(currentHash, storedHash)) {
+    dumpFile = path.join(backupDir, `pre-push-${stamp(now)}.dump`);
+    dumped = true;
+    logBootPhase("pg_dump_start");
+    const dumpStarted = Date.now();
+    console.log("[Startup] Taking pre-migration pg_dump...");
+    const dumpCode = await run(spawnImpl, "pg_dump", [
+      "--format=custom",
+      "--compress=6",
+      `--file=${dumpFile}`,
+      databaseUrl,
+    ]);
+    logBootPhase("pg_dump_end", { ms: Date.now() - dumpStarted, code: dumpCode });
+    if (dumpCode !== 0) {
+      console.error("[Startup] WARNING: pg_dump FAILED — SKIPPING schema push. App boots on existing schema.");
+      await rm(dumpFile, { force: true });
+      return { pushed: false, dumpFile: null, dumped: true };
+    }
+    await pruneBootDumps(backupDir);
+  } else {
+    logBootPhase("pg_dump_skipped", { reason: "schema_hash_unchanged" });
+    console.log("[Startup] Schema hash matches the last successful push — skipping pg_dump.");
   }
 
-  await pruneBootDumps(backupDir);
   logBootPhase("drizzle_push_start");
   const pushStarted = Date.now();
   console.log("[Startup] Running database migrations (drizzle-kit push --force)...");
@@ -117,10 +155,12 @@ export async function runBootSchema(opts?: {
   logBootPhase("drizzle_push_end", { ms: Date.now() - pushStarted, code: pushCode });
   if (pushCode !== 0) {
     console.error(`[Startup] WARNING: drizzle-kit push exited ${pushCode}. DB routes stay on the schema the push left.`);
-    return { pushed: false, dumpFile };
+    return { pushed: false, dumpFile, dumped };
   }
+  await mkdir(path.dirname(markerPath), { recursive: true });
+  await writeFile(markerPath, `${currentHash}\n`);
   console.log("[Startup] Migrations complete.");
-  return { pushed: true, dumpFile };
+  return { pushed: true, dumpFile, dumped };
 }
 
 let hookInstalled = false;
