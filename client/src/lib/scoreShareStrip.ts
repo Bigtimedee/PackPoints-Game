@@ -15,10 +15,13 @@ export const SCORE_SHARE_STRIP = {
   sideInset: 80,
   /** One row stays this wide. Wider deals wrap instead of shrinking. */
   minTileW: 64,
+  /** Narrower full-ratio card when 64px no longer fits above the score. */
+  narrowTileW: 56,
   clearX: 60,
   clearY: 124,
   clearW: 960,
-  clearH: 62,
+  /** Through y=224. Covers a 90px thumb and stops above the Daily 5 score. */
+  clearH: 100,
   canvas: "#0b0f16",
   /** Same radial glow as `buildScoreCardSvg`: cx 85%, cy 12%, r 55%. */
   glowCx: 0.85,
@@ -65,8 +68,8 @@ export function sessionShareTileSources(urls: readonly (string | null | undefine
   return out;
 }
 
-/** Lowest y the strip may use. Solo score caps start near y=254. */
-const STRIP_CLEAR_TOP = 246;
+/** Solo score caps start near y=248. The strip stops above them. */
+const SCORE_TOP = 246;
 
 /** How many 64px tiles fit in one row at the current gap. */
 export function scoreShareStripRowCapacity(): number {
@@ -75,36 +78,95 @@ export function scoreShareStripRowCapacity(): number {
   return Math.max(1, Math.floor((maxW + SCORE_SHARE_STRIP.gap) / slot));
 }
 
+function cardHeight(tileW: number): number {
+  return Math.round((tileW * SCORE_SHARE_STRIP.tileH) / SCORE_SHARE_STRIP.tileW);
+}
+
+/** Equal gap that keeps `count` tiles inside `maxW`, or null when `minGap` cannot. */
+function evenGap(count: number, tileW: number, maxW: number, preferred: number, minGap: number): number | null {
+  if (count <= 1) return 0;
+  const room = maxW - count * tileW;
+  if (room < 0) return null;
+  const exact = Math.floor(room / (count - 1));
+  if (exact < minGap) return null;
+  return Math.min(preferred, exact);
+}
+
+type StripTileSpec = { tileW: number; tileH: number; gap: number; rowGap: number; rows: number };
+
+/**
+ * 64×90 on one row, including 12 cards once the gap tightens.
+ * Two rows of 64×90 would cover the score, so the next step is 56px wide
+ * at the same ratio. A 20-card stack still cannot clear the score at 56×79,
+ * so that case scales in ratio instead of cropping a 64-wide thumb.
+ */
+function stripTileSpec(count: number): StripTileSpec {
+  const maxW = SCORE_SHARE_STRIP.canvasSize - SCORE_SHARE_STRIP.sideInset * 2;
+  const fullW: number = SCORE_SHARE_STRIP.tileW;
+  const fullH: number = SCORE_SHARE_STRIP.tileH;
+  const preferredGap: number = SCORE_SHARE_STRIP.gap;
+  const rowGap: number = SCORE_SHARE_STRIP.rowGap;
+  let tileW: number = fullW;
+  let tileH: number = fullH;
+  let gap: number = preferredGap;
+  let rows = 1;
+
+  const wideGap = evenGap(count, fullW, maxW, preferredGap, 8);
+  const twoRowBottom = SCORE_SHARE_STRIP.y + fullH * 2 + rowGap;
+  if (wideGap != null) {
+    gap = wideGap;
+  } else if (twoRowBottom <= SCORE_TOP) {
+    rows = 2;
+  } else {
+    const narrowW: number = SCORE_SHARE_STRIP.narrowTileW;
+    const narrowH = cardHeight(narrowW);
+    const narrowGap = evenGap(count, narrowW, maxW, preferredGap, 4);
+    const narrowRowGap = 8;
+    if (narrowGap != null) {
+      tileW = narrowW;
+      tileH = narrowH;
+      gap = narrowGap;
+    } else if (SCORE_SHARE_STRIP.y + narrowH * 2 + narrowRowGap <= SCORE_TOP) {
+      tileW = narrowW;
+      tileH = narrowH;
+      gap = narrowRowGap;
+      rows = 2;
+    } else {
+      rows = 2;
+      const fittedGap = 8;
+      const room = SCORE_TOP - SCORE_SHARE_STRIP.y - fittedGap;
+      tileH = Math.floor(room / 2);
+      tileW = Math.max(1, Math.round((tileH * fullW) / fullH));
+      const per = Math.ceil(count / 2);
+      gap = evenGap(per, tileW, maxW, fittedGap, 2) ?? 2;
+    }
+  }
+
+  return { tileW, tileH, gap, rowGap: rows === 2 ? Math.min(rowGap, 8) : rowGap, rows };
+}
+
 /**
  * One thumb per scored question, centered, equal gaps.
- * Width stays at least `minTileW`. Ten solo cards fit on one 64×90 row.
- * Twelve or more wrap to two rows. Those rows shorten so they stay above the score.
+ * Ten solo cards are one 64×90 row. The glow band is tall enough for that
+ * thumb and stops above the score, so nothing is clipped.
  */
 export function scoreShareStripLayout(count: number): StripTileBox[] {
   if (count <= 0) return [];
-  const tileW = SCORE_SHARE_STRIP.tileW;
-  const gap = SCORE_SHARE_STRIP.gap;
-  const capacity = scoreShareStripRowCapacity();
-  const rows = count <= capacity ? 1 : 2;
-  let tileH = SCORE_SHARE_STRIP.tileH;
-  if (rows === 2) {
-    const room = STRIP_CLEAR_TOP - SCORE_SHARE_STRIP.y - SCORE_SHARE_STRIP.rowGap;
-    tileH = Math.min(tileH, Math.max(48, Math.floor(room / 2)));
-  }
-  const perRow = rows === 1 ? count : Math.ceil(count / 2);
+  const spec = stripTileSpec(count);
+  const perRow = spec.rows === 1 ? count : Math.ceil(count / 2);
   const boxes: StripTileBox[] = [];
   let index = 0;
-  for (let row = 0; row < rows && index < count; row++) {
+  for (let row = 0; row < spec.rows && index < count; row++) {
     const n = Math.min(perRow, count - index);
-    const rowW = n * tileW + (n - 1) * gap;
+    const rowW = n * spec.tileW + (n - 1) * spec.gap;
     const x0 = Math.round((SCORE_SHARE_STRIP.canvasSize - rowW) / 2);
-    const y = SCORE_SHARE_STRIP.y + row * (tileH + SCORE_SHARE_STRIP.rowGap);
+    const y = SCORE_SHARE_STRIP.y + row * (spec.tileH + spec.rowGap);
     for (let i = 0; i < n; i++) {
       boxes.push({
-        x: x0 + i * (tileW + gap),
+        x: x0 + i * (spec.tileW + spec.gap),
         y,
-        w: tileW,
-        h: tileH,
+        w: spec.tileW,
+        h: spec.tileH,
       });
     }
     index += n;
