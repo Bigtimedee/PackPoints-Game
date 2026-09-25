@@ -16,6 +16,12 @@ export const SCORE_SHARE_STRIP = {
   clearW: 960,
   clearH: 62,
   canvas: "#0b0f16",
+  /** Same radial glow as `buildScoreCardSvg`: cx 85%, cy 12%, r 55%. */
+  glowCx: 0.85,
+  glowCy: 0.12,
+  glowR: 0.55,
+  glowInner: "rgba(30, 58, 95, 0.55)",
+  glowOuter: "rgba(11, 15, 22, 0)",
   cream: "#F0F2F5",
   stroke: "#D6CBB6",
   plaqueFill: "#0A0E16",
@@ -89,10 +95,54 @@ export type StripPainter = {
   fillRect(x: number, y: number, w: number, h: number): void;
   stroke(): void;
   drawImage(image: unknown, dx: number, dy: number, dw: number, dh: number): void;
-  fillStyle: string;
+  fillStyle: string | CanvasGradient;
   strokeStyle: string;
   lineWidth: number;
 };
+
+type ScoreCardGlowContext = StripPainter & {
+  rect(x: number, y: number, w: number, h: number): void;
+  createRadialGradient(
+    x0: number,
+    y0: number,
+    r0: number,
+    x1: number,
+    y1: number,
+    r1: number,
+  ): CanvasGradient;
+};
+
+function asGlowContext(ctx: StripPainter): ScoreCardGlowContext | null {
+  const candidate = ctx as StripPainter & {
+    rect?: unknown;
+    createRadialGradient?: unknown;
+  };
+  if (typeof candidate.rect !== "function" || typeof candidate.createRadialGradient !== "function") return null;
+  return candidate as ScoreCardGlowContext;
+}
+
+/**
+ * Repaints the strip band with the score-card canvas and radial glow so the
+ * decorative Daily 5 tiles disappear without a flat dark bar.
+ */
+export function restoreScoreCardBand(ctx: ScoreCardGlowContext): void {
+  const size = SCORE_SHARE_STRIP.canvasSize;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(SCORE_SHARE_STRIP.clearX, SCORE_SHARE_STRIP.clearY, SCORE_SHARE_STRIP.clearW, SCORE_SHARE_STRIP.clearH);
+  ctx.clip();
+  ctx.fillStyle = SCORE_SHARE_STRIP.canvas;
+  ctx.fillRect(0, 0, size, size);
+  const cx = size * SCORE_SHARE_STRIP.glowCx;
+  const cy = size * SCORE_SHARE_STRIP.glowCy;
+  const radius = size * SCORE_SHARE_STRIP.glowR;
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+  glow.addColorStop(0, SCORE_SHARE_STRIP.glowInner);
+  glow.addColorStop(1, SCORE_SHARE_STRIP.glowOuter);
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, size, size);
+  ctx.restore();
+}
 
 function roundRect(ctx: StripPainter, x: number, y: number, w: number, h: number, r: number) {
   const radius = Math.min(r, w / 2, h / 2);
@@ -156,13 +206,18 @@ function drawPlaqueTile(ctx: StripPainter, image: StripTileImage, box: StripTile
   ctx.stroke();
 }
 
-/** Clears the strip band, then paints plaque tiles for the images that loaded. */
-export function paintScoreShareStrip(ctx: StripPainter, images: readonly StripTileImage[]): StripTileBox[] {
+/** Plaque tiles only. Does not paint a background. */
+export function drawScoreShareTiles(ctx: StripPainter, images: readonly StripTileImage[]): StripTileBox[] {
   const boxes = scoreShareStripLayout(images.length);
-  ctx.fillStyle = SCORE_SHARE_STRIP.canvas;
-  ctx.fillRect(SCORE_SHARE_STRIP.clearX, SCORE_SHARE_STRIP.clearY, SCORE_SHARE_STRIP.clearW, SCORE_SHARE_STRIP.clearH);
   images.forEach((image, i) => drawPlaqueTile(ctx, image, boxes[i]));
   return boxes;
+}
+
+/** Paints plaque tiles on the existing score card. Restores the glow under them when the context can. */
+export function paintScoreShareStrip(ctx: StripPainter, images: readonly StripTileImage[]): StripTileBox[] {
+  const glow = asGlowContext(ctx);
+  if (glow) restoreScoreCardBand(glow);
+  return drawScoreShareTiles(ctx, images);
 }
 
 export async function tilesForScoreShare(
