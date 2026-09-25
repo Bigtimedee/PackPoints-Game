@@ -41,7 +41,7 @@ import {
   terminateOcrRuntime,
   type OcrJob,
 } from "../masking/ocrRuntime";
-import { readOrientNote } from "../masking/orientNote";
+import { readOrientNote, writeOrientNote } from "../masking/orientNote";
 import type { OcrWordBox } from "../masking/nameLocalization";
 
 const GREEN = { r: 20, g: 180, b: 40 };
@@ -258,7 +258,9 @@ describe("upright mask bake", () => {
     expect(meta.width || 0).toBeGreaterThan(meta.height || 0);
     expect(result.servedRotation).toBe(0);
     expect(result.landscapeDesign).toBe(true);
+    expect(result.orientationAmbiguous).toBe(false);
     expect(result.coverageOk).toBe(true);
+    expect(result.regions.some((region) => region.hPct >= 90 && region.wPct < 90)).toBe(false);
     const covered = await sample(result.maskedBuffer, 50, 90);
     const photoPx = await sample(result.maskedBuffer, 50, 18);
     expect(isDark(covered.r, covered.g, covered.b)).toBe(true);
@@ -318,7 +320,7 @@ describe("upright mask bake", () => {
     expect(peekWarmMaskedFilename("card-plain")).toBeNull();
   });
 
-  it("covers both name bands when OCR cannot choose a turn", async () => {
+  it("covers both orientations in place when OCR cannot choose a turn", async () => {
     setOcrJobFactoryForTests(() => ({
       promise: Promise.resolve({ words: [] }),
       cancel() {},
@@ -340,27 +342,33 @@ describe("upright mask bake", () => {
       setHint: "1987 Topps baseball",
       gameSetId: null,
     });
-    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}_r90.jpg`);
+    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
     expect(dbUpdate).not.toHaveBeenCalled();
-    expect(readOrientNote(cardId)?.coverBoth).toBe(true);
+    const note = readOrientNote(cardId);
+    expect(note?.rotation).toBe(0);
+    expect(note?.coverBoth).toBe(true);
 
     const plan = JSON.parse(readFileSync(
       path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`),
       "utf8",
-    )) as { layoutClass: string; regions: Array<{ yPct: number; hPct: number; wPct: number }> };
+    )) as { layoutClass: string; regions: Array<{ xPct: number; yPct: number; wPct: number; hPct: number }> };
     expect(plan.layoutClass).toBe("BOTTOM_PLAQUE");
     expect(plan.regions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ yPct: 54, hPct: 46 }),
-      expect.objectContaining({ yPct: 0, hPct: 46 }),
+      expect.objectContaining({ xPct: 0, yPct: 54, wPct: 100, hPct: 46 }),
+      expect.objectContaining({ xPct: 0, yPct: 0, wPct: 46, hPct: 100 }),
+      expect.objectContaining({ xPct: 54, yPct: 0, wPct: 46, hPct: 100 }),
     ]));
-    expect(plan.regions.filter((region) => region.wPct >= 90)).toHaveLength(2);
 
     const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).toBuffer();
-    const top = await sample(baked, 50, 8);
-    const bottom = await sample(baked, 50, 90);
-    const gap = await sample(baked, 50, 50);
-    expect(isDark(top.r, top.g, top.b)).toBe(true);
-    expect(isDark(bottom.r, bottom.g, bottom.b)).toBe(true);
+    const bakedMeta = await sharp(baked).metadata();
+    expect(bakedMeta.width || 0).toBeGreaterThan(bakedMeta.height || 0);
+    const nameMid = await sample(baked, 8, 50);
+    const nameTop = await sample(baked, 8, 8);
+    const nameBottom = await sample(baked, 8, 92);
+    const gap = await sample(baked, 50, 20);
+    expect(isDark(nameMid.r, nameMid.g, nameMid.b)).toBe(true);
+    expect(isDark(nameTop.r, nameTop.g, nameTop.b)).toBe(true);
+    expect(isDark(nameBottom.r, nameBottom.g, nameBottom.b)).toBe(true);
     expect(isGreen(gap.r, gap.g, gap.b)).toBe(true);
 
     const logLine = vi.mocked(console.log).mock.calls
@@ -368,16 +376,25 @@ describe("upright mask bake", () => {
       .find((line) => line.includes("orientation ambiguous"));
     expect(logLine).toBe(`[MaskBake] orientation ambiguous cover=both card=${cardId}`);
 
+    const revealed = await orientUnmaskedScan(cardId, sideways);
+    const revealedMeta = await sharp(revealed).metadata();
+    expect(revealedMeta.width).toBe(bakedMeta.width);
+    expect(revealedMeta.height).toBe(bakedMeta.height);
+    const revealedName = await sample(revealed, 8, 50);
+    expect(revealedName.r).toBeGreaterThan(200);
+
     const again = await maskCardImage(sideways, "Ken Phelps", "1987 Topps baseball", { cardId });
     expect(again.orientationAmbiguous).toBe(true);
+    expect(again.servedRotation).toBe(0);
     expect(again.coverageOk).toBe(true);
     expect(again.layoutClass).toBe("BOTTOM_PLAQUE");
-    expect(anyRegionCoversPoint(again.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(again.regions, 8, 50)).toBe(true);
+    expect(anyRegionCoversPoint(again.regions, 92, 50)).toBe(true);
     expect(anyRegionCoversPoint(again.regions, 50, 90)).toBe(true);
     expect(dbUpdate).not.toHaveBeenCalled();
   });
 
-  it("mirrors a top plate onto the bottom band when the turn is a guess", async () => {
+  it("covers a top-plate name on either side without turning", async () => {
     setOcrJobFactoryForTests(() => ({
       promise: Promise.resolve({ words: [] }),
       cancel() {},
@@ -399,27 +416,121 @@ describe("upright mask bake", () => {
       setHint: "1987 Topps Football",
       gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
     });
-    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}_r90.jpg`);
+    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
     expect(dbUpdate).not.toHaveBeenCalled();
 
     const plan = JSON.parse(readFileSync(
       path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`),
       "utf8",
-    )) as { layoutClass: string; regions: Array<{ yPct: number; hPct: number }> };
+    )) as { layoutClass: string; regions: Array<{ xPct: number; yPct: number; wPct: number; hPct: number }> };
     expect(plan.layoutClass).toBe("TOP_PLATE");
     expect(plan.regions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ yPct: 0, hPct: 24 }),
-      expect.objectContaining({ yPct: 76, hPct: 24 }),
+      expect.objectContaining({ xPct: 0, yPct: 0, wPct: 100, hPct: 24 }),
+      expect.objectContaining({ xPct: 0, yPct: 0, wPct: 24, hPct: 100 }),
+      expect.objectContaining({ xPct: 76, yPct: 0, wPct: 24, hPct: 100 }),
     ]));
 
     const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).toBuffer();
-    const top = await sample(baked, 50, 8);
-    const bottom = await sample(baked, 50, 90);
+    const name = await sample(baked, 92, 50);
     const photo = await sample(baked, 50, 50);
-    expect(isDark(top.r, top.g, top.b)).toBe(true);
-    expect(isDark(bottom.r, bottom.g, bottom.b)).toBe(true);
+    expect(isDark(name.r, name.g, name.b)).toBe(true);
     expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
     expect(dbUpdate).not.toHaveBeenCalled();
+  });
+
+  it("keeps a landscape card when 0° OCR is the stronger name hit", async () => {
+    setOcrJobFactoryForTests((buffer) => ({
+      promise: sharp(buffer).metadata().then((meta) => {
+        const width = meta.width || 1;
+        const height = meta.height || 1;
+        const landscape = width > height;
+        const confidence = landscape ? 90 : 40;
+        const y = Math.round(height * (landscape ? 0.75 : 0.8));
+        return {
+          words: [{ text: "PHELPS", x: 8, y, w: 60, h: 16, confidence }],
+        };
+      }),
+      cancel() {},
+    }));
+    const width = 400;
+    const height = 260;
+    const nameH = Math.round(height * 0.46);
+    const photoH = height - nameH;
+    const photo = await sharp({
+      create: { width, height: photoH, channels: 3, background: GREEN },
+    }).png().toBuffer();
+    const name = await sharp({
+      create: { width, height: nameH, channels: 3, background: WHITE },
+    }).png().toBuffer();
+    const landscape = await sharp({
+      create: { width, height, channels: 3, background: GREEN },
+    }).composite([
+      { input: photo, top: 0, left: 0 },
+      { input: name, top: photoH, left: 0 },
+    ]).png().toBuffer();
+
+    const cardId = "landscape-ocr-zero";
+    track(cardId);
+    const result = await maskCardImage(landscape, "Ken Phelps", "1987 Topps baseball", { cardId });
+    const meta = await sharp(result.maskedBuffer).metadata();
+    expect(meta.width || 0).toBeGreaterThan(meta.height || 0);
+    expect(result.servedRotation).toBe(0);
+    expect(result.orientationAmbiguous).toBe(false);
+    expect(result.landscapeDesign).toBe(true);
+    expect(result.coverageOk).toBe(true);
+    expect(readOrientNote(cardId)?.coverBoth).toBe(false);
+    const covered = await sample(result.maskedBuffer, 50, 90);
+    const side = await sample(result.maskedBuffer, 8, 30);
+    expect(isDark(covered.r, covered.g, covered.b)).toBe(true);
+    expect(isGreen(side.r, side.g, side.b)).toBe(true);
+    expect(dbUpdate).not.toHaveBeenCalled();
+  });
+
+  it("turns when a quarter-turn OCR hit outranks 0°", async () => {
+    setOcrJobFactoryForTests((buffer) => ({
+      promise: sharp(buffer).metadata().then((meta) => {
+        const width = meta.width || 1;
+        const height = meta.height || 1;
+        const landscape = width > height;
+        const confidence = landscape ? 30 : 85;
+        const y = Math.round(height * 0.8);
+        return {
+          words: [{ text: "PHELPS", x: 8, y, w: 40, h: 16, confidence }],
+        };
+      }),
+      cancel() {},
+    }));
+    const upright = await uprightTopps();
+    const sideways = await sharp(upright).rotate(90).png().toBuffer();
+    const cardId = "quarter-turn-wins";
+    track(cardId);
+    const result = await maskCardImage(sideways, "Ken Phelps", "1987 Topps baseball", { cardId });
+    expect(result.servedRotation === 90 || result.servedRotation === 270).toBe(true);
+    expect(result.orientationAmbiguous).toBe(false);
+    expect(result.coverageOk).toBe(true);
+    const meta = await sharp(result.maskedBuffer).metadata();
+    expect(meta.height || 0).toBeGreaterThan(meta.width || 0);
+    const name = await sample(result.maskedBuffer, 50, 90);
+    expect(isDark(name.r, name.g, name.b)).toBe(true);
+  });
+
+  it("still honors a stored quarter-turn that already covered both bands", async () => {
+    const upright = await uprightTopps();
+    const sideways = await sharp(upright).rotate(90).png().toBuffer();
+    const cardId = "legacy-cover-both";
+    track(cardId);
+    writeOrientNote(cardId, { rotation: 90, landscapeDesign: false, coverBoth: true });
+    const result = await maskCardImage(sideways, "Ken Phelps", "1987 Topps baseball", {
+      cardId,
+      skipOcr: true,
+    });
+    expect(result.servedRotation).toBe(90);
+    expect(result.orientationAmbiguous).toBe(true);
+    expect(result.coverageOk).toBe(true);
+    const meta = await sharp(result.maskedBuffer).metadata();
+    expect(meta.height || 0).toBeGreaterThan(meta.width || 0);
+    expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
   });
 });
 

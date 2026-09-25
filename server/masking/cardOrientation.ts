@@ -13,8 +13,8 @@ export interface UprightCard {
   source: "field" | "ocr" | "profile" | "none";
   landscapeDesign: boolean;
   /**
-   * Landscape file of a portrait set, no imageRotation, and OCR could not place
-   * the last name on either 90° candidate. The turn is a guess.
+   * Landscape file, no imageRotation, and OCR could not place the last name.
+   * The file is not turned. The bake covers the name band for 0°, 90°, and 270°.
    */
   orientationAmbiguous: boolean;
   /** null: OCR has not run on the upright image. An array: probe already finished. */
@@ -32,17 +32,6 @@ export async function applyServedRotation(buffer: Buffer, rotation: QuarterTurn)
   return rotateBuffer(buffer, rotation);
 }
 
-function fallbackTurn(profile: MaskProfile): QuarterTurn {
-  const turn = profile.sidewaysFallbackDeg;
-  if (turn === 90 || turn === 270) return turn;
-  return 0;
-}
-
-/** A guessed quarter-turn can put the name on the opposite edge. Cover both. */
-function guessedTurn(rotation: QuarterTurn): boolean {
-  return rotation === 90 || rotation === 270;
-}
-
 function lastNameInAnchor(boxes: OcrWordBox[], profile: MaskProfile, imageHeight: number): boolean {
   if (boxes.length === 0 || imageHeight <= 0) return false;
   return boxes.some((box) => {
@@ -51,6 +40,42 @@ function lastNameInAnchor(boxes: OcrWordBox[], profile: MaskProfile, imageHeight
     if (profile.nameAnchor === "both") return cy <= 0.28 || cy >= 0.62;
     return cy >= 0.5;
   });
+}
+
+function meanConfidence(boxes: OcrWordBox[]): number {
+  const values = boxes
+    .map((box) => box.confidence)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+interface NameProbe {
+  rotation: QuarterTurn;
+  buffer: Buffer;
+  words: OcrWordBox[];
+  inAnchor: boolean;
+  confidence: number;
+}
+
+/** 0° replaces another candidate only when its confidence is strictly better. */
+function betterProbe(next: NameProbe, current: NameProbe): boolean {
+  if (next.inAnchor !== current.inAnchor) return next.inAnchor;
+  if (next.confidence !== current.confidence) return next.confidence > current.confidence;
+  return current.rotation === 0 && next.rotation !== 0;
+}
+
+function ambiguousStay(raw: Buffer, ocrMs: number, ocrTimedOut: boolean): UprightCard {
+  return {
+    buffer: raw,
+    rotation: 0,
+    source: "profile",
+    landscapeDesign: false,
+    orientationAmbiguous: true,
+    words: [],
+    ocrTimedOut,
+    ocrMs,
+  };
 }
 
 function lastNameHit(playerName: string, words: OcrWordBox[]): { boxes: OcrWordBox[]; hit: boolean } {
@@ -62,8 +87,10 @@ function lastNameHit(playerName: string, words: OcrWordBox[]): { boxes: OcrWordB
 
 /**
  * Turn a scan into the card's upright orientation before the mask is painted.
- * Evidence, in order: `imageRotation`, OCR of the 90° and 270° candidates, then
- * the set profile. A horizontal design stays landscape.
+ * Evidence, in order: `imageRotation`, then OCR of the 0°, 90°, and 270°
+ * candidates. The highest-confidence last-name hit wins, and 0° wins only
+ * when it is strictly better. A profile with `cardOrientation: "landscape"`
+ * stays landscape. An OCR miss does not turn the file.
  */
 export async function uprightCardImage(
   raw: Buffer,
@@ -122,23 +149,11 @@ export async function uprightCardImage(
   }
 
   const recognize = input.recognize ?? recognizeWords;
-  if (input.skipOcr) {
-    const rotation = fallbackTurn(input.profile);
-    return {
-      buffer: await rotateBuffer(raw, rotation),
-      rotation,
-      source: rotation ? "profile" : "none",
-      landscapeDesign: false,
-      orientationAmbiguous: guessedTurn(rotation),
-      words: [],
-      ocrTimedOut: false,
-      ocrMs: 0,
-    };
-  }
+  if (input.skipOcr) return ambiguousStay(raw, 0, false);
 
   let ocrMs = 0;
-  let loose: { rotation: QuarterTurn; buffer: Buffer; words: OcrWordBox[] } | null = null;
-  for (const rotation of [90, 270] as const) {
+  let best: NameProbe | null = null;
+  for (const rotation of [0, 90, 270] as const) {
     const turned = await rotateBuffer(raw, rotation);
     const turnedMeta = await sharp(turned).metadata();
     const turnedWidth = turnedMeta.width || 1;
@@ -146,56 +161,29 @@ export async function uprightCardImage(
     const ocr = await recognize(turned, turnedWidth);
     ocrMs += ocr.ms;
     if (ocr.timedOut) {
-      const fb = fallbackTurn(input.profile);
-      return {
-        buffer: await rotateBuffer(raw, fb),
-        rotation: fb,
-        source: "profile",
-        landscapeDesign: false,
-        orientationAmbiguous: guessedTurn(fb),
-        words: [],
-        ocrTimedOut: true,
-        ocrMs,
-      };
+      if (best) break;
+      return ambiguousStay(raw, ocrMs, true);
     }
     const matched = lastNameHit(input.playerName, ocr.words);
     if (!matched.hit) continue;
-    if (lastNameInAnchor(matched.boxes, input.profile, turnedHeight)) {
-      return {
-        buffer: turned,
-        rotation,
-        source: "ocr",
-        landscapeDesign: false,
-        orientationAmbiguous: false,
-        words: ocr.words,
-        ocrTimedOut: false,
-        ocrMs,
-      };
-    }
-    if (!loose) loose = { rotation, buffer: turned, words: ocr.words };
-  }
-
-  if (loose) {
-    return {
-      buffer: loose.buffer,
-      rotation: loose.rotation,
-      source: "ocr",
-      landscapeDesign: false,
-      orientationAmbiguous: false,
-      words: loose.words,
-      ocrTimedOut: false,
-      ocrMs,
+    const probe: NameProbe = {
+      rotation,
+      buffer: turned,
+      words: ocr.words,
+      inAnchor: lastNameInAnchor(matched.boxes, input.profile, turnedHeight),
+      confidence: meanConfidence(matched.boxes),
     };
+    if (!best || betterProbe(probe, best)) best = probe;
   }
 
-  const fb = fallbackTurn(input.profile);
+  if (!best) return ambiguousStay(raw, ocrMs, false);
   return {
-    buffer: await rotateBuffer(raw, fb),
-    rotation: fb,
-    source: fb ? "profile" : "none",
-    landscapeDesign: false,
-    orientationAmbiguous: guessedTurn(fb),
-    words: [],
+    buffer: best.buffer,
+    rotation: best.rotation,
+    source: "ocr",
+    landscapeDesign: best.rotation === 0,
+    orientationAmbiguous: false,
+    words: best.words,
     ocrTimedOut: false,
     ocrMs,
   };

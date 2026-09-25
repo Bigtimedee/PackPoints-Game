@@ -15,11 +15,15 @@ export interface MaskProfile {
   matched: boolean;
   nameAnchor: NameAnchor;
   layoutClass: LayoutClass;
-  /** Portrait trading cards. Landscape is a horizontal design and is not auto-rotated. */
+  /**
+   * Explicit landscape flag for a horizontal card design. Nothing in production
+   * sets this today; `"landscape"` keeps the file as-is and paints only the
+   * profile band. Portrait sets stay `"portrait"`.
+   */
   cardOrientation: "portrait" | "landscape";
   /**
-   * Degrees that upright a landscape file of a portrait set when OCR cannot see the last name.
-   * That miss also paints the 180° mirror of the profile band. 0 means there is no profile turn.
+   * Kept on the profile for a known sideways scan. An OCR miss does not apply
+   * it: that case stays at 0° and covers every orientation's name band.
    */
   sidewaysFallbackDeg: 0 | 90 | 270;
   topBandPct: number;

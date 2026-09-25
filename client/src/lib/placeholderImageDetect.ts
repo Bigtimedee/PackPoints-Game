@@ -70,16 +70,6 @@ export interface CardImageValidity {
   acceptedSidewaysCard: boolean;
 }
 
-export function displayCardSize(
-  width: number,
-  height: number,
-  rotation = 0,
-): { width: number; height: number } {
-  const turns = ((rotation % 360) + 360) % 360;
-  if (turns === 90 || turns === 270) return { width: height, height: width };
-  return { width, height };
-}
-
 export function isTradingCardShape(width: number, height: number): boolean {
   const major = Math.max(width, height);
   const minor = Math.min(width, height);
@@ -91,9 +81,11 @@ export function isTradingCardShape(width: number, height: number): boolean {
 }
 
 /**
- * Client gate for a loaded scan. Portrait cards pass. A card-shaped landscape
- * file (aspect ≈ 1.40, or 90°/270° rotation) passes too — that is a portrait
- * scan stored sideways, not a banner. Wider images still fail.
+ * Client gate for a loaded scan. The bake and the reveal are already upright,
+ * so this uses the served bitmap's width and height. `imageRotation` is not
+ * applied: an upright slab with a stored 90°/270° must not be swapped into a
+ * wide aspect and rejected. A card-shaped landscape file (aspect ≈ 1.40)
+ * still passes. Wider images still fail.
  */
 export function evaluateCardImageValidity(input: {
   width: number;
@@ -104,7 +96,7 @@ export function evaluateCardImageValidity(input: {
   const height = input.height;
   const rotation = input.rotation ?? 0;
   const rawAspect = height > 0 ? width / height : Number.POSITIVE_INFINITY;
-  const displayed = displayCardSize(width, height, rotation);
+  const displayed = { width, height };
   const displayAspect = displayed.height > 0 ? displayed.width / displayed.height : Number.POSITIVE_INFINITY;
   const cardShaped = isTradingCardShape(displayed.width, displayed.height);
   const base = {

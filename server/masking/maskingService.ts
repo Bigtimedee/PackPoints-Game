@@ -400,7 +400,7 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       const landscape = isLandscapeJpegFile(cachedPath);
       const staleField = field !== 0 && cachedTurn !== field;
       const staleNote = note != null && cachedTurn !== note.rotation;
-      const staleSideways = field === 0 && cachedTurn === 0 && landscape && !note?.landscapeDesign;
+      const staleSideways = field === 0 && cachedTurn === 0 && landscape && !note?.landscapeDesign && !note?.coverBoth;
       if (!staleField && !staleNote && !staleSideways) return cachedName;
     } catch {
       // file missing

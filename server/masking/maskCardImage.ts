@@ -79,6 +79,75 @@ async function applyPercentRegions(
   return sharp(imageBuffer).composite(overlays).jpeg({ quality: 85 }).toBuffer();
 }
 
+function sameRegion(a: MaskRegion, b: MaskRegion): boolean {
+  return Math.abs(a.xPct - b.xPct) < 0.5
+    && Math.abs(a.yPct - b.yPct) < 0.5
+    && Math.abs(a.wPct - b.wPct) < 0.5
+    && Math.abs(a.hPct - b.hPct) < 0.5;
+}
+
+/**
+ * Region defined in the image after a clockwise `rotation`, expressed in the
+ * unrotated source. 90° CW sends a bottom band to the right edge; 270° CW
+ * sends it to the left edge.
+ */
+function regionInSource(region: MaskRegion, rotation: QuarterTurn): MaskRegion {
+  if (rotation === 0) return { ...region };
+  const x = region.xPct;
+  const y = region.yPct;
+  const right = x + region.wPct;
+  const bottom = y + region.hPct;
+  const corners = rotation === 90
+    ? [
+      [y, 100 - x],
+      [y, 100 - right],
+      [bottom, 100 - x],
+      [bottom, 100 - right],
+    ]
+    : rotation === 270
+      ? [
+        [100 - y, x],
+        [100 - y, right],
+        [100 - bottom, x],
+        [100 - bottom, right],
+      ]
+      : [
+        [100 - x, 100 - y],
+        [100 - right, 100 - y],
+        [100 - x, 100 - bottom],
+        [100 - right, 100 - bottom],
+      ];
+  const xs = corners.map((corner) => corner[0]);
+  const ys = corners.map((corner) => corner[1]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  return clampRegion({
+    ...region,
+    xPct: minX,
+    yPct: minY,
+    wPct: Math.max(...xs) - minX,
+    hPct: Math.max(...ys) - minY,
+  });
+}
+
+/**
+ * Profile band in the file as stored, plus that same band after a 90° and a
+ * 270° turn, mapped back onto the unrotated image. A full-width horizontal
+ * name and a full-height side name are both covered, with no gap through either.
+ */
+function coverNameBandsForBothOrientations(regions: MaskRegion[]): MaskRegion[] {
+  const covered = regions.map((region) => ({ ...region }));
+  for (const region of regions) {
+    for (const rotation of [90, 270] as const) {
+      const mapped = regionInSource(region, rotation);
+      if (mapped.wPct < 2 || mapped.hPct < 2) continue;
+      if (covered.some((existing) => sameRegion(existing, mapped))) continue;
+      covered.push(mapped);
+    }
+  }
+  return covered;
+}
+
 /** Profile band first, then the same band flipped 180° so a wrong turn still hides the name. */
 function coverBothNameBands(regions: MaskRegion[]): MaskRegion[] {
   const covered = regions.map((region) => ({ ...region }));
@@ -88,12 +157,7 @@ function coverBothNameBands(regions: MaskRegion[]): MaskRegion[] {
       yPct: 100 - (region.yPct + region.hPct),
     });
     if (mirror.wPct < 2 || mirror.hPct < 2) continue;
-    const already = covered.some((existing) =>
-      Math.abs(existing.xPct - mirror.xPct) < 0.5 &&
-      Math.abs(existing.yPct - mirror.yPct) < 0.5 &&
-      Math.abs(existing.wPct - mirror.wPct) < 0.5 &&
-      Math.abs(existing.hPct - mirror.hPct) < 0.5
-    );
+    const already = covered.some((existing) => sameRegion(existing, mirror));
     if (!already) covered.push(mirror);
   }
   return covered;
@@ -183,7 +247,11 @@ export async function maskCardImage(
     imageHeight: originalHeight,
     slabLayout,
   });
-  const regions = upright.orientationAmbiguous ? coverBothNameBands(plan.regions) : plan.regions;
+  const regions = !upright.orientationAmbiguous
+    ? plan.regions
+    : upright.rotation === 0
+      ? coverNameBandsForBothOrientations(plan.regions)
+      : coverBothNameBands(plan.regions);
 
   const maskedBuffer = await applyPercentRegions(upright.buffer, regions);
   const coverage = await assertOpaqueIdentityCover({

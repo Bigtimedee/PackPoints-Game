@@ -80,7 +80,7 @@ export async function terminateOcrRuntime(runtime: KillableRuntime): Promise<voi
 }
 
 function boxesFromRecognize(
-  result: { data?: { words?: Array<{ text?: string; bbox?: { x0: number; y0: number; x1: number; y1: number } }> } },
+  result: { data?: { words?: Array<{ text?: string; confidence?: number; bbox?: { x0: number; y0: number; x1: number; y1: number } }> } },
   scaleFactor: number,
 ): OcrWordBox[] {
   const words = result.data?.words || [];
@@ -89,12 +89,16 @@ function boxesFromRecognize(
     const text = (word.text || "").trim();
     const bbox = word.bbox;
     if (!text || !bbox) continue;
+    const confidence = typeof word.confidence === "number" && Number.isFinite(word.confidence)
+      ? word.confidence
+      : undefined;
     boxes.push({
       text,
       x: Math.round(bbox.x0 * scaleFactor),
       y: Math.round(bbox.y0 * scaleFactor),
       w: Math.round((bbox.x1 - bbox.x0) * scaleFactor),
       h: Math.round((bbox.y1 - bbox.y0) * scaleFactor),
+      ...(confidence != null ? { confidence } : {}),
     });
   }
   return boxes;
