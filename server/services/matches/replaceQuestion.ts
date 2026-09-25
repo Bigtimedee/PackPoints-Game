@@ -14,6 +14,7 @@ import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/im
 import { getOrValidateCardImage } from "../images/imageGate";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../../masking/maskProfiles";
+import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -77,6 +78,7 @@ async function findReplacementCard(
     const filtered = candidates.filter(c => {
       if (usedSet.has(c.id)) return false;
       if (!c.imageUrl || !c.player) return false;
+      if (isNonPlayerCard(c.player, c.description)) return false;
       if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.player })) {
         quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
         return false;
@@ -289,8 +291,7 @@ export async function replaceMatchQuestion(
       .orderBy(sql`RANDOM()`)
       .limit(200);
 
-    const wrongOptions = allPlayerNames
-      .map(c => c.player!)
+    const wrongOptions = omitNonPlayerNames(allPlayerNames.map(c => c.player))
       .filter(name => name !== playerName)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);

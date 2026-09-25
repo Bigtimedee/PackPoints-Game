@@ -13,7 +13,8 @@ export type GameCardImageErrorKind =
   | "honest"
   | "replace-pending"
   | "replace-button"
-  | "skip-button";
+  | "skip-button"
+  | "replace-failed";
 
 export function resolveGameCardImageErrorKind(opts: {
   showSkipButton?: boolean;

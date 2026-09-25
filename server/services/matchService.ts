@@ -9,6 +9,7 @@ import { getOrValidateCardImage } from "./images/imageGate";
 import { logCardDelivery } from "./telemetry/cardDelivery";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
+import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -74,10 +75,10 @@ class MatchService {
 
   async initialize() {
     const cards = await db.select().from(playableCards).where(eq(playableCards.isPlayable, true));
-    this.playerNames = cards.map(c => c.player).filter((p): p is string => !!p);
+    this.playerNames = omitNonPlayerNames(cards.map(c => c.player));
     if (this.playerNames.length === 0) {
       const legacyCards = await db.select().from(baseballCards);
-      this.playerNames = legacyCards.map(c => c.playerName);
+      this.playerNames = omitNonPlayerNames(legacyCards.map(c => c.playerName));
     }
     console.log(`[MatchService] Loaded ${this.playerNames.length} player names for answer options`);
   }
@@ -368,6 +369,7 @@ class MatchService {
       const preFilteredCards = rawPlayable.filter(card => {
         if (!card.imageUrl) return false;
         if (!card.player) return false;
+        if (isNonPlayerCard(card.player, card.description)) return false;
         if (!cardHasRealImage({
           cardId: card.id.toString(),
           imageUrl: card.imageUrl,
@@ -558,8 +560,11 @@ class MatchService {
       .where(eq(playableCards.id, availableSpare.cardId))
       .limit(1);
     
-    if (pcCard) {
+    if (pcCard && !isNonPlayerCard(pcCard.player, pcCard.description)) {
       replacementDbCard = playableCardToBaseballCard(pcCard);
+    } else if (pcCard) {
+      console.warn(`[MatchService] Replacement ${pcCard.id} (${pcCard.player}) is not a single player`);
+      return null;
     } else {
       const [bcCard] = await db
         .select()
@@ -569,8 +574,8 @@ class MatchService {
       replacementDbCard = bcCard || null;
     }
     
-    if (!replacementDbCard) {
-      console.error(`[MatchService] Replacement card ${availableSpare.cardId} not found in database`);
+    if (!replacementDbCard || isNonPlayerCard(replacementDbCard.playerName)) {
+      console.error(`[MatchService] Replacement card ${availableSpare.cardId} not found or not a single player`);
       return null;
     }
     
@@ -596,7 +601,7 @@ class MatchService {
   }
 
   private generateQuestionWithProxiedUrl(card: BaseballCard): GameQuestion {
-    const wrongOptions = this.playerNames
+    const wrongOptions = omitNonPlayerNames(this.playerNames)
       .filter(name => name !== card.playerName)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
@@ -619,7 +624,7 @@ class MatchService {
   }
 
   private generateQuestion(card: BaseballCard): GameQuestion {
-    const wrongOptions = this.playerNames
+    const wrongOptions = omitNonPlayerNames(this.playerNames)
       .filter(name => name !== card.playerName)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
@@ -954,6 +959,7 @@ class MatchService {
       const cardIdStr = card.id.toString();
       if (usedCardIds.has(cardIdStr)) return false;
       if (!card.imageUrl || !card.player) return false;
+      if (isNonPlayerCard(card.player, card.description)) return false;
       if (!cardHasRealImage({
         cardId: cardIdStr,
         imageUrl: card.imageUrl,
