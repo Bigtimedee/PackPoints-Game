@@ -20,7 +20,8 @@ export const SETS_POLISH = {
   indexTitle: "Sets",
   indexSub: "Play sets already in PackPTS.",
   shortShelfTitle: "A short shelf.",
-  shortShelfBody: "Integrated sets only. Play what’s here, or open Daily 5.",
+  shortShelfBody: "Integrated sets only. Play what's here, or open Daily 5.",
+  playThisSet: "Play this set",
   playTodayCue: "Play today’s stack",
   fanMade: "FAN MADE",
   stackHeading: "THE STACK",
@@ -91,19 +92,26 @@ export function honestCardCountLabel(cardCount: unknown): string {
   return n === 1 ? "1 card" : `${n} cards`;
 }
 
+/**
+ * Integrated sets have no maker. A blank username must not become "by Maker",
+ * a date, or AUTHORED. User-created sets with a real username keep provenance.
+ */
 export function formatSetMetaLine(opts: {
   makerUsername?: string | null;
   cardCount: unknown;
   createdAt?: string | null;
   authored?: boolean;
 }): string {
+  const maker = (opts.makerUsername || "").trim();
+  const showProvenance = opts.authored !== false && maker.length > 0;
   const parts: string[] = [];
-  const maker = (opts.makerUsername || "").trim() || "Maker";
-  parts.push(`by ${maker}`);
+  if (showProvenance) parts.push(`by ${maker}`);
   parts.push(honestCardCountLabel(opts.cardCount));
-  const date = formatAuthoredDate(opts.createdAt);
-  if (date) parts.push(date);
-  if (opts.authored !== false) parts.push("AUTHORED");
+  if (showProvenance) {
+    const date = formatAuthoredDate(opts.createdAt);
+    if (date) parts.push(date);
+    parts.push("AUTHORED");
+  }
   return parts.join(" · ");
 }
 
@@ -113,14 +121,15 @@ export function formatDetailMetaLine(opts: {
   createdAt?: string | null;
   authored?: boolean;
 }): string {
-  const maker = (opts.makerUsername || "").trim() || "Maker";
+  const maker = (opts.makerUsername || "").trim();
+  if (opts.authored === false || !maker) return "";
   const who = opts.coCreatorUsername?.trim()
     ? `by ${maker} & ${opts.coCreatorUsername.trim()}`
     : `by ${maker}`;
   const parts = [who];
   const date = formatAuthoredDate(opts.createdAt);
   if (date) parts.push(date);
-  if (opts.authored !== false) parts.push("AUTHORED");
+  parts.push("AUTHORED");
   return parts.join(" · ");
 }
 
