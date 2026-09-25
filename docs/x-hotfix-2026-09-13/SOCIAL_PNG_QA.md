@@ -45,7 +45,7 @@ For every exported PNG:
    - near-empty **dark** bands (text never inked)
 3. Optional: tesseract/OCR smoke — if available, fail on `□` and soft-warn if expected tokens are absent.
 
-Write a `QA_PASS.txt` (or CI check log) listing sizes + “no tofu”.
+Write `docs/x-hotfix-2026-09-13/QA_PASS.txt` (or a CI check log) listing sizes + “no tofu”. Do not put that note in `client/public`.
 
 ---
 
@@ -86,7 +86,7 @@ SOCIAL PNG QA
 [ ] getbbox + size >50KB + text-band sample PASS
 [ ] Visual: no □ / tofu
 [ ] PackPTS spelling + approved CTA
-[ ] QA_PASS.txt (or CI log) attached
+[ ] docs/x-hotfix-2026-09-13/QA_PASS.txt (or CI log) attached
 ```
 
 ---
