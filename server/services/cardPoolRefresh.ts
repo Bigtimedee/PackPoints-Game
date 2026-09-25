@@ -3,6 +3,7 @@ import { playableCards } from "@shared/schema";
 import { eq, and, lt, or, sql } from "drizzle-orm";
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
 import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
+import { withSourceFetchTimeout } from "./images/sourceFetch";
 import {
   isKillSwitchEnabled,
   writeAuditLog,
@@ -304,14 +305,10 @@ async function testImageUrl(url: string): Promise<TestImageResult> {
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), IMAGE_VALIDATION_TIMEOUT_MS);
-    
-    const response = await fetch(url, { 
+    const response = await withSourceFetchTimeout((signal) => fetch(url, {
       method: "HEAD",
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+      signal,
+    }), IMAGE_VALIDATION_TIMEOUT_MS);
     
     const contentType = response.headers.get("content-type") || undefined;
     

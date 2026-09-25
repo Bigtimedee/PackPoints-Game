@@ -8,6 +8,7 @@
  */
 
 import sharp from "sharp";
+import { withSourceFetchTimeout } from "./images/sourceFetch";
 
 export interface ImageAnalysisResult {
   isPlaceholder: boolean;
@@ -48,15 +49,11 @@ function cacheResult(url: string, result: ImageAnalysisResult): void {
 
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
+    return await withSourceFetchTimeout(async (signal) => {
     const response = await fetch(url, {
-      signal: controller.signal,
+      signal,
       headers: { "User-Agent": "PackPoints-ImageAnalyzer/1.0" }
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.log(`[ImageAnalyzer] Failed to fetch ${url}: HTTP ${response.status}`);
@@ -77,6 +74,7 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
 
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
+    }, FETCH_TIMEOUT_MS);
   } catch (error: any) {
     console.log(`[ImageAnalyzer] Error fetching ${url}: ${error.message}`);
     return null;

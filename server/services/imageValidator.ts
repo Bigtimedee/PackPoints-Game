@@ -3,6 +3,8 @@
  * Validates card images before they're used in gameplay
  */
 
+import { withSourceFetchTimeout } from "./images/sourceFetch";
+
 interface ImageValidationResult {
   valid: boolean;
   reason?: string;
@@ -35,18 +37,13 @@ export async function validateImageUrl(url: string | null | undefined): Promise<
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
-
-    const response = await fetch(url, {
+    const response = await withSourceFetchTimeout((signal) => fetch(url, {
       method: "HEAD",
-      signal: controller.signal,
+      signal,
       headers: {
         "User-Agent": "PackPoints-ImageValidator/1.0"
       }
-    });
-
-    clearTimeout(timeoutId);
+    }), VALIDATION_TIMEOUT_MS);
 
     if (!response.ok) {
       const result: ImageValidationResult = { 

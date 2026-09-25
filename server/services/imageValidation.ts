@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { playableCards, baseballCards } from "@shared/schema";
 import { eq, lt, isNull, or, and, sql } from "drizzle-orm";
+import { withSourceFetchTimeout } from "./images/sourceFetch";
 import {
   assertMutationAllowed,
   writeAuditLog,
@@ -75,18 +76,13 @@ async function validateImageUrl(url: string): Promise<ValidationResult> {
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
-
-    const response = await fetch(url, {
+    const response = await withSourceFetchTimeout((signal) => fetch(url, {
       method: "HEAD",
-      signal: controller.signal,
+      signal,
       headers: {
         "User-Agent": "PackPoints-ImageValidator/1.0"
       }
-    });
-
-    clearTimeout(timeoutId);
+    }), VALIDATION_TIMEOUT_MS);
 
     const contentType = response.headers.get("content-type") || undefined;
 
