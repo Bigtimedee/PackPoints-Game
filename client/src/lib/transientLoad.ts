@@ -1,3 +1,5 @@
+import { anonRequestHeaders } from "./anonFingerprint";
+
 /** One retry after a deploy 502/503 or a dropped connection. */
 export const TRANSIENT_RETRY_MS = 2_000;
 
@@ -44,6 +46,65 @@ export async function probeMaskedImageStatus(url: string, fetchImpl: typeof fetc
   } catch {
     return null;
   }
+}
+
+/** Wait from Retry-After, once, before a second POST /api/game/answer. */
+export function answerRetryDelayMs(input: {
+  status: number;
+  retryAfter: string | null;
+  alreadyRetried: boolean;
+}): number | null {
+  if (input.alreadyRetried || !isTransientHttpStatus(input.status)) return null;
+  const header = input.retryAfter?.trim() ?? "";
+  const seconds = Number(header);
+  if (header && Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(30, seconds) * 1000;
+  }
+  return TRANSIENT_RETRY_MS;
+}
+
+export interface GameAnswerResponse {
+  correct?: boolean;
+  correctAnswer?: string | null;
+  cardId?: string;
+  session?: unknown;
+  pointsEarned?: number;
+  idempotent?: boolean;
+}
+
+export async function postGameAnswer(
+  body: { sessionId: string; questionIndex: number; selectedAnswer: string },
+  deps?: {
+    fetchImpl?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
+  },
+): Promise<GameAnswerResponse> {
+  const fetchImpl = deps?.fetchImpl ?? fetch;
+  const sleep = deps?.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const send = () => fetchImpl("/api/game/answer", {
+    method: "POST",
+    headers: {
+      ...anonRequestHeaders(),
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  let res = await send();
+  const delay = answerRetryDelayMs({
+    status: res.status,
+    retryAfter: res.headers.get("retry-after"),
+    alreadyRetried: false,
+  });
+  if (delay != null) {
+    await sleep(delay);
+    res = await send();
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Answer failed (${res.status})`);
+  }
+  return await res.json() as GameAnswerResponse;
 }
 
 export function maskedImageRetrySrc(url: string, attempt: number): string {

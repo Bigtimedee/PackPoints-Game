@@ -46,6 +46,7 @@ import {
   SOLO_REPLACE_HARD_CAP_MS,
   type SoloReplacePhase,
 } from "@/lib/soloImageReplace";
+import { postGameAnswer } from "@/lib/transientLoad";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 import { notifyLeavingResults } from "@/lib/staleBuildClient";
 
@@ -264,16 +265,15 @@ export default function Game() {
       }
       const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
       const questionIndex = freshSession?.currentQuestionIndex ?? session?.currentQuestionIndex ?? 0;
-      const res = await apiRequest("POST", "/api/game/answer", {
+      return postGameAnswer({
         sessionId,
         questionIndex,
         selectedAnswer: answer,
       });
-      return res.json();
     },
     onSuccess: (data) => {
       setIsRevealed(true);
-      setRevealedCorrectAnswer(data.correctAnswer ?? null);
+      setRevealedCorrectAnswer(typeof data.correctAnswer === "string" ? data.correctAnswer : null);
       if (data.correct) {
         // Trigger marketplace listing fetch for user-created sets
         const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
@@ -284,7 +284,7 @@ export default function Game() {
           setListingTarget({ setId, cardId });
         }
       }
-      if (data.session) {
+      if (data.session && typeof data.session === "object") {
         queryClient.setQueryData(["/api/game/session", sessionId], data.session);
       }
       // Invalidate daily progress to update the header badge
