@@ -814,22 +814,22 @@ export default function Daily5Page() {
             </div>
             <h1 className="text-3xl font-bold" data-testid="text-d5-complete">Game Complete</h1>
             <p className="text-muted-foreground uppercase tracking-wider text-sm">DAILY 5</p>
-            <div className="grid grid-cols-3 gap-3 max-w-md mx-auto">
-              <div className="p-4 rounded-md bg-muted text-center">
-                <p className="text-3xl font-bold font-mono" data-testid="text-d5-final-score">
+            <div className="grid grid-cols-3 gap-3 items-stretch max-w-md mx-auto" data-testid="grid-d5-final-stats">
+              <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
+                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-d5-final-score">
                   {finishResult?.score ?? status?.entry?.score ?? 0}
                 </p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">PTS</p>
               </div>
-              <div className="p-4 rounded-md bg-muted text-center">
-                <p className="text-3xl font-bold font-mono">
+              <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
+                <p className="text-3xl font-bold font-mono whitespace-nowrap">
                   {Math.round(((finishResult?.correctCount ?? status?.entry?.correctCount ?? 0) / 5) * 100)}%
                 </p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Accuracy</p>
               </div>
-              <div className="p-4 rounded-md bg-muted text-center">
-                <p className="text-3xl font-bold font-mono" data-testid="text-d5-final-correct">
-                  {finishResult?.correctCount ?? status?.entry?.correctCount ?? 0} of 5
+              <div className="h-full p-4 rounded-md bg-muted text-center flex flex-col">
+                <p className="text-3xl font-bold font-mono whitespace-nowrap" data-testid="text-d5-final-correct">
+                  {finishResult?.correctCount ?? status?.entry?.correctCount ?? 0}/5
                 </p>
                 <p className="text-xs text-muted-foreground uppercase tracking-wider">Score</p>
               </div>
