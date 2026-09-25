@@ -4,16 +4,21 @@
  */
 import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { contentAssets, gameSets, playableCards, users } from "@shared/schema";
+import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
+import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
+import { publicSetShareUrl } from "@shared/setCoverUrl";
+import { contentAssets, gameSets, users } from "@shared/schema";
 import { db } from "../db";
+import { setIdPrefixFromShareSlug } from "../contentFactory/makerShareSlug";
 import { userSetPlayCountSql } from "../routes/userSetCounts";
-import { createdAtToIso, sanitizeCoverCardUrls, usablePublicImageUrl } from "../routes/userSetPreview";
+import { createdAtToIso, sanitizeCoverCardUrls } from "../routes/userSetPreview";
+import { MAKING_LAYER_EVENTS, logMakingLayerEvent, requestUserId } from "./makingLayerEvents";
 import {
   PUBLIC_SET_MIN_ELIGIBLE_CARDS,
   dedupeSetsByNameYearSport,
-  eligibleDealFilter,
   eligiblePlayableCardCountSql,
 } from "./playableSetEligibility";
+import { readyMaskedCoverUrls } from "./setCovers";
 
 export interface PublicSetListRow {
   id: string;
@@ -80,21 +85,8 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
   if (page.length === 0) return [];
 
   const ids = page.map((row) => row.id);
-  const [coverRows, shareRows] = await Promise.all([
-    db
-      .select({
-        gameSetId: playableCards.gameSetId,
-        imageUrl: playableCards.imageUrl,
-        createdAt: playableCards.createdAt,
-      })
-      .from(playableCards)
-      .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
-      .where(and(
-        inArray(playableCards.gameSetId, ids),
-        eligibleDealFilter("playable_cards"),
-        sql`LOWER(playable_cards.category) = LOWER(game_sets.sport)`,
-      ))
-      .orderBy(asc(playableCards.createdAt)),
+  const [covers, shareRows] = await Promise.all([
+    readyMaskedCoverUrls(ids),
     db
       .select({
         sourceEventId: contentAssets.sourceEventId,
@@ -107,19 +99,11 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
       )),
   ]);
 
-  const covers = new Map<string, string[]>();
-  for (const cover of coverRows) {
-    const list = covers.get(cover.gameSetId) ?? [];
-    if (list.length >= 8) continue;
-    if (cover.imageUrl) list.push(cover.imageUrl);
-    covers.set(cover.gameSetId, list);
-  }
-
   const shares = new Map<string, string | undefined>();
   for (const asset of shareRows) {
     if (!asset.sourceEventId) continue;
     const setId = asset.sourceEventId.replace(/^maker_set_/, "");
-    const url = usablePublicImageUrl((asset.metadata as { imageUrl?: string } | null)?.imageUrl);
+    const url = publicSetShareUrl((asset.metadata as { imageUrl?: string } | null)?.imageUrl);
     if (url) shares.set(setId, url);
   }
 
@@ -150,5 +134,88 @@ export async function handlePublicSetsIndex(req: Request, res: Response): Promis
   } catch (error) {
     console.error("[Sets] GET /api/sets error:", error);
     res.status(500).json({ error: "Failed to list sets" });
+  }
+}
+
+const publicSetColumns = {
+  id: gameSets.id,
+  setName: gameSets.setName,
+  sport: gameSets.sport,
+  brand: gameSets.brand,
+  year: gameSets.year,
+  makerNote: gameSets.makerNote,
+  isUserCreated: gameSets.isUserCreated,
+  createdByUserId: gameSets.createdByUserId,
+  coCreatorUserId: gameSets.coCreatorUserId,
+  createdAt: gameSets.createdAt,
+  cardCount: eligiblePlayableCardCountSql,
+  playCount: userSetPlayCountSql,
+  makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
+  coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
+};
+
+export async function handlePublicSetDetail(req: Request, res: Response): Promise<void> {
+  try {
+    const { id } = req.params;
+    const setRef = normalizePlaySetsSetRef(id) ?? id;
+    const dashedId = playSetsDashedUuid(setRef);
+    const [set] = await db.select(publicSetColumns).from(gameSets).where(eq(gameSets.id, dashedId ?? setRef)).limit(1);
+
+    let resolved = set;
+    if (!resolved) {
+      const prefix = playSetsSlugIdPrefix(setRef) ?? setIdPrefixFromShareSlug(id);
+      if (prefix) {
+        const [bySlug] = await db.select(publicSetColumns).from(gameSets)
+          .where(sql`replace(${gameSets.id}, '-', '') like ${prefix + "%"}`)
+          .limit(1);
+        resolved = bySlug;
+      }
+    }
+
+    if (!resolved) {
+      res.status(404).json({ error: "Set not found" });
+      return;
+    }
+
+    if (resolved.isUserCreated) {
+      logMakingLayerEvent(MAKING_LAYER_EVENTS.setViewed, requestUserId(req as any), {
+        setId: resolved.id,
+        isUserCreated: true,
+      });
+    }
+
+    const [asset] = await db.select({ metadata: contentAssets.metadata })
+      .from(contentAssets)
+      .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
+      .limit(1);
+    const shareImageUrl = publicSetShareUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
+
+    const coverUrls = (await readyMaskedCoverUrls([resolved.id])).get(resolved.id) ?? [];
+    const year = typeof resolved.year === "number" ? resolved.year : null;
+    const previewCards = coverUrls.map((imageUrl) => ({ imageUrl, year }));
+
+    const viewerId = requestUserId(req as any);
+    let playedToday = false;
+    if (viewerId) {
+      const today = getPackptsDayKey();
+      const tomorrow = addPackptsDays(today, 1);
+      const played = await db.execute(sql`
+        SELECT 1 AS hit
+        FROM game_sessions
+        WHERE user_id = ${viewerId}
+          AND status = 'completed'
+          AND (questions->0->'card'->>'gameSetId') = ${resolved.id}
+          AND completed_at IS NOT NULL
+          AND completed_at >= ${today}
+          AND completed_at < ${tomorrow}
+        LIMIT 1
+      `);
+      playedToday = played.rows.length > 0;
+    }
+
+    res.json({ ...resolved, shareImageUrl, previewCards, playedToday });
+  } catch (error) {
+    console.error("[Sets] GET /api/sets/:id error:", error);
+    res.status(500).json({ error: "Failed to get set" });
   }
 }

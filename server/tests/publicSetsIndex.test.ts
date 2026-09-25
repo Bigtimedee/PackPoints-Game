@@ -142,11 +142,12 @@ describe("GET /api/sets integrated shelf", () => {
     expect(row?.makerUsername ?? null).toBeNull();
     expect(row?.setName).toBe(integratedName);
     const covers = row?.coverCardUrls as string[];
-    expect(Array.isArray(covers)).toBe(true);
-    expect(covers.every((url) => url.startsWith("https://"))).toBe(true);
-    expect(covers.some((url) => url.includes("maker-set-1080.png"))).toBe(false);
-    expect(covers.some((url) => url.startsWith("http://"))).toBe(false);
-    expect(covers.length).toBe(GOOD - 1);
+    expect(covers).toEqual([]);
+    const rowJson = JSON.stringify(row);
+    expect(rowJson).not.toContain("Ken Griffey");
+    expect(rowJson).not.toContain("Nolan Ryan");
+    expect(rowJson).not.toContain("packpts.com/cards/");
+    expect(rowJson).not.toContain("maker-set-1080.png");
 
     const winner = body.sets.find((set) => set.id === dupeHighId);
     expect(Number(winner?.cardCount)).toBe(9);
@@ -185,6 +186,10 @@ describe("GET /api/sets integrated shelf", () => {
     expect(slice).toContain("handlePublicSetsIndex");
     expect(slice).not.toContain("is_user_created = true");
     const detail = routes.slice(routes.indexOf('app.get("/api/sets/:id"'), routes.indexOf('app.get("/api/sets",'));
-    expect(detail).toContain("eligiblePlayableCardCountSql");
+    expect(detail).toContain("handlePublicSetDetail");
+    expect(routes).toContain("handlePublicSetCover");
+    const detailSrc = readFileSync(new URL("../services/publicSets.ts", import.meta.url), "utf8");
+    expect(detailSrc).toContain("eligiblePlayableCardCountSql");
+    expect(detailSrc).not.toContain("playableCards.imageUrl");
   });
 });

@@ -92,12 +92,9 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
-import { eligibleDealFilter, eligiblePlayableCardCountSql, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
-import { handlePublicSetsIndex } from "./services/publicSets";
-import {
-  toPublicPreviewCard,
-  usablePublicImageUrl,
-} from "./routes/userSetPreview";
+import { eligiblePlayableCardCountSql, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
+import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicSets";
+import { handlePublicSetCover } from "./services/setCovers";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
@@ -119,9 +116,6 @@ import { handleCardIdUnmasked, handleMaskedToken, handleRevealToken, setUnmasked
 import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveReportedCardId, resolveRevealCard } from "./services/playImageAccess";
 import { handlePlayImageReport } from "./services/playImageReport";
 import { sendMaskedCard, sendUnmaskedCard } from "./services/playImageSend";
-import { setIdPrefixFromShareSlug } from "./contentFactory/makerShareSlug";
-import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
-
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
 const sessionAnswerLocks = new Map<string, Promise<void>>();
 
@@ -548,109 +542,14 @@ export async function registerRoutes(
     await sendMakerDigestEmail(maker.email, maker.username || "Maker", set.setName, playsToday);
   }
 
+  // Baked masked JPEG for a cover slot. No card id, no cold bake.
+  app.get("/api/sets/:setId/covers/:slot", (req, res) => {
+    void handlePublicSetCover(req, res);
+  });
+
   // Public: Get a single set by id with maker metadata and play count
-  app.get("/api/sets/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const setRef = normalizePlaySetsSetRef(id) ?? id;
-      const dashedId = playSetsDashedUuid(setRef);
-      const [set] = await db.select({
-        id: gameSets.id,
-        setName: gameSets.setName,
-        sport: gameSets.sport,
-        brand: gameSets.brand,
-        year: gameSets.year,
-        makerNote: gameSets.makerNote,
-        isUserCreated: gameSets.isUserCreated,
-        createdByUserId: gameSets.createdByUserId,
-        coCreatorUserId: gameSets.coCreatorUserId,
-        createdAt: gameSets.createdAt,
-        cardCount: eligiblePlayableCardCountSql,
-        playCount: userSetPlayCountSql,
-        makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
-        coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
-      }).from(gameSets).where(eq(gameSets.id, dashedId ?? setRef)).limit(1);
-
-      let resolved = set;
-      if (!resolved) {
-        const prefix = playSetsSlugIdPrefix(setRef) ?? setIdPrefixFromShareSlug(id);
-        if (prefix) {
-          const [bySlug] = await db.select({
-            id: gameSets.id,
-            setName: gameSets.setName,
-            sport: gameSets.sport,
-            brand: gameSets.brand,
-            year: gameSets.year,
-            makerNote: gameSets.makerNote,
-            isUserCreated: gameSets.isUserCreated,
-            createdByUserId: gameSets.createdByUserId,
-            coCreatorUserId: gameSets.coCreatorUserId,
-            createdAt: gameSets.createdAt,
-            cardCount: eligiblePlayableCardCountSql,
-            playCount: userSetPlayCountSql,
-            makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
-            coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
-          }).from(gameSets)
-            .where(sql`replace(${gameSets.id}, '-', '') like ${prefix + "%"}`)
-            .limit(1);
-          resolved = bySlug;
-        }
-      }
-
-      if (!resolved) return res.status(404).json({ error: "Set not found" });
-
-      if (resolved.isUserCreated) {
-        logMakingLayerEvent(MAKING_LAYER_EVENTS.setViewed, requestUserId(req as any), {
-          setId: resolved.id,
-          isUserCreated: true,
-        });
-      }
-
-      let shareImageUrl: string | undefined;
-      const [asset] = await db.select({ metadata: contentAssets.metadata, imagePath: contentAssets.imagePath })
-        .from(contentAssets)
-        .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
-        .limit(1);
-      const url = usablePublicImageUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
-      if (url) shareImageUrl = url;
-
-      const previewRows = await db.select({
-        imageUrl: playableCards.imageUrl,
-        set: playableCards.set,
-        description: playableCards.description,
-      }).from(playableCards)
-        .where(and(
-          eq(playableCards.gameSetId, resolved.id),
-          eligibleDealFilter("playable_cards"),
-          sql`LOWER(playable_cards.category) = LOWER(${resolved.sport})`,
-        ))
-        .limit(8);
-      const previewCards = previewRows.map(toPublicPreviewCard);
-
-      const viewerId = requestUserId(req as any);
-      let playedToday = false;
-      if (viewerId) {
-        const today = getPackptsDayKey();
-        const tomorrow = addPackptsDays(today, 1);
-        const played = await db.execute(sql`
-          SELECT 1 AS hit
-          FROM game_sessions
-          WHERE user_id = ${viewerId}
-            AND status = 'completed'
-            AND (questions->0->'card'->>'gameSetId') = ${resolved.id}
-            AND completed_at IS NOT NULL
-            AND completed_at >= ${today}
-            AND completed_at < ${tomorrow}
-          LIMIT 1
-        `);
-        playedToday = played.rows.length > 0;
-      }
-
-      res.json({ ...resolved, shareImageUrl, previewCards, playedToday });
-    } catch (error) {
-      console.error("[Sets] GET /api/sets/:id error:", error);
-      res.status(500).json({ error: "Failed to get set" });
-    }
+  app.get("/api/sets/:id", (req, res) => {
+    void handlePublicSetDetail(req, res);
   });
 
   // Public: integrated active sets the game can deal. UGC is not listed.

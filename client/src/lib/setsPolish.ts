@@ -3,7 +3,7 @@
  * Keep this file free of React so vitest can import it in node.
  */
 import { formatPackptsMonDay, isPackptsDayKey } from "@shared/packptsDay";
-import { isUsableImageUrl } from "./shareAssetUrl";
+import { isMaskedSetCoverUrl, publicSetShareUrl } from "@shared/setCoverUrl";
 
 export const SETS_POLISH = {
   canvas: "#0b0f16",
@@ -45,21 +45,38 @@ export function isStockFanUrl(url: string | null | undefined): boolean {
 
 export function sanitizeCoverCardUrls(urls: unknown): string[] {
   if (!Array.isArray(urls)) return [];
-  return urls
-    .filter((u): u is string => isUsableImageUrl(u) && !isStockFanUrl(u))
-    .map((u) => u.trim())
-    .slice(0, 8);
+  const out: string[] = [];
+  for (const url of urls) {
+    if (!isMaskedSetCoverUrl(url)) continue;
+    out.push(url.trim());
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+export function sanitizePreviewCards(cards: unknown): Array<{ imageUrl: string | null; year: number | null }> {
+  if (!Array.isArray(cards)) return [];
+  const out: Array<{ imageUrl: string | null; year: number | null }> = [];
+  for (const card of cards) {
+    if (!card || typeof card !== "object") continue;
+    const row = card as { imageUrl?: unknown; year?: unknown };
+    const imageUrl = isMaskedSetCoverUrl(row.imageUrl) ? row.imageUrl.trim() : null;
+    const year = typeof row.year === "number" && Number.isFinite(row.year) ? row.year : null;
+    if (!imageUrl && year == null) continue;
+    out.push({ imageUrl, year });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 export type SetCoverSource =
   | { kind: "surfaceA"; src: string }
   | { kind: "stack"; urls: string[] };
 
-/** Runtime Surface A wins. Stock fan never counts as a cover. */
+/** Runtime Surface A wins. Stock fan and raw card photos never count as a cover. */
 export function resolveSetCover(shareImageUrl: unknown, cardUrls: unknown): SetCoverSource {
-  if (isUsableImageUrl(shareImageUrl) && !isStockFanUrl(shareImageUrl)) {
-    return { kind: "surfaceA", src: shareImageUrl.trim() };
-  }
+  const share = publicSetShareUrl(shareImageUrl);
+  if (share) return { kind: "surfaceA", src: share };
   return { kind: "stack", urls: sanitizeCoverCardUrls(cardUrls) };
 }
 

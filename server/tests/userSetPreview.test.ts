@@ -8,18 +8,25 @@ import {
 } from "../routes/userSetPreview";
 
 describe("toPublicPreviewCard", () => {
-  it("strips player and description from the public payload", () => {
+  it("strips player, description, and raw photo URLs from the public payload", () => {
+    const setId = "74885a41-2043-4b7c-ab58-f9e16c05e2e3";
+    const masked = `/api/sets/${setId}/covers/0`;
     const preview = toPublicPreviewCard({
-      imageUrl: "https://packpts.com/api/card-photos/abc",
+      imageUrl: masked,
       set: "1987 Topps",
-      description: "1987 Topps — Mike Trout",
+      description: "1987 Topps Mike Trout",
       player: "Mike Trout",
     });
     expect(preview).toEqual({
-      imageUrl: "https://packpts.com/api/card-photos/abc",
+      imageUrl: masked,
       year: 1987,
     });
-    expect(JSON.stringify(preview)).not.toMatch(/Trout|Mike/i);
+    expect(toPublicPreviewCard({
+      imageUrl: "https://cdn.bubble.io/d112/crop_image",
+      set: "1987 Topps",
+      player: "Joe Montana",
+    }).imageUrl).toBeNull();
+    expect(JSON.stringify(preview)).not.toMatch(/Trout|Mike|Montana/i);
   });
 
   it("drops stock fan and junk URLs", () => {
@@ -52,18 +59,18 @@ describe("createdAtToIso", () => {
 
 describe("sanitizeCoverCardUrls", () => {
   it("accepts a JSON array from SQL and drops unusable slots", () => {
+    const masked = "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/1";
     expect(
       sanitizeCoverCardUrls(
         JSON.stringify([
-          "https://packpts.com/api/card-photos/a",
+          "https://cdn.bubble.io/d112/crop_image",
           "",
           "/assets/maker-set-1080.png",
           "/generated/share/x.png",
+          masked,
+          "/api/images/card/579e675f-b5c1-4cd1-89c2-d052005ab2f8",
         ]),
       ),
-    ).toEqual([
-      "https://packpts.com/api/card-photos/a",
-      "/generated/share/x.png",
-    ]);
+    ).toEqual([masked]);
   });
 });

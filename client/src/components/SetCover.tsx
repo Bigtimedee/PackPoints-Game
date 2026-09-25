@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { MaskedCardImage } from "@/components/MaskedCardImage";
+import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
 import {
   SETS_POLISH,
   resolveSetCover,
@@ -155,7 +156,7 @@ export function TheStack({
 }: {
   cards: Array<{ imageUrl: string | null; year: number | null }>;
 }) {
-  const withArt = cards.filter((c) => c.imageUrl);
+  const withArt = cards.filter((c) => isMaskedSetCoverUrl(c.imageUrl));
   const urls = withArt.map((c) => c.imageUrl as string);
   const years = withArt.map((c) => c.year);
   return (

@@ -23,15 +23,25 @@ describe("resolveSetCover", () => {
     expect(cover).toEqual({ kind: "surfaceA", src: "/generated/share/2026-09-08/qa.png" });
   });
 
-  it("never treats stock fan as a cover once we can stack real cards", () => {
+  it("never treats stock fan or a raw scan as a cover once a masked URL exists", () => {
+    const masked = [
+      "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/0",
+      "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/1",
+    ];
     const cover = resolveSetCover("/assets/maker-set-1080.png", [
-      "https://packpts.com/api/card-photos/a",
-      "https://packpts.com/api/card-photos/b",
+      "https://cdn.bubble.io/d112/JOE_MONTANA/resize",
+      ...masked,
     ]);
     expect(cover.kind).toBe("stack");
     if (cover.kind === "stack") {
-      expect(cover.urls).toHaveLength(2);
+      expect(cover.urls).toEqual(masked);
     }
+  });
+
+  it("drops a raw card photo that was stored as the share cover", () => {
+    const masked = "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/0";
+    const cover = resolveSetCover("https://cdn.bubble.io/d112/JOE_MONTANA/resize", [masked]);
+    expect(cover).toEqual({ kind: "stack", urls: [masked] });
   });
 
   it("falls back to an empty stack when there is no usable cover", () => {
