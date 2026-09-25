@@ -1,11 +1,14 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
+import { scoreCardFrame } from "@shared/scoreCardStack";
 import {
   SCORE_SHARE_STRIP,
   composeScoreSharePng,
   maskedTileSource,
   paintScoreShareStrip,
   restoreScoreCardBand,
+  SCORE_STRIP_CLEARANCE,
+  scoreShareGlowBand,
   scoreShareStripLayout,
   scoreShareStripRowCapacity,
   sessionShareTileSources,
@@ -159,13 +162,11 @@ describe("score share strip paint", () => {
     expect(new Set(five.map((box) => box.y)).size).toBe(1);
     const fiveGaps = five.slice(1).map((box, i) => box.x - (five[i].x + five[i].w));
     expect(new Set(fiveGaps)).toEqual(new Set([SCORE_SHARE_STRIP.gap]));
-    expect(Math.max(...five.map((box) => box.y + box.h))).toBeLessThan(240);
 
     const ten = scoreShareStripLayout(10);
     expect(ten).toHaveLength(10);
     expect(ten.every((box) => box.w === 64 && box.h === 90)).toBe(true);
     expect(new Set(ten.map((box) => box.y)).size).toBe(1);
-    expect(Math.max(...ten.map((box) => box.y + box.h))).toBeLessThan(240);
 
     const twelve = scoreShareStripLayout(12);
     expect(twelve.every((box) => box.w === 64 && box.h === 90)).toBe(true);
@@ -175,22 +176,33 @@ describe("score share strip paint", () => {
     expect(fifteen).toHaveLength(15);
     expect(fifteen.every((box) => box.w === 56 && box.h === 79)).toBe(true);
     expect(new Set(fifteen.map((box) => box.y)).size).toBe(1);
-    expect(Math.max(...fifteen.map((box) => box.y + box.h))).toBeLessThanOrEqual(246);
 
     const twenty = scoreShareStripLayout(20);
     expect(twenty).toHaveLength(20);
     expect(new Set(twenty.map((box) => box.y)).size).toBe(2);
-    expect(twenty.every((box) => box.w === twenty[0].w && box.h === twenty[0].h)).toBe(true);
+    expect(twenty.every((box) => box.w === 64 && box.h === 90)).toBe(true);
     expect(twenty[0].w / twenty[0].h).toBeCloseTo(64 / 90, 2);
-    expect(twenty[0].w).not.toBe(64);
-    expect(Math.max(...twenty.map((box) => box.y + box.h))).toBeLessThanOrEqual(246);
     expect(scoreShareStripRowCapacity()).toBeGreaterThanOrEqual(10);
 
-    const serverStrip = { x: 80, y: 136, w: 5 * 30 + 4 * 8, h: 42 };
-    expect(SCORE_SHARE_STRIP.clearX).toBeLessThanOrEqual(serverStrip.x);
-    expect(SCORE_SHARE_STRIP.clearY).toBeLessThanOrEqual(serverStrip.y);
-    expect(SCORE_SHARE_STRIP.clearX + SCORE_SHARE_STRIP.clearW).toBeGreaterThanOrEqual(serverStrip.x + serverStrip.w);
-    expect(SCORE_SHARE_STRIP.clearY + SCORE_SHARE_STRIP.clearH).toBeGreaterThanOrEqual(serverStrip.y + serverStrip.h);
+    for (const count of [5, 10, 15, 20]) {
+      const frame = scoreCardFrame(count);
+      const bottom = Math.max(...frame.boxes.map((box) => box.y + box.h));
+      expect(bottom).toBe(frame.stripBottom);
+      expect(frame.scoreInkTop - bottom).toBeGreaterThanOrEqual(SCORE_STRIP_CLEARANCE);
+      expect(SCORE_STRIP_CLEARANCE).toBe(36);
+      expect(Math.abs(frame.topGap - frame.bottomGap)).toBeLessThanOrEqual(1);
+      const glow = scoreShareGlowBand(count);
+      expect(glow.y).toBeLessThanOrEqual(frame.stripY);
+      expect(glow.y + glow.h).toBeGreaterThanOrEqual(frame.stripBottom);
+      expect(glow.y + glow.h).toBeLessThanOrEqual(frame.scoreInkTop);
+    }
+
+    const serverStrip = { x: 80, y: scoreCardFrame(5).stripY, w: 5 * 30 + 4 * 8, h: 42 };
+    const glow = scoreShareGlowBand(5);
+    expect(glow.x).toBeLessThanOrEqual(serverStrip.x);
+    expect(glow.y).toBeLessThanOrEqual(serverStrip.y);
+    expect(glow.x + glow.w).toBeGreaterThanOrEqual(serverStrip.x + serverStrip.w);
+    expect(glow.y + glow.h).toBeGreaterThanOrEqual(serverStrip.y + serverStrip.h);
   });
 
   it("repaints the strip band with the score-card radial glow, not a flat canvas fill", () => {

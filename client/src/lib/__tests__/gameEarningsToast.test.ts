@@ -77,9 +77,14 @@ describe("Game Complete still shows the session total", () => {
   it("Daily 5 Game Complete score still renders and the in-play total is gone", () => {
     expect(daily5Src).not.toContain('data-testid="text-d5-score"');
     expect(daily5Src).toContain('data-testid="text-d5-complete">Game Complete');
-    expect(daily5Src).toContain('data-testid="text-d5-final-score"');
-    const results = sliceBetween(daily5Src, 'data-testid="text-d5-final-score"', "PTS");
-    expect(results).toContain("finishResult?.score");
+    const playing = sliceBetween(daily5Src, 'if (gameState === "playing" && currentCard)', 'if (gameState === "results")');
+    expect(playing).not.toContain("finishResult?.score");
+    expect(playing).not.toContain("d5Points");
+    const results = sliceBetween(daily5Src, 'if (gameState === "results")', "ShareResultCard");
+    expect(results).toContain("const d5Points = finishResult?.score ?? status?.entry?.score ?? 0");
+    expect(results).toContain('data-testid="text-d5-final-score"');
+    expect(results).toContain("{d5Points}");
+    expect(results).not.toContain("pointsEarned");
   });
 });
 

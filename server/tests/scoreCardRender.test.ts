@@ -24,6 +24,7 @@ import {
   SCORE_CARD_COLORS,
 } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
+import { scoreCardStackForCount } from "@shared/scoreCardStack";
 
 const TODAY = "2026-09-05";
 const created: string[] = [];
@@ -253,8 +254,9 @@ describe("score card PNG contract", () => {
     expect(meta.height).toBe(1080);
 
     const startX = pipStartX(5);
-    expect(await regionHasColor(result.imagePath, 360, 230, 720, 430, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 200, 660, 880, 730, isNearWhite)).toBe(true);
+    const frame = scoreCardStackForCount(5);
+    expect(await regionHasColor(result.imagePath, 360, frame.scoreInkTop + 8, 720, frame.scoreBaseline - 8, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 200, frame.headlineBaseline - 20, 880, frame.headlineBaseline - 4, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, startX, PIP_Y, startX + PIP_SIZE, PIP_Y + PIP_SIZE, isGreen)).toBe(true);
@@ -274,8 +276,8 @@ describe("score card PNG contract", () => {
       PIP_Y + PIP_SIZE,
       isGreen,
     )).toBe(false);
-    expect(await regionHasColor(result.imagePath, 82, 138, 108, 156, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 89, 167, 101, 169, isGold)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 82, frame.stripY + 4, 108, frame.stripY + 20, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 89, frame.stripY + 31, 101, frame.stripY + 33, isGold)).toBe(true);
   });
 });
 

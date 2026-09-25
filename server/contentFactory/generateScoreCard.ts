@@ -21,6 +21,7 @@ import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 import { getPackptsDayKey, isPackptsDayKey, PACKPTS_DAY_TZ } from "@shared/packptsDay";
+import { scoreCardStackForCount } from "@shared/scoreCardStack";
 import { buildEmbeddedFontCss, loadScoreCardFonts, measureText, textToPath } from "./fonts";
 
 export const SHARE_URL_PREFIX = "/generated/share";
@@ -96,7 +97,8 @@ const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "
 
 export const PIP_SIZE = 56;
 export const PIP_GAP = 14;
-export const PIP_Y = 560;
+/** Pip row for a 5-card block. Other counts use `scoreCardStackForCount`. */
+export const PIP_Y = scoreCardStackForCount(5).pipY;
 
 const STRIP_TILE_W = 30;
 const STRIP_TILE_H = 42;
@@ -228,15 +230,16 @@ export function buildPipsSvg(
   const filled = Math.max(0, Math.min(correctCount, count));
   const skipPips = Math.max(0, Math.min(skipped, count - filled));
   const startX = pipStartX(count);
+  const pipY = scoreCardStackForCount(Math.max(1, scored)).pipY;
   return Array.from({ length: count }, (_, i) => {
     const x = startX + i * (PIP_SIZE + PIP_GAP);
     if (i < filled) {
-      return `<rect x="${x}" y="${PIP_Y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="${SCORE_CARD_COLORS.green}"/>`;
+      return `<rect x="${x}" y="${pipY}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="${SCORE_CARD_COLORS.green}"/>`;
     }
     if (i < filled + skipPips) {
-      return skippedPipSvg(x, PIP_Y);
+      return skippedPipSvg(x, pipY);
     }
-    return `<rect x="${x}" y="${PIP_Y}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
+    return `<rect x="${x}" y="${pipY}" width="${PIP_SIZE}" height="${PIP_SIZE}" rx="12" fill="none" stroke="#3F4654" stroke-width="3"/>`;
   }).join("");
 }
 
@@ -280,24 +283,25 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const numWidth = measureText(fonts.bold, scoreNum, scoreSize);
   const denWidth = measureText(fonts.bold, scoreDen, scoreSize);
   const scoreX = cx - (numWidth + denWidth) / 2;
+  const frame = scoreCardStackForCount(Math.max(1, total));
 
   const outlined = [
     textToPath(fonts.bold, eyebrow, 80, 108, 22, muted, { letterSpacing: 4 }),
     identity
       ? textToPath(fonts.bold, identity, 1000, 108, 22, muted, { anchor: "end", letterSpacing: 2 })
       : "",
-    textToPath(fonts.bold, scoreNum, scoreX, 400, scoreSize, ink),
-    textToPath(fonts.bold, scoreDen, scoreX + numWidth, 400, scoreSize, muted),
-    textToPath(fonts.semibold, pointsLabel, cx, 470, 32, muted, { anchor: "middle" }),
+    textToPath(fonts.bold, scoreNum, scoreX, frame.scoreBaseline, scoreSize, ink),
+    textToPath(fonts.bold, scoreDen, scoreX + numWidth, frame.scoreBaseline, scoreSize, muted),
+    textToPath(fonts.semibold, pointsLabel, cx, frame.ptsBaseline, 32, muted, { anchor: "middle" }),
     statusLine
-      ? textToPath(fonts.semibold, statusLine, cx, 518, 28, muted, { anchor: "middle" })
+      ? textToPath(fonts.semibold, statusLine, cx, frame.statusBaseline, 28, muted, { anchor: "middle" })
       : "",
-    textToPath(fonts.bold, headline, cx, 700, 48, ink, { anchor: "middle" }),
+    textToPath(fonts.bold, headline, cx, frame.headlineBaseline, 48, ink, { anchor: "middle" }),
     textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
     textToPath(fonts.semibold, footerCta, 1000, 978, 26, ink, { anchor: "end" }),
   ].filter(Boolean).join("\n  ");
 
-  const strip = isDaily5Mode ? buildMaskedStripSvg() : "";
+  const strip = isDaily5Mode ? buildMaskedStripSvg(STRIP_X, frame.stripY) : "";
   const desc = [
     eyebrow,
     identity,
