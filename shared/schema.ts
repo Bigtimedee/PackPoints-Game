@@ -2085,6 +2085,8 @@ export const gameSets = pgTable("game_sets", {
   setName: text("set_name").notNull(),
   league: text("league"),
   isActive: boolean("is_active").notNull().default(true),
+  /** Public Daily 5 label uses set_name only when this is true. Default false. */
+  titleVerified: boolean("title_verified").notNull().default(false),
   marketplaceKeywords: jsonb("marketplace_keywords").$type<string[]>().notNull().default([]),
   cardhedgeSetQuery: text("cardhedge_set_query"), // Exact query string for Card Hedge API
   cardhedgeCategory: text("cardhedge_category"), // Card Hedge category (Baseball, Basketball, etc.)
@@ -2114,6 +2116,7 @@ export const updateGameSetSchema = z.object({
   brand: z.string().min(1).optional(),
   marketplaceKeywords: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
+  titleVerified: z.boolean().optional(),
   cardhedgeSetQuery: z.string().optional(),
   cardhedgeCategory: z.string().optional(),
   makerNote: z.string().max(140).optional(),

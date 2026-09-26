@@ -35,6 +35,7 @@ import {
   loadDaily5DealCards,
   toPublicDaily5Status,
 } from "../services/daily5Service";
+import { verifiedGameSetTitle } from "../services/gameSetTitles";
 
 const stamp = randomUUID().slice(0, 8);
 const alphaId = randomUUID();
@@ -202,6 +203,7 @@ describe("Daily 5 rotation math", () => {
   it("deals through the shared eligibility module", () => {
     const service = readFileSync(new URL("../services/daily5Service.ts", import.meta.url), "utf8");
     const route = readFileSync(new URL("../routes.ts", import.meta.url), "utf8");
+    expect(service).toContain("verifiedGameSetTitle");
     expect(service).toContain("loadActiveIntegratedSets");
     expect(service).toContain('eligibleDealFilter("playable_cards")');
     expect(service).not.toContain("cardsImportedCount");
@@ -220,12 +222,12 @@ describe("Daily 5 rotation against the shared roster", () => {
 
   beforeAll(async () => {
     await db.insert(gameSets).values([
-      { id: alphaId, sport: "baseball", brand: "Topps", year: 1891, setName: `D5 Alpha ${stamp}`, isUserCreated: false, isActive: true, createdAt: new Date("2024-01-01T00:00:00.000Z") },
-      { id: betaId, sport: "baseball", brand: "Topps", year: 1892, setName: `D5 Beta ${stamp}`, isUserCreated: false, isActive: true, createdAt: new Date("2024-06-01T00:00:00.000Z") },
-      { id: thinId, sport: "baseball", brand: "Topps", year: 1893, setName: `D5 Thin ${stamp}`, isUserCreated: false, isActive: true, createdAt: new Date("2024-02-01T00:00:00.000Z") },
-      { id: ugcId, sport: "baseball", brand: "Topps", year: 1894, setName: `D5 UGC ${stamp}`, isUserCreated: true, isActive: true, createdAt: new Date("2024-01-15T00:00:00.000Z") },
-      { id: inactiveId, sport: "baseball", brand: "Topps", year: 1895, setName: `D5 Inactive ${stamp}`, isUserCreated: false, isActive: false, createdAt: new Date("2024-01-20T00:00:00.000Z") },
-      { id: storedSetId, sport: "baseball", brand: "Topps", year: 1896, setName: `D5 Stored ${stamp}`, isUserCreated: false, isActive: true, createdAt: new Date("2023-01-01T00:00:00.000Z") },
+      { id: alphaId, sport: "baseball", brand: "Topps", year: 1891, setName: `D5 Alpha ${stamp}`, isUserCreated: false, isActive: true, titleVerified: true, createdAt: new Date("2024-01-01T00:00:00.000Z") },
+      { id: betaId, sport: "baseball", brand: "Topps", year: 1892, setName: `D5 Beta ${stamp}`, isUserCreated: false, isActive: true, titleVerified: true, createdAt: new Date("2024-06-01T00:00:00.000Z") },
+      { id: thinId, sport: "baseball", brand: "Topps", year: 1893, setName: `D5 Thin ${stamp}`, isUserCreated: false, isActive: true, titleVerified: true, createdAt: new Date("2024-02-01T00:00:00.000Z") },
+      { id: ugcId, sport: "baseball", brand: "Topps", year: 1894, setName: `D5 UGC ${stamp}`, isUserCreated: true, isActive: true, titleVerified: true, createdAt: new Date("2024-01-15T00:00:00.000Z") },
+      { id: inactiveId, sport: "baseball", brand: "Topps", year: 1895, setName: `D5 Inactive ${stamp}`, isUserCreated: false, isActive: false, titleVerified: true, createdAt: new Date("2024-01-20T00:00:00.000Z") },
+      { id: storedSetId, sport: "baseball", brand: "Topps", year: 1896, setName: `D5 Stored ${stamp}`, isUserCreated: false, isActive: true, titleVerified: true, createdAt: new Date("2023-01-01T00:00:00.000Z") },
     ]);
 
     await db.insert(playableCards).values([
@@ -398,6 +400,7 @@ describe("Daily 5 rotation against the shared roster", () => {
       setName: `D5 Late Add ${stamp}`,
       isUserCreated: false,
       isActive: true,
+      titleVerified: true,
       createdAt: new Date("2025-01-01T00:00:00.000Z"),
     });
     await db.insert(playableCards).values(PLAYERS.map((player) => goodCard(extraId, player)));
@@ -424,6 +427,7 @@ describe("Daily 5 rotation against the shared roster", () => {
     expect(body.challenge?.date).toBe("2099-06-15");
     expect(body.setName).toBeTruthy();
     expect(body.challenge?.setName).toBe(body.setName);
+    expect(body.setName).not.toMatch(/\d+\s+cards/);
     expect(body.challenge).not.toHaveProperty("seed");
     expect(JSON.stringify(body)).not.toContain("cardId");
     for (const name of PLAYERS) {
@@ -491,5 +495,22 @@ describe("Daily 5 rotation against the shared roster", () => {
     expect(matchCard).toContain("1V1 MATCH");
     expect(matchCard).toContain("2/5");
     expect(matchCard).not.toContain("DAILY 5");
+  });
+
+  it("returns null for a set whose title is not verified", async () => {
+    const hiddenId = randomUUID();
+    setIds.push(hiddenId);
+    await db.insert(gameSets).values({
+      id: hiddenId,
+      sport: "baseball",
+      brand: "Topps",
+      year: 1897,
+      setName: `D5 Unverified ${stamp}`,
+      isUserCreated: false,
+      isActive: true,
+      titleVerified: false,
+    });
+    expect(await verifiedGameSetTitle(hiddenId)).toBeNull();
+    expect(await verifiedGameSetTitle(alphaId)).toBe(`D5 Alpha ${stamp}`);
   });
 });

@@ -214,6 +214,53 @@ describe("Beat-me 1080 palette + streak overlay", () => {
     });
     expect(noStreak).not.toContain("streak");
   });
+
+  it("prints the Daily 5 set name under the score and omits it when absent", () => {
+    const name = "1987 Topps Football";
+    const svg = buildScoreCardSvg({
+      username: "dave",
+      score: 400,
+      correctCount: 4,
+      totalQuestions: 5,
+      mode: "daily5",
+      date: TODAY,
+      setName: name,
+    });
+    const desc = svg.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
+    expect(desc).toContain("4/5");
+    expect(desc.indexOf(name)).toBeGreaterThan(desc.indexOf("4/5"));
+    expect(desc).not.toContain("...");
+    expect(desc).not.toContain(`${name.slice(0, 8)}...`);
+
+    const hidden = buildScoreCardSvg({
+      username: "dave",
+      score: 400,
+      correctCount: 4,
+      totalQuestions: 5,
+      mode: "daily5",
+      date: TODAY,
+    });
+    expect(hidden).not.toContain(name);
+
+    const match = buildScoreCardSvg({
+      username: "dave",
+      score: 400,
+      correctCount: 4,
+      totalQuestions: 5,
+      mode: "1v1",
+      date: TODAY,
+      setName: name,
+    });
+    expect(match).not.toContain(name);
+
+    const challenge = buildChallengeShareSvg({
+      correctCount: 4,
+      date: TODAY,
+      setName: name,
+    });
+    const challengeDesc = challenge.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
+    expect(challengeDesc.indexOf(name)).toBeGreaterThan(challengeDesc.indexOf("4/5"));
+  });
 });
 
 describe("score card PNG contract", () => {

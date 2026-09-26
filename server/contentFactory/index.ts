@@ -46,6 +46,7 @@ export interface Daily5FinishedEvent {
   rank?: number;
   streak?: number;
   date: string;
+  setName?: string | null;
 }
 
 async function getUsername(userId: string): Promise<string> {
@@ -239,6 +240,7 @@ export async function onDaily5Finished(event: Daily5FinishedEvent): Promise<{ as
         rank: event.rank,
         streak: event.streak,
         date: event.date,
+        setName: event.setName || undefined,
       },
     }).returning();
 
@@ -251,6 +253,7 @@ export async function onDaily5Finished(event: Daily5FinishedEvent): Promise<{ as
       streak: event.streak,
       rank: event.rank,
       date: event.date,
+      setName: event.setName || undefined,
     };
 
     const result = await generateScoreCard(input, asset.id);

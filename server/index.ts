@@ -469,6 +469,16 @@ app.use((req, res, next) => {
   }
 
   try {
+    const { backfillVerifiedSetTitlesOnce } = await import("./services/gameSetTitles");
+    const verifiedTitles = await backfillVerifiedSetTitlesOnce();
+    if (verifiedTitles > 0) {
+      console.log(`[StartupBackfill] Verified ${verifiedTitles} game set titles`);
+    }
+  } catch (err) {
+    console.error("[StartupBackfill] Set title backfill failed:", err);
+  }
+
+  try {
     const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");
     const result = await backfillProgressForFinishedMatches();
     if (result.matchesProcessed > 0) {

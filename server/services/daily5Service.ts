@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { db } from "../db";
 import { 
   dailyChallenges, dailyChallengeCards, dailyChallengeEntries,
-  playableCards, gameSets, users,
+  playableCards, users,
   type DailyChallenge, type DailyChallengeCard, type DailyChallengeEntry,
   type DailyChallengeStatus, type PlayableCard
 } from "@shared/schema";
@@ -18,6 +18,7 @@ import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { loadActiveIntegratedSets, type ActiveIntegratedSet } from "./integratedDealSets";
 import { eligibleDealFilter, PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "./playableSetEligibility";
 import { daily5RotationCandidates } from "./daily5Rotation";
+import { verifiedGameSetTitle } from "./gameSetTitles";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -330,7 +331,7 @@ export class Daily5Service {
       : challenge;
 
     const setName = freshChallenge.setId
-      ? await this.lookupSetName(freshChallenge.setId)
+      ? await verifiedGameSetTitle(freshChallenge.setId)
       : null;
 
     let hasPlayed = false;
@@ -364,15 +365,6 @@ export class Daily5Service {
       timeUntilStart: startsAt > clock ? startsAt - clock : 0,
       timeUntilEnd: endsAt > clock ? endsAt - clock : 0,
     };
-  }
-
-  private async lookupSetName(setId: string): Promise<string | null> {
-    const [row] = await db
-      .select({ setName: gameSets.setName })
-      .from(gameSets)
-      .where(eq(gameSets.id, setId))
-      .limit(1);
-    return row?.setName ?? null;
   }
 
   async startChallenge(userId: string): Promise<{

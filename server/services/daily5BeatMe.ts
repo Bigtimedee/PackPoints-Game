@@ -2,6 +2,7 @@ import { db } from "../db";
 import { dailyChallengeEntries, dailyChallenges, users } from "@shared/schema";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { getPackptsDayKey, PACKPTS_DAY_TZ } from "@shared/packptsDay";
+import { verifiedGameSetTitle } from "./gameSetTitles";
 import {
   buildBeatMePath,
   buildBeatMeUrl,
@@ -29,6 +30,7 @@ export async function createBeatMeFromSession(userId: string): Promise<{
   timezone: string;
   correctCount: number;
   displayName?: string;
+  setName: string | null;
 }> {
   const today = getPackptsDayKey();
 
@@ -77,6 +79,8 @@ export async function createBeatMeFromSession(userId: string): Promise<{
     userId,
   });
 
+  const setName = challenge.setId ? await verifiedGameSetTitle(challenge.setId) : null;
+
   return {
     token,
     path: buildBeatMePath(token),
@@ -85,5 +89,6 @@ export async function createBeatMeFromSession(userId: string): Promise<{
     timezone: PACKPTS_DAY_TZ,
     correctCount: s,
     displayName,
+    setName,
   };
 }

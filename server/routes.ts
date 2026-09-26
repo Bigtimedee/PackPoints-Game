@@ -1515,6 +1515,8 @@ export async function registerRoutes(
         const streakDays = streakRow?.currentDays && streakRow.currentDays > 0
           ? streakRow.currentDays
           : undefined;
+        const { verifiedGameSetTitleForChallenge } = await import("./services/gameSetTitles");
+        const setName = await verifiedGameSetTitleForChallenge(parsed.data.challengeId);
         const cardPromise = onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -1524,6 +1526,7 @@ export async function registerRoutes(
           rank: result.rank,
           streak: streakDays,
           date,
+          setName,
         }).catch(err => {
           console.error("[ContentFactory] Daily5 background error:", err?.message);
           return null;
@@ -1551,7 +1554,7 @@ export async function registerRoutes(
         const { generateChallengeShare } = await import("./contentFactory/generateScoreCard");
         const safeUser = String(userId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48);
         const card = await generateChallengeShare(
-          { correctCount: created.correctCount, date: created.puzzleDay },
+          { correctCount: created.correctCount, date: created.puzzleDay, setName: created.setName },
           `beatme-${safeUser}-${created.puzzleDay}`,
         );
         shareImageUrl = card.imageUrl;
@@ -4943,6 +4946,7 @@ export async function registerRoutes(
       if (parsed.data.brand !== undefined) updateData.brand = parsed.data.brand;
       if (parsed.data.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = parsed.data.marketplaceKeywords;
       if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
+      if (parsed.data.titleVerified !== undefined) updateData.titleVerified = parsed.data.titleVerified;
       if (parsed.data.cardhedgeSetQuery !== undefined) updateData.cardhedgeSetQuery = parsed.data.cardhedgeSetQuery;
       if (parsed.data.cardhedgeCategory !== undefined) updateData.cardhedgeCategory = parsed.data.cardhedgeCategory;
       if (parsed.data.makerNote !== undefined) updateData.makerNote = parsed.data.makerNote;

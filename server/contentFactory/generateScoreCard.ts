@@ -285,6 +285,7 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const scoreX = cx - (numWidth + denWidth) / 2;
   const frame = scoreCardStackForCount(Math.max(1, total));
 
+  const setLine = daily5SetNameUnderScore(fonts.semibold, input.setName, isDaily5Mode);
   const outlined = [
     textToPath(fonts.bold, eyebrow, 80, 108, 22, muted, { letterSpacing: 4 }),
     identity
@@ -292,6 +293,9 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
       : "",
     textToPath(fonts.bold, scoreNum, scoreX, frame.scoreBaseline, scoreSize, ink),
     textToPath(fonts.bold, scoreDen, scoreX + numWidth, frame.scoreBaseline, scoreSize, muted),
+    setLine
+      ? textToPath(fonts.semibold, setLine.text, cx, frame.scoreBaseline + 44, setLine.size, muted, { anchor: "middle", letterSpacing: setLine.letterSpacing })
+      : "",
     textToPath(fonts.semibold, pointsLabel, cx, frame.ptsBaseline, 32, muted, { anchor: "middle" }),
     statusLine
       ? textToPath(fonts.semibold, statusLine, cx, frame.statusBaseline, 28, muted, { anchor: "middle" })
@@ -306,6 +310,7 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
     eyebrow,
     identity,
     `${scoreNum}${scoreDen}`,
+    setLine?.text ?? "",
     dealt !== total ? `${dealt} dealt` : "",
     pointsLabel,
     statusLine,
@@ -398,6 +403,26 @@ export interface ChallengeShareInput {
   correctCount: number;
   date: string;
   streak?: number;
+  setName?: string | null;
+}
+
+const DAILY5_SET_LINE_MAX_W = 880;
+
+/** Set title under the Daily 5 score. Shrinks to fit. Does not clip the name. */
+export function daily5SetNameUnderScore(
+  font: ReturnType<typeof loadScoreCardFonts>["semibold"],
+  setName: string | null | undefined,
+  isDaily5: boolean,
+): { text: string; size: number; letterSpacing: number } | null {
+  if (!isDaily5) return null;
+  const text = setName?.trim() ?? "";
+  if (!text) return null;
+  const letterSpacing = 1.2;
+  let size = 22;
+  while (size > 14 && measureText(font, text, size, letterSpacing) > DAILY5_SET_LINE_MAX_W) {
+    size -= 1;
+  }
+  return { text, size, letterSpacing };
 }
 
 /**
@@ -415,6 +440,7 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
   const playLine = "Play today's Daily 5.";
   const streakLabel = buildStreakOverlayLabel(input.streak);
   const fonts = loadScoreCardFonts();
+  const setLine = daily5SetNameUnderScore(fonts.semibold, input.setName, true);
   const { ink, muted, gold, canvas } = SCORE_CARD_COLORS;
   const surface = "#161B24";
   const border = "#2A303C";
@@ -442,6 +468,9 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
       : "",
     textToPath(fonts.bold, scoreNum, scoreX, 360, scoreSize, ink),
     textToPath(fonts.bold, scoreDen, scoreX + numWidth, 360, scoreSize, muted),
+    setLine
+      ? textToPath(fonts.semibold, setLine.text, cx, 430, setLine.size, muted, { anchor: "middle", letterSpacing: setLine.letterSpacing })
+      : "",
     textToPath(fonts.bold, "Beat me.", 80, 760, 64, gold),
     textToPath(fonts.semibold, went, 80, 820, 36, ink),
     textToPath(fonts.semibold, playLine, 80, 868, 26, muted),
@@ -459,6 +488,7 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
     "DAILY 5",
     identity,
     `${scoreNum}${scoreDen}`,
+    setLine?.text ?? "",
     "Beat me.",
     went,
     playLine,
