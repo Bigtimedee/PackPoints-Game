@@ -21,6 +21,7 @@ import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
+import { isMaskBandOversized, isOversizedMaskBand, maskedBandFraction, rejectOversizedMaskBand } from "./maskBandLimit";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -319,6 +320,7 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
 
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
+  if (isMaskBandOversized(cardId)) return null;
 
   const warm = peekWarmMaskedFilename(cardId);
   if (warm && await acceptWarmMaskedFile(cardId, warm)) {
@@ -487,6 +489,15 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
           maskVersion: CURRENT_MASK_VERSION,
         });
         await quarantineUncoveredName(cardId, reason);
+        return null;
+      }
+
+      if (isOversizedMaskBand(result.regions)) {
+        console.error(`[MaskingService] Refusing oversized mask band for ${cardId}`, {
+          fraction: maskedBandFraction(result.regions),
+          maskVersion: CURRENT_MASK_VERSION,
+        });
+        await rejectOversizedMaskBand(cardId);
         return null;
       }
 

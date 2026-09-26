@@ -15,12 +15,16 @@ export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
 type CardAlias = "pc" | "playable_cards";
 
 /**
- * A post-bake name leak sets blocked_reason to this value and drops is_playable.
- * Deals also exclude the reason on its own, so a card cannot slip back in
- * while the sidecar still records the failure.
+ * A post-bake name leak sets blocked_reason to mask_name_uncovered.
+ * An oversized name band sets mask_band_oversized.
+ * Deals exclude either reason on its own, so a card cannot slip back in
+ * while is_playable is flipped true and the sidecar still records the failure.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
-  return sql`(${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered')`;
+  return sql`(
+    ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered'
+    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_oversized'
+  )`;
 }
 
 /**

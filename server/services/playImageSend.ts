@@ -5,6 +5,7 @@ import { getCachedImageUrl, getOrValidateCardImage, getSourceUrlForCard, markIma
 import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { normalizeImageUrl } from "./cards/imageQuality";
 import { acceptWarmMaskedFile, getMaskedImagePath, isMaskBakeTimeout, orientUnmaskedScan, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
+import { isMaskBandOversized } from "../masking/maskBandLimit";
 import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
@@ -101,6 +102,10 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
   }
 
   try {
+    if (isMaskBandOversized(cardId)) {
+      res.status(404).json({ error: "Unable to generate masked image" });
+      return;
+    }
     const warmName = peekWarmMaskedFilename(cardId);
     const warmOk = warmName ? await acceptWarmMaskedFile(cardId, warmName) : false;
     const maskedPath = warmOk && warmName ? warmName : await getMaskedImagePath(cardId);

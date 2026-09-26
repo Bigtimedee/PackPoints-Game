@@ -12,6 +12,7 @@ import {
 } from "@shared/schema";
 import { storage } from "../storage";
 import { isBlockedCard, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
+import { isMaskBandOversized } from "../masking/maskBandLimit";
 import { anonPlayerIdFromCookie } from "./anonIdentity";
 import {
   classifyRevealToken,
@@ -197,6 +198,7 @@ async function loadDailyCard(challengeId: string, position: number): Promise<str
     .where(eq(playableCards.id, exact.cardId))
     .limit(1);
   if (card && isBlockedCard(card.gameSetId, card.player)) return null;
+  if (isMaskBandOversized(exact.cardId)) return null;
   return exact.cardId;
 }
 

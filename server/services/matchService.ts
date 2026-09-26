@@ -12,6 +12,7 @@ import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard } from "../lib/cardBlocklist";
+import { isMaskBandOversized } from "../masking/maskBandLimit";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -375,6 +376,7 @@ class MatchService {
         if (!card.player) return false;
         if (isNonPlayerCard(card.player, card.description)) return false;
         if (isBlockedCard(card.gameSetId, card.player)) return false;
+        if (isMaskBandOversized(card.id)) return false;
         if (!cardHasRealImage({
           cardId: card.id.toString(),
           imageUrl: card.imageUrl,
@@ -548,7 +550,7 @@ class MatchService {
         .from(playableCards)
         .where(eq(playableCards.id, spare.cardId))
         .limit(1);
-      if (row && isBlockedCard(row.gameSetId, row.player)) {
+      if (row && (isBlockedCard(row.gameSetId, row.player) || isMaskBandOversized(row.id))) {
         await db.update(matchCardQueue).set({ markedBad: true }).where(eq(matchCardQueue.id, spare.id));
         continue;
       }
@@ -978,6 +980,7 @@ class MatchService {
       if (!card.imageUrl || !card.player) return false;
       if (isNonPlayerCard(card.player, card.description)) return false;
       if (isBlockedCard(card.gameSetId, card.player)) return false;
+      if (isMaskBandOversized(card.id)) return false;
       if (!cardHasRealImage({
         cardId: cardIdStr,
         imageUrl: card.imageUrl,

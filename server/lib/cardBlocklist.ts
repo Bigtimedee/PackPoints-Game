@@ -9,6 +9,7 @@ import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/sch
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
+import { isMaskBandOversized } from "../masking/maskBandLimit";
 
 type CardAlias = "pc" | "playable_cards";
 
@@ -95,9 +96,14 @@ function swappedChoices(choices: string[], oldAnswer: string, oldPlayer: string,
   return next.slice(0, 4);
 }
 
+function cardUnservable(row: { cardId: string; gameSetId: string | null; player: string | null }): boolean {
+  return isBlockedCard(row.gameSetId, row.player) || isMaskBandOversized(row.cardId);
+}
+
 /**
- * Today's stored Daily 5 hand. A blocked card is rewritten to the next eligible
- * card in the set before the client sees it. Returns how many blocked cards remain.
+ * Today's stored Daily 5 hand. A blocked or oversized-band card is rewritten to
+ * the next eligible card in the set before the client sees it. Returns how many
+ * unservable cards remain.
  */
 export async function replaceBlockedDaily5Cards(challengeId: string, today = getPackptsDayKey()): Promise<number> {
   const [challenge] = await db
@@ -121,7 +127,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .where(eq(dailyChallengeCards.dailyChallengeId, challengeId))
     .orderBy(asc(dailyChallengeCards.position));
 
-  const blocked = rows.filter((row) => isBlockedCard(row.gameSetId, row.player));
+  const blocked = rows.filter((row) => cardUnservable(row));
   if (blocked.length === 0) return 0;
 
   const { eligibleDealFilter } = await import("../services/playableSetEligibility");
@@ -145,6 +151,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     const next = candidates.find((card) =>
       !!card.player
       && !isBlockedCard(card.gameSetId, card.player)
+      && !isMaskBandOversized(card.id)
       && !isNonPlayerCard(card.player, card.description)
       && !isKnownSilhouetteUrl(card.imageUrl));
     if (!next?.player) {
@@ -161,9 +168,13 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
   }
 
   const left = await db
-    .select({ gameSetId: playableCards.gameSetId, player: playableCards.player })
+    .select({
+      cardId: dailyChallengeCards.cardId,
+      gameSetId: playableCards.gameSetId,
+      player: playableCards.player,
+    })
     .from(dailyChallengeCards)
     .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
     .where(eq(dailyChallengeCards.dailyChallengeId, challengeId));
-  return left.filter((row) => isBlockedCard(row.gameSetId, row.player)).length;
+  return left.filter((row) => cardUnservable(row)).length;
 }

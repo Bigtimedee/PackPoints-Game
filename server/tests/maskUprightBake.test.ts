@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { unlink, writeFile, mkdir } from "fs/promises";
 import path from "path";
 import { Worker } from "worker_threads";
@@ -42,6 +42,8 @@ import {
   type OcrJob,
 } from "../masking/ocrRuntime";
 import { readOrientNote, writeOrientNote } from "../masking/orientNote";
+import { maskFailureSidecarFilename, readMaskFailureReason } from "../masking/maskReadySidecar";
+import { MASK_BAND_OVERSIZED } from "../masking/maskBandLimit";
 import type { OcrWordBox } from "../masking/nameLocalization";
 
 const GREEN = { r: 20, g: 180, b: 40 };
@@ -313,10 +315,11 @@ describe("upright mask bake", () => {
       gameSetId: null,
       imageRotation: 270,
     };
+    written.push(path.join(MASKED_CARDS_DIR, maskFailureSidecarFilename(cardId)));
     const filename = await bakeMaskedCardFromUrl(source);
-    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}_r270.jpg`);
-    const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).metadata();
-    expect(baked.height || 0).toBeGreaterThan(baked.width || 0);
+    expect(filename).toBeNull();
+    expect(readMaskFailureReason(cardId)).toBe(MASK_BAND_OVERSIZED);
+    expect(existsSync(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}_r270.jpg`))).toBe(false);
     expect(peekWarmMaskedFilename("card-plain")).toBeNull();
   });
 
@@ -335,6 +338,7 @@ describe("upright mask bake", () => {
       headers: { "content-type": "image/png" },
     }));
 
+    written.push(path.join(MASKED_CARDS_DIR, maskFailureSidecarFilename(cardId)));
     const filename = await bakeMaskedCardFromUrl({
       cardId,
       imageUrl: "https://images.example/ambiguous.png",
@@ -342,46 +346,15 @@ describe("upright mask bake", () => {
       setHint: "1987 Topps baseball",
       gameSetId: null,
     });
-    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
-    expect(dbUpdate).not.toHaveBeenCalled();
-    const note = readOrientNote(cardId);
-    expect(note?.rotation).toBe(0);
-    expect(note?.coverBoth).toBe(true);
-
-    const plan = JSON.parse(readFileSync(
-      path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`),
-      "utf8",
-    )) as { layoutClass: string; regions: Array<{ xPct: number; yPct: number; wPct: number; hPct: number }> };
-    expect(plan.layoutClass).toBe("BOTTOM_PLAQUE");
-    expect(plan.regions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ xPct: 0, yPct: 54, wPct: 100, hPct: 46 }),
-      expect.objectContaining({ xPct: 0, yPct: 0, wPct: 46, hPct: 100 }),
-      expect.objectContaining({ xPct: 54, yPct: 0, wPct: 46, hPct: 100 }),
-    ]));
-
-    const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).toBuffer();
-    const bakedMeta = await sharp(baked).metadata();
-    expect(bakedMeta.width || 0).toBeGreaterThan(bakedMeta.height || 0);
-    const nameMid = await sample(baked, 8, 50);
-    const nameTop = await sample(baked, 8, 8);
-    const nameBottom = await sample(baked, 8, 92);
-    const gap = await sample(baked, 50, 20);
-    expect(isDark(nameMid.r, nameMid.g, nameMid.b)).toBe(true);
-    expect(isDark(nameTop.r, nameTop.g, nameTop.b)).toBe(true);
-    expect(isDark(nameBottom.r, nameBottom.g, nameBottom.b)).toBe(true);
-    expect(isGreen(gap.r, gap.g, gap.b)).toBe(true);
+    expect(filename).toBeNull();
+    expect(readMaskFailureReason(cardId)).toBe(MASK_BAND_OVERSIZED);
+    expect(existsSync(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.jpg`))).toBe(false);
+    expect(dbUpdate).toHaveBeenCalled();
 
     const logLine = vi.mocked(console.log).mock.calls
       .map((args) => String(args[0]))
       .find((line) => line.includes("orientation ambiguous"));
     expect(logLine).toBe(`[MaskBake] orientation ambiguous cover=both card=${cardId}`);
-
-    const revealed = await orientUnmaskedScan(cardId, sideways);
-    const revealedMeta = await sharp(revealed).metadata();
-    expect(revealedMeta.width).toBe(bakedMeta.width);
-    expect(revealedMeta.height).toBe(bakedMeta.height);
-    const revealedName = await sample(revealed, 8, 50);
-    expect(revealedName.r).toBeGreaterThan(200);
 
     const again = await maskCardImage(sideways, "Ken Phelps", "1987 Topps baseball", { cardId });
     expect(again.orientationAmbiguous).toBe(true);
@@ -391,7 +364,8 @@ describe("upright mask bake", () => {
     expect(anyRegionCoversPoint(again.regions, 8, 50)).toBe(true);
     expect(anyRegionCoversPoint(again.regions, 92, 50)).toBe(true);
     expect(anyRegionCoversPoint(again.regions, 50, 90)).toBe(true);
-    expect(dbUpdate).not.toHaveBeenCalled();
+    const fullBand = again.regions.find((region) => region.wPct >= 90);
+    expect(fullBand?.hPct).toBe(46);
   });
 
   it("covers a top-plate name on either side without turning", async () => {
@@ -588,39 +562,26 @@ describe("ocr deadline fallback", () => {
     const started = Date.now();
     const filename = await bakeMaskedCardFromUrl(source(cardId));
     expect(Date.now() - started).toBeLessThan(2_000);
-    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
+    expect(filename).toBeNull();
+    expect(readMaskFailureReason(cardId)).toBe(MASK_BAND_OVERSIZED);
+    expect(existsSync(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.jpg`))).toBe(false);
     expect(calls).toBe(1);
     expect(open).toBe(0);
-    expect(dbUpdate).not.toHaveBeenCalled();
-
-    const baked = await sharp(path.join(MASKED_CARDS_DIR, filename || "")).toBuffer();
-    const meta = await sharp(baked).metadata();
-    expect(meta.height || 0).toBeGreaterThan(meta.width || 0);
-    const name = await sample(baked, 50, 90);
-    const photo = await sample(baked, 50, 18);
-    expect(isDark(name.r, name.g, name.b)).toBe(true);
-    expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
-    const note = readOrientNote(cardId);
-    expect(note?.rotation).toBe(0);
-    const plan = JSON.parse(readFileSync(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`), "utf8")) as {
-      regions: Array<{ yPct: number; hPct: number }>;
-    };
-    expect(plan.regions[0]?.yPct).toBe(54);
-    expect(plan.regions[0]?.hPct).toBe(46);
+    expect(dbUpdate).toHaveBeenCalled();
 
     const logLine = vi.mocked(console.log).mock.calls.map((args) => String(args[0])).find((line) => line.includes("ocr-timeout"));
     expect(logLine).toMatch(/^\[MaskBake\] ocr-timeout fallback=profile card=card-ocr-hang ms=\d+$/);
 
     const again = await bakeMaskedCardFromUrl(source(cardId));
-    expect(again).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
+    expect(again).toBeNull();
     expect(calls).toBe(1);
     expect(ocrSkipped(cardId)).toBe(true);
     expect(ocrSkipped(cardId, Date.now() + 2 * 60 * 60 * 1000)).toBe(false);
-    expect(dbUpdate).not.toHaveBeenCalled();
 
     await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.jpg`)).catch(() => {});
     await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.orient.json`)).catch(() => {});
     await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`)).catch(() => {});
+    await unlink(path.join(MASKED_CARDS_DIR, maskFailureSidecarFilename(cardId))).catch(() => {});
   });
 
   it("kills an ocr child process and a worker thread", async () => {
