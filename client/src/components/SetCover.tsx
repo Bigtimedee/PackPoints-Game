@@ -58,6 +58,7 @@ function StackCard({
             alt=""
             className="h-full w-full"
             maskColor="#000000"
+            plaqueChrome="bar"
           />
         </div>
       ) : (
