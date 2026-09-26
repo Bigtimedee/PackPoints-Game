@@ -465,7 +465,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     const slot0 = await fetch(`${base}/api/sets/${footballSetId}/covers/0`);
     expect(slot0.status).toBe(200);
     expect(Buffer.from(await slot0.arrayBuffer())).toEqual(artBytes);
-    expect(slot0.headers.get("x-card-id")).toBeNull();
+    expect(slot0.headers.get("x-card-id")).toBe(footballCards[2].id);
 
     const slot7 = await fetch(`${base}/api/sets/${footballSetId}/covers/7`);
     expect(slot7.status).toBe(200);

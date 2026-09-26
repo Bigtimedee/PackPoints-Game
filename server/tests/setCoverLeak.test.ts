@@ -183,14 +183,14 @@ describe("GET /api/sets cover leak", () => {
     expect(first.status).toBe(200);
     expect(first.headers.get("content-type")).toContain("image/jpeg");
     expect(first.headers.get("x-mask-version")).toBe(CURRENT_MASK_VERSION);
-    expect(first.headers.get("x-card-id")).toBeNull();
+    expect(first.headers.get("x-card-id")).toBe(montanaId);
     expect(Buffer.from(await first.arrayBuffer())).toEqual(montanaBytes);
     expect(first.url).not.toContain(montanaId);
 
     const second = await fetch(`${base}/api/sets/${setId}/covers/1`);
     expect(second.status).toBe(200);
     expect(Buffer.from(await second.arrayBuffer())).toEqual(cunninghamBytes);
-    expect(second.headers.get("x-card-id")).toBeNull();
+    expect(second.headers.get("x-card-id")).toBe(cunninghamId);
 
     const missing = await fetch(`${base}/api/sets/${setId}/covers/2`);
     expect(missing.status).toBe(404);

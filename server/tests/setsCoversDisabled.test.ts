@@ -154,6 +154,8 @@ describe("GET /api/sets covers switch", () => {
     const image = await fetch(`${base}/api/sets/${setId}/covers/0`);
     expect(image.status).toBe(200);
     expect(image.headers.get("cache-control")).toBe(COVER_CACHE);
+    expect(image.headers.get("x-card-id")).toBe(readyId);
+    expect(image.headers.get("x-mask-version")).toBeTruthy();
     expect(image.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await image.arrayBuffer())).toEqual(jpeg);
   });
