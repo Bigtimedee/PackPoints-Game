@@ -86,6 +86,28 @@ describe("browse sets index", () => {
     expect(html).not.toContain("CERT SEALED");
   });
 
+  it("paints an empty coverCardUrls fallback as a bar plaque with a seam and no PTS text", () => {
+    const html = renderShelf([
+      shelfSet({
+        id: "set-empty-cover",
+        setName: "1990 Hoops",
+        cardCount: 8,
+        makerUsername: null,
+        coverCardUrls: [],
+      }),
+    ]);
+    const coverStart = html.indexOf('data-testid="cover-masked-stack"');
+    const coverEnd = html.indexOf('data-testid="text-set-title"', coverStart);
+    const cover = html.slice(coverStart, coverEnd);
+    expect(coverStart).toBeGreaterThanOrEqual(0);
+    expect(cover).toContain('data-plaque-chrome="bar"');
+    expect(cover).toContain('data-testid="plaque-seam"');
+    expect(cover).toContain("#F3E6C8");
+    expect(cover).not.toContain("PTS");
+    expect(cover).not.toMatch(/<img\b[^>]*\bsrc="https?:/i);
+    expect(html).not.toMatch(/<img\b[^>]*\bsrc="https?:/i);
+  });
+
   it("renders only the masked cover URL", () => {
     const masked = "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/0";
     const raw = "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/JOE_MONTANA/resize";

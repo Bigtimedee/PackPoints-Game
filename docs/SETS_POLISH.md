@@ -27,7 +27,7 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 
 ### Cards
 
-- **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack**. Each thumb is a baked `/api/sets/{setId}/covers/{slot}` JPEG from a card that already has a v4.4 mask-ready sidecar (name band follows that set's layout, top or bottom). No raw photo URL, player name, or card id. If none are ready, the cream placeholder. The plaque on the thumb is decoration. Never keep a stock fan once the runtime cover exists. Never bake a mask while listing `/sets`.
+- **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack**. Each thumb is a baked `/api/sets/{setId}/covers/{slot}` JPEG from a card that already has a v4.4 mask-ready sidecar (name band follows that set's layout, top or bottom). No raw photo URL, player name, or card id. If none are ready, the cream placeholder draws the same solid bar and gold seam as a fanned thumb, with no label and no photo URL. The plaque on the thumb is decoration. Never keep a stock fan once the runtime cover exists. Never bake a mask while listing `/sets`.
 - Meta for an integrated set: honest `{n} cards` only. No `by Maker`, no date, no `AUTHORED`.
 - Meta for a user-created set that still has a maker username: `by {maker}` · honest `{n} cards` · optional `{MON D}` (America/Chicago via `shared/packptsDay.ts`) · `AUTHORED`
 - Title: the stored set name. If `brand` is set and the name does not already contain it, insert the brand after a leading year (`2024 Basketball` + brand `Topps` → `2024 Topps Basketball`). A blank brand leaves the stored name. Do not substitute the `year` column for the year already in the name.
@@ -50,7 +50,7 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 - Play + honest `{n} Cards` pill
 - Optional muted `Play today’s stack` **only if this visitor has not already played this set today** (America/Chicago). No clocks, no “hurry”, no “come back tomorrow”
 - Cover priority same as index. Caption: `Share cover · runtime Surface A` when Surface A is shown
-- **THE STACK:** staggered preview of this set’s cards (masked). Fanned thumbs use the same solid plaque and gold seam, with no label text. Cream silhouette + redaction bar if a photo is missing. Never player names in copy, alt, or payload
+- **THE STACK:** staggered preview of this set’s cards (masked). Fanned thumbs use the same solid plaque and gold seam, with no label text. A missing photo uses that cream placeholder and the same bar and seam, with no PTS label. Never player names in copy, alt, or payload
 - Share · Copy link · muted `packpts.com/sets/{slug}`
 - Share/copy href is `https://packpts.com/sets/{slug}?utm_source=share&utm_medium=play_sets&utm_campaign=integrated` (never `/make`). Display line stays the quiet canonical without UTMs.
 - **Cover / OG priority:** runtime Surface A (or play-sets runtime crop) when present and not stock fan `maker-set-1080.png`. Kit templates (`/assets/play-sets/*.png`) are Marketing cold posts / placeholders only — do not substitute kit A for a real set’s runtime cover. Story crops: `/assets/play-sets/play-set-story.png`, `play-shelf-story.png`, `play-beatme-story.png`. Contract: `docs/PLAY_SETS_SHARE.md`.
