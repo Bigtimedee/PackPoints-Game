@@ -10,7 +10,7 @@ import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull, notInArray } from "drizzle-orm";
 import { eligibleDealFilter } from "./services/playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard } from "./lib/cardBlocklist";
-import { isMaskBandOversized } from "./masking/maskBandLimit";
+import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
@@ -636,7 +636,7 @@ export class DatabaseStorage implements IStorage {
 
       for (const card of omitNonPlayerCards(sportCards)) {
         if (card.quarantineStatus === "QUARANTINED_ADMIN_REVIEW" && card.proposedUnplayable) continue;
-        if (isMaskBandOversized(card.id)) continue;
+        if (isMaskBandExcluded(card.id)) continue;
         picked.push(card);
         if (picked.length >= want) break;
       }
@@ -1051,7 +1051,7 @@ export class DatabaseStorage implements IStorage {
         .limit(50);
       
       // Filter out used cards, silhouettes, and filter by sport category
-      let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandOversized(c.id)));
+      let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandExcluded(c.id)));
       
       // Also filter by sport category for additional safety
       if (expectedSport) {
@@ -1111,7 +1111,7 @@ export class DatabaseStorage implements IStorage {
           .limit(50);
         
         // Filter by sport category and silhouettes for extra safety
-        let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandOversized(c.id)));
+        let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandExcluded(c.id)));
         available = available.filter(c => {
           const cardCategory = (c.category || "").toLowerCase();
           return cardCategory === expectedSport;

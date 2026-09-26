@@ -9,7 +9,7 @@ import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/sch
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
-import { isMaskBandOversized } from "../masking/maskBandLimit";
+import { isMaskBandExcluded } from "../masking/maskBandLimit";
 
 type CardAlias = "pc" | "playable_cards";
 
@@ -97,7 +97,7 @@ function swappedChoices(choices: string[], oldAnswer: string, oldPlayer: string,
 }
 
 function cardUnservable(row: { cardId: string; gameSetId: string | null; player: string | null }): boolean {
-  return isBlockedCard(row.gameSetId, row.player) || isMaskBandOversized(row.cardId);
+  return isBlockedCard(row.gameSetId, row.player) || isMaskBandExcluded(row.cardId);
 }
 
 /**
@@ -151,7 +151,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     const next = candidates.find((card) =>
       !!card.player
       && !isBlockedCard(card.gameSetId, card.player)
-      && !isMaskBandOversized(card.id)
+      && !isMaskBandExcluded(card.id)
       && !isNonPlayerCard(card.player, card.description)
       && !isKnownSilhouetteUrl(card.imageUrl));
     if (!next?.player) {

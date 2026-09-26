@@ -21,7 +21,7 @@ import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
-import { isMaskBandOversized, isOversizedMaskBand, maskedBandFraction, rejectOversizedMaskBand } from "./maskBandLimit";
+import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -320,7 +320,7 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
 
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
-  if (isMaskBandOversized(cardId)) return null;
+  if (isMaskBandExcluded(cardId)) return null;
 
   const warm = peekWarmMaskedFilename(cardId);
   if (warm && await acceptWarmMaskedFile(cardId, warm)) {
@@ -492,12 +492,13 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
         return null;
       }
 
-      if (isOversizedMaskBand(result.regions)) {
-        console.error(`[MaskingService] Refusing oversized mask band for ${cardId}`, {
-          fraction: maskedBandFraction(result.regions),
+      const bandIssue = maskBandFailure(result.regions);
+      if (bandIssue && maskBandGuardEnforces()) {
+        console.error(`[MaskingService] Refusing mask band for ${cardId}`, {
+          reason: bandIssue,
           maskVersion: CURRENT_MASK_VERSION,
         });
-        await rejectOversizedMaskBand(cardId);
+        await rejectMaskBand(cardId, bandIssue);
         return null;
       }
 

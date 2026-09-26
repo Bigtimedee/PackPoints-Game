@@ -17,7 +17,7 @@ import { logDealtDefaultMaskProfiles } from "../../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "../playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard } from "../../lib/cardBlocklist";
-import { isMaskBandOversized } from "../../masking/maskBandLimit";
+import { isMaskBandExcluded } from "../../masking/maskBandLimit";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -85,7 +85,7 @@ async function findReplacementCard(
       if (!c.imageUrl || !c.player) return false;
       if (isNonPlayerCard(c.player, c.description)) return false;
       if (isBlockedCard(c.gameSetId, c.player)) return false;
-      if (isMaskBandOversized(c.id)) return false;
+      if (isMaskBandExcluded(c.id)) return false;
       if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.player })) {
         quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
         return false;

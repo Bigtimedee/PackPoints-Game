@@ -16,14 +16,16 @@ type CardAlias = "pc" | "playable_cards";
 
 /**
  * A post-bake name leak sets blocked_reason to mask_name_uncovered.
- * An oversized name band sets mask_band_oversized.
- * Deals exclude either reason on its own, so a card cannot slip back in
+ * Enforce mode of the band guard sets mask_band_oversized or mask_band_misplaced.
+ * Deals exclude those reasons on their own, so a card cannot slip back in
  * while is_playable is flipped true and the sidecar still records the failure.
+ * Report mode does not write them.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
   return sql`(
     ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered'
     AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_oversized'
+    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_misplaced'
   )`;
 }
 

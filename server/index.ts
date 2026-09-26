@@ -24,7 +24,7 @@ import { markSchemaReady } from "./startup/schemaGate";
 import { installBootSchemaShutdownHook, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout } from "./startup/bootSchema";
 import { runProductionSchemaBoot } from "./startup/schemaBoot";
 import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
-import { startOversizedBandScan } from "./masking/maskBandLimit";
+import { startMaskBandGuardScan } from "./masking/maskBandLimit";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -467,7 +467,7 @@ app.use((req, res, next) => {
   log("schema ready");
   if (process.env.NODE_ENV === "production") {
     startWarmSidecarBackfill();
-    startOversizedBandScan();
+    startMaskBandGuardScan();
   }
 
   try {
