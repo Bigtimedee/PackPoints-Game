@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Shuffle, Loader2, ChevronDown } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PlayableSet } from "@shared/schema";
+import { applySetDisplayTitle, applySetYearLabel, setDisplayOverride } from "@shared/setDisplayOverride";
 
 interface CardSetPickerProps {
   sets: PlayableSet[];
@@ -17,8 +18,12 @@ interface CardSetPickerProps {
 }
 
 function formatSetLabel(set: PlayableSet): string {
+  if (setDisplayOverride(set.id)) {
+    return `${applySetDisplayTitle(set.id, set.setName)} (${set.cardsImportedCount} cards)`;
+  }
   const parts = [];
-  if (set.year) parts.push(set.year);
+  const yearLabel = applySetYearLabel(set.id, set.year);
+  if (yearLabel) parts.push(yearLabel);
   if (set.brand) parts.push(set.brand);
   if (set.sport) parts.push(set.sport);
   parts.push(`(${set.cardsImportedCount} cards)`);

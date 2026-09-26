@@ -3,6 +3,7 @@
  * Keep this file free of React so vitest can import it in node.
  */
 import { formatPackptsMonDay, isPackptsDayKey } from "@shared/packptsDay";
+import { applySetDisplayTitle, applySetYearLabel } from "@shared/setDisplayOverride";
 import { isMaskedSetCoverUrl, publicSetShareUrl } from "@shared/setCoverUrl";
 
 export const SETS_POLISH = {
@@ -159,7 +160,10 @@ export function formatDetailMetaLine(opts: {
 export function formatIndexSetTitle(opts: {
   setName: string;
   brand?: string | null;
+  id?: string | null;
 }): string {
+  const override = applySetDisplayTitle(opts.id, "");
+  if (opts.id && override) return override;
   const name = (opts.setName || "").trim();
   const brand = (opts.brand || "").trim();
   if (!name) return brand;
@@ -191,6 +195,35 @@ export function playQuestionCount(cardCount: unknown): number | null {
   const n = Math.floor(Number(cardCount) || 0);
   if (n < 5) return null;
   return Math.min(20, n);
+}
+
+export function displaySetYearLabel(setId: string | null | undefined, year: number | null | undefined): string | null {
+  return applySetYearLabel(setId, year);
+}
+
+export interface FanCoverPlacement {
+  leftPct: number;
+  rotateDeg: number;
+  liftPx: number;
+  widthPct: number;
+}
+
+/** Even fan for 1 to 8 real covers. No empty slot is reserved. */
+export function fanCoverPlacements(count: number, compact: boolean): FanCoverPlacement[] {
+  const n = Math.max(0, Math.min(8, Math.floor(count)));
+  if (n === 0) return [];
+  const widthPct = n >= 7 ? (compact ? 20 : 18) : n >= 4 ? (compact ? 24 : 22) : (compact ? 30 : 28);
+  const maxRotate = n === 1 ? 0 : Math.min(16, 5 + (n - 2));
+  const span = n === 1 ? 0 : Math.min(76, 14 * (n - 1));
+  return Array.from({ length: n }, (_, i) => {
+    const t = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;
+    return {
+      leftPct: 50 + t * (span / 2),
+      rotateDeg: Number((t * maxRotate).toFixed(2)),
+      liftPx: Math.abs(t) * (compact ? 10 : 14),
+      widthPct,
+    };
+  });
 }
 
 export function setShareSlug(setName: string, setId: string): string {

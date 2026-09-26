@@ -17,6 +17,7 @@ import { db } from "../db";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
@@ -72,6 +73,7 @@ describe("GET /api/sets covers switch", () => {
     await writeFile(path.join(dir, warmOkMarkerFilename(readyId)), "ok\n");
     await writeFile(path.join(dir, `${readyId}_${CURRENT_MASK_VERSION}.jpg`), jpeg);
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, [readyId]);
 
     await db.insert(gameSets).values({
       id: setId,
@@ -113,6 +115,7 @@ describe("GET /api/sets covers switch", () => {
 
   afterAll(async () => {
     setFlag(previous);
+    setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
     await new Promise<void>((resolve, reject) => {

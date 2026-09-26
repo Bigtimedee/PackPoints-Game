@@ -1,8 +1,8 @@
 /**
- * Public set covers from mask-ready sidecars only.
+ * Public set covers are pinned card ids that already have a baked mask.
  * Never bakes. The public list never returns a raw photo URL, a player name, or a card id.
  * A served JPEG sets X-Card-Id and X-Mask-Version.
- * The QA candidate list uses this same picker and includes the card id and player.
+ * QA lists the pins and the old auto picker so Design can compare them.
  */
 import { createHash } from "crypto";
 import { createReadStream, existsSync, readFileSync, readdirSync } from "fs";
@@ -13,7 +13,9 @@ import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
 import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT } from "@shared/setCoverUrl";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
+import { listedPinnedCoverIds, MAX_PINNED_COVERS, PINNED_SET_COVERS } from "../config/pinnedCovers";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
+import { isBlockedCard } from "../lib/cardBlocklist";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { warmMaskPlanFilename } from "../masking/maskPlanStore";
@@ -96,7 +98,29 @@ type CoverRow = {
   player: string | null;
   number: string | null;
   variant: string | null;
+  description: string | null;
 };
+
+export type PinDropReason = "blocked" | "band" | "ineligible" | "unbaked" | "duplicate" | "missing" | "over-cap";
+
+export interface PinnedCoverDrop {
+  cardId: string;
+  reason: PinDropReason;
+}
+
+export interface PinnedCoverReport {
+  setId: string;
+  pinnedIds: string[];
+  validIds: string[];
+  dropped: PinnedCoverDrop[];
+}
+
+export function formatPinnedCoverBootLine(report: PinnedCoverReport): string {
+  const dropped = report.dropped.length
+    ? report.dropped.map((drop) => `${drop.cardId}:${drop.reason}`).join(",")
+    : "none";
+  return `[PinnedCovers] set=${report.setId} pinned=${report.pinnedIds.length} valid=${report.validIds.length} dropped=${dropped}`;
+}
 
 /** Deal-eligible, blocklist-clear, band-allowed cards that already have a baked mask. Cover order. */
 async function eligibleCoverRows(setIds: string[]): Promise<Map<string, CoverRow[]>> {
@@ -123,6 +147,7 @@ async function eligibleCoverRows(setIds: string[]): Promise<Map<string, CoverRow
       player: playableCards.player,
       number: playableCards.number,
       variant: playableCards.variant,
+      description: playableCards.description,
     })
     .from(playableCards)
     .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
@@ -138,12 +163,131 @@ async function eligibleCoverRows(setIds: string[]): Promise<Map<string, CoverRow
   return out;
 }
 
-async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]>> {
-  const rows = await eligibleCoverRows(setIds);
-  const out = new Map<string, string[]>();
-  for (const [setId, list] of rows) {
-    out.set(setId, pickCoverSlots(list).map((row) => row.id));
+async function loadPinnedCoverRows(cardIds: string[]): Promise<Map<string, CoverRow>> {
+  const out = new Map<string, CoverRow>();
+  if (cardIds.length === 0) return out;
+  const rows = await db
+    .select({
+      id: playableCards.id,
+      gameSetId: playableCards.gameSetId,
+      player: playableCards.player,
+      number: playableCards.number,
+      variant: playableCards.variant,
+      description: playableCards.description,
+    })
+    .from(playableCards)
+    .where(inArray(playableCards.id, cardIds));
+  for (const row of rows) out.set(row.id, row);
+  return out;
+}
+
+async function eligiblePinnedIds(setIds: string[], cardIds: string[]): Promise<Set<string>> {
+  const eligible = new Set<string>();
+  if (setIds.length === 0 || cardIds.length === 0) return eligible;
+  const rows = await db
+    .select({ id: playableCards.id })
+    .from(playableCards)
+    .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
+    .where(and(
+      inArray(playableCards.gameSetId, setIds),
+      inArray(playableCards.id, cardIds),
+      eligibleDealFilter("playable_cards"),
+      sql`LOWER(playable_cards.category) = LOWER(game_sets.sport)`,
+    ));
+  for (const row of rows) eligible.add(row.id);
+  return eligible;
+}
+
+function classifyPinnedCover(
+  setId: string,
+  cardId: string,
+  row: CoverRow | undefined,
+  eligible: Set<string>,
+  ready: Set<string>,
+  seenPlayers: Set<string>,
+): { ok: true } | { ok: false; reason: PinDropReason } {
+  if (!row || row.gameSetId !== setId) return { ok: false, reason: "missing" };
+  if (isBlockedCard(row.gameSetId, row.player, row)) return { ok: false, reason: "blocked" };
+  if (isMaskBandExcluded(cardId)) return { ok: false, reason: "band" };
+  if (!eligible.has(cardId)) return { ok: false, reason: "ineligible" };
+  if (!ready.has(cardId)) return { ok: false, reason: "unbaked" };
+  const identity = playerCoverIdentity(row.player);
+  if (!identity || seenPlayers.has(identity)) return { ok: false, reason: "duplicate" };
+  seenPlayers.add(identity);
+  return { ok: true };
+}
+
+/** Pins only. A failed pin drops. Later pins do not slide in from outside the list. */
+export async function resolvePinnedCoverReports(setIds: string[]): Promise<Map<string, PinnedCoverReport>> {
+  const listedBySet = new Map<string, string[]>();
+  const lookupIds: string[] = [];
+  for (const setId of setIds) {
+    const listed = listedPinnedCoverIds(setId);
+    listedBySet.set(setId, listed);
+    for (const id of listed.slice(0, MAX_PINNED_COVERS)) lookupIds.push(id);
   }
+
+  const uniqueIds = [...new Set(lookupIds)];
+  const needsRows = uniqueIds.length > 0;
+  const [rows, eligible, ready] = needsRows
+    ? await Promise.all([
+      loadPinnedCoverRows(uniqueIds),
+      eligiblePinnedIds(setIds, uniqueIds),
+      Promise.resolve(readyMaskedCardIds()),
+    ])
+    : [new Map<string, CoverRow>(), new Set<string>(), new Set<string>()];
+
+  const out = new Map<string, PinnedCoverReport>();
+  for (const setId of setIds) {
+    const listed = listedBySet.get(setId) ?? [];
+    const dropped: PinnedCoverDrop[] = [];
+    const validIds: string[] = [];
+    const seenIds = new Set<string>();
+    const seenPlayers = new Set<string>();
+    listed.slice(MAX_PINNED_COVERS).forEach((cardId) => {
+      dropped.push({ cardId, reason: "over-cap" });
+    });
+    for (const cardId of listed.slice(0, MAX_PINNED_COVERS)) {
+      if (seenIds.has(cardId)) {
+        dropped.push({ cardId, reason: "duplicate" });
+        continue;
+      }
+      seenIds.add(cardId);
+      const verdict = classifyPinnedCover(setId, cardId, rows.get(cardId), eligible, ready, seenPlayers);
+      if (!verdict.ok) {
+        dropped.push({ cardId, reason: verdict.reason });
+        continue;
+      }
+      validIds.push(cardId);
+    }
+    out.set(setId, { setId, pinnedIds: listed, validIds, dropped });
+  }
+  return out;
+}
+
+export async function logPinnedCoversAtBoot(): Promise<void> {
+  const ids = new Set<string>(Object.keys(PINNED_SET_COVERS));
+  try {
+    const rows = await db
+      .select({ id: gameSets.id })
+      .from(gameSets)
+      .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
+    for (const row of rows) ids.add(row.id);
+  } catch {
+    console.error("[PinnedCovers] set list failed");
+  }
+  const setIds = [...ids].sort();
+  const reports = await resolvePinnedCoverReports(setIds);
+  for (const setId of setIds) {
+    const report = reports.get(setId) ?? { setId, pinnedIds: [], validIds: [], dropped: [] };
+    console.log(formatPinnedCoverBootLine(report));
+  }
+}
+
+async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]>> {
+  const reports = await resolvePinnedCoverReports(setIds);
+  const out = new Map<string, string[]>();
+  for (const setId of setIds) out.set(setId, reports.get(setId)?.validIds ?? []);
   return out;
 }
 
@@ -158,6 +302,27 @@ export interface CoverCandidate {
   bandPlacement: string | null;
   baked: boolean;
   imagePath: string;
+  source: "pinned" | "picker";
+  served: boolean;
+}
+
+export interface PinnedCoverStatus {
+  cardId: string;
+  order: number;
+  status: "served" | "dropped";
+  reason: PinDropReason | null;
+  slot: number | null;
+  served: boolean;
+  inPicker: boolean;
+}
+
+export interface CoverCandidateReport {
+  pinnedCount: number;
+  validCount: number;
+  coversDisabled: boolean;
+  pins: PinnedCoverStatus[];
+  picker: CoverCandidate[];
+  candidates: CoverCandidate[];
 }
 
 /** layoutClass from the bake plan in the mask sidecar dir. Null when that file is absent. */
@@ -179,10 +344,8 @@ export function qaCoverImagePath(cardId: string): string {
   return `/api/qa/cover-image/${cardId}`;
 }
 
-/** Same picker as public covers, with a higher cap so spares follow slots 0-7. Ignores SETS_COVERS_DISABLED. */
-export async function listCoverCandidates(setId: string, limit: number): Promise<CoverCandidate[]> {
-  const rows = (await eligibleCoverRows([setId])).get(setId) ?? [];
-  return pickCoverSlots(rows, limit).map((row, slot) => ({
+function toCoverCandidate(row: CoverRow, slot: number, source: "pinned" | "picker", served: boolean): CoverCandidate {
+  return {
     slot,
     cardId: row.id,
     gameSetId: row.gameSetId,
@@ -193,7 +356,75 @@ export async function listCoverCandidates(setId: string, limit: number): Promise
     bandPlacement: coverBandPlacement(row.id),
     baked: true,
     imagePath: qaCoverImagePath(row.id),
-  }));
+    source,
+    served,
+  };
+}
+
+/**
+ * Public covers are the valid pins. `picker` is the old auto order, for Design.
+ * Ignores SETS_COVERS_DISABLED. `coversDisabled` reports that switch.
+ */
+export async function listCoverCandidates(setId: string, limit: number): Promise<CoverCandidateReport> {
+  const [report, pickerRows, rawRows] = await Promise.all([
+    resolvePinnedCoverReports([setId]).then((map) => map.get(setId)!),
+    eligibleCoverRows([setId]).then((map) => map.get(setId) ?? []),
+    loadPinnedCoverRows(listedPinnedCoverIds(setId).slice(0, MAX_PINNED_COVERS)),
+  ]);
+  const served = new Set(report.validIds);
+  const pickerIds = new Set(pickCoverSlots(pickerRows, limit).map((row) => row.id));
+  const picker = pickCoverSlots(pickerRows, limit).map((row, slot) => (
+    toCoverCandidate(row, slot, "picker", served.has(row.id))
+  ));
+  const validRows = report.validIds
+    .map((id) => rawRows.get(id) ?? pickerRows.find((row) => row.id === id))
+    .filter((row): row is CoverRow => !!row);
+  const candidates = validRows.slice(0, limit).map((row, slot) => toCoverCandidate(row, slot, "pinned", true));
+  const slotOf = new Map(report.validIds.map((id, slot) => [id, slot]));
+  const pins: PinnedCoverStatus[] = [];
+  const pendingDrops = report.dropped.slice();
+  const takeReason = (cardId: string, fallback: PinDropReason): PinDropReason => {
+    const index = pendingDrops.findIndex((drop) => drop.cardId === cardId);
+    if (index < 0) return fallback;
+    const reason = pendingDrops[index].reason;
+    pendingDrops.splice(index, 1);
+    return reason;
+  };
+  const seen = new Set<string>();
+  report.pinnedIds.forEach((cardId, order) => {
+    const inPicker = pickerIds.has(cardId);
+    if (order >= MAX_PINNED_COVERS || seen.has(cardId)) {
+      pins.push({
+        cardId,
+        order,
+        status: "dropped",
+        reason: takeReason(cardId, order >= MAX_PINNED_COVERS ? "over-cap" : "duplicate"),
+        slot: null,
+        served: false,
+        inPicker,
+      });
+      return;
+    }
+    seen.add(cardId);
+    const slot = slotOf.get(cardId);
+    pins.push({
+      cardId,
+      order,
+      status: slot == null ? "dropped" : "served",
+      reason: slot == null ? takeReason(cardId, "missing") : null,
+      slot: slot == null ? null : slot,
+      served: slot != null,
+      inPicker,
+    });
+  });
+  return {
+    pinnedCount: report.pinnedIds.length,
+    validCount: report.validIds.length,
+    coversDisabled: setsCoversDisabled(),
+    pins,
+    picker,
+    candidates,
+  };
 }
 
 /** Masked file for one card that passes the cover filters. Null never falls back to a raw scan. */

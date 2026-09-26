@@ -1,4 +1,5 @@
 import { readFileSync } from "fs";
+import { CHROME_BASKETBALL_2024_SET_ID } from "@shared/setDisplayOverride";
 import { describe, expect, it } from "vitest";
 import {
   SETS_POLISH,
@@ -9,6 +10,8 @@ import {
   honestCardCountLabel,
   isStockFanUrl,
   playQuestionCount,
+  displaySetYearLabel,
+  fanCoverPlacements,
   formatIndexSetTitle,
   plaqueChromeShowsLabel,
   publicSetDisplayUrl,
@@ -133,6 +136,38 @@ describe("index title", () => {
     expect(formatIndexSetTitle({ setName: "2024 Basketball", brand: "  " })).toBe("2024 Basketball");
     expect(formatIndexSetTitle({ setName: "2024 Basketball" })).toBe("2024 Basketball");
     expect(formatIndexSetTitle({ setName: "2024 Basketball", brand: "Topps" })).not.toBe("2025 Topps Basketball");
+  });
+
+  it("uses the display override for 2024-25 Topps Chrome Basketball", () => {
+    expect(formatIndexSetTitle({
+      id: CHROME_BASKETBALL_2024_SET_ID,
+      setName: "2024 Basketball",
+      brand: "Topps",
+    })).toBe("2024-25 Topps Chrome Basketball");
+    expect(displaySetYearLabel(CHROME_BASKETBALL_2024_SET_ID, 2025)).toBe("2024-25");
+    expect(displaySetYearLabel(CHROME_BASKETBALL_2024_SET_ID, 2025)).not.toMatch(/[\u2013\u2014]/);
+    expect(formatIndexSetTitle({
+      id: "set-2024",
+      setName: "2024 Basketball",
+      brand: "Topps",
+    })).toBe("2024 Topps Basketball");
+  });
+});
+
+describe("fan cover placements", () => {
+  it("spreads 1 to 8 covers and leaves no empty slot", () => {
+    expect(fanCoverPlacements(0, true)).toEqual([]);
+    expect(fanCoverPlacements(1, true)).toEqual([
+      { leftPct: 50, rotateDeg: 0, liftPx: 0, widthPct: 30 },
+    ]);
+    const three = fanCoverPlacements(3, true);
+    expect(three).toHaveLength(3);
+    expect(three.map((place) => place.leftPct)).toEqual([36, 50, 64]);
+    expect(three.every((place) => place.widthPct === 30)).toBe(true);
+    const eight = fanCoverPlacements(8, false);
+    expect(eight).toHaveLength(8);
+    expect(eight[0].leftPct).toBeLessThan(eight[7].leftPct);
+    expect(eight[0].leftPct + eight[7].leftPct).toBe(100);
   });
 });
 

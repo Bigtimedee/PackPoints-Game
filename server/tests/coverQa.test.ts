@@ -18,6 +18,7 @@ import { coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { warmMaskPlanFilename } from "../masking/maskPlanStore";
 import { registerCoverQaRoutes } from "../routes/coverQa";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
@@ -109,6 +110,7 @@ describe("cover QA routes", () => {
       maskVersion: CURRENT_MASK_VERSION,
     }));
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, spareIds);
 
     await db.insert(playableCards).values(rows.map((row) => ({
       id: row.id,
@@ -137,6 +139,7 @@ describe("cover QA routes", () => {
   afterAll(async () => {
     setToken(previousToken);
     setCoversFlag(previousCovers);
+    setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
     await new Promise<void>((resolve, reject) => {

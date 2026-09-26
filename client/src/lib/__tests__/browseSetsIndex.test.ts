@@ -8,6 +8,7 @@ import { Router } from "wouter";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { TheStack } from "../../components/SetCover";
+import { CHROME_BASKETBALL_2024_SET_ID } from "@shared/setDisplayOverride";
 import { BrowseSetsShelf, type BrowseSet } from "../../pages/browse-sets";
 
 function shelfSet(overrides: Partial<BrowseSet> & Pick<BrowseSet, "id" | "setName" | "cardCount">): BrowseSet {
@@ -86,26 +87,67 @@ describe("browse sets index", () => {
     expect(html).not.toContain("CERT SEALED");
   });
 
-  it("paints an empty coverCardUrls fallback as a bar plaque with a seam and no PTS text", () => {
+  it("hides an empty cover list with no cream card, gray box, or card count", () => {
     const html = renderShelf([
       shelfSet({
         id: "set-empty-cover",
         setName: "1990 Hoops",
+        year: 1990,
         cardCount: 8,
         makerUsername: null,
         coverCardUrls: [],
       }),
     ]);
-    const coverStart = html.indexOf('data-testid="cover-masked-stack"');
-    const coverEnd = html.indexOf('data-testid="text-set-title"', coverStart);
-    const cover = html.slice(coverStart, coverEnd);
-    expect(coverStart).toBeGreaterThanOrEqual(0);
-    expect(cover).toContain('data-plaque-chrome="bar"');
-    expect(cover).toContain('data-testid="plaque-seam"');
-    expect(cover).toContain("#F3E6C8");
-    expect(cover).not.toContain("PTS");
-    expect(cover).not.toMatch(/<img\b[^>]*\bsrc="https?:/i);
-    expect(html).not.toMatch(/<img\b[^>]*\bsrc="https?:/i);
+    expect(html).toContain('data-testid="cover-slot-hidden"');
+    expect(html).toContain("1990 Hoops");
+    expect(html).toContain(">1990<");
+    expect(html).toContain("Play this set");
+    expect(html).not.toContain("cover-masked-stack");
+    expect(html).not.toContain("8 cards");
+    expect(html).not.toContain("#F3E6C8");
+    expect(html).not.toContain("#121821");
+    expect(html).not.toContain("coming soon");
+    expect(html).not.toContain("<img");
+    expect(html).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("fans three covers evenly and renders the chrome basketball override", () => {
+    const setId = "74885a41-2043-4b7c-ab58-f9e16c05e2e3";
+    const urls = [0, 1, 2].map((slot) => `/api/sets/${setId}/covers/${slot}`);
+    const fanned = renderShelf([
+      shelfSet({
+        id: setId,
+        setName: "1987 Topps Football",
+        year: 1987,
+        cardCount: 82,
+        makerUsername: null,
+        coverCardUrls: urls,
+      }),
+    ]);
+    expect(fanned).toContain('data-cover-count="3"');
+    expect(fanned).toContain("left:36%");
+    expect(fanned).toContain("left:50%");
+    expect(fanned).toContain("left:64%");
+    expect(fanned.match(/<img\b/g)?.length).toBe(3);
+    expect(fanned).not.toContain("#F3E6C8");
+    expect(fanned).not.toContain("#121821");
+
+    const override = renderShelf([
+      shelfSet({
+        id: CHROME_BASKETBALL_2024_SET_ID,
+        setName: "2024 Basketball",
+        brand: "Topps",
+        year: 2025,
+        cardCount: 733,
+        makerUsername: null,
+        coverCardUrls: [],
+      }),
+    ], false, true);
+    expect(override).toContain("2024-25 Topps Chrome Basketball");
+    expect(override).toContain(">2024-25<");
+    expect(override).not.toContain(">2025<");
+    expect(override).not.toContain("2024 Topps Basketball");
+    expect(override).not.toMatch(/[\u2013\u2014]/);
   });
 
   it("renders only the masked cover URL", () => {

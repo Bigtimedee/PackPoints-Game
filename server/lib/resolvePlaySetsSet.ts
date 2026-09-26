@@ -5,6 +5,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contentAssets, gameSets, playableCards } from "@shared/schema";
+import { applySetDisplayTitle } from "@shared/setDisplayOverride";
 import { setShareSlug } from "../contentFactory/makerShareSlug";
 import { usablePublicImageUrl } from "../routes/userSetPreview";
 import { loadMakerCardSlots } from "../contentFactory/makerShareFromSet";
@@ -72,10 +73,11 @@ export async function resolvePlaySetsSet(idOrSlug: string): Promise<ResolvedPlay
   if (!row || row.isActive === false) return null;
 
   const shareImageUrl = await lookupRuntimeCover(row.id);
+  const setName = applySetDisplayTitle(row.id, row.setName);
   return {
     id: row.id,
-    setName: row.setName,
-    slug: setShareSlug(row.setName, row.id),
+    setName,
+    slug: setShareSlug(setName, row.id),
     shareImageUrl,
   };
 }

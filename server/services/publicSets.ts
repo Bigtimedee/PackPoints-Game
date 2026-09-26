@@ -112,7 +112,8 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
   }
 
   return page.map((row) => {
-    const shareImageUrl = shares.get(row.id);
+    const coverCardUrls = sanitizeCoverCardUrls(covers.get(row.id) ?? []);
+    const shareImageUrl = coverCardUrls.length > 0 ? shares.get(row.id) : undefined;
     return {
       id: row.id,
       setName: row.setName,
@@ -126,7 +127,7 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
       cardCount: row.cardCount,
       playCount: row.playCount,
       ...(shareImageUrl ? { shareImageUrl } : {}),
-      coverCardUrls: sanitizeCoverCardUrls(covers.get(row.id) ?? []),
+      coverCardUrls,
     };
   });
 }
@@ -201,6 +202,7 @@ export async function handlePublicSetDetail(req: Request, res: Response): Promis
       const coverUrls = (await readyMaskedCoverUrls([resolved.id])).get(resolved.id) ?? [];
       const year = typeof resolved.year === "number" ? resolved.year : null;
       previewCards = coverUrls.map((imageUrl) => ({ imageUrl, year }));
+      if (coverUrls.length === 0) shareImageUrl = undefined;
     }
 
     const viewerId = requestUserId(req as any);

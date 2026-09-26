@@ -19,6 +19,7 @@ import { db } from "../db";
 import { storage } from "../storage";
 import { daily5Service } from "../services/daily5Service";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { BASKETBALL_2024_H_INSERT_NUMBER, TOPPS_1987_SCHMIDT_CARD_ID, cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, leakBlocklistLogLines, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
@@ -390,6 +391,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
   });
 
   afterAll(async () => {
+    setPinnedCoversForTests(footballSetId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
     await new Promise<void>((resolve, reject) => {
@@ -667,7 +669,8 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     expect(baseDealt.some((row) => row.number === "430")).toBe(true);
   });
 
-  it("falls through a blocked cover and still fills 8 distinct players", async () => {
+  it("serves pinned covers in order and does not fill from blocked cards", async () => {
+    setPinnedCoversForTests(footballSetId, footballCards.slice(2).map((row) => row.id));
     const urls = await readyMaskedCoverUrls([footballSetId]);
     expect(urls.get(footballSetId)).toHaveLength(8);
 
@@ -680,6 +683,8 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     expect(slot7.status).toBe(200);
     expect(Buffer.from(await slot7.arrayBuffer())).toEqual(lastBytes);
     expect(donnieId.length).toBeGreaterThan(0);
+    expect(slot7.headers.get("x-card-id")).not.toBe(donnieId);
+    setPinnedCoversForTests(footballSetId, null);
   });
 
   it("skips blocked cards when choosing a replacement", async () => {

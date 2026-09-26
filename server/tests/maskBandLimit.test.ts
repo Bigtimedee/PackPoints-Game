@@ -29,6 +29,7 @@ import {
   runMaskBandGuardScan,
 } from "../masking/maskBandLimit";
 import { getMaskedImagePath } from "../masking/maskingService";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
@@ -221,6 +222,7 @@ describe("band guard report and enforce", () => {
   });
 
   afterAll(async () => {
+    setPinnedCoversForTests(setId, null);
     if (previousGuard === undefined) delete process.env.MASK_BAND_GUARD;
     else process.env.MASK_BAND_GUARD = previousGuard;
     setMaskReadySidecarDirForTests(null);
@@ -276,11 +278,13 @@ describe("band guard report and enforce", () => {
     expect(existsSync(path.join(dir, warmOkMarkerFilename(floatId)))).toBe(true);
 
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, cardIds.slice(0, 8));
     const urls = await readyMaskedCoverUrls([setId]);
     expect(urls.get(setId)).toHaveLength(8);
     const slot0 = await fetch(`${base}/api/sets/${setId}/covers/0`);
     expect(slot0.status).toBe(200);
     expect(Buffer.from(await slot0.arrayBuffer())).toEqual(floatBytes);
+    setPinnedCoversForTests(setId, null);
 
     const [challenge] = await db.insert(dailyChallenges).values({
       date: "2099-11-07",
@@ -359,11 +363,13 @@ describe("band guard report and enforce", () => {
     expect(dealt).toHaveLength(8);
 
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, [normalId, shortTopId, ...cardIds.slice(5)]);
     const urls = await readyMaskedCoverUrls([setId]);
     expect(urls.get(setId)).toHaveLength(8);
     const slot0 = await fetch(`${base}/api/sets/${setId}/covers/0`);
     expect(slot0.status).toBe(200);
     expect(Buffer.from(await slot0.arrayBuffer())).toEqual(normalBytes);
+    setPinnedCoversForTests(setId, null);
 
     const started = Date.now();
     const left = await replaceBlockedDaily5Cards(challengeIds[0], "2099-11-07");
