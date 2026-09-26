@@ -17,6 +17,7 @@ import {
   listActiveDealableSets,
   listDealableCards,
 } from "../services/dealableQa";
+import { eligibleCoverFile } from "../services/setCovers";
 
 function qaHeaders(req: Request, res: Response): void {
   stripConditionalValidators(req);
@@ -97,7 +98,10 @@ export function registerDealableQaRoutes(app: Express): void {
 
   app.get("/api/qa/cover-image/:cardId", (req, res) => {
     if (!authorized(req, res)) return;
-    void dealableMaskedFile(req.params.cardId)
+    // A card that already passes the pinned-cover filters is the baked file.
+    // That path does not bake. A dealable card with no sidecar still bakes.
+    void eligibleCoverFile(req.params.cardId)
+      .then((coverFile) => coverFile ?? dealableMaskedFile(req.params.cardId))
       .then((file) => {
         if (!file) {
           qaNotFound(req, res);

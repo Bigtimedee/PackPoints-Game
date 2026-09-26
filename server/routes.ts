@@ -502,7 +502,10 @@ export async function registerRoutes(
     void handlePublicSetCover(req, res);
   });
 
-  // Dealable sweep registers /api/qa/cover-image first so a missing v4.6 file bakes.
+  // Dealable sweep registers /api/qa/cover-image first. A pinned cover that
+  // already passes the cover filters is streamed with no bake. A dealable
+  // card with no sidecar is baked. The cover-QA handler stays registered
+  // and does not bake. Public /sets covers never bake.
   registerDealableQaRoutes(app);
   registerCoverQaRoutes(app);
 
