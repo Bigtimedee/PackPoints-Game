@@ -15,13 +15,14 @@ const setId = MASK_LAYOUT_SET_IDS.toppsFootball1987;
 const stamp = randomUUID().slice(0, 8);
 
 describe("subset quarantine", () => {
-  const shellId = randomUUID();
+  const bareId = randomUUID();
   const breakerId = randomUUID();
   const verifiedId = randomUUID();
   const baseId = randomUUID();
+  const blockedShellId = randomUUID();
 
   afterAll(async () => {
-    await db.delete(playableCards).where(inArray(playableCards.id, [shellId, breakerId, verifiedId, baseId]));
+    await db.delete(playableCards).where(inArray(playableCards.id, [bareId, breakerId, verifiedId, baseId, blockedShellId]));
     await db.delete(gameSets).where(eq(gameSets.id, setId));
   });
 
@@ -68,10 +69,11 @@ describe("subset quarantine", () => {
     });
 
     await db.insert(playableCards).values([
-      card(shellId, "Donnie Shell", null, false),
-      card(breakerId, "Donnie Shell", "Record Breaker", false),
-      card(verifiedId, "Donnie Shell", "Record Breaker", true),
+      card(bareId, "Jerry Rice", null, false),
+      card(breakerId, "Jerry Rice", "Record Breaker", false),
+      card(verifiedId, "Jerry Rice", "Record Breaker", true),
       card(baseId, "Hanford Dixon", null, false),
+      card(blockedShellId, "Donnie Shell", null, true),
     ]);
 
     const rows = await db
@@ -79,9 +81,10 @@ describe("subset quarantine", () => {
       .from(playableCards)
       .where(and(eq(playableCards.gameSetId, setId), eligibleDealFilter("playable_cards")));
     const ids = rows.map((row) => row.id).sort();
-    expect(ids).toContain(shellId);
+    expect(ids).toContain(bareId);
     expect(ids).toContain(baseId);
     expect(ids).toContain(verifiedId);
     expect(ids).not.toContain(breakerId);
+    expect(ids).not.toContain(blockedShellId);
   });
 });

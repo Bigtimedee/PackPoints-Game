@@ -16,9 +16,10 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { dailyChallengeCards, dailyChallenges, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { storage } from "../storage";
-import { maskFailureSidecarFilename, setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
+import { maskFailureSidecarFilename, readMaskFailureReason, setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import {
   clearMaskBandCacheForTests,
+  isMaskBandExcluded,
   maskBandFailure,
   MASK_BAND_EDGE_TOLERANCE_PCT,
   MASK_BAND_MISPLACED,
@@ -98,7 +99,7 @@ describe("mask band placement", () => {
     expect(MAX_TOP_BAND_PCT).toBe(35);
     expect(MAX_BOTTOM_BAND_PCT).toBe(55);
     expect(MASK_BAND_EDGE_TOLERANCE_PCT).toBe(3);
-    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
     expect(maskBandFailure(band(46, 54))).toBeNull();
     expect(maskBandFailure(band(55, 45))).toBeNull();
     expect(maskBandFailure(band(56, 44))).toBe(MASK_BAND_OVERSIZED);
@@ -107,6 +108,65 @@ describe("mask band placement", () => {
     expect(maskBandFailure(band(28, 0))).toBeNull();
     expect(maskBandFailure(band(77, 19))).toBe(MASK_BAND_MISPLACED);
     expect(maskBandFailure(band(50, 0, 20))).toBeNull();
+    expect(maskBandFailure([...band(24, 0), ...band(22, 78)])).toBeNull();
+    expect(maskBandFailure([...band(40, 0), ...band(22, 78)])).toBe(MASK_BAND_OVERSIZED);
+    expect(maskBandFailure([...band(24, 0), ...band(56, 44)])).toBe(MASK_BAND_OVERSIZED);
+    expect(maskBandFailure([...band(20, 0), ...band(40, 19)])).toBe(MASK_BAND_MISPLACED);
+  });
+});
+
+describe("v4.6 plan with a top band and a bottom band", () => {
+  const previousGuard = process.env.MASK_BAND_GUARD;
+  let dir = "";
+
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "packpts-band-v46-"));
+    setMaskReadySidecarDirForTests(dir);
+  });
+
+  afterAll(async () => {
+    if (previousGuard === undefined) delete process.env.MASK_BAND_GUARD;
+    else process.env.MASK_BAND_GUARD = previousGuard;
+    setMaskReadySidecarDirForTests(null);
+    clearMaskBandCacheForTests();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  async function writePlan(id: string, regions: ReturnType<typeof band>, version = CURRENT_MASK_VERSION) {
+    await writeFile(
+      path.join(dir, `${id}_${version}.json`),
+      JSON.stringify({ layoutClass: "PSA_SLAB", regions, maskVersion: version }),
+    );
+  }
+
+  it("reads the current plan and judges each full-width band on its own edge", async () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
+    process.env.MASK_BAND_GUARD = "enforce";
+    clearMaskBandCacheForTests();
+
+    const legalId = randomUUID();
+    await writePlan(legalId, band(40, 0), "v4.5");
+    await writePlan(legalId, [...band(24, 0), ...band(22, 78)]);
+    expect(isMaskBandExcluded(legalId, dir)).toBe(false);
+    expect(existsSync(path.join(dir, maskFailureSidecarFilename(legalId)))).toBe(false);
+
+    const tallTopId = randomUUID();
+    await writePlan(tallTopId, [...band(40, 0), ...band(22, 78)]);
+    clearMaskBandCacheForTests();
+    expect(isMaskBandExcluded(tallTopId, dir)).toBe(true);
+    expect(readMaskFailureReason(tallTopId, dir)).toBe(MASK_BAND_OVERSIZED);
+
+    const tallBottomId = randomUUID();
+    await writePlan(tallBottomId, [...band(24, 0), ...band(56, 44)]);
+    clearMaskBandCacheForTests();
+    expect(isMaskBandExcluded(tallBottomId, dir)).toBe(true);
+    expect(readMaskFailureReason(tallBottomId, dir)).toBe(MASK_BAND_OVERSIZED);
+
+    const floatId = randomUUID();
+    await writePlan(floatId, [...band(20, 0), ...band(40, 19)]);
+    clearMaskBandCacheForTests();
+    expect(isMaskBandExcluded(floatId, dir)).toBe(true);
+    expect(readMaskFailureReason(floatId, dir)).toBe(MASK_BAND_MISPLACED);
   });
 });
 

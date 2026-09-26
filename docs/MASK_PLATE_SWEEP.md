@@ -31,4 +31,4 @@ npm run mask:sweep -- --expect pairs.json
 ]
 ```
 
-Cache rebuild is separate. `CURRENT_MASK_VERSION` is `v4.5`, so `v4.4` JPEGs and `.ok` sidecars are not served. The next off-request bake (deal warm-up, or `POST /api/admin/masks/rebuild`) writes the v4.5 file. `GET /api/sets/.../covers/:slot` does not bake.
+Cache rebuild is separate. `CURRENT_MASK_VERSION` is `v4.6`, so `v4.5` and `v4.4` JPEGs and `.ok` sidecars are not served. The next off-request bake (deal warm-up, or `POST /api/admin/masks/rebuild`) writes the v4.6 file. `GET /api/sets/.../covers/:slot` does not bake.
