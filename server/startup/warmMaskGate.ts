@@ -56,6 +56,18 @@ function warmFile(dir: string, cardId: string): string | null {
   return null;
 }
 
+/**
+ * Cached masked JPEG for a card that already has a mask-ready sidecar.
+ * Missing marker or missing JPEG returns null. This does not bake.
+ */
+export function resolveReadyWarmMaskedFile(dir: string, cardId: string): string | null {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
+    return null;
+  }
+  if (!existsSync(path.join(dir, warmOkMarkerFilename(cardId)))) return null;
+  return warmFile(dir, cardId);
+}
+
 function cardIds(dir: string): string[] {
   const cached = cardIdsByDir.get(dir);
   if (cached) return cached;
