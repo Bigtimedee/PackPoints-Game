@@ -12,6 +12,7 @@ import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
+import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
 
 type CardAlias = "pc" | "playable_cards";
 
@@ -617,17 +618,21 @@ function cardUnservable(row: {
   cardId: string;
   gameSetId: string | null;
   player: string | null;
+  blockedReason?: string | null;
   number?: string | null;
   variant?: string | null;
   description?: string | null;
 }): boolean {
-  return isBlockedCard(row.gameSetId, row.player, row) || isMaskBandExcluded(row.cardId);
+  return isBlockedCard(row.gameSetId, row.player, row)
+    || isMaskBandExcluded(row.cardId)
+    || refusedAtCurrentMask({ id: row.cardId, blockedReason: row.blockedReason }) != null;
 }
 
 /**
- * A stored Daily 5 hand for today or a later date. A blocked or oversized-band
- * card is rewritten to the next eligible card in the set before the client sees
- * it. A past date is left alone. Returns how many unservable cards remain.
+ * A stored Daily 5 hand for today or a later date. A blocked, oversized-band,
+ * or current-mask-version refused card is rewritten to the next eligible card
+ * in the set before the client sees it. A past date is left alone. Returns
+ * how many unservable cards remain.
  */
 export async function replaceBlockedDaily5Cards(challengeId: string, today = getPackptsDayKey()): Promise<number> {
   const [challenge] = await db
@@ -646,6 +651,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       choices: dailyChallengeCards.choices,
       gameSetId: playableCards.gameSetId,
       player: playableCards.player,
+      blockedReason: playableCards.blockedReason,
       number: playableCards.number,
       variant: playableCards.variant,
       description: playableCards.description,
@@ -680,6 +686,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       !!card.player
       && !isBlockedCard(card.gameSetId, card.player, card)
       && !isMaskBandExcluded(card.id)
+      && refusedAtCurrentMask(card) == null
       && !isNonPlayerCard(card.player, card.description)
       && !isKnownSilhouetteUrl(card.imageUrl));
     if (!next?.player) {
@@ -693,7 +700,12 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       .set({ cardId: next.id, correctAnswer: next.player, choices })
       .where(and(eq(dailyChallengeCards.id, row.id), eq(dailyChallengeCards.cardId, row.cardId)));
     used.add(next.id);
-    console.log(`[Daily5] blocklist swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id}`);
+    const maskRefusal = refusedAtCurrentMask({ id: row.cardId, blockedReason: row.blockedReason });
+    if (maskRefusal) {
+      console.log(`[Daily5] mask refusal swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id} reason=${maskRefusal}`);
+    } else {
+      console.log(`[Daily5] blocklist swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id}`);
+    }
   }
 
   const left = await db
@@ -701,6 +713,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       cardId: dailyChallengeCards.cardId,
       gameSetId: playableCards.gameSetId,
       player: playableCards.player,
+      blockedReason: playableCards.blockedReason,
       number: playableCards.number,
       variant: playableCards.variant,
       description: playableCards.description,
@@ -713,8 +726,8 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
 
 /**
  * Serve-time pass for every stored Daily 5 whose date is today or later.
- * A hand saved before a blocklist rule existed is rewritten here.
- * Past dates are not selected.
+ * A hand saved before a blocklist rule, or still pointing at a card the
+ * current mask version refused, is rewritten here. Past dates are not selected.
  */
 export async function sweepBlockedDaily5Deals(today = getPackptsDayKey()): Promise<number> {
   const open = await db

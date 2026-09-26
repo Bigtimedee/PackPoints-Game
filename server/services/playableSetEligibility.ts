@@ -10,7 +10,10 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
 import { cardNotBlockedSql } from "../lib/cardBlocklist";
+import { maskRefusalStillClearSql, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { subsetStillUnverified } from "../masking/subsetQuarantine";
+
+export { refusedAtCurrentMask };
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
 export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
@@ -19,20 +22,16 @@ type CardAlias = "pc" | "playable_cards";
 
 /**
  * A post-bake name leak sets blocked_reason and drops is_playable.
- * `mask_name_uncovered` is the plate check. `name_visible_outside_mask` is a
- * surname read anywhere else on the baked JPEG (jersey, signature, headline).
- * Enforce mode of the band guard sets mask_band_oversized or mask_band_misplaced.
- * Deals exclude those reasons on their own, so a card cannot slip back in
- * while is_playable is flipped true and the sidecar still records the failure.
+ * `mask_name_uncovered` is the plate check, including `name_plate_unresolved`
+ * on the `{cardId}_${CURRENT_MASK_VERSION}.fail` sidecar. `name_visible_outside_mask`
+ * is a surname read anywhere else on the baked JPEG. Enforce mode of the band
+ * guard sets mask_band_oversized or mask_band_misplaced.
+ * Deals exclude those reasons, and every current-version fail sidecar, so a
+ * card cannot slip back in while is_playable is flipped true.
  * Report mode does not write the band reasons.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
-  return sql`(
-    ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered'
-    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_oversized'
-    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_misplaced'
-    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'name_visible_outside_mask'
-  )`;
+  return maskRefusalStillClearSql(alias);
 }
 
 /**
