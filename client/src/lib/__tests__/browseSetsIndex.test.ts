@@ -92,6 +92,7 @@ describe("browse sets index", () => {
       shelfSet({
         id: "set-empty-cover",
         setName: "1990 Hoops",
+        brand: null,
         year: 1990,
         cardCount: 8,
         makerUsername: null,
