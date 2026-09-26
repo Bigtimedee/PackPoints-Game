@@ -27,7 +27,16 @@ export interface LocalizedNamePlan {
   nameBoxes: OcrWordBox[];
   /** Plate the band was fitted to. Null when the fixed profile band was kept. */
   plate: NamePlateBox | null;
+  /** Surname was found on a plate the set profile does not use. */
+  layoutDisagreed: boolean;
+  /** A letter plate sits on the other edge and no surname was read. Do not serve the profile band. */
+  namePlateUnresolved: boolean;
 }
+
+/** Center of a word in the top name plate, as a fraction of image height. */
+export const TOP_NAME_PLATE_MAX_CY = 0.35;
+/** Center of a word in the bottom name plate. */
+export const BOTTOM_NAME_PLATE_MIN_CY = 0.62;
 
 const OCR_PAD_PCT = 1.6;
 
@@ -168,6 +177,63 @@ export function profileCoversPlate(profile: MaskProfile, plate: NamePlateBox, im
   return false;
 }
 
+export function splitNamePlateHits(
+  words: OcrWordBox[],
+  imageHeight: number,
+): { top: OcrWordBox[]; bottom: OcrWordBox[] } {
+  const height = Math.max(1, imageHeight);
+  const top: OcrWordBox[] = [];
+  const bottom: OcrWordBox[] = [];
+  for (const word of words) {
+    const cy = (word.y + word.h / 2) / height;
+    if (cy <= TOP_NAME_PLATE_MAX_CY) top.push(word);
+    else if (cy >= BOTTOM_NAME_PLATE_MIN_CY) bottom.push(word);
+  }
+  return { top, bottom };
+}
+
+function planFromOffProfileHits(
+  profile: MaskProfile,
+  offProfileHits: OcrWordBox[],
+  onProfileHits: OcrWordBox[],
+  imageWidth: number,
+  imageHeight: number,
+  matchedTokens: string[],
+): LocalizedNamePlan {
+  const offAnchor = profile.nameAnchor === "top" ? "bottom" : "top";
+  const plate = plateBoxFromWords(offProfileHits);
+  const regions: MaskRegion[] = [];
+  if (plate) {
+    regions.push(fitNamePlateBand({
+      anchor: offAnchor,
+      imageWidth,
+      imageHeight,
+      profileFraction: 0.18,
+      plate,
+    }));
+  }
+  if (onProfileHits.length > 0) {
+    regions.push(...profile.regions.map((region) => ({ ...region })));
+  }
+  const layoutClass: LayoutClass = onProfileHits.length > 0
+    ? "PSA_SLAB"
+    : offAnchor === "top"
+      ? "TOP_PLATE"
+      : "BOTTOM_PLAQUE";
+  const boxes = [...offProfileHits, ...onProfileHits];
+  return {
+    regions: unionMaskRegions(regions),
+    source: "ocr+profile",
+    matchedTokens,
+    profileId: profile.id,
+    layoutClass,
+    nameBoxes: boxes,
+    plate: plateBoxFromWords(boxes),
+    layoutDisagreed: true,
+    namePlateUnresolved: false,
+  };
+}
+
 export function resolveNameMaskPlan(input: {
   playerName: string;
   setHint: string | null | undefined;
@@ -178,6 +244,10 @@ export function resolveNameMaskPlan(input: {
   slabLayout?: boolean;
   /** Detected name plate in this image's pixels. OCR boxes are merged in. */
   plateBox?: NamePlateBox | null;
+  /** Letter rows on the top edge, independent of the set profile. */
+  topTextPlate?: NamePlateBox | null;
+  /** Letter rows on the bottom edge, independent of the set profile. */
+  bottomTextPlate?: NamePlateBox | null;
 }): LocalizedNamePlan {
   const profile = getMaskProfile(input.setHint, input.gameSetId);
   const ocr = matchPlayerNameBoxes(input.playerName, input.words || []);
@@ -199,7 +269,48 @@ export function resolveNameMaskPlan(input: {
       layoutClass: "PSA_SLAB",
       nameBoxes: lastNameMatched ? ocr.boxes : [],
       plate: null,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
     };
+  }
+
+  const plateHits = splitNamePlateHits(ocr.boxes, input.imageHeight);
+  const offProfileHits = profile.nameAnchor === "top"
+    ? plateHits.bottom
+    : profile.nameAnchor === "bottom"
+      ? plateHits.top
+      : [];
+  const onProfileHits = profile.nameAnchor === "top"
+    ? plateHits.top
+    : profile.nameAnchor === "bottom"
+      ? plateHits.bottom
+      : [];
+  if (profile.matched && offProfileHits.length > 0) {
+    return planFromOffProfileHits(
+      profile,
+      offProfileHits,
+      onProfileHits,
+      input.imageWidth,
+      input.imageHeight,
+      ocr.tokens,
+    );
+  }
+  if (profile.matched && profile.nameAnchor !== "both" && plateHits.top.length === 0 && plateHits.bottom.length === 0) {
+    const onProfile = profile.nameAnchor === "top" ? input.topTextPlate : input.bottomTextPlate;
+    const onOther = profile.nameAnchor === "top" ? input.bottomTextPlate : input.topTextPlate;
+    if (onOther && !onProfile) {
+      return {
+        regions: profile.regions.map((region) => ({ ...region })),
+        source: "profile",
+        matchedTokens: ocr.tokens,
+        profileId: profile.id,
+        layoutClass: profile.layoutClass,
+        nameBoxes: [],
+        plate: null,
+        layoutDisagreed: true,
+        namePlateUnresolved: true,
+      };
+    }
   }
 
   const anchor = profile.nameAnchor === "top" ? "top" : "bottom";
@@ -228,6 +339,8 @@ export function resolveNameMaskPlan(input: {
       layoutClass: profile.layoutClass,
       nameBoxes: lastNameMatched ? ocr.boxes : [],
       plate,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
     };
   }
   if (
@@ -251,6 +364,8 @@ export function resolveNameMaskPlan(input: {
       layoutClass: profile.layoutClass,
       nameBoxes: lastNameMatched ? ocr.boxes : [],
       plate,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
     };
   }
 
@@ -263,6 +378,8 @@ export function resolveNameMaskPlan(input: {
       layoutClass: profile.layoutClass,
       nameBoxes: ocr.boxes,
       plate: null,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
     };
   }
 
@@ -275,6 +392,8 @@ export function resolveNameMaskPlan(input: {
       layoutClass: profile.layoutClass,
       nameBoxes: lastNameMatched ? ocr.boxes : [],
       plate: null,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
     };
   }
 
@@ -288,6 +407,8 @@ export function resolveNameMaskPlan(input: {
       layoutClass: topName ? "TOP_PLATE" : "BOTTOM_PLAQUE",
       nameBoxes: ocr.boxes,
       plate: plateBoxFromWords(ocr.boxes),
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
     };
   }
 
@@ -299,5 +420,7 @@ export function resolveNameMaskPlan(input: {
     layoutClass: profile.layoutClass,
     nameBoxes: lastNameMatched ? ocr.boxes : [],
     plate: null,
+    layoutDisagreed: false,
+    namePlateUnresolved: false,
   };
 }

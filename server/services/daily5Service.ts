@@ -18,6 +18,7 @@ import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
+import { swapFailedCardsOnTodayChallenge } from "./daily5FailedCardSwap";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -126,7 +127,10 @@ export class Daily5Service {
   async getOrCreateTodayChallenge(): Promise<DailyChallenge | null> {
     const today = getTodayDateString();
     const existing = await this.getChallengeByDate(today);
-    if (existing) return existing;
+    if (existing) {
+      await swapFailedCardsOnTodayChallenge();
+      return existing;
+    }
 
     return this.createChallengeForDate(today);
   }

@@ -3,13 +3,16 @@ import { DEFAULT_MASK_REGIONS, type MaskRegion } from "./schema";
 /**
  * Bump whenever baked JPEG geometry, OCR rules, or fill change.
  * Cache keys and `?v=` URLs follow this.
- * v4.5 extends the name band from the detected plate on this scan. A fixed
+ * v4.6 places the band on the plate where this card's surname is detected
+ * (top, bottom, or both). The set profile is only the prior when no surname
+ * is found. v4.5 files stay on disk and are not served.
+ * v4.5 extended the name band from the detected plate on this scan. A fixed
  * fraction tuned on a ~750x1030 file ends through the glyphs on a tight crop.
  * v4.4 JPEGs and `{cardId}_v4.4.ok` sidecars are stale and are not served.
  * Cards rotated upright before the mask use a filename suffix
  * (`_r90`, `_r180`, `_r270`) in addition to the version.
  */
-export const CURRENT_MASK_VERSION = "v4.5";
+export const CURRENT_MASK_VERSION = "v4.6";
 
 /**
  * Profile fractions (Fleer top 18%, and the other named bands) were tuned on

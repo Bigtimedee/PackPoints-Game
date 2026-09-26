@@ -2375,6 +2375,8 @@ export const playableCards = pgTable("playable_cards", {
   rawImagesOnly: boolean("raw_images_only").notNull().default(false),
   isPlayable: boolean("is_playable").notNull().default(true), // false for checklists, multi-player cards
   blockedReason: text("blocked_reason"), // Reason if isPlayable=false (e.g., "checklist", "multi-player")
+  /** Subset cards on a quarantineSubsets set stay ineligible until the per-card plate bake and surname check pass. */
+  nameLayoutVerified: boolean("name_layout_verified").notNull().default(false),
   imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"), // Image quality review
   reportCount: integer("report_count").notNull().default(0), // Number of user reports for wrong image
   imageRotation: integer("image_rotation").notNull().default(0), // Rotation correction: 0, 90, 180, 270 degrees

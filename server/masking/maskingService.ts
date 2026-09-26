@@ -22,6 +22,8 @@ import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPla
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
 import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
+import { NAME_VISIBLE_OUTSIDE_MASK } from "./nameOutsideMask";
+import { scheduleNameVisibilityCheck } from "./nameVisibilityBackfill";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -44,6 +46,7 @@ function filenameRotation(filename: string): QuarterTurn {
  */
 export function peekWarmMaskedFilename(cardId: string): string | null {
   if (!cardId) return null;
+  if (readMaskFailureReason(cardId) === NAME_VISIBLE_OUTSIDE_MASK) return null;
   const note = readOrientNote(cardId);
   if (note) {
     const named = warmMaskedFilename(cardId, note.rotation);
@@ -553,7 +556,8 @@ export async function bakeMaskedCardFromUrl(
 
       await fs.writeFile(filePath, result.maskedBuffer);
       await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
-      if (readMaskFailureReason(cardId)) {
+      const priorFail = readMaskFailureReason(cardId);
+      if (priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
         clearMaskFailureSidecar(cardId);
         await db
           .update(playableCards)
@@ -611,6 +615,13 @@ export async function bakeMaskedCardFromUrl(
         ocrMatches: result.ocrMatches,
         source: result.source,
         maskVersion: CURRENT_MASK_VERSION,
+      });
+
+      scheduleNameVisibilityCheck({
+        cardId,
+        playerName: input.playerName,
+        regions: result.regions,
+        filename,
       });
 
       return filename;
@@ -769,7 +780,7 @@ export async function quarantineUncoveredName(cardId: string, reason: string): P
       .update(playableCards)
       .set({
         isPlayable: false,
-        blockedReason: "mask_name_uncovered",
+        blockedReason: reason === NAME_VISIBLE_OUTSIDE_MASK ? NAME_VISIBLE_OUTSIDE_MASK : "mask_name_uncovered",
         imageReviewStatus: "flagged",
         quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
         lastValidationReason: reason.slice(0, 240),

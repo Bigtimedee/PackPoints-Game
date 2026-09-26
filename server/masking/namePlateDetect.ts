@@ -199,3 +199,37 @@ export async function detectAnchorPlate(
   const yPx = Math.min(srcH - 1, Math.max(0, Math.round((edge / info.height) * srcH)));
   return { x: 0, y: yPx, w: srcW, h: Math.max(1, srcH - yPx) };
 }
+
+/**
+ * Letter rows only, ignoring a solid color break. Used to notice a name plate
+ * on the edge the set profile did not pick.
+ */
+export async function detectAnchorTextPlate(
+  buffer: Buffer,
+  anchor: NameAnchor,
+): Promise<NamePlateBox | null> {
+  if (anchor === "both") return null;
+  const meta = await sharp(buffer).metadata();
+  const srcW = meta.width || 0;
+  const srcH = meta.height || 0;
+  if (srcW < 20 || srcH < 20) return null;
+  const targetW = 64;
+  const targetH = Math.max(24, Math.round(srcH * (targetW / srcW)));
+  const { data, info } = await sharp(buffer)
+    .resize(targetW, targetH, { fit: "fill", kernel: "nearest" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const text = rowTextFlags(data, info.width, info.height, info.channels);
+  if (anchor === "top") {
+    const edge = lastTextEdgeFromTop(text);
+    if (edge == null || edge < 2) return null;
+    const hPx = Math.max(1, Math.round((edge / info.height) * srcH));
+    return { x: 0, y: 0, w: srcW, h: Math.min(srcH, hPx) };
+  }
+  const run = bottomTextRun(text);
+  if (!run) return null;
+  const yPx = Math.min(srcH - 1, Math.max(0, Math.round((run.top / info.height) * srcH)));
+  const bottomPx = Math.min(srcH, Math.max(yPx + 1, Math.round((run.bottom / info.height) * srcH)));
+  return { x: 0, y: yPx, w: srcW, h: bottomPx - yPx };
+}

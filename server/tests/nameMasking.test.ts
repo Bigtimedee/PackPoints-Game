@@ -235,8 +235,8 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.5");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.5");
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.6");
   });
 
   it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {
@@ -459,6 +459,119 @@ describe("baked mask fixtures", () => {
     });
     expect(coverage.ok).toBe(false);
     expect(coverage.reason).toBe("name_band_missing");
+  });
+
+  async function lightBottomBannerCard(): Promise<Buffer> {
+    const bannerH = Math.round(H * 0.22);
+    const photoH = H - bannerH;
+    const banner = await sharp({
+      create: { width: W, height: bannerH, channels: 3, background: { r: 140, g: 196, b: 230 } },
+    }).png().toBuffer();
+    const letterH = Math.round(bannerH * 0.62);
+    const composites: { input: Buffer; top: number; left: number }[] = [
+      { input: banner, top: photoH, left: 0 },
+    ];
+    for (let i = 0; i < 10; i++) {
+      const bar = await sharp({
+        create: { width: 8, height: letterH, channels: 3, background: { r: 8, g: 10, b: 14 } },
+      }).png().toBuffer();
+      composites.push({
+        input: bar,
+        top: photoH + Math.round(bannerH * 0.18),
+        left: 12 + i * 16,
+      });
+    }
+    const photo = await sharp({
+      create: { width: W, height: photoH, channels: 3, background: GREEN },
+    }).png().toBuffer();
+    return sharp({
+      create: { width: W, height: H, channels: 3, background: GREEN },
+    })
+      .composite([{ input: photo, top: 0, left: 0 }, ...composites])
+      .png()
+      .toBuffer();
+  }
+
+  async function topNameBarsCard(): Promise<Buffer> {
+    const plateH = Math.round(H * 0.16);
+    const plate = await sharp({
+      create: { width: W, height: plateH, channels: 3, background: WHITE },
+    }).png().toBuffer();
+    const composites: { input: Buffer; top: number; left: number }[] = [
+      { input: plate, top: 0, left: 0 },
+    ];
+    for (let i = 0; i < 8; i++) {
+      const bar = await sharp({
+        create: { width: 8, height: Math.round(plateH * 0.6), channels: 3, background: { r: 8, g: 10, b: 14 } },
+      }).png().toBuffer();
+      composites.push({ input: bar, top: 6, left: 16 + i * 18 });
+    }
+    const photo = await sharp({
+      create: { width: W, height: H - plateH, channels: 3, background: GREEN },
+    }).png().toBuffer();
+    return sharp({
+      create: { width: W, height: H, channels: 3, background: GREEN },
+    })
+      .composite([...composites, { input: photo, top: plateH, left: 0 }])
+      .png()
+      .toBuffer();
+  }
+
+  it("masks a bottom name banner on a top-plate set when the surname is read there", async () => {
+    const raw = await lightBottomBannerCard();
+    const bannerTop = Math.round(H * 0.78);
+    const result = await maskCardImage(raw, "Donnie Shell", "1987 Topps Football", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+      words: [{ text: "SHELL", x: 12, y: bannerTop, w: 150, h: 28 }],
+    });
+    expect(result.coverageOk).toBe(true);
+    expect(result.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(result.layoutDisagreed).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 90)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 20)).toBe(false);
+    const name = await sample(result.maskedBuffer, 50, 90);
+    const photo = await sample(result.maskedBuffer, 50, 30);
+    expect(isDark(name.r, name.g, name.b)).toBe(true);
+    expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
+  });
+
+  it("excludes a bottom-banner card on a top-plate set when the surname was not read", async () => {
+    const raw = await lightBottomBannerCard();
+    const result = await maskCardImage(raw, "Donnie Shell", "1987 Topps Football", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+    });
+    expect(result.coverageOk).toBe(false);
+    expect(result.coverageReason).toBe("name_plate_unresolved");
+  });
+
+  it("masks a top name plate on a bottom-plaque set when the surname is read there", async () => {
+    const raw = await topNameBarsCard();
+    const result = await maskCardImage(raw, "Hanford Dixon", "1987 Topps Baseball", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsBaseball1987,
+      words: [{ text: "DIXON", x: 16, y: 8, w: 120, h: 28 }],
+    });
+    expect(result.coverageOk).toBe(true);
+    expect(result.layoutClass).toBe("TOP_PLATE");
+    expect(result.layoutDisagreed).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 8)).toBe(true);
+    expect(anyRegionCoversPoint(result.regions, 50, 80)).toBe(false);
+    const name = await sample(result.maskedBuffer, 20, 8);
+    const photo = await sample(result.maskedBuffer, 50, 70);
+    expect(isDark(name.r, name.g, name.b)).toBe(true);
+    expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
+  });
+
+  it("excludes a top-name card on a bottom-plaque set when the surname was not read", async () => {
+    const raw = await topNameBarsCard();
+    const result = await maskCardImage(raw, "Hanford Dixon", "1987 Topps Baseball", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsBaseball1987,
+    });
+    expect(result.coverageOk).toBe(false);
+    expect(result.coverageReason).toBe("name_plate_unresolved");
   });
 
   it("refuses a top-plate class when the top band was not painted", async () => {

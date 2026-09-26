@@ -104,7 +104,32 @@ function boxesFromRecognize(
   return boxes;
 }
 
-function startTesseractJob(imageBuffer: Buffer, originalWidth: number): OcrJob {
+function pageWords(result: {
+  data?: {
+    words?: Array<{ text?: string; confidence?: number; bbox?: { x0: number; y0: number; x1: number; y1: number } }>;
+    blocks?: Array<{
+      paragraphs?: Array<{
+        lines?: Array<{
+          words?: Array<{ text?: string; confidence?: number; bbox?: { x0: number; y0: number; x1: number; y1: number } }>;
+        }>;
+      }>;
+    }>;
+  };
+}): Array<{ text?: string; confidence?: number; bbox?: { x0: number; y0: number; x1: number; y1: number } }> {
+  const direct = result.data?.words;
+  if (direct && direct.length > 0) return direct;
+  const nested: Array<{ text?: string; confidence?: number; bbox?: { x0: number; y0: number; x1: number; y1: number } }> = [];
+  for (const block of result.data?.blocks || []) {
+    for (const paragraph of block.paragraphs || []) {
+      for (const line of paragraph.lines || []) {
+        for (const word of line.words || []) nested.push(word);
+      }
+    }
+  }
+  return nested;
+}
+
+function startTesseractJob(imageBuffer: Buffer, originalWidth: number, withBlocks = false): OcrJob {
   let runtime: KillableRuntime | null = null;
   let cancelled = false;
   const promise = (async () => {
@@ -122,8 +147,16 @@ function startTesseractJob(imageBuffer: Buffer, originalWidth: number): OcrJob {
       return { words: [] as OcrWordBox[] };
     }
     try {
-      const result = await worker.recognize(scaledBuffer);
-      return { words: boxesFromRecognize(result as Parameters<typeof boxesFromRecognize>[0], scaleFactor) };
+      const result = await worker.recognize(
+        scaledBuffer,
+        {},
+        withBlocks ? { text: true, blocks: true } : { text: true },
+      );
+      const recognized = result as Parameters<typeof boxesFromRecognize>[0];
+      if (withBlocks) {
+        recognized.data = { ...(recognized.data || {}), words: pageWords(result as Parameters<typeof pageWords>[0]) };
+      }
+      return { words: boxesFromRecognize(recognized, scaleFactor) };
     } finally {
       if (!cancelled) await terminateOcrRuntime(runtime);
     }
@@ -138,16 +171,37 @@ function startTesseractJob(imageBuffer: Buffer, originalWidth: number): OcrJob {
   };
 }
 
+/**
+ * Same deadline as recognizeWords, but asks Tesseract.js 7 for block word boxes.
+ * The plate check does not use this. Name-outside-mask does.
+ */
+export async function recognizeNameWords(
+  imageBuffer: Buffer,
+  originalWidth: number,
+  opts?: { deadlineMs?: number },
+): Promise<OcrWordResult> {
+  return recognizeWithJob(imageBuffer, originalWidth, opts, true);
+}
+
 /** One OCR pass. On the deadline the worker is killed and this resolves as a timeout. */
 export async function recognizeWords(
   imageBuffer: Buffer,
   originalWidth: number,
   opts?: { deadlineMs?: number },
 ): Promise<OcrWordResult> {
+  return recognizeWithJob(imageBuffer, originalWidth, opts, false);
+}
+
+async function recognizeWithJob(
+  imageBuffer: Buffer,
+  originalWidth: number,
+  opts: { deadlineMs?: number } | undefined,
+  withBlocks: boolean,
+): Promise<OcrWordResult> {
   const started = Date.now();
   const limit = opts?.deadlineMs ?? ocrDeadlineMs();
   if (limit <= 0) return { words: [], timedOut: true, ms: 0 };
-  const job = (jobFactoryOverride ?? startTesseractJob)(imageBuffer, originalWidth);
+  const job = (jobFactoryOverride ?? ((buffer, width) => startTesseractJob(buffer, width, withBlocks)))(imageBuffer, originalWidth);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => {

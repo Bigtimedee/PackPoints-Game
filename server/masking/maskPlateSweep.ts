@@ -5,6 +5,72 @@
  */
 import sharp from "sharp";
 import { maskCardImage } from "./maskCardImage";
+import { NAME_VISIBLE_OUTSIDE_MASK, verifyNameVisibleOutsideMask } from "./nameOutsideMask";
+
+export interface ExpectedLeakPair {
+  cardId: string;
+  leak: boolean;
+}
+
+export interface ExpectedLeakComparison {
+  cardId: string;
+  expectedLeak: boolean;
+  actualLeak: boolean;
+  reason: string | null;
+  match: boolean;
+}
+
+/** JSON array of `{ cardId, leak }` pairs. `leak` is the outside-mask surname check only. */
+export function parseExpectedLeaks(raw: string): ExpectedLeakPair[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error("expected leak list must be a JSON array of { cardId, leak }");
+  }
+  return parsed.map((row, index) => {
+    if (!row || typeof row !== "object") {
+      throw new Error(`expected leak row ${index} is not an object`);
+    }
+    const record = row as { cardId?: unknown; leak?: unknown };
+    const cardId = typeof record.cardId === "string" ? record.cardId.trim() : "";
+    if (!cardId) throw new Error(`expected leak row ${index} is missing cardId`);
+    if (typeof record.leak !== "boolean") {
+      throw new Error(`expected leak row ${index} leak must be true or false`);
+    }
+    return { cardId, leak: record.leak };
+  });
+}
+
+/**
+ * Compare expected outside-mask leaks with sweep results.
+ * `actualLeak` is true only when the reason is `name_visible_outside_mask`.
+ * A missing card is `card_not_found` and does not match.
+ */
+export function compareExpectedLeaks(
+  pairs: ExpectedLeakPair[],
+  results: Array<Pick<SweepCardResult, "id" | "reason">>,
+): ExpectedLeakComparison[] {
+  const byId = new Map(results.map((row) => [row.id, row]));
+  return pairs.map((pair) => {
+    const found = byId.get(pair.cardId);
+    if (!found) {
+      return {
+        cardId: pair.cardId,
+        expectedLeak: pair.leak,
+        actualLeak: false,
+        reason: "card_not_found",
+        match: false,
+      };
+    }
+    const actualLeak = found.reason === NAME_VISIBLE_OUTSIDE_MASK;
+    return {
+      cardId: pair.cardId,
+      expectedLeak: pair.leak,
+      actualLeak,
+      reason: found.reason,
+      match: actualLeak === pair.leak,
+    };
+  });
+}
 
 export const FLEER_1989_BASKETBALL_CARDS = 168;
 
@@ -18,6 +84,8 @@ export interface SweepCardResult {
   height: number;
   pass: boolean;
   reason: string | null;
+  /** Surname plate was not the set profile's plate. */
+  layoutDisagreed?: boolean;
 }
 
 export interface SweepOutlier {
@@ -36,6 +104,12 @@ export interface SweepSetReport {
   cardCount: number;
   pass: number;
   fail: number;
+  /** Cards whose surname was read outside the mask band. */
+  nameVisibleOutsideMask: number;
+  /** Cards whose detected name plate was not the set profile's plate. */
+  layoutDisagreed: number;
+  /** Fail counts keyed by reason, including surname leaks and plate misses. */
+  exclusionsByReason: Record<string, number>;
   outliers: SweepOutlier[];
 }
 
@@ -82,12 +156,20 @@ export function reportMaskSweep(sets: Array<{
 }>): SweepSetReport[] {
   return sets.map((set) => {
     const pass = set.cards.filter((card) => card.pass).length;
+    const exclusionsByReason: Record<string, number> = {};
+    for (const card of set.cards) {
+      if (card.pass || !card.reason) continue;
+      exclusionsByReason[card.reason] = (exclusionsByReason[card.reason] || 0) + 1;
+    }
     return {
       setId: set.setId,
       setName: set.setName,
       cardCount: set.cards.length,
       pass,
       fail: set.cards.length - pass,
+      nameVisibleOutsideMask: set.cards.filter((card) => card.reason === NAME_VISIBLE_OUTSIDE_MASK).length,
+      layoutDisagreed: set.cards.filter((card) => card.layoutDisagreed).length,
+      exclusionsByReason,
       outliers: flagDimensionOutliers(set.cards),
     };
   });
@@ -104,15 +186,42 @@ export async function evaluateCardBuffer(input: {
   try {
     const meta = await sharp(input.buffer).metadata();
     const result = await maskCardImage(input.buffer, input.playerName, input.setHint, {
-      skipOcr: true,
       gameSetId: input.gameSetId,
     });
+    if (!result.coverageOk) {
+      return {
+        id: input.id,
+        width: meta.width || 0,
+        height: meta.height || 0,
+        pass: false,
+        reason: result.coverageReason,
+        layoutDisagreed: result.layoutDisagreed,
+      };
+    }
+    const outside = await verifyNameVisibleOutsideMask({
+      buffer: result.maskedBuffer,
+      playerName: input.playerName,
+      regions: result.regions,
+      imageWidth: meta.width || undefined,
+      imageHeight: meta.height || undefined,
+    });
+    if (outside.skipped) {
+      return {
+        id: input.id,
+        width: meta.width || 0,
+        height: meta.height || 0,
+        pass: false,
+        reason: "name_check_incomplete",
+        layoutDisagreed: result.layoutDisagreed,
+      };
+    }
     return {
       id: input.id,
       width: meta.width || 0,
       height: meta.height || 0,
-      pass: result.coverageOk,
-      reason: result.coverageReason,
+      pass: outside.ok,
+      reason: outside.reason,
+      layoutDisagreed: result.layoutDisagreed,
     };
   } catch {
     return {

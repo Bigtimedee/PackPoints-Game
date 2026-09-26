@@ -15,7 +15,9 @@
  *
  * MASK_BAND_GUARD=report (default) only logs. MASK_BAND_GUARD=enforce excludes.
  * The player-name blocklist is not behind this flag.
- * CURRENT_MASK_VERSION stays v4.5. Plans are read from `{cardId}_v4.5.json`.
+ * Plans are `{cardId}_${CURRENT_MASK_VERSION}.json` (v4.6). A leftover v4.5
+ * plan is not read. A card masked at the top and the bottom is two full-width
+ * bands. Each band is checked against the edge it touches.
  * No image is re-encoded.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
@@ -320,7 +322,7 @@ function planCardIds(dir: string): string[] {
 }
 
 /**
- * Read every baked v4.5 plan off the request path.
+ * Read every baked plan for the current mask version off the request path.
  * Report mode logs and excludes nothing. Enforce mode also writes fail markers.
  */
 export async function runMaskBandGuardScan(opts?: {

@@ -6,8 +6,11 @@
  * Correlated counts must name `game_sets.id` as an identifier. Interpolating
  * the drizzle column rebinds it as a parameter and counts 0.
  */
-import { sql, type SQL } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
+import { gameSets } from "@shared/schema";
+import { db } from "../db";
 import { cardNotBlockedSql } from "../lib/cardBlocklist";
+import { subsetStillUnverified } from "../masking/subsetQuarantine";
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
 export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
@@ -15,17 +18,20 @@ export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
 type CardAlias = "pc" | "playable_cards";
 
 /**
- * A post-bake name leak sets blocked_reason to mask_name_uncovered.
+ * A post-bake name leak sets blocked_reason and drops is_playable.
+ * `mask_name_uncovered` is the plate check. `name_visible_outside_mask` is a
+ * surname read anywhere else on the baked JPEG (jersey, signature, headline).
  * Enforce mode of the band guard sets mask_band_oversized or mask_band_misplaced.
  * Deals exclude those reasons on their own, so a card cannot slip back in
  * while is_playable is flipped true and the sidecar still records the failure.
- * Report mode does not write them.
+ * Report mode does not write the band reasons.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
   return sql`(
     ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered'
     AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_oversized'
     AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_misplaced'
+    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'name_visible_outside_mask'
   )`;
 }
 
@@ -54,6 +60,7 @@ export function eligibleDealFilter(alias: CardAlias): SQL {
       AND ${sql.raw(`${a}.proposed_unplayable`)} = true
     )
     AND ${cardNotBlockedSql(alias)}
+    AND ${subsetStillUnverified(alias)}
   `;
 }
 
@@ -64,6 +71,31 @@ export const eligiblePlayableCardCountSql = sql<number>`(
     AND ${eligibleDealFilter("pc")}
     AND LOWER(pc.category) = LOWER(game_sets.sport)
 )`;
+
+/** Active integrated sets. Counts are eligible deals, not raw imported rows. No card ids. */
+export async function eligibleCountsByActiveSet(): Promise<Array<{ setId: string; setName: string; count: number }>> {
+  const rows = await db
+    .select({
+      setId: gameSets.id,
+      setName: gameSets.setName,
+      count: eligiblePlayableCardCountSql,
+    })
+    .from(gameSets)
+    .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
+  return rows.map((row) => ({
+    setId: row.setId,
+    setName: row.setName,
+    count: Number(row.count) || 0,
+  }));
+}
+
+/** Server log after warm-up. Not a public route. */
+export async function logEligibleSetCounts(): Promise<void> {
+  const rows = await eligibleCountsByActiveSet();
+  for (const row of rows) {
+    console.log(`[MaskCheck] eligible set=${row.setId} name=${row.setName} count=${row.count}`);
+  }
+}
 
 export function dedupeKey(setName: string | null, year: number | null, sport: string | null): string {
   return `${setName}-${year}-${sport}`;
