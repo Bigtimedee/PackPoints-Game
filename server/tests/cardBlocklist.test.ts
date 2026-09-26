@@ -5,6 +5,7 @@
  */
 import { createServer } from "http";
 import type { AddressInfo } from "net";
+import { readFileSync } from "fs";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
@@ -20,7 +21,7 @@ import { daily5Service } from "../services/daily5Service";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
-import { BASKETBALL_2024_H_INSERT_NUMBER, TOPPS_1987_SCHMIDT_CARD_ID, cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, leakBlocklistLogLines, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
+import { BASKETBALL_2024_H_INSERT_NUMBER, TOPPS_1987_SCHMIDT_CARD_ID, cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, leakBlocklistLogLines, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
 import { eligibleDealFilter } from "../services/playableSetEligibility";
 
 const stamp = randomUUID().slice(0, 8);
@@ -584,6 +585,88 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     }
   });
 
+  it("deals the initial Daily 5 hand through the blocklist, including H inserts and Schmidt #28", async () => {
+    const src = readFileSync(new URL("../services/daily5Service.ts", import.meta.url), "utf8");
+    const draw = src.slice(src.indexOf("async selectCardsForChallenge"), src.indexOf("async updateChallengeStatuses"));
+    expect(draw).toContain('cardNotBlockedSql("playable_cards")');
+    expect(draw).toContain("isBlockedCard(");
+    const create = src.slice(src.indexOf("async createChallengeForDate"), src.indexOf("async selectCardsForChallenge"));
+    expect(create).toContain("selectCardsForChallenge");
+    const serve = src.slice(src.indexOf("async getOrCreateTodayChallenge"), src.indexOf("async createChallengeForDate"));
+    expect(serve).toContain("createChallengeForDate");
+    expect(serve).toContain("sweepBlockedDaily5Deals");
+
+    const baseball = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
+    await ensureSet(baseball, "baseball", 1987, `1987 Topps ${stamp}`);
+    const h3 = card(basketballSetId, "Stephen Curry", "2024-03-01T00:00:00.000Z", "basketball");
+    const bod = card(basketballSetId, "BOD Keeper", "2024-03-02T00:00:00.000Z", "basketball");
+    const fillers = Array.from({ length: 4 }, (_, i) => card(baseball, `Schmidt Pool ${i + 1}`, `2024-03-0${i + 3}T00:00:00.000Z`, "baseball"));
+    const number28 = card(baseball, "Number Twenty Eight", "2024-03-07T00:00:00.000Z", "baseball");
+    const schmidt430 = card(baseball, "Mike Schmidt", "2024-03-08T00:00:00.000Z", "baseball");
+    const schmidt28 = {
+      ...card(baseball, "Mike Schmidt", "2024-03-09T00:00:00.000Z", "baseball"),
+    };
+    const stray = cardIds.lastIndexOf(schmidt28.id);
+    if (stray >= 0) cardIds.splice(stray, 1);
+    schmidt28.id = TOPPS_1987_SCHMIDT_CARD_ID;
+    cardIds.push(TOPPS_1987_SCHMIDT_CARD_ID);
+    const inserted = [
+      { ...h3, number: "H-3" },
+      { ...bod, number: "BOD-5" },
+      { ...number28, number: "28" },
+      { ...schmidt430, number: "430" },
+      { ...schmidt28, number: "28" },
+      ...fillers.map((row, i) => ({ ...row, number: String(500 + i) })),
+    ];
+    await db.delete(playableCards).where(eq(playableCards.id, TOPPS_1987_SCHMIDT_CARD_ID));
+    await db.insert(playableCards).values(inserted);
+
+    const [hoop] = await db.insert(dailyChallenges).values({
+      date: "2099-11-20",
+      mode: "DAILY5",
+      setId: basketballSetId,
+      seed: "blocklist-initial-h",
+      startsAt: new Date("2099-11-20T00:00:00.000Z"),
+      endsAt: new Date("2099-11-21T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    challengeIds.push(hoop.id);
+    await daily5Service.selectCardsForChallenge(hoop, basketballSetId, hoop.seed);
+
+    const [base] = await db.insert(dailyChallenges).values({
+      date: "2099-11-21",
+      mode: "DAILY5",
+      setId: baseball,
+      seed: "blocklist-initial-schmidt",
+      startsAt: new Date("2099-11-21T00:00:00.000Z"),
+      endsAt: new Date("2099-11-22T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    challengeIds.push(base.id);
+    await daily5Service.selectCardsForChallenge(base, baseball, base.seed);
+
+    const dealt = await db
+      .select({
+        challengeId: dailyChallengeCards.dailyChallengeId,
+        cardId: dailyChallengeCards.cardId,
+        number: playableCards.number,
+        player: playableCards.player,
+      })
+      .from(dailyChallengeCards)
+      .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
+      .where(inArray(dailyChallengeCards.dailyChallengeId, [hoop.id, base.id]));
+    const hoopDealt = dealt.filter((row) => row.challengeId === hoop.id);
+    const baseDealt = dealt.filter((row) => row.challengeId === base.id);
+    expect(hoopDealt).toHaveLength(5);
+    expect(hoopDealt.some((row) => row.cardId === h3.id)).toBe(false);
+    expect(hoopDealt.some((row) => BASKETBALL_2024_H_INSERT_NUMBER.test(row.number || ""))).toBe(false);
+    expect(baseDealt).toHaveLength(5);
+    expect(baseDealt.map((row) => row.cardId).sort()).toEqual([...fillers.map((row) => row.id), schmidt430.id].sort());
+    expect(baseDealt.some((row) => row.cardId === TOPPS_1987_SCHMIDT_CARD_ID)).toBe(false);
+    expect(baseDealt.some((row) => row.number === "28")).toBe(false);
+    expect(baseDealt.some((row) => row.number === "430")).toBe(true);
+  });
+
   it("falls through a blocked cover and still fills 8 distinct players", async () => {
     const urls = await readyMaskedCoverUrls([footballSetId]);
     expect(urls.get(footballSetId)).toHaveLength(8);
@@ -664,7 +747,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
       pointValue: 100,
     })));
 
-    const untouched = await replaceBlockedDaily5Cards(challenge.id, "2099-01-01");
+    const untouched = await replaceBlockedDaily5Cards(challenge.id, "2099-12-01");
     expect(untouched).toBe(0);
     const [before] = await db
       .select({ cardId: dailyChallengeCards.cardId, correctAnswer: dailyChallengeCards.correctAnswer })
@@ -695,6 +778,85 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
 
     const again = await replaceBlockedDaily5Cards(challenge.id, "2099-11-04");
     expect(again).toBe(0);
+  });
+
+  it("rewrites a stored future Daily 5 hand and leaves a past hand", async () => {
+    const futureDate = "2099-12-15";
+    const pastDate = "2099-12-01";
+    const today = "2099-12-10";
+    const blocked = card(footballSetId, "Charles Haley", "2024-04-01T00:00:00.000Z", "football");
+    const futureSpare = card(footballSetId, "Future Spare", "2024-04-02T00:00:00.000Z", "football");
+    const pastBlocked = card(footballSetId, "Charles Haley", "2024-04-03T00:00:00.000Z", "football");
+    await db.insert(playableCards).values([
+      { ...blocked, number: "125" },
+      { ...futureSpare, number: "501" },
+      { ...pastBlocked, number: "125" },
+    ]);
+
+    const [future] = await db.insert(dailyChallenges).values({
+      date: futureDate,
+      mode: "DAILY5",
+      setId: footballSetId,
+      seed: "blocklist-future",
+      startsAt: new Date(`${futureDate}T00:00:00.000Z`),
+      endsAt: new Date("2099-12-16T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    const [past] = await db.insert(dailyChallenges).values({
+      date: pastDate,
+      mode: "DAILY5",
+      setId: footballSetId,
+      seed: "blocklist-past",
+      startsAt: new Date(`${pastDate}T00:00:00.000Z`),
+      endsAt: new Date("2099-12-02T00:00:00.000Z"),
+      status: "CLOSED",
+    }).returning();
+    challengeIds.push(future.id, past.id);
+    await db.insert(dailyChallengeCards).values([
+      {
+        dailyChallengeId: future.id,
+        position: 2,
+        cardId: blocked.id,
+        correctAnswer: "Charles Haley",
+        choices: ["Charles Haley", "Art Shell", "Joe Montana", "Jerry Rice"],
+        pointValue: 100,
+      },
+      {
+        dailyChallengeId: past.id,
+        position: 1,
+        cardId: pastBlocked.id,
+        correctAnswer: "Charles Haley",
+        choices: ["Charles Haley", "Art Shell", "Joe Montana", "Jerry Rice"],
+        pointValue: 100,
+      },
+    ]);
+
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const futureLeft = await replaceBlockedDaily5Cards(future.id, today);
+    const pastLeft = await replaceBlockedDaily5Cards(past.id, today);
+    const lines = spy.mock.calls.map((call) => String(call[0]));
+    spy.mockRestore();
+    expect(futureLeft).toBe(0);
+    expect(pastLeft).toBe(0);
+    const swapped = lines.find((line) => line.startsWith(`[Daily5] blocklist swapped date=${futureDate} `));
+    expect(swapped).toMatch(new RegExp(`^\\[Daily5\\] blocklist swapped date=${futureDate} slot=2 old=${blocked.id} new=[0-9a-f-]{36}$`));
+    expect(lines.some((line) => line.includes(pastDate))).toBe(false);
+    expect(sweepBlockedDaily5Deals).toBeTypeOf("function");
+
+    const [futureRow] = await db
+      .select({ cardId: dailyChallengeCards.cardId, player: playableCards.player, number: playableCards.number, gameSetId: playableCards.gameSetId })
+      .from(dailyChallengeCards)
+      .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
+      .where(eq(dailyChallengeCards.dailyChallengeId, future.id));
+    const [pastRow] = await db
+      .select({ cardId: dailyChallengeCards.cardId })
+      .from(dailyChallengeCards)
+      .where(eq(dailyChallengeCards.dailyChallengeId, past.id));
+    expect(futureRow.cardId).toBe(swapped!.split(" new=")[1]);
+    expect(futureRow.cardId).not.toBe(blocked.id);
+    expect(isBlockedCard(futureRow.gameSetId, futureRow.player, futureRow)).toBe(false);
+    expect(pastRow.cardId).toBe(pastBlocked.id);
+    expect(isBlockedCard(footballSetId, "Charles Haley", { number: "125" })).toBe(true);
   });
 
   it("does not hang or rewrite a Daily 5 hand that has no eligible replacement", async () => {

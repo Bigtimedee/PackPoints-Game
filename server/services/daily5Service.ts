@@ -16,7 +16,7 @@ import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
-import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
+import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { swapFailedCardsOnTodayChallenge } from "./daily5FailedCardSwap";
 
@@ -129,10 +129,13 @@ export class Daily5Service {
     const existing = await this.getChallengeByDate(today);
     if (existing) {
       await swapFailedCardsOnTodayChallenge();
+      await sweepBlockedDaily5Deals(today);
       return existing;
     }
 
-    return this.createChallengeForDate(today);
+    const created = await this.createChallengeForDate(today);
+    await sweepBlockedDaily5Deals(today);
+    return created;
   }
 
   async createChallengeForDate(dateStr: string): Promise<DailyChallenge | null> {

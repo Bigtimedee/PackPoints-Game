@@ -6,7 +6,7 @@
  * 1987 Topps Football Record Breakers are also blocked by normalized card number
  * and by Record Breaker text on player, variant, or description, same set id.
  */
-import { and, asc, eq, notInArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, notInArray, sql, type SQL } from "drizzle-orm";
 import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/schema";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
@@ -625,9 +625,9 @@ function cardUnservable(row: {
 }
 
 /**
- * Today's stored Daily 5 hand. A blocked or oversized-band card is rewritten to
- * the next eligible card in the set before the client sees it. Returns how many
- * unservable cards remain.
+ * A stored Daily 5 hand for today or a later date. A blocked or oversized-band
+ * card is rewritten to the next eligible card in the set before the client sees
+ * it. A past date is left alone. Returns how many unservable cards remain.
  */
 export async function replaceBlockedDaily5Cards(challengeId: string, today = getPackptsDayKey()): Promise<number> {
   const [challenge] = await db
@@ -635,11 +635,12 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .from(dailyChallenges)
     .where(eq(dailyChallenges.id, challengeId))
     .limit(1);
-  if (!challenge || challenge.date !== today) return 0;
+  if (!challenge || challenge.date < today) return 0;
 
   const rows = await db
     .select({
       id: dailyChallengeCards.id,
+      position: dailyChallengeCards.position,
       cardId: dailyChallengeCards.cardId,
       correctAnswer: dailyChallengeCards.correctAnswer,
       choices: dailyChallengeCards.choices,
@@ -692,6 +693,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       .set({ cardId: next.id, correctAnswer: next.player, choices })
       .where(and(eq(dailyChallengeCards.id, row.id), eq(dailyChallengeCards.cardId, row.cardId)));
     used.add(next.id);
+    console.log(`[Daily5] blocklist swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id}`);
   }
 
   const left = await db
@@ -707,4 +709,21 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
     .where(eq(dailyChallengeCards.dailyChallengeId, challengeId));
   return left.filter((row) => cardUnservable(row)).length;
+}
+
+/**
+ * Serve-time pass for every stored Daily 5 whose date is today or later.
+ * A hand saved before a blocklist rule existed is rewritten here.
+ * Past dates are not selected.
+ */
+export async function sweepBlockedDaily5Deals(today = getPackptsDayKey()): Promise<number> {
+  const open = await db
+    .select({ id: dailyChallenges.id })
+    .from(dailyChallenges)
+    .where(gte(dailyChallenges.date, today));
+  let left = 0;
+  for (const row of open) {
+    left += await replaceBlockedDaily5Cards(row.id, today);
+  }
+  return left;
 }
