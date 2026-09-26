@@ -23,6 +23,7 @@ import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
 import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
 import { NAME_VISIBLE_OUTSIDE_MASK } from "./nameOutsideMask";
+import { recordMaskBakeRefusal } from "./maskRefusalLog";
 import { scheduleNameVisibilityCheck } from "./nameVisibilityBackfill";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
@@ -535,6 +536,16 @@ export async function bakeMaskedCardFromUrl(
           layoutClass: result.layoutClass,
           maskVersion: CURRENT_MASK_VERSION,
         });
+        await recordMaskBakeRefusal({
+          cardId,
+          gameSetId: input.gameSetId,
+          reason,
+          layoutClass: result.layoutClass,
+          profileSource: result.source,
+          plateTrace: result.plateTrace,
+          paintRegions: result.regions,
+          sourceImage: result.sourceBuffer,
+        });
         await quarantineUncoveredName(cardId, reason);
         return null;
       }
@@ -544,6 +555,16 @@ export async function bakeMaskedCardFromUrl(
         console.error(`[MaskingService] Refusing mask band for ${cardId}`, {
           reason: bandIssue,
           maskVersion: CURRENT_MASK_VERSION,
+        });
+        await recordMaskBakeRefusal({
+          cardId,
+          gameSetId: input.gameSetId,
+          reason: bandIssue,
+          layoutClass: result.layoutClass,
+          profileSource: result.source,
+          plateTrace: result.plateTrace,
+          paintRegions: result.regions,
+          sourceImage: result.sourceBuffer,
         });
         await rejectMaskBand(cardId, bandIssue);
         return null;
