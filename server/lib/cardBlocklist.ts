@@ -12,6 +12,7 @@ import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
+import { fallbackAdmissionDealableSql } from "../masking/maskFallbackReview";
 
 type CardAlias = "pc" | "playable_cards";
 
@@ -461,9 +462,9 @@ export function cardBlocklistWhereBody(alias: CardAlias): string {
   return clauses.join(" OR ");
 }
 
-/** SQL body for a deal WHERE clause. True when the card is not on the blocklist. */
+/** SQL body for a deal WHERE clause. True when the card is not on the blocklist and a fallback admission is listed. */
 export function cardNotBlockedSql(alias: CardAlias): SQL {
-  return sql`NOT (${sql.raw(cardBlocklistWhereBody(alias))})`;
+  return sql`NOT (${sql.raw(cardBlocklistWhereBody(alias))}) AND ${fallbackAdmissionDealableSql(alias)}`;
 }
 
 function swappedChoices(choices: string[], oldAnswer: string, oldPlayer: string, newPlayer: string): string[] {

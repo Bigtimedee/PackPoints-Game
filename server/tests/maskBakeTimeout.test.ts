@@ -78,6 +78,7 @@ const failedCover: MaskResult = {
   layoutClass: "BOTTOM_PLAQUE",
   coverageOk: false,
   coverageReason: "mask_name_uncovered",
+  fallbackAdmission: false,
 };
 
 describe("mask bake timeouts", () => {

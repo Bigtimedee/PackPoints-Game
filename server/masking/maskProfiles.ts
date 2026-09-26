@@ -57,6 +57,24 @@ const TOP_PLATE_24: MaskRegion[] = [
   { xPct: 0, yPct: 0, wPct: 100, hPct: 24, type: "blur", radiusPct: 0 },
 ];
 
+/**
+ * Placement contract for a TOP_PLATE profile. These bands are the geometry
+ * already locked on the profile. A resolver miss may paint them and then run
+ * the full-image surname check. 1989 Fleer stays the 18% band.
+ */
+export const TOP_PLATE_PLACEMENT_CONTRACT: Readonly<Record<string, readonly MaskRegion[]>> = {
+  "1987-topps-football": TOP_PLATE_24,
+  "fleer-bball-top": TOP_NAME_PLATE,
+};
+
+/** Contract geometry for this profile, or null when the set must keep refusing. */
+export function contractTopPlateRegions(profile: MaskProfile): MaskRegion[] | null {
+  if (profile.layoutClass !== "TOP_PLATE" || profile.nameAnchor !== "top") return null;
+  const locked = TOP_PLATE_PLACEMENT_CONTRACT[profile.id];
+  if (!locked || locked.length === 0) return null;
+  return locked.map((region) => ({ ...region }));
+}
+
 const BOTTOM_PLAQUE_46: MaskRegion[] = DEFAULT_MASK_REGIONS.map((region) => ({ ...region }));
 
 const BOTTOM_PLAQUE_20: MaskRegion[] = [

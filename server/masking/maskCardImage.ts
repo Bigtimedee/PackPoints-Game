@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
+import { contractTopPlateRegions, CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
 import {
   resolveNameMaskPlan,
   type OcrWordBox,
@@ -8,6 +8,8 @@ import { detectPsaSlabLayout } from "./slabLayout";
 import { assertOpaqueIdentityCover } from "./maskCoverage";
 import { detectAnchorPlate, detectAnchorTextPlate } from "./namePlateDetect";
 import { verifyMaskedNamePlate } from "./maskPlateVerify";
+import { verifyNameVisibleOutsideMask } from "./nameOutsideMask";
+import type { OcrWordResult } from "./ocrRuntime";
 import { applyServedRotation, uprightCardImage } from "./cardOrientation";
 import { recognizeWords } from "./ocrRuntime";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
@@ -34,6 +36,12 @@ export interface MaskResult {
   orientationAmbiguous: boolean;
   /** The surname was found on a plate the set profile does not use. */
   layoutDisagreed: boolean;
+  /**
+   * Resolver missed on a TOP_PLATE set whose band is in the placement contract.
+   * The contract band was painted and the full-image surname check passed.
+   * The card stays out of deals until its id is on the reviewed list.
+   */
+  fallbackAdmission: boolean;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -182,6 +190,8 @@ export async function maskCardImage(
     onStage?: (stage: "ocr" | "bake") => void;
     /** Shared cap for the 0°/90°/270° probes. The bake path shrinks this to fit 20s. */
     orientationBudgetMs?: number;
+    /** Full-image surname check. Tests pass a stub. Production uses Tesseract. */
+    recognize?: (buffer: Buffer, originalWidth: number) => Promise<OcrWordResult>;
   } = {},
 ): Promise<MaskResult> {
   const profile = getMaskProfile(setName, opts.gameSetId);
@@ -276,13 +286,13 @@ export async function maskCardImage(
     topTextPlate,
     bottomTextPlate,
   });
-  const regions = !upright.orientationAmbiguous
+  let regions = !upright.orientationAmbiguous
     ? plan.regions
     : upright.rotation === 0
       ? coverNameBandsForBothOrientations(plan.regions)
       : coverBothNameBands(plan.regions);
 
-  const maskedBuffer = await applyPercentRegions(upright.buffer, regions);
+  let maskedBuffer = await applyPercentRegions(upright.buffer, regions);
   let coverage = await assertOpaqueIdentityCover({
     buffer: maskedBuffer,
     regions,
@@ -301,8 +311,44 @@ export async function maskCardImage(
     });
     if (!text.ok) coverage = text;
   }
+  let fallbackAdmission = false;
   if (plan.namePlateUnresolved) {
-    coverage = { ok: false, reason: "name_plate_unresolved" };
+    const contract = contractTopPlateRegions(profile);
+    if (!contract) {
+      coverage = { ok: false, reason: "name_plate_unresolved" };
+    } else {
+      regions = contract;
+      maskedBuffer = await applyPercentRegions(upright.buffer, regions);
+      const opaque = await assertOpaqueIdentityCover({
+        buffer: maskedBuffer,
+        regions,
+        layoutClass: "TOP_PLATE",
+        nameBoxes: [],
+        imageWidth: originalWidth,
+        imageHeight: originalHeight,
+      });
+      if (!opaque.ok) {
+        coverage = { ok: false, reason: opaque.reason || "name_plate_unresolved" };
+      } else {
+        const outside = await verifyNameVisibleOutsideMask({
+          buffer: maskedBuffer,
+          playerName,
+          regions,
+          imageWidth: originalWidth,
+          imageHeight: originalHeight,
+          recognize: opts.recognize,
+        });
+        if (outside.skipped || !outside.ok) {
+          coverage = {
+            ok: false,
+            reason: outside.skipped ? "name_plate_unresolved" : (outside.reason || "name_visible_outside_mask"),
+          };
+        } else {
+          coverage = { ok: true, reason: null };
+          fallbackAdmission = true;
+        }
+      }
+    }
   }
 
   return {
@@ -320,6 +366,7 @@ export async function maskCardImage(
     landscapeDesign: upright.landscapeDesign,
     orientationAmbiguous: upright.orientationAmbiguous,
     layoutDisagreed: plan.layoutDisagreed,
+    fallbackAdmission,
   };
 }
 

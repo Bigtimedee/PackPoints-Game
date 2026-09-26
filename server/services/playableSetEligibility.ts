@@ -10,6 +10,7 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
 import { cardNotBlockedSql } from "../lib/cardBlocklist";
+import { fallbackAdmissionDealableSql } from "../masking/maskFallbackReview";
 import { subsetStillUnverified } from "../masking/subsetQuarantine";
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
@@ -60,6 +61,7 @@ export function eligibleDealFilter(alias: CardAlias): SQL {
       AND ${sql.raw(`${a}.proposed_unplayable`)} = true
     )
     AND ${cardNotBlockedSql(alias)}
+    AND ${fallbackAdmissionDealableSql(alias)}
     AND ${subsetStillUnverified(alias)}
   `;
 }

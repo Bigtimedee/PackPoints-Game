@@ -23,6 +23,7 @@ import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
 import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
 import { NAME_VISIBLE_OUTSIDE_MASK } from "./nameOutsideMask";
+import { recordMaskFallbackAdmission } from "./maskFallbackReview";
 import { scheduleNameVisibilityCheck } from "./nameVisibilityBackfill";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
@@ -609,6 +610,20 @@ export async function bakeMaskedCardFromUrl(
             updatedAt: new Date(),
           },
         });
+
+      if (result.fallbackAdmission) {
+        let recorded = false;
+        try {
+          recorded = await recordMaskFallbackAdmission(cardId);
+        } catch (error) {
+          console.error(`[MaskingService] Failed to record fallback admission for ${cardId}:`, error);
+        }
+        if (!recorded) {
+          await quarantineUncoveredName(cardId, "name_plate_unresolved");
+          return null;
+        }
+        console.log(`[MaskingService] fallback admission card=${cardId} state=fallback_pending_review`);
+      }
 
       console.log(`[MaskingService] Generated masked image for card ${cardId}`, {
         ocrApplied: result.ocrApplied,

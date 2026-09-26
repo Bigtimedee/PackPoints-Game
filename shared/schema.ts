@@ -2377,6 +2377,11 @@ export const playableCards = pgTable("playable_cards", {
   blockedReason: text("blocked_reason"), // Reason if isPlayable=false (e.g., "checklist", "multi-player")
   /** Subset cards on a quarantineSubsets set stay ineligible until the per-card plate bake and surname check pass. */
   nameLayoutVerified: boolean("name_layout_verified").notNull().default(false),
+  /**
+   * `fallback_pending_review` when a TOP_PLATE bake was admitted from the
+   * placement contract. Deals stay closed until the card id is on the reviewed list.
+   */
+  maskFallbackState: text("mask_fallback_state"),
   imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"), // Image quality review
   reportCount: integer("report_count").notNull().default(0), // Number of user reports for wrong image
   imageRotation: integer("image_rotation").notNull().default(0), // Rotation correction: 0, 90, 180, 270 degrees
@@ -2405,6 +2410,7 @@ export const playableCards = pgTable("playable_cards", {
   index("idx_playable_cards_last_check").on(table.lastImageCheck),
   index("idx_playable_cards_content_verified").on(table.contentVerified),
   index("idx_playable_cards_quarantine").on(table.quarantineStatus),
+  index("idx_playable_cards_mask_fallback").on(table.maskFallbackState),
   index("idx_playable_cards_proposed_unplayable").on(table.proposedUnplayable),
 ]);
 

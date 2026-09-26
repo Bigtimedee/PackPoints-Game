@@ -11,7 +11,7 @@ import {
   CURRENT_MASK_VERSION,
   maskedCardImageUrl,
 } from "@shared/maskGeometry";
-import { getMaskProfile, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
+import { contractTopPlateRegions, getMaskProfile, MASK_LAYOUT_SET_IDS, TOP_PLATE_PLACEMENT_CONTRACT } from "../masking/maskProfiles";
 import { resolveNameMaskPlan, matchPlayerNameBoxes } from "../masking/nameLocalization";
 import { applyPercentRegions, maskCardImage } from "../masking/maskCardImage";
 import { assertOpaqueIdentityCover } from "../masking/maskCoverage";
@@ -536,12 +536,77 @@ describe("baked mask fixtures", () => {
     expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
   });
 
-  it("excludes a bottom-banner card on a top-plate set when the surname was not read", async () => {
+  it("falls back to the 1987 Topps Football contract band when the surname was not read", async () => {
     const raw = await lightBottomBannerCard();
     const result = await maskCardImage(raw, "Donnie Shell", "1987 Topps Football", {
       skipOcr: true,
       gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+      recognize: async () => ({ words: [], timedOut: false, ms: 0 }),
     });
+    expect(result.coverageOk).toBe(true);
+    expect(result.fallbackAdmission).toBe(true);
+    expect(result.layoutClass).toBe("TOP_PLATE");
+    expect(result.regions[0]?.hPct).toBe(24);
+    expect(result.regions[0]?.yPct).toBe(0);
+    const name = await sample(result.maskedBuffer, 20, 8);
+    expect(isDark(name.r, name.g, name.b)).toBe(true);
+  });
+
+  it("falls back to the 1989 Fleer contract band without changing that band", async () => {
+    expect(TOP_PLATE_PLACEMENT_CONTRACT["fleer-bball-top"][0]?.hPct).toBe(18);
+    const raw = await lightBottomBannerCard();
+    const result = await maskCardImage(raw, "Michael Jordan", "1989 Fleer Basketball", {
+      skipOcr: true,
+      recognize: async () => ({ words: [], timedOut: false, ms: 0 }),
+    });
+    expect(result.coverageOk).toBe(true);
+    expect(result.fallbackAdmission).toBe(true);
+    expect(result.regions[0]?.hPct).toBe(18);
+    expect(result.regions[0]?.yPct).toBe(0);
+    expect(getMaskProfile("1989 Fleer Basketball").regions[0]?.hPct).toBe(18);
+  });
+
+  it("refuses a contract-set fallback when the full-image surname check fails", async () => {
+    const raw = await lightBottomBannerCard();
+    const result = await maskCardImage(raw, "Donnie Shell", "1987 Topps Football", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+      recognize: async () => ({
+        words: [{ text: "SHELL", x: 12, y: Math.round(H * 0.86), w: 80, h: 18 }],
+        timedOut: false,
+        ms: 0,
+      }),
+    });
+    expect(result.fallbackAdmission).toBe(false);
+    expect(result.coverageOk).toBe(false);
+    expect(result.coverageReason).toBe("name_visible_outside_mask");
+  });
+
+  it("refuses a contract-set fallback when the full-image check does not finish", async () => {
+    const raw = await lightBottomBannerCard();
+    const result = await maskCardImage(raw, "Donnie Shell", "1987 Topps Football", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsFootball1987,
+      recognize: async () => ({ words: [], timedOut: true, ms: 0 }),
+    });
+    expect(result.fallbackAdmission).toBe(false);
+    expect(result.coverageOk).toBe(false);
+    expect(result.coverageReason).toBe("name_plate_unresolved");
+  });
+
+  it("does not use the contract fallback on a set that is not TOP_PLATE", async () => {
+    expect(contractTopPlateRegions(getMaskProfile("1987 Topps Baseball", MASK_LAYOUT_SET_IDS.toppsBaseball1987))).toBeNull();
+    expect(contractTopPlateRegions({
+      ...getMaskProfile("1987 Topps Football"),
+      id: "not-in-contract",
+    })).toBeNull();
+    const raw = await topNameBarsCard();
+    const result = await maskCardImage(raw, "Hanford Dixon", "1987 Topps Baseball", {
+      skipOcr: true,
+      gameSetId: MASK_LAYOUT_SET_IDS.toppsBaseball1987,
+      recognize: async () => ({ words: [], timedOut: false, ms: 0 }),
+    });
+    expect(result.fallbackAdmission).toBe(false);
     expect(result.coverageOk).toBe(false);
     expect(result.coverageReason).toBe("name_plate_unresolved");
   });
