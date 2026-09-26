@@ -235,8 +235,8 @@ describe("name localization plan", () => {
   });
 
   it("cache-busts masked JPEGs with the current mask version", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.4");
-    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.4");
+    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+    expect(maskedCardImageUrl("abc")).toBe("/api/cards/abc/masked-image?v=v4.5");
   });
 
   it("PSA-slab OCR (grader token in the top label) covers the cert name and the bottom plaque", () => {

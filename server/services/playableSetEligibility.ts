@@ -14,6 +14,15 @@ export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
 type CardAlias = "pc" | "playable_cards";
 
 /**
+ * A post-bake name leak sets blocked_reason to this value and drops is_playable.
+ * Deals also exclude the reason on its own, so a card cannot slip back in
+ * while the sidecar still records the failure.
+ */
+export function maskNameStillCovered(alias: CardAlias): SQL {
+  return sql`(${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered')`;
+}
+
+/**
  * Eligibility body for one card alias. Sport match is added by the caller
  * because the sport expression is either `game_sets.sport` or a bound value.
  */
@@ -21,6 +30,7 @@ export function eligibleDealFilter(alias: CardAlias): SQL {
   const a = alias;
   return sql`
     ${sql.raw(`${a}.is_playable`)} = true
+    AND ${maskNameStillCovered(alias)}
     AND (${sql.raw(`${a}.content_verified`)} IS NULL OR ${sql.raw(`${a}.content_verified`)} = true)
     AND ${sql.raw(`${a}.image_url`)} IS NOT NULL
     AND ${sql.raw(`${a}.image_url`)} <> ''

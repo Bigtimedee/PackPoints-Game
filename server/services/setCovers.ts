@@ -2,6 +2,7 @@
  * Public set covers from mask-ready sidecars only.
  * Never bakes, and never returns a raw photo URL, a player name, or a card id.
  */
+import { createHash } from "crypto";
 import { createReadStream, readdirSync } from "fs";
 import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -17,6 +18,42 @@ const READY_INDEX_TTL_MS = 30_000;
 const READY_SQL_CAP = 8000;
 
 let readyIndex: { dir: string; at: number; ids: Set<string> } | null = null;
+
+/** Same player, ignoring case, punctuation, and jr/sr suffixes. Not sent on the wire. */
+export function playerCoverIdentity(player: string | null | undefined): string {
+  return (player || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export function pickCoverSlots<T extends { id: string; player: string | null }>(
+  rows: T[],
+  limit = SET_COVER_SLOT_COUNT,
+): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    const identity = playerCoverIdentity(row.player);
+    if (!identity || seen.has(identity)) continue;
+    seen.add(identity);
+    out.push(row);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Per-slot validator. The card id is an input to the hash and is not the ETag text. */
+export function setCoverEtag(setId: string, slot: number, cardId: string): string {
+  const hash = createHash("sha256")
+    .update(`${CURRENT_MASK_VERSION}|${setId}|${slot}|${cardId}`)
+    .digest("hex");
+  return `"${hash}"`;
+}
 
 export function clearReadyCoverIndexForTests(): void {
   readyIndex = null;
@@ -67,17 +104,22 @@ async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]
     .select({
       id: playableCards.id,
       gameSetId: playableCards.gameSetId,
+      player: playableCards.player,
     })
     .from(playableCards)
     .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
     .where(and(...filters))
     .orderBy(asc(playableCards.createdAt), asc(playableCards.id));
 
+  const bySet = new Map<string, Array<{ id: string; player: string | null }>>();
+  for (const id of setIds) bySet.set(id, []);
   for (const row of rows) {
-    const list = out.get(row.gameSetId);
-    if (!list || list.length >= SET_COVER_SLOT_COUNT) continue;
-    if (!ready.has(row.id)) continue;
-    list.push(row.id);
+    const list = bySet.get(row.gameSetId);
+    if (!list || !ready.has(row.id)) continue;
+    list.push({ id: row.id, player: row.player });
+  }
+  for (const [setId, list] of bySet) {
+    out.set(setId, pickCoverSlots(list).map((row) => row.id));
   }
   return out;
 }
@@ -93,10 +135,10 @@ export async function readyMaskedCoverUrls(setIds: string[]): Promise<Map<string
   return urls;
 }
 
-function setCoverHeaders(res: Response): void {
+function setCoverHeaders(res: Response, etag: string): void {
   res.setHeader("Content-Type", "image/jpeg");
   res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
-  res.setHeader("ETag", `"${CURRENT_MASK_VERSION}"`);
+  res.setHeader("ETag", etag);
   res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
   res.setHeader("X-Mask-Cache", "hit");
   res.setHeader("Content-Security-Policy", "default-src 'none'");
@@ -122,19 +164,19 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
   try {
     const cardId = (await readyCoverCardIds([setId])).get(setId)?.[slot];
     const file = cardId ? resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId) : null;
-    if (!file) {
+    if (!file || !cardId) {
       coverNotReady(res);
       return;
     }
 
-    const etag = `"${CURRENT_MASK_VERSION}"`;
+    const etag = setCoverEtag(setId, slot, cardId);
     if (req.headers["if-none-match"] === etag) {
-      setCoverHeaders(res);
+      setCoverHeaders(res, etag);
       res.status(304).end();
       return;
     }
 
-    setCoverHeaders(res);
+    setCoverHeaders(res, etag);
     if (req.method === "HEAD") {
       res.status(200).end();
       return;

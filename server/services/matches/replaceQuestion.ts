@@ -15,6 +15,7 @@ import { getOrValidateCardImage } from "../images/imageGate";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
+import { maskNameStillCovered } from "../playableSetEligibility";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -64,6 +65,7 @@ async function findReplacementCard(
   const baseConditions = [
     eq(playableCards.isPlayable, true),
     inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
+    maskNameStillCovered("playable_cards"),
   ];
 
   const tryFindCard = async (conditions: any[], label: string) => {

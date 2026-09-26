@@ -1,3 +1,7 @@
+# Masked-image cache rebuild (v4.5)
+
+Current bake id is **`v4.5`**. v4.4 JPEGs and `{cardId}_v4.4.ok` sidecars are not served. v4.5 fits the name band to the detected plate on that scan (padding plus a safety floor) so a tight crop cannot end the band through the letters. A bottom plaque uses that name-sized band instead of the fixed ~45% slab. A post-bake check that still sees the name writes `{cardId}_v4.5.fail` and excludes the card. See `docs/MASK_PLATE_SWEEP.md`.
+
 # Masked-image cache rebuild (v4.4)
 
 PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them at `/api/cards/:cardId/masked-image`. Gameplay (solo, Daily 5, 1v1) uses that URL. After a masking geometry change, old files stay on disk until the cache key changes.

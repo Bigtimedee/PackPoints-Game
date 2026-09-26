@@ -44,6 +44,10 @@ export const MASK_LAYOUT_SET_IDS = {
   toppsFootball1994: "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
 } as const;
 
+/**
+ * Reference floor for a ~750x1030 Fleer scan that still has its outer margin.
+ * The bake replaces this when the detected plate on that file sticks out.
+ */
 const TOP_NAME_PLATE: MaskRegion[] = [
   { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur", radiusPct: 0 },
 ];

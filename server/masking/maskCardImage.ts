@@ -6,6 +6,8 @@ import {
 } from "./nameLocalization";
 import { detectPsaSlabLayout } from "./slabLayout";
 import { assertOpaqueIdentityCover } from "./maskCoverage";
+import { detectAnchorPlate } from "./namePlateDetect";
+import { verifyMaskedNamePlate } from "./maskPlateVerify";
 import { applyServedRotation, uprightCardImage } from "./cardOrientation";
 import { recognizeWords } from "./ocrRuntime";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
@@ -241,6 +243,17 @@ export async function maskCardImage(
     slabLayout = false;
   }
 
+  let detectedPlate = null as Awaited<ReturnType<typeof detectAnchorPlate>>;
+  // coverBoth already paints the profile band and its mirror. Measuring a plate
+  // on a turn that was never resolved grows that band across the photo.
+  if (!slabLayout && profile.nameAnchor !== "both" && !upright.orientationAmbiguous) {
+    try {
+      detectedPlate = await detectAnchorPlate(upright.buffer, profile.nameAnchor);
+    } catch {
+      detectedPlate = null;
+    }
+  }
+
   const plan = resolveNameMaskPlan({
     playerName,
     setHint: setName,
@@ -249,6 +262,7 @@ export async function maskCardImage(
     imageWidth: originalWidth,
     imageHeight: originalHeight,
     slabLayout,
+    plateBox: detectedPlate,
   });
   const regions = !upright.orientationAmbiguous
     ? plan.regions
@@ -257,7 +271,7 @@ export async function maskCardImage(
       : coverBothNameBands(plan.regions);
 
   const maskedBuffer = await applyPercentRegions(upright.buffer, regions);
-  const coverage = await assertOpaqueIdentityCover({
+  let coverage = await assertOpaqueIdentityCover({
     buffer: maskedBuffer,
     regions,
     layoutClass: plan.layoutClass,
@@ -265,6 +279,16 @@ export async function maskCardImage(
     imageWidth: originalWidth,
     imageHeight: originalHeight,
   });
+  if (coverage.ok) {
+    const text = await verifyMaskedNamePlate({
+      buffer: maskedBuffer,
+      plate: plan.plate ?? detectedPlate,
+      layoutClass: plan.layoutClass,
+      imageWidth: originalWidth,
+      imageHeight: originalHeight,
+    });
+    if (!text.ok) coverage = text;
+  }
 
   return {
     maskedBuffer,

@@ -1,6 +1,7 @@
-import { readdirSync, unlinkSync } from "fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
+import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { playableCards } from "@shared/schema";
 import { db } from "../db";
 import { MASKED_CARDS_DIR } from "./maskPlanStore";
@@ -14,6 +15,39 @@ export function setMaskReadySidecarDirForTests(dir: string | null): void {
 
 export function maskReadySidecarDir(): string {
   return dirOverride ?? MASKED_CARDS_DIR;
+}
+
+/** Written when post-bake verification still sees the name. Not a ready marker. */
+export function maskFailureSidecarFilename(cardId: string): string {
+  return `${cardId}_${CURRENT_MASK_VERSION}.fail`;
+}
+
+export function writeMaskFailureSidecar(cardId: string, reason: string, dir = maskReadySidecarDir()): void {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
+    return;
+  }
+  const text = (reason || "name_text_visible").replace(/[\r\n]+/g, " ").slice(0, 240);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, maskFailureSidecarFilename(cardId)), `${text}\n`);
+}
+
+export function readMaskFailureReason(cardId: string, dir = maskReadySidecarDir()): string | null {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..")) return null;
+  try {
+    const text = readFileSync(path.join(dir, maskFailureSidecarFilename(cardId)), "utf8").trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearMaskFailureSidecar(cardId: string, dir = maskReadySidecarDir()): void {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..")) return;
+  try {
+    unlinkSync(path.join(dir, maskFailureSidecarFilename(cardId)));
+  } catch {
+    // already gone
+  }
 }
 
 /**
