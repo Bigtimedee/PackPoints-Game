@@ -55,11 +55,16 @@ export function registerCoverQaRoutes(app: Express): void {
   app.get("/api/qa/sets/:setId/cover-candidates", (req, res) => {
     if (!authorized(req, res)) return;
     void listCoverCandidates(req.params.setId, candidateLimit(req.query.n))
-      .then((candidates) => {
+      .then((report) => {
         qaJson(req, res, {
           setId: req.params.setId,
           maskVersion: CURRENT_MASK_VERSION,
-          candidates,
+          pinnedCount: report.pinnedCount,
+          validCount: report.validCount,
+          coversDisabled: report.coversDisabled,
+          pins: report.pins,
+          picker: report.picker,
+          candidates: report.candidates,
         });
       })
       .catch(() => {

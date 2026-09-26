@@ -10,18 +10,21 @@ import { OnboardingModal } from "@/components/OnboardingModal";
 import { apiRequest } from "@/lib/queryClient";
 import { msUntilPackptsMidnight } from "@shared/packptsDay";
 import { shouldShowHomePlayVanity } from "@shared/homePlayVanity";
+import { applySetDisplayTitle, applySetYearLabel, setDisplayOverride } from "@shared/setDisplayOverride";
 
 function SetOfWeekBanner() {
   const [dismissed, setDismissed] = useState(false);
-  const { data } = useQuery<{ active: { setName?: string; brand?: string; year?: number; multiplier: number } | null }>({
+  const { data } = useQuery<{ active: { setId?: string; setName?: string; brand?: string; year?: number; multiplier: number } | null }>({
     queryKey: ["/api/set-of-week/active"],
     staleTime: 60_000,
   });
 
   if (dismissed || !data?.active) return null;
 
-  const { setName, brand, year, multiplier } = data.active;
-  const label = [year, brand, setName].filter(Boolean).join(" ");
+  const { setId, setName, brand, year, multiplier } = data.active;
+  const label = setDisplayOverride(setId)
+    ? applySetDisplayTitle(setId, setName)
+    : [applySetYearLabel(setId, year), brand, setName].filter(Boolean).join(" ");
 
   return (
     <div className="bg-gradient-to-r from-yellow-500 to-amber-500 text-white px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2">

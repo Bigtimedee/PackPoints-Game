@@ -27,6 +27,7 @@ import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
 import { startMaskBandGuardScan } from "./masking/maskBandLimit";
 import { startMaskWarmup } from "./startup/maskWarmup";
 import { logCardBlocklist } from "./lib/cardBlocklist";
+import { logPinnedCoversAtBoot } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -473,6 +474,9 @@ app.use((req, res, next) => {
     startMaskBandGuardScan();
     startMaskWarmup();
   }
+  void logPinnedCoversAtBoot().catch(() => {
+    console.error("[PinnedCovers] boot log failed");
+  });
 
   try {
     const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");

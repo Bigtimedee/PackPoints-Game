@@ -18,6 +18,7 @@ import { contentAssets, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
@@ -74,6 +75,7 @@ beforeAll(async () => {
   await writeReady(montanaId, montanaBytes);
   await writeReady(cunninghamId, cunninghamBytes);
   clearReadyCoverIndexForTests();
+  setPinnedCoversForTests(setId, [montanaId, cunninghamId]);
 
   await db.insert(gameSets).values({
     id: setId,
@@ -101,6 +103,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  setPinnedCoversForTests(setId, null);
   setMaskReadySidecarDirForTests(null);
   clearReadyCoverIndexForTests();
   await db.delete(contentAssets).where(eq(contentAssets.sourceEventId, `maker_set_${setId}`)).catch(() => null);

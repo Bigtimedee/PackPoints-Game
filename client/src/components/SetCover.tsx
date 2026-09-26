@@ -1,62 +1,35 @@
 import type { CSSProperties } from "react";
-import { MaskPlaque } from "@/components/MaskPlaque";
 import { MaskedCardImage } from "@/components/MaskedCardImage";
-import { inferLayoutClass, overlayMaskRegions } from "@shared/maskGeometry";
-import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
 import {
   SET_INDEX_COVER_HEIGHT,
   SETS_POLISH,
+  fanCoverPlacements,
   resolveSetCover,
+  sanitizeCoverCardUrls,
   type SetCoverSource,
 } from "@/lib/setsPolish";
-
-const creamPlaqueRegions = overlayMaskRegions(DEFAULT_MASK_REGIONS);
-
-function CreamSilhouette() {
-  return (
-    <div
-      className="relative w-full overflow-hidden rounded-[3px]"
-      style={{
-        aspectRatio: "2.5 / 3.5",
-        background: `linear-gradient(180deg, ${SETS_POLISH.cream} 0%, #E2D3B3 100%)`,
-        border: `1px solid ${SETS_POLISH.gold}55`,
-      }}
-      aria-hidden
-    >
-      <MaskPlaque
-        regions={creamPlaqueRegions}
-        layoutClass={inferLayoutClass(creamPlaqueRegions)}
-        chrome="bar"
-      />
-    </div>
-  );
-}
 
 function StackCard({
   src,
   className,
   style,
 }: {
-  src?: string | null;
+  src: string;
   className?: string;
   style?: CSSProperties;
 }) {
   return (
     <div className={className} style={style}>
-      {src ? (
-        <div className="overflow-hidden rounded-[3px] shadow-md" style={{ aspectRatio: "2.5 / 3.5" }}>
-          <MaskedCardImage
-            src={src}
-            alt=""
-            className="h-full w-full"
-            maskColor="#000000"
-            plaqueChrome="bar"
-          />
-        </div>
-      ) : (
-        <CreamSilhouette />
-      )}
+      <div className="overflow-hidden rounded-[3px] shadow-md" style={{ aspectRatio: "2.5 / 3.5" }}>
+        <MaskedCardImage
+          src={src}
+          alt=""
+          className="h-full w-full"
+          maskColor="#000000"
+          plaqueChrome="bar"
+        />
+      </div>
     </div>
   );
 }
@@ -68,32 +41,29 @@ export function MaskedCardStack({
   urls: string[];
   compact?: boolean;
 }) {
-  const count = Math.min(5, Math.max(3, urls.length));
-  const cards = Array.from({ length: count }, (_, i) => ({
-    src: urls[i] ?? null,
-  }));
+  const cards = sanitizeCoverCardUrls(urls);
+  if (cards.length === 0) return null;
+  const placements = fanCoverPlacements(cards.length, compact);
 
   return (
     <div
       className="relative w-full overflow-hidden"
-      style={{ height: compact ? SET_INDEX_COVER_HEIGHT : 220, backgroundColor: SETS_POLISH.panel }}
+      style={{ height: compact ? SET_INDEX_COVER_HEIGHT : 220 }}
       data-testid="cover-masked-stack"
+      data-cover-count={cards.length}
     >
-      {cards.map((card, i) => {
-        const mid = (cards.length - 1) / 2;
-        const dx = (i - mid) * 18;
-        const rot = (i - mid) * 6;
-        const lift = Math.abs(i - mid) * 8;
+      {cards.map((src, i) => {
+        const place = placements[i];
         return (
           <StackCard
-            key={i}
-            src={card.src}
+            key={`${src}-${i}`}
+            src={src}
             className="absolute"
             style={{
-              width: compact ? "30%" : "28%",
-              left: `${36 + dx}%`,
-              top: compact ? 18 + lift : 28 + lift,
-              transform: `translateX(-50%) rotate(${rot}deg)`,
+              width: `${place.widthPct}%`,
+              left: `${place.leftPct}%`,
+              top: (compact ? 16 : 24) + place.liftPx,
+              transform: `translateX(-50%) rotate(${place.rotateDeg}deg)`,
               zIndex: i + 1,
             }}
           />
@@ -138,6 +108,7 @@ export function SetCover({
     );
   }
 
+  if (cover.urls.length === 0) return null;
   return <MaskedCardStack urls={cover.urls} compact />;
 }
 
@@ -147,10 +118,10 @@ export function TheStack({
   cards: Array<{ imageUrl: string | null; year: number | null }>;
 }) {
   const urls = cards.filter((c) => isMaskedSetCoverUrl(c.imageUrl)).map((c) => c.imageUrl as string);
+  if (urls.length === 0) return null;
   return (
     <div
-      className="rounded-md overflow-hidden"
-      style={{ backgroundColor: SETS_POLISH.panel }}
+      className="overflow-hidden"
       data-testid="section-the-stack"
     >
       <MaskedCardStack urls={urls} />

@@ -11,7 +11,9 @@ import { SetCover, TheStack } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
   SETS_POLISH,
+  displaySetYearLabel,
   formatDetailMetaLine,
+  formatIndexSetTitle,
   publicSetDisplayUrl,
   sanitizePreviewCards,
   setShareSlug,
@@ -27,6 +29,8 @@ interface PreviewCard {
 interface SetDetail {
   id: string;
   setName: string;
+  brand?: string | null;
+  year?: number | null;
   makerNote: string | null;
   isUserCreated: boolean;
   createdByUserId: string | null;
@@ -38,6 +42,7 @@ interface SetDetail {
   shareImageUrl?: string;
   previewCards?: PreviewCard[];
   playedToday?: boolean;
+  coversDisabled?: boolean;
 }
 
 function MaskedPMark({ size = 22 }: { size?: number }) {
@@ -79,28 +84,21 @@ function QuietButton({
   );
 }
 
-export default function SetPage() {
-  const { id } = useParams<{ id: string }>();
-  const [, setLocation] = useLocation();
+export function SetDetailView({ set }: { set: SetDetail }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const play = usePlayMakerSet(set.id, set.cardCount);
 
-  const { data: set, isLoading, error } = useQuery<SetDetail>({
-    queryKey: [`/api/sets/${id}`],
-    enabled: !!id,
-    retry: false,
-  });
-
-  const play = usePlayMakerSet(set?.id ?? id, set?.cardCount);
+  const displayTitle = formatIndexSetTitle({ id: set.id, setName: set.setName, brand: set.brand });
 
   useEffect(() => {
-    if (!set?.setName) return;
+    if (!displayTitle) return;
     const previous = document.title;
-    document.title = `${set.setName} · PackPTS`;
+    document.title = `${displayTitle} · PackPTS`;
     return () => {
       document.title = previous;
     };
-  }, [set?.setName]);
+  }, [displayTitle]);
 
   const isOwner = user && set?.createdByUserId === (user as { id?: string }).id;
   const isCoCreator = user && set?.coCreatorUserId === (user as { id?: string }).id;
@@ -109,7 +107,7 @@ export default function SetPage() {
   const coverCardUrls = previewCards.flatMap((card) => (card.imageUrl ? [card.imageUrl] : []));
 
   function setShareHref() {
-    const slug = setShareSlug(set!.setName, set!.id);
+    const slug = setShareSlug(displayTitle || set!.setName, set!.id);
     return playSetsShareUrl({
       slugOrId: slug,
       origin: typeof window !== "undefined" ? window.location.origin : undefined,
@@ -132,7 +130,7 @@ export default function SetPage() {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: set!.setName,
+          title: displayTitle || set!.setName,
           url,
           text: set!.makerNote ? `“${set!.makerNote}”` : "Play this set on PackPTS.",
         });
@@ -145,6 +143,169 @@ export default function SetPage() {
       toast({ title: "Couldn’t share", variant: "destructive" });
     }
   }
+
+  const cardCount = Number(set.cardCount);
+  const title = displayTitle || set.setName;
+  const yearLabel = displaySetYearLabel(set.id, set.year);
+  const showCovers = set.coversDisabled !== true && coverCardUrls.length > 0;
+  const displayUrl = publicSetDisplayUrl(title, set.id);
+  const showPlayCue = shouldShowPlayTodayCue(set.playedToday);
+  const provenance = set.isUserCreated
+    ? formatDetailMetaLine({
+        makerUsername: set.makerUsername,
+        coCreatorUsername: set.coCreatorUsername,
+        createdAt: set.createdAt,
+        authored: true,
+      })
+    : "";
+
+  return (
+    <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
+      <div className="max-w-lg mx-auto px-4 pt-6 space-y-6">
+        <header className="space-y-2">
+          <p
+            className="text-[11px] font-medium tracking-[0.18em]"
+            style={{ color: SETS_POLISH.muted }}
+          >
+            SET
+          </p>
+          <h1 className="text-3xl font-bold leading-tight" data-testid="text-set-title">
+            {title}
+          </h1>
+          {yearLabel ? (
+            <p className="text-sm" style={{ color: SETS_POLISH.muted }} data-testid="text-set-year">
+              {yearLabel}
+            </p>
+          ) : null}
+          <div className="flex items-start justify-between gap-3">
+            {provenance ? (
+              <p className="text-sm" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
+                {provenance}
+              </p>
+            ) : (
+              <span />
+            )}
+            {set.isUserCreated && (
+              <span
+                className="shrink-0 rounded-sm px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em]"
+                style={{ color: SETS_POLISH.gold, border: `1px solid ${SETS_POLISH.gold}` }}
+                data-testid="badge-fan-made"
+              >
+                {SETS_POLISH.fanMade}
+              </span>
+            )}
+          </div>
+        </header>
+
+        {showCovers && set.makerNote && (
+          <div
+            className="rounded-md px-4 py-3"
+            style={{ backgroundColor: SETS_POLISH.panel }}
+            data-testid="text-mixtape"
+          >
+            <p className="text-sm italic" style={{ color: SETS_POLISH.ink }}>
+              “{set.makerNote}”
+            </p>
+          </div>
+        )}
+
+        <div className="space-y-2" data-testid={showCovers ? "set-detail-covers" : "set-detail-hidden"}>
+          <div className={showCovers ? "flex gap-3" : ""}>
+            <button
+              type="button"
+              className={`${showCovers ? "flex-1" : "w-full"} min-h-11 rounded-md text-sm font-medium text-white disabled:opacity-50`}
+              style={{ backgroundColor: SETS_POLISH.blue }}
+              onClick={() => play.mutate()}
+              disabled={!play.canPlay || play.isPending}
+              data-testid="button-play-set"
+            >
+              {play.isPending ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : "Play"}
+            </button>
+            {showCovers && (
+              <div
+                className="min-h-11 px-4 rounded-md text-sm font-medium flex items-center shrink-0"
+                style={{
+                  backgroundColor: SETS_POLISH.panel,
+                  color: SETS_POLISH.ink,
+                  border: `1px solid ${SETS_POLISH.panelBorder}`,
+                }}
+                data-testid="text-card-count"
+              >
+                {cardCount} Card{cardCount === 1 ? "" : "s"}
+              </div>
+            )}
+          </div>
+          {play.gatePrompt}
+          {showPlayCue && play.canPlay && (
+            <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-play-today">
+              {SETS_POLISH.playTodayCue}
+            </p>
+          )}
+          {!play.canPlay && (
+            <p className="text-xs" style={{ color: SETS_POLISH.muted }}>
+              This set has no playable cards yet.
+            </p>
+          )}
+        </div>
+
+        {showCovers && (
+          <>
+            <SetCover
+              shareImageUrl={set.shareImageUrl}
+              cardUrls={coverCardUrls}
+              caption
+            />
+
+            <section className="space-y-3">
+              <p
+                className="text-[11px] font-medium tracking-[0.18em]"
+                style={{ color: SETS_POLISH.muted }}
+              >
+                {SETS_POLISH.stackHeading}
+              </p>
+              <TheStack cards={previewCards} />
+            </section>
+
+            <div className="flex gap-3">
+              <QuietButton onClick={shareSet} testId="button-share-set">Share</QuietButton>
+              <QuietButton onClick={copyLink} testId="button-copy-link">Copy link</QuietButton>
+            </div>
+
+            <p className="text-xs break-all" style={{ color: SETS_POLISH.muted }} data-testid="text-set-url">
+              {displayUrl}
+            </p>
+          </>
+        )}
+
+        {showCovers && canSaveCover && (
+          <a
+            href={set.shareImageUrl}
+            download="packpts-set.png"
+            className="block text-xs"
+            style={{ color: SETS_POLISH.muted }}
+          >
+            Save cover
+          </a>
+        )}
+
+        <footer className="flex items-center gap-2 pt-4 pb-2">
+          <MaskedPMark />
+          <span className="text-sm font-medium tracking-wide">PackPTS</span>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+export default function SetPage() {
+  const { id } = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
+
+  const { data: set, isLoading, error } = useQuery<SetDetail>({
+    queryKey: [`/api/sets/${id}`],
+    enabled: !!id,
+    retry: false,
+  });
 
   if (isLoading) {
     return (
@@ -180,141 +341,5 @@ export default function SetPage() {
     );
   }
 
-  const cardCount = Number(set.cardCount);
-  const displayUrl = publicSetDisplayUrl(set.setName, set.id);
-  const showPlayCue = shouldShowPlayTodayCue(set.playedToday);
-  const provenance = set.isUserCreated
-    ? formatDetailMetaLine({
-        makerUsername: set.makerUsername,
-        coCreatorUsername: set.coCreatorUsername,
-        createdAt: set.createdAt,
-        authored: true,
-      })
-    : "";
-
-  return (
-    <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
-      <div className="max-w-lg mx-auto px-4 pt-6 space-y-6">
-        <header className="space-y-2">
-          <p
-            className="text-[11px] font-medium tracking-[0.18em]"
-            style={{ color: SETS_POLISH.muted }}
-          >
-            SET
-          </p>
-          <h1 className="text-3xl font-bold leading-tight" data-testid="text-set-title">
-            {set.setName}
-          </h1>
-          <div className="flex items-start justify-between gap-3">
-            {provenance ? (
-              <p className="text-sm" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
-                {provenance}
-              </p>
-            ) : (
-              <span />
-            )}
-            {set.isUserCreated && (
-              <span
-                className="shrink-0 rounded-sm px-2 py-0.5 text-[10px] font-semibold tracking-[0.14em]"
-                style={{ color: SETS_POLISH.gold, border: `1px solid ${SETS_POLISH.gold}` }}
-                data-testid="badge-fan-made"
-              >
-                {SETS_POLISH.fanMade}
-              </span>
-            )}
-          </div>
-        </header>
-
-        {set.makerNote && (
-          <div
-            className="rounded-md px-4 py-3"
-            style={{ backgroundColor: SETS_POLISH.panel }}
-            data-testid="text-mixtape"
-          >
-            <p className="text-sm italic" style={{ color: SETS_POLISH.ink }}>
-              “{set.makerNote}”
-            </p>
-          </div>
-        )}
-
-        <div className="space-y-2">
-          <div className="flex gap-3">
-            <button
-              type="button"
-              className="flex-1 min-h-11 rounded-md text-sm font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: SETS_POLISH.blue }}
-              onClick={() => play.mutate()}
-              disabled={!play.canPlay || play.isPending}
-              data-testid="button-play-set"
-            >
-              {play.isPending ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : "Play"}
-            </button>
-            <div
-              className="min-h-11 px-4 rounded-md text-sm font-medium flex items-center"
-              style={{
-                backgroundColor: SETS_POLISH.panel,
-                color: SETS_POLISH.ink,
-                border: `1px solid ${SETS_POLISH.panelBorder}`,
-              }}
-              data-testid="text-card-count"
-            >
-              {cardCount} Card{cardCount === 1 ? "" : "s"}
-            </div>
-          </div>
-          {play.gatePrompt}
-          {showPlayCue && play.canPlay && (
-            <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-play-today">
-              {SETS_POLISH.playTodayCue}
-            </p>
-          )}
-          {!play.canPlay && (
-            <p className="text-xs" style={{ color: SETS_POLISH.muted }}>
-              This set has no playable cards yet.
-            </p>
-          )}
-        </div>
-
-        <SetCover
-          shareImageUrl={set.shareImageUrl}
-          cardUrls={coverCardUrls}
-          caption
-        />
-
-        <section className="space-y-3">
-          <p
-            className="text-[11px] font-medium tracking-[0.18em]"
-            style={{ color: SETS_POLISH.muted }}
-          >
-            {SETS_POLISH.stackHeading}
-          </p>
-          <TheStack cards={previewCards} />
-        </section>
-
-        <div className="flex gap-3">
-          <QuietButton onClick={shareSet} testId="button-share-set">Share</QuietButton>
-          <QuietButton onClick={copyLink} testId="button-copy-link">Copy link</QuietButton>
-        </div>
-
-        <p className="text-xs break-all" style={{ color: SETS_POLISH.muted }} data-testid="text-set-url">
-          {displayUrl}
-        </p>
-
-        {canSaveCover && (
-          <a
-            href={set.shareImageUrl}
-            download="packpts-set.png"
-            className="block text-xs"
-            style={{ color: SETS_POLISH.muted }}
-          >
-            Save cover
-          </a>
-        )}
-
-        <footer className="flex items-center gap-2 pt-4 pb-2">
-          <MaskedPMark />
-          <span className="text-sm font-medium tracking-wide">PackPTS</span>
-        </footer>
-      </div>
-    </div>
-  );
+  return <SetDetailView set={set} />;
 }

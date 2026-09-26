@@ -32,6 +32,7 @@ import {
   reportMaskSweep,
 } from "../masking/maskPlateSweep";
 import { storage } from "../storage";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import {
   clearReadyCoverIndexForTests,
   handlePublicSetCover,
@@ -296,11 +297,13 @@ describe("failed post-bake verification stays out of deals and covers", () => {
     await writeFile(path.join(dir, warmOkMarkerFilename(safeId)), "ok\n");
     await writeFile(path.join(dir, `${safeId}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from("safe-jpeg"));
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, [leakedId, safeId]);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   afterAll(async () => {
+    setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
     await new Promise<void>((resolve, reject) => {

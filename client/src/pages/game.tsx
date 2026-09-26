@@ -19,6 +19,7 @@ import { CardSetPicker } from "@/components/CardSetPicker";
 import { MobileSelect } from "@/components/MobileSelect";
 import { SiX, SiFacebook } from "react-icons/si";
 import type { ClientGameSession, GameSet, PlayableSet } from "@shared/schema";
+import { applySetDisplayTitle, applySetYearLabel, setDisplayOverride } from "@shared/setDisplayOverride";
 import { GameCard } from "@/components/GameCard";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -777,6 +778,7 @@ export default function Game() {
 
   const getSetDisplayName = (set: PlayableSet | undefined) => {
     if (!set) return "Card Set";
+    if (setDisplayOverride(set.id)) return applySetDisplayTitle(set.id, set.setName);
     return `${set.year} ${set.brand} ${set.sport}`;
   };
 
@@ -1173,7 +1175,7 @@ export default function Game() {
                 <Link href={`/marketplace?setId=${currentGameSet.id}`}>
                   <Button variant="outline" className="w-full gap-2" data-testid="button-browse-cards">
                     <ShoppingBag className="h-4 w-4" />
-                    Browse {currentGameSet.setName} Cards for Sale
+                    Browse {applySetDisplayTitle(currentGameSet.id, currentGameSet.setName)} Cards for Sale
                   </Button>
                 </Link>
               </div>
@@ -1279,7 +1281,7 @@ export default function Game() {
                 imageUrl={currentQuestion.card.imageUrl}
                 revealUrl={isRevealed ? currentQuestion.card.revealUrl : undefined}
                 maskPlan={currentQuestion.card.maskPlan}
-                plaqueEyebrow={currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
+                plaqueEyebrow={currentGameSet ? `${applySetYearLabel(currentGameSet.id, currentGameSet.year) ?? currentGameSet.year} ${currentGameSet.brand.toUpperCase()}` : undefined}
                 answerStaged={!!selectedAnswer && !isRevealed}
                 revealedPlayerName={isRevealed ? revealedCorrectAnswer ?? undefined : undefined}
                 isRevealed={isRevealed}

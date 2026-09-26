@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
 import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
+import { applySetDisplayTitle, applySetYearLabel, setDisplayOverride } from "@shared/setDisplayOverride";
 import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
@@ -727,6 +728,13 @@ export default function Daily5Page() {
               <Calendar className="h-3 w-3" />
               Daily 5
             </Badge>
+            {setDisplayOverride(challengeSetId ?? statusQuery.data?.challenge?.setId) ? (
+              <span className="text-sm text-muted-foreground" data-testid="text-d5-set-label">
+                {applySetDisplayTitle(challengeSetId ?? statusQuery.data?.challenge?.setId, "")}
+                {" · "}
+                {applySetYearLabel(challengeSetId ?? statusQuery.data?.challenge?.setId, null)}
+              </span>
+            ) : null}
             <span className="text-sm text-muted-foreground" data-testid="text-d5-progress">
               {currentPosition}/5
             </span>
@@ -819,6 +827,13 @@ export default function Daily5Page() {
             </div>
             <h1 className="text-3xl font-bold" data-testid="text-d5-complete">Game Complete</h1>
             <p className="text-muted-foreground uppercase tracking-wider text-sm">DAILY 5</p>
+            {setDisplayOverride(challengeSetId ?? status?.challenge?.setId) ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-d5-set-label">
+                {applySetDisplayTitle(challengeSetId ?? status?.challenge?.setId, "")}
+                {" · "}
+                {applySetYearLabel(challengeSetId ?? status?.challenge?.setId, null)}
+              </p>
+            ) : null}
             <div className="grid grid-cols-3 gap-3 items-stretch max-w-md mx-auto" data-testid="grid-d5-final-stats">
               <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Points) }} data-testid="text-d5-final-score">

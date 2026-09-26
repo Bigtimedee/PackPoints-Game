@@ -18,6 +18,7 @@ import { coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { warmMaskPlanFilename } from "../masking/maskPlanStore";
 import { registerCoverQaRoutes } from "../routes/coverQa";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
@@ -109,6 +110,7 @@ describe("cover QA routes", () => {
       maskVersion: CURRENT_MASK_VERSION,
     }));
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, spareIds);
 
     await db.insert(playableCards).values(rows.map((row) => ({
       id: row.id,
@@ -137,6 +139,7 @@ describe("cover QA routes", () => {
   afterAll(async () => {
     setToken(previousToken);
     setCoversFlag(previousCovers);
+    setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
     await new Promise<void>((resolve, reject) => {
@@ -181,6 +184,10 @@ describe("cover QA routes", () => {
     const body = await listRes.json() as {
       setId: string;
       maskVersion: string;
+      pinnedCount: number;
+      validCount: number;
+      pins: Array<{ cardId: string; role: string; status: string; reason: string | null; served: boolean }>;
+      picker: Array<{ cardId: string; source: string; served: boolean }>;
       candidates: Array<{
         slot: number;
         cardId: string;
@@ -192,13 +199,24 @@ describe("cover QA routes", () => {
         bandPlacement: string | null;
         baked: boolean;
         imagePath: string;
+        source: string;
+        served: boolean;
       }>;
     };
     expect(body.setId).toBe(setId);
     expect(body.maskVersion).toBe(CURRENT_MASK_VERSION);
-    expect(body.candidates).toHaveLength(9);
-    expect(body.candidates.map((row) => row.cardId)).toEqual(spareIds);
-    expect(body.candidates.map((row) => row.slot)).toEqual(spareIds.map((_, index) => index));
+    expect(body.pinnedCount).toBe(9);
+    expect(body.validCount).toBe(8);
+    expect(body.candidates).toHaveLength(8);
+    expect(body.candidates.map((row) => row.cardId)).toEqual(spareIds.slice(0, 8));
+    expect(body.candidates.map((row) => row.slot)).toEqual(spareIds.slice(0, 8).map((_, index) => index));
+    expect(body.candidates.every((row) => row.source === "pick" && row.served)).toBe(true);
+    expect(body.picker.map((row) => row.cardId)).toEqual(spareIds);
+    expect(body.picker.every((row) => row.source === "picker")).toBe(true);
+    expect(body.picker[8]).toMatchObject({ cardId: spareIds[8], served: false });
+    expect(body.pins).toHaveLength(9);
+    expect(body.pins[0]).toMatchObject({ cardId: spareIds[0], role: "pick", status: "pick", reason: null, served: true });
+    expect(body.pins[8]).toMatchObject({ cardId: spareIds[8], role: "pick", status: "skipped", reason: "over-cap", served: false });
     expect(body.candidates.some((row) => row.cardId === blockedId)).toBe(false);
     expect(JSON.stringify(body)).not.toContain("Kevin Johnson");
     expect(body.candidates[0]).toMatchObject({
