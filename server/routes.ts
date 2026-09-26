@@ -41,6 +41,8 @@ import { stripePurchaseService, isStripeConfigured, checkStripeConfigured } from
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { getStripeDiagnostics, getStripeMode, assertLiveModeForHost, getStripeConfig, isProductionHost } from "./stripeClient";
 import { isAuthenticated } from "./auth";
+import { requireAdmin } from "./auth/requireAdmin";
+import { handleOnboardingStart, ONBOARDING_REWARD_PTS, registerLockedCardRowRoutes } from "./services/lockedCardRows";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
@@ -138,27 +140,6 @@ function formatZodError(zodError: ZodError): string {
   return "Invalid request";
 }
 
-// Middleware to require admin role
-const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
-  const user = req.user as any;
-  const session = req.session as any;
-  
-  // Resolve user id from either an OAuth claim (req.user.claims.sub) or
-  // the local-login session (session.localUserId).
-  const userId = user?.claims?.sub || session?.localUserId;
-
-  if (!userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const dbUser = await storage.getUser(userId);
-  if (!dbUser?.isAdmin) {
-    return res.status(403).json({ message: "Admin access required" });
-  }
-  
-  next();
-};
-
 // Middleware to require ACTIVE user status (Founders Cap enforcement)
 const requireActiveUser = async (req: any, res: Response, next: NextFunction) => {
   const userId = req.user?.claims?.sub || req.session?.localUserId;
@@ -210,42 +191,6 @@ export async function registerRoutes(
   // Deployment version canary (no auth, lightweight, never cached, never 304).
   // buildId matches the client bundle this process is serving.
   registerVersionRoute(app);
-
-  // Diagnostic: test DB connectivity and playableCards table
-  app.get("/api/diag/card-review-test", async (_req, res) => {
-    const steps: Record<string, any> = { v: 7 };
-    try {
-      // Step 1: basic DB connectivity
-      const timeResult = await db.select({ now: sql<string>`now()` }).from(playableCards).limit(0);
-      steps.dbConnected = true;
-
-      // Step 2: count playable cards
-      const countResult = await db.select({ cnt: sql<number>`count(*)` }).from(playableCards);
-      steps.playableCardsCount = Number(countResult[0]?.cnt ?? 0);
-
-      // Step 3: pick a sample card and test SELECT
-      if (steps.playableCardsCount > 0) {
-        const [sample] = await db.select({
-          id: playableCards.id,
-          player: playableCards.player,
-          status: playableCards.imageReviewStatus,
-          isPlayable: playableCards.isPlayable,
-          quarantine: playableCards.quarantineStatus,
-        }).from(playableCards).limit(1);
-        steps.sampleCard = sample;
-      }
-
-      // Step 4: count card_image_reports
-      const rptCount = await db.select({ cnt: sql<number>`count(*)` }).from(cardImageReports);
-      steps.cardImageReportsCount = Number(rptCount[0]?.cnt ?? 0);
-
-      res.json({ ok: true, steps });
-    } catch (err: any) {
-      steps.error = err?.message;
-      steps.stack = err?.stack?.slice(0, 500);
-      res.status(500).json({ ok: false, steps });
-    }
-  });
 
   // ============================================
   // HOME STATS (public, cached)
@@ -1754,16 +1699,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/cards", async (_req, res) => {
-    try {
-      const cards = await storage.getCards();
-      res.json(cards);
-    } catch (error) {
-      console.error("Error getting cards:", error);
-      res.status(500).json({ error: "Failed to get cards" });
-    }
-  });
-
   app.post("/api/auth/register", registrationLimiter, async (req: any, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
@@ -2712,6 +2647,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to get card stats" });
     }
   });
+
+  // Answer-key rows. Registered after /api/cards/stats so that path stays counts-only.
+  registerLockedCardRowRoutes(app);
 
   // ============================================
   // REDEMPTION ENDPOINTS
@@ -7163,62 +7101,6 @@ export async function registerRoutes(
     }
   });
 
-  // Public: Get cards from a playable set (for gameplay)
-  app.get("/api/playable-sets/:id/cards", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { random, limit = "20", offset = "0", player, number } = req.query;
-      
-      const conditions = [eq(playableCards.gameSetId, id)];
-      
-      if (player) {
-        conditions.push(sql`${playableCards.player} ILIKE ${"%" + player + "%"}`);
-      }
-      
-      if (number) {
-        conditions.push(eq(playableCards.number, number as string));
-      }
-      
-      const orderByClause = random === "1" || random === "true" 
-        ? sql`RANDOM()` 
-        : playableCards.player;
-      
-      const cards = await db
-        .select()
-        .from(playableCards)
-        .where(and(...conditions))
-        .orderBy(orderByClause)
-        .limit(parseInt(limit as string, 10))
-        .offset(parseInt(offset as string, 10));
-      
-      res.json(cards);
-    } catch (error) {
-      console.error("Error getting playable cards:", error);
-      res.status(500).json({ error: "Failed to get playable cards" });
-    }
-  });
-
-  // Public: Get card by Card Hedge ID
-  app.get("/api/cards/:cardhedgeCardId", async (req, res) => {
-    try {
-      const { cardhedgeCardId } = req.params;
-      
-      const [card] = await db
-        .select()
-        .from(playableCards)
-        .where(eq(playableCards.cardhedgeCardId, cardhedgeCardId));
-      
-      if (!card) {
-        return res.status(404).json({ error: "Card not found" });
-      }
-      
-      res.json(card);
-    } catch (error) {
-      console.error("Error getting card:", error);
-      res.status(500).json({ error: "Failed to get card" });
-    }
-  });
-
   // Admin: Backfill card playability using shared classifier
   app.post("/api/admin/playable-cards/backfill", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
@@ -10555,44 +10437,6 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/card-sets/:id/cards - Public endpoint for set cards (for gameplay)
-  app.get("/api/card-sets/:id/cards", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const page = parseInt(req.query.page as string) || 1;
-      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 100);
-      const offset = (page - 1) * pageSize;
-
-      const [set] = await db.select()
-        .from(cardSets)
-        .where(and(eq(cardSets.id, id), eq(cardSets.isActive, true)))
-        .limit(1);
-
-      if (!set) {
-        return res.status(404).json({ error: "Set not found or not active" });
-      }
-
-      const cards = await db.select({
-        id: catalogCards.id,
-        player: catalogCards.player,
-        description: catalogCards.description,
-        cardNumber: catalogCards.cardNumber,
-        variant: catalogCards.variant,
-        imageUrl: catalogCards.imageUrl,
-      })
-        .from(cardSetCards)
-        .innerJoin(catalogCards, eq(cardSetCards.cardId, catalogCards.id))
-        .where(eq(cardSetCards.setId, id))
-        .limit(pageSize)
-        .offset(offset);
-
-      res.json({ cards });
-    } catch (error: any) {
-      console.error("Error getting set cards:", error);
-      res.status(500).json({ error: "Failed to get set cards" });
-    }
-  });
-
   // ==================== MATCHMAKING & PRESENCE ENDPOINTS ====================
 
   // GET /api/presence/stats - Get online player statistics (public)
@@ -11347,8 +11191,6 @@ export async function registerRoutes(
 
   // ── Onboarding (Prompt 17) ────────────────────────────────────────────────
 
-  const ONBOARDING_REWARD_PTS = 50;
-
   // GET /api/onboarding/status - check onboarding state for current user
   app.get("/api/onboarding/status", isAuthenticated, async (req: any, res) => {
     try {
@@ -11372,47 +11214,9 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/onboarding/start - start onboarding, returns a guided card
-  app.post("/api/onboarding/start", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Unauthorized" });
-
-      // Upsert onboarding record
-      await db
-        .insert(userOnboarding)
-        .values({ userId })
-        .onConflictDoNothing();
-
-      // Pick a guided card: playable, content-verified, lowest image failure count, random
-      const [card] = await db
-        .select({
-          id: playableCards.id,
-          player: playableCards.player,
-          set: playableCards.set,
-          imageUrl: playableCards.imageUrl,
-          cardhedgeCardId: playableCards.cardhedgeCardId,
-        })
-        .from(playableCards)
-        .where(
-          and(
-            eq(playableCards.isPlayable, true),
-            eq(playableCards.quarantineStatus, "OK"),
-            eq(playableCards.imageFailureCount, 0)
-          )
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(1);
-
-      res.json({
-        guidedCard: card || null,
-        rewardPts: ONBOARDING_REWARD_PTS,
-        message: "Guess the player name to earn your first PackPTS!",
-      });
-    } catch (error) {
-      console.error("[Onboarding] start error:", error);
-      res.status(500).json({ error: "Failed to start onboarding" });
-    }
+  // POST /api/onboarding/start - guided card is a masked image, not the answer
+  app.post("/api/onboarding/start", isAuthenticated, (req, res) => {
+    void handleOnboardingStart(req, res);
   });
 
   // POST /api/onboarding/complete - mark complete, award reward, return next action
