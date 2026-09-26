@@ -390,3 +390,24 @@
     letter-spacing: 0;
   }
 }
+
+/* Public /sets and /sets/:id, 320 to 430px.
+   The chat button is fixed at bottom-20 (5rem) and is h-12 (3rem),
+   so its top sits 8rem above the viewport bottom. The scrollport stops
+   there (plus the home indicator) and the page pads by the button height
+   plus that inset, so the last control can scroll fully clear.
+   Wider layouts, including 1280, keep the signed-off spacing. */
+@media (max-width: 430px) {
+  .sets-shell {
+    background-color: #0b0f16;
+  }
+
+  main.sets-scrollport {
+    margin-bottom: calc(5rem + 3rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: 0;
+  }
+
+  .sets-page-clearance {
+    padding-bottom: calc(3rem + env(safe-area-inset-bottom, 0px));
+  }
+}

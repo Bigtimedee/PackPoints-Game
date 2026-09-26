@@ -13,6 +13,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { useAuth } from "@/hooks/use-auth";
 import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
+import { setsMainClassName, setsShellClassName } from "@/lib/setsPolish";
 
 // Critical path — eager imports
 import Home from "@/pages/home";
@@ -380,9 +381,9 @@ function AppShell() {
   const isFullscreen = isMatchRoute || isGameRoute;
 
   return (
-    <div className="h-dvh flex flex-col bg-background text-foreground overflow-hidden">
+    <div className={`h-dvh flex flex-col bg-background text-foreground overflow-hidden ${setsShellClassName(location)}`.trim()}>
       {!isFullscreen && !isReviewRoute && <Header />}
-      <main className={isFullscreen ? "flex-1 overflow-hidden" : isReviewRoute ? "flex-1 overflow-y-auto" : "flex-1 overflow-y-auto pb-20 md:pb-0"}>
+      <main className={isFullscreen ? "flex-1 overflow-hidden" : isReviewRoute ? "flex-1 overflow-y-auto" : setsMainClassName(location)}>
         <Router />
       </main>
       {!isReviewRoute && <MobileNav />}
