@@ -1,5 +1,5 @@
 /**
- * Public set covers are pinned card ids that already have a baked mask.
+ * Public set covers walk Design picks, then alternates, and keep the first valid cards.
  * Never bakes. The public list never returns a raw photo URL, a player name, or a card id.
  * A served JPEG sets X-Card-Id and X-Mask-Version.
  * QA lists the pins and the old auto picker so Design can compare them.
@@ -13,7 +13,14 @@ import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
 import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT } from "@shared/setCoverUrl";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
-import { listedPinnedCoverIds, MAX_PINNED_COVERS, PINNED_SET_COVERS } from "../config/pinnedCovers";
+import {
+  listedPinnedCoverEntries,
+  listedPinnedCoverIds,
+  MAX_PINNED_COVERS,
+  PINNED_SET_COVERS,
+  type CoverListRole,
+  type ListedCover,
+} from "../config/pinnedCovers";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { isBlockedCard } from "../lib/cardBlocklist";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
@@ -110,16 +117,19 @@ export interface PinnedCoverDrop {
 
 export interface PinnedCoverReport {
   setId: string;
+  pickCount: number;
+  alternateCount: number;
+  entries: ListedCover[];
   pinnedIds: string[];
   validIds: string[];
   dropped: PinnedCoverDrop[];
 }
 
 export function formatPinnedCoverBootLine(report: PinnedCoverReport): string {
-  const dropped = report.dropped.length
+  const skipped = report.dropped.length
     ? report.dropped.map((drop) => `${drop.cardId}:${drop.reason}`).join(",")
     : "none";
-  return `[PinnedCovers] set=${report.setId} pinned=${report.pinnedIds.length} valid=${report.validIds.length} dropped=${dropped}`;
+  return `[PinnedCovers] set=${report.setId} picks=${report.pickCount} alternates=${report.alternateCount} valid=${report.validIds.length} skipped=${skipped}`;
 }
 
 /** Deal-eligible, blocklist-clear, band-allowed cards that already have a baked mask. Cover order. */
@@ -217,14 +227,14 @@ function classifyPinnedCover(
   return { ok: true };
 }
 
-/** Pins only. A failed pin drops. Later pins do not slide in from outside the list. */
+/** Picks, then alternates. A failed card is skipped. Nothing outside the list is used. */
 export async function resolvePinnedCoverReports(setIds: string[]): Promise<Map<string, PinnedCoverReport>> {
-  const listedBySet = new Map<string, string[]>();
+  const listedBySet = new Map<string, ListedCover[]>();
   const lookupIds: string[] = [];
   for (const setId of setIds) {
-    const listed = listedPinnedCoverIds(setId);
+    const listed = listedPinnedCoverEntries(setId);
     listedBySet.set(setId, listed);
-    for (const id of listed.slice(0, MAX_PINNED_COVERS)) lookupIds.push(id);
+    for (const entry of listed) lookupIds.push(entry.cardId);
   }
 
   const uniqueIds = [...new Set(lookupIds)];
@@ -239,28 +249,37 @@ export async function resolvePinnedCoverReports(setIds: string[]): Promise<Map<s
 
   const out = new Map<string, PinnedCoverReport>();
   for (const setId of setIds) {
-    const listed = listedBySet.get(setId) ?? [];
+    const entries = listedBySet.get(setId) ?? [];
     const dropped: PinnedCoverDrop[] = [];
     const validIds: string[] = [];
     const seenIds = new Set<string>();
     const seenPlayers = new Set<string>();
-    listed.slice(MAX_PINNED_COVERS).forEach((cardId) => {
-      dropped.push({ cardId, reason: "over-cap" });
-    });
-    for (const cardId of listed.slice(0, MAX_PINNED_COVERS)) {
-      if (seenIds.has(cardId)) {
-        dropped.push({ cardId, reason: "duplicate" });
+    for (const entry of entries) {
+      if (seenIds.has(entry.cardId)) {
+        dropped.push({ cardId: entry.cardId, reason: "duplicate" });
         continue;
       }
-      seenIds.add(cardId);
-      const verdict = classifyPinnedCover(setId, cardId, rows.get(cardId), eligible, ready, seenPlayers);
+      seenIds.add(entry.cardId);
+      const verdict = classifyPinnedCover(setId, entry.cardId, rows.get(entry.cardId), eligible, ready, seenPlayers);
       if (!verdict.ok) {
-        dropped.push({ cardId, reason: verdict.reason });
+        dropped.push({ cardId: entry.cardId, reason: verdict.reason });
         continue;
       }
-      validIds.push(cardId);
+      if (validIds.length >= MAX_PINNED_COVERS) {
+        dropped.push({ cardId: entry.cardId, reason: "over-cap" });
+        continue;
+      }
+      validIds.push(entry.cardId);
     }
-    out.set(setId, { setId, pinnedIds: listed, validIds, dropped });
+    out.set(setId, {
+      setId,
+      pickCount: entries.filter((entry) => entry.role === "pick").length,
+      alternateCount: entries.filter((entry) => entry.role === "alternate").length,
+      entries,
+      pinnedIds: entries.map((entry) => entry.cardId),
+      validIds,
+      dropped,
+    });
   }
   return out;
 }
@@ -279,7 +298,15 @@ export async function logPinnedCoversAtBoot(): Promise<void> {
   const setIds = [...ids].sort();
   const reports = await resolvePinnedCoverReports(setIds);
   for (const setId of setIds) {
-    const report = reports.get(setId) ?? { setId, pinnedIds: [], validIds: [], dropped: [] };
+    const report = reports.get(setId) ?? {
+      setId,
+      pickCount: 0,
+      alternateCount: 0,
+      entries: [],
+      pinnedIds: [],
+      validIds: [],
+      dropped: [],
+    };
     console.log(formatPinnedCoverBootLine(report));
   }
 }
@@ -302,14 +329,15 @@ export interface CoverCandidate {
   bandPlacement: string | null;
   baked: boolean;
   imagePath: string;
-  source: "pinned" | "picker";
+  source: CoverListRole | "picker";
   served: boolean;
 }
 
 export interface PinnedCoverStatus {
   cardId: string;
   order: number;
-  status: "served" | "dropped";
+  role: CoverListRole;
+  status: "pick" | "alternate" | "skipped";
   reason: PinDropReason | null;
   slot: number | null;
   served: boolean;
@@ -344,7 +372,7 @@ export function qaCoverImagePath(cardId: string): string {
   return `/api/qa/cover-image/${cardId}`;
 }
 
-function toCoverCandidate(row: CoverRow, slot: number, source: "pinned" | "picker", served: boolean): CoverCandidate {
+function toCoverCandidate(row: CoverRow, slot: number, source: CoverListRole | "picker", served: boolean): CoverCandidate {
   return {
     slot,
     cardId: row.id,
@@ -369,9 +397,13 @@ export async function listCoverCandidates(setId: string, limit: number): Promise
   const [report, pickerRows, rawRows] = await Promise.all([
     resolvePinnedCoverReports([setId]).then((map) => map.get(setId)!),
     eligibleCoverRows([setId]).then((map) => map.get(setId) ?? []),
-    loadPinnedCoverRows(listedPinnedCoverIds(setId).slice(0, MAX_PINNED_COVERS)),
+    loadPinnedCoverRows(listedPinnedCoverIds(setId)),
   ]);
   const served = new Set(report.validIds);
+  const roleOf = new Map<string, CoverListRole>();
+  for (const entry of report.entries) {
+    if (!roleOf.has(entry.cardId)) roleOf.set(entry.cardId, entry.role);
+  }
   const pickerIds = new Set(pickCoverSlots(pickerRows, limit).map((row) => row.id));
   const picker = pickCoverSlots(pickerRows, limit).map((row, slot) => (
     toCoverCandidate(row, slot, "picker", served.has(row.id))
@@ -379,7 +411,9 @@ export async function listCoverCandidates(setId: string, limit: number): Promise
   const validRows = report.validIds
     .map((id) => rawRows.get(id) ?? pickerRows.find((row) => row.id === id))
     .filter((row): row is CoverRow => !!row);
-  const candidates = validRows.slice(0, limit).map((row, slot) => toCoverCandidate(row, slot, "pinned", true));
+  const candidates = validRows.slice(0, limit).map((row, slot) => (
+    toCoverCandidate(row, slot, roleOf.get(row.id) ?? "pick", true)
+  ));
   const slotOf = new Map(report.validIds.map((id, slot) => [id, slot]));
   const pins: PinnedCoverStatus[] = [];
   const pendingDrops = report.dropped.slice();
@@ -391,27 +425,29 @@ export async function listCoverCandidates(setId: string, limit: number): Promise
     return reason;
   };
   const seen = new Set<string>();
-  report.pinnedIds.forEach((cardId, order) => {
-    const inPicker = pickerIds.has(cardId);
-    if (order >= MAX_PINNED_COVERS || seen.has(cardId)) {
+  report.entries.forEach((entry, order) => {
+    const inPicker = pickerIds.has(entry.cardId);
+    if (seen.has(entry.cardId)) {
       pins.push({
-        cardId,
+        cardId: entry.cardId,
         order,
-        status: "dropped",
-        reason: takeReason(cardId, order >= MAX_PINNED_COVERS ? "over-cap" : "duplicate"),
+        role: entry.role,
+        status: "skipped",
+        reason: takeReason(entry.cardId, "duplicate"),
         slot: null,
         served: false,
         inPicker,
       });
       return;
     }
-    seen.add(cardId);
-    const slot = slotOf.get(cardId);
+    seen.add(entry.cardId);
+    const slot = slotOf.get(entry.cardId);
     pins.push({
-      cardId,
+      cardId: entry.cardId,
       order,
-      status: slot == null ? "dropped" : "served",
-      reason: slot == null ? takeReason(cardId, "missing") : null,
+      role: entry.role,
+      status: slot == null ? "skipped" : entry.role,
+      reason: slot == null ? takeReason(entry.cardId, "missing") : null,
       slot: slot == null ? null : slot,
       served: slot != null,
       inPicker,

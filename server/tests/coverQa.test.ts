@@ -186,7 +186,7 @@ describe("cover QA routes", () => {
       maskVersion: string;
       pinnedCount: number;
       validCount: number;
-      pins: Array<{ cardId: string; status: string; reason: string | null; served: boolean }>;
+      pins: Array<{ cardId: string; role: string; status: string; reason: string | null; served: boolean }>;
       picker: Array<{ cardId: string; source: string; served: boolean }>;
       candidates: Array<{
         slot: number;
@@ -210,12 +210,13 @@ describe("cover QA routes", () => {
     expect(body.candidates).toHaveLength(8);
     expect(body.candidates.map((row) => row.cardId)).toEqual(spareIds.slice(0, 8));
     expect(body.candidates.map((row) => row.slot)).toEqual(spareIds.slice(0, 8).map((_, index) => index));
-    expect(body.candidates.every((row) => row.source === "pinned" && row.served)).toBe(true);
+    expect(body.candidates.every((row) => row.source === "pick" && row.served)).toBe(true);
     expect(body.picker.map((row) => row.cardId)).toEqual(spareIds);
     expect(body.picker.every((row) => row.source === "picker")).toBe(true);
     expect(body.picker[8]).toMatchObject({ cardId: spareIds[8], served: false });
     expect(body.pins).toHaveLength(9);
-    expect(body.pins[8]).toMatchObject({ cardId: spareIds[8], status: "dropped", reason: "over-cap", served: false });
+    expect(body.pins[0]).toMatchObject({ cardId: spareIds[0], role: "pick", status: "pick", reason: null, served: true });
+    expect(body.pins[8]).toMatchObject({ cardId: spareIds[8], role: "pick", status: "skipped", reason: "over-cap", served: false });
     expect(body.candidates.some((row) => row.cardId === blockedId)).toBe(false);
     expect(JSON.stringify(body)).not.toContain("Kevin Johnson");
     expect(body.candidates[0]).toMatchObject({

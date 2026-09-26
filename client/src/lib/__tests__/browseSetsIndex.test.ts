@@ -99,7 +99,8 @@ describe("browse sets index", () => {
         coverCardUrls: [],
       }),
     ]);
-    expect(html).toContain('data-testid="cover-slot-hidden"');
+    expect(html).not.toContain('data-testid="cover-slot-hidden"');
+    expect(html).not.toContain("height:168px");
     expect(html).toContain("1990 Hoops");
     expect(html).toContain(">1990<");
     expect(html).toContain("Play this set");
@@ -226,8 +227,8 @@ describe("browse sets index", () => {
     expect(html).toContain(">1987<");
     expect(html).toContain("Play this set");
     expect(html).toContain('data-testid="button-play-set-set-hidden-cover"');
-    expect(html).toContain('data-testid="cover-slot-hidden"');
-    expect(html).toContain("height:168px");
+    expect(html).not.toContain('data-testid="cover-slot-hidden"');
+    expect(html).not.toContain("height:168px");
     expect(html).not.toContain("168 cards");
     expect(html).not.toContain("132 cards");
     expect(html).not.toContain("cards");
@@ -241,10 +242,6 @@ describe("browse sets index", () => {
     expect(html).not.toContain("coming soon");
     expect(html).not.toContain("Cover");
     expect(html).not.toMatch(/[\u2013\u2014]/);
-
-    const slot = html.match(/<div[^>]*data-testid="cover-slot-hidden"[^>]*>/)?.[0] ?? "";
-    expect(slot).toMatch(/height:168px/);
-    expect(slot).not.toContain("background");
   });
 
   it("shows the empty shelf only when there are zero sets", () => {

@@ -33,6 +33,7 @@ import { compareExpectedLeaks, parseExpectedLeaks, reportMaskSweep } from "../ma
 import { readMaskFailureReason, setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { swapFailedCardsOnTodayChallenge } from "../services/daily5FailedCardSwap";
 import { eligibleCountsByActiveSet } from "../services/playableSetEligibility";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, setCoverEtag } from "../services/setCovers";
 import { storage } from "../storage";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
@@ -250,11 +251,13 @@ describe("visible surname outside the mask", () => {
     await writeFile(path.join(dir, warmOkMarkerFilename(thirdId)), "ok\n");
     await writeFile(path.join(dir, `${thirdId}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from("third-jpeg"));
     clearReadyCoverIndexForTests();
+    setPinnedCoversForTests(setId, [leakedId, nextId, thirdId]);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   afterAll(async () => {
+    setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
     await new Promise<void>((resolve, reject) => {

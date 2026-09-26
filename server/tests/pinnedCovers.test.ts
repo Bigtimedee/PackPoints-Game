@@ -148,9 +148,17 @@ describe("pinned set covers", () => {
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => null);
   });
 
-  it("starts every configured set with an empty pin list", () => {
-    for (const ids of Object.values(PINNED_SET_COVERS)) {
-      expect(ids).toEqual([]);
+  it("stores Design picks and alternates for each reviewed set", () => {
+    const football = PINNED_SET_COVERS["91cfdf3f-a620-4e73-adc8-22b8df221716"];
+    expect(football.set).toBe("1987 Topps Football");
+    expect(football.picks[0]).toBe("704c2dab-140a-4276-b57e-b9febfa1ff20");
+    expect(football.picks).toHaveLength(8);
+    expect(football.alternates).toHaveLength(4);
+    expect(PINNED_SET_COVERS["aea515e2-24bc-42bd-a602-1514b89e8cd1"].alternates).toEqual([]);
+    expect(PINNED_SET_COVERS["229f0379-aa56-40a8-abe3-1af217a397e8"].set).toBe("2024 Basketball");
+    for (const list of Object.values(PINNED_SET_COVERS)) {
+      expect(list.picks.length).toBeGreaterThan(0);
+      expect(list.picks.length).toBeLessThanOrEqual(8);
     }
   });
 
@@ -188,11 +196,11 @@ describe("pinned set covers", () => {
     expect(qa.validCount).toBe(2);
     expect(qa.pinnedCount).toBe(pins.length);
     expect(qa.candidates.map((row) => row.cardId)).toEqual([bravoId, alphaId]);
-    expect(qa.candidates.every((row) => row.source === "pinned" && row.served)).toBe(true);
+    expect(qa.candidates.every((row) => row.source === "pick" && row.served)).toBe(true);
     expect(qa.picker.some((row) => row.cardId === spareId && row.source === "picker")).toBe(true);
     expect(qa.picker.some((row) => row.cardId === spareId && row.served)).toBe(false);
     const blockedPin = qa.pins.find((pin) => pin.cardId === blockedId);
-    expect(blockedPin).toMatchObject({ status: "dropped", reason: "blocked", served: false, slot: null });
+    expect(blockedPin).toMatchObject({ role: "pick", status: "skipped", reason: "blocked", served: false, slot: null });
   });
 
   it("shows no covers when the pin list is empty", async () => {
@@ -247,21 +255,81 @@ describe("pinned set covers", () => {
     }
   });
 
-  it("marks ids past the cap and formats the boot line", async () => {
-    const fillerId = randomUUID();
-    setPinnedCoversForTests(setId, [...pins, fillerId, spareId]);
+  it("fills from alternates after a failed pick and stops at eight", async () => {
+    setPinnedCoversForTests(setId, {
+      picks: [blockedId, bravoId],
+      alternates: [spareId, alphaId],
+    });
     clearReadyCoverIndexForTests();
     try {
       const report = (await resolvePinnedCoverReports([setId])).get(setId)!;
-      expect(report.dropped.some((drop) => drop.cardId === spareId && drop.reason === "over-cap")).toBe(true);
-      expect(report.validIds).not.toContain(spareId);
+      expect(report.validIds).toEqual([bravoId, spareId, alphaId]);
+      expect(report.dropped).toEqual([{ cardId: blockedId, reason: "blocked" }]);
+      const qa = await listCoverCandidates(setId, 12);
+      expect(qa.pins.find((pin) => pin.cardId === bravoId)).toMatchObject({ status: "pick", role: "pick" });
+      expect(qa.pins.find((pin) => pin.cardId === spareId)).toMatchObject({ status: "alternate", role: "alternate" });
+      expect(qa.pins.find((pin) => pin.cardId === blockedId)).toMatchObject({ status: "skipped", reason: "blocked" });
+    } finally {
+      setPinnedCoversForTests(setId, pins);
+    }
+  });
+
+  it("formats the boot line with pick and alternate counts", async () => {
+    const shown = [bravoId, alphaId, spareId];
+    setPinnedCoversForTests(setId, { picks: shown, alternates: [blockedId] });
+    clearReadyCoverIndexForTests();
+    try {
+      const report = (await resolvePinnedCoverReports([setId])).get(setId)!;
+      expect(report.validIds).toEqual(shown);
+      expect(report.dropped).toEqual([{ cardId: blockedId, reason: "blocked" }]);
       const line = formatPinnedCoverBootLine(report);
-      expect(line.startsWith(`[PinnedCovers] set=${setId} pinned=9 valid=2 dropped=`)).toBe(true);
-      expect(line).toContain(`${blockedId}:blocked`);
-      expect(line).toContain(`${spareId}:over-cap`);
+      expect(line).toBe(
+        `[PinnedCovers] set=${setId} picks=3 alternates=1 valid=3 skipped=${blockedId}:blocked`,
+      );
       expect(line).not.toMatch(/[\u2013\u2014]/);
     } finally {
       setPinnedCoversForTests(setId, pins);
+    }
+  });
+
+  it("skips a ninth valid card and does not pull an unlisted one", async () => {
+    const extras = Array.from({ length: 6 }, () => randomUUID());
+    await db.insert(playableCards).values(extras.map((id, index) => ({
+      id,
+      gameSetId: setId,
+      cardhedgeCardId: `pinned:${id}`,
+      player: `India ${index}`,
+      set: `Pinned ${stamp}`,
+      description: `India ${index}`,
+      imageUrl: `https://packpts.com/cards/${id}.jpg`,
+      category: "basketball",
+      isPlayable: true,
+      contentVerified: true as boolean | null,
+      imageReviewStatus: "unreviewed",
+      quarantineStatus: "OK",
+      proposedUnplayable: false,
+      lastImageCheck: new Date(),
+      createdAt: new Date(Date.UTC(2021, 0, index + 1)),
+    })));
+    for (const id of extras) await bake(id);
+    clearReadyCoverIndexForTests();
+    const eight = [bravoId, alphaId, spareId, ...extras.slice(0, 5)];
+    const ninth = extras[5];
+    setPinnedCoversForTests(setId, { picks: eight, alternates: [ninth] });
+    try {
+      const report = (await resolvePinnedCoverReports([setId])).get(setId)!;
+      expect(report.validIds).toEqual(eight);
+      expect(report.validIds).not.toContain(ninth);
+      expect(report.validIds).not.toContain(blockedId);
+      expect(report.dropped).toEqual([{ cardId: ninth, reason: "over-cap" }]);
+      const line = formatPinnedCoverBootLine(report);
+      expect(line).toBe(
+        `[PinnedCovers] set=${setId} picks=8 alternates=1 valid=8 skipped=${ninth}:over-cap`,
+      );
+    } finally {
+      setPinnedCoversForTests(setId, pins);
+      clearReadyCoverIndexForTests();
+      await db.delete(playableCards).where(inArray(playableCards.id, extras)).catch(() => null);
     }
   });
 });

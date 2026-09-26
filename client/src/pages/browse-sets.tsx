@@ -5,7 +5,6 @@ import { Loader2 } from "lucide-react";
 import { SetCover } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
-  SET_INDEX_COVER_HEIGHT,
   SETS_POLISH,
   displaySetYearLabel,
   formatIndexSetTitle,
@@ -79,16 +78,7 @@ function SetRow({ set, coversDisabled }: { set: BrowseSet; coversDisabled: boole
       data-testid={`card-set-${set.id}`}
     >
       <Link href={`/sets/${set.id}`} className="block space-y-3">
-        {showCovers ? (
-          <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} />
-        ) : (
-          <div
-            className="w-full"
-            style={{ height: SET_INDEX_COVER_HEIGHT }}
-            data-testid="cover-slot-hidden"
-            aria-hidden
-          />
-        )}
+        {showCovers ? <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} /> : null}
         <div className="space-y-1">
           <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }} data-testid="text-set-title">
             {title}

@@ -49,6 +49,8 @@ describe("set detail hidden state", () => {
     expect(html).toContain("1987 Topps Football");
     expect(html).toContain(">1987<");
     expect(html).toContain(">Play<");
+    expect(html).not.toContain("cover-slot-hidden");
+    expect(html).not.toContain("height:168px");
     expect(html).not.toContain("cover-masked-stack");
     expect(html).not.toContain("text-card-count");
     expect(html).not.toContain("THE STACK");
