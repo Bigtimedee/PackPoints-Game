@@ -375,7 +375,7 @@ class MatchService {
         if (!card.imageUrl) return false;
         if (!card.player) return false;
         if (isNonPlayerCard(card.player, card.description)) return false;
-        if (isBlockedCard(card.gameSetId, card.player)) return false;
+        if (isBlockedCard(card.gameSetId, card.player, card)) return false;
         if (isMaskBandExcluded(card.id)) return false;
         if (!cardHasRealImage({
           cardId: card.id.toString(),
@@ -550,7 +550,7 @@ class MatchService {
         .from(playableCards)
         .where(eq(playableCards.id, spare.cardId))
         .limit(1);
-      if (row && (isBlockedCard(row.gameSetId, row.player) || isMaskBandExcluded(row.id))) {
+      if (row && (isBlockedCard(row.gameSetId, row.player, row) || isMaskBandExcluded(row.id))) {
         await db.update(matchCardQueue).set({ markedBad: true }).where(eq(matchCardQueue.id, spare.id));
         continue;
       }
@@ -997,7 +997,7 @@ class MatchService {
       if (usedCardIds.has(cardIdStr)) return false;
       if (!card.imageUrl || !card.player) return false;
       if (isNonPlayerCard(card.player, card.description)) return false;
-      if (isBlockedCard(card.gameSetId, card.player)) return false;
+      if (isBlockedCard(card.gameSetId, card.player, card)) return false;
       if (isMaskBandExcluded(card.id)) return false;
       if (!cardHasRealImage({
         cardId: cardIdStr,

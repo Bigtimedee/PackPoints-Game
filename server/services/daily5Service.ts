@@ -213,7 +213,7 @@ export class Daily5Service {
       .where(eq(gameSets.id, setId))
       .limit(1);
 
-    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandExcluded(c.id));
+    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description) && !isBlockedCard(c.gameSetId, c.player, c) && !isMaskBandExcluded(c.id));
     if (filtered.length < 5) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
       return;

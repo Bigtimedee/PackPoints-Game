@@ -1072,17 +1072,22 @@ export class DatabaseStorage implements IStorage {
       filters.push(sql`LOWER(${playableCards.category}) = ${expectedSport}`);
     }
     const candidates = await db
-      .select()
+      .select({
+        number: playableCards.number,
+        variant: playableCards.variant,
+        description: playableCards.description,
+        card: playableCards,
+      })
       .from(playableCards)
       .where(and(...filters))
       .orderBy(sql`RANDOM()`)
       .limit(80);
-    return omitNonPlayerCards(candidates.filter((card) =>
+    return omitNonPlayerCards(candidates.filter(({ card }) =>
       !usedCardIds.has(card.id)
       && !isKnownSilhouetteUrl(card.imageUrl)
-      && !isBlockedCard(card.gameSetId, card.player)
+      && !isBlockedCard(card.gameSetId, card.player, card)
       && !isMaskBandExcluded(card.id)
-    ));
+    ).map(({ card }) => card));
   }
 
   /** Baked cards first. A cold bake that 422s is skipped, a few times, before 404. */
