@@ -3,7 +3,7 @@ import { existsSync, unlinkSync } from "fs";
 import path from "path";
 import { db } from "../db";
 import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@shared/schema";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { applyServedRotation, orientationOcrBudgetMs, uprightCardImage } from "./cardOrientation";
 import { getMaskProfile, logDealtDefaultMaskProfiles } from "./maskProfiles";
@@ -20,7 +20,7 @@ import {
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
-import { invalidateMaskReadySidecar } from "./maskReadySidecar";
+import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -38,7 +38,7 @@ function filenameRotation(filename: string): QuarterTurn {
 }
 
 /**
- * Disk hit for the current bake. Upright v4.4 files stay `{cardId}_v4.4.jpg`.
+ * Disk hit for the current bake. Upright files stay `{cardId}_${CURRENT_MASK_VERSION}.jpg`.
  * A card that was rotated upright uses a suffix so those warm files are not rebaked.
  */
 export function peekWarmMaskedFilename(cardId: string): string | null {
@@ -497,6 +497,23 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
 
       await fs.writeFile(filePath, result.maskedBuffer);
       await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
+      if (readMaskFailureReason(cardId)) {
+        clearMaskFailureSidecar(cardId);
+        await db
+          .update(playableCards)
+          .set({
+            isPlayable: true,
+            blockedReason: null,
+            quarantineStatus: "OK",
+            imageReviewStatus: "unreviewed",
+            lastValidationReason: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(playableCards.id, cardId),
+            eq(playableCards.blockedReason, "mask_name_uncovered"),
+          ));
+      }
       for (const deg of [0, 90, 180, 270] as const) {
         if (deg === rotation) continue;
         try {
@@ -686,6 +703,11 @@ export function clearServedOrientation(cardId: string): void {
 
 export async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
   invalidateMaskReadySidecar(cardId);
+  try {
+    writeMaskFailureSidecar(cardId, reason);
+  } catch (error) {
+    console.error(`[MaskingService] Failed to record mask failure sidecar for ${cardId}:`, error);
+  }
   try {
     await db
       .update(playableCards)

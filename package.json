@@ -10,6 +10,7 @@
     "check": "tsc",
     "assert:share-fonts": "tsx scripts/assert-share-fonts.ts",
     "db:push": "drizzle-kit push",
+    "mask:sweep": "tsx scripts/sweep-mask-plates.ts",
     "agent:social": "tsx server/services/socialMedia/index.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"

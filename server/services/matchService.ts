@@ -10,6 +10,7 @@ import { logCardDelivery } from "./telemetry/cardDelivery";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
+import { maskNameStillCovered } from "./playableSetEligibility";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -353,6 +354,7 @@ class MatchService {
       const conditions = [
         eq(playableCards.isPlayable, true),
         inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
+        maskNameStillCovered("playable_cards"),
       ];
       
       if (gameSetId) {
@@ -951,7 +953,8 @@ class MatchService {
       .where(
         and(
           eq(playableCards.isPlayable, true),
-          inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"])
+          inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
+          maskNameStillCovered("playable_cards"),
         )
       );
 

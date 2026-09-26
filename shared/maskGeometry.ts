@@ -3,12 +3,100 @@ import { DEFAULT_MASK_REGIONS, type MaskRegion } from "./schema";
 /**
  * Bump whenever baked JPEG geometry, OCR rules, or fill change.
  * Cache keys and `?v=` URLs follow this.
- * Stay on v4.4 while painted pixels match v4.4. The plaque plan is a sidecar
- * and nullable columns written on the next natural bake. A version bump would
- * rebake warm JPEGs through the coverage gate. Cards rotated upright before
- * the mask use a filename suffix (`_r90`, `_r180`, `_r270`) instead of a new version.
+ * v4.5 extends the name band from the detected plate on this scan. A fixed
+ * fraction tuned on a ~750x1030 file ends through the glyphs on a tight crop.
+ * v4.4 JPEGs and `{cardId}_v4.4.ok` sidecars are stale and are not served.
+ * Cards rotated upright before the mask use a filename suffix
+ * (`_r90`, `_r180`, `_r270`) in addition to the version.
  */
-export const CURRENT_MASK_VERSION = "v4.4";
+export const CURRENT_MASK_VERSION = "v4.5";
+
+/**
+ * Profile fractions (Fleer top 18%, and the other named bands) were tuned on
+ * this scan. It still includes the outer margin. A tighter crop drops that
+ * margin and keeps the plate, so the same fraction of the shorter file ends
+ * inside the letters.
+ */
+export const PROFILE_REFERENCE_WIDTH = 750;
+export const PROFILE_REFERENCE_HEIGHT = 1030;
+
+export interface NamePlateBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Narrower than the reference scan. The plate is a larger share of the frame. */
+export function tightCropBoost(imageWidth: number, imageHeight: number): number {
+  const width = Math.max(1, imageWidth);
+  const height = Math.max(1, imageHeight);
+  const aspect = width / height;
+  const reference = PROFILE_REFERENCE_WIDTH / PROFILE_REFERENCE_HEIGHT;
+  if (aspect >= reference - 0.001) return 1;
+  return reference / aspect;
+}
+
+/**
+ * Full-width name band for this file.
+ * The bottom (or top) edge is the detected plate, plus padding, and at least
+ * the profile fraction grown for a tight crop. It never stops above the plate.
+ */
+export function fitNamePlateBand(input: {
+  anchor: "top" | "bottom";
+  imageWidth: number;
+  imageHeight: number;
+  /** Profile band as a fraction of the reference scan (0.18 = top 18%). */
+  profileFraction: number;
+  plate: NamePlateBox;
+}): MaskRegion {
+  const width = Math.max(1, input.imageWidth);
+  const height = Math.max(1, input.imageHeight);
+  const fraction = Math.min(0.72, Math.max(0, input.profileFraction));
+  const boost = tightCropBoost(width, height);
+  const floorPx = fraction * height * boost;
+  const pad = Math.max(8, input.plate.h * 0.45, height * 0.025);
+  if (input.anchor === "bottom") {
+    const topPx = Math.max(0, Math.min(input.plate.y - pad, height - floorPx));
+    return clampRegion({
+      xPct: 0,
+      yPct: (topPx / height) * 100,
+      wPct: 100,
+      hPct: ((height - topPx) / height) * 100,
+      type: "blur",
+      radiusPct: 0,
+    });
+  }
+  const plateBottom = input.plate.y + input.plate.h;
+  const bottomPx = Math.min(height, Math.max(plateBottom + pad, floorPx));
+  return clampRegion({
+    xPct: 0,
+    yPct: 0,
+    wPct: 100,
+    hPct: (bottomPx / height) * 100,
+    type: "blur",
+    radiusPct: 0,
+  });
+}
+
+/** True when the band's rectangle contains the plate, in source pixels. */
+export function regionCoversPlate(
+  region: MaskRegion,
+  plate: NamePlateBox,
+  imageWidth: number,
+  imageHeight: number,
+): boolean {
+  const width = Math.max(1, imageWidth);
+  const height = Math.max(1, imageHeight);
+  const left = (region.xPct / 100) * width;
+  const right = ((region.xPct + region.wPct) / 100) * width;
+  const top = (region.yPct / 100) * height;
+  const bottom = ((region.yPct + region.hPct) / 100) * height;
+  return left <= plate.x + 0.5
+    && right >= plate.x + plate.w - 0.5
+    && top <= plate.y + 0.5
+    && bottom >= plate.y + plate.h - 0.5;
+}
 
 export function maskedCardImageUrl(cardId: string): string {
   return `/api/cards/${encodeURIComponent(cardId)}/masked-image?v=${CURRENT_MASK_VERSION}`;

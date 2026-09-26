@@ -291,11 +291,11 @@ describe("upright mask bake", () => {
     expect(isGreen(maskedPhoto.r, maskedPhoto.g, maskedPhoto.b)).toBe(true);
   });
 
-  it("keeps v4.4 for upright files and suffixes only a rotated bake", async () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.4");
-    expect(warmMaskedFilename("card-plain")).toBe("card-plain_v4.4.jpg");
-    expect(warmMaskedFilename("card-turn", 90)).toBe("card-turn_v4.4_r90.jpg");
-    expect(warmMaskedFilename("card-turn", 270)).toBe("card-turn_v4.4_r270.jpg");
+  it("keeps v4.5 for upright files and suffixes only a rotated bake", async () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+    expect(warmMaskedFilename("card-plain")).toBe(`card-plain_${CURRENT_MASK_VERSION}.jpg`);
+    expect(warmMaskedFilename("card-turn", 90)).toBe(`card-turn_${CURRENT_MASK_VERSION}_r90.jpg`);
+    expect(warmMaskedFilename("card-turn", 270)).toBe(`card-turn_${CURRENT_MASK_VERSION}_r270.jpg`);
 
     const upright = await uprightTopps();
     const sideways = await sharp(upright).rotate(90).png().toBuffer();
@@ -588,7 +588,7 @@ describe("ocr deadline fallback", () => {
     const started = Date.now();
     const filename = await bakeMaskedCardFromUrl(source(cardId));
     expect(Date.now() - started).toBeLessThan(2_000);
-    expect(filename).toBe(`${cardId}_v4.4.jpg`);
+    expect(filename).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
     expect(calls).toBe(1);
     expect(open).toBe(0);
     expect(dbUpdate).not.toHaveBeenCalled();
@@ -602,7 +602,7 @@ describe("ocr deadline fallback", () => {
     expect(isGreen(photo.r, photo.g, photo.b)).toBe(true);
     const note = readOrientNote(cardId);
     expect(note?.rotation).toBe(0);
-    const plan = JSON.parse(readFileSync(path.join(MASKED_CARDS_DIR, `${cardId}_v4.4.json`), "utf8")) as {
+    const plan = JSON.parse(readFileSync(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`), "utf8")) as {
       regions: Array<{ yPct: number; hPct: number }>;
     };
     expect(plan.regions[0]?.yPct).toBe(54);
@@ -612,15 +612,15 @@ describe("ocr deadline fallback", () => {
     expect(logLine).toMatch(/^\[MaskBake\] ocr-timeout fallback=profile card=card-ocr-hang ms=\d+$/);
 
     const again = await bakeMaskedCardFromUrl(source(cardId));
-    expect(again).toBe(`${cardId}_v4.4.jpg`);
+    expect(again).toBe(`${cardId}_${CURRENT_MASK_VERSION}.jpg`);
     expect(calls).toBe(1);
     expect(ocrSkipped(cardId)).toBe(true);
     expect(ocrSkipped(cardId, Date.now() + 2 * 60 * 60 * 1000)).toBe(false);
     expect(dbUpdate).not.toHaveBeenCalled();
 
-    await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_v4.4.jpg`)).catch(() => {});
-    await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_v4.4.orient.json`)).catch(() => {});
-    await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_v4.4.json`)).catch(() => {});
+    await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.jpg`)).catch(() => {});
+    await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.orient.json`)).catch(() => {});
+    await unlink(path.join(MASKED_CARDS_DIR, `${cardId}_${CURRENT_MASK_VERSION}.json`)).catch(() => {});
   });
 
   it("kills an ocr child process and a worker thread", async () => {

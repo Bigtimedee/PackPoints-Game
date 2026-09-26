@@ -35,7 +35,7 @@ describe("masked-image warm path", () => {
     expect(maskedSendSrc).toContain("Server-Timing");
     expect(maskedSendSrc).toContain("max-age=86400");
     expect(maskedSendSrc).toContain('res.removeHeader("X-Card-Id")');
-    expect(CURRENT_MASK_VERSION).toBe("v4.4");
+    expect(CURRENT_MASK_VERSION).toBe("v4.5");
   });
 
   it("kicks preMask on solo, Daily 5, and 1v1 deal start without awaiting", () => {

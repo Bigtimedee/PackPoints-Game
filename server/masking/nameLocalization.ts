@@ -1,9 +1,11 @@
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import {
+  fitNamePlateBand,
   pixelBoxToRegion,
   unionMaskRegions,
+  type NamePlateBox,
 } from "@shared/maskGeometry";
-import { getMaskProfile, type LayoutClass } from "./maskProfiles";
+import { getMaskProfile, type LayoutClass, type MaskProfile } from "./maskProfiles";
 import { ocrLooksLikeSlab, slabMaskRegions } from "./slabLayout";
 
 export interface OcrWordBox {
@@ -23,6 +25,8 @@ export interface LocalizedNamePlan {
   profileId: string;
   layoutClass: LayoutClass;
   nameBoxes: OcrWordBox[];
+  /** Plate the band was fitted to. Null when the fixed profile band was kept. */
+  plate: NamePlateBox | null;
 }
 
 const OCR_PAD_PCT = 1.6;
@@ -123,6 +127,47 @@ export function boxesToPaddedRegions(
   return unionMaskRegions(regions);
 }
 
+export function plateBoxFromWords(words: OcrWordBox[]): NamePlateBox | null {
+  if (words.length === 0) return null;
+  const x = Math.min(...words.map((word) => word.x));
+  const y = Math.min(...words.map((word) => word.y));
+  const right = Math.max(...words.map((word) => word.x + word.w));
+  const bottom = Math.max(...words.map((word) => word.y + word.h));
+  return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+export function mergePlateBoxes(anchor: "top" | "bottom", boxes: Array<NamePlateBox | null>): NamePlateBox | null {
+  const present = boxes.filter((box): box is NamePlateBox => box != null && box.w > 0 && box.h > 0);
+  if (present.length === 0) return null;
+  const x = Math.min(...present.map((box) => box.x));
+  const y = Math.min(...present.map((box) => box.y));
+  const right = Math.max(...present.map((box) => box.x + box.w));
+  const bottom = Math.max(...present.map((box) => box.y + box.h));
+  if (anchor === "top") {
+    return { x: 0, y: 0, w: right, h: bottom };
+  }
+  return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+/**
+ * The fixed profile band already hides this plate. A couple percent of slack
+ * absorbs detector jitter on a normal ~750x1030 scan. A tight crop whose plate
+ * sticks out past that slack is not covered.
+ */
+export function profileCoversPlate(profile: MaskProfile, plate: NamePlateBox, imageHeight: number): boolean {
+  const height = Math.max(1, imageHeight);
+  const slack = height * 0.02;
+  const bottom = plate.y + plate.h;
+  if (profile.nameAnchor === "top") {
+    return plate.y >= -2 && bottom <= profile.topBandPct * height + slack;
+  }
+  if (profile.nameAnchor === "bottom") {
+    const bandTop = (1 - profile.bottomBandPct) * height;
+    return plate.y >= bandTop - slack && bottom <= height + 2;
+  }
+  return false;
+}
+
 export function resolveNameMaskPlan(input: {
   playerName: string;
   setHint: string | null | undefined;
@@ -131,6 +176,8 @@ export function resolveNameMaskPlan(input: {
   imageWidth: number;
   imageHeight: number;
   slabLayout?: boolean;
+  /** Detected name plate in this image's pixels. OCR boxes are merged in. */
+  plateBox?: NamePlateBox | null;
 }): LocalizedNamePlan {
   const profile = getMaskProfile(input.setHint, input.gameSetId);
   const ocr = matchPlayerNameBoxes(input.playerName, input.words || []);
@@ -151,6 +198,36 @@ export function resolveNameMaskPlan(input: {
       profileId: "psa-slab",
       layoutClass: "PSA_SLAB",
       nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate: null,
+    };
+  }
+
+  const anchor = profile.nameAnchor === "top" ? "top" : "bottom";
+  const plate = mergePlateBoxes(anchor, [
+    input.plateBox ?? null,
+    lastNameMatched ? plateBoxFromWords(ocr.boxes) : null,
+  ]);
+  if (
+    profile.matched
+    && (profile.nameAnchor === "top" || profile.nameAnchor === "bottom")
+    && plate
+    && !profileCoversPlate(profile, plate, input.imageHeight)
+  ) {
+    const band = fitNamePlateBand({
+      anchor,
+      imageWidth: input.imageWidth,
+      imageHeight: input.imageHeight,
+      profileFraction: anchor === "top" ? profile.topBandPct : profile.bottomBandPct,
+      plate,
+    });
+    return {
+      regions: unionMaskRegions([band, ...profile.regions]),
+      source: lastNameMatched && ocrRegions.length > 0 ? "ocr+profile" : "profile",
+      matchedTokens: ocr.tokens,
+      profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate,
     };
   }
 
@@ -162,6 +239,7 @@ export function resolveNameMaskPlan(input: {
       profileId: profile.id,
       layoutClass: profile.layoutClass,
       nameBoxes: ocr.boxes,
+      plate: null,
     };
   }
 
@@ -173,6 +251,7 @@ export function resolveNameMaskPlan(input: {
       profileId: profile.id,
       layoutClass: profile.layoutClass,
       nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate: null,
     };
   }
 
@@ -185,6 +264,7 @@ export function resolveNameMaskPlan(input: {
       profileId: profile.id,
       layoutClass: topName ? "TOP_PLATE" : "BOTTOM_PLAQUE",
       nameBoxes: ocr.boxes,
+      plate: plateBoxFromWords(ocr.boxes),
     };
   }
 
@@ -195,5 +275,6 @@ export function resolveNameMaskPlan(input: {
     profileId: profile.id,
     layoutClass: profile.layoutClass,
     nameBoxes: lastNameMatched ? ocr.boxes : [],
+    plate: null,
   };
 }
