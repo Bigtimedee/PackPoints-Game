@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { logger } from "@/lib/logger";
+import { shouldReconnectWebSocket, websocketCloseErrorToast } from "@/lib/wsClose";
 
 type MessageHandler = (message: any) => void;
 
@@ -55,11 +56,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       logger.debug("[WS] Connected");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      const code = event.code;
       setIsConnected(false);
       optionsRef.current.onClose?.();
 
-      if (shouldReconnectRef.current && (optionsRef.current.autoReconnect !== false)) {
+      // 1001 Going Away is a deploy. Reconnect quietly; an error toast would cover the card.
+      const closeToast = websocketCloseErrorToast(code);
+      if (closeToast) {
+        logger.debug("[WS] Close", closeToast.title);
+      }
+
+      const allowReconnect = shouldReconnectRef.current && (optionsRef.current.autoReconnect !== false);
+      if (shouldReconnectWebSocket(code, allowReconnect)) {
         setReconnectAttempts(prev => {
           const attempts = prev + 1;
           if (attempts >= MAX_RECONNECT_ATTEMPTS) {
