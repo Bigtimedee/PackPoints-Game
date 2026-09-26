@@ -69,7 +69,7 @@ import { identityService } from "./services/identityService";
 import * as accessService from "./services/accessService";
 import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
-import { daily5Service } from "./services/daily5Service";
+import { daily5Service, toPublicDaily5Status } from "./services/daily5Service";
 import { createBeatMeFromSession } from "./services/daily5BeatMe";
 import { AnonGateError, beginAnonGame, claimAnonForUser, creditAnonGame, dismissAnonSoft, readAnonGate } from "./services/anonIdentity";
 import { answerAnonDaily5, attachAnonDailyStatus, finishAnonDaily5, isAnonGateError, startAnonDaily5 } from "./services/anonDaily5";
@@ -1397,10 +1397,7 @@ export async function registerRoutes(
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       const status = await daily5Service.getStatus(userId || undefined);
       const anonGate = await attachAnonDailyStatus(req, res, status, userId || undefined);
-      const challenge = status.challenge
-        ? (({ seed: _dealSeed, ...publicChallenge }) => publicChallenge)(status.challenge)
-        : null;
-      res.json({ ...status, challenge, anonGate });
+      res.json({ ...toPublicDaily5Status(status), anonGate });
     } catch (error) {
       console.error("[Daily5] Error getting status:", error);
       res.status(500).json({ error: "Failed to get Daily 5 status" });

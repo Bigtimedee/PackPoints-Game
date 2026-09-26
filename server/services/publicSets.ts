@@ -3,19 +3,19 @@
  * UGC (is_user_created) is never listed. Publishing is closed.
  */
 import type { Request, Response } from "express";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { publicSetShareUrl } from "@shared/setCoverUrl";
-import { contentAssets, gameSets, users } from "@shared/schema";
+import { contentAssets, gameSets } from "@shared/schema";
 import { db } from "../db";
 import { setIdPrefixFromShareSlug } from "../contentFactory/makerShareSlug";
 import { userSetPlayCountSql } from "../routes/userSetCounts";
 import { createdAtToIso, sanitizeCoverCardUrls } from "../routes/userSetPreview";
+import { loadActiveIntegratedSets } from "./integratedDealSets";
 import { MAKING_LAYER_EVENTS, logMakingLayerEvent, requestUserId } from "./makingLayerEvents";
 import {
   PUBLIC_SET_MIN_ELIGIBLE_CARDS,
-  dedupeSetsByNameYearSport,
   eligiblePlayableCardCountSql,
 } from "./playableSetEligibility";
 import { readyMaskedCoverUrls } from "./setCovers";
@@ -46,32 +46,7 @@ export function parseSetsListQuery(query: { limit?: unknown; offset?: unknown })
 }
 
 export async function listIntegratedPublicSets(opts: { limit: number; offset: number }): Promise<PublicSetListRow[]> {
-  const rows = await db
-    .select({
-      id: gameSets.id,
-      setName: gameSets.setName,
-      sport: gameSets.sport,
-      brand: gameSets.brand,
-      year: gameSets.year,
-      makerNote: gameSets.makerNote,
-      createdAt: gameSets.createdAt,
-      makerUsername: users.username,
-      isUserCreated: gameSets.isUserCreated,
-      cardCount: eligiblePlayableCardCountSql,
-      playCount: userSetPlayCountSql,
-    })
-    .from(gameSets)
-    .leftJoin(users, eq(users.id, gameSets.createdByUserId))
-    .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)))
-    .orderBy(asc(gameSets.year), asc(gameSets.setName));
-
-  const { kept } = dedupeSetsByNameYearSport(
-    rows.map((row) => ({
-      ...row,
-      cardCount: Number(row.cardCount) || 0,
-      playCount: Number(row.playCount) || 0,
-    })),
-  );
+  const kept = await loadActiveIntegratedSets();
 
   const eligible = kept
     .filter((row) => row.cardCount >= PUBLIC_SET_MIN_ELIGIBLE_CARDS)

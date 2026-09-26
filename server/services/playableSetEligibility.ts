@@ -1,7 +1,7 @@
 /**
  * Cards a solo deal will actually serve.
  * Shared by GET /api/playable-sets, GET /api/sets, GET /api/sets/:id cardCount,
- * and getRandomCardsFromSet so the shelf count and the dealt stack stay the same.
+ * getRandomCardsFromSet, and Daily 5 so the shelf count and the dealt stack stay the same.
  *
  * Correlated counts must name `game_sets.id` as an identifier. Interpolating
  * the drizzle column rebinds it as a parameter and counts 0.

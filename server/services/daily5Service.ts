@@ -6,7 +6,7 @@ import {
   type DailyChallenge, type DailyChallengeCard, type DailyChallengeEntry,
   type DailyChallengeStatus, type PlayableCard
 } from "@shared/schema";
-import { eq, and, desc, isNotNull, ne, isNull, or, not, like, sql, asc, gte } from "drizzle-orm";
+import { eq, and, isNotNull, or, sql, asc } from "drizzle-orm";
 import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
@@ -15,6 +15,9 @@ import { buildSetMaskHint } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
+import { loadActiveIntegratedSets, type ActiveIntegratedSet } from "./integratedDealSets";
+import { eligibleDealFilter, PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "./playableSetEligibility";
+import { daily5RotationCandidates } from "./daily5Rotation";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -25,8 +28,46 @@ const DAILY5_NEW_ACCOUNT_DAYS = parseInt(process.env.DAILY5_NEW_ACCOUNT_DAYS || 
 
 const WINDOW_SKEW_MS = 1000;
 
-function getTodayDateString(): string {
-  return getPackptsDayKey();
+/** Same America/Chicago day key as Beat-me, streak, and share. */
+function daily5DayKey(at: Date = new Date()): string {
+  return getPackptsDayKey(at);
+}
+
+export async function loadDaily5DealCards(
+  setId: string,
+  sport: string | null | undefined,
+): Promise<PlayableCard[]> {
+  const filters = [
+    eq(playableCards.gameSetId, setId),
+    eligibleDealFilter("playable_cards"),
+  ];
+  if (sport) {
+    filters.push(sql`LOWER(playable_cards.category) = LOWER(${sport})`);
+  }
+  const candidates = await db
+    .select()
+    .from(playableCards)
+    .where(and(...filters));
+  return candidates.filter(
+    (card) => !isKnownSilhouetteUrl(card.imageUrl) && !isNonPlayerCard(card.player, card.description),
+  );
+}
+
+/** Status JSON for Design. Strips the deal seed. Adds the set name. No card ids. */
+export function toPublicDaily5Status<T extends { seed?: string }>(status: {
+  challenge: T | null;
+  setName: string | null;
+}) {
+  const setName = status.setName ?? null;
+  if (!status.challenge) {
+    return { ...status, setName, challenge: null };
+  }
+  const { seed: _dealSeed, ...publicChallenge } = status.challenge;
+  return {
+    ...status,
+    setName,
+    challenge: { ...publicChallenge, setName },
+  };
 }
 
 export function daily5StatusForNow(
@@ -120,141 +161,109 @@ export class Daily5Service {
     return this.persistReconciledChallenge(existing, now);
   }
 
-  async getOrCreateTodayChallenge(): Promise<DailyChallenge | null> {
-    const today = getTodayDateString();
-    const existing = await this.getChallengeByDate(today);
+  async getOrCreateTodayChallenge(now: Date = new Date()): Promise<DailyChallenge | null> {
+    const today = daily5DayKey(now);
+    const existing = await this.getChallengeByDate(today, now);
     if (existing) return existing;
 
-    return this.createChallengeForDate(today);
+    return this.createChallengeForDate(today, now);
   }
 
-  async createChallengeForDate(dateStr: string): Promise<DailyChallenge | null> {
-    const existingCheck = await this.getChallengeByDate(dateStr);
+  async createChallengeForDate(dateStr: string, now: Date = new Date()): Promise<DailyChallenge | null> {
+    const existingCheck = await this.getChallengeByDate(dateStr, now);
     if (existingCheck) return existingCheck;
 
-    const [activeSet] = await db
-      .select()
-      .from(gameSets)
-      .where(eq(gameSets.isActive, true))
-      .orderBy(desc(gameSets.cardsImportedCount))
-      .limit(1);
-
-    if (!activeSet) {
-      console.error("[Daily5] No active game set found");
+    const roster = await loadActiveIntegratedSets();
+    const candidates = daily5RotationCandidates(roster, dateStr);
+    if (candidates.length === 0) {
+      console.error("[Daily5] No active integrated set found");
       return null;
     }
 
-    const seed = deterministicSeed(dateStr, activeSet.id);
+    let chosen: ActiveIntegratedSet | null = null;
+    let dealCards: PlayableCard[] = [];
+    for (const set of candidates) {
+      if (set.cardCount < PUBLIC_SET_MIN_ELIGIBLE_CARDS) continue;
+      const cards = await loadDaily5DealCards(set.id, set.sport);
+      if (cards.length < PUBLIC_SET_MIN_ELIGIBLE_CARDS) continue;
+      chosen = set;
+      dealCards = cards;
+      break;
+    }
+
+    if (!chosen) {
+      console.error(`[Daily5] No integrated set has ${PUBLIC_SET_MIN_ELIGIBLE_CARDS} eligible cards for ${dateStr}`);
+      return null;
+    }
+
+    const picked = chosen;
+    const seed = deterministicSeed(dateStr, picked.id);
     const { startsAt, endsAt } = getDailyStartEnd(dateStr);
-    const status = daily5StatusForNow(startsAt, endsAt);
-
-    const [challenge] = await db
-      .insert(dailyChallenges)
-      .values({
-        date: dateStr,
-        mode: "DAILY5",
-        setId: activeSet.id,
-        seed,
-        startsAt,
-        endsAt,
-        status,
-      })
-      .onConflictDoNothing()
-      .returning();
-
-    if (!challenge) {
-      return this.getChallengeByDate(dateStr);
-    }
-
-    await this.selectCardsForChallenge(challenge, activeSet.id, seed);
-
-    console.log(`[Daily5] Created challenge for ${dateStr} with set ${activeSet.setName}, starts at ${startsAt.toISOString()}`);
-    return challenge;
-  }
-
-  private async selectCardsForChallenge(challenge: DailyChallenge, setId: string, seed: string): Promise<void> {
-    const candidates = await db
-      .select()
-      .from(playableCards)
-      .where(
-        and(
-          eq(playableCards.gameSetId, setId),
-          eq(playableCards.isPlayable, true),
-          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
-          isNotNull(playableCards.imageUrl),
-          ne(playableCards.imageUrl, ""),
-          not(like(playableCards.imageUrl, "%null%")),
-          like(playableCards.imageUrl, "https://%"),
-          not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Baseball%")),
-          not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Football%")),
-          not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Basketball%")),
-          isNotNull(playableCards.player),
-          ne(playableCards.player, ""),
-          or(
-            isNull(playableCards.imageReviewStatus),
-            ne(playableCards.imageReviewStatus, "rejected")
-          )
-        )
-      );
-
-    const [setRow] = await db
-      .select({
-        year: gameSets.year,
-        brand: gameSets.brand,
-        sport: gameSets.sport,
-        setName: gameSets.setName,
-      })
-      .from(gameSets)
-      .where(eq(gameSets.id, setId))
-      .limit(1);
-
-    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description));
-    if (filtered.length < 5) {
-      console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
-      return;
-    }
-
-    const shuffled = deterministicShuffle(filtered, seed);
+    const status = daily5StatusForNow(startsAt, endsAt, now);
+    const shuffled = deterministicShuffle(dealCards, seed);
     const selected = shuffled.slice(0, 5);
     logDealtDefaultMaskProfiles(selected.map((card) => ({
       setHint: buildSetMaskHint({
-        year: setRow?.year,
-        brand: setRow?.brand,
-        sport: setRow?.sport || card.category,
-        setName: card.set || setRow?.setName,
+        year: picked.year,
+        brand: picked.brand,
+        sport: picked.sport || card.category,
+        setName: card.set || picked.setName,
         category: card.category,
       }),
-      gameSetId: card.gameSetId || setId,
+      gameSetId: card.gameSetId || picked.id,
     })));
 
-    const uniqueNames = Array.from(new Set(omitNonPlayerNames(candidates.map(c => c.player))));
+    const created = await db.transaction(async (tx) => {
+      const [challenge] = await tx
+        .insert(dailyChallenges)
+        .values({
+          date: dateStr,
+          mode: "DAILY5",
+          setId: picked.id,
+          seed,
+          startsAt,
+          endsAt,
+          status,
+        })
+        .onConflictDoNothing()
+        .returning();
 
-    for (let i = 0; i < selected.length; i++) {
-      const card = selected[i];
-      const correctAnswer = card.player || "Unknown";
-      const wrongOptions = deterministicShuffle(
-        uniqueNames.filter(name => name !== correctAnswer),
-        createHash("sha256").update(`${seed}:wrong:${i}`).digest("hex")
-      ).slice(0, 3);
-      const choices = [correctAnswer, ...wrongOptions];
+      if (!challenge) return null;
 
-      await db.insert(dailyChallengeCards).values({
-        dailyChallengeId: challenge.id,
-        position: i + 1,
-        cardId: card.id,
-        correctAnswer,
-        choices,
-        pointValue: 100,
-      });
+      const uniqueNames = Array.from(new Set(omitNonPlayerNames(dealCards.map((card) => card.player))));
+      for (let i = 0; i < selected.length; i++) {
+        const card = selected[i];
+        const correctAnswer = card.player || "Unknown";
+        const wrongOptions = deterministicShuffle(
+          uniqueNames.filter((name) => name !== correctAnswer),
+          createHash("sha256").update(`${seed}:wrong:${i}`).digest("hex"),
+        ).slice(0, 3);
+        await tx.insert(dailyChallengeCards).values({
+          dailyChallengeId: challenge.id,
+          position: i + 1,
+          cardId: card.id,
+          correctAnswer,
+          choices: [correctAnswer, ...wrongOptions],
+          pointValue: 100,
+        });
+      }
+      return challenge;
+    });
+
+    if (!created) {
+      return this.getChallengeByDate(dateStr, now);
     }
 
     const { kickPreMask } = await import("../masking/preMaskDeal");
     kickPreMask(selected.map((card) => card.id), "daily5-create");
+
+    console.log(`[Daily5] Created challenge for ${dateStr} with set ${picked.setName}, starts at ${startsAt.toISOString()}`);
+    return created;
   }
 
   async updateChallengeStatuses(): Promise<void> {
     const now = new Date();
-    const today = getTodayDateString();
+    const today = daily5DayKey(now);
     const yesterday = addPackptsDays(today, -1);
 
     const openOrCurrent = await db
@@ -294,17 +303,18 @@ export class Daily5Service {
       );
   }
 
-  async getStatus(userId?: string): Promise<{
+  async getStatus(userId?: string, now: Date = new Date()): Promise<{
     challenge: DailyChallenge | null;
+    setName: string | null;
     hasPlayed: boolean;
     entry: DailyChallengeEntry | null;
     timeUntilStart?: number;
     timeUntilEnd?: number;
   }> {
     await this.updateChallengeStatuses();
-    const challenge = await this.getOrCreateTodayChallenge();
+    const challenge = await this.getOrCreateTodayChallenge(now);
     if (!challenge) {
-      return { challenge: null, hasPlayed: false, entry: null };
+      return { challenge: null, setName: null, hasPlayed: false, entry: null };
     }
 
     await this.updateChallengeStatuses();
@@ -316,8 +326,12 @@ export class Daily5Service {
       .limit(1);
 
     const freshChallenge = freshRow
-      ? await this.persistReconciledChallenge(freshRow)
+      ? await this.persistReconciledChallenge(freshRow, now)
       : challenge;
+
+    const setName = freshChallenge.setId
+      ? await this.lookupSetName(freshChallenge.setId)
+      : null;
 
     let hasPlayed = false;
     let entry: DailyChallengeEntry | null = null;
@@ -338,17 +352,27 @@ export class Daily5Service {
       }
     }
 
-    const now = Date.now();
+    const clock = now.getTime();
     const startsAt = new Date(freshChallenge.startsAt).getTime();
     const endsAt = new Date(freshChallenge.endsAt).getTime();
 
     return {
       challenge: freshChallenge,
+      setName,
       hasPlayed,
       entry,
-      timeUntilStart: startsAt > now ? startsAt - now : 0,
-      timeUntilEnd: endsAt > now ? endsAt - now : 0,
+      timeUntilStart: startsAt > clock ? startsAt - clock : 0,
+      timeUntilEnd: endsAt > clock ? endsAt - clock : 0,
     };
+  }
+
+  private async lookupSetName(setId: string): Promise<string | null> {
+    const [row] = await db
+      .select({ setName: gameSets.setName })
+      .from(gameSets)
+      .where(eq(gameSets.id, setId))
+      .limit(1);
+    return row?.setName ?? null;
   }
 
   async startChallenge(userId: string): Promise<{
@@ -678,7 +702,7 @@ export class Daily5Service {
     date: string;
     totalEntries: number;
   }> {
-    const date = dateStr || getTodayDateString();
+    const date = dateStr || daily5DayKey();
     const challenge = await this.getChallengeByDate(date);
 
     if (!challenge) {
@@ -775,7 +799,7 @@ export class Daily5Service {
       correctCount: number;
     }[];
   }> {
-    const today = getTodayDateString();
+    const today = daily5DayKey();
     const todayChallenge = await this.getChallengeByDate(today);
 
     let todayParticipants = 0;
