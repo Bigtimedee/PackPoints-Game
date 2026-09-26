@@ -63,6 +63,8 @@ const OCR_FAILURE_MEMO_MS = 60 * 60 * 1000;
 const ocrSkipUntil = new Map<string, number>();
 let activeMaskingJobs = 0;
 let liveMaskRequests = 0;
+/** Warm bakes a live caller is already waiting on. Those skip the live gate. */
+const livePromotedBakes = new Set<string>();
 const MAX_CONCURRENT_OCR = 2;
 const SLOT_POLL_MS = 50;
 
@@ -123,6 +125,7 @@ export function recordOcrTimeout(cardId: string, ms: number): void {
 export function resetMaskBakeForTests(): void {
   activeMaskingJobs = 0;
   liveMaskRequests = 0;
+  livePromotedBakes.clear();
   maskingQueue.clear();
   coverageRefusals.clear();
   ocrSkipUntil.clear();
@@ -187,8 +190,18 @@ function releaseBakeSlot(guard: { released: boolean }): void {
   activeMaskingJobs--;
 }
 
-async function acquireBakeSlot(priority: "live" | "warm" = "live"): Promise<void> {
-  while (activeMaskingJobs >= MAX_CONCURRENT_OCR || (priority === "warm" && liveMaskRequests > 0)) {
+function warmBakePromoted(cardId: string | undefined): boolean {
+  return cardId != null && livePromotedBakes.has(cardId);
+}
+
+async function acquireBakeSlot(priority: "live" | "warm" = "live", cardId?: string): Promise<void> {
+  // Re-check promotion inside the wait. A live caller can join after this warm
+  // bake is already parked, and that caller is awaiting this same promise.
+  // The deadline does not start until a slot is held.
+  while (
+    activeMaskingJobs >= MAX_CONCURRENT_OCR
+    || (priority === "warm" && liveMaskRequests > 0 && !warmBakePromoted(cardId))
+  ) {
     await new Promise((resolve) => setTimeout(resolve, SLOT_POLL_MS));
   }
   activeMaskingJobs++;
@@ -203,7 +216,7 @@ async function runInBakeSlot<T>(
   work: (setStage: (stage: MaskBakeStage) => void, isCancelled: () => boolean) => Promise<T>,
   priority: "live" | "warm" = "live",
 ): Promise<T> {
-  await acquireBakeSlot(priority);
+  await acquireBakeSlot(priority, cardId);
   const guard = { released: false };
   const started = Date.now();
   let stage: MaskBakeStage = "fetch";
@@ -238,13 +251,20 @@ async function runInBakeSlot<T>(
 export function enqueueMaskBake(
   cardId: string,
   start: () => Promise<string | null>,
+  opts?: { promote?: boolean },
 ): Promise<string | null> {
   const existing = maskingQueue.get(cardId);
-  if (existing) return existing;
+  if (existing) {
+    if (opts?.promote) livePromotedBakes.add(cardId);
+    return existing;
+  }
   const promise = start();
   maskingQueue.set(cardId, promise);
   const drop = () => {
-    if (maskingQueue.get(cardId) === promise) maskingQueue.delete(cardId);
+    if (maskingQueue.get(cardId) === promise) {
+      maskingQueue.delete(cardId);
+      livePromotedBakes.delete(cardId);
+    }
   };
   promise.then(drop, drop);
   return promise;
@@ -341,7 +361,9 @@ export async function getMaskedImagePath(
   const priority = opts?.priority ?? "live";
   if (priority === "live") liveMaskRequests++;
   try {
-    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority));
+    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority), {
+      promote: priority === "live",
+    });
   } finally {
     if (priority === "live") liveMaskRequests--;
   }
