@@ -6,7 +6,7 @@
  * 1987 Topps Football Record Breakers are also blocked by normalized card number
  * and by Record Breaker text on player, variant, or description, same set id.
  */
-import { and, asc, eq, notInArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, notInArray, sql, type SQL } from "drizzle-orm";
 import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/schema";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
@@ -26,6 +26,9 @@ export type CardBlocklistEntry = {
 };
 
 export type BlocklistCardFields = {
+  id?: string | null;
+  /** Daily 5 rows name the playable card `cardId` rather than `id`. */
+  cardId?: string | null;
   number?: string | null;
   variant?: string | null;
   description?: string | null;
@@ -214,6 +217,63 @@ const FLEER_1989_SET_PREFIX = "aea515e2";
 export const TOPPS_1987_BASEBALL_SET_PREFIX = "37fd025d";
 export const TOPPS_1987_MCGWIRE_NUMBER = "366";
 
+/**
+ * 1987 Topps baseball #28 Mike Schmidt. The jersey back prints HMIDT.
+ * Blocked by this card id and by set + normalized number 28.
+ * #430 is a Design-pinned cover, so Schmidt is not name-blocked in this set.
+ */
+export const TOPPS_1987_SCHMIDT_CARD_ID = "36f1d909-2fdb-4b78-bb36-e7f5c088380a";
+export const TOPPS_1987_SCHMIDT_NUMBER = "28";
+
+/** 2024 Basketball. H inserts are the only number family added here. */
+export const BASKETBALL_2024_SET_PREFIX = "229f0379";
+
+/**
+ * 2024 Basketball H inserts print the full name in a vertical strip down the
+ * left edge. The mask has no geometry for that strip.
+ * Stays until a side-strip mask profile exists.
+ * BOD-, ST-, base numbers, and other prefixes (HR-) stay playable.
+ */
+export const BASKETBALL_2024_H_INSERT_NUMBER = /^H-\d+$/i;
+
+export type BlockedCardIdRule = {
+  /** Boot log attributes the id to this set. The id match itself is the row. */
+  gameSetId: string;
+  id: string;
+};
+
+export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: TOPPS_1987_SCHMIDT_CARD_ID },
+];
+
+export type BlockedSetNumberRule = {
+  gameSetId: string;
+  prefix?: boolean;
+  number: string;
+};
+
+export const BLOCKED_SET_NUMBERS: readonly BlockedSetNumberRule[] = [
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, prefix: true, number: TOPPS_1987_SCHMIDT_NUMBER },
+];
+
+export type CardNumberPatternRule = {
+  gameSetId: string;
+  prefix?: boolean;
+  numberPattern: RegExp;
+  /** POSIX form of `numberPattern`, matched with `~*` on the normalized number. */
+  sqlPattern: string;
+};
+
+export const CARD_NUMBER_PATTERN_RULES: readonly CardNumberPatternRule[] = [
+  {
+    // Stays until a side-strip mask profile exists.
+    gameSetId: BASKETBALL_2024_SET_PREFIX,
+    prefix: true,
+    numberPattern: BASKETBALL_2024_H_INSERT_NUMBER,
+    sqlPattern: "^H-[0-9]+$",
+  },
+];
+
 export function multiPlayerBlocklistLogLines(): string[] {
   return MULTI_PLAYER_NUMBER_SETS.map((set) => {
     const numbers = [...set.numbers].sort((a, b) => Number(a) - Number(b)).join(",");
@@ -226,10 +286,35 @@ export function multiPlayerBlocklistLogLines(): string[] {
   });
 }
 
+/**
+ * One boot line per set that has an id, checklist-number, or number-pattern
+ * leak rule. Counts are the rules on that set, same `[blocklist] set=` shape
+ * as the Record Breaker and multi-player lines.
+ */
+export function leakBlocklistLogLines(): string[] {
+  const counts = new Map<string, { ids: number; numbers: number; patterns: number }>();
+  const touch = (setId: string) => {
+    const key = setId.slice(0, 8).toLowerCase();
+    let row = counts.get(key);
+    if (!row) {
+      row = { ids: 0, numbers: 0, patterns: 0 };
+      counts.set(key, row);
+    }
+    return row;
+  };
+  for (const rule of BLOCKED_CARD_ID_RULES) touch(rule.gameSetId).ids += 1;
+  for (const rule of BLOCKED_SET_NUMBERS) touch(rule.gameSetId).numbers += 1;
+  for (const rule of CARD_NUMBER_PATTERN_RULES) touch(rule.gameSetId).patterns += 1;
+  return [...counts.entries()].map(([setId, row]) =>
+    `[blocklist] set=${setId} blockedIds=${row.ids} blockedNumbers=${row.numbers} blockedPatterns=${row.patterns}`,
+  );
+}
+
 /** Boot lines: the 1987 Record Breaker subset, then one multi-player line per vintage set. */
 export function logCardBlocklist(): void {
   console.log(recordBreakerBlocklistLogLine());
   for (const line of multiPlayerBlocklistLogLines()) console.log(line);
+  for (const line of leakBlocklistLogLines()) console.log(line);
 }
 
 function isSubsetOrPositionLabel(side: string): boolean {
@@ -299,6 +384,25 @@ function leakedChecklistNumber(setId: string, number: string): boolean {
   return setId.startsWith(TOPPS_1987_BASEBALL_SET_PREFIX) && number === TOPPS_1987_MCGWIRE_NUMBER;
 }
 
+function rowCardId(fields?: BlocklistCardFields | null): string {
+  return norm(fields?.id || fields?.cardId);
+}
+
+function blockedByCardId(fields?: BlocklistCardFields | null): boolean {
+  const id = rowCardId(fields);
+  return id.length > 0 && BLOCKED_CARD_ID_RULES.some((rule) => rule.id.toLowerCase() === id);
+}
+
+function blockedSetNumber(setId: string, number: string): boolean {
+  if (!setId || !number) return false;
+  return BLOCKED_SET_NUMBERS.some((rule) => sameSet(setId, rule.gameSetId, rule.prefix) && number === rule.number);
+}
+
+function blockedNumberPattern(setId: string, number: string): boolean {
+  if (!setId || !number) return false;
+  return CARD_NUMBER_PATTERN_RULES.some((rule) => sameSet(setId, rule.gameSetId, rule.prefix) && rule.numberPattern.test(number));
+}
+
 function norm(value: string | null | undefined): string {
   return (value || "").toLowerCase();
 }
@@ -330,12 +434,13 @@ export function isBlockedCard(
 ): boolean {
   const setId = norm(gameSetId);
   const name = norm(player);
+  if (blockedByCardId(fields)) return true;
   if (setId && name && CARD_BLOCKLIST.some((entry) => sameSet(setId, entry.gameSetId, entry.prefix) && playerMatchesEntry(name, entry))) {
     return true;
   }
   if (playerNamesManyPeople(player) || multiPlayerText(player, fields)) return true;
   const number = normalizeCardNumber(fields?.number);
-  if (setId && (multiPlayerNumber(setId, number) || leakedChecklistNumber(setId, number))) return true;
+  if (setId && (multiPlayerNumber(setId, number) || leakedChecklistNumber(setId, number) || blockedSetNumber(setId, number) || blockedNumberPattern(setId, number))) return true;
   if (setId !== TOPPS_1987_FOOTBALL_SET_ID) return false;
   if (number && (RECORD_BREAKER_NUMBERS.has(number) || number === TOPPS_1987_FOOTBALL_HALEY_NUMBER)) return true;
   const text = `${player || ""}\n${fields?.variant || ""}\n${fields?.description || ""}`;
@@ -436,6 +541,30 @@ function multiPlayerTextClause(alias: CardAlias): string {
   return `(${blob} ~* ${sqlQuote(MULTI_PLAYER_TEXT_SQL)})`;
 }
 
+function blockedCardIdClause(alias: CardAlias): string {
+  return BLOCKED_CARD_ID_RULES
+    .map((rule) => `lower(${alias}.id) = ${sqlQuote(rule.id.toLowerCase())}`)
+    .join(" OR ");
+}
+
+function blockedSetNumberClause(alias: CardAlias): string {
+  return BLOCKED_SET_NUMBERS.map((rule) => {
+    const setMatch = rule.prefix
+      ? `lower(${alias}.game_set_id) LIKE ${sqlQuote(`${rule.gameSetId.toLowerCase()}%`)}`
+      : `lower(${alias}.game_set_id) = ${sqlQuote(rule.gameSetId.toLowerCase())}`;
+    return `(${setMatch} AND ${normalizedNumberSql(alias)} = ${sqlQuote(rule.number)})`;
+  }).join(" OR ");
+}
+
+function numberPatternClause(alias: CardAlias): string {
+  return CARD_NUMBER_PATTERN_RULES.map((rule) => {
+    const setMatch = rule.prefix
+      ? `lower(${alias}.game_set_id) LIKE ${sqlQuote(`${rule.gameSetId.toLowerCase()}%`)}`
+      : `lower(${alias}.game_set_id) = ${sqlQuote(rule.gameSetId.toLowerCase())}`;
+    return `(${setMatch} AND ${normalizedNumberSql(alias)} ~* ${sqlQuote(rule.sqlPattern)})`;
+  }).join(" OR ");
+}
+
 function multiPlayerNumberClause(alias: CardAlias): string {
   const sets = MULTI_PLAYER_NUMBER_SETS.map((set) => {
     const numbers = set.numbers.map((number) => sqlQuote(number)).join(", ");
@@ -453,6 +582,9 @@ export function cardBlocklistWhereBody(alias: CardAlias): string {
     ...CARD_BLOCKLIST.map((entry) => blockClause(alias, entry)),
     recordBreakerNumberClause(alias),
     haleyNumberClause(alias),
+    blockedCardIdClause(alias),
+    blockedSetNumberClause(alias),
+    numberPatternClause(alias),
     recordBreakerTextClause(alias),
     multiPlayerTextClause(alias),
     multiPlayerPeopleClause(alias),
@@ -493,9 +625,9 @@ function cardUnservable(row: {
 }
 
 /**
- * Today's stored Daily 5 hand. A blocked or oversized-band card is rewritten to
- * the next eligible card in the set before the client sees it. Returns how many
- * unservable cards remain.
+ * A stored Daily 5 hand for today or a later date. A blocked or oversized-band
+ * card is rewritten to the next eligible card in the set before the client sees
+ * it. A past date is left alone. Returns how many unservable cards remain.
  */
 export async function replaceBlockedDaily5Cards(challengeId: string, today = getPackptsDayKey()): Promise<number> {
   const [challenge] = await db
@@ -503,11 +635,12 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .from(dailyChallenges)
     .where(eq(dailyChallenges.id, challengeId))
     .limit(1);
-  if (!challenge || challenge.date !== today) return 0;
+  if (!challenge || challenge.date < today) return 0;
 
   const rows = await db
     .select({
       id: dailyChallengeCards.id,
+      position: dailyChallengeCards.position,
       cardId: dailyChallengeCards.cardId,
       correctAnswer: dailyChallengeCards.correctAnswer,
       choices: dailyChallengeCards.choices,
@@ -560,6 +693,7 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
       .set({ cardId: next.id, correctAnswer: next.player, choices })
       .where(and(eq(dailyChallengeCards.id, row.id), eq(dailyChallengeCards.cardId, row.cardId)));
     used.add(next.id);
+    console.log(`[Daily5] blocklist swapped date=${challenge.date} slot=${row.position} old=${row.cardId} new=${next.id}`);
   }
 
   const left = await db
@@ -575,4 +709,21 @@ export async function replaceBlockedDaily5Cards(challengeId: string, today = get
     .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
     .where(eq(dailyChallengeCards.dailyChallengeId, challengeId));
   return left.filter((row) => cardUnservable(row)).length;
+}
+
+/**
+ * Serve-time pass for every stored Daily 5 whose date is today or later.
+ * A hand saved before a blocklist rule existed is rewritten here.
+ * Past dates are not selected.
+ */
+export async function sweepBlockedDaily5Deals(today = getPackptsDayKey()): Promise<number> {
+  const open = await db
+    .select({ id: dailyChallenges.id })
+    .from(dailyChallenges)
+    .where(gte(dailyChallenges.date, today));
+  let left = 0;
+  for (const row of open) {
+    left += await replaceBlockedDaily5Cards(row.id, today);
+  }
+  return left;
 }

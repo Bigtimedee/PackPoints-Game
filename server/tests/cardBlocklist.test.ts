@@ -5,6 +5,7 @@
  */
 import { createServer } from "http";
 import type { AddressInfo } from "net";
+import { readFileSync } from "fs";
 import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
@@ -20,7 +21,8 @@ import { daily5Service } from "../services/daily5Service";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
-import { cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
+import { BASKETBALL_2024_H_INSERT_NUMBER, TOPPS_1987_SCHMIDT_CARD_ID, cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, leakBlocklistLogLines, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
+import { eligibleDealFilter } from "../services/playableSetEligibility";
 
 const stamp = randomUUID().slice(0, 8);
 const prefix = `blocklist:${stamp}:`;
@@ -262,7 +264,48 @@ describe("isBlockedCard", () => {
     expect(multiPlayerBlocklistLogLines()).toHaveLength(5);
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=aea515e2") && line.includes("allStarNumbers=1,2,3,4,5,6,7,8,9,10,11"))).toBe(true);
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=37fd025d") && line.includes("mcgwireNumber=366"))).toBe(true);
+    expect(leakBlocklistLogLines()).toEqual([
+      "[blocklist] set=37fd025d blockedIds=1 blockedNumbers=1 blockedPatterns=0",
+      "[blocklist] set=229f0379 blockedIds=0 blockedNumbers=0 blockedPatterns=1",
+    ]);
+    for (const line of leakBlocklistLogLines()) expect(spy).toHaveBeenCalledWith(line);
     spy.mockRestore();
+  });
+
+  it("blocks 2024 Basketball H inserts by number pattern and leaves other families", () => {
+    const hoop = "229f0379-aa56-40a8-abe3-1af217a397e8";
+    for (const number of ["H-1", "H-3", "h-12"]) {
+      expect(BASKETBALL_2024_H_INSERT_NUMBER.test(number)).toBe(true);
+      expect(isBlockedCard(hoop, "Stephen Curry", { number })).toBe(true);
+      expect(isBlockedCard(basketballSetId, "Stephen Curry", { number })).toBe(true);
+    }
+    for (const number of ["BOD-5", "ST-7", "H", "3", "HR-1"]) {
+      expect(BASKETBALL_2024_H_INSERT_NUMBER.test(number)).toBe(false);
+      expect(isBlockedCard(hoop, "Stephen Curry", { number })).toBe(false);
+    }
+    expect(isBlockedCard(footballSetId, "Stephen Curry", { number: "H-3" })).toBe(false);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Stephen Curry", { number: "H-1" })).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Stephen Curry", { number: "h-12" })).toBe(false);
+  });
+
+  it("blocks 1987 Topps Mike Schmidt #28 by id and by number, and leaves #430", () => {
+    const baseball = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
+    expect(isBlockedCard(baseball, "Mike Schmidt", { id: TOPPS_1987_SCHMIDT_CARD_ID, number: "28" })).toBe(true);
+    expect(isBlockedCard(baseball, "Roster Filler", { id: TOPPS_1987_SCHMIDT_CARD_ID, number: "430" })).toBe(true);
+    expect(isBlockedCard(baseball, "Roster Filler", { cardId: TOPPS_1987_SCHMIDT_CARD_ID, number: "100" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Jerry Rice", { id: TOPPS_1987_SCHMIDT_CARD_ID })).toBe(true);
+    expect(isBlockedCard(baseball, "Mike Schmidt", { number: "28" })).toBe(true);
+    expect(isBlockedCard(baseball, "Mike Schmidt", { number: "#28" })).toBe(true);
+    expect(isBlockedCard(baseball, "Mike Schmidt", { number: "028" })).toBe(true);
+    expect(isBlockedCard(baseball, "Mike Schmidt", { number: "430" })).toBe(false);
+    expect(isBlockedCard(baseball, "Mike Schmidt")).toBe(false);
+    expect(isBlockedCard(baseball, "Mike Schmidt", { id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", number: "430" })).toBe(false);
+    expect(isBlockedCard(basketballSetId, "Mike Schmidt", { number: "28" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Mike Schmidt", { number: "28" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Charles Haley")).toBe(true);
+    expect(isBlockedCard(footballSetId, "Haley, Charles")).toBe(true);
+    expect(isBlockedCard(footballSetId, "Roster Filler", { number: "125" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Gerald McNeil", { number: "94" })).toBe(false);
   });
 
   it("puts number and record-breaker text into the same SQL predicate", () => {
@@ -274,6 +317,11 @@ describe("isBlockedCard", () => {
     expect(body).toContain("record[[:space:]]*breaker");
     expect(body).toContain("strpos(lower(playable_cards.player), 'charles haley') > 0");
     expect(body).toContain("= '125'");
+    expect(body).toContain("lower(playable_cards.id) = '36f1d909-2fdb-4b78-bb36-e7f5c088380a'");
+    expect(body).toContain("lower(playable_cards.game_set_id) LIKE '37fd025d%'");
+    expect(body).toContain("= '28'");
+    expect(body).toContain("lower(playable_cards.game_set_id) LIKE '229f0379%'");
+    expect(body).toContain("~* '^H-[0-9]+$'");
     expect(body).not.toContain("\\mRB\\M");
     expect(body).toContain("playable_cards.number");
     expect(body).toContain("playable_cards.variant");
@@ -356,6 +404,60 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     await db.delete(playableCards).where(like(playableCards.cardhedgeCardId, `${prefix}%`)).catch(() => null);
     if (createdSets.length > 0) await db.delete(gameSets).where(inArray(gameSets.id, createdSets)).catch(() => null);
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => null);
+  });
+
+  it("keeps Schmidt #430 and non-H numbers in the shared deal filter", async () => {
+    const baseball = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
+    await ensureSet(baseball, "baseball", 1987, `1987 Topps ${stamp}`);
+    const schmidtId = TOPPS_1987_SCHMIDT_CARD_ID;
+    const samples: Array<{ setId: string; player: string; number: string; id?: string; keep: boolean }> = [
+      { setId: basketballSetId, player: "Stephen Curry", number: "H-1", keep: false },
+      { setId: basketballSetId, player: "Stephen Curry", number: "H-3", keep: false },
+      { setId: basketballSetId, player: "Stephen Curry", number: "h-12", keep: false },
+      { setId: basketballSetId, player: "Stephen Curry", number: "BOD-5", keep: true },
+      { setId: basketballSetId, player: "Stephen Curry", number: "ST-7", keep: true },
+      { setId: basketballSetId, player: "Stephen Curry", number: "H", keep: true },
+      { setId: basketballSetId, player: "Stephen Curry", number: "3", keep: true },
+      { setId: basketballSetId, player: "Stephen Curry", number: "HR-1", keep: true },
+      { setId: footballSetId, player: "Stephen Curry", number: "H-3", keep: true },
+      { setId: baseball, player: "Mike Schmidt", number: "28", keep: false },
+      { setId: baseball, player: "Mike Schmidt", number: "#028", keep: false },
+      { setId: baseball, player: "Mike Schmidt", number: "430", keep: true },
+      { setId: baseball, player: "Roster Filler", number: "430", id: schmidtId, keep: false },
+      { setId: basketballSetId, player: "Mike Schmidt", number: "28", keep: true },
+    ];
+    const rows = samples.map((sample, i) => {
+      const sport = sample.setId === baseball ? "baseball" : sample.setId === footballSetId ? "football" : "basketball";
+      const row = {
+        ...card(sample.setId, sample.player, `2023-02-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, sport),
+        number: sample.number,
+        description: sample.player,
+        keep: sample.keep,
+      };
+      if (sample.id) {
+        const idx = cardIds.lastIndexOf(row.id);
+        if (idx >= 0) cardIds.splice(idx, 1);
+        row.id = sample.id;
+        cardIds.push(sample.id);
+      }
+      return row;
+    });
+    await db.delete(playableCards).where(eq(playableCards.id, schmidtId));
+    await db.insert(playableCards).values(rows);
+    try {
+      const kept = await db
+        .select({ id: playableCards.id })
+        .from(playableCards)
+        .where(and(inArray(playableCards.id, rows.map((row) => row.id)), eligibleDealFilter("playable_cards")));
+      const keptIds = new Set(kept.map((row) => row.id));
+      for (const row of rows) {
+        expect(isBlockedCard(row.gameSetId, row.player, row), `${row.player} ${row.number}`).toBe(!row.keep);
+        expect(keptIds.has(row.id), `${row.player} ${row.number}`).toBe(row.keep);
+      }
+      expect(keptIds.has(schmidtId)).toBe(false);
+    } finally {
+      await db.delete(playableCards).where(inArray(playableCards.id, rows.map((row) => row.id)));
+    }
   });
 
   it("drops record breakers by number, name, and text in the deal predicate", async () => {
@@ -483,6 +585,88 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     }
   });
 
+  it("deals the initial Daily 5 hand through the blocklist, including H inserts and Schmidt #28", async () => {
+    const src = readFileSync(new URL("../services/daily5Service.ts", import.meta.url), "utf8");
+    const draw = src.slice(src.indexOf("async selectCardsForChallenge"), src.indexOf("async updateChallengeStatuses"));
+    expect(draw).toContain('cardNotBlockedSql("playable_cards")');
+    expect(draw).toContain("isBlockedCard(");
+    const create = src.slice(src.indexOf("async createChallengeForDate"), src.indexOf("async selectCardsForChallenge"));
+    expect(create).toContain("selectCardsForChallenge");
+    const serve = src.slice(src.indexOf("async getOrCreateTodayChallenge"), src.indexOf("async createChallengeForDate"));
+    expect(serve).toContain("createChallengeForDate");
+    expect(serve).toContain("sweepBlockedDaily5Deals");
+
+    const baseball = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
+    await ensureSet(baseball, "baseball", 1987, `1987 Topps ${stamp}`);
+    const h3 = card(basketballSetId, "Stephen Curry", "2024-03-01T00:00:00.000Z", "basketball");
+    const bod = card(basketballSetId, "BOD Keeper", "2024-03-02T00:00:00.000Z", "basketball");
+    const fillers = Array.from({ length: 4 }, (_, i) => card(baseball, `Schmidt Pool ${i + 1}`, `2024-03-0${i + 3}T00:00:00.000Z`, "baseball"));
+    const number28 = card(baseball, "Number Twenty Eight", "2024-03-07T00:00:00.000Z", "baseball");
+    const schmidt430 = card(baseball, "Mike Schmidt", "2024-03-08T00:00:00.000Z", "baseball");
+    const schmidt28 = {
+      ...card(baseball, "Mike Schmidt", "2024-03-09T00:00:00.000Z", "baseball"),
+    };
+    const stray = cardIds.lastIndexOf(schmidt28.id);
+    if (stray >= 0) cardIds.splice(stray, 1);
+    schmidt28.id = TOPPS_1987_SCHMIDT_CARD_ID;
+    cardIds.push(TOPPS_1987_SCHMIDT_CARD_ID);
+    const inserted = [
+      { ...h3, number: "H-3" },
+      { ...bod, number: "BOD-5" },
+      { ...number28, number: "28" },
+      { ...schmidt430, number: "430" },
+      { ...schmidt28, number: "28" },
+      ...fillers.map((row, i) => ({ ...row, number: String(500 + i) })),
+    ];
+    await db.delete(playableCards).where(eq(playableCards.id, TOPPS_1987_SCHMIDT_CARD_ID));
+    await db.insert(playableCards).values(inserted);
+
+    const [hoop] = await db.insert(dailyChallenges).values({
+      date: "2099-11-20",
+      mode: "DAILY5",
+      setId: basketballSetId,
+      seed: "blocklist-initial-h",
+      startsAt: new Date("2099-11-20T00:00:00.000Z"),
+      endsAt: new Date("2099-11-21T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    challengeIds.push(hoop.id);
+    await daily5Service.selectCardsForChallenge(hoop, basketballSetId, hoop.seed);
+
+    const [base] = await db.insert(dailyChallenges).values({
+      date: "2099-11-21",
+      mode: "DAILY5",
+      setId: baseball,
+      seed: "blocklist-initial-schmidt",
+      startsAt: new Date("2099-11-21T00:00:00.000Z"),
+      endsAt: new Date("2099-11-22T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    challengeIds.push(base.id);
+    await daily5Service.selectCardsForChallenge(base, baseball, base.seed);
+
+    const dealt = await db
+      .select({
+        challengeId: dailyChallengeCards.dailyChallengeId,
+        cardId: dailyChallengeCards.cardId,
+        number: playableCards.number,
+        player: playableCards.player,
+      })
+      .from(dailyChallengeCards)
+      .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
+      .where(inArray(dailyChallengeCards.dailyChallengeId, [hoop.id, base.id]));
+    const hoopDealt = dealt.filter((row) => row.challengeId === hoop.id);
+    const baseDealt = dealt.filter((row) => row.challengeId === base.id);
+    expect(hoopDealt).toHaveLength(5);
+    expect(hoopDealt.some((row) => row.cardId === h3.id)).toBe(false);
+    expect(hoopDealt.some((row) => BASKETBALL_2024_H_INSERT_NUMBER.test(row.number || ""))).toBe(false);
+    expect(baseDealt).toHaveLength(5);
+    expect(baseDealt.map((row) => row.cardId).sort()).toEqual([...fillers.map((row) => row.id), schmidt430.id].sort());
+    expect(baseDealt.some((row) => row.cardId === TOPPS_1987_SCHMIDT_CARD_ID)).toBe(false);
+    expect(baseDealt.some((row) => row.number === "28")).toBe(false);
+    expect(baseDealt.some((row) => row.number === "430")).toBe(true);
+  });
+
   it("falls through a blocked cover and still fills 8 distinct players", async () => {
     const urls = await readyMaskedCoverUrls([footballSetId]);
     expect(urls.get(footballSetId)).toHaveLength(8);
@@ -563,7 +747,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
       pointValue: 100,
     })));
 
-    const untouched = await replaceBlockedDaily5Cards(challenge.id, "2099-01-01");
+    const untouched = await replaceBlockedDaily5Cards(challenge.id, "2099-12-01");
     expect(untouched).toBe(0);
     const [before] = await db
       .select({ cardId: dailyChallengeCards.cardId, correctAnswer: dailyChallengeCards.correctAnswer })
@@ -594,6 +778,85 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
 
     const again = await replaceBlockedDaily5Cards(challenge.id, "2099-11-04");
     expect(again).toBe(0);
+  });
+
+  it("rewrites a stored future Daily 5 hand and leaves a past hand", async () => {
+    const futureDate = "2099-12-15";
+    const pastDate = "2099-12-01";
+    const today = "2099-12-10";
+    const blocked = card(footballSetId, "Charles Haley", "2024-04-01T00:00:00.000Z", "football");
+    const futureSpare = card(footballSetId, "Future Spare", "2024-04-02T00:00:00.000Z", "football");
+    const pastBlocked = card(footballSetId, "Charles Haley", "2024-04-03T00:00:00.000Z", "football");
+    await db.insert(playableCards).values([
+      { ...blocked, number: "125" },
+      { ...futureSpare, number: "501" },
+      { ...pastBlocked, number: "125" },
+    ]);
+
+    const [future] = await db.insert(dailyChallenges).values({
+      date: futureDate,
+      mode: "DAILY5",
+      setId: footballSetId,
+      seed: "blocklist-future",
+      startsAt: new Date(`${futureDate}T00:00:00.000Z`),
+      endsAt: new Date("2099-12-16T00:00:00.000Z"),
+      status: "SCHEDULED",
+    }).returning();
+    const [past] = await db.insert(dailyChallenges).values({
+      date: pastDate,
+      mode: "DAILY5",
+      setId: footballSetId,
+      seed: "blocklist-past",
+      startsAt: new Date(`${pastDate}T00:00:00.000Z`),
+      endsAt: new Date("2099-12-02T00:00:00.000Z"),
+      status: "CLOSED",
+    }).returning();
+    challengeIds.push(future.id, past.id);
+    await db.insert(dailyChallengeCards).values([
+      {
+        dailyChallengeId: future.id,
+        position: 2,
+        cardId: blocked.id,
+        correctAnswer: "Charles Haley",
+        choices: ["Charles Haley", "Art Shell", "Joe Montana", "Jerry Rice"],
+        pointValue: 100,
+      },
+      {
+        dailyChallengeId: past.id,
+        position: 1,
+        cardId: pastBlocked.id,
+        correctAnswer: "Charles Haley",
+        choices: ["Charles Haley", "Art Shell", "Joe Montana", "Jerry Rice"],
+        pointValue: 100,
+      },
+    ]);
+
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const futureLeft = await replaceBlockedDaily5Cards(future.id, today);
+    const pastLeft = await replaceBlockedDaily5Cards(past.id, today);
+    const lines = spy.mock.calls.map((call) => String(call[0]));
+    spy.mockRestore();
+    expect(futureLeft).toBe(0);
+    expect(pastLeft).toBe(0);
+    const swapped = lines.find((line) => line.startsWith(`[Daily5] blocklist swapped date=${futureDate} `));
+    expect(swapped).toMatch(new RegExp(`^\\[Daily5\\] blocklist swapped date=${futureDate} slot=2 old=${blocked.id} new=[0-9a-f-]{36}$`));
+    expect(lines.some((line) => line.includes(pastDate))).toBe(false);
+    expect(sweepBlockedDaily5Deals).toBeTypeOf("function");
+
+    const [futureRow] = await db
+      .select({ cardId: dailyChallengeCards.cardId, player: playableCards.player, number: playableCards.number, gameSetId: playableCards.gameSetId })
+      .from(dailyChallengeCards)
+      .innerJoin(playableCards, eq(playableCards.id, dailyChallengeCards.cardId))
+      .where(eq(dailyChallengeCards.dailyChallengeId, future.id));
+    const [pastRow] = await db
+      .select({ cardId: dailyChallengeCards.cardId })
+      .from(dailyChallengeCards)
+      .where(eq(dailyChallengeCards.dailyChallengeId, past.id));
+    expect(futureRow.cardId).toBe(swapped!.split(" new=")[1]);
+    expect(futureRow.cardId).not.toBe(blocked.id);
+    expect(isBlockedCard(futureRow.gameSetId, futureRow.player, futureRow)).toBe(false);
+    expect(pastRow.cardId).toBe(pastBlocked.id);
+    expect(isBlockedCard(footballSetId, "Charles Haley", { number: "125" })).toBe(true);
   });
 
   it("does not hang or rewrite a Daily 5 hand that has no eligible replacement", async () => {
