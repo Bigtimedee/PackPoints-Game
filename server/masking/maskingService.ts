@@ -160,7 +160,7 @@ async function ensureDirectory(): Promise<void> {
   }
 }
 
-async function downloadImage(url: string, cardId: string): Promise<Buffer | null> {
+export async function downloadMaskSource(url: string, cardId: string): Promise<Buffer | null> {
   const started = Date.now();
   try {
     return await withSourceFetchTimeout(async (signal) => {
@@ -249,6 +249,17 @@ async function runInBakeSlot<T>(
     if (timer) clearTimeout(timer);
     releaseBakeSlot(guard);
   }
+}
+
+/**
+ * One warm bake slot, same cap and deadline as a player bake.
+ * Warm waits while a live mask request is in flight, so a backfill cannot take the last slot from a player.
+ */
+export async function runWarmBakeJob<T>(
+  cardId: string,
+  work: (setStage: (stage: MaskBakeStage) => void, isCancelled: () => boolean) => Promise<T>,
+): Promise<T> {
+  return runInBakeSlot(cardId, work, "warm");
 }
 
 /** Share one in-flight bake per card. The entry is dropped when that promise settles, including timeout. */
@@ -501,7 +512,7 @@ export async function bakeMaskedCardFromUrl(
     return await runInBakeSlot(cardId, async (setStage, isCancelled) => {
       setStage("fetch");
       const fetchStarted = Date.now();
-      const imageBuffer = await downloadImage(imageUrl, cardId);
+      const imageBuffer = await downloadMaskSource(imageUrl, cardId);
       if (!imageBuffer || isCancelled()) return null;
 
       setStage("ocr");

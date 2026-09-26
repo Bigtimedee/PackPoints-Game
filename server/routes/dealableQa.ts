@@ -8,6 +8,7 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { isMaskBakeTimeout } from "../masking/maskingService";
+import { backfillLimit, backfillMaskBakeRefusals } from "../masking/maskRefusalBackfill";
 import { latestMaskBakeRefusalImage, listMaskBakeRefusals } from "../masking/maskRefusalLog";
 import { renderRefusalAttemptPng, renderRefusalDebugPng } from "../masking/maskRefusalPng";
 import {
@@ -133,6 +134,17 @@ export function registerDealableQaRoutes(app: Express): void {
           return;
         }
         qaNotFound(req, res);
+      });
+  });
+
+  app.post("/api/qa/rejected-cards/backfill", (req, res) => {
+    if (!authorized(req, res)) return;
+    void backfillMaskBakeRefusals(querySetId(req.query.setId), backfillLimit(req.query.limit))
+      .then((counts) => {
+        qaJson(req, res, 200, counts);
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
       });
   });
 

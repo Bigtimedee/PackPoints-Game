@@ -182,6 +182,8 @@ export async function maskCardImage(
     gameSetId?: string | null;
     imageRotation?: number | null;
     cardId?: string | null;
+    /** False keeps a dry-run from writing `{cardId}_v4.6.orient.json`. */
+    recordOrientNote?: boolean;
     /** Horizontal design. Overrides the set profile when the caller already knows. */
     cardOrientation?: "portrait" | "landscape";
     onStage?: (stage: "ocr" | "bake") => void;
@@ -211,7 +213,7 @@ export async function maskCardImage(
       recognize: recognizeWords,
       orientationBudgetMs: opts.orientationBudgetMs,
     });
-  if (opts.cardId && !existing) {
+  if (opts.cardId && !existing && opts.recordOrientNote !== false) {
     writeOrientNote(opts.cardId, {
       rotation: upright.rotation,
       landscapeDesign: upright.landscapeDesign,
