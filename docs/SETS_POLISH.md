@@ -27,7 +27,7 @@ Mark: PackPTS + masked-P only. No glossy shield, no PackPoints currency chrome, 
 
 ### Cards
 
-- **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack of that set’s cards**. Never keep a stock fan once the runtime cover exists.
+- **Cover priority:** runtime Surface A share crop (`shareImageUrl`) when present and not stock fan `maker-set-1080.png`. Else a **masked stack**. Each thumb is a baked `/api/sets/{setId}/covers/{slot}` JPEG from a card that already has a v4.4 mask-ready sidecar (name band follows that set's layout, top or bottom). No raw photo URL, player name, or card id. If none are ready, the cream placeholder. The plaque on the thumb is decoration. Never keep a stock fan once the runtime cover exists. Never bake a mask while listing `/sets`.
 - Meta for an integrated set: honest `{n} cards` only. No `by Maker`, no date, no `AUTHORED`.
 - Meta for a user-created set that still has a maker username: `by {maker}` · honest `{n} cards` · optional `{MON D}` (America/Chicago via `shared/packptsDay.ts`) · `AUTHORED`
 - Title: the stored set name. If `brand` is set and the name does not already contain it, insert the brand after a leading year (`2024 Basketball` + brand `Topps` → `2024 Topps Basketball`). A blank brand leaves the stored name. Do not substitute the `year` column for the year already in the name.
@@ -62,7 +62,7 @@ Product lock (2026-09-08): no public **Make a set** CTA. Footer action: **Play D
 `GET /api/sets` lists active integrated sets (`is_user_created = false`) with at least 5 eligible cards. `cardCount` is that eligible count (same predicate as `GET /api/playable-sets` and the solo deal), after name/year/sport dedupe that keeps the most playable row. User-created sets are not listed. `GET /api/sets/:id` uses the same eligible `cardCount`. Both emit `createdAt` as ISO UTC (browse maps raw pg timestamps via `createdAtToIso`). Authored `{MON D}` is America/Chicago (`formatPackptsMonDay`) and only renders for a user-created set with a maker username. Add:
 
 - `shareImageUrl` on the browse list (same `content_assets` lookup as detail)
-- `coverCardUrls` (browse) / `previewCards: { imageUrl, year }[]` (detail) — **no player names**
+- `coverCardUrls` (browse) / `previewCards: { imageUrl, year }[]` (detail) are masked cover URLs only, or empty for the cream placeholder. No raw image URL, player name, or card id. `GET /api/sets/:setId/covers/:slot` serves the baked file and does not bake.
 - `playedToday` on detail when the session can resolve a user; guests are `false`
 
 `playCount` may remain on the JSON for existing callers; public `/sets` UI must not render it.

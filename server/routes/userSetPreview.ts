@@ -1,8 +1,9 @@
 /**
- * Public /sets cover + stack payloads. No player names.
+ * Public /sets cover + stack payloads. No player names, raw scans, or card ids.
  * Kept free of db so unit tests can import this file without DATABASE_URL.
  * Locked: docs/SETS_POLISH.md
  */
+import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
 import { STOCK_FAN_ASSET } from "../contentFactory/makerShareSlug";
 
 export function isStockFanUrl(url: string | null | undefined): boolean {
@@ -47,8 +48,9 @@ export function toPublicPreviewCard(row: {
   description?: string | null;
   player?: string | null;
 }): PublicPreviewCard {
+  const imageUrl = usablePublicImageUrl(row.imageUrl);
   return {
-    imageUrl: usablePublicImageUrl(row.imageUrl),
+    imageUrl: imageUrl && isMaskedSetCoverUrl(imageUrl) ? imageUrl : null,
     year: extractCardYear(row.set, row.description),
   };
 }
@@ -68,8 +70,8 @@ export function parseJsonArray(value: unknown): unknown[] {
 
 export function sanitizeCoverCardUrls(value: unknown): string[] {
   return parseJsonArray(value)
-    .map(usablePublicImageUrl)
-    .filter((url): url is string => !!url)
+    .filter(isMaskedSetCoverUrl)
+    .map((url) => url.trim())
     .slice(0, 8);
 }
 

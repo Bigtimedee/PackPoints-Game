@@ -13,6 +13,7 @@ import {
   SETS_POLISH,
   formatDetailMetaLine,
   publicSetDisplayUrl,
+  sanitizePreviewCards,
   setShareSlug,
   shouldShowPlayTodayCue,
 } from "@/lib/setsPolish";
@@ -104,10 +105,8 @@ export default function SetPage() {
   const isOwner = user && set?.createdByUserId === (user as { id?: string }).id;
   const isCoCreator = user && set?.coCreatorUserId === (user as { id?: string }).id;
   const canSaveCover = !!(isOwner || isCoCreator) && !!set?.shareImageUrl;
-  const previewCards = set?.previewCards ?? [];
-  const coverCardUrls = previewCards
-    .map((c) => c.imageUrl)
-    .filter((u): u is string => !!u);
+  const previewCards = sanitizePreviewCards(set?.previewCards);
+  const coverCardUrls = previewCards.flatMap((card) => (card.imageUrl ? [card.imageUrl] : []));
 
   function setShareHref() {
     const slug = setShareSlug(set!.setName, set!.id);
