@@ -156,28 +156,52 @@ describe("browse sets index", () => {
     }
   });
 
-  it("renders a title-only tile when covers are disabled", () => {
+  it("keeps the cover height and shows name, year, and Play when covers are disabled", () => {
     const html = renderShelf([
       shelfSet({
         id: "set-hidden-cover",
         setName: "1989 Fleer Basketball",
         brand: "Fleer",
+        year: 1989,
         cardCount: 168,
         makerUsername: null,
         shareImageUrl: "/generated/share/1989-fleer.png",
       }),
+      shelfSet({
+        id: "set-long-name",
+        setName: "1987 Topps Baseball Traded Update",
+        brand: "Topps",
+        year: 1987,
+        cardCount: 132,
+        makerUsername: null,
+      }),
     ], false, true);
     expect(html).toContain("1989 Fleer Basketball");
-    expect(html).toContain("168 cards");
+    expect(html).toContain("1987 Topps Baseball Traded Update");
+    expect(html).toContain('data-testid="text-set-year"');
+    expect(html).toContain(">1989<");
+    expect(html).toContain(">1987<");
     expect(html).toContain("Play this set");
     expect(html).toContain('data-testid="button-play-set-set-hidden-cover"');
+    expect(html).toContain('data-testid="cover-slot-hidden"');
+    expect(html).toContain("height:168px");
+    expect(html).not.toContain("168 cards");
+    expect(html).not.toContain("132 cards");
+    expect(html).not.toContain("cards");
     expect(html).not.toContain("cover-masked-stack");
     expect(html).not.toContain("cover-surface-a");
     expect(html).not.toContain("<img");
     expect(html).not.toContain("/covers/");
     expect(html).not.toContain("1989-fleer.png");
+    expect(html).not.toContain("#121821");
+    expect(html).not.toContain("#F3E6C8");
+    expect(html).not.toContain("coming soon");
     expect(html).not.toContain("Cover");
     expect(html).not.toMatch(/[\u2013\u2014]/);
+
+    const slot = html.match(/<div[^>]*data-testid="cover-slot-hidden"[^>]*>/)?.[0] ?? "";
+    expect(slot).toMatch(/height:168px/);
+    expect(slot).not.toContain("background");
   });
 
   it("shows the empty shelf only when there are zero sets", () => {

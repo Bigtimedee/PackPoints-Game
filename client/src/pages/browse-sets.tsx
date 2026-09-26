@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { SetCover } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
+  SET_INDEX_COVER_HEIGHT,
   SETS_POLISH,
   formatIndexSetTitle,
   formatSetMetaLine,
@@ -18,6 +19,7 @@ export interface BrowseSet {
   makerUsername: string | null;
   isUserCreated?: boolean;
   cardCount: number;
+  year?: number | null;
   createdAt: string | null;
   shareImageUrl?: string | null;
   coverCardUrls?: string[];
@@ -64,28 +66,50 @@ function PlayButton({
   );
 }
 
+function setYearLabel(year: number | null | undefined): string | null {
+  if (typeof year !== "number" || !Number.isFinite(year)) return null;
+  return String(Math.trunc(year));
+}
+
 function SetRow({ set, coversDisabled }: { set: BrowseSet; coversDisabled: boolean }) {
+  const title = formatIndexSetTitle({ setName: set.setName, brand: set.brand });
+  const yearLabel = setYearLabel(set.year);
   return (
     <article
       className="space-y-3"
       data-testid={`card-set-${set.id}`}
     >
       <Link href={`/sets/${set.id}`} className="block space-y-3">
-        {coversDisabled ? null : (
+        {coversDisabled ? (
+          <div
+            className="w-full"
+            style={{ height: SET_INDEX_COVER_HEIGHT }}
+            data-testid="cover-slot-hidden"
+            aria-hidden
+          />
+        ) : (
           <SetCover shareImageUrl={set.shareImageUrl} cardUrls={set.coverCardUrls} />
         )}
         <div className="space-y-1">
           <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }} data-testid="text-set-title">
-            {formatIndexSetTitle({ setName: set.setName, brand: set.brand })}
+            {title}
           </h2>
-          <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
-            {formatSetMetaLine({
-              makerUsername: set.isUserCreated ? set.makerUsername : null,
-              cardCount: set.cardCount,
-              createdAt: set.isUserCreated ? set.createdAt : null,
-              authored: set.isUserCreated === true,
-            })}
-          </p>
+          {coversDisabled ? (
+            yearLabel ? (
+              <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-year">
+                {yearLabel}
+              </p>
+            ) : null
+          ) : (
+            <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
+              {formatSetMetaLine({
+                makerUsername: set.isUserCreated ? set.makerUsername : null,
+                cardCount: set.cardCount,
+                createdAt: set.isUserCreated ? set.createdAt : null,
+                authored: set.isUserCreated === true,
+              })}
+            </p>
+          )}
         </div>
       </Link>
       <PlayButton setId={set.id} cardCount={Number(set.cardCount)} />
