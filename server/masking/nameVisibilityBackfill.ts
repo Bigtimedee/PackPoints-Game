@@ -1,6 +1,6 @@
 /**
  * OCR already-baked v4.5 JPEGs off the request path.
- * A pass writes `{cardId}_v4.5.n1`. A surname outside the mask quarantines the
+ * A pass writes `{cardId}_v4.5.n2`. A surname outside the mask quarantines the
  * card and does not paint a jersey mask. Mask version stays v4.5.
  */
 import { readFileSync, readdirSync } from "fs";

@@ -7,6 +7,71 @@ import sharp from "sharp";
 import { maskCardImage } from "./maskCardImage";
 import { NAME_VISIBLE_OUTSIDE_MASK, verifyNameVisibleOutsideMask } from "./nameOutsideMask";
 
+export interface ExpectedLeakPair {
+  cardId: string;
+  leak: boolean;
+}
+
+export interface ExpectedLeakComparison {
+  cardId: string;
+  expectedLeak: boolean;
+  actualLeak: boolean;
+  reason: string | null;
+  match: boolean;
+}
+
+/** JSON array of `{ cardId, leak }` pairs. `leak` is the outside-mask surname check only. */
+export function parseExpectedLeaks(raw: string): ExpectedLeakPair[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error("expected leak list must be a JSON array of { cardId, leak }");
+  }
+  return parsed.map((row, index) => {
+    if (!row || typeof row !== "object") {
+      throw new Error(`expected leak row ${index} is not an object`);
+    }
+    const record = row as { cardId?: unknown; leak?: unknown };
+    const cardId = typeof record.cardId === "string" ? record.cardId.trim() : "";
+    if (!cardId) throw new Error(`expected leak row ${index} is missing cardId`);
+    if (typeof record.leak !== "boolean") {
+      throw new Error(`expected leak row ${index} leak must be true or false`);
+    }
+    return { cardId, leak: record.leak };
+  });
+}
+
+/**
+ * Compare expected outside-mask leaks with sweep results.
+ * `actualLeak` is true only when the reason is `name_visible_outside_mask`.
+ * A missing card is `card_not_found` and does not match.
+ */
+export function compareExpectedLeaks(
+  pairs: ExpectedLeakPair[],
+  results: Array<Pick<SweepCardResult, "id" | "reason">>,
+): ExpectedLeakComparison[] {
+  const byId = new Map(results.map((row) => [row.id, row]));
+  return pairs.map((pair) => {
+    const found = byId.get(pair.cardId);
+    if (!found) {
+      return {
+        cardId: pair.cardId,
+        expectedLeak: pair.leak,
+        actualLeak: false,
+        reason: "card_not_found",
+        match: false,
+      };
+    }
+    const actualLeak = found.reason === NAME_VISIBLE_OUTSIDE_MASK;
+    return {
+      cardId: pair.cardId,
+      expectedLeak: pair.leak,
+      actualLeak,
+      reason: found.reason,
+      match: actualLeak === pair.leak,
+    };
+  });
+}
+
 export const FLEER_1989_BASKETBALL_CARDS = 168;
 
 /** Relative gap from the set median that flags a scan as a tight or odd crop. */

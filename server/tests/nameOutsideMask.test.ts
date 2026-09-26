@@ -26,10 +26,10 @@ import {
 } from "@shared/schema";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 import { db } from "../db";
-import { NAME_VISIBLE_OUTSIDE_MASK, nameVisibilityPassFilename, tokenMatchesPlayerName, verifyNameVisibleOutsideMask, visiblePlayerNameOutsideMask } from "../masking/nameOutsideMask";
+import { NAME_VISIBILITY_CHECK_VERSION, NAME_VISIBLE_OUTSIDE_MASK, nameVisibilityPassFilename, tokenMatchesPlayerName, verifyNameVisibleOutsideMask, visiblePlayerNameOutsideMask } from "../masking/nameOutsideMask";
 import { runNameVisibilityBackfill } from "../masking/nameVisibilityBackfill";
 import { quarantineUncoveredName } from "../masking/maskingService";
-import { reportMaskSweep } from "../masking/maskPlateSweep";
+import { compareExpectedLeaks, parseExpectedLeaks, reportMaskSweep } from "../masking/maskPlateSweep";
 import { readMaskFailureReason, setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { swapFailedCardsOnTodayChallenge } from "../services/daily5FailedCardSwap";
 import { eligibleCountsByActiveSet } from "../services/playableSetEligibility";
@@ -41,12 +41,51 @@ import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 const TOP_BAND = { xPct: 0, yPct: 0, wPct: 100, hPct: 18, type: "blur" as const };
 
 describe("surname matching", () => {
-  it("does not fuzzy-match a short surname against other words, and still catches the whole word", () => {
+  it("excludes a 4-letter surname run, ignores a 3-letter run, and excludes a full 3-letter surname", () => {
+    expect(tokenMatchesPlayerName("Giannis Antetokounmpo", "KOUN")).toBe(true);
+    expect(tokenMatchesPlayerName("Giannis Antetokounmpo", "KOU")).toBe(false);
+    expect(tokenMatchesPlayerName("Bob Lee", "LEE")).toBe(true);
     expect(tokenMatchesPlayerName("Bob Lee", "LEGEND")).toBe(false);
     expect(tokenMatchesPlayerName("Bob Lee", "LEGENDARY")).toBe(false);
     expect(tokenMatchesPlayerName("Bob Lee", "FEEL")).toBe(false);
-    expect(tokenMatchesPlayerName("Bob Lee", "LEE")).toBe(true);
-    expect(tokenMatchesPlayerName("Magic Johnson", "JOHNSTON")).toBe(false);
+
+    const koun = visiblePlayerNameOutsideMask({
+      playerName: "Giannis Antetokounmpo",
+      words: [{ text: "KOUN", x: 40, y: 420, w: 80, h: 36 }],
+      regions: [TOP_BAND],
+      imageWidth: 400,
+      imageHeight: 560,
+    });
+    expect(koun).toBe(true);
+
+    const kou = visiblePlayerNameOutsideMask({
+      playerName: "Giannis Antetokounmpo",
+      words: [{ text: "KOU", x: 40, y: 420, w: 60, h: 36 }],
+      regions: [TOP_BAND],
+      imageWidth: 400,
+      imageHeight: 560,
+    });
+    expect(kou).toBe(false);
+
+    const lee = visiblePlayerNameOutsideMask({
+      playerName: "Bob Lee",
+      words: [{ text: "LEE", x: 40, y: 420, w: 60, h: 36 }],
+      regions: [TOP_BAND],
+      imageWidth: 400,
+      imageHeight: 560,
+    });
+    expect(lee).toBe(true);
+  });
+
+  it("ignores a 4-letter common word when it is the whole token, and still flags a longer token or the whole surname", () => {
+    expect(tokenMatchesPlayerName("John Witherspoon", "WITH")).toBe(false);
+    expect(tokenMatchesPlayerName("John Witherspoon", "WITHER")).toBe(true);
+    expect(tokenMatchesPlayerName("Ted Williams", "WILL")).toBe(false);
+    expect(tokenMatchesPlayerName("Ted Williams", "WILLIAMS")).toBe(true);
+    expect(tokenMatchesPlayerName("Jack Long", "LONG")).toBe(true);
+    expect(tokenMatchesPlayerName("Evan Longoria", "LONG")).toBe(false);
+    expect(tokenMatchesPlayerName("Evan Longoria", "LONGORIA")).toBe(true);
+    expect(tokenMatchesPlayerName("Magic Johnson", "JOHNSTON")).toBe(true);
     expect(tokenMatchesPlayerName("Magic Johnson", "JOHNSON")).toBe(true);
   });
 
@@ -102,6 +141,28 @@ describe("surname matching", () => {
     expect(report.fail).toBe(2);
     expect(report.nameVisibleOutsideMask).toBe(1);
     expect(report.pass).toBe(1);
+  });
+
+  it("parses a cardId and leak list and compares it to sweep reasons", () => {
+    const pairs = parseExpectedLeaks(JSON.stringify([
+      { cardId: "leaked", leak: true },
+      { cardId: "quiet", leak: false },
+      { cardId: "plate", leak: true },
+      { cardId: "missing", leak: false },
+    ]));
+    const rows = compareExpectedLeaks(pairs, [
+      { id: "leaked", reason: NAME_VISIBLE_OUTSIDE_MASK },
+      { id: "quiet", reason: null },
+      { id: "plate", reason: "name_text_visible" },
+    ]);
+    expect(rows.map((row) => [row.cardId, row.match, row.reason])).toEqual([
+      ["leaked", true, NAME_VISIBLE_OUTSIDE_MASK],
+      ["quiet", true, null],
+      ["plate", false, "name_text_visible"],
+      ["missing", false, "card_not_found"],
+    ]);
+    expect(() => parseExpectedLeaks(`{"cardId":"x","leak":true}`)).toThrow(/JSON array/);
+    expect(() => parseExpectedLeaks(`[{"cardId":"x","leak":"yes"}]`)).toThrow(/true or false/);
   });
 });
 
@@ -286,7 +347,7 @@ describe("name visibility backfill", () => {
     expect(flagged).toEqual([leaked]);
     expect(counts.failed).toBe(1);
     expect(counts.passed).toBe(1);
-    await expect(readFile(path.join(dir, nameVisibilityPassFilename(quiet)), "utf8")).resolves.toContain("n1");
+    await expect(readFile(path.join(dir, nameVisibilityPassFilename(quiet)), "utf8")).resolves.toContain(NAME_VISIBILITY_CHECK_VERSION);
     await expect(readFile(path.join(dir, nameVisibilityPassFilename(leaked)), "utf8")).rejects.toThrow();
     await rm(dir, { recursive: true, force: true });
   });

@@ -2,7 +2,8 @@
  * Whole-image name check on an already masked JPEG.
  * The plate check only proves the printed name band is covered. A surname on a
  * jersey, a signature, or a headline still gives the card away. This does not
- * paint another mask. A hit outside the mask regions excludes the card.
+ * paint another mask and does not widen the band. A hit outside the mask
+ * regions excludes the card.
  */
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
@@ -14,28 +15,32 @@ import { recognizeNameWords, type OcrWordResult } from "./ocrRuntime";
 import { maskReadySidecarDir } from "./maskReadySidecar";
 
 /** Bump this when the matcher changes so warm v4.5 JPEGs are checked again. */
-export const NAME_VISIBILITY_CHECK_VERSION = "n1";
+export const NAME_VISIBILITY_CHECK_VERSION = "n2";
 
 export const NAME_VISIBLE_OUTSIDE_MASK = "name_visible_outside_mask";
 
-const RATIO_MIN = 0.8;
-const PARTIAL_RUN = 5;
+/** Contiguous surname letters that count as a partial leak. */
+export const PARTIAL_SURNAME_RUN = 4;
 
 /**
- * Surnames where a fuzzy or partial hit is too easy to confuse with other text.
- * An exact whole-word hit still counts.
+ * Very common English words, plus a few card-chrome words, all exactly 4 letters.
+ * A partial surname run is ignored only when the OCR token is exactly one of
+ * these words. A longer token that merely contains the word still leaks
+ * (`WITHER` contains `WITH`). The whole surname still leaks when the token is
+ * that surname, including Long or Will.
+ * `the` and `and` are 3 letters. They cannot form a 4-letter run, so they are
+ * not listed. Surname-shaped words (john, king, lee, hall, wood, ford) are
+ * not listed either.
  */
-const AMBIGUOUS_SURNAMES = new Set([
-  "smith", "johnson", "williams", "brown", "jones", "miller", "davis",
-  "garcia", "wilson", "anderson", "taylor", "thomas", "moore", "jackson",
-  "martin", "white", "harris", "clark", "lewis", "walker", "allen", "young",
-  "wright", "green", "adams", "baker", "nelson", "carter", "mitchell",
-  "roberts", "turner", "phillips", "campbell", "parker", "evans", "edwards",
-  "collins", "stewart", "morris", "rogers", "morgan", "murphy", "bailey",
-  "rivera", "cooper", "howard", "torres", "peterson", "watson", "brooks",
-  "kelly", "sanders", "price", "bennett", "barnes", "henderson", "coleman",
-  "jenkins", "perry", "powell", "hughes", "washington", "butler", "simmons",
-  "foster", "bryant", "russell", "griffin", "hayes", "jordan", "james",
+export const COMMON_OCR_WORDS: ReadonlySet<string> = new Set([
+  "also", "back", "base", "been", "card", "come", "down", "each",
+  "even", "ever", "find", "from", "give", "good", "have", "here",
+  "home", "into", "just", "know", "last", "like", "long", "look",
+  "made", "make", "many", "mint", "more", "most", "much", "only",
+  "over", "said", "same", "some", "such", "take", "team", "than",
+  "that", "them", "then", "they", "this", "time", "very", "want",
+  "well", "were", "what", "when", "will", "with", "word", "work",
+  "year", "your",
 ]);
 
 export interface NameOcrWord {
@@ -74,62 +79,28 @@ export function normalizeNameLetters(value: string): string {
     .replace(/[^a-z]/g, "");
 }
 
-/** Very short, or common enough that a fuzzy hit would be ambiguous. */
-export function surnameMatchIsAmbiguous(surname: string): boolean {
-  const letters = normalizeNameLetters(surname);
-  if (letters.length < 5) return true;
-  return AMBIGUOUS_SURNAMES.has(letters);
-}
-
-export function levenshteinRatio(a: string, b: string): number {
-  if (a === b) return 1;
-  const max = Math.max(a.length, b.length);
-  if (max === 0) return 1;
-  if (Math.abs(a.length - b.length) > Math.ceil(max * 0.34)) return 0;
-  const cols = b.length + 1;
-  let prev = new Array<number>(cols);
-  let curr = new Array<number>(cols);
-  for (let j = 0; j < cols; j++) prev[j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    curr[0] = i;
-    const ca = a.charCodeAt(i - 1);
-    for (let j = 1; j < cols; j++) {
-      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
-      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
-    }
-    const swap = prev;
-    prev = curr;
-    curr = swap;
-  }
-  return 1 - prev[b.length] / max;
-}
-
-function hasPartialSurnameRun(surname: string, token: string): boolean {
-  if (surname.length < 5 || token.length < PARTIAL_RUN) return false;
-  if (surname.includes(token)) return true;
-  for (let i = 0; i + PARTIAL_RUN <= surname.length; i++) {
-    if (token.includes(surname.slice(i, i + PARTIAL_RUN))) return true;
-  }
-  return false;
-}
-
 /**
- * Case-insensitive match of one OCR token against the surname or the full name.
- * Short and common surnames match only as a whole word. Longer surnames also
- * match a Levenshtein ratio and a contiguous letter run.
+ * Case-insensitive surname leak.
+ * A token leaks when it contains the whole surname (this is the rule for a
+ * surname of 4 letters or shorter, and it also catches a longer surname
+ * written out). A longer surname also leaks when the token contains 4 or more
+ * consecutive letters of that surname. The common-word guard applies only when
+ * that 4-letter run is the entire OCR token.
  */
 export function tokenMatchesPlayerName(playerName: string, rawToken: string): boolean {
   const token = normalizeNameLetters(rawToken);
   if (token.length < 2) return false;
-  const surname = playerSurname(playerName);
+  const surname = normalizeNameLetters(playerSurname(playerName));
   if (!surname) return false;
-  const full = normalizeNameLetters(tokenizePlayerName(playerName).join(""));
-  if (token === surname) return true;
-  if (full.length >= 5 && token === full) return true;
-  if (surnameMatchIsAmbiguous(surname)) return false;
-  if (levenshteinRatio(token, surname) >= RATIO_MIN) return true;
-  if (full.length >= 12 && levenshteinRatio(token, full) >= RATIO_MIN) return true;
-  return hasPartialSurnameRun(surname, token);
+  if (token.includes(surname)) return true;
+  if (surname.length <= PARTIAL_SURNAME_RUN || token.length < PARTIAL_SURNAME_RUN) return false;
+  if (token.length === PARTIAL_SURNAME_RUN && surname.includes(token) && COMMON_OCR_WORDS.has(token)) {
+    return false;
+  }
+  for (let i = 0; i + PARTIAL_SURNAME_RUN <= surname.length; i++) {
+    if (token.includes(surname.slice(i, i + PARTIAL_SURNAME_RUN))) return true;
+  }
+  return false;
 }
 
 export function wordSitsOutsideMask(
@@ -146,7 +117,7 @@ export function wordSitsOutsideMask(
   return !anyRegionCoversPoint(regions, cx, cy);
 }
 
-/** True when the surname or full name is legible outside every mask region. */
+/** True when the surname is legible outside every mask region. */
 export function visiblePlayerNameOutsideMask(input: {
   playerName: string;
   words: NameOcrWord[];
