@@ -2,6 +2,7 @@ import sharp from "sharp";
 import { CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
 import {
   resolveNameMaskPlan,
+  type NamePlateTrace,
   type OcrWordBox,
 } from "./nameLocalization";
 import { detectPsaSlabLayout } from "./slabLayout";
@@ -34,6 +35,10 @@ export interface MaskResult {
   orientationAmbiguous: boolean;
   /** The surname was found on a plate the set profile does not use. */
   layoutDisagreed: boolean;
+  /** Resolver measurements. Present on every bake. */
+  plateTrace: NamePlateTrace;
+  /** Upright source the boxes were measured on. Not written to the mask cache. */
+  sourceBuffer: Buffer;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -320,6 +325,8 @@ export async function maskCardImage(
     landscapeDesign: upright.landscapeDesign,
     orientationAmbiguous: upright.orientationAmbiguous,
     layoutDisagreed: plan.layoutDisagreed,
+    plateTrace: plan.plateTrace,
+    sourceBuffer: upright.buffer,
   };
 }
 

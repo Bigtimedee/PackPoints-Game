@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check } from "drizzle-orm/pg-core";
+import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "./maskRefusal";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -4040,6 +4041,35 @@ export const cardImageMaskCache = pgTable("card_image_mask_cache", {
 ]);
 
 export type CardImageMaskCache = typeof cardImageMaskCache.$inferSelect;
+
+/**
+ * One row per v4.6 bake that refused to serve a mask.
+ * `source_image` is the upright scan the boxes were measured on. List queries omit it.
+ * Not the masked-image cache. Player routes never read this table.
+ */
+export const maskBakeRefusals = pgTable("mask_bake_refusals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cardId: text("card_id").notNull(),
+  gameSetId: text("game_set_id"),
+  reason: text("reason").notNull(),
+  layoutClass: text("layout_class"),
+  profileSource: text("profile_source"),
+  expectedPlate: jsonb("expected_plate").$type<MaskPlateBox | null>(),
+  ocrBoxes: jsonb("ocr_boxes").$type<MaskRefusalOcrBox[]>().notNull().default([]),
+  candidates: jsonb("candidates").$type<MaskRefusalCandidate[]>().notNull().default([]),
+  paintRegions: jsonb("paint_regions").$type<MaskRegion[]>().notNull().default([]),
+  maskVersion: text("mask_version").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  sourceImage: bytea("source_image"),
+  contentType: text("content_type"),
+  imageWidth: integer("image_width"),
+  imageHeight: integer("image_height"),
+}, (table) => [
+  index("idx_mask_bake_refusals_card").on(table.cardId),
+  index("idx_mask_bake_refusals_set_created").on(table.gameSetId, table.createdAt),
+]);
+
+export type MaskBakeRefusal = typeof maskBakeRefusals.$inferSelect;
 
 export const operationSources = ["ADMIN_MANUAL", "SYSTEM_NON_DESTRUCTIVE", "CARDHEDGE_CONFIRMED"] as const;
 export type OperationSource = typeof operationSources[number];

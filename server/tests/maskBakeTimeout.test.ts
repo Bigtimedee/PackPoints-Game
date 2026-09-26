@@ -78,6 +78,15 @@ const failedCover: MaskResult = {
   layoutClass: "BOTTOM_PLAQUE",
   coverageOk: false,
   coverageReason: "mask_name_uncovered",
+  plateTrace: {
+    imageWidth: 200,
+    imageHeight: 280,
+    expectedPlate: null,
+    ocrBoxes: [],
+    candidates: [],
+    decision: "default",
+  },
+  sourceBuffer: Buffer.from("source"),
 };
 
 describe("mask bake timeouts", () => {

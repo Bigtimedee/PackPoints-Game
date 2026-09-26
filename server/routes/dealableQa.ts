@@ -8,6 +8,8 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { isMaskBakeTimeout } from "../masking/maskingService";
+import { latestMaskBakeRefusalImage, listMaskBakeRefusals } from "../masking/maskRefusalLog";
+import { renderRefusalAttemptPng, renderRefusalDebugPng } from "../masking/maskRefusalPng";
 import {
   dealableMaskedFile,
   dealablePageLimit,
@@ -37,6 +39,22 @@ function qaJson(req: Request, res: Response, status: number, payload: unknown): 
   res.status(status);
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Length", Buffer.byteLength(body));
+  res.end(body);
+}
+
+function querySetId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function qaImage(req: Request, res: Response, body: Buffer, contentType: string): void {
+  qaHeaders(req, res);
+  res.status(200);
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Length", body.length);
+  res.setHeader("Content-Security-Policy", "default-src 'none'");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.end(body);
 }
 
@@ -111,6 +129,70 @@ export function registerDealableQaRoutes(app: Express): void {
           return;
         }
         qaNotFound(req, res);
+      });
+  });
+
+  app.get("/api/qa/rejected-cards", (req, res) => {
+    if (!authorized(req, res)) return;
+    const offset = dealablePageOffset(req.query.offset);
+    const limit = dealablePageLimit(req.query.limit);
+    void listMaskBakeRefusals(querySetId(req.query.setId), offset, limit)
+      .then((page) => {
+        qaJson(req, res, 200, {
+          maskVersion: CURRENT_MASK_VERSION,
+          total: page.total,
+          offset,
+          limit,
+          refusals: page.refusals,
+        });
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
+      });
+  });
+
+  app.get("/api/qa/rejected-cards/:cardId/debug.png", (req, res) => {
+    if (!authorized(req, res)) return;
+    void latestMaskBakeRefusalImage(req.params.cardId)
+      .then(async (row) => {
+        if (!row) {
+          qaNotFound(req, res);
+          return;
+        }
+        qaImage(req, res, await renderRefusalDebugPng(row), "image/png");
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
+      });
+  });
+
+  app.get("/api/qa/rejected-cards/:cardId/source", (req, res) => {
+    if (!authorized(req, res)) return;
+    void latestMaskBakeRefusalImage(req.params.cardId)
+      .then((row) => {
+        if (!row) {
+          qaNotFound(req, res);
+          return;
+        }
+        qaImage(req, res, row.sourceImage, row.contentType);
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
+      });
+  });
+
+  app.get("/api/qa/rejected-cards/:cardId/attempt.png", (req, res) => {
+    if (!authorized(req, res)) return;
+    void latestMaskBakeRefusalImage(req.params.cardId)
+      .then(async (row) => {
+        if (!row) {
+          qaNotFound(req, res);
+          return;
+        }
+        qaImage(req, res, await renderRefusalAttemptPng(row.sourceImage, row.paintRegions), "image/png");
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
       });
   });
 }
