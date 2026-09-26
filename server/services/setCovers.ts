@@ -60,7 +60,7 @@ export function clearReadyCoverIndexForTests(): void {
   readyIndex = null;
 }
 
-function readyCardIds(dir = maskReadySidecarDir()): Set<string> {
+export function readyMaskedCardIds(dir = maskReadySidecarDir()): Set<string> {
   const now = Date.now();
   if (readyIndex && readyIndex.dir === dir && now - readyIndex.at < READY_INDEX_TTL_MS) {
     return readyIndex.ids;
@@ -89,7 +89,7 @@ async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]
   for (const id of setIds) out.set(id, []);
   if (setIds.length === 0) return out;
 
-  const ready = readyCardIds();
+  const ready = readyMaskedCardIds();
   if (ready.size === 0) return out;
 
   const filters = [

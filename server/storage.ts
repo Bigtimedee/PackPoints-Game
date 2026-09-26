@@ -9,12 +9,13 @@ import { fetch1987ToppsCards } from "./services/priceCharting";
 import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull, notInArray } from "drizzle-orm";
 import { eligibleDealFilter } from "./services/playableSetEligibility";
-import { cardNotBlockedSql, isBlockedCard } from "./lib/cardBlocklist";
+import { isBlockedCard } from "./lib/cardBlocklist";
 import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
+import { rankReplacementCandidates, REPLACEMENT_COLD_ATTEMPTS } from "./lib/replacementPool";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "./masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerCards, omitNonPlayerNames } from "@shared/nonPlayerCard";
@@ -1025,121 +1026,100 @@ export class DatabaseStorage implements IStorage {
       expectedSport = gameSet?.sport?.toLowerCase() || null;
     }
 
-    // Query for a replacement card - ONLY cards with validated images
-    // CRITICAL: Also exclude known silhouette URL patterns
-    let replacementCard: typeof playableCards.$inferSelect | undefined;
-    
-    if (targetSetId) {
-      const candidates = await db
-        .select()
-        .from(playableCards)
-        .where(
-          and(
-            eq(playableCards.gameSetId, targetSetId),
-            eq(playableCards.isPlayable, true),
-            or(
-              eq(playableCards.imageReviewStatus, "pending"),
-              eq(playableCards.imageReviewStatus, "approved")
-            ),
-            // CRITICAL: Exclude known silhouette URL patterns
-            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
-            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
-            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%')),
-            cardNotBlockedSql("playable_cards"),
-          )
-        )
-        .limit(50);
-      
-      // Filter out used cards, silhouettes, and filter by sport category
-      let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandExcluded(c.id)));
-      
-      // Also filter by sport category for additional safety
-      if (expectedSport) {
-        available = available.filter(c => {
-          const cardCategory = (c.category || "").toLowerCase();
-          return cardCategory === expectedSport;
-        });
-      }
-      
-      if (available.length > 0) {
-        replacementCard = available[Math.floor(Math.random() * available.length)];
-      }
-    }
+    const sameSet = targetSetId ? await this.loadReplacementCandidates(targetSetId, usedCardIds, expectedSport) : [];
+    const fromSameSet = await this.acceptReplacementCandidate(sameSet);
+    if (fromSameSet) return fromSameSet;
 
-    // If no replacement found from same set, try another active set WITH THE SAME SPORT
-    // CRITICAL: Also exclude known silhouette URL patterns
-    if (!replacementCard && expectedSport) {
-      // Find an active set with the same sport and validated images
+    if (expectedSport) {
+      const fallbackFilters = [
+        eq(gameSets.isActive, true),
+        sql`LOWER(${gameSets.sport}) = ${expectedSport}`,
+        eligibleDealFilter("playable_cards"),
+        sql`LOWER(${playableCards.category}) = ${expectedSport}`,
+      ];
+      if (targetSetId) fallbackFilters.push(sql`${gameSets.id} <> ${targetSetId}`);
       const [fallbackSet] = await db
         .select({ id: gameSets.id })
         .from(gameSets)
         .innerJoin(playableCards, eq(playableCards.gameSetId, gameSets.id))
-        .where(
-          and(
-            eq(gameSets.isActive, true),
-            sql`LOWER(${gameSets.sport}) = ${expectedSport}`,
-            eq(playableCards.isPlayable, true),
-            isNotNull(playableCards.imageUrl),
-            // CRITICAL: Exclude known silhouette URL patterns
-            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
-            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
-            not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
-          )
-        )
+        .where(and(...fallbackFilters))
         .groupBy(gameSets.id)
         .limit(1);
-      
       if (fallbackSet) {
-        const candidates = await db
-          .select()
-          .from(playableCards)
-          .where(
-            and(
-              eq(playableCards.gameSetId, fallbackSet.id),
-              eq(playableCards.isPlayable, true),
-              or(
-                eq(playableCards.imageReviewStatus, "pending"),
-                eq(playableCards.imageReviewStatus, "approved")
-              ),
-              // CRITICAL: Exclude known silhouette URL patterns
-              not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
-              not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
-              not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%')),
-              cardNotBlockedSql("playable_cards"),
-            )
-          )
-          .limit(50);
-        
-        // Filter by sport category and silhouettes for extra safety
-        let available = omitNonPlayerCards(candidates.filter(c => !usedCardIds.has(c.id) && !isKnownSilhouetteUrl(c.imageUrl) && !isBlockedCard(c.gameSetId, c.player) && !isMaskBandExcluded(c.id)));
-        available = available.filter(c => {
-          const cardCategory = (c.category || "").toLowerCase();
-          return cardCategory === expectedSport;
-        });
-        
-        if (available.length > 0) {
-          replacementCard = available[Math.floor(Math.random() * available.length)];
+        const fallbackCards = await this.loadReplacementCandidates(fallbackSet.id, usedCardIds, expectedSport);
+        const fromFallback = await this.acceptReplacementCandidate(fallbackCards);
+        if (fromFallback) {
           console.log(`[CardReplacement] Using fallback set ${fallbackSet.id} for sport ${expectedSport}`);
+          return fromFallback;
         }
       }
     }
 
-    if (!replacementCard) {
-      console.log(`[CardReplacement] No replacement found for sport ${expectedSport || 'unknown'}`);
-      return null;
+    console.log(`[CardReplacement] No replacement found for sport ${expectedSport || 'unknown'}`);
+    return null;
+  }
+
+  private async loadReplacementCandidates(
+    setId: string,
+    usedCardIds: Set<string>,
+    expectedSport: string | null,
+  ): Promise<PlayableCard[]> {
+    const filters = [
+      eq(playableCards.gameSetId, setId),
+      eligibleDealFilter("playable_cards"),
+    ];
+    if (expectedSport) {
+      filters.push(sql`LOWER(${playableCards.category}) = ${expectedSport}`);
     }
+    const candidates = await db
+      .select()
+      .from(playableCards)
+      .where(and(...filters))
+      .orderBy(sql`RANDOM()`)
+      .limit(80);
+    return omitNonPlayerCards(candidates.filter((card) =>
+      !usedCardIds.has(card.id)
+      && !isKnownSilhouetteUrl(card.imageUrl)
+      && !isBlockedCard(card.gameSetId, card.player)
+      && !isMaskBandExcluded(card.id)
+    ));
+  }
 
-    // Refresh the card image if stale before serving
-    const [refreshedCard] = await this.refreshStaleCardImages([replacementCard]);
+  /** Baked cards first. A cold bake that 422s is skipped, a few times, before 404. */
+  private async acceptReplacementCandidate(
+    cards: PlayableCard[],
+  ): Promise<{ question: GameQuestion; flagged: boolean } | null> {
+    const { readMaskFailureReason, maskReadySidecarDir } = await import("./masking/maskReadySidecar");
+    const { peekWarmMaskedFilename, getMaskedImagePath } = await import("./masking/maskingService");
+    const { resolveReadyWarmMaskedFile } = await import("./startup/warmMaskGate");
+    const maskDir = maskReadySidecarDir();
+    const { baked, cold } = rankReplacementCandidates(cards, {
+      isFailed: (card) => readMaskFailureReason(card.id) != null,
+      isBaked: (card) => peekWarmMaskedFilename(card.id) != null
+        || resolveReadyWarmMaskedFile(maskDir, card.id) != null,
+    });
+    for (const card of baked) {
+      const question = await this.questionForReplacement(card);
+      if (question) return { question, flagged: true };
+    }
+    let attempts = 0;
+    for (const card of cold) {
+      if (attempts >= REPLACEMENT_COLD_ATTEMPTS) break;
+      attempts += 1;
+      if (readMaskFailureReason(card.id)) continue;
+      const bakedPath = await getMaskedImagePath(card.id);
+      if (!bakedPath || readMaskFailureReason(card.id)) continue;
+      const question = await this.questionForReplacement(card);
+      if (question) return { question, flagged: true };
+    }
+    return null;
+  }
 
-    // Get player names for options
-    const additionalNames = await this.getSamplePlayerNamesFromSet(
-      refreshedCard.gameSetId || "",
-      100
-    );
-    const question = await this.generateQuestionFromPlayableCard(refreshedCard, additionalNames);
-
-    return { question, flagged: true };
+  private async questionForReplacement(card: PlayableCard): Promise<GameQuestion | null> {
+    const [refreshedCard] = await this.refreshStaleCardImages([card]);
+    if (!refreshedCard) return null;
+    const additionalNames = await this.getSamplePlayerNamesFromSet(refreshedCard.gameSetId || "", 100);
+    return this.generateQuestionFromPlayableCard(refreshedCard, additionalNames);
   }
 
   async flagCardForImageFailure(cardId: string): Promise<void> {

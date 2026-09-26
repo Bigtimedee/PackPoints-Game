@@ -34,11 +34,12 @@ import {
   isMaskedPlayImageUrl,
   isUnmaskedCardUrl,
   maskedImageRetrySrc,
+  isMaskRefusalStatus,
   probeMaskedImageStatus,
   shouldRetryMaskedImageLoad,
   TRANSIENT_RETRY_MS,
 } from "@/lib/transientLoad";
-import { isPlayCardImageReady, markPlayCardImageReady } from "@/lib/prefetchPlayCardImages";
+import { isMaskedUrlRefused, isPlayCardImageReady, markMaskedUrlRefused, markPlayCardImageReady } from "@/lib/prefetchPlayCardImages";
 
 interface MaskConfig {
   setKey: string;
@@ -193,6 +194,8 @@ interface GameCardProps {
   /** Solo replace lifecycle. Omitted on Daily 5 and 1v1. */
   replacePhase?: SoloReplacePhase;
   onRetryImage?: () => void;
+  /** 422 mask refusal. Skip image retries and replace the card. */
+  onMaskRefused?: () => void;
 }
 
 export function GameCard({
@@ -225,6 +228,7 @@ export function GameCard({
   revealedPlayerName,
   replacePhase,
   onRetryImage,
+  onMaskRefused,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const [honestRetry, setHonestRetry] = useState(0);
@@ -419,6 +423,13 @@ export function GameCard({
     void (async () => {
       const status = await probeMaskedImageStatus(url);
       if (epoch !== imageEpoch.current) return;
+      if (isMaskRefusalStatus(status)) {
+        markMaskedUrlRefused(url);
+        setImageError(true);
+        if (onMaskRefused) onMaskRefused();
+        else onImageError?.();
+        return;
+      }
       if (!shouldRetryMaskedImageLoad({ url, status, alreadyRetried: deployRetryRef.current > 0 })) {
         failImage();
         return;
@@ -545,11 +556,12 @@ export function GameCard({
                 You can still answer.
               </p>
             )}
-            {imageErrorKind === "honest" && (
+            {imageErrorKind === "honest" && !isMaskedUrlRefused(baseImageUrl) && (
               <Button
                 variant="outline"
                 className={`mt-3 ${outlineButtonClass}`}
                 onClick={() => {
+                  if (isMaskedUrlRefused(baseImageUrl)) return;
                   setImageError(false);
                   setImageLoaded(false);
                   setHonestRetry((count) => count + 1);
@@ -577,6 +589,10 @@ export function GameCard({
                     variant="outline"
                     className={outlineButtonClass}
                     onClick={() => {
+                      if (isMaskedUrlRefused(baseImageUrl)) {
+                        onRetryImage?.();
+                        return;
+                      }
                       setImageError(false);
                       setImageLoaded(false);
                       setHonestRetry((count) => count + 1);

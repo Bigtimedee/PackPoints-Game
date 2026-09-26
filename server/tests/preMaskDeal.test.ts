@@ -25,7 +25,7 @@ describe("masked-image warm path", () => {
     expect(maskingSrc).toContain("export function peekWarmMaskedFilename");
     expect(maskingSrc).toContain("${cardId}_${CURRENT_MASK_VERSION}.jpg");
     expect(maskingSrc.indexOf("const warm = peekWarmMaskedFilename(cardId)")).toBeLessThan(
-      maskingSrc.indexOf("const promise = generateMaskedImage(cardId)"),
+      maskingSrc.indexOf("generateMaskedImage(cardId"),
     );
   });
 

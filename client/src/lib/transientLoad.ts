@@ -26,6 +26,11 @@ export function isUnmaskedCardUrl(url: string): boolean {
   return path.includes("/api/images/card") || path.includes("/api/play/r/");
 }
 
+/** Mask bake refused. Do not reload the JPEG. Replace the card. */
+export function isMaskRefusalStatus(status: number | null): boolean {
+  return status === 422;
+}
+
 export function shouldRetryMaskedImageLoad(input: {
   url: string;
   /** null is a network error. */
@@ -35,6 +40,7 @@ export function shouldRetryMaskedImageLoad(input: {
   if (input.alreadyRetried) return false;
   if (!input.url || isUnmaskedCardUrl(input.url)) return false;
   if (!isMaskedPlayImageUrl(input.url)) return false;
+  if (isMaskRefusalStatus(input.status)) return false;
   if (input.status == null) return true;
   return isTransientHttpStatus(input.status);
 }

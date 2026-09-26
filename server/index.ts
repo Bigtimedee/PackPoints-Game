@@ -25,6 +25,7 @@ import { installBootSchemaShutdownHook, StartupTimeoutError, STORAGE_INIT_TIMEOU
 import { runProductionSchemaBoot } from "./startup/schemaBoot";
 import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
 import { startMaskBandGuardScan } from "./masking/maskBandLimit";
+import { startMaskWarmup } from "./startup/maskWarmup";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -468,6 +469,7 @@ app.use((req, res, next) => {
   if (process.env.NODE_ENV === "production") {
     startWarmSidecarBackfill();
     startMaskBandGuardScan();
+    startMaskWarmup();
   }
 
   try {

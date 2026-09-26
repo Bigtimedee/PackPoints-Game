@@ -38,8 +38,21 @@ export async function enqueueJob(
  * Claim and run the next pending job of a given type.
  * Uses SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent workers.
  */
-async function processNextJob(jobType: string): Promise<boolean> {
+type ClaimedJob = {
+  id: number;
+  payload: Record<string, unknown> | null;
+  attempts: number;
+  max_attempts: number;
+};
+
+/**
+ * Claim the next job, then run it.
+ * The claim connection is released before the handler. A mask warmup bakes a
+ * whole set and must not hold a pool client across those batches.
+ */
+export async function runNextPendingJob(jobType: string): Promise<boolean> {
   const client = await pool.connect();
+  let job: ClaimedJob | null = null;
   try {
     await client.query('BEGIN');
 
@@ -60,7 +73,7 @@ async function processNextJob(jobType: string): Promise<boolean> {
       return false;
     }
 
-    const job = claimResult.rows[0];
+    job = claimResult.rows[0] as ClaimedJob;
 
     await client.query(
       `UPDATE job_queue
@@ -70,46 +83,48 @@ async function processNextJob(jobType: string): Promise<boolean> {
     );
 
     await client.query('COMMIT');
-
-    const handler = handlers.get(jobType);
-    if (!handler) {
-      await pool.query(
-        `UPDATE job_queue SET status = 'failed', last_error = $1, updated_at = NOW() WHERE id = $2`,
-        [`No handler registered for job type: ${jobType}`, job.id]
-      );
-      return true;
-    }
-
-    try {
-      await handler(job.payload || {});
-      await pool.query(
-        `UPDATE job_queue SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
-        [job.id]
-      );
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      const nextAttempts = job.attempts + 1;
-      const newStatus = nextAttempts >= job.max_attempts ? 'failed' : 'pending';
-      // Exponential backoff: retry after 2^attempts minutes
-      const retryDelay = newStatus === 'pending' ? Math.pow(2, nextAttempts) * 60 * 1000 : 0;
-      const scheduledAt = new Date(Date.now() + retryDelay);
-
-      await pool.query(
-        `UPDATE job_queue
-         SET status = $1, last_error = $2, scheduled_at = $3, updated_at = NOW()
-         WHERE id = $4`,
-        [newStatus, errorMessage, scheduledAt, job.id]
-      );
-      console.error(`[JobQueue] Job ${job.id} (${jobType}) ${newStatus}: ${errorMessage}`);
-    }
-
-    return true;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
     client.release();
   }
+
+  if (!job) return false;
+
+  const handler = handlers.get(jobType);
+  if (!handler) {
+    await pool.query(
+      `UPDATE job_queue SET status = 'failed', last_error = $1, updated_at = NOW() WHERE id = $2`,
+      [`No handler registered for job type: ${jobType}`, job.id]
+    );
+    return true;
+  }
+
+  try {
+    await handler(job.payload || {});
+    await pool.query(
+      `UPDATE job_queue SET status = 'completed', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [job.id]
+    );
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const nextAttempts = job.attempts + 1;
+    const newStatus = nextAttempts >= job.max_attempts ? 'failed' : 'pending';
+    // Exponential backoff: retry after 2^attempts minutes
+    const retryDelay = newStatus === 'pending' ? Math.pow(2, nextAttempts) * 60 * 1000 : 0;
+    const scheduledAt = new Date(Date.now() + retryDelay);
+
+    await pool.query(
+      `UPDATE job_queue
+       SET status = $1, last_error = $2, scheduled_at = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [newStatus, errorMessage, scheduledAt, job.id]
+    );
+    console.error(`[JobQueue] Job ${job.id} (${jobType}) ${newStatus}: ${errorMessage}`);
+  }
+
+  return true;
 }
 
 /**
@@ -127,7 +142,7 @@ export function scheduleRecurringJob(
   const tick = async () => {
     try {
       await enqueueJob(jobType);
-      await processNextJob(jobType);
+      await runNextPendingJob(jobType);
     } catch (err) {
       console.error(`[JobQueue] Error in recurring job ${jobType}:`, err);
     }

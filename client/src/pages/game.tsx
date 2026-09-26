@@ -579,12 +579,22 @@ export default function Game() {
     nextQuestionMutation.mutate("image_failure");
   };
 
+  const handleMaskRefused = () => {
+    const currentIndex = session?.currentQuestionIndex ?? -1;
+    if (isRevealed || currentIndex < 0) return;
+    if (replaceCardMutation.isPending || replacePhase === "replacing") return;
+    replaceStartedForIndex.current = currentIndex;
+    setReplacePhase("replacing");
+    replaceCardMutation.mutate(currentIndex);
+  };
+
   const handleRetryBrokenCard = () => {
     const currentIndex = session?.currentQuestionIndex ?? -1;
-    if (currentIndex >= 0) {
-      setReplacedQuestionIndices(prev => new Set(prev).add(currentIndex));
-    }
-    setReplacePhase((phase) => reduceSoloReplacePhase(phase, { type: "retry" }));
+    if (currentIndex < 0 || replaceCardMutation.isPending) return;
+    setShowSkipButton(false);
+    replaceStartedForIndex.current = currentIndex;
+    setReplacePhase("replacing");
+    replaceCardMutation.mutate(currentIndex);
   };
 
   // No longer auto-start - user selects card count first
@@ -1283,6 +1293,7 @@ export default function Game() {
                 }}
                 replacePhase={replacePhase}
                 onRetryImage={handleRetryBrokenCard}
+                onMaskRefused={handleMaskRefused}
                 onSkip={replacePhase === "failed" ? handleSkipBrokenCard : handleManualSkip}
                 sessionId={session?.id}
                 playScope="solo"

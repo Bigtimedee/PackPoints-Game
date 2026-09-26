@@ -4,6 +4,14 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
 import {
+  commitSoloAdvance,
+  commitSoloAnswer,
+  commitSoloComplete,
+  replaceGameSessionQuestion,
+  stampGameSessionQuestionFlag,
+  stampQuestionShownAt,
+} from "./lib/sessionWrite";
+import {
   loginLimiter,
   matchCreateLimiter,
   answerSubmitLimiter,
@@ -833,8 +841,9 @@ export async function registerRoutes(
       
       // Mark when the first question is shown for response time tracking
       if (session.questions[0]) {
-        (session.questions[0] as any).shownAt = new Date().toISOString();
-        await storage.updateGameSession(session);
+        const shownAt = new Date().toISOString();
+        (session.questions[0] as any).shownAt = shownAt;
+        await stampQuestionShownAt(session.id, 0, shownAt);
       }
 
       const { kickPreMask, cardIdsFromQuestions } = await import("./masking/preMaskDeal");
@@ -905,25 +914,23 @@ export async function registerRoutes(
 
       // Always flag the failed card for admin review (regardless of replacement availability)
       await storage.flagCardForImageFailure(failedCardId);
-      (session.questions[failedIndex] as any).imageFailure = true;
+      await stampGameSessionQuestionFlag(id, failedIndex, "imageFailure", true);
 
       const result = await storage.getReplacementCardForSession(id, failedCardId, excludeCardIds);
       
       if (!result) {
-        await storage.updateGameSession(session);
         console.log(`[CardReplacement] No replacement available for session ${id}, card ${failedCardId} (flagged for review, marked imageFailure)`);
         return res.status(404).json({ error: "No replacement card available", flagged: true });
       }
 
-      // Update the session with the replacement question, preserving imageFailure flag
+      // One question element. Never currentQuestionIndex.
       const replacement = result.question as any;
       replacement.imageFailure = true;
       const priorIds = Array.isArray((failedQuestion as any)?.replacedFromIds)
         ? (failedQuestion as any).replacedFromIds
         : [];
       replacement.replacedFromIds = [...priorIds, failedCardId];
-      session.questions[failedIndex] = replacement;
-      await storage.updateGameSession(session);
+      await replaceGameSessionQuestion(id, failedIndex, replacement);
 
       console.log(`[CardReplacement] Replaced card ${failedCardId} with ${result.question.card.id} in session ${id}`);
 
@@ -1117,7 +1124,7 @@ export async function registerRoutes(
         (freshCurrentQuestion as any).userAnswer = selectedAnswer;
         (freshCurrentQuestion as any).pointsEarned = pointsEarned;
 
-        // BUG-09: Stamp shownAt BEFORE updateGameSession so the value is persisted
+        // shownAt rides on the question element written below.
         if (!(freshCurrentQuestion as any).shownAt) {
           (freshCurrentQuestion as any).shownAt = new Date().toISOString();
         }
@@ -1143,7 +1150,14 @@ export async function registerRoutes(
           });
         } catch { /* never break gameplay for analytics */ }
 
-        await storage.updateGameSession(freshSession);
+        await commitSoloAnswer({
+          sessionId,
+          questionIndex,
+          question: freshCurrentQuestion,
+          score: freshSession.score,
+          correctAnswers: freshSession.correctAnswers,
+          matchPointsAwarded: (freshSession as any).matchPointsAwarded ?? 0,
+        });
 
         // Sync local session reference so the response below uses fresh data
         Object.assign(session, freshSession);
@@ -1260,6 +1274,7 @@ export async function registerRoutes(
       let shareImageUrl: string | undefined;
       let anonGate: Awaited<ReturnType<typeof creditAnonGame>> = null;
       const wasCompleted = session.status === "completed";
+      const fromIndex = session.currentQuestionIndex;
       if (session.currentQuestionIndex >= effectiveQuestionCount - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
@@ -1356,16 +1371,30 @@ export async function registerRoutes(
         }
         
         session.score = finalScore;
+        await commitSoloComplete({
+          sessionId: session.id,
+          score: session.score,
+          skippedQuestions: session.skippedQuestions ?? 0,
+          completedAt: session.completedAt || new Date().toISOString(),
+        });
       } else {
         session.currentQuestionIndex += 1;
-        // Mark when the new question is shown for response time tracking
         const nextQuestion = session.questions[session.currentQuestionIndex];
+        const shownAt = new Date().toISOString();
         if (nextQuestion) {
-          (nextQuestion as any).shownAt = new Date().toISOString();
+          (nextQuestion as any).shownAt = shownAt;
+        }
+        const advanced = await commitSoloAdvance({
+          sessionId: session.id,
+          expectedIndex: fromIndex,
+          skippedQuestions: session.skippedQuestions ?? 0,
+          shownAt: nextQuestion ? shownAt : null,
+        });
+        if (!advanced) {
+          const fresh = await storage.getGameSession(session.id);
+          if (fresh) Object.assign(session, fresh);
         }
       }
-      
-      await storage.updateGameSession(session);
 
       res.json({ ...sanitizeSessionForClient(session), shareImageUrl, ...(anonGate ? { anonGate } : {}) });
     } catch (error: any) {

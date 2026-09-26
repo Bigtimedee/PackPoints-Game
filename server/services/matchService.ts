@@ -873,10 +873,25 @@ class MatchService {
       return { matchState: null };
     }
     
-    const nextIndex = matchState.currentQuestionIndex + 1;
+    const previousIndex = matchState.currentQuestionIndex;
+    const [advanced] = await db.update(matches)
+      .set({ currentQuestionIndex: sql`${matches.currentQuestionIndex} + 1` })
+      .where(and(
+        eq(matches.id, matchId),
+        eq(matches.currentQuestionIndex, previousIndex),
+      ))
+      .returning({ currentQuestionIndex: matches.currentQuestionIndex });
+    if (!advanced) {
+      const [fresh] = await db
+        .select({ currentQuestionIndex: matches.currentQuestionIndex })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1);
+      if (fresh) matchState.currentQuestionIndex = fresh.currentQuestionIndex;
+      return { matchState };
+    }
+    const nextIndex = advanced.currentQuestionIndex;
     matchState.currentQuestionIndex = nextIndex;
-    
-    await db.update(matches).set({ currentQuestionIndex: nextIndex }).where(eq(matches.id, matchId));
     
     const matchEnd = await maybeFinish(matchState);
     
@@ -905,21 +920,24 @@ class MatchService {
 
   /** Keep the DB deal in sync so the opaque mask URL resolves to this card. */
   private async persistQuestion(matchId: string, idx: number, question: GameQuestion): Promise<void> {
-    const [match] = await db
-      .select({ questionsData: matches.questionsData })
-      .from(matches)
-      .where(eq(matches.id, matchId))
-      .limit(1);
-    if (!match?.questionsData) return;
-    let questions: GameQuestion[] = [];
-    try {
-      questions = JSON.parse(match.questionsData);
-    } catch {
-      return;
-    }
-    if (idx < 0 || idx >= questions.length) return;
-    questions[idx] = question;
-    await db.update(matches).set({ questionsData: JSON.stringify(questions) }).where(eq(matches.id, matchId));
+    await db.transaction(async (tx) => {
+      const [match] = await tx
+        .select({ questionsData: matches.questionsData })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .for("update")
+        .limit(1);
+      if (!match?.questionsData) return;
+      let questions: GameQuestion[] = [];
+      try {
+        questions = JSON.parse(match.questionsData);
+      } catch {
+        return;
+      }
+      if (idx < 0 || idx >= questions.length) return;
+      questions[idx] = question;
+      await tx.update(matches).set({ questionsData: JSON.stringify(questions) }).where(eq(matches.id, matchId));
+    });
   }
 
   async resyncCard(matchId: string, idx: number, userId: string): Promise<{ success: boolean; newQuestion?: GameQuestion; error?: string }> {
