@@ -25,7 +25,7 @@ function shelfSet(overrides: Partial<BrowseSet> & Pick<BrowseSet, "id" | "setNam
   };
 }
 
-function renderShelf(sets: BrowseSet[], isLoading = false): string {
+function renderShelf(sets: BrowseSet[], isLoading = false, coversDisabled = false): string {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -36,7 +36,7 @@ function renderShelf(sets: BrowseSet[], isLoading = false): string {
       createElement(
         Router,
         { ssrPath: "/sets", ssrSearch: "" },
-        createElement(BrowseSetsShelf, { sets, isLoading }),
+        createElement(BrowseSetsShelf, { sets, isLoading, coversDisabled }),
       ),
     ),
   );
@@ -154,6 +154,30 @@ describe("browse sets index", () => {
       expect(src).not.toContain("/api/images/card");
       expect(src).not.toContain("bubble.io");
     }
+  });
+
+  it("renders a title-only tile when covers are disabled", () => {
+    const html = renderShelf([
+      shelfSet({
+        id: "set-hidden-cover",
+        setName: "1989 Fleer Basketball",
+        brand: "Fleer",
+        cardCount: 168,
+        makerUsername: null,
+        shareImageUrl: "/generated/share/1989-fleer.png",
+      }),
+    ], false, true);
+    expect(html).toContain("1989 Fleer Basketball");
+    expect(html).toContain("168 cards");
+    expect(html).toContain("Play this set");
+    expect(html).toContain('data-testid="button-play-set-set-hidden-cover"');
+    expect(html).not.toContain("cover-masked-stack");
+    expect(html).not.toContain("cover-surface-a");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("/covers/");
+    expect(html).not.toContain("1989-fleer.png");
+    expect(html).not.toContain("Cover");
+    expect(html).not.toMatch(/[\u2013\u2014]/);
   });
 
   it("shows the empty shelf only when there are zero sets", () => {

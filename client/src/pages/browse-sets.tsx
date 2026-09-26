@@ -64,14 +64,16 @@ function PlayButton({
   );
 }
 
-function SetRow({ set }: { set: BrowseSet }) {
+function SetRow({ set, coversDisabled }: { set: BrowseSet; coversDisabled: boolean }) {
   return (
     <article
       className="space-y-3"
       data-testid={`card-set-${set.id}`}
     >
       <Link href={`/sets/${set.id}`} className="block space-y-3">
-        <SetCover shareImageUrl={set.shareImageUrl} cardUrls={set.coverCardUrls} />
+        {coversDisabled ? null : (
+          <SetCover shareImageUrl={set.shareImageUrl} cardUrls={set.coverCardUrls} />
+        )}
         <div className="space-y-1">
           <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }} data-testid="text-set-title">
             {formatIndexSetTitle({ setName: set.setName, brand: set.brand })}
@@ -105,9 +107,11 @@ function SetRowSkeleton() {
 export function BrowseSetsShelf({
   sets,
   isLoading,
+  coversDisabled = false,
 }: {
   sets: BrowseSet[];
   isLoading: boolean;
+  coversDisabled?: boolean;
 }) {
   return (
     <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
@@ -144,7 +148,9 @@ export function BrowseSetsShelf({
           </div>
         ) : (
           <div className="space-y-10">
-            {sets.map((set) => <SetRow key={set.id} set={set} />)}
+            {sets.map((set) => (
+              <SetRow key={set.id} set={set} coversDisabled={coversDisabled} />
+            ))}
           </div>
         )}
 
@@ -174,7 +180,7 @@ export function BrowseSetsShelf({
 }
 
 export default function BrowseSets() {
-  const { data, isLoading } = useQuery<{ sets: BrowseSet[] }>({
+  const { data, isLoading } = useQuery<{ sets: BrowseSet[]; coversDisabled?: boolean }>({
     queryKey: ["/api/sets"],
     queryFn: async () => {
       const res = await fetch("/api/sets?limit=50");
@@ -183,5 +189,11 @@ export default function BrowseSets() {
     staleTime: 60_000,
   });
 
-  return <BrowseSetsShelf sets={data?.sets ?? []} isLoading={isLoading} />;
+  return (
+    <BrowseSetsShelf
+      sets={data?.sets ?? []}
+      isLoading={isLoading}
+      coversDisabled={data?.coversDisabled === true}
+    />
+  );
 }

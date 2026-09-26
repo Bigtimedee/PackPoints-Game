@@ -10,6 +10,8 @@ import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
 import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT } from "@shared/setCoverUrl";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
+import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
+import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { eligibleDealFilter } from "./playableSetEligibility";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
@@ -128,6 +130,11 @@ async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]
 
 /** Masked cover paths for sets that already have baked sidecars. Empty means the cream placeholder. */
 export async function readyMaskedCoverUrls(setIds: string[]): Promise<Map<string, string[]>> {
+  if (setsCoversDisabled()) {
+    const hidden = new Map<string, string[]>();
+    for (const setId of setIds) hidden.set(setId, []);
+    return hidden;
+  }
   const cards = await readyCoverCardIds(setIds);
   const urls = new Map<string, string[]>();
   for (const setId of setIds) {
@@ -154,8 +161,28 @@ function coverNotReady(res: Response): void {
   res.status(404).json({ error: "Cover not ready" });
 }
 
+/** 404 that a CDN or browser must not store. res.json would attach an ETag. */
+function coverHidden(req: Request, res: Response): void {
+  stripConditionalValidators(req);
+  applyNoStoreHeaders(res);
+  res.removeHeader("X-Card-Id");
+  const body = JSON.stringify({ error: "Cover not ready" });
+  res.status(404);
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Length", Buffer.byteLength(body));
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(body);
+}
+
 /** Serves a baked masked JPEG. Does not bake and does not echo a card id. */
 export async function handlePublicSetCover(req: Request, res: Response): Promise<void> {
+  if (setsCoversDisabled()) {
+    coverHidden(req, res);
+    return;
+  }
   const setId = req.params.setId;
   const slot = Number(req.params.slot);
   if (!isMaskSetUuid(setId) || !Number.isInteger(slot) || slot < 0 || slot >= SET_COVER_SLOT_COUNT) {
