@@ -38,7 +38,7 @@ export async function recordMaskBakeRefusal(input: {
   plateTrace: NamePlateTrace | null;
   paintRegions: MaskRegion[];
   sourceImage: Buffer | null;
-}): Promise<void> {
+}): Promise<boolean> {
   try {
     let contentType: string | null = null;
     let imageWidth = input.plateTrace?.imageWidth ?? null;
@@ -73,8 +73,10 @@ export async function recordMaskBakeRefusal(input: {
       imageWidth,
       imageHeight,
     });
+    return true;
   } catch (error) {
     console.error(`[MaskRefusal] Failed to persist refusal for ${input.cardId}:`, error);
+    return false;
   }
 }
 
