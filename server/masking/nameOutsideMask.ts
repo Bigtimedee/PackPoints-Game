@@ -14,7 +14,7 @@ import { tokenizePlayerName } from "./nameLocalization";
 import { recognizeNameWords, type OcrWordResult } from "./ocrRuntime";
 import { maskReadySidecarDir } from "./maskReadySidecar";
 
-/** Bump this when the matcher changes so warm v4.5 JPEGs are checked again. */
+/** Bump this when the matcher changes so warm JPEGs of this mask version are checked again. */
 export const NAME_VISIBILITY_CHECK_VERSION = "n2";
 
 export const NAME_VISIBLE_OUTSIDE_MASK = "name_visible_outside_mask";

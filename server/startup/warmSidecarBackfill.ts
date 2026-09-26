@@ -254,6 +254,8 @@ export function startWarmSidecarBackfill(): void {
     try {
       await runWarmSidecarBackfill();
       await runNameVisibilityBackfill();
+      const { logAndBakeUnverifiedSubsets } = await import("../masking/subsetQuarantine");
+      await logAndBakeUnverifiedSubsets();
       const { swapFailedCardsOnTodayChallenge } = await import("../services/daily5FailedCardSwap");
       await swapFailedCardsOnTodayChallenge();
     } catch (err) {

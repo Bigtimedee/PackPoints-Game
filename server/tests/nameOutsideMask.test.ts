@@ -140,6 +140,11 @@ describe("surname matching", () => {
     }]);
     expect(report.fail).toBe(2);
     expect(report.nameVisibleOutsideMask).toBe(1);
+    expect(report.layoutDisagreed).toBe(0);
+    expect(report.exclusionsByReason).toEqual({
+      [NAME_VISIBLE_OUTSIDE_MASK]: 1,
+      name_text_visible: 1,
+    });
     expect(report.pass).toBe(1);
   });
 

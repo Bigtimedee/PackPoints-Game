@@ -291,8 +291,8 @@ describe("upright mask bake", () => {
     expect(isGreen(maskedPhoto.r, maskedPhoto.g, maskedPhoto.b)).toBe(true);
   });
 
-  it("keeps v4.5 for upright files and suffixes only a rotated bake", async () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+  it("keeps v4.6 for upright files and suffixes only a rotated bake", async () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
     expect(warmMaskedFilename("card-plain")).toBe(`card-plain_${CURRENT_MASK_VERSION}.jpg`);
     expect(warmMaskedFilename("card-turn", 90)).toBe(`card-turn_${CURRENT_MASK_VERSION}_r90.jpg`);
     expect(warmMaskedFilename("card-turn", 270)).toBe(`card-turn_${CURRENT_MASK_VERSION}_r270.jpg`);

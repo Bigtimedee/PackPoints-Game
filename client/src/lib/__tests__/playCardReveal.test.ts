@@ -16,7 +16,7 @@ describe("resolvePlayCardSrc", () => {
   it("keeps the baked JPEG until a successful submit", () => {
     expect(resolvePlayCardSrc({ maskedUrl: MASKED, submitted: false })).toBe(MASKED);
     expect(MASKED).toContain(`v=${CURRENT_MASK_VERSION}`);
-    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
   });
 
   it("swaps to the ACK reveal URL after successful submit", () => {

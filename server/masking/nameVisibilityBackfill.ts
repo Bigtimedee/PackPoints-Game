@@ -1,7 +1,7 @@
 /**
- * OCR already-baked v4.5 JPEGs off the request path.
- * A pass writes `{cardId}_v4.5.n2`. A surname outside the mask quarantines the
- * card and does not paint a jersey mask. Mask version stays v4.5.
+ * OCR already-baked masked JPEGs off the request path.
+ * A pass writes `{cardId}_v4.6.n2`. A surname outside the mask quarantines the
+ * card and does not paint a jersey mask. Mask version is v4.6.
  */
 import { readFileSync, readdirSync } from "fs";
 import path from "path";
@@ -21,6 +21,7 @@ import {
   writeNameVisibilityPassed,
 } from "./nameOutsideMask";
 import { recognizeNameWords, type OcrWordResult } from "./ocrRuntime";
+import { markSubsetLayoutVerified } from "./subsetQuarantine";
 
 export interface NameVisibilityCounts {
   checked: number;
@@ -138,6 +139,7 @@ export async function inspectMaskedFile(input: {
       return "failed";
     }
     writeNameVisibilityPassed(input.cardId, input.dir);
+    await markSubsetLayoutVerified(input.cardId);
     return "passed";
   } catch (error) {
     console.error(

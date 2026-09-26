@@ -177,6 +177,8 @@ async function main(): Promise<void> {
       pass: row.pass,
       fail: row.fail,
       nameVisibleOutsideMask: row.nameVisibleOutsideMask,
+      layoutDisagreed: row.layoutDisagreed,
+      exclusionsByReason: row.exclusionsByReason,
       outliers: row.outliers.length,
     })),
   }, null, 2));

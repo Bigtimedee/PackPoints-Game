@@ -262,8 +262,8 @@ describe("Masking redesign — schema constants", () => {
 // ── Visual masking redesign v3.0 — maskProfiles ───────────────────────────────
 
 describe("Masking redesign — maskProfiles", () => {
-  it("CURRENT_MASK_VERSION is v4.5", () => {
-    expect(CURRENT_MASK_VERSION).toBe("v4.5");
+  it("CURRENT_MASK_VERSION is v4.6", () => {
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
   });
 
   it("default profile uses the 46% bottom plaque and no top band", () => {

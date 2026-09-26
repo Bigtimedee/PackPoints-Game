@@ -84,6 +84,8 @@ export interface SweepCardResult {
   height: number;
   pass: boolean;
   reason: string | null;
+  /** Surname plate was not the set profile's plate. */
+  layoutDisagreed?: boolean;
 }
 
 export interface SweepOutlier {
@@ -104,6 +106,10 @@ export interface SweepSetReport {
   fail: number;
   /** Cards whose surname was read outside the mask band. */
   nameVisibleOutsideMask: number;
+  /** Cards whose detected name plate was not the set profile's plate. */
+  layoutDisagreed: number;
+  /** Fail counts keyed by reason, including surname leaks and plate misses. */
+  exclusionsByReason: Record<string, number>;
   outliers: SweepOutlier[];
 }
 
@@ -150,6 +156,11 @@ export function reportMaskSweep(sets: Array<{
 }>): SweepSetReport[] {
   return sets.map((set) => {
     const pass = set.cards.filter((card) => card.pass).length;
+    const exclusionsByReason: Record<string, number> = {};
+    for (const card of set.cards) {
+      if (card.pass || !card.reason) continue;
+      exclusionsByReason[card.reason] = (exclusionsByReason[card.reason] || 0) + 1;
+    }
     return {
       setId: set.setId,
       setName: set.setName,
@@ -157,6 +168,8 @@ export function reportMaskSweep(sets: Array<{
       pass,
       fail: set.cards.length - pass,
       nameVisibleOutsideMask: set.cards.filter((card) => card.reason === NAME_VISIBLE_OUTSIDE_MASK).length,
+      layoutDisagreed: set.cards.filter((card) => card.layoutDisagreed).length,
+      exclusionsByReason,
       outliers: flagDimensionOutliers(set.cards),
     };
   });
@@ -173,7 +186,6 @@ export async function evaluateCardBuffer(input: {
   try {
     const meta = await sharp(input.buffer).metadata();
     const result = await maskCardImage(input.buffer, input.playerName, input.setHint, {
-      skipOcr: true,
       gameSetId: input.gameSetId,
     });
     if (!result.coverageOk) {
@@ -183,6 +195,7 @@ export async function evaluateCardBuffer(input: {
         height: meta.height || 0,
         pass: false,
         reason: result.coverageReason,
+        layoutDisagreed: result.layoutDisagreed,
       };
     }
     const outside = await verifyNameVisibleOutsideMask({
@@ -199,6 +212,7 @@ export async function evaluateCardBuffer(input: {
         height: meta.height || 0,
         pass: false,
         reason: "name_check_incomplete",
+        layoutDisagreed: result.layoutDisagreed,
       };
     }
     return {
@@ -207,6 +221,7 @@ export async function evaluateCardBuffer(input: {
       height: meta.height || 0,
       pass: outside.ok,
       reason: outside.reason,
+      layoutDisagreed: result.layoutDisagreed,
     };
   } catch {
     return {
