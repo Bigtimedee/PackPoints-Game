@@ -22,17 +22,23 @@ export function distinctBakedPlayers(
 
 /**
  * Version change warms every active set (covers, then the rest).
- * Otherwise a set is warm once it has enough distinct baked players.
+ * A finished set whose current-version cache is gone (cards remain, zero
+ * baked players) is warmed again. Otherwise a set is warm once it has enough
+ * distinct baked players, or once its warmup job has finished.
  */
 export function setNeedsMaskWarmup(input: {
   distinctBakedPlayers: number;
   versionChanged: boolean;
   alreadyFinished: boolean;
+  cardCount?: number;
   target?: number;
 }): boolean {
-  if (input.alreadyFinished && !input.versionChanged) return false;
   if (input.versionChanged) return true;
-  return input.distinctBakedPlayers < (input.target ?? MASK_WARMUP_COVER_TARGET);
+  const target = input.target ?? MASK_WARMUP_COVER_TARGET;
+  if (input.alreadyFinished) {
+    return (input.cardCount ?? 0) > 0 && input.distinctBakedPlayers === 0;
+  }
+  return input.distinctBakedPlayers < target;
 }
 
 /** Unbaked, non-failed cards. Eight distinct players first, then everyone else. */

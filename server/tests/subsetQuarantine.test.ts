@@ -17,12 +17,14 @@ const stamp = randomUUID().slice(0, 8);
 describe("subset quarantine", () => {
   const bareId = randomUUID();
   const breakerId = randomUUID();
+  const verifiedBreakerId = randomUUID();
+  const unverifiedLeaderId = randomUUID();
   const verifiedId = randomUUID();
   const baseId = randomUUID();
   const blockedShellId = randomUUID();
 
   afterAll(async () => {
-    await db.delete(playableCards).where(inArray(playableCards.id, [bareId, breakerId, verifiedId, baseId, blockedShellId]));
+    await db.delete(playableCards).where(inArray(playableCards.id, [bareId, breakerId, verifiedBreakerId, unverifiedLeaderId, verifiedId, baseId, blockedShellId]));
     await db.delete(gameSets).where(eq(gameSets.id, setId));
   });
 
@@ -32,6 +34,7 @@ describe("subset quarantine", () => {
     expect(cardMetadataMarksSubset({ description: "Team Leaders" })).toBe(true);
     expect(cardMetadataMarksSubset({ number: "CL" })).toBe(false);
     expect(cardMetadataMarksSubset({ description: "Checklist 1-132" })).toBe(true);
+    expect(cardMetadataMarksSubset({ variant: "Leader" })).toBe(true);
 
     await db.insert(gameSets).values({
       id: setId,
@@ -71,7 +74,9 @@ describe("subset quarantine", () => {
     await db.insert(playableCards).values([
       card(bareId, "Jerry Rice", null, false),
       card(breakerId, "Jerry Rice", "Record Breaker", false),
-      card(verifiedId, "Jerry Rice", "Record Breaker", true),
+      card(verifiedBreakerId, "Jerry Rice", "Record Breaker", true),
+      card(unverifiedLeaderId, "Jerry Rice", "Leader", false),
+      card(verifiedId, "Jerry Rice", "Leader", true),
       card(baseId, "Hanford Dixon", null, false),
       card(blockedShellId, "Donnie Shell", null, true),
     ]);
@@ -85,6 +90,8 @@ describe("subset quarantine", () => {
     expect(ids).toContain(baseId);
     expect(ids).toContain(verifiedId);
     expect(ids).not.toContain(breakerId);
+    expect(ids).not.toContain(verifiedBreakerId);
+    expect(ids).not.toContain(unverifiedLeaderId);
     expect(ids).not.toContain(blockedShellId);
   });
 });

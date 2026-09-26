@@ -196,6 +196,7 @@ export async function enqueueMaskWarmupJobs(dir = MASKED_CARDS_DIR): Promise<str
       distinctBakedPlayers: distinct,
       versionChanged,
       alreadyFinished: finished.has(setId),
+      cardCount: set.cards.length,
     });
     if (!needs) {
       console.log(`[MaskWarmup] set=${set.setName} id=${setId} bakedPlayers=${distinct} skip`);

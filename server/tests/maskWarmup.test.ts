@@ -29,6 +29,24 @@ describe("mask warmup plan", () => {
       versionChanged: true,
       alreadyFinished: true,
     })).toBe(true);
+    expect(setNeedsMaskWarmup({
+      distinctBakedPlayers: 0,
+      versionChanged: false,
+      alreadyFinished: true,
+      cardCount: cards.length,
+    })).toBe(true);
+    expect(setNeedsMaskWarmup({
+      distinctBakedPlayers: 0,
+      versionChanged: false,
+      alreadyFinished: true,
+      cardCount: 0,
+    })).toBe(false);
+    expect(setNeedsMaskWarmup({
+      distinctBakedPlayers: 8,
+      versionChanged: false,
+      alreadyFinished: true,
+      cardCount: cards.length,
+    })).toBe(false);
   });
 
   it("bakes eight distinct covers before the rest of the set", async () => {
