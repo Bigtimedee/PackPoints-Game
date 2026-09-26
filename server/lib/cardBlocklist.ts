@@ -28,6 +28,8 @@ export const CARD_BLOCKLIST: readonly CardBlocklistEntry[] = [
   { gameSetId: "229f0379", prefix: true, playerIncludes: "antetokounmpo" },
   // 1987 Topps Football Record Breaker: name is on the bottom banner. Also match Shell when the first name is Donnie.
   { gameSetId: "91cfdf3f-a620-4e73-adc8-22b8df221716", playerIncludes: "donnie shell", also: { includes: "shell", firstName: "donnie" } },
+  // 1987 Topps Football: full name is readable on the bottom banner while the set is masked at the top plate.
+  { gameSetId: "91cfdf3f-a620-4e73-adc8-22b8df221716", playerIncludes: "mark duper" },
   // 1989 Fleer: belt-and-braces for the earlier Kevin Johnson leak.
   { gameSetId: "aea515e2", prefix: true, playerIncludes: "kevin johnson" },
 ];

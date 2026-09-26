@@ -83,7 +83,7 @@ async function ensureSet(id: string, sport: string, year: number, setName: strin
 }
 
 describe("isBlockedCard", () => {
-  it("matches the three leaks and leaves other players", () => {
+  it("matches the four leaks and leaves other players", () => {
     expect(isBlockedCard("229f0379-1111-4111-8111-111111111111", "Giannis Antetokounmpo")).toBe(true);
     expect(isBlockedCard("229f0379-1111-4111-8111-111111111111", "ANTETOKOUNMPO")).toBe(true);
     expect(isBlockedCard(fleerSetId, "Giannis Antetokounmpo")).toBe(false);
@@ -93,6 +93,12 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(footballSetId, "donnie l. shell")).toBe(true);
     expect(isBlockedCard(footballSetId, "Art Shell")).toBe(false);
     expect(isBlockedCard(basketballSetId, "Donnie Shell")).toBe(false);
+
+    expect(isBlockedCard(footballSetId, "Mark Duper")).toBe(true);
+    expect(isBlockedCard(footballSetId, "MARK DUPER")).toBe(true);
+    expect(isBlockedCard(footballSetId, "mark duper")).toBe(true);
+    expect(isBlockedCard(basketballSetId, "Mark Duper")).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Mark Duper")).toBe(false);
 
     expect(isBlockedCard(fleerSetId, "Kevin Johnson")).toBe(true);
     expect(isBlockedCard(fleerOnlySetId, "KEVIN JOHNSON")).toBe(true);
