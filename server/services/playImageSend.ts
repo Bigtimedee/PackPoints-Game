@@ -156,7 +156,7 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     const cacheStatus = warmName ? "hit" : "miss";
 
     if (!maskedPath) {
-      const refused = takeCoverageRefusal(cardId);
+      const refused = readMaskFailureReason(cardId) || takeCoverageRefusal(cardId);
       if (refused) {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Mask-Coverage", "fail");

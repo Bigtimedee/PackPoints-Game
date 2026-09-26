@@ -63,4 +63,28 @@ describe("a fail marker returns 422 without baking", () => {
     expect(body.error).toBe("Playable mask refused");
     expect(baked).toBe(false);
   });
+
+  it("returns 422 on the first request when the bake writes a refusal", async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "packpts-fail-"));
+    setMaskReadySidecarDirForTests(dir);
+    setMaskPathLoaderForTests(async (cardId) => {
+      writeMaskFailureSidecar(cardId, "name_text_visible", dir);
+      return null;
+    });
+    let status = 0;
+    let body: { code?: string; reason?: string } = {};
+    const res = {
+      setHeader() { return this; },
+      status(code: number) { status = code; return this; },
+      json(payload: { code?: string; reason?: string }) { body = payload; return this; },
+    };
+    await sendMaskedCard(
+      { headers: {} } as Request,
+      res as unknown as Response,
+      "newly-refused",
+    );
+    expect(status).toBe(422);
+    expect(body.code).toBe("mask_name_uncovered");
+    expect(body.reason).toBe("name_text_visible");
+  });
 });

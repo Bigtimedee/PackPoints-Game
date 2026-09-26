@@ -138,12 +138,16 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(footballSetId, "", { number: "4" })).toBe(true);
   });
 
-  it("blocks 1987 Topps Football cards whose variant or description says Record Breaker or RB", () => {
+  it("blocks 1987 Topps Football cards whose variant or description says Record Breaker", () => {
     expect(isBlockedCard(footballSetId, "Joe Montana", { variant: "Record Breaker" })).toBe(true);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "recordbreaker" })).toBe(true);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "Record  Breaker" })).toBe(true);
-    expect(isBlockedCard(footballSetId, "Joe Montana", { variant: "RB" })).toBe(true);
-    expect(isBlockedCard(footballSetId, "Joe Montana", { description: "rb" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { variant: "RB" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { variant: "rb" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { description: "rb" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Some Back", { description: "RB" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Walter Payton RB Chicago Bears")).toBe(false);
+    expect(isBlockedCard(footballSetId, "Walter Payton - RB")).toBe(false);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "running back" })).toBe(false);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "Herb" })).toBe(false);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "RBI" })).toBe(false);
@@ -153,13 +157,18 @@ describe("isBlockedCard", () => {
 
   it("blocks multi-player text on every set and keeps single-player All-Star labels", () => {
     const other = "bbbbbbbb-1111-4111-8111-111111111111";
-    for (const text of ["Team Leaders", "League Leaders", "Leaders", "Checklist", "Combo", "Tandem", "Duo", "Trio", "Super Bowl", "vs.", "vs"]) {
+    for (const text of ["Team Leaders", "League Leaders", "Leaders", "Checklist", "Combo", "Combos", "Tandem", "Tandems", "Duo", "Duos", "Trio", "Trios", "vs."]) {
       expect(isBlockedCard(other, "Joe Montana", { description: text })).toBe(true);
     }
-    for (const text of ["All-Star", "All Star", "All-Stars", "All Stars", "Future Stars", "Rookie Stars", "Prospects", "Highlights"]) {
+    for (const text of ["All-Star", "All Star", "All-Stars", "All Stars", "Future Stars", "Rookie Stars", "Prospects", "Highlights", "Super Bowl"]) {
       expect(isBlockedCard(other, "Joe Montana", { variant: text })).toBe(false);
       expect(isBlockedCard(other, "Joe Montana", { description: text })).toBe(false);
     }
+    expect(isBlockedCard(other, "Joe Montana", { variant: "VS" })).toBe(false);
+    expect(isBlockedCard(other, "Joe Montana", { variant: "vs" })).toBe(false);
+    expect(isBlockedCard(other, "Joe Montana", { description: "vs" })).toBe(false);
+    expect(isBlockedCard(other, "Karl Malone vs John Stockton")).toBe(true);
+    expect(isBlockedCard(other, "Karl Malone vs. John Stockton")).toBe(true);
     expect(isBlockedCard(other, "Karl Malone / John Stockton", { variant: "All-Star" })).toBe(true);
     expect(isBlockedCard(other, "Ken Griffey / Barry Bonds", { variant: "Future Stars" })).toBe(true);
     expect(isBlockedCard(other, "Ken Griffey Jr. / Chipper Jones", { description: "Prospects" })).toBe(true);
@@ -186,6 +195,8 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(other, "Karl Malone, John Stockton")).toBe(true);
     expect(isBlockedCard(other, "Malone, Stockton, Eaton")).toBe(true);
     expect(isBlockedCard(other, "Ken Griffey - Barry Bonds")).toBe(true);
+    expect(isBlockedCard(other, "Smith, John Paul")).toBe(false);
+    expect(isBlockedCard(other, "Tony Gwynn - All-Star")).toBe(false);
     expect(isBlockedCard(other, "Ken Griffey Jr.")).toBe(false);
     expect(isBlockedCard(other, "Cal Ripken, Jr.")).toBe(false);
     expect(isBlockedCard(other, "Ken Griffey III")).toBe(false);
@@ -197,7 +208,17 @@ describe("isBlockedCard", () => {
   it("blocks vintage multi-player card numbers and leaves single-player numbers", () => {
     expect(isBlockedCard(fleerSetId, "Nobody Special", { number: "163" })).toBe(true);
     expect(isBlockedCard(fleerSetId, "Nobody Special", { number: "#168" })).toBe(true);
-    expect(isBlockedCard(fleerSetId, "Spud Webb", { number: "6" })).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Spud Webb", { number: "6" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Isiah Thomas", { number: "6" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Chris Mullin", { number: "9" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Isiah Thomas", { number: "50" })).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Chris Mullin", { number: "55" })).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Tom Chambers", { number: "11" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Robert Parish", { number: "12" })).toBe(false);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Mark McGwire", { number: "366" })).toBe(true);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Mark McGwire", { number: "100" })).toBe(false);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Jeff Lahti", { number: "367" })).toBe(false);
+    expect(isBlockedCard(basketballSetId, "Mark McGwire", { number: "366" })).toBe(false);
     expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Pete Rose", { number: "281" })).toBe(true);
     expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Wade Boggs", { number: "150" })).toBe(false);
     expect(isBlockedCard("352b33d1-1111-4111-8111-111111111111", "Mets Leaders", { number: "291" })).toBe(true);
@@ -216,10 +237,12 @@ describe("isBlockedCard", () => {
       "[blocklist] set=91cfdf3f recordBreakerNumbers=2,3,4,5,6,7,8 players=Todd Christensen,Dave Jennings,Charlie Joiner,Steve Largent,Dan Marino,Donnie Shell,Phil Simms,Mark Duper",
     );
     for (const line of multiPlayerBlocklistLogLines()) {
-      expect(line).toMatch(/^\[blocklist\] set=[0-9a-f]{8} multiPlayerNumbers=\d+(?:,\d+)* textRules=on$/);
+      expect(line).toMatch(/^\[blocklist\] set=[0-9a-f]{8} multiPlayerNumbers=\d+(?:,\d+)*(?: allStarNumbers=\d+(?:,\d+)*| mcgwireNumber=\d+)? textRules=on$/);
       expect(spy).toHaveBeenCalledWith(line);
     }
     expect(multiPlayerBlocklistLogLines()).toHaveLength(5);
+    expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=aea515e2") && line.includes("allStarNumbers=1,2,3,4,5,6,7,8,9,10,11"))).toBe(true);
+    expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=37fd025d") && line.includes("mcgwireNumber=366"))).toBe(true);
     spy.mockRestore();
   });
 
@@ -229,7 +252,8 @@ describe("isBlockedCard", () => {
     for (const number of ["2", "3", "4", "5", "6", "7", "8"]) {
       expect(body).toContain(`'${number}'`);
     }
-    expect(body).toContain("record[[:space:]]*breaker|\\mRB\\M");
+    expect(body).toContain("record[[:space:]]*breaker");
+    expect(body).not.toContain("\\mRB\\M");
     expect(body).toContain("playable_cards.number");
     expect(body).toContain("playable_cards.variant");
     expect(body).toContain("playable_cards.description");
@@ -327,7 +351,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
         .select({ player: playableCards.player })
         .from(playableCards)
         .where(and(inArray(playableCards.id, rows.map((row) => row.id)), cardNotBlockedSql("playable_cards")));
-      expect(kept.map((row) => row.player)).toEqual(["Jerry Rice"]);
+      expect(kept.map((row) => row.player).sort()).toEqual(["Jerry Rice", "Some Back"]);
     } finally {
       await db.delete(playableCards).where(inArray(playableCards.id, rows.map((row) => row.id)));
     }
@@ -335,7 +359,9 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
 
   it("drops multi-player cards in the deal predicate and keeps suffixes and hyphenated surnames", async () => {
     const topps1989 = "352b33d1-1111-4111-8111-111111111111";
+    const topps1987 = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
     await ensureSet(topps1989, "baseball", 1989, `1989 Topps ${stamp}`);
+    await ensureSet(topps1987, "baseball", 1987, `1987 Topps ${stamp}`);
     const samples: Array<{ setId: string; player: string; number: string; variant: string | null; description: string; keep: boolean }> = [
       { setId: basketballSetId, player: "Dee Brown", number: "6", variant: null, description: "Dee Brown", keep: true },
       { setId: basketballSetId, player: "Ken Griffey Jr.", number: "12", variant: null, description: "Ken Griffey Jr.", keep: true },
@@ -356,7 +382,13 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
       { setId: basketballSetId, player: "Luka Doncic", number: "12", variant: "insert", description: "Highlights", keep: true },
       { setId: basketballSetId, player: "Ken Griffey / Barry Bonds", number: "28", variant: "Future Stars", description: "Ken Griffey / Barry Bonds", keep: false },
       { setId: fleerSetId, player: "Nobody Special", number: "163", variant: null, description: "Nobody Special", keep: false },
-      { setId: fleerSetId, player: "Spud Webb", number: "6", variant: null, description: "Spud Webb", keep: true },
+      { setId: fleerSetId, player: "Spud Webb", number: "6", variant: null, description: "Spud Webb", keep: false },
+      { setId: fleerSetId, player: "Isiah Thomas", number: "50", variant: null, description: "Isiah Thomas", keep: true },
+      { setId: topps1987, player: "Mark McGwire", number: "366", variant: null, description: "Mark McGwire", keep: false },
+      { setId: basketballSetId, player: "Mark McGwire", number: "366", variant: null, description: "Mark McGwire", keep: true },
+      { setId: basketballSetId, player: "Smith, John Paul", number: "40", variant: null, description: "Smith, John Paul", keep: true },
+      { setId: basketballSetId, player: "Tony Gwynn - All-Star", number: "41", variant: null, description: "Tony Gwynn - All-Star", keep: true },
+      { setId: basketballSetId, player: "Walter Payton RB Chicago Bears", number: "42", variant: "rb", description: "Walter Payton RB Chicago Bears", keep: true },
     ];
     const rows = samples.map((sample, i) => ({
       ...card(sample.setId, sample.player, `2022-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, "basketball"),

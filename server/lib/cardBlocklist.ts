@@ -4,7 +4,7 @@
  * Over-blocking every card of that player in the set is intended.
  *
  * 1987 Topps Football Record Breakers are also blocked by normalized card number
- * and by Record Breaker / RB text on player, variant, or description, same set id.
+ * and by Record Breaker text on player, variant, or description, same set id.
  */
 import { and, asc, eq, notInArray, sql, type SQL } from "drizzle-orm";
 import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/schema";
@@ -56,16 +56,33 @@ export const TOPPS_1987_FOOTBALL_RECORD_BREAKERS: readonly { number: string; pla
 /** Name-only. Not a Record Breaker card number on the checklists above. */
 const TOPPS_1987_FOOTBALL_EXTRA_PLAYERS = ["Mark Duper"] as const;
 
-const RECORD_BREAKER_TEXT = /record\s*breaker|\bRB\b/i;
+const RECORD_BREAKER_TEXT = /record\s*breaker/i;
 const RECORD_BREAKER_NUMBERS = new Set(TOPPS_1987_FOOTBALL_RECORD_BREAKERS.map((row) => row.number));
 
 /**
  * Text that drops a card on its own, on every set. All-Star, Future Stars,
  * Rookie Stars, Prospects, and Highlights do not. Those drop only when the
  * player field names more than one person, or the number is on a vintage list.
- * Record Breaker text is limited to 1987 Topps Football below.
+ * Record Breaker text is limited to 1987 Topps Football below. Super Bowl is not
+ * text-only. "vs." needs the period; bare "VS" does not drop a card.
  */
-const MULTI_PLAYER_TEXT = /\b(?:team\s+leaders|league\s+leaders|leaders|check\s*lists?|combo|tandem|duo|trio|super\s+bowl)\b|\bvs\b\.?/i;
+const MULTI_PLAYER_TEXT = /\b(?:team\s+leaders|league\s+leaders|leaders|check\s*lists?|combos?|tandems?|duos?|trios?)\b|\bvs\./i;
+
+/** Whole side of a " - " or " vs " split that is a subset or position, not a person. */
+const SUBSET_OR_POSITION_LABELS = [
+  "all-star", "all star", "all-stars", "all stars",
+  "future stars", "rookie stars", "rookie", "rookies",
+  "prospect", "prospects", "highlight", "highlights",
+  "record breaker", "record breakers",
+  "team leaders", "league leaders", "leaders",
+  "checklist", "checklists",
+  "combo", "combos", "tandem", "tandems", "duo", "duos", "trio", "trios",
+  "super bowl", "insert", "inserts",
+  "rb", "qb", "wr", "te", "fb", "ol", "dl", "lb", "cb", "db", "de", "dt", "nt", "fs", "ss",
+  "pg", "sg", "sf", "pf", "guard", "forward", "center",
+  "pitcher", "catcher", "infielder", "outfielder",
+  "k", "p", "c", "g", "f",
+] as const;
 const NAME_SUFFIX = /^(?:jr|sr|ii|iii|iv|v)\.?$/i;
 
 /**
@@ -157,10 +174,42 @@ export function recordBreakerBlocklistLogLine(): string {
   return `[blocklist] set=91cfdf3f recordBreakerNumbers=${numbers} players=${players}`;
 }
 
+/**
+ * 1989-90 Fleer All-Star stickers, 11 cards, one per pack. The star border prints
+ * the name and position where the mask misses it. Isiah Thomas is sticker 6 and
+ * Chris Mullin is sticker 9 (live cover leaks). Trader Cracks lists 1-11;
+ * Beckett's set note is the same 11-sticker All-Star insert and lists Magic
+ * Johnson as 5. PSA prices Tom Chambers as 8, which Trader Cracks assigns to
+ * Dale Ellis (Chambers is 11 there). Both numberings sit inside 1-11, so the
+ * blocked set is that whole range. Base cards that share a number in 1-11 are
+ * blocked with the sticker; Isiah's base 50 and Mullin's base 55 stay playable.
+ * - https://www.tradercracks.com/1989-90-fleer-basketball-cards-checklist
+ * - https://marketplace.beckett.com/thefairfieldcompany_941/item/1989-90-fleer-stickers-5-magic-johnson_58762749
+ * - https://www.slamtradingcards.com.au/shop/nba/set/nba-1980s/1989-90-fleer/1989-90-fleer-all-stars-sticker-06-isiah-thomas-detroit-pistons
+ * - https://www.psacard.com/auctionprices/basketball-cards/1990-fleer-all-stars/tom-chambers/307741
+ */
+export const FLEER_1989_ALL_STAR_NUMBERS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] as const;
+const FLEER_1989_SET_PREFIX = "aea515e2";
+
+/**
+ * 1987 Topps baseball #366 Mark McGwire. The jersey back prints McGWIRE. Other
+ * McGwire cards in other sets stay playable.
+ * - https://www.cardboardconnection.com/1987-topps-baseball-cards
+ * - https://www.tcdb.com/ViewCard.cfm/sid/117/cid/35618/1987-Topps-366-Mark-McGwire
+ * - https://www.collectors-network.com/series/2059/1987_Topps_Tiffany_Baseball
+ */
+export const TOPPS_1987_BASEBALL_SET_PREFIX = "37fd025d";
+export const TOPPS_1987_MCGWIRE_NUMBER = "366";
+
 export function multiPlayerBlocklistLogLines(): string[] {
   return MULTI_PLAYER_NUMBER_SETS.map((set) => {
     const numbers = [...set.numbers].sort((a, b) => Number(a) - Number(b)).join(",");
-    return `[blocklist] set=${set.id} multiPlayerNumbers=${numbers} textRules=on`;
+    const extra = set.id === FLEER_1989_SET_PREFIX
+      ? ` allStarNumbers=${FLEER_1989_ALL_STAR_NUMBERS.join(",")}`
+      : set.id === TOPPS_1987_BASEBALL_SET_PREFIX
+        ? ` mcgwireNumber=${TOPPS_1987_MCGWIRE_NUMBER}`
+        : "";
+    return `[blocklist] set=${set.id} multiPlayerNumbers=${numbers}${extra} textRules=on`;
   });
 }
 
@@ -168,6 +217,35 @@ export function multiPlayerBlocklistLogLines(): string[] {
 export function logCardBlocklist(): void {
   console.log(recordBreakerBlocklistLogLine());
   for (const line of multiPlayerBlocklistLogLines()) console.log(line);
+}
+
+function isSubsetOrPositionLabel(side: string): boolean {
+  const key = side.trim().toLowerCase().replace(/\s+/g, " ");
+  return (SUBSET_OR_POSITION_LABELS as readonly string[]).includes(key);
+}
+
+function looksLikePersonName(side: string): boolean {
+  if (isSubsetOrPositionLabel(side)) return false;
+  const words = side.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  return words.every((word) => NAME_SUFFIX.test(word) || /^[A-Za-z][A-Za-z'.-]*$/.test(word));
+}
+
+/** " - " splits two people only when neither side is a subset or position label. */
+function dashNamesTwoPeople(text: string): boolean {
+  if (!/\s-\s/.test(text)) return false;
+  const sides = text.split(/\s-\s/).map((side) => side.trim()).filter(Boolean);
+  if (sides.length < 2) return false;
+  const people = sides.filter((side) => looksLikePersonName(side));
+  if (sides.length === 2) return people.length === 2;
+  return people.length >= 2;
+}
+
+/** " vs " or " vs. " between two person names in the player field. */
+function vsBetweenNames(text: string): boolean {
+  const sides = text.split(/\s+vs\.?\s+/i).map((side) => side.trim()).filter(Boolean);
+  if (sides.length < 2) return false;
+  return sides.filter((side) => looksLikePersonName(side)).length >= 2;
 }
 
 /** More than one person in the player field. "Last, First" and suffixes stay single. */
@@ -178,7 +256,7 @@ export function playerNamesManyPeople(player: string | null | undefined): boolea
     const sides = text.split("/").map((side) => side.trim()).filter(Boolean);
     if (sides.length >= 2 && sides.every((side) => /[A-Za-z]/.test(side))) return true;
   }
-  if (/\s&\s/.test(text) || /\sand\s/i.test(text) || /\s-\s/.test(text)) return true;
+  if (/\s&\s/.test(text) || /\sand\s/i.test(text) || dashNamesTwoPeople(text) || vsBetweenNames(text)) return true;
   const parts = text.split(",").map((part) => part.trim()).filter(Boolean);
   const people = parts.filter((part) => !NAME_SUFFIX.test(part));
   if (people.length >= 3) return true;
@@ -186,7 +264,8 @@ export function playerNamesManyPeople(player: string | null | undefined): boolea
     const words = (part: string) => part.split(/\s+/).filter((word) => word && !NAME_SUFFIX.test(word));
     const left = words(people[0]);
     const right = words(people[1]);
-    if (left.length >= 2 || right.length >= 2) return true;
+    // "Smith, John Paul" is one person. Two full names ("Karl Malone, John Stockton") are not.
+    if (left.length >= 2 && right.length >= 1) return true;
   }
   return false;
 }
@@ -199,6 +278,12 @@ function multiPlayerText(player: string | null | undefined, fields?: BlocklistCa
 function multiPlayerNumber(setId: string, number: string): boolean {
   if (!number) return false;
   return MULTI_PLAYER_NUMBER_SETS.some((set) => setId.startsWith(set.id) && set.numbers.includes(number));
+}
+
+function leakedChecklistNumber(setId: string, number: string): boolean {
+  if (!number) return false;
+  if (setId.startsWith(FLEER_1989_SET_PREFIX) && (FLEER_1989_ALL_STAR_NUMBERS as readonly string[]).includes(number)) return true;
+  return setId.startsWith(TOPPS_1987_BASEBALL_SET_PREFIX) && number === TOPPS_1987_MCGWIRE_NUMBER;
 }
 
 function norm(value: string | null | undefined): string {
@@ -237,7 +322,7 @@ export function isBlockedCard(
   }
   if (playerNamesManyPeople(player) || multiPlayerText(player, fields)) return true;
   const number = normalizeCardNumber(fields?.number);
-  if (setId && multiPlayerNumber(setId, number)) return true;
+  if (setId && (multiPlayerNumber(setId, number) || leakedChecklistNumber(setId, number))) return true;
   if (setId !== TOPPS_1987_FOOTBALL_SET_ID) return false;
   if (number && RECORD_BREAKER_NUMBERS.has(number)) return true;
   const text = `${player || ""}\n${fields?.variant || ""}\n${fields?.description || ""}`;
@@ -271,25 +356,47 @@ function recordBreakerNumberClause(alias: CardAlias): string {
 }
 
 function recordBreakerTextClause(alias: CardAlias): string {
-  const pattern = sqlQuote("record[[:space:]]*breaker|\\mRB\\M");
+  const pattern = sqlQuote("record[[:space:]]*breaker");
   const blob = `COALESCE(${alias}.player, '') || ' ' || COALESCE(${alias}.variant, '') || ' ' || COALESCE(${alias}.description, '')`;
   return `(lower(${alias}.game_set_id) = ${sqlQuote(TOPPS_1987_FOOTBALL_SET_ID)} AND (${blob}) ~* ${pattern})`;
 }
 
-const MULTI_PLAYER_TEXT_SQL = String.raw`\mteam[[:space:]]+leaders\M|\mleague[[:space:]]+leaders\M|\mleaders\M|\mcheck[[:space:]]*lists?\M|\mcombo\M|\mtandem\M|\mduo\M|\mtrio\M|\msuper[[:space:]]+bowl\M|\mvs\M\.?`;
+const MULTI_PLAYER_TEXT_SQL = String.raw`\mteam[[:space:]]+leaders\M|\mleague[[:space:]]+leaders\M|\mleaders\M|\mcheck[[:space:]]*lists?\M|\mcombos?\M|\mtandems?\M|\mduos?\M|\mtrios?\M|\mvs\.`;
 
 /**
  * Same comma rule as playerNamesManyPeople: three or more names, or two names
  * where one side has two or more words. "Last, First" and a trailing Jr/Sr/III
  * stay one person. A slash counts only when both sides contain a letter.
  */
+function labelArraySql(): string {
+  return `ARRAY[${SUBSET_OR_POSITION_LABELS.map((label) => sqlQuote(label)).join(", ")}]`;
+}
+
+function namedSidesSql(splitCall: string): string {
+  const namePattern = sqlQuote(String.raw`^[[:alpha:]][[:alpha:][:space:]'.-]*$`);
+  return `COALESCE((
+    SELECT (count(*) = 2 AND count(*) FILTER (WHERE is_name) = 2)
+      OR (count(*) > 2 AND count(*) FILTER (WHERE is_name) >= 2)
+    FROM (
+      SELECT lower(btrim(part)) <> ALL (${labelArraySql()})
+        AND btrim(part) ~ ${namePattern} AS is_name
+      FROM unnest(${splitCall}) AS part
+      WHERE btrim(part) <> ''
+    ) sides
+  ), false)`;
+}
+
 function multiPlayerPeopleClause(alias: CardAlias): string {
   const player = `COALESCE(${alias}.player, '')`;
   const suffixToken = String.raw`(iii|ii|iv|jr|sr|v)\.?`;
   const comma = `COALESCE((
-    SELECT (count(*) >= 3) OR (count(*) = 2 AND bool_or(words >= 2))
+    SELECT (count(*) >= 3) OR (
+      count(*) = 2
+      AND (array_agg(words ORDER BY ord))[1] >= 2
+      AND (array_agg(words ORDER BY ord))[2] >= 1
+    )
     FROM (
-      SELECT (
+      SELECT ord, (
         SELECT count(*)::int
         FROM unnest(regexp_split_to_array(
           btrim(regexp_replace(btrim(part), ${sqlQuote(String.raw`(^|[[:space:]]+)${suffixToken}($|[[:space:]]+)`)}, ' ', 'gi')),
@@ -297,12 +404,14 @@ function multiPlayerPeopleClause(alias: CardAlias): string {
         )) AS w
         WHERE w <> ''
       ) AS words
-      FROM unnest(regexp_split_to_array(${player}, ',')) AS part
+      FROM unnest(regexp_split_to_array(${player}, ',')) WITH ORDINALITY AS u(part, ord)
       WHERE btrim(part) <> ''
         AND btrim(part) !~* ${sqlQuote(String.raw`^(jr|sr|ii|iii|iv|v)\.?$`)}
     ) people
   ), false)`;
-  return `(${player} ~ '[[:alpha:]][^/]*/[^/]*[[:alpha:]]' OR strpos(lower(${player}), ' & ') > 0 OR strpos(lower(${player}), ' and ') > 0 OR strpos(${player}, ' - ') > 0 OR ${comma})`;
+  const dash = namedSidesSql(`regexp_split_to_array(${player}, ' - ')`);
+  const vs = namedSidesSql(`regexp_split_to_array(${player}, '[[:space:]]+vs\\.?[[:space:]]+', 'i')`);
+  return `(${player} ~ '[[:alpha:]][^/]*/[^/]*[[:alpha:]]' OR strpos(lower(${player}), ' & ') > 0 OR strpos(lower(${player}), ' and ') > 0 OR ${dash} OR ${vs} OR ${comma})`;
 }
 
 function multiPlayerTextClause(alias: CardAlias): string {
@@ -311,10 +420,14 @@ function multiPlayerTextClause(alias: CardAlias): string {
 }
 
 function multiPlayerNumberClause(alias: CardAlias): string {
-  return MULTI_PLAYER_NUMBER_SETS.map((set) => {
+  const sets = MULTI_PLAYER_NUMBER_SETS.map((set) => {
     const numbers = set.numbers.map((number) => sqlQuote(number)).join(", ");
     return `(lower(${alias}.game_set_id) LIKE ${sqlQuote(`${set.id}%`)} AND ${normalizedNumberSql(alias)} IN (${numbers}))`;
-  }).join(" OR ");
+  });
+  const fleerStars = FLEER_1989_ALL_STAR_NUMBERS.map((number) => sqlQuote(number)).join(", ");
+  sets.push(`(lower(${alias}.game_set_id) LIKE ${sqlQuote(`${FLEER_1989_SET_PREFIX}%`)} AND ${normalizedNumberSql(alias)} IN (${fleerStars}))`);
+  sets.push(`(lower(${alias}.game_set_id) LIKE ${sqlQuote(`${TOPPS_1987_BASEBALL_SET_PREFIX}%`)} AND ${normalizedNumberSql(alias)} = ${sqlQuote(TOPPS_1987_MCGWIRE_NUMBER)})`);
+  return sets.join(" OR ");
 }
 
 /** OR-clauses for a deal WHERE body. True when any blocklist rule hits. */
