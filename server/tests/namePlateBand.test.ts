@@ -16,6 +16,8 @@ import {
   regionCoversPlate,
   type NamePlateBox,
 } from "@shared/maskGeometry";
+import { resolveNameMaskPlan } from "../masking/nameLocalization";
+import { assertOpaqueIdentityCover } from "../masking/maskCoverage";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { applyPercentRegions, maskCardImage } from "../masking/maskCardImage";
@@ -93,6 +95,46 @@ describe("name plate band geometry", () => {
     });
     expect(regionCoversPlate(band, plate, TIGHT_W, TIGHT_H)).toBe(true);
     expect(band.yPct + band.hPct).toBeGreaterThan(99);
+  });
+
+  it("covers a bottom name line and stays well under the 45% slab", async () => {
+    const plate: NamePlateBox = { x: 36, y: 880, w: 680, h: 100 };
+    const band = fitNamePlateBand({
+      anchor: "bottom",
+      imageWidth: NORMAL_W,
+      imageHeight: NORMAL_H,
+      profileFraction: 0.46,
+      plate,
+    });
+    expect(band.wPct).toBe(100);
+    expect(band.hPct).toBeLessThan(30);
+    expect(regionCoversPlate(band, plate, NORMAL_W, NORMAL_H)).toBe(true);
+
+    const plan = resolveNameMaskPlan({
+      playerName: "Ken Phelps",
+      setHint: "1987 Topps baseball",
+      words: [],
+      imageWidth: NORMAL_W,
+      imageHeight: NORMAL_H,
+      plateBox: plate,
+    });
+    expect(plan.layoutClass).toBe("BOTTOM_PLAQUE");
+    expect(plan.regions).toHaveLength(1);
+    expect(plan.regions[0].hPct).toBeLessThan(30);
+    expect(regionCoversPlate(plan.regions[0], plate, NORMAL_W, NORMAL_H)).toBe(true);
+
+    const raw = await sharp({
+      create: { width: NORMAL_W, height: NORMAL_H, channels: 3, background: { r: 20, g: 180, b: 40 } },
+    }).png().toBuffer();
+    const painted = await applyPercentRegions(raw, plan.regions);
+    const coverage = await assertOpaqueIdentityCover({
+      buffer: painted,
+      regions: plan.regions,
+      layoutClass: "BOTTOM_PLAQUE",
+      imageWidth: NORMAL_W,
+      imageHeight: NORMAL_H,
+    });
+    expect(coverage.ok).toBe(true);
   });
 });
 

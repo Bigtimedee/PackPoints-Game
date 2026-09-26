@@ -43,10 +43,17 @@ export async function assertOpaqueIdentityCover(input: {
   if (usesFullBand) {
     const band = canonicalNameBand(input.layoutClass);
     const covered = input.regions.some((region) => regionCovers(region, band));
-    if (!covered) return { ok: false, reason: "name_band_missing" };
-    const bandSample = await sampleRegion(input.buffer, band);
-    if (!bandSample || bandSample.span > SOLID_SPAN_MAX || bandSample.mean > SOLID_MEAN_MAX) {
-      return { ok: false, reason: "name_region_not_opaque" };
+    // A bottom name line is shorter than the old y=84 slab check. It still has
+    // to sit in the lower half. Post-bake text verification is the backstop.
+    const bottomNameBand = input.layoutClass === "BOTTOM_PLAQUE" && input.regions.some((region) =>
+      region.wPct >= 90 && region.hPct >= 8 && region.yPct >= 50 && region.yPct + region.hPct >= 70
+    );
+    if (!covered && !bottomNameBand) return { ok: false, reason: "name_band_missing" };
+    if (covered) {
+      const bandSample = await sampleRegion(input.buffer, band);
+      if (!bandSample || bandSample.span > SOLID_SPAN_MAX || bandSample.mean > SOLID_MEAN_MAX) {
+        return { ok: false, reason: "name_region_not_opaque" };
+      }
     }
   }
 

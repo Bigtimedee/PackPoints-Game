@@ -38,9 +38,18 @@ export function tightCropBoost(imageWidth: number, imageHeight: number): number 
 }
 
 /**
+ * A bottom profile fraction near 0.46 is the old plaque slab, not the name.
+ * The safety floor stays name-sized so the band can sit on the printed line.
+ */
+export const BOTTOM_NAME_FLOOR = 0.18;
+
+/**
  * Full-width name band for this file.
- * The bottom (or top) edge is the detected plate, plus padding, and at least
- * the profile fraction grown for a tight crop. It never stops above the plate.
+ * Top: from the top edge through the plate, plus padding, and at least the
+ * profile fraction grown for a tight crop.
+ * Bottom: the detected name line, plus the same padding and a name-sized
+ * floor. It does not grow to the historic ~45% slab. It never stops short
+ * of the plate.
  */
 export function fitNamePlateBand(input: {
   anchor: "top" | "bottom";
@@ -54,19 +63,27 @@ export function fitNamePlateBand(input: {
   const height = Math.max(1, input.imageHeight);
   const fraction = Math.min(0.72, Math.max(0, input.profileFraction));
   const boost = tightCropBoost(width, height);
-  const floorPx = fraction * height * boost;
   const pad = Math.max(8, input.plate.h * 0.45, height * 0.025);
   if (input.anchor === "bottom") {
-    const topPx = Math.max(0, Math.min(input.plate.y - pad, height - floorPx));
+    const floorFrac = Math.min(fraction, BOTTOM_NAME_FLOOR);
+    const floorPx = floorFrac * height * boost;
+    const plateBottom = input.plate.y + input.plate.h;
+    let bottomPx = Math.min(height, plateBottom + pad);
+    if (plateBottom >= height - Math.max(pad, height * 0.04)) bottomPx = height;
+    let topPx = Math.max(0, input.plate.y - pad);
+    if (bottomPx - topPx < floorPx) topPx = Math.max(0, bottomPx - floorPx);
+    topPx = Math.min(topPx, input.plate.y);
+    bottomPx = Math.max(bottomPx, Math.min(height, plateBottom));
     return clampRegion({
       xPct: 0,
       yPct: (topPx / height) * 100,
       wPct: 100,
-      hPct: ((height - topPx) / height) * 100,
+      hPct: ((bottomPx - topPx) / height) * 100,
       type: "blur",
       radiusPct: 0,
     });
   }
+  const floorPx = fraction * height * boost;
   const plateBottom = input.plate.y + input.plate.h;
   const bottomPx = Math.min(height, Math.max(plateBottom + pad, floorPx));
   return clampRegion({

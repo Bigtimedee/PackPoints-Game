@@ -209,6 +209,29 @@ export function resolveNameMaskPlan(input: {
   ]);
   if (
     profile.matched
+    && profile.nameAnchor === "bottom"
+    && plate
+    && plate.h / Math.max(1, input.imageHeight) + 0.06 < profile.bottomBandPct
+  ) {
+    const band = fitNamePlateBand({
+      anchor: "bottom",
+      imageWidth: input.imageWidth,
+      imageHeight: input.imageHeight,
+      profileFraction: profile.bottomBandPct,
+      plate,
+    });
+    return {
+      regions: [band],
+      source: lastNameMatched && ocrRegions.length > 0 ? "ocr+profile" : "profile",
+      matchedTokens: ocr.tokens,
+      profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate,
+    };
+  }
+  if (
+    profile.matched
     && (profile.nameAnchor === "top" || profile.nameAnchor === "bottom")
     && plate
     && !profileCoversPlate(profile, plate, input.imageHeight)

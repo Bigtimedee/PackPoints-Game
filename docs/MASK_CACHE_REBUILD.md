@@ -1,6 +1,6 @@
 # Masked-image cache rebuild (v4.5)
 
-Current bake id is **`v4.5`**. v4.4 JPEGs and `{cardId}_v4.4.ok` sidecars are not served. v4.5 fits the name band to the detected plate on that scan (padding plus a safety floor) so a tight crop cannot end the band through the letters. A post-bake check that still sees the name writes `{cardId}_v4.5.fail` and excludes the card. See `docs/MASK_PLATE_SWEEP.md`.
+Current bake id is **`v4.5`**. v4.4 JPEGs and `{cardId}_v4.4.ok` sidecars are not served. v4.5 fits the name band to the detected plate on that scan (padding plus a safety floor) so a tight crop cannot end the band through the letters. A bottom plaque uses that name-sized band instead of the fixed ~45% slab. A post-bake check that still sees the name writes `{cardId}_v4.5.fail` and excludes the card. See `docs/MASK_PLATE_SWEEP.md`.
 
 # Masked-image cache rebuild (v4.4)
 

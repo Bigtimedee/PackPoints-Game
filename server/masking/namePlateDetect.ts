@@ -114,20 +114,32 @@ export function lastTextEdgeFromTop(textRows: boolean[]): number | null {
 
 /** Top of a text run that reaches the bottom edge. Unbounded runs are ignored. */
 export function firstTextEdgeFromBottom(textRows: boolean[]): number | null {
+  return bottomTextRun(textRows)?.top ?? null;
+}
+
+/**
+ * The printed name in the lower half, as a run of letter rows.
+ * The run's own bottom is the box, not the card edge, so a name line does
+ * not become the whole plaque.
+ */
+export function bottomTextRun(textRows: boolean[]): { top: number; bottom: number } | null {
   const height = textRows.length;
   if (height < 8) return null;
-  const stop = Math.floor(height * 0.35);
-  const minRun = Math.max(3, Math.round(height * 0.04));
-  const border = Math.floor(height * 0.08);
+  const stop = Math.floor(height * 0.45);
+  const minRun = Math.max(3, Math.round(height * 0.03));
   let y = height - 1;
-  const floor = Math.max(stop, height - 1 - border);
-  while (y > floor && !textRows[y]) y--;
-  if (!textRows[y]) return null;
-  const runEnd = y;
-  while (y > stop && textRows[y - 1]) y--;
-  if (y > 0 && textRows[y - 1]) return null;
-  if (runEnd - y + 1 < minRun) return null;
-  return y;
+  while (y > stop) {
+    if (!textRows[y]) {
+      y--;
+      continue;
+    }
+    const runEnd = y;
+    while (y > stop && textRows[y - 1]) y--;
+    if (y === stop && y > 0 && textRows[y - 1]) return null;
+    if (runEnd - y + 1 >= minRun) return { top: y, bottom: runEnd + 1 };
+    y--;
+  }
+  return null;
 }
 
 function deeperEdge(a: number | null, b: number | null): number | null {
@@ -175,11 +187,14 @@ export async function detectAnchorPlate(
     return { x: 0, y: 0, w: srcW, h: Math.min(srcH, hPx) };
   }
 
-  const edge = higherPlateEdge(
-    firstLuminanceEdgeFromBottom(means),
-    firstTextEdgeFromBottom(text),
-    info.height,
-  );
+  const lum = firstLuminanceEdgeFromBottom(means);
+  const run = bottomTextRun(text);
+  if (run && (lum == null || run.top >= lum - info.height * 0.08)) {
+    const yPx = Math.min(srcH - 1, Math.max(0, Math.round((run.top / info.height) * srcH)));
+    const bottomPx = Math.min(srcH, Math.max(yPx + 1, Math.round((run.bottom / info.height) * srcH)));
+    return { x: 0, y: yPx, w: srcW, h: bottomPx - yPx };
+  }
+  const edge = higherPlateEdge(lum, run?.top ?? null, info.height);
   if (edge == null) return null;
   const yPx = Math.min(srcH - 1, Math.max(0, Math.round((edge / info.height) * srcH)));
   return { x: 0, y: yPx, w: srcW, h: Math.max(1, srcH - yPx) };
