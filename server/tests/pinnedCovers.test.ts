@@ -20,6 +20,7 @@ import { clearMaskBandCacheForTests, MASK_BAND_OVERSIZED } from "../masking/mask
 import {
   clearReadyCoverIndexForTests,
   formatPinnedCoverBootLine,
+  eligibleCoverFile,
   handlePublicSetCover,
   listCoverCandidates,
   readyMaskedCoverUrls,
@@ -152,9 +153,15 @@ describe("pinned set covers", () => {
     const football = PINNED_SET_COVERS["91cfdf3f-a620-4e73-adc8-22b8df221716"];
     expect(football.set).toBe("1987 Topps Football");
     expect(football.picks[0]).toBe("704c2dab-140a-4276-b57e-b9febfa1ff20");
+    expect(football.picks).toContain("a0ae2b5d-9509-4426-91a1-dca3f3958840");
     expect(football.picks).toHaveLength(8);
     expect(football.alternates).toHaveLength(4);
-    expect(PINNED_SET_COVERS["aea515e2-24bc-42bd-a602-1514b89e8cd1"].alternates).toEqual([]);
+    const fleer = PINNED_SET_COVERS["aea515e2-24bc-42bd-a602-1514b89e8cd1"];
+    expect(fleer.picks).toContain("119393bc-df92-4c46-aab7-8730dd9217c8");
+    expect(fleer.alternates).toEqual([]);
+    const topps = PINNED_SET_COVERS["37fd025d-2ae1-4c92-b8ad-133375d0c722"];
+    expect(topps.picks).toContain("0084c5bd-433b-488f-9679-e67550c8f756");
+    expect(topps.alternates).toContain("11b7210e-d252-432a-9f20-2727755f9390");
     expect(PINNED_SET_COVERS["229f0379-aa56-40a8-abe3-1af217a397e8"].set).toBe("2024 Basketball");
     for (const list of Object.values(PINNED_SET_COVERS)) {
       expect(list.picks.length).toBeGreaterThan(0);
@@ -250,6 +257,41 @@ describe("pinned set covers", () => {
       if (previous === undefined) delete process.env.MASK_BAND_GUARD;
       else process.env.MASK_BAND_GUARD = previous;
       clearMaskBandCacheForTests();
+      setPinnedCoversForTests(setId, pins);
+      clearReadyCoverIndexForTests();
+    }
+  });
+
+  it("skips a non-dealable pin and serves the next alternate", async () => {
+    setPinnedCoversForTests(setId, {
+      picks: [ineligibleId],
+      alternates: [alphaId],
+    });
+    clearReadyCoverIndexForTests();
+    try {
+      const report = (await resolvePinnedCoverReports([setId])).get(setId)!;
+      expect(report.validIds).toEqual([alphaId]);
+      expect(report.validIds).not.toContain(ineligibleId);
+      expect(report.validIds).not.toContain(spareId);
+      expect(report.dropped).toEqual([{ cardId: ineligibleId, reason: "ineligible" }]);
+      expect(await eligibleCoverFile(ineligibleId)).toBeNull();
+      const slot = await fetch(`${base}/api/sets/${setId}/covers/0`);
+      expect(slot.status).toBe(200);
+      expect(slot.headers.get("x-card-id")).toBe(alphaId);
+      const qa = await listCoverCandidates(setId, 8);
+      expect(qa.pins.find((pin) => pin.cardId === ineligibleId)).toMatchObject({
+        role: "pick",
+        status: "skipped",
+        reason: "ineligible",
+        served: false,
+      });
+      expect(qa.pins.find((pin) => pin.cardId === alphaId)).toMatchObject({
+        role: "alternate",
+        status: "alternate",
+        served: true,
+        slot: 0,
+      });
+    } finally {
       setPinnedCoversForTests(setId, pins);
       clearReadyCoverIndexForTests();
     }
