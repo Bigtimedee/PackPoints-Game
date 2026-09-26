@@ -20,7 +20,7 @@ import { daily5Service } from "../services/daily5Service";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
-import { cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, logCardBlocklist, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
+import { cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 
 const stamp = randomUUID().slice(0, 8);
 const prefix = `blocklist:${stamp}:`;
@@ -131,7 +131,7 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(footballSetId, "Joe Montana", { number: "  #007 " })).toBe(true);
     expect(isBlockedCard(footballSetId, "Joe Montana", { number: "8" })).toBe(true);
     expect(isBlockedCard(footballSetId, "Joe Montana", { number: "10" })).toBe(false);
-    expect(isBlockedCard(footballSetId, "Joe Montana", { number: "9" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { number: "9" })).toBe(true);
     expect(isBlockedCard(footballSetId, "Joe Montana", { number: "236" })).toBe(false);
     expect(isBlockedCard(footballSetId, "Joe Montana", { number: "2a" })).toBe(false);
     expect(isBlockedCard(basketballSetId, "Joe Montana", { number: "#2" })).toBe(false);
@@ -147,7 +147,53 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "running back" })).toBe(false);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "Herb" })).toBe(false);
     expect(isBlockedCard(footballSetId, "Joe Montana", { description: "RBI" })).toBe(false);
-    expect(isBlockedCard(fleerSetId, "Joe Montana", { variant: "Record Breaker", description: "RB" })).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Joe Montana", { variant: "Record Breaker" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Joe Montana", { description: "RB" })).toBe(false);
+  });
+
+  it("blocks multi-player text on every set and keeps a one-player All-Star", () => {
+    const other = "bbbbbbbb-1111-4111-8111-111111111111";
+    for (const text of ["All-Stars", "All Stars", "Team Leaders", "League Leaders", "Leaders", "Checklist", "Combo", "Tandem", "Duo", "Trio", "Super Bowl", "Highlights", "vs.", "vs"]) {
+      expect(isBlockedCard(other, "Joe Montana", { description: text })).toBe(true);
+    }
+    expect(isBlockedCard(other, "Magic Johnson", { variant: "All-Star" })).toBe(false);
+    expect(isBlockedCard(other, "Magic Johnson", { description: "All Star" })).toBe(false);
+    expect(isBlockedCard(other, "Karl Malone / John Stockton", { variant: "All-Star" })).toBe(true);
+    expect(isBlockedCard(other, "Ken Griffey Jr.", { description: "Future Stars" })).toBe(false);
+    expect(isBlockedCard(other, "Ken Griffey / Barry Bonds", { variant: "Future Stars" })).toBe(true);
+    expect(isBlockedCard(other, "Dee Brown", { description: "Rookie Stars" })).toBe(false);
+    expect(isBlockedCard(other, "Ken Griffey Jr. / Chipper Jones", { description: "Prospects" })).toBe(true);
+  });
+
+  it("blocks a player field that names more than one person and keeps suffixes and hyphenated surnames", () => {
+    const other = "bbbbbbbb-1111-4111-8111-111111111111";
+    expect(isBlockedCard(other, "Karl Malone / John Stockton")).toBe(true);
+    expect(isBlockedCard(other, "Malone & Stockton")).toBe(true);
+    expect(isBlockedCard(other, "Karl Malone and John Stockton")).toBe(true);
+    expect(isBlockedCard(other, "Karl Malone, John Stockton")).toBe(true);
+    expect(isBlockedCard(other, "Malone, Stockton, Eaton")).toBe(true);
+    expect(isBlockedCard(other, "Ken Griffey - Barry Bonds")).toBe(true);
+    expect(isBlockedCard(other, "Ken Griffey Jr.")).toBe(false);
+    expect(isBlockedCard(other, "Cal Ripken, Jr.")).toBe(false);
+    expect(isBlockedCard(other, "Ken Griffey III")).toBe(false);
+    expect(isBlockedCard(other, "Jackie Joyner-Kersee")).toBe(false);
+    expect(isBlockedCard(other, "Dee Brown")).toBe(false);
+    expect(isBlockedCard(other, "Shell, Donnie")).toBe(false);
+  });
+
+  it("blocks vintage multi-player card numbers and leaves single-player numbers", () => {
+    expect(isBlockedCard(fleerSetId, "Nobody Special", { number: "163" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Nobody Special", { number: "#168" })).toBe(true);
+    expect(isBlockedCard(fleerSetId, "Spud Webb", { number: "6" })).toBe(false);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Pete Rose", { number: "281" })).toBe(true);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Wade Boggs", { number: "150" })).toBe(false);
+    expect(isBlockedCard("352b33d1-1111-4111-8111-111111111111", "Mets Leaders", { number: "291" })).toBe(true);
+    expect(isBlockedCard("352b33d1-1111-4111-8111-111111111111", "Tim Raines", { number: "81" })).toBe(false);
+    expect(isBlockedCard("a09b2fe7-728e-431b-9df8-bbf2652aa3b2", "Eugene Robinson / Nate Odomes", { number: "119" })).toBe(true);
+    expect(isBlockedCard("a09b2fe7-728e-431b-9df8-bbf2652aa3b2", "Jerry Rice", { number: "116" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { number: "9" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { number: "227" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Joe Montana", { number: "394" })).toBe(true);
   });
 
   it("logs the record breaker subset in one boot line", () => {
@@ -156,6 +202,11 @@ describe("isBlockedCard", () => {
     expect(spy).toHaveBeenCalledWith(
       "[blocklist] set=91cfdf3f recordBreakerNumbers=2,3,4,5,6,7,8 players=Todd Christensen,Dave Jennings,Charlie Joiner,Steve Largent,Dan Marino,Donnie Shell,Phil Simms,Mark Duper",
     );
+    for (const line of multiPlayerBlocklistLogLines()) {
+      expect(line).toMatch(/^\[blocklist\] set=[0-9a-f]{8} multiPlayerNumbers=\d+(?:,\d+)* textRules=on$/);
+      expect(spy).toHaveBeenCalledWith(line);
+    }
+    expect(multiPlayerBlocklistLogLines()).toHaveLength(5);
     spy.mockRestore();
   });
 
@@ -264,6 +315,50 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
         .from(playableCards)
         .where(and(inArray(playableCards.id, rows.map((row) => row.id)), cardNotBlockedSql("playable_cards")));
       expect(kept.map((row) => row.player)).toEqual(["Jerry Rice"]);
+    } finally {
+      await db.delete(playableCards).where(inArray(playableCards.id, rows.map((row) => row.id)));
+    }
+  });
+
+  it("drops multi-player cards in the deal predicate and keeps suffixes and hyphenated surnames", async () => {
+    const samples: Array<{ setId: string; player: string; number: string; variant: string | null; description: string; keep: boolean }> = [
+      { setId: basketballSetId, player: "Dee Brown", number: "6", variant: null, description: "Dee Brown", keep: true },
+      { setId: basketballSetId, player: "Ken Griffey Jr.", number: "12", variant: null, description: "Ken Griffey Jr.", keep: true },
+      { setId: basketballSetId, player: "Cal Ripken, Jr.", number: "13", variant: null, description: "Cal Ripken, Jr.", keep: true },
+      { setId: basketballSetId, player: "Jackie Joyner-Kersee", number: "14", variant: null, description: "Jackie Joyner-Kersee", keep: true },
+      { setId: basketballSetId, player: "Shell, Donnie", number: "15", variant: null, description: "Shell, Donnie", keep: true },
+      { setId: basketballSetId, player: "Magic Johnson", number: "16", variant: "All-Star", description: "Magic Johnson", keep: true },
+      { setId: basketballSetId, player: "Ken Griffey Jr.", number: "17", variant: "Future Stars", description: "Ken Griffey Jr.", keep: true },
+      { setId: basketballSetId, player: "Karl Malone / John Stockton", number: "20", variant: null, description: "Karl Malone / John Stockton", keep: false },
+      { setId: basketballSetId, player: "Malone & Stockton", number: "21", variant: null, description: "Malone & Stockton", keep: false },
+      { setId: basketballSetId, player: "Karl Malone and John Stockton", number: "22", variant: null, description: "Karl Malone and John Stockton", keep: false },
+      { setId: basketballSetId, player: "Karl Malone, John Stockton", number: "23", variant: null, description: "Karl Malone, John Stockton", keep: false },
+      { setId: basketballSetId, player: "Malone, Stockton, Eaton", number: "24", variant: null, description: "Malone, Stockton, Eaton", keep: false },
+      { setId: basketballSetId, player: "Ken Griffey - Barry Bonds", number: "25", variant: null, description: "Ken Griffey - Barry Bonds", keep: false },
+      { setId: basketballSetId, player: "Joe Montana", number: "26", variant: null, description: "Checklist", keep: false },
+      { setId: basketballSetId, player: "Magic Johnson", number: "27", variant: "All-Stars", description: "Magic Johnson", keep: false },
+      { setId: basketballSetId, player: "Ken Griffey / Barry Bonds", number: "28", variant: "Future Stars", description: "Ken Griffey / Barry Bonds", keep: false },
+      { setId: fleerSetId, player: "Nobody Special", number: "163", variant: null, description: "Nobody Special", keep: false },
+      { setId: fleerSetId, player: "Spud Webb", number: "6", variant: null, description: "Spud Webb", keep: true },
+    ];
+    const rows = samples.map((sample, i) => ({
+      ...card(sample.setId, sample.player, `2022-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`, "basketball"),
+      number: sample.number,
+      variant: sample.variant,
+      description: sample.description,
+      keep: sample.keep,
+    }));
+    await db.insert(playableCards).values(rows);
+    try {
+      const kept = await db
+        .select({ id: playableCards.id })
+        .from(playableCards)
+        .where(and(inArray(playableCards.id, rows.map((row) => row.id)), cardNotBlockedSql("playable_cards")));
+      const keptIds = new Set(kept.map((row) => row.id));
+      for (const row of rows) {
+        expect(isBlockedCard(row.gameSetId, row.player, row)).toBe(!row.keep);
+        expect(keptIds.has(row.id)).toBe(row.keep);
+      }
     } finally {
       await db.delete(playableCards).where(inArray(playableCards.id, rows.map((row) => row.id)));
     }
