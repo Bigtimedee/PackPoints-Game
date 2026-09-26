@@ -4,7 +4,7 @@
  * Over-blocking every card of that player in the set is intended.
  *
  * 1987 Topps Football Record Breakers are also blocked by normalized card number
- * and by variant/description text, same set id.
+ * and by Record Breaker / RB text on player, variant, or description, same set id.
  */
 import { and, asc, eq, notInArray, sql, type SQL } from "drizzle-orm";
 import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/schema";
@@ -60,12 +60,12 @@ const RECORD_BREAKER_TEXT = /record\s*breaker|\bRB\b/i;
 const RECORD_BREAKER_NUMBERS = new Set(TOPPS_1987_FOOTBALL_RECORD_BREAKERS.map((row) => row.number));
 
 /**
- * Phrases that mark a card with no single answer. "All-Star" singular, Future
- * Stars, Rookie Stars, and Prospects are handled separately so a one-player
- * All-Star or Future Star stays eligible.
+ * Text that drops a card on its own, on every set. All-Star, Future Stars,
+ * Rookie Stars, Prospects, and Highlights do not. Those drop only when the
+ * player field names more than one person, or the number is on a vintage list.
+ * Record Breaker text is limited to 1987 Topps Football below.
  */
-const MULTI_PLAYER_TEXT = /\b(?:team\s+leaders|league\s+leaders|leaders|check\s*lists?|combo|tandem|duo|trio|super\s+bowl|record\s*breakers?|highlights|all[-\s]stars)\b|\bvs\b\.?/i;
-const MULTI_ONLY_WHEN_MANY = /\b(?:all[-\s]star|future\s+stars|rookie\s+stars|prospects)\b/i;
+const MULTI_PLAYER_TEXT = /\b(?:team\s+leaders|league\s+leaders|leaders|check\s*lists?|combo|tandem|duo|trio|super\s+bowl)\b|\bvs\b\.?/i;
 const NAME_SUFFIX = /^(?:jr|sr|ii|iii|iv|v)\.?$/i;
 
 /**
@@ -193,8 +193,7 @@ export function playerNamesManyPeople(player: string | null | undefined): boolea
 
 function multiPlayerText(player: string | null | undefined, fields?: BlocklistCardFields | null): boolean {
   const blob = `${player || ""}\n${fields?.variant || ""}\n${fields?.description || ""}`;
-  if (MULTI_PLAYER_TEXT.test(blob)) return true;
-  return MULTI_ONLY_WHEN_MANY.test(blob) && playerNamesManyPeople(player);
+  return MULTI_PLAYER_TEXT.test(blob);
 }
 
 function multiPlayerNumber(setId: string, number: string): boolean {
@@ -241,7 +240,7 @@ export function isBlockedCard(
   if (setId && multiPlayerNumber(setId, number)) return true;
   if (setId !== TOPPS_1987_FOOTBALL_SET_ID) return false;
   if (number && RECORD_BREAKER_NUMBERS.has(number)) return true;
-  const text = `${fields?.variant || ""}\n${fields?.description || ""}`;
+  const text = `${player || ""}\n${fields?.variant || ""}\n${fields?.description || ""}`;
   return RECORD_BREAKER_TEXT.test(text);
 }
 
@@ -273,11 +272,11 @@ function recordBreakerNumberClause(alias: CardAlias): string {
 
 function recordBreakerTextClause(alias: CardAlias): string {
   const pattern = sqlQuote("record[[:space:]]*breaker|\\mRB\\M");
-  return `(lower(${alias}.game_set_id) = ${sqlQuote(TOPPS_1987_FOOTBALL_SET_ID)} AND (COALESCE(${alias}.variant, '') ~* ${pattern} OR COALESCE(${alias}.description, '') ~* ${pattern}))`;
+  const blob = `COALESCE(${alias}.player, '') || ' ' || COALESCE(${alias}.variant, '') || ' ' || COALESCE(${alias}.description, '')`;
+  return `(lower(${alias}.game_set_id) = ${sqlQuote(TOPPS_1987_FOOTBALL_SET_ID)} AND (${blob}) ~* ${pattern})`;
 }
 
-const MULTI_PLAYER_TEXT_SQL = String.raw`\mteam[[:space:]]+leaders\M|\mleague[[:space:]]+leaders\M|\mleaders\M|\mcheck[[:space:]]*lists?\M|\mcombo\M|\mtandem\M|\mduo\M|\mtrio\M|\msuper[[:space:]]+bowl\M|\mrecord[[:space:]]*breakers?\M|\mhighlights\M|\mall[-[:space:]]stars\M|\mvs\M\.?`;
-const MULTI_ONLY_TEXT_SQL = String.raw`\mall[-[:space:]]star\M|\mfuture[[:space:]]+stars\M|\mrookie[[:space:]]+stars\M|\mprospects\M`;
+const MULTI_PLAYER_TEXT_SQL = String.raw`\mteam[[:space:]]+leaders\M|\mleague[[:space:]]+leaders\M|\mleaders\M|\mcheck[[:space:]]*lists?\M|\mcombo\M|\mtandem\M|\mduo\M|\mtrio\M|\msuper[[:space:]]+bowl\M|\mvs\M\.?`;
 
 /**
  * Same comma rule as playerNamesManyPeople: three or more names, or two names
@@ -308,7 +307,7 @@ function multiPlayerPeopleClause(alias: CardAlias): string {
 
 function multiPlayerTextClause(alias: CardAlias): string {
   const blob = `COALESCE(${alias}.player, '') || ' ' || COALESCE(${alias}.variant, '') || ' ' || COALESCE(${alias}.description, '')`;
-  return `(${blob} ~* ${sqlQuote(MULTI_PLAYER_TEXT_SQL)} OR ((${blob}) ~* ${sqlQuote(MULTI_ONLY_TEXT_SQL)} AND ${multiPlayerPeopleClause(alias)}))`;
+  return `(${blob} ~* ${sqlQuote(MULTI_PLAYER_TEXT_SQL)})`;
 }
 
 function multiPlayerNumberClause(alias: CardAlias): string {
