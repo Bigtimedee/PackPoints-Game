@@ -7,9 +7,11 @@ import {
   dailyChallengeEntries,
   gameSessionsTable,
   matches,
+  playableCards,
   type GameQuestion,
 } from "@shared/schema";
 import { storage } from "../storage";
+import { isBlockedCard, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 import { anonPlayerIdFromCookie } from "./anonIdentity";
 import {
   classifyRevealToken,
@@ -179,6 +181,7 @@ async function loadSoloQuestion(sessionId: string, index: number): Promise<{ car
 }
 
 async function loadDailyCard(challengeId: string, position: number): Promise<string | null> {
+  await replaceBlockedDaily5Cards(challengeId);
   const [exact] = await db
     .select({ cardId: dailyChallengeCards.cardId })
     .from(dailyChallengeCards)
@@ -187,7 +190,14 @@ async function loadDailyCard(challengeId: string, position: number): Promise<str
       eq(dailyChallengeCards.position, position),
     ))
     .limit(1);
-  return exact?.cardId ?? null;
+  if (!exact?.cardId) return null;
+  const [card] = await db
+    .select({ gameSetId: playableCards.gameSetId, player: playableCards.player })
+    .from(playableCards)
+    .where(eq(playableCards.id, exact.cardId))
+    .limit(1);
+  if (card && isBlockedCard(card.gameSetId, card.player)) return null;
+  return exact.cardId;
 }
 
 async function entryAnswered(entryId: string, position: number): Promise<{ challengeId: string; answered: boolean } | null> {

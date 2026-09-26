@@ -11,6 +11,7 @@ import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
+import { cardNotBlockedSql, isBlockedCard } from "../lib/cardBlocklist";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -355,6 +356,7 @@ class MatchService {
         eq(playableCards.isPlayable, true),
         inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
         maskNameStillCovered("playable_cards"),
+        cardNotBlockedSql("playable_cards"),
       ];
       
       if (gameSetId) {
@@ -372,6 +374,7 @@ class MatchService {
         if (!card.imageUrl) return false;
         if (!card.player) return false;
         if (isNonPlayerCard(card.player, card.description)) return false;
+        if (isBlockedCard(card.gameSetId, card.player)) return false;
         if (!cardHasRealImage({
           cardId: card.id.toString(),
           imageUrl: card.imageUrl,
@@ -536,7 +539,23 @@ class MatchService {
       return null;
     }
     
-    const availableSpare = queuedCards.find(c => c.isSpare && !c.usedAsReplacement && !c.markedBad);
+    const spares = queuedCards.filter(c => c.isSpare && !c.usedAsReplacement && !c.markedBad);
+    let availableSpare: typeof spares[number] | undefined;
+    let pcCard: PlayableCard | undefined;
+    for (const spare of spares) {
+      const [row] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, spare.cardId))
+        .limit(1);
+      if (row && isBlockedCard(row.gameSetId, row.player)) {
+        await db.update(matchCardQueue).set({ markedBad: true }).where(eq(matchCardQueue.id, spare.id));
+        continue;
+      }
+      availableSpare = spare;
+      pcCard = row;
+      break;
+    }
     if (!availableSpare) {
       console.warn(`[MatchService] No spare cards available for replacement in match ${matchId}`);
       return null;
@@ -555,12 +574,6 @@ class MatchService {
       .where(eq(matchCardQueue.id, availableSpare.id));
     
     let replacementDbCard: BaseballCard | null = null;
-    
-    const [pcCard] = await db
-      .select()
-      .from(playableCards)
-      .where(eq(playableCards.id, availableSpare.cardId))
-      .limit(1);
     
     if (pcCard && !isNonPlayerCard(pcCard.player, pcCard.description)) {
       replacementDbCard = playableCardToBaseballCard(pcCard);
@@ -955,6 +968,7 @@ class MatchService {
           eq(playableCards.isPlayable, true),
           inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
           maskNameStillCovered("playable_cards"),
+          cardNotBlockedSql("playable_cards"),
         )
       );
 
@@ -963,6 +977,7 @@ class MatchService {
       if (usedCardIds.has(cardIdStr)) return false;
       if (!card.imageUrl || !card.player) return false;
       if (isNonPlayerCard(card.player, card.description)) return false;
+      if (isBlockedCard(card.gameSetId, card.player)) return false;
       if (!cardHasRealImage({
         cardId: cardIdStr,
         imageUrl: card.imageUrl,

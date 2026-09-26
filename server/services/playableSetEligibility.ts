@@ -7,6 +7,7 @@
  * the drizzle column rebinds it as a parameter and counts 0.
  */
 import { sql, type SQL } from "drizzle-orm";
+import { cardNotBlockedSql } from "../lib/cardBlocklist";
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
 export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
@@ -46,6 +47,7 @@ export function eligibleDealFilter(alias: CardAlias): SQL {
       ${sql.raw(`${a}.quarantine_status`)} = 'QUARANTINED_ADMIN_REVIEW'
       AND ${sql.raw(`${a}.proposed_unplayable`)} = true
     )
+    AND ${cardNotBlockedSql(alias)}
   `;
 }
 

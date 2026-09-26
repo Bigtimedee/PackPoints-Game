@@ -16,6 +16,7 @@ import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "../playableSetEligibility";
+import { cardNotBlockedSql, isBlockedCard } from "../../lib/cardBlocklist";
 
 const MAX_REPLACES_PER_IDX = 3;
 const COOLDOWN_SECONDS = 3;
@@ -66,6 +67,7 @@ async function findReplacementCard(
     eq(playableCards.isPlayable, true),
     inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
     maskNameStillCovered("playable_cards"),
+    cardNotBlockedSql("playable_cards"),
   ];
 
   const tryFindCard = async (conditions: any[], label: string) => {
@@ -81,6 +83,7 @@ async function findReplacementCard(
       if (usedSet.has(c.id)) return false;
       if (!c.imageUrl || !c.player) return false;
       if (isNonPlayerCard(c.player, c.description)) return false;
+      if (isBlockedCard(c.gameSetId, c.player)) return false;
       if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.player })) {
         quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
         return false;

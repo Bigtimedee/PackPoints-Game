@@ -16,6 +16,7 @@ import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
+import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -173,7 +174,7 @@ export class Daily5Service {
     return challenge;
   }
 
-  private async selectCardsForChallenge(challenge: DailyChallenge, setId: string, seed: string): Promise<void> {
+  async selectCardsForChallenge(challenge: DailyChallenge, setId: string, seed: string): Promise<void> {
     const candidates = await db
       .select()
       .from(playableCards)
@@ -196,6 +197,7 @@ export class Daily5Service {
             ne(playableCards.imageReviewStatus, "rejected")
           ),
           maskNameStillCovered("playable_cards"),
+          cardNotBlockedSql("playable_cards"),
         )
       );
 
@@ -210,7 +212,7 @@ export class Daily5Service {
       .where(eq(gameSets.id, setId))
       .limit(1);
 
-    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description));
+    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description) && !isBlockedCard(c.gameSetId, c.player));
     if (filtered.length < 5) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
       return;
@@ -423,6 +425,9 @@ export class Daily5Service {
     }
 
     if (!entry) throw new Error("Failed to create entry");
+
+    const stillBlocked = await replaceBlockedDaily5Cards(challenge.id);
+    if (stillBlocked > 0) throw new Error("Daily 5 card unavailable");
 
     const cards = await db
       .select()
