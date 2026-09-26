@@ -25,6 +25,9 @@ export const SETS_POLISH = {
   surfaceACaption: "Share cover · runtime Surface A",
 } as const;
 
+/** Compact fanned stack on the /sets index. Hidden covers reserve this height. */
+export const SET_INDEX_COVER_HEIGHT = 168;
+
 export const FORBIDDEN_PUBLIC_SETS_COPY = [
   "times played",
   "maker rate",

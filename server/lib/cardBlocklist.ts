@@ -56,6 +56,17 @@ export const TOPPS_1987_FOOTBALL_RECORD_BREAKERS: readonly { number: string; pla
 /** Name-only. Not a Record Breaker card number on the checklists above. */
 const TOPPS_1987_FOOTBALL_EXTRA_PLAYERS = ["Mark Duper"] as const;
 
+/**
+ * 1987 Topps Football #125 Charles Haley. The 49ers jersey is 94 and prints
+ * HALEY on the back. The checklist number is 125, not 94. "Topps Super Rookie"
+ * is the banner on this card, not a reason to drop every Super Rookie in the set.
+ * Other sets stay playable.
+ * - https://www.cardboardconnection.com/1987-topps-football-cards (125 Charles Haley RC)
+ * - https://www.sportscardchecklist.com/set-12009/1987-topps-football-trading-card-checklist (#125 Charles Haley)
+ */
+export const TOPPS_1987_FOOTBALL_HALEY_NUMBER = "125";
+const TOPPS_1987_FOOTBALL_HALEY_PLAYER = "Charles Haley";
+
 const RECORD_BREAKER_TEXT = /record\s*breaker/i;
 const RECORD_BREAKER_NUMBERS = new Set(TOPPS_1987_FOOTBALL_RECORD_BREAKERS.map((row) => row.number));
 
@@ -161,6 +172,7 @@ export const CARD_BLOCKLIST: readonly CardBlocklistEntry[] = [
   { gameSetId: "229f0379", prefix: true, playerIncludes: "antetokounmpo" },
   ...TOPPS_1987_FOOTBALL_RECORD_BREAKERS.map((row) => footballNameEntry(row.player)),
   ...TOPPS_1987_FOOTBALL_EXTRA_PLAYERS.map((player) => footballNameEntry(player)),
+  footballNameEntry(TOPPS_1987_FOOTBALL_HALEY_PLAYER),
   // 1989 Fleer: belt-and-braces for the earlier Kevin Johnson leak.
   { gameSetId: "aea515e2", prefix: true, playerIncludes: "kevin johnson" },
 ];
@@ -170,8 +182,9 @@ export function recordBreakerBlocklistLogLine(): string {
   const players = [
     ...TOPPS_1987_FOOTBALL_RECORD_BREAKERS.map((row) => row.player),
     ...TOPPS_1987_FOOTBALL_EXTRA_PLAYERS,
+    TOPPS_1987_FOOTBALL_HALEY_PLAYER,
   ].join(",");
-  return `[blocklist] set=91cfdf3f recordBreakerNumbers=${numbers} players=${players}`;
+  return `[blocklist] set=91cfdf3f recordBreakerNumbers=${numbers} haleyNumber=${TOPPS_1987_FOOTBALL_HALEY_NUMBER} players=${players}`;
 }
 
 /**
@@ -324,7 +337,7 @@ export function isBlockedCard(
   const number = normalizeCardNumber(fields?.number);
   if (setId && (multiPlayerNumber(setId, number) || leakedChecklistNumber(setId, number))) return true;
   if (setId !== TOPPS_1987_FOOTBALL_SET_ID) return false;
-  if (number && RECORD_BREAKER_NUMBERS.has(number)) return true;
+  if (number && (RECORD_BREAKER_NUMBERS.has(number) || number === TOPPS_1987_FOOTBALL_HALEY_NUMBER)) return true;
   const text = `${player || ""}\n${fields?.variant || ""}\n${fields?.description || ""}`;
   return RECORD_BREAKER_TEXT.test(text);
 }
@@ -353,6 +366,10 @@ function normalizedNumberSql(alias: CardAlias): string {
 function recordBreakerNumberClause(alias: CardAlias): string {
   const numbers = TOPPS_1987_FOOTBALL_RECORD_BREAKERS.map((row) => sqlQuote(row.number)).join(", ");
   return `(lower(${alias}.game_set_id) = ${sqlQuote(TOPPS_1987_FOOTBALL_SET_ID)} AND ${normalizedNumberSql(alias)} IN (${numbers}))`;
+}
+
+function haleyNumberClause(alias: CardAlias): string {
+  return `(lower(${alias}.game_set_id) = ${sqlQuote(TOPPS_1987_FOOTBALL_SET_ID)} AND ${normalizedNumberSql(alias)} = ${sqlQuote(TOPPS_1987_FOOTBALL_HALEY_NUMBER)})`;
 }
 
 function recordBreakerTextClause(alias: CardAlias): string {
@@ -435,6 +452,7 @@ export function cardBlocklistWhereBody(alias: CardAlias): string {
   const clauses = [
     ...CARD_BLOCKLIST.map((entry) => blockClause(alias, entry)),
     recordBreakerNumberClause(alias),
+    haleyNumberClause(alias),
     recordBreakerTextClause(alias),
     multiPlayerTextClause(alias),
     multiPlayerPeopleClause(alias),

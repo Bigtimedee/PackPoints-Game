@@ -5,6 +5,7 @@ import { inferLayoutClass, overlayMaskRegions } from "@shared/maskGeometry";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
 import {
+  SET_INDEX_COVER_HEIGHT,
   SETS_POLISH,
   resolveSetCover,
   type SetCoverSource,
@@ -75,7 +76,7 @@ export function MaskedCardStack({
   return (
     <div
       className="relative w-full overflow-hidden"
-      style={{ height: compact ? 168 : 220, backgroundColor: SETS_POLISH.panel }}
+      style={{ height: compact ? SET_INDEX_COVER_HEIGHT : 220, backgroundColor: SETS_POLISH.panel }}
       data-testid="cover-masked-stack"
     >
       {cards.map((card, i) => {

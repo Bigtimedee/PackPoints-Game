@@ -100,6 +100,13 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(basketballSetId, "Mark Duper")).toBe(false);
     expect(isBlockedCard(fleerSetId, "Mark Duper")).toBe(false);
 
+    expect(isBlockedCard(footballSetId, "Charles Haley")).toBe(true);
+    expect(isBlockedCard(footballSetId, "CHARLES HALEY")).toBe(true);
+    expect(isBlockedCard(footballSetId, "Haley, Charles")).toBe(true);
+    expect(isBlockedCard(basketballSetId, "Charles Haley")).toBe(false);
+    expect(isBlockedCard(fleerSetId, "Charles Haley")).toBe(false);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Charles Haley")).toBe(false);
+
     expect(isBlockedCard(fleerSetId, "Kevin Johnson")).toBe(true);
     expect(isBlockedCard(fleerOnlySetId, "KEVIN JOHNSON")).toBe(true);
     expect(isBlockedCard(footballSetId, "Kevin Johnson")).toBe(false);
@@ -230,11 +237,23 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(footballSetId, "Joe Montana", { number: "394" })).toBe(true);
   });
 
+  it("blocks 1987 Topps Football Charles Haley by name and checklist number 125 only", () => {
+    expect(isBlockedCard(footballSetId, "Charles Haley", { number: "94", variant: "Topps Super Rookie" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Roster Filler", { number: "125" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Roster Filler", { number: "#125" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Roster Filler", { number: "0125" })).toBe(true);
+    expect(isBlockedCard(footballSetId, "Gerald McNeil", { number: "94", variant: "Topps Super Rookie" })).toBe(false);
+    expect(isBlockedCard(footballSetId, "Jerry Rice", { number: "115", variant: "Topps Super Rookie" })).toBe(false);
+    expect(isBlockedCard(basketballSetId, "Charles Haley", { number: "125" })).toBe(false);
+    expect(isBlockedCard(basketballSetId, "Roster Filler", { number: "125" })).toBe(false);
+    expect(isBlockedCard("37fd025d-2ae1-4c92-b8ad-133375d0c722", "Charles Haley", { number: "125" })).toBe(false);
+  });
+
   it("logs the record breaker subset in one boot line", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     logCardBlocklist();
     expect(spy).toHaveBeenCalledWith(
-      "[blocklist] set=91cfdf3f recordBreakerNumbers=2,3,4,5,6,7,8 players=Todd Christensen,Dave Jennings,Charlie Joiner,Steve Largent,Dan Marino,Donnie Shell,Phil Simms,Mark Duper",
+      "[blocklist] set=91cfdf3f recordBreakerNumbers=2,3,4,5,6,7,8 haleyNumber=125 players=Todd Christensen,Dave Jennings,Charlie Joiner,Steve Largent,Dan Marino,Donnie Shell,Phil Simms,Mark Duper,Charles Haley",
     );
     for (const line of multiPlayerBlocklistLogLines()) {
       expect(line).toMatch(/^\[blocklist\] set=[0-9a-f]{8} multiPlayerNumbers=\d+(?:,\d+)*(?: allStarNumbers=\d+(?:,\d+)*| mcgwireNumber=\d+)? textRules=on$/);
@@ -253,6 +272,8 @@ describe("isBlockedCard", () => {
       expect(body).toContain(`'${number}'`);
     }
     expect(body).toContain("record[[:space:]]*breaker");
+    expect(body).toContain("strpos(lower(playable_cards.player), 'charles haley') > 0");
+    expect(body).toContain("= '125'");
     expect(body).not.toContain("\\mRB\\M");
     expect(body).toContain("playable_cards.number");
     expect(body).toContain("playable_cards.variant");
@@ -343,7 +364,11 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
       { ...card(footballSetId, "Phil Simms", "2021-01-02T00:00:00.000Z", "football"), number: "10", description: "Phil Simms", variant: null },
       { ...card(footballSetId, "Banner Name", "2021-01-03T00:00:00.000Z", "football"), number: "99", description: "Banner Name", variant: "Record Breaker" },
       { ...card(footballSetId, "Some Back", "2021-01-04T00:00:00.000Z", "football"), number: "50", description: "RB", variant: null },
-      { ...card(footballSetId, "Jerry Rice", "2021-01-05T00:00:00.000Z", "football"), number: "115", description: "Jerry Rice", variant: null },
+      { ...card(footballSetId, "Jerry Rice", "2021-01-05T00:00:00.000Z", "football"), number: "115", description: "Jerry Rice", variant: "Topps Super Rookie" },
+      { ...card(footballSetId, "Charles Haley", "2021-01-06T00:00:00.000Z", "football"), number: "94", description: "Charles Haley", variant: "Topps Super Rookie" },
+      { ...card(footballSetId, "Jersey Back", "2021-01-07T00:00:00.000Z", "football"), number: "#125", description: "Jersey Back", variant: null },
+      { ...card(basketballSetId, "Charles Haley", "2021-01-08T00:00:00.000Z", "basketball"), number: "125", description: "Charles Haley", variant: null },
+      { ...card(footballSetId, "Gerald McNeil", "2021-01-09T00:00:00.000Z", "football"), number: "94", description: "Gerald McNeil", variant: "Topps Super Rookie" },
     ];
     await db.insert(playableCards).values(rows);
     try {
@@ -351,7 +376,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
         .select({ player: playableCards.player })
         .from(playableCards)
         .where(and(inArray(playableCards.id, rows.map((row) => row.id)), cardNotBlockedSql("playable_cards")));
-      expect(kept.map((row) => row.player).sort()).toEqual(["Jerry Rice", "Some Back"]);
+      expect(kept.map((row) => row.player).sort()).toEqual(["Charles Haley", "Gerald McNeil", "Jerry Rice", "Some Back"]);
     } finally {
       await db.delete(playableCards).where(inArray(playableCards.id, rows.map((row) => row.id)));
     }
@@ -465,7 +490,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     const slot0 = await fetch(`${base}/api/sets/${footballSetId}/covers/0`);
     expect(slot0.status).toBe(200);
     expect(Buffer.from(await slot0.arrayBuffer())).toEqual(artBytes);
-    expect(slot0.headers.get("x-card-id")).toBeNull();
+    expect(slot0.headers.get("x-card-id")).toBe(footballCards[2].id);
 
     const slot7 = await fetch(`${base}/api/sets/${footballSetId}/covers/7`);
     expect(slot7.status).toBe(200);

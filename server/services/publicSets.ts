@@ -18,6 +18,7 @@ import {
   dedupeSetsByNameYearSport,
   eligiblePlayableCardCountSql,
 } from "./playableSetEligibility";
+import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { readyMaskedCoverUrls } from "./setCovers";
 
 export interface PublicSetListRow {
@@ -85,26 +86,29 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
   if (page.length === 0) return [];
 
   const ids = page.map((row) => row.id);
-  const [covers, shareRows] = await Promise.all([
-    readyMaskedCoverUrls(ids),
-    db
-      .select({
-        sourceEventId: contentAssets.sourceEventId,
-        metadata: contentAssets.metadata,
-      })
-      .from(contentAssets)
-      .where(and(
-        eq(contentAssets.assetType, "MAKER_SHARE_CARD"),
-        inArray(contentAssets.sourceEventId, ids.map((id) => `maker_set_${id}`)),
-      )),
-  ]);
-
+  const covers = new Map<string, string[]>();
   const shares = new Map<string, string | undefined>();
-  for (const asset of shareRows) {
-    if (!asset.sourceEventId) continue;
-    const setId = asset.sourceEventId.replace(/^maker_set_/, "");
-    const url = publicSetShareUrl((asset.metadata as { imageUrl?: string } | null)?.imageUrl);
-    if (url) shares.set(setId, url);
+  if (!setsCoversDisabled()) {
+    const [coverMap, shareRows] = await Promise.all([
+      readyMaskedCoverUrls(ids),
+      db
+        .select({
+          sourceEventId: contentAssets.sourceEventId,
+          metadata: contentAssets.metadata,
+        })
+        .from(contentAssets)
+        .where(and(
+          eq(contentAssets.assetType, "MAKER_SHARE_CARD"),
+          inArray(contentAssets.sourceEventId, ids.map((id) => `maker_set_${id}`)),
+        )),
+    ]);
+    for (const [setId, urls] of coverMap) covers.set(setId, urls);
+    for (const asset of shareRows) {
+      if (!asset.sourceEventId) continue;
+      const setId = asset.sourceEventId.replace(/^maker_set_/, "");
+      const url = publicSetShareUrl((asset.metadata as { imageUrl?: string } | null)?.imageUrl);
+      if (url) shares.set(setId, url);
+    }
   }
 
   return page.map((row) => {
@@ -130,7 +134,7 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
 export async function handlePublicSetsIndex(req: Request, res: Response): Promise<void> {
   try {
     const sets = await listIntegratedPublicSets(parseSetsListQuery(req.query));
-    res.json({ sets });
+    res.json(setsCoversDisabled() ? { sets, coversDisabled: true } : { sets });
   } catch (error) {
     console.error("[Sets] GET /api/sets error:", error);
     res.status(500).json({ error: "Failed to list sets" });
@@ -184,15 +188,20 @@ export async function handlePublicSetDetail(req: Request, res: Response): Promis
       });
     }
 
-    const [asset] = await db.select({ metadata: contentAssets.metadata })
-      .from(contentAssets)
-      .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
-      .limit(1);
-    const shareImageUrl = publicSetShareUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
+    const coversOff = setsCoversDisabled();
+    let shareImageUrl: string | undefined;
+    let previewCards: Array<{ imageUrl: string; year: number | null }> = [];
+    if (!coversOff) {
+      const [asset] = await db.select({ metadata: contentAssets.metadata })
+        .from(contentAssets)
+        .where(eq(contentAssets.sourceEventId, `maker_set_${resolved.id}`))
+        .limit(1);
+      shareImageUrl = publicSetShareUrl((asset?.metadata as { imageUrl?: string } | null)?.imageUrl);
 
-    const coverUrls = (await readyMaskedCoverUrls([resolved.id])).get(resolved.id) ?? [];
-    const year = typeof resolved.year === "number" ? resolved.year : null;
-    const previewCards = coverUrls.map((imageUrl) => ({ imageUrl, year }));
+      const coverUrls = (await readyMaskedCoverUrls([resolved.id])).get(resolved.id) ?? [];
+      const year = typeof resolved.year === "number" ? resolved.year : null;
+      previewCards = coverUrls.map((imageUrl) => ({ imageUrl, year }));
+    }
 
     const viewerId = requestUserId(req as any);
     let playedToday = false;
@@ -213,7 +222,13 @@ export async function handlePublicSetDetail(req: Request, res: Response): Promis
       playedToday = played.rows.length > 0;
     }
 
-    res.json({ ...resolved, shareImageUrl, previewCards, playedToday });
+    res.json({
+      ...resolved,
+      shareImageUrl,
+      previewCards,
+      playedToday,
+      ...(coversOff ? { coversDisabled: true } : {}),
+    });
   } catch (error) {
     console.error("[Sets] GET /api/sets/:id error:", error);
     res.status(500).json({ error: "Failed to get set" });
