@@ -1,7 +1,8 @@
 /**
  * Design sweep of every card a deal can draw.
- * The card WHERE clause is eligibleDealFilter. Blocklist and surname
- * exclusions stay in that filter. This file does not restate them.
+ * The card WHERE clause is eligibleDealFilter. Blocklist, surname
+ * exclusions, and current-mask fail sidecars stay in that filter.
+ * This file does not restate them.
  */
 import { existsSync } from "fs";
 import path from "path";

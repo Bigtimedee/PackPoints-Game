@@ -14,7 +14,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
-import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
+import { setMaskReadySidecarDirForTests, writeMaskFailureSidecar } from "../masking/maskReadySidecar";
 import { warmMaskPlanFilename } from "../masking/maskPlanStore";
 import { MaskBakeTimeoutError, resetMaskBakeForTests, setMaskPathLoaderForTests } from "../masking/maskingService";
 import { registerCoverQaRoutes } from "../routes/coverQa";
@@ -41,12 +41,13 @@ const surnameId = randomUUID();
 const unplayableId = randomUUID();
 const rejectedId = randomUUID();
 const unverifiedId = randomUUID();
+const refusedSidecarId = randomUUID();
 const hoopOkId = randomUUID();
 const hoopBlockedId = randomUUID();
 const inactiveCardId = randomUUID();
 
 const dealableIds = [bakedId, tieLowId, tieHighId, coldId, timeoutId, badNameId, nullNumberId];
-const blockedIds = [blockedNameId, blockedNumberId, surnameId, unplayableId, rejectedId, unverifiedId];
+const blockedIds = [blockedNameId, blockedNumberId, surnameId, unplayableId, rejectedId, unverifiedId, refusedSidecarId];
 const allCardIds = [...dealableIds, ...blockedIds, hoopOkId, hoopBlockedId, inactiveCardId];
 
 const RAW_HOST = "https://packpts.example/raw";
@@ -177,6 +178,10 @@ describe("dealable QA routes", () => {
     const blockedBody = Buffer.from(`masked-secret-${blockedNameId}`);
     await writeFile(path.join(dir, warmOkMarkerFilename(blockedNameId)), "ok\n");
     await writeFile(path.join(dir, `${blockedNameId}_${CURRENT_MASK_VERSION}.jpg`), blockedBody);
+    const refusedBody = Buffer.from(`masked-refused-${refusedSidecarId}`);
+    await writeFile(path.join(dir, warmOkMarkerFilename(refusedSidecarId)), "ok\n");
+    await writeFile(path.join(dir, `${refusedSidecarId}_${CURRENT_MASK_VERSION}.jpg`), refusedBody);
+    writeMaskFailureSidecar(refusedSidecarId, "name_plate_unresolved", dir);
 
     await db.insert(playableCards).values([
       card({ id: bakedId, gameSetId: setId, player: "QA Deal D", number: "12", variant: "base" }),
@@ -204,6 +209,7 @@ describe("dealable QA routes", () => {
         imageReviewStatus: "rejected",
       }),
       card({ id: unverifiedId, gameSetId: setId, player: "Unverified Scan", number: "7", contentVerified: false }),
+      card({ id: refusedSidecarId, gameSetId: setId, player: "Refused Plate", number: "15" }),
       card({ id: hoopOkId, gameSetId: hoopId, player: "Jalen Example", number: "8" }),
       card({ id: hoopBlockedId, gameSetId: hoopId, player: "Giannis Antetokounmpo", number: "34" }),
       card({ id: inactiveCardId, gameSetId: inactiveId, player: "Inactive Only", number: "1" }),
@@ -233,6 +239,8 @@ describe("dealable QA routes", () => {
   it("keeps the deal filter in one place", async () => {
     const src = await readFile(new URL("../services/dealableQa.ts", import.meta.url), "utf8");
     expect(src).toContain('eligibleDealFilter("playable_cards")');
+    expect(src).not.toContain("currentMaskRefusalIds");
+    expect(src).not.toContain("maskRefusalStillClearSql");
     expect(src).toContain("getMaskedImagePath");
     expect(src).not.toContain("sendUnmaskedCard");
     expect(src).not.toContain("playerIncludes");
@@ -394,10 +402,12 @@ describe("dealable QA routes", () => {
     expect(blockedText).not.toContain("masked-secret");
     expect(blockedText).not.toContain(RAW_HOST);
 
-    for (const id of [surnameId, unplayableId, rejectedId, unverifiedId, blockedNumberId, hoopBlockedId]) {
+    for (const id of [surnameId, unplayableId, rejectedId, unverifiedId, blockedNumberId, hoopBlockedId, refusedSidecarId]) {
       const res = await fetch(`${base}/api/qa/cover-image/${id}`, { headers: headers() });
       expect(res.status).toBe(404);
-      expect(await res.text()).not.toContain(RAW_HOST);
+      const body = await res.text();
+      expect(body).not.toContain(RAW_HOST);
+      expect(body).not.toContain("masked-refused");
     }
     expect(bakeCalls).toEqual([]);
 
