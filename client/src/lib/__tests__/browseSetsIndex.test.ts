@@ -17,7 +17,10 @@ function shelfSet(overrides: Partial<BrowseSet> & Pick<BrowseSet, "id" | "setNam
     isUserCreated: false,
     brand: "Topps",
     createdAt: "2026-07-18T17:38:58.000Z",
-    coverCardUrls: ["https://packpts.com/cards/one.jpg"],
+    coverCardUrls: [
+      "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/0",
+      "/api/sets/74885a41-2043-4b7c-ab58-f9e16c05e2e3/covers/1",
+    ],
     ...overrides,
   };
 }
