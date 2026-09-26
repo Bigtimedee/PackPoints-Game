@@ -38,7 +38,7 @@ export async function enqueueJob(
  * Claim and run the next pending job of a given type.
  * Uses SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent workers.
  */
-async function processNextJob(jobType: string): Promise<boolean> {
+export async function runNextPendingJob(jobType: string): Promise<boolean> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -127,7 +127,7 @@ export function scheduleRecurringJob(
   const tick = async () => {
     try {
       await enqueueJob(jobType);
-      await processNextJob(jobType);
+      await runNextPendingJob(jobType);
     } catch (err) {
       console.error(`[JobQueue] Error in recurring job ${jobType}:`, err);
     }

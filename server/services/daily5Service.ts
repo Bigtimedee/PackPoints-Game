@@ -465,60 +465,63 @@ export class Daily5Service {
     score: number;
     correctCount: number;
   }> {
-    const [entry] = await db
-      .select()
-      .from(dailyChallengeEntries)
-      .where(
-        and(
-          eq(dailyChallengeEntries.dailyChallengeId, challengeId),
-          eq(dailyChallengeEntries.userId, userId)
+    return await db.transaction(async (tx) => {
+      const [entry] = await tx
+        .select()
+        .from(dailyChallengeEntries)
+        .where(
+          and(
+            eq(dailyChallengeEntries.dailyChallengeId, challengeId),
+            eq(dailyChallengeEntries.userId, userId)
+          )
         )
-      )
-      .limit(1);
+        .for("update")
+        .limit(1);
 
-    if (!entry) throw new Error("No entry found - start the challenge first");
-    if (entry.completedAt) throw new Error("Challenge already completed");
+      if (!entry) throw new Error("No entry found - start the challenge first");
+      if (entry.completedAt) throw new Error("Challenge already completed");
 
-    const answers = (entry.answers || []) as { position: number; selected: string; correct: boolean; timeMs?: number }[];
-    if (answers.some(a => a.position === position)) {
-      throw new Error(`Position ${position} already answered`);
-    }
+      const answers = (entry.answers || []) as { position: number; selected: string; correct: boolean; timeMs?: number }[];
+      if (answers.some(a => a.position === position)) {
+        throw new Error(`Position ${position} already answered`);
+      }
 
-    const [card] = await db
-      .select()
-      .from(dailyChallengeCards)
-      .where(
-        and(
-          eq(dailyChallengeCards.dailyChallengeId, challengeId),
-          eq(dailyChallengeCards.position, position)
+      const [card] = await tx
+        .select()
+        .from(dailyChallengeCards)
+        .where(
+          and(
+            eq(dailyChallengeCards.dailyChallengeId, challengeId),
+            eq(dailyChallengeCards.position, position)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
 
-    if (!card) throw new Error(`No card at position ${position}`);
+      if (!card) throw new Error(`No card at position ${position}`);
 
-    const correct = selectedAnswer === card.correctAnswer;
-    const pointsEarned = correct ? card.pointValue : 0;
+      const correct = selectedAnswer === card.correctAnswer;
+      const pointsEarned = correct ? card.pointValue : 0;
 
-    const newAnswers = [...answers, { position, selected: selectedAnswer, correct }];
-    const newScore = entry.score + pointsEarned;
-    const newCorrectCount = entry.correctCount + (correct ? 1 : 0);
+      const newAnswers = [...answers, { position, selected: selectedAnswer, correct }];
+      const newScore = entry.score + pointsEarned;
+      const newCorrectCount = entry.correctCount + (correct ? 1 : 0);
 
-    await db
-      .update(dailyChallengeEntries)
-      .set({
-        answers: newAnswers,
+      await tx
+        .update(dailyChallengeEntries)
+        .set({
+          answers: newAnswers,
+          score: newScore,
+          correctCount: newCorrectCount,
+        })
+        .where(eq(dailyChallengeEntries.id, entry.id));
+
+      return {
+        correct,
+        pointsEarned,
         score: newScore,
         correctCount: newCorrectCount,
-      })
-      .where(eq(dailyChallengeEntries.id, entry.id));
-
-    return {
-      correct,
-      pointsEarned,
-      score: newScore,
-      correctCount: newCorrectCount,
-    };
+      };
+    });
   }
 
   async finishChallenge(userId: string, challengeId: string): Promise<{

@@ -1244,6 +1244,19 @@ export default function Match() {
                   setShowReplaceButton(true);
                 }
               }}
+              onMaskRefused={() => {
+                logger.debug(`[Match] Mask refused, requesting a replacement`);
+                setImageError(true);
+                setShowReplaceButton(true);
+                if (replacementPending) return;
+                setReplacementPending(true);
+                send("question_replace_request", {
+                  matchId,
+                  idx: matchState.currentQuestionIndex,
+                  seedVersion,
+                  reason: "image_load_failed",
+                });
+              }}
               showReplaceButton={showReplaceButton}
               replacePending={replacementPending}
               onReplace={() => {

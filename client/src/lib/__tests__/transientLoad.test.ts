@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { SOLO_REPLACE_HARD_CAP_MS } from "../soloImageReplace";
 import {
   answerRetryDelayMs,
+  isMaskRefusalStatus,
   isUnmaskedCardUrl,
   maskedImageRetrySrc,
   postGameAnswer,
@@ -24,6 +25,11 @@ describe("masked image deploy retry", () => {
     expect(shouldRetryMaskedImageLoad({ url, status: null, alreadyRetried: false })).toBe(true);
     expect(shouldRetryMaskedImageLoad({ url, status: 503, alreadyRetried: true })).toBe(false);
     expect(shouldRetryMaskedImageLoad({ url, status: 404, alreadyRetried: false })).toBe(false);
+    expect(isMaskRefusalStatus(422)).toBe(true);
+    expect(shouldRetryMaskedImageLoad({ url, status: 422, alreadyRetried: false })).toBe(false);
+    expect(gameCardSrc).toContain("isMaskRefusalStatus");
+    expect(gameCardSrc).toContain("onMaskRefused");
+    expect(gameSrc).toContain("handleMaskRefused");
     expect(maskedImageRetrySrc(url, 1)).toContain("boot=1");
   });
 

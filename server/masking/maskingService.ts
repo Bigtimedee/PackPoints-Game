@@ -62,6 +62,7 @@ const coverageRefusals = new Map<string, string>();
 const OCR_FAILURE_MEMO_MS = 60 * 60 * 1000;
 const ocrSkipUntil = new Map<string, number>();
 let activeMaskingJobs = 0;
+let liveMaskRequests = 0;
 const MAX_CONCURRENT_OCR = 2;
 const SLOT_POLL_MS = 50;
 
@@ -121,6 +122,7 @@ export function recordOcrTimeout(cardId: string, ms: number): void {
 
 export function resetMaskBakeForTests(): void {
   activeMaskingJobs = 0;
+  liveMaskRequests = 0;
   maskingQueue.clear();
   coverageRefusals.clear();
   ocrSkipUntil.clear();
@@ -185,8 +187,8 @@ function releaseBakeSlot(guard: { released: boolean }): void {
   activeMaskingJobs--;
 }
 
-async function acquireBakeSlot(): Promise<void> {
-  while (activeMaskingJobs >= MAX_CONCURRENT_OCR) {
+async function acquireBakeSlot(priority: "live" | "warm" = "live"): Promise<void> {
+  while (activeMaskingJobs >= MAX_CONCURRENT_OCR || (priority === "warm" && liveMaskRequests > 0)) {
     await new Promise((resolve) => setTimeout(resolve, SLOT_POLL_MS));
   }
   activeMaskingJobs++;
@@ -199,8 +201,9 @@ async function acquireBakeSlot(): Promise<void> {
 async function runInBakeSlot<T>(
   cardId: string,
   work: (setStage: (stage: MaskBakeStage) => void, isCancelled: () => boolean) => Promise<T>,
+  priority: "live" | "warm" = "live",
 ): Promise<T> {
-  await acquireBakeSlot();
+  await acquireBakeSlot(priority);
   const guard = { released: false };
   const started = Date.now();
   let stage: MaskBakeStage = "fetch";
@@ -318,7 +321,15 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
   return true;
 }
 
-export async function getMaskedImagePath(cardId: string): Promise<string | null> {
+export async function getMaskedImagePath(
+  cardId: string,
+  opts?: { priority?: "live" | "warm" },
+): Promise<string | null> {
+  const failReason = readMaskFailureReason(cardId);
+  if (failReason) {
+    coverageRefusals.set(cardId, failReason);
+    return null;
+  }
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
   if (isMaskBandExcluded(cardId)) return null;
 
@@ -327,13 +338,16 @@ export async function getMaskedImagePath(cardId: string): Promise<string | null>
     return warm;
   }
 
-  return enqueueMaskBake(cardId, () => {
-    const promise = generateMaskedImage(cardId);
-    return promise;
-  });
+  const priority = opts?.priority ?? "live";
+  if (priority === "live") liveMaskRequests++;
+  try {
+    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority));
+  } finally {
+    if (priority === "live") liveMaskRequests--;
+  }
 }
 
-async function generateMaskedImage(cardId: string): Promise<string | null> {
+async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "live"): Promise<string | null> {
   await ensureDirectory();
 
   let imageUrl: string | null = null;
@@ -444,11 +458,19 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     setHint,
     gameSetId,
     imageRotation,
-  });
+  }, priority);
 }
 
-export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<string | null> {
+export async function bakeMaskedCardFromUrl(
+  input: MaskBakeSource,
+  priority: "live" | "warm" = "live",
+): Promise<string | null> {
   const { cardId, imageUrl } = input;
+  const alreadyRefused = readMaskFailureReason(cardId);
+  if (alreadyRefused) {
+    coverageRefusals.set(cardId, alreadyRefused);
+    return null;
+  }
   try {
     return await runInBakeSlot(cardId, async (setStage, isCancelled) => {
       setStage("fetch");
@@ -570,7 +592,7 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
       });
 
       return filename;
-    });
+    }, priority);
   } catch (error) {
     if (isMaskBakeTimeout(error)) throw error;
     console.error(`[MaskingService] Failed to mask card ${cardId}:`, error);

@@ -1,5 +1,33 @@
 const inFlight = new Set<string>();
 const readyUrls = new Set<string>();
+const refusedUrls = new Set<string>();
+const prefetchFailed = new Set<string>();
+const retainedImages = new Set<HTMLImageElement>();
+
+function prefetchKey(url: string): string {
+  const cut = url.indexOf("?");
+  return cut === -1 ? url : url.slice(0, cut);
+}
+
+export function markMaskedUrlRefused(url: string): void {
+  if (url) refusedUrls.add(prefetchKey(url));
+}
+
+export function isMaskedUrlRefused(url: string): boolean {
+  return !!url && refusedUrls.has(prefetchKey(url));
+}
+
+export function retainedPrefetchCount(): number {
+  return retainedImages.size;
+}
+
+export function resetPrefetchForTests(): void {
+  inFlight.clear();
+  readyUrls.clear();
+  refusedUrls.clear();
+  prefetchFailed.clear();
+  retainedImages.clear();
+}
 
 export function markPlayCardImageReady(url: string): void {
   if (url) readyUrls.add(url);
@@ -25,14 +53,17 @@ function uniqueUrls(urls: Array<string | null | undefined>): string[] {
 }
 
 function prefetchUrl(url: string, label: string): void {
-  if (!url || inFlight.has(url)) return;
-  inFlight.add(url);
+  if (!url || inFlight.has(url) || readyUrls.has(url) || prefetchFailed.has(url) || isMaskedUrlRefused(url)) return;
   if (typeof Image === "undefined") return;
+  inFlight.add(url);
   const started = typeof performance !== "undefined" ? performance.now() : 0;
   const img = new Image();
+  retainedImages.add(img);
   img.decoding = "async";
+  img.crossOrigin = "anonymous";
   img.onload = () => {
     markPlayCardImageReady(url);
+    inFlight.delete(url);
     if (typeof performance !== "undefined") {
       const ms = Math.round(performance.now() - started);
       console.debug(`[Prefetch] ${label} ready in ${ms}ms`);
@@ -40,6 +71,8 @@ function prefetchUrl(url: string, label: string): void {
   };
   img.onerror = () => {
     inFlight.delete(url);
+    prefetchFailed.add(url);
+    retainedImages.delete(img);
   };
   img.src = url;
 }
@@ -51,6 +84,7 @@ function ensurePreloadLink(href: string): void {
   const link = document.createElement("link");
   link.rel = "preload";
   link.as = "image";
+  link.crossOrigin = "anonymous";
   link.href = href;
   document.head.appendChild(link);
 }
@@ -61,10 +95,12 @@ function isMaskedPlayUrl(url: string): boolean {
 
 /** Prefetch baked (masked) JPEGs only. Never prefetch an unmasked reveal URL. */
 export function prefetchMaskedPlayCards(urls: Array<string | null | undefined>): string[] {
-  const masked = uniqueUrls(urls).filter((url) => isMaskedPlayUrl(url) && !url.includes("/api/images/card/") && !url.includes("/api/play/r/"));
-  if (masked[0]) ensurePreloadLink(masked[0]);
-  if (masked[1]) ensurePreloadLink(masked[1]);
-  for (const url of masked) prefetchUrl(url, "masked");
+  const masked = uniqueUrls(urls).filter((url) => isMaskedPlayUrl(url) && !url.includes("/api/images/card/") && !url.includes("/api/play/r/") && !isMaskedUrlRefused(url));
+  const upcoming = masked.slice(1, 3);
+  for (const url of upcoming) ensurePreloadLink(url);
+  if (upcoming.length === 0 && masked[0]) ensurePreloadLink(masked[0]);
+  const ordered = [...upcoming, ...masked.filter((url) => !upcoming.includes(url))];
+  for (const url of ordered) prefetchUrl(url, "masked");
   return masked;
 }
 
