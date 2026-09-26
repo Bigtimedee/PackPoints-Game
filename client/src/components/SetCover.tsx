@@ -1,5 +1,8 @@
 import type { CSSProperties } from "react";
+import { MaskPlaque } from "@/components/MaskPlaque";
 import { MaskedCardImage } from "@/components/MaskedCardImage";
+import { inferLayoutClass, overlayMaskRegions } from "@shared/maskGeometry";
+import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
 import {
   SETS_POLISH,
@@ -7,7 +10,9 @@ import {
   type SetCoverSource,
 } from "@/lib/setsPolish";
 
-function CreamSilhouette({ year }: { year?: number | null }) {
+const creamPlaqueRegions = overlayMaskRegions(DEFAULT_MASK_REGIONS);
+
+function CreamSilhouette() {
   return (
     <div
       className="relative w-full overflow-hidden rounded-[3px]"
@@ -18,34 +23,21 @@ function CreamSilhouette({ year }: { year?: number | null }) {
       }}
       aria-hidden
     >
-      <div
-        className="absolute left-[8%] right-[8%] rounded-sm"
-        style={{
-          top: "54%",
-          height: "46%",
-          backgroundColor: "#000000",
-        }}
+      <MaskPlaque
+        regions={creamPlaqueRegions}
+        layoutClass={inferLayoutClass(creamPlaqueRegions)}
+        chrome="bar"
       />
-      <div className="absolute inset-x-0 top-[18%] text-center">
-        <span
-          className="font-mono text-[10px] tracking-[0.18em]"
-          style={{ color: "#3a3428" }}
-        >
-          {year ? `PTS ${year}` : "PTS"}
-        </span>
-      </div>
     </div>
   );
 }
 
 function StackCard({
   src,
-  year,
   className,
   style,
 }: {
   src?: string | null;
-  year?: number | null;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -62,7 +54,7 @@ function StackCard({
           />
         </div>
       ) : (
-        <CreamSilhouette year={year} />
+        <CreamSilhouette />
       )}
     </div>
   );
@@ -70,17 +62,14 @@ function StackCard({
 
 export function MaskedCardStack({
   urls,
-  years,
   compact = false,
 }: {
   urls: string[];
-  years?: Array<number | null>;
   compact?: boolean;
 }) {
   const count = Math.min(5, Math.max(3, urls.length));
   const cards = Array.from({ length: count }, (_, i) => ({
     src: urls[i] ?? null,
-    year: years?.[i] ?? null,
   }));
 
   return (
@@ -98,7 +87,6 @@ export function MaskedCardStack({
           <StackCard
             key={i}
             src={card.src}
-            year={card.year}
             className="absolute"
             style={{
               width: compact ? "30%" : "28%",
@@ -157,16 +145,14 @@ export function TheStack({
 }: {
   cards: Array<{ imageUrl: string | null; year: number | null }>;
 }) {
-  const withArt = cards.filter((c) => isMaskedSetCoverUrl(c.imageUrl));
-  const urls = withArt.map((c) => c.imageUrl as string);
-  const years = withArt.map((c) => c.year);
+  const urls = cards.filter((c) => isMaskedSetCoverUrl(c.imageUrl)).map((c) => c.imageUrl as string);
   return (
     <div
       className="rounded-md overflow-hidden"
       style={{ backgroundColor: SETS_POLISH.panel }}
       data-testid="section-the-stack"
     >
-      <MaskedCardStack urls={urls} years={years} />
+      <MaskedCardStack urls={urls} />
     </div>
   );
 }
