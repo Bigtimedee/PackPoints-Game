@@ -193,11 +193,17 @@ async function loadDailyCard(challengeId: string, position: number): Promise<str
     .limit(1);
   if (!exact?.cardId) return null;
   const [card] = await db
-    .select({ gameSetId: playableCards.gameSetId, player: playableCards.player })
+    .select({
+      gameSetId: playableCards.gameSetId,
+      player: playableCards.player,
+      number: playableCards.number,
+      variant: playableCards.variant,
+      description: playableCards.description,
+    })
     .from(playableCards)
     .where(eq(playableCards.id, exact.cardId))
     .limit(1);
-  if (card && isBlockedCard(card.gameSetId, card.player)) return null;
+  if (card && isBlockedCard(card.gameSetId, card.player, card)) return null;
   if (isMaskBandExcluded(exact.cardId)) return null;
   return exact.cardId;
 }

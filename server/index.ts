@@ -26,6 +26,7 @@ import { runProductionSchemaBoot } from "./startup/schemaBoot";
 import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
 import { startMaskBandGuardScan } from "./masking/maskBandLimit";
 import { startMaskWarmup } from "./startup/maskWarmup";
+import { logCardBlocklist } from "./lib/cardBlocklist";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -83,7 +84,8 @@ export async function bootAfterListen(
   app: Express,
   httpServer: Server,
 ): Promise<void> {
-app.use((req, res, next) => {
+  logCardBlocklist();
+  app.use((req, res, next) => {
   if (req.path.startsWith('/webhooks/')) {
     return next();
   }

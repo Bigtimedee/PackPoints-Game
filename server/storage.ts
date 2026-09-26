@@ -1080,7 +1080,7 @@ export class DatabaseStorage implements IStorage {
     return omitNonPlayerCards(candidates.filter((card) =>
       !usedCardIds.has(card.id)
       && !isKnownSilhouetteUrl(card.imageUrl)
-      && !isBlockedCard(card.gameSetId, card.player)
+      && !isBlockedCard(card.gameSetId, card.player, card)
       && !isMaskBandExcluded(card.id)
     ));
   }

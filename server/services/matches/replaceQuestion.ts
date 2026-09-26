@@ -84,7 +84,7 @@ async function findReplacementCard(
       if (usedSet.has(c.id)) return false;
       if (!c.imageUrl || !c.player) return false;
       if (isNonPlayerCard(c.player, c.description)) return false;
-      if (isBlockedCard(c.gameSetId, c.player)) return false;
+      if (isBlockedCard(c.gameSetId, c.player, c)) return false;
       if (isMaskBandExcluded(c.id)) return false;
       if (!cardHasRealImage({ cardId: c.id, imageUrl: c.imageUrl, player: c.player })) {
         quarantineCard(c.id, "placeholder_image", c.imageUrl).catch(() => {});
