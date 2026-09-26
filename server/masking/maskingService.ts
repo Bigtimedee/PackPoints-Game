@@ -21,6 +21,7 @@ import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
+import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -319,6 +320,7 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
 
 export async function getMaskedImagePath(cardId: string): Promise<string | null> {
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
+  if (isMaskBandExcluded(cardId)) return null;
 
   const warm = peekWarmMaskedFilename(cardId);
   if (warm && await acceptWarmMaskedFile(cardId, warm)) {
@@ -487,6 +489,16 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
           maskVersion: CURRENT_MASK_VERSION,
         });
         await quarantineUncoveredName(cardId, reason);
+        return null;
+      }
+
+      const bandIssue = maskBandFailure(result.regions);
+      if (bandIssue && maskBandGuardEnforces()) {
+        console.error(`[MaskingService] Refusing mask band for ${cardId}`, {
+          reason: bandIssue,
+          maskVersion: CURRENT_MASK_VERSION,
+        });
+        await rejectMaskBand(cardId, bandIssue);
         return null;
       }
 

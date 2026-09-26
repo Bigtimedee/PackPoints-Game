@@ -4,6 +4,7 @@ import type { Request, Response } from "express";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { isPlayScope, maskTokenMatches } from "../services/playImageToken";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
+import { isMaskBandExcluded } from "../masking/maskBandLimit";
 
 const VERSION = CURRENT_MASK_VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const WARM_JPEG = new RegExp(`^(.+)_${VERSION}(?:_r(?:90|180|270))?\\.jpg$`);
@@ -64,6 +65,7 @@ export function resolveReadyWarmMaskedFile(dir: string, cardId: string): string 
   if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
     return null;
   }
+  if (isMaskBandExcluded(cardId, dir)) return null;
   if (!existsSync(path.join(dir, warmOkMarkerFilename(cardId)))) return null;
   return warmFile(dir, cardId);
 }
@@ -115,6 +117,7 @@ export function findWarmMaskedPath(args: {
   if (!isPlayScope(args.scope)) return null;
   for (const cardId of cardIds(args.dir)) {
     if (!maskTokenMatches(args.scope, args.sessionId, args.index, cardId, args.token)) continue;
+    if (isMaskBandExcluded(cardId, args.dir)) return null;
     if (!existsSync(path.join(args.dir, warmOkMarkerFilename(cardId)))) return null;
     return warmFile(args.dir, cardId);
   }

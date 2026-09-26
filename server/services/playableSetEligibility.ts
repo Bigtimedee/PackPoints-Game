@@ -7,6 +7,7 @@
  * the drizzle column rebinds it as a parameter and counts 0.
  */
 import { sql, type SQL } from "drizzle-orm";
+import { cardNotBlockedSql } from "../lib/cardBlocklist";
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
 export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
@@ -14,12 +15,18 @@ export const PUBLIC_SET_MIN_ELIGIBLE_CARDS = 5;
 type CardAlias = "pc" | "playable_cards";
 
 /**
- * A post-bake name leak sets blocked_reason to this value and drops is_playable.
- * Deals also exclude the reason on its own, so a card cannot slip back in
- * while the sidecar still records the failure.
+ * A post-bake name leak sets blocked_reason to mask_name_uncovered.
+ * Enforce mode of the band guard sets mask_band_oversized or mask_band_misplaced.
+ * Deals exclude those reasons on their own, so a card cannot slip back in
+ * while is_playable is flipped true and the sidecar still records the failure.
+ * Report mode does not write them.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
-  return sql`(${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered')`;
+  return sql`(
+    ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_name_uncovered'
+    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_oversized'
+    AND ${sql.raw(`${alias}.blocked_reason`)} IS DISTINCT FROM 'mask_band_misplaced'
+  )`;
 }
 
 /**
@@ -46,6 +53,7 @@ export function eligibleDealFilter(alias: CardAlias): SQL {
       ${sql.raw(`${a}.quarantine_status`)} = 'QUARANTINED_ADMIN_REVIEW'
       AND ${sql.raw(`${a}.proposed_unplayable`)} = true
     )
+    AND ${cardNotBlockedSql(alias)}
   `;
 }
 

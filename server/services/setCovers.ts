@@ -12,6 +12,7 @@ import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { eligibleDealFilter } from "./playableSetEligibility";
+import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 
 const READY_INDEX_TTL_MS = 30_000;
@@ -116,6 +117,7 @@ async function readyCoverCardIds(setIds: string[]): Promise<Map<string, string[]
   for (const row of rows) {
     const list = bySet.get(row.gameSetId);
     if (!list || !ready.has(row.id)) continue;
+    if (isMaskBandExcluded(row.id)) continue;
     list.push({ id: row.id, player: row.player });
   }
   for (const [setId, list] of bySet) {
