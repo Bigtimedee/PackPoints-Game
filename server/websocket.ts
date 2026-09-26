@@ -20,6 +20,13 @@ import { eq, and } from "drizzle-orm";
 import { maskedPlayPath } from "./services/playImageToken";
 import { readWarmMaskPlan } from "./masking/maskPlanStore";
 import { mintMatchRevealUrl } from "./services/playImageAccess";
+import { addShutdownHook } from "./startup/shutdownHooks";
+import {
+  beginWebSocketShutdown,
+  isAcceptingWebSocketUpgrades,
+  isWebSocketShuttingDown,
+  registerWebSocketServer,
+} from "./startup/websocketShutdown";
 
 const INVITE_EXPIRATION_INTERVAL = 10000; // 10 seconds
 let inviteExpirationInterval: NodeJS.Timeout | null = null;
@@ -170,6 +177,11 @@ export function setupWebSocket(httpServer: HttpServer) {
   const wss = new WebSocketServer({ noServer: true, path: "/ws" });
   
   httpServer.on("upgrade", async (req, socket, head) => {
+    if (!isAcceptingWebSocketUpgrades()) {
+      socket.destroy();
+      return;
+    }
+
     if (req.url !== "/ws" && !req.url?.startsWith("/ws?")) {
       socket.destroy();
       return;
@@ -216,6 +228,20 @@ export function setupWebSocket(httpServer: HttpServer) {
   // Start friend match invite expiration job
   startInviteExpirationJob();
 
+  registerWebSocketServer(wss, () => {
+    if (heartbeatChecker) {
+      clearInterval(heartbeatChecker);
+      heartbeatChecker = null;
+    }
+    if (inviteExpirationInterval) {
+      clearInterval(inviteExpirationInterval);
+      inviteExpirationInterval = null;
+    }
+  });
+  addShutdownHook(() => {
+    beginWebSocketShutdown();
+  });
+
   wss.on("connection", (ws: ExtendedWebSocket) => {
     log("WebSocket client connected", "ws");
 
@@ -230,6 +256,16 @@ export function setupWebSocket(httpServer: HttpServer) {
     });
 
     ws.on("close", async () => {
+      if (isWebSocketShuttingDown()) {
+        const client = clients.get(ws);
+        if (client?.heartbeatTimeout) clearTimeout(client.heartbeatTimeout);
+        if (client?.userId) userSockets.delete(client.userId);
+        if (client?.lobbyId) lobbyConnections.get(client.lobbyId)?.delete(ws);
+        if (client?.matchId) matchConnections.get(client.matchId)?.delete(ws);
+        if (client?.collabId) collabConnections.get(client.collabId)?.delete(ws);
+        clients.delete(ws);
+        return;
+      }
       const client = clients.get(ws);
       if (client) {
         // Clear heartbeat timeout
