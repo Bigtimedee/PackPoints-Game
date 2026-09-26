@@ -97,6 +97,7 @@ async function main(): Promise<void> {
       cardCount: row.cardCount,
       pass: row.pass,
       fail: row.fail,
+      nameVisibleOutsideMask: row.nameVisibleOutsideMask,
       outliers: row.outliers.length,
     })),
   }, null, 2));

@@ -5,6 +5,7 @@
  */
 import sharp from "sharp";
 import { maskCardImage } from "./maskCardImage";
+import { NAME_VISIBLE_OUTSIDE_MASK, verifyNameVisibleOutsideMask } from "./nameOutsideMask";
 
 export const FLEER_1989_BASKETBALL_CARDS = 168;
 
@@ -36,6 +37,8 @@ export interface SweepSetReport {
   cardCount: number;
   pass: number;
   fail: number;
+  /** Cards whose surname was read outside the mask band. */
+  nameVisibleOutsideMask: number;
   outliers: SweepOutlier[];
 }
 
@@ -88,6 +91,7 @@ export function reportMaskSweep(sets: Array<{
       cardCount: set.cards.length,
       pass,
       fail: set.cards.length - pass,
+      nameVisibleOutsideMask: set.cards.filter((card) => card.reason === NAME_VISIBLE_OUTSIDE_MASK).length,
       outliers: flagDimensionOutliers(set.cards),
     };
   });
@@ -107,12 +111,37 @@ export async function evaluateCardBuffer(input: {
       skipOcr: true,
       gameSetId: input.gameSetId,
     });
+    if (!result.coverageOk) {
+      return {
+        id: input.id,
+        width: meta.width || 0,
+        height: meta.height || 0,
+        pass: false,
+        reason: result.coverageReason,
+      };
+    }
+    const outside = await verifyNameVisibleOutsideMask({
+      buffer: result.maskedBuffer,
+      playerName: input.playerName,
+      regions: result.regions,
+      imageWidth: meta.width || undefined,
+      imageHeight: meta.height || undefined,
+    });
+    if (outside.skipped) {
+      return {
+        id: input.id,
+        width: meta.width || 0,
+        height: meta.height || 0,
+        pass: false,
+        reason: "name_check_incomplete",
+      };
+    }
     return {
       id: input.id,
       width: meta.width || 0,
       height: meta.height || 0,
-      pass: result.coverageOk,
-      reason: result.coverageReason,
+      pass: outside.ok,
+      reason: outside.reason,
     };
   } catch {
     return {

@@ -8,6 +8,8 @@ import { isLandscapeJpegFile, normalizeQuarterTurn, readOrientNote, type OrientN
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { cardIdFromWarmJpeg, warmOkMarkerFilename } from "./warmMaskGate";
 import { addShutdownHook } from "./shutdownHooks";
+import { runNameVisibilityBackfill } from "../masking/nameVisibilityBackfill";
+import { logEligibleSetCounts } from "../services/playableSetEligibility";
 
 export const SIDECAR_BACKFILL_BATCH = 50;
 const PAUSE_MS = 200;
@@ -60,7 +62,7 @@ export function warmSidecarRowAllowed(
   if (!row.inPlayable && !row.inBaseball) return false;
   if (row.inPlayable && row.isPlayable === false) return false;
   if (row.setActive === false) return false;
-  if (row.blockedReason === "mask_name_uncovered" || row.blockedReason === MASK_BAND_OVERSIZED || row.blockedReason === MASK_BAND_MISPLACED) return false;
+  if (row.blockedReason === "mask_name_uncovered" || row.blockedReason === "name_visible_outside_mask" || row.blockedReason === MASK_BAND_OVERSIZED || row.blockedReason === MASK_BAND_MISPLACED) return false;
   if (row.imageQuarantineReason) return false;
   if (row.imageCacheStatus === "bad") return false;
   const imageRotation = row.inPlayable ? normalizeQuarterTurn(row.imageRotation) : 0;
@@ -248,7 +250,18 @@ export function startWarmSidecarBackfill(): void {
   addShutdownHook(() => {
     backfillStop = true;
   });
-  void runWarmSidecarBackfill().catch((err) => {
-    console.error("[Startup] FATAL: warm sidecar backfill crashed:", err instanceof Error ? err.message : err);
-  });
+  void (async () => {
+    try {
+      await runWarmSidecarBackfill();
+      await runNameVisibilityBackfill();
+      const { swapFailedCardsOnTodayChallenge } = await import("../services/daily5FailedCardSwap");
+      await swapFailedCardsOnTodayChallenge();
+    } catch (err) {
+      console.error("[Startup] FATAL: warm sidecar backfill crashed:", err instanceof Error ? err.message : err);
+    } finally {
+      await logEligibleSetCounts().catch((err) => {
+        console.error("[MaskCheck] eligible count log failed", err instanceof Error ? err.message : err);
+      });
+    }
+  })();
 }
