@@ -15,12 +15,9 @@ export const SETS_POLISH = {
   panelBorder: "#2a3344",
   cream: "#F3E6C8",
   stockFanAsset: "maker-set-1080.png",
-  volumeGate: 10,
   eyebrow: "SETS",
   indexTitle: "Sets",
   indexSub: "Play sets already in PackPTS.",
-  shortShelfTitle: "A short shelf.",
-  shortShelfBody: "Integrated sets only. Play what's here, or open Daily 5.",
   playThisSet: "Play this set",
   playTodayCue: "Play today’s stack",
   fanMade: "FAN MADE",
@@ -150,10 +147,36 @@ export function formatDetailMetaLine(opts: {
   return parts.join(" · ");
 }
 
-/** Honest published-list length only — never an admin Maker Rate field. */
-export function shouldShowShortShelf(publishedCount: number): boolean {
-  const n = Math.max(0, Math.floor(publishedCount));
-  return n > 0 && n < SETS_POLISH.volumeGate;
+/**
+ * Index heading. Other sets already carry the brand inside `setName`
+ * ("1987 Topps", "1989 Fleer Basketball"). When the stored name omits a
+ * brand that is on the row, insert that brand. A blank brand leaves the
+ * stored name. The year column is not substituted for the year in the name.
+ */
+export function formatIndexSetTitle(opts: {
+  setName: string;
+  brand?: string | null;
+}): string {
+  const name = (opts.setName || "").trim();
+  const brand = (opts.brand || "").trim();
+  if (!name) return brand;
+  if (!brand || titleHasBrand(name, brand)) return name;
+  const leading = /^(\d{4})\b\s*(.*)$/.exec(name);
+  if (!leading) return `${brand} ${name}`;
+  const rest = leading[2].trim();
+  return rest ? `${leading[1]} ${brand} ${rest}` : `${leading[1]} ${brand}`;
+}
+
+function titleHasBrand(name: string, brand: string): boolean {
+  const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?:[^A-Za-z0-9]|$)`, "i").test(name);
+}
+
+/** Fanned thumbs paint a solid plaque. The in-game card keeps its label. */
+export type PlaqueChrome = "full" | "bar";
+
+export function plaqueChromeShowsLabel(chrome: PlaqueChrome): boolean {
+  return chrome !== "bar";
 }
 
 export function shouldShowPlayTodayCue(playedToday: boolean | null | undefined): boolean {

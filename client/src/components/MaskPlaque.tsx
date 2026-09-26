@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { MaskRegion } from "@shared/schema";
 import { largestMaskRegion } from "@shared/maskGeometry";
+import { plaqueChromeShowsLabel, type PlaqueChrome } from "@/lib/setsPolish";
 
 export type PlaqueLayoutClass = "TOP_PLATE" | "BOTTOM_PLAQUE" | "PSA_SLAB";
 
@@ -13,6 +14,8 @@ interface MaskPlaqueProps {
   hidden?: boolean;
   /** Spinner sits where the label would, while the bake is still loading. */
   pending?: boolean;
+  /** `bar` is the fanned thumb: solid fill and gold seam, no label. */
+  chrome?: PlaqueChrome;
 }
 
 function seamOnTop(region: MaskRegion): boolean {
@@ -37,6 +40,7 @@ function PlaqueBand({
   armed,
   pending,
   boxWidth,
+  chrome,
 }: {
   region: MaskRegion;
   index: number;
@@ -46,6 +50,7 @@ function PlaqueBand({
   armed?: boolean;
   pending?: boolean;
   boxWidth: number;
+  chrome: PlaqueChrome;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
@@ -78,12 +83,13 @@ function PlaqueBand({
   }
 
   const tier = height >= 88 ? "full" : height >= 52 ? "bar-label" : height >= 28 ? "label" : "bar";
-  const showFrame = height >= 40;
-  const showBar = tier === "full" || tier === "bar-label" || tier === "bar";
-  const showLabel = isPrimary && (tier === "full" || tier === "bar-label" || tier === "label");
-  const showEyebrow = isPrimary && tier === "full" && !!eyebrow;
+  const showIdentity = plaqueChromeShowsLabel(chrome);
+  const showFrame = showIdentity && height >= 40;
+  const showBar = showIdentity && (tier === "full" || tier === "bar-label" || tier === "bar");
+  const showLabel = showIdentity && isPrimary && (tier === "full" || tier === "bar-label" || tier === "label");
+  const showEyebrow = showIdentity && isPrimary && tier === "full" && !!eyebrow;
   const certSealed = !isPrimary && layoutClass === "PSA_SLAB" && region.yPct <= 1;
-  const showCert = certSealed && (tier === "full" || tier === "bar-label");
+  const showCert = showIdentity && certSealed && (tier === "full" || tier === "bar-label");
   const topSeam = seamOnTop(region);
 
   return (
@@ -97,6 +103,7 @@ function PlaqueBand({
         height: `${region.hPct}%`,
       }}
       data-testid={`mask-region-${index}`}
+      data-plaque-chrome={chrome}
     >
       <div
         data-testid="plaque-seam"
@@ -114,7 +121,7 @@ function PlaqueBand({
         {showBar && (
           <div className={`h-[3px] bg-plaque-bar transition-[width] duration-150 ease-out ${armed ? "w-10" : "w-7"}`} />
         )}
-        {pending && isPrimary ? (
+        {showIdentity && pending && isPrimary ? (
           <Loader2 className="h-4 w-4 animate-spin text-plaque-muted" />
         ) : (
           <>
@@ -150,6 +157,7 @@ export function MaskPlaque({
   armed = false,
   hidden = false,
   pending = false,
+  chrome = "full",
 }: MaskPlaqueProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [boxWidth, setBoxWidth] = useState(390);
@@ -183,6 +191,7 @@ export function MaskPlaque({
           armed={armed}
           pending={pending}
           boxWidth={boxWidth}
+          chrome={chrome}
         />
       ))}
     </div>

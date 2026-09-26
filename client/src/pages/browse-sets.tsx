@@ -6,13 +6,14 @@ import { SetCover } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
   SETS_POLISH,
+  formatIndexSetTitle,
   formatSetMetaLine,
-  shouldShowShortShelf,
 } from "@/lib/setsPolish";
 
 export interface BrowseSet {
   id: string;
   setName: string;
+  brand?: string | null;
   makerNote: string | null;
   makerUsername: string | null;
   isUserCreated?: boolean;
@@ -72,8 +73,8 @@ function SetRow({ set }: { set: BrowseSet }) {
       <Link href={`/sets/${set.id}`} className="block space-y-3">
         <SetCover shareImageUrl={set.shareImageUrl} cardUrls={set.coverCardUrls} />
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }}>
-            {set.setName}
+          <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }} data-testid="text-set-title">
+            {formatIndexSetTitle({ setName: set.setName, brand: set.brand })}
           </h2>
           <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
             {formatSetMetaLine({
@@ -108,8 +109,6 @@ export function BrowseSetsShelf({
   sets: BrowseSet[];
   isLoading: boolean;
 }) {
-  const shortShelf = shouldShowShortShelf(sets.length);
-
   return (
     <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
       <div className="container mx-auto max-w-lg px-4 py-8 space-y-8">
@@ -133,19 +132,6 @@ export function BrowseSetsShelf({
             </p>
           )}
         </header>
-
-        {shortShelf && (
-          <div
-            className="rounded-md px-4 py-3"
-            style={{ backgroundColor: SETS_POLISH.panel, borderLeft: `3px solid ${SETS_POLISH.gold}` }}
-            data-testid="banner-short-shelf"
-          >
-            <p className="text-sm font-semibold">{SETS_POLISH.shortShelfTitle}</p>
-            <p className="text-sm mt-0.5" style={{ color: SETS_POLISH.muted }}>
-              {SETS_POLISH.shortShelfBody}
-            </p>
-          </div>
-        )}
 
         {isLoading ? (
           <div className="space-y-8">
