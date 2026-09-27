@@ -20,6 +20,7 @@ import {
   playSetsSlugIdPrefix,
   type PlaySetsSurface,
 } from "@shared/playSetsShare";
+import { isHeldSet } from "../config/heldSets";
 import fs from "fs";
 import path from "path";
 import { getShareOutputBase } from "../contentFactory/generateScoreCard";
@@ -70,7 +71,7 @@ export async function resolvePlaySetsSet(idOrSlug: string): Promise<ResolvedPlay
     }
   }
 
-  if (!row || row.isActive === false) return null;
+  if (!row || row.isActive === false || isHeldSet(row.id)) return null;
 
   const shareImageUrl = await lookupRuntimeCover(row.id);
   const setName = applySetDisplayTitle(row.id, row.setName);
@@ -86,6 +87,7 @@ export async function ensurePlaySetsRuntimeCrop(
   set: ResolvedPlaySetsSet,
   surface: PlaySetsSurface,
 ): Promise<string | undefined> {
+  if (isHeldSet(set.id)) return undefined;
   if (isUsableShareImageUrl(set.shareImageUrl)) return set.shareImageUrl;
 
   const cachedUrl = playSetsRuntimeCacheUrl(set.id);

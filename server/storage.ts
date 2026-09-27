@@ -10,6 +10,7 @@ import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull, notInArray } from "drizzle-orm";
 import { eligibleDealFilter } from "./services/playableSetEligibility";
 import { isBlockedCard } from "./lib/cardBlocklist";
+import { HELD_SET_IDS, isHeldSet } from "./config/heldSets";
 import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
@@ -733,7 +734,8 @@ export class DatabaseStorage implements IStorage {
           // CRITICAL: Exclude known silhouette URL patterns
           not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
           not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
-          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%')),
+          ...(HELD_SET_IDS.length > 0 ? [notInArray(gameSets.id, [...HELD_SET_IDS])] : []),
         )
       )
       .groupBy(gameSets.id)
@@ -864,6 +866,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string, setId?: string): Promise<GameSession> {
+    if (setId && isHeldSet(setId)) {
+      throw new Error("HELD_SET");
+    }
+
     let questions: GameQuestion[];
     
     const effectiveSetId = setId || await this.getDefaultPlayableSetId();

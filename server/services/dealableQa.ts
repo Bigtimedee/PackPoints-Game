@@ -1,8 +1,10 @@
 /**
  * Design sweep of every card a deal can draw.
- * The card WHERE clause is eligibleDealFilter. Blocklist, surname
- * exclusions, and current-mask fail sidecars stay in that filter.
- * This file does not restate them.
+ * The card WHERE clause is eligibleDealFilter, with the set hold ignored
+ * so a held set still lists the cards that would be dealable if the hold
+ * were lifted. Blocklist, surname exclusions, and current-mask fail
+ * sidecars stay in that filter. This file does not restate them.
+ * `held` is true when the set id is on the hold list.
  */
 import { existsSync } from "fs";
 import path from "path";
@@ -15,6 +17,7 @@ import { getMaskedImagePath } from "../masking/maskingService";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 import { coverBandPlacement } from "./setCovers";
+import { isHeldSet } from "../config/heldSets";
 import { eligibleDealFilter } from "./playableSetEligibility";
 
 const DEFAULT_LIMIT = 200;
@@ -70,6 +73,7 @@ export interface DealableCardPage {
   setId: string;
   setName: string;
   maskVersion: string;
+  held: boolean;
   total: number;
   offset: number;
   limit: number;
@@ -80,6 +84,7 @@ export interface ActiveDealableSet {
   setId: string;
   setName: string;
   total: number;
+  held: boolean;
 }
 
 const activeIntegrated = and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false));
@@ -95,7 +100,7 @@ export async function listActiveDealableSets(): Promise<ActiveDealableSet[]> {
     .from(gameSets)
     .leftJoin(
       playableCards,
-      and(eq(playableCards.gameSetId, gameSets.id), eligibleDealFilter("playable_cards")),
+      and(eq(playableCards.gameSetId, gameSets.id), eligibleDealFilter("playable_cards", { ignoreHeldSets: true })),
     )
     .where(activeIntegrated)
     .groupBy(gameSets.id, gameSets.setName)
@@ -104,6 +109,7 @@ export async function listActiveDealableSets(): Promise<ActiveDealableSet[]> {
     setId: row.setId,
     setName: row.setName,
     total: Number(row.total) || 0,
+    held: isHeldSet(row.setId),
   }));
 }
 
@@ -120,7 +126,10 @@ export async function listDealableCards(
     .limit(1);
   if (!set) return null;
 
-  const where = and(eq(playableCards.gameSetId, setId), eligibleDealFilter("playable_cards"));
+  const where = and(
+    eq(playableCards.gameSetId, setId),
+    eligibleDealFilter("playable_cards", { ignoreHeldSets: true }),
+  );
   const [countRow] = await db
     .select({ total: sql<number>`count(*)::int` })
     .from(playableCards)
@@ -143,6 +152,7 @@ export async function listDealableCards(
     setId: set.id,
     setName: set.setName,
     maskVersion: CURRENT_MASK_VERSION,
+    held: isHeldSet(set.id),
     total: Number(countRow?.total) || 0,
     offset,
     limit,

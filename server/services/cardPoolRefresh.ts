@@ -2,6 +2,7 @@ import { db } from "../db";
 import { playableCards } from "@shared/schema";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { eq, and, lt, or, sql, isNull, notInArray, type SQL } from "drizzle-orm";
+import { HELD_SET_IDS, isHeldSet } from "../config/heldSets";
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
 import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
@@ -37,6 +38,9 @@ export function cardPoolRefreshCandidateFilter(): SQL {
   const refusedIds = [...currentMaskRefusalIds()];
   if (refusedIds.length > 0) {
     filters.push(notInArray(playableCards.id, refusedIds));
+  }
+  if (HELD_SET_IDS.length > 0) {
+    filters.push(notInArray(playableCards.gameSetId, [...HELD_SET_IDS]));
   }
   return and(...filters)!;
 }
@@ -173,6 +177,10 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
       try {
         if (!card.cardhedgeCardId) {
           stats.cardsFailed++;
+          continue;
+        }
+
+        if (isHeldSet(card.gameSetId)) {
           continue;
         }
 
