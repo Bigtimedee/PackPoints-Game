@@ -19,8 +19,8 @@ const INDEX_PATH = path.join(ROOT, "client/index.html");
 const PNG_PATH = path.join(ROOT, "client/public/og/daily-1200x630.png");
 const PNG_SHA256 = "25d5d15413c3eaf13ad49a29ed5fea34a1501520fc74035135f0bf247a14d6e6";
 
-const TITLE = "Daily 5 | PackPTS";
-const DESCRIPTION = "Five cards. Name them. A new hand every day. Same five for everyone.";
+const TITLE = "Daily 5. Five cards. Name them.";
+const DESCRIPTION = "A new hand every day. Same five for everyone. Play free at PackPTS.";
 const PAGE_URL = "https://packpts.com/daily";
 const IMAGE = "https://packpts.com/og/daily-1200x630.png";
 const ALT = "Five masked sports cards. Daily 5 on PackPTS.";
@@ -108,6 +108,10 @@ describe("daily route meta map", () => {
     expect(spaRouteMetaForUrl("/daily5")).toBeNull();
     expect(spaRouteMetaForUrl("/daily/extra")).toBeNull();
     expect(Object.keys(SPA_ROUTE_META)).toEqual(["/daily"]);
+    const src = fs.readFileSync(path.join(ROOT, "server/lib/routeOg.ts"), "utf8");
+    expect(src).toContain(
+      'image: "https://packpts.com/og/daily-1200x630.png", // If the image ever changes, append ?v=2 so X and iMessage refetch.',
+    );
   });
 
   it("rewrites index.html in production static serving and after the Vite dev transform", () => {

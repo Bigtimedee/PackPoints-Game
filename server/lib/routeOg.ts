@@ -21,12 +21,12 @@ export interface SpaRouteMeta {
 
 export const SPA_ROUTE_META: Readonly<Record<string, SpaRouteMeta>> = {
   "/daily": {
-    title: "Daily 5 | PackPTS",
-    description: "Five cards. Name them. A new hand every day. Same five for everyone.",
+    title: "Daily 5. Five cards. Name them.",
+    description: "A new hand every day. Same five for everyone. Play free at PackPTS.",
     url: "https://packpts.com/daily",
     type: "website",
     siteName: "PackPTS",
-    image: "https://packpts.com/og/daily-1200x630.png",
+    image: "https://packpts.com/og/daily-1200x630.png", // If the image ever changes, append ?v=2 so X and iMessage refetch.
     imageWidth: "1200",
     imageHeight: "630",
     imageAlt: "Five masked sports cards. Daily 5 on PackPTS.",
