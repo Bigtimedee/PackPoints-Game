@@ -9,7 +9,8 @@ import {
   MatchStatus,
   type GameQuestion,
 } from "@shared/schema";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, sql, inArray, notInArray } from "drizzle-orm";
+import { HELD_SET_IDS } from "../../config/heldSets";
 import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/imageQuality";
 import { getOrValidateCardImage } from "../images/imageGate";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
@@ -288,13 +289,15 @@ export async function replaceMatchQuestion(
 
     const playerName = availableCard.player || "Unknown";
 
+    const nameFilters = [
+      eq(playableCards.isPlayable, true),
+      sql`${playableCards.player} IS NOT NULL`,
+    ];
+    if (HELD_SET_IDS.length > 0) nameFilters.push(notInArray(playableCards.gameSetId, [...HELD_SET_IDS]));
     const allPlayerNames = await tx
       .select({ player: playableCards.player })
       .from(playableCards)
-      .where(and(
-        eq(playableCards.isPlayable, true),
-        sql`${playableCards.player} IS NOT NULL`
-      ))
+      .where(and(...nameFilters))
       .orderBy(sql`RANDOM()`)
       .limit(200);
 

@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
+import { HELD_SET_IDS, isHeldSet } from "./config/heldSets";
 import {
   commitSoloAdvance,
   commitSoloAnswer,
@@ -88,7 +89,7 @@ import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
+import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt, notInArray } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -630,6 +631,10 @@ export async function registerRoutes(
       
       const { mode, totalQuestions, setId } = parsed.data;
 
+      if (setId && isHeldSet(setId)) {
+        return res.status(404).json({ error: "Set not found" });
+      }
+
       if (setId && await isPanicEnabled(`disable_set_${setId}`)) {
         return res.status(503).json({ error: "This card set is temporarily disabled." });
       }
@@ -735,6 +740,9 @@ export async function registerRoutes(
       try {
         session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId, setId);
       } catch (createError: any) {
+        if (createError?.message === "HELD_SET") {
+          return res.status(404).json({ error: "Set not found" });
+        }
         if (createError?.message === "NO_CARDS_AVAILABLE") {
           return res.status(503).json({ 
             error: "No cards available",
@@ -2491,6 +2499,10 @@ export async function registerRoutes(
       }
       
       const { totalQuestions, gameSetId, wagerAmount } = parsed.data;
+
+      if (gameSetId && isHeldSet(gameSetId)) {
+        return res.status(404).json({ error: "Set not found" });
+      }
 
       // If wager match, validate and escrow host's stake
       if (wagerAmount > 0) {
@@ -7070,7 +7082,10 @@ export async function registerRoutes(
           actualPlayableCards: eligiblePlayableCardCountSql,
         })
         .from(gameSets)
-        .where(eq(gameSets.isActive, true))
+        .where(and(
+          eq(gameSets.isActive, true),
+          ...(HELD_SET_IDS.length > 0 ? [notInArray(gameSets.id, [...HELD_SET_IDS])] : []),
+        ))
         .orderBy(gameSets.year, gameSets.setName);
 
       const { kept, duplicateNames } = dedupeSetsByNameYearSport(

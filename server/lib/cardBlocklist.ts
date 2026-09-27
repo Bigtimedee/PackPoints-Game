@@ -11,6 +11,7 @@ import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/sch
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
+import { HELD_SET_IDS, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
 
@@ -433,6 +434,7 @@ export function isBlockedCard(
   player: string | null | undefined,
   fields?: BlocklistCardFields | null,
 ): boolean {
+  if (isHeldSet(gameSetId)) return true;
   const setId = norm(gameSetId);
   const name = norm(player);
   if (blockedByCardId(fields)) return true;
@@ -566,6 +568,13 @@ function numberPatternClause(alias: CardAlias): string {
   }).join(" OR ");
 }
 
+function heldSetClause(alias: CardAlias): string | null {
+  const ids: readonly string[] = HELD_SET_IDS;
+  if (ids.length === 0) return null;
+  const list = ids.map((id) => sqlQuote(id.toLowerCase())).join(", ");
+  return `lower(${alias}.game_set_id) IN (${list})`;
+}
+
 function multiPlayerNumberClause(alias: CardAlias): string {
   const sets = MULTI_PLAYER_NUMBER_SETS.map((set) => {
     const numbers = set.numbers.map((number) => sqlQuote(number)).join(", ");
@@ -577,8 +586,13 @@ function multiPlayerNumberClause(alias: CardAlias): string {
   return sets.join(" OR ");
 }
 
+export type BlocklistSqlOpts = {
+  /** QA review lists cards as they would deal if the hold were lifted. */
+  ignoreHeldSets?: boolean;
+};
+
 /** OR-clauses for a deal WHERE body. True when any blocklist rule hits. */
-export function cardBlocklistWhereBody(alias: CardAlias): string {
+export function cardBlocklistWhereBody(alias: CardAlias, opts?: BlocklistSqlOpts): string {
   const clauses = [
     ...CARD_BLOCKLIST.map((entry) => blockClause(alias, entry)),
     recordBreakerNumberClause(alias),
@@ -591,12 +605,16 @@ export function cardBlocklistWhereBody(alias: CardAlias): string {
     multiPlayerPeopleClause(alias),
     multiPlayerNumberClause(alias),
   ];
+  if (!opts?.ignoreHeldSets) {
+    const held = heldSetClause(alias);
+    if (held) clauses.push(held);
+  }
   return clauses.join(" OR ");
 }
 
 /** SQL body for a deal WHERE clause. True when the card is not on the blocklist. */
-export function cardNotBlockedSql(alias: CardAlias): SQL {
-  return sql`NOT (${sql.raw(cardBlocklistWhereBody(alias))})`;
+export function cardNotBlockedSql(alias: CardAlias, opts?: BlocklistSqlOpts): SQL {
+  return sql`NOT (${sql.raw(cardBlocklistWhereBody(alias, opts))})`;
 }
 
 function swappedChoices(choices: string[], oldAnswer: string, oldPlayer: string, newPlayer: string): string[] {

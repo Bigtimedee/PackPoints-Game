@@ -2,7 +2,8 @@
  * Read-only catalog match for /make.
  * Selects integrated playable sets. Does not insert cards, sets, or photos.
  */
-import { and, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, notInArray, sql } from "drizzle-orm";
+import { HELD_SET_IDS } from "../config/heldSets";
 import { db } from "../db";
 import { catalogCards, gameSets, playableCards } from "@shared/schema";
 import { setShareSlug } from "../contentFactory/makerShareSlug";
@@ -92,6 +93,7 @@ export async function matchIdentifiedCardReadOnly(fields: IdentifyFields): Promi
       and(
         eq(gameSets.isUserCreated, false),
         eq(gameSets.isActive, true),
+        ...(HELD_SET_IDS.length > 0 ? [notInArray(gameSets.id, [...HELD_SET_IDS])] : []),
         eq(playableCards.isPlayable, true),
         ilike(playableCards.player, needle),
       ),

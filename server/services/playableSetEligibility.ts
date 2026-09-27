@@ -9,7 +9,7 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
-import { cardNotBlockedSql } from "../lib/cardBlocklist";
+import { cardNotBlockedSql, type BlocklistSqlOpts } from "../lib/cardBlocklist";
 import { maskRefusalStillClearSql, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { subsetStillUnverified } from "../masking/subsetQuarantine";
 
@@ -38,7 +38,7 @@ export function maskNameStillCovered(alias: CardAlias): SQL {
  * Eligibility body for one card alias. Sport match is added by the caller
  * because the sport expression is either `game_sets.sport` or a bound value.
  */
-export function eligibleDealFilter(alias: CardAlias): SQL {
+export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts): SQL {
   const a = alias;
   return sql`
     ${sql.raw(`${a}.is_playable`)} = true
@@ -58,7 +58,7 @@ export function eligibleDealFilter(alias: CardAlias): SQL {
       ${sql.raw(`${a}.quarantine_status`)} = 'QUARANTINED_ADMIN_REVIEW'
       AND ${sql.raw(`${a}.proposed_unplayable`)} = true
     )
-    AND ${cardNotBlockedSql(alias)}
+    AND ${cardNotBlockedSql(alias, opts)}
     AND ${subsetStillUnverified(alias)}
   `;
 }
