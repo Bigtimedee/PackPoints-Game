@@ -244,3 +244,38 @@ export function containsForbiddenPublicSetsCopy(text: string): boolean {
   const hay = text.toLowerCase();
   return FORBIDDEN_PUBLIC_SETS_COPY.some((needle) => hay.includes(needle.toLowerCase()));
 }
+
+/** FeedbackWidget narrow size: h-12. */
+export const SETS_CHAT_BUTTON_BLOCK = "3rem";
+/** FeedbackWidget narrow offset: bottom-20, above the mobile nav. */
+export const SETS_CHAT_BUTTON_BOTTOM = "5rem";
+
+export const SETS_PAGE_CLEARANCE_CLASS = "sets-page-clearance";
+export const SETS_SCROLLPORT_CLASS = "sets-scrollport";
+export const SETS_SHELL_CLASS = "sets-shell";
+
+/** Last control scrolls this far above the chat button. Button height plus the home indicator. */
+export const SETS_PAGE_CHAT_PADDING = `calc(${SETS_CHAT_BUTTON_BLOCK} + env(safe-area-inset-bottom, 0px))`;
+
+/**
+ * Scrollport ends at the top of the chat button.
+ * bottom-20 + h-12, plus the home indicator, so a control cannot slide under the button.
+ */
+export const SETS_SCROLLPORT_MARGIN = `calc(${SETS_CHAT_BUTTON_BOTTOM} + ${SETS_CHAT_BUTTON_BLOCK} + env(safe-area-inset-bottom, 0px))`;
+
+/** Public shelf and set detail only. Not /game, /make, or nested paths. */
+export function isPublicSetsPath(path: string): boolean {
+  const bare = (path || "").split("#")[0].split("?")[0];
+  const normalized = bare.length > 1 && bare.endsWith("/") ? bare.slice(0, -1) : bare;
+  return normalized === "/sets" || /^\/sets\/[^/]+$/.test(normalized);
+}
+
+export function setsShellClassName(path: string): string {
+  return isPublicSetsPath(path) ? SETS_SHELL_CLASS : "";
+}
+
+/** Default app scroll column. Public set routes add the narrow-width clearance class. */
+export function setsMainClassName(path: string): string {
+  const base = "flex-1 overflow-y-auto pb-20 md:pb-0";
+  return isPublicSetsPath(path) ? `${base} ${SETS_SCROLLPORT_CLASS}` : base;
+}

@@ -10,6 +10,7 @@ import { logMakeClientEvent } from "@/lib/makeFunnel";
 import { SetCover, TheStack } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
+  SETS_PAGE_CLEARANCE_CLASS,
   SETS_POLISH,
   displaySetYearLabel,
   formatDetailMetaLine,
@@ -160,7 +161,7 @@ export function SetDetailView({ set }: { set: SetDetail }) {
     : "";
 
   return (
-    <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
+    <div className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full pb-20 md:pb-10`} style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
       <div className="max-w-lg mx-auto px-4 pt-6 space-y-6">
         <header className="space-y-2">
           <p
@@ -309,7 +310,7 @@ export default function SetPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-full p-4" style={{ backgroundColor: SETS_POLISH.canvas }}>
+      <div className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full p-4`} style={{ backgroundColor: SETS_POLISH.canvas }}>
         <div className="max-w-lg mx-auto pt-8 space-y-4">
           <Skeleton className="h-8 w-2/3" style={{ backgroundColor: SETS_POLISH.panel }} />
           <Skeleton className="h-4 w-1/3" style={{ backgroundColor: SETS_POLISH.panel }} />
@@ -323,7 +324,7 @@ export default function SetPage() {
   if (error || !set) {
     return (
       <div
-        className="min-h-full flex items-center justify-center p-4"
+        className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full flex items-center justify-center p-4`}
         style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}
       >
         <div className="text-center space-y-3">

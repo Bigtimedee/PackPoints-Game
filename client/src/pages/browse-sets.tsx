@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { SetCover } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
+  SETS_PAGE_CLEARANCE_CLASS,
   SETS_POLISH,
   displaySetYearLabel,
   formatIndexSetTitle,
@@ -127,7 +128,7 @@ export function BrowseSetsShelf({
   coversDisabled?: boolean;
 }) {
   return (
-    <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
+    <div className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full pb-20 md:pb-10`} style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
       <div className="container mx-auto max-w-lg px-4 py-8 space-y-8">
         <header className="space-y-2">
           <p
