@@ -48,6 +48,11 @@ export const PINNED_SET_COVERS: Readonly<Record<string, PinnedCoverList>> = {
     picks: ["33c3e9cb-bf3c-4bf0-924a-5bcd2e20d340", "8c36cd83-cca8-4ea4-970b-1e4cdae68d8f", "0407e40b-196c-48dc-a5b7-64e7592d0d45", "ad168080-40f0-43b4-9b74-28c7a5c4eb69", "2d6e0646-a203-481a-9017-ab870988b941", "cfae942e-6edf-4e33-bcba-aac43bb1b650", "8ab70f4a-1f83-42a8-a1d1-0c9037094767", "488147bc-934e-4d60-89eb-6246c9a83a88"],
     alternates: ["c4e1a127-93a9-46e7-b3fd-87089553756c", "3fb7ce44-6922-4058-b5e0-f92927479321", "f14f1934-2778-437a-bf4c-5634f0a63bf7", "86f77f38-faee-4ed0-ba35-082f08e248bd"],
   },
+  "d226801a-da94-47f6-a09a-3735def60b2d": {
+    set: "1990 Hoops Basketball",
+    picks: ["a49bc8e8-9222-4195-809d-d16253619eb9", "9dc6289a-982e-4ce5-a6c0-99bbe7195052", "0389540c-52e1-4e7d-af11-b1ec92c4eb6d", "b7a024cd-6b4a-4afb-85c6-425e26616aad", "d13c5632-2ec0-4dac-86bb-627e44ab46d9", "5325ca93-ce71-415a-bb1b-e226ef9e0fb7", "f20ab3ef-c8a2-4e5a-bbbd-9320a8498a2c", "cecb5369-3e9b-45ed-bcbc-7285b8fc268f"],
+    alternates: ["b86c37c0-5a56-402d-b466-7b0d177a6950", "328cbaed-0ecd-43ed-b2e4-ea8ee4aa3694", "916b4205-04a9-4380-a589-d07c7c24ea43", "6c5f0f57-7e78-4c3d-adc5-8e5a335a111d"],
+  },
 };
 
 export type CoverListRole = "pick" | "alternate";
