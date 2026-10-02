@@ -17,12 +17,13 @@ import { mountSpaStatic } from "../static";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const INDEX_PATH = path.join(ROOT, "client/index.html");
 const PNG_PATH = path.join(ROOT, "client/public/og/daily-1200x630.png");
-const PNG_SHA256 = "25d5d15413c3eaf13ad49a29ed5fea34a1501520fc74035135f0bf247a14d6e6";
+// Design og-daily-v2.png (real masked 1987 Topps cards), added byte-identical.
+const PNG_SHA256 = "b01aa469bfc80f508986e954f787db4203b78adf1b83781b8ae2c96b08bdd4a9";
 
 const TITLE = "Daily 5. Five cards. Name them.";
 const DESCRIPTION = "A new hand every day. Same five for everyone. Play free at PackPTS.";
 const PAGE_URL = "https://packpts.com/daily";
-const IMAGE = "https://packpts.com/og/daily-1200x630.png";
+const IMAGE = "https://packpts.com/og/daily-1200x630.png?v=2";
 const ALT = "Five masked sports cards. Daily 5 on PackPTS.";
 
 const DAILY_TAGS = [
@@ -110,7 +111,7 @@ describe("daily route meta map", () => {
     expect(Object.keys(SPA_ROUTE_META)).toEqual(["/daily"]);
     const src = fs.readFileSync(path.join(ROOT, "server/lib/routeOg.ts"), "utf8");
     expect(src).toContain(
-      'image: "https://packpts.com/og/daily-1200x630.png", // If the image ever changes, append ?v=2 so X and iMessage refetch.',
+      'image: "https://packpts.com/og/daily-1200x630.png?v=2", // v2 = real masked 1987 Topps cards (2026-10-02). Bump ?v= if the file changes again so X and iMessage refetch.',
     );
   });
 
@@ -239,7 +240,7 @@ describe("served /daily HTML and preview image", () => {
     expect(file.readUInt32BE(16)).toBe(1200);
     expect(file.readUInt32BE(20)).toBe(630);
 
-    const png = await read("/og/daily-1200x630.png");
+    const png = await read("/og/daily-1200x630.png?v=2");
     expect(png.res.status).toBe(200);
     expect(png.res.headers.get("content-type")).toMatch(/^image\/png\b/);
     expect(createHash("sha256").update(png.buf).digest("hex")).toBe(PNG_SHA256);

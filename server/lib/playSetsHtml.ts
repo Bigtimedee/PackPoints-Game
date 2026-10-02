@@ -34,6 +34,12 @@ function replaceMeta(html: string, attr: "property" | "name", key: string, conte
   );
 }
 
+/** Drop a meta tag that describes the homepage image and not the set image. */
+function removeMeta(html: string, attr: "property" | "name", key: string): string {
+  const re = new RegExp(`[ \\t]*<meta\\s+${attr}="${key}"\\s+content="[^"]*"\\s*/?>[ \\t]*\\r?\\n?`, "gi");
+  return html.replace(re, "");
+}
+
 function replaceTag(html: string, tag: "title", content: string): string {
   const safe = content
     .replace(/&/g, "&amp;")
@@ -71,6 +77,7 @@ export function injectPlaySetsOgTags(html: string, meta: PlaySetsOgMeta): string
   next = replaceMeta(next, "property", "og:title", meta.title);
   next = replaceMeta(next, "property", "og:description", meta.description);
   next = replaceMeta(next, "property", "og:image", image);
+  next = removeMeta(next, "property", "og:image:alt");
   next = replaceMeta(next, "property", "og:url", url);
   next = replaceMeta(next, "name", "twitter:title", meta.title);
   next = replaceMeta(next, "name", "twitter:description", meta.description);
