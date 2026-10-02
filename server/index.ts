@@ -230,6 +230,14 @@ app.use((req, res, next) => {
     await runProductionSchemaBoot();
   }
 
+  // Per-card review guard. Seeds card_review_approvals once (every card dealable
+  // now), then holds any card outside it. Must run before routes and before the
+  // card-pool refresh is scheduled.
+  {
+    const { bootCardReviewGuard } = await import("./services/cardReview");
+    await bootCardReviewGuard();
+  }
+
   try {
     await withStartupTimeout(storage.initialize(), STORAGE_INIT_TIMEOUT_MS, "storage setup");
   } catch (err) {

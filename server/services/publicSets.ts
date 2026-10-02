@@ -61,7 +61,7 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
       createdAt: gameSets.createdAt,
       makerUsername: users.username,
       isUserCreated: gameSets.isUserCreated,
-      cardCount: eligiblePlayableCardCountSql,
+      cardCount: eligiblePlayableCardCountSql(),
       playCount: userSetPlayCountSql,
     })
     .from(gameSets)
@@ -149,22 +149,24 @@ export async function handlePublicSetsIndex(req: Request, res: Response): Promis
   }
 }
 
-const publicSetColumns = {
-  id: gameSets.id,
-  setName: gameSets.setName,
-  sport: gameSets.sport,
-  brand: gameSets.brand,
-  year: gameSets.year,
-  makerNote: gameSets.makerNote,
-  isUserCreated: gameSets.isUserCreated,
-  createdByUserId: gameSets.createdByUserId,
-  coCreatorUserId: gameSets.coCreatorUserId,
-  createdAt: gameSets.createdAt,
-  cardCount: eligiblePlayableCardCountSql,
-  playCount: userSetPlayCountSql,
-  makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
-  coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
-};
+function publicSetColumns() {
+  return {
+    id: gameSets.id,
+    setName: gameSets.setName,
+    sport: gameSets.sport,
+    brand: gameSets.brand,
+    year: gameSets.year,
+    makerNote: gameSets.makerNote,
+    isUserCreated: gameSets.isUserCreated,
+    createdByUserId: gameSets.createdByUserId,
+    coCreatorUserId: gameSets.coCreatorUserId,
+    createdAt: gameSets.createdAt,
+    cardCount: eligiblePlayableCardCountSql(),
+    playCount: userSetPlayCountSql,
+    makerUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.createdByUserId})`,
+    coCreatorUsername: sql<string | null>`(SELECT username FROM users WHERE id = ${gameSets.coCreatorUserId})`,
+  };
+}
 
 export async function handlePublicSetDetail(req: Request, res: Response): Promise<void> {
   try {
@@ -172,13 +174,13 @@ export async function handlePublicSetDetail(req: Request, res: Response): Promis
     const { id } = req.params;
     const setRef = normalizePlaySetsSetRef(id) ?? id;
     const dashedId = playSetsDashedUuid(setRef);
-    const [set] = await db.select(publicSetColumns).from(gameSets).where(eq(gameSets.id, dashedId ?? setRef)).limit(1);
+    const [set] = await db.select(publicSetColumns()).from(gameSets).where(eq(gameSets.id, dashedId ?? setRef)).limit(1);
 
     let resolved = set;
     if (!resolved) {
       const prefix = playSetsSlugIdPrefix(setRef) ?? setIdPrefixFromShareSlug(id);
       if (prefix) {
-        const [bySlug] = await db.select(publicSetColumns).from(gameSets)
+        const [bySlug] = await db.select(publicSetColumns()).from(gameSets)
           .where(sql`replace(${gameSets.id}, '-', '') like ${prefix + "%"}`)
           .limit(1);
         resolved = bySlug;

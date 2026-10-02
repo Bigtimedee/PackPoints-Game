@@ -89,6 +89,8 @@ export interface ActiveDealableSet {
   total: number;
   held: boolean;
   reason: string | null;
+  /** Cards held only because they are awaiting per-card review. */
+  awaitingCardReview: number;
 }
 
 const activeIntegrated = and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false));
@@ -110,12 +112,15 @@ export async function listActiveDealableSets(): Promise<ActiveDealableSet[]> {
     .where(activeIntegrated)
     .groupBy(gameSets.id, gameSets.setName)
     .orderBy(asc(gameSets.setName), asc(gameSets.id));
+  const { countAwaitingReview } = await import("./cardReview");
+  const awaiting = new Map((await countAwaitingReview()).sets.map((row) => [row.setId, row.awaiting]));
   return rows.map((row) => ({
     setId: row.setId,
     setName: row.setName,
     total: Number(row.total) || 0,
     held: isHeldSet(row.setId),
     reason: heldSetReason(row.setId),
+    awaitingCardReview: awaiting.get(row.setId) ?? 0,
   }));
 }
 
@@ -176,14 +181,20 @@ export async function listDealableCards(
 }
 
 /** True when this card id is in the deal pool. ignoreHeldSets keeps a held set reviewable. */
-export async function isDealableCard(cardId: string, opts?: { ignoreHeldSets?: boolean }): Promise<boolean> {
+export async function isDealableCard(
+  cardId: string,
+  opts?: { ignoreHeldSets?: boolean; ignoreCardReview?: boolean },
+): Promise<boolean> {
   if (!safeCardId(cardId)) return false;
   const [row] = await db
     .select({ id: playableCards.id })
     .from(playableCards)
     .where(and(
       eq(playableCards.id, cardId),
-      eligibleDealFilter("playable_cards", opts?.ignoreHeldSets ? { ignoreHeldSets: true } : undefined),
+      eligibleDealFilter("playable_cards", {
+        ignoreHeldSets: Boolean(opts?.ignoreHeldSets),
+        ignoreCardReview: Boolean(opts?.ignoreCardReview),
+      }),
     ))
     .limit(1);
   return Boolean(row);
@@ -197,7 +208,8 @@ export async function isDealableCard(cardId: string, opts?: { ignoreHeldSets?: b
  */
 export async function dealableMaskedFile(cardId: string): Promise<string | null> {
   if (!safeCardId(cardId)) return null;
-  if (!(await isDealableCard(cardId, { ignoreHeldSets: true }))) return null;
+  // QA only: Design must see a held set's cards and cards awaiting per-card review.
+  if (!(await isDealableCard(cardId, { ignoreHeldSets: true, ignoreCardReview: true }))) return null;
 
   const ready = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
   if (ready) return ready;

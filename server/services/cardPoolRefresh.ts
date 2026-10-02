@@ -9,6 +9,7 @@ import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { MASK_DEAL_BLOCK_REASONS, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { currentMaskRefusalIds } from "../masking/maskReadySidecar";
 import { blockedCardIdClause, isBlockedCardIdRow } from "../lib/cardBlocklist";
+import { CARD_REVIEW_REASON, cardReviewGuardEnabled } from "../lib/cardReviewGuard";
 import {
   isKillSwitchEnabled,
   writeAuditLog,
@@ -211,7 +212,8 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
             const restored = await restorePlayableIfMaskAllows(card, cardDetails.imageUrl);
             if (restored) {
               stats.cardsRevalidated++;
-              console.log(`[CardPoolRefresh] Revalidated card ${card.id} (${card.player}) - now PLAYABLE`);
+              const review = cardReviewGuardEnabled() ? ` (dealt only after card review: ${CARD_REVIEW_REASON} unless already approved)` : "";
+              console.log(`[CardPoolRefresh] Revalidated card ${card.id} (${card.player}) - now PLAYABLE${review}`);
             }
           } else {
             const hasTransient = isTransientError(imageResult.statusCode || null, imageResult.error || null);
