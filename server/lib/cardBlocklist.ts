@@ -239,6 +239,15 @@ export const BASKETBALL_2024_SET_PREFIX = "229f0379";
  */
 export const BASKETBALL_2024_H_INSERT_NUMBER = /^H-\d+$/i;
 
+/**
+ * 2024 Basketball UVAS subset. The art prints the surname in giant vertical
+ * letters down the left side, which the bottom plaque mask cannot reach
+ * (Design sweep 2026-10-02: UVAS-1, 5, 7, 10, 11, 15). Blocked as a number
+ * family so a purge-and-reimport cannot bring the subset back. Stays until a
+ * mask template exists for this art.
+ */
+export const BASKETBALL_2024_UVAS_NUMBER = /^UVAS-\d+$/i;
+
 export type BlockedCardIdRule = {
   /** game_sets.id prefix (8 chars). Boot log attributes the id to this set. */
   gameSetId: string;
@@ -261,6 +270,8 @@ export type BlockedCardIdRule = {
 export const TOPPS_1989_SET_PREFIX = "352b33d1";
 /** 1994 Topps Football. */
 export const TOPPS_1994_FOOTBALL_SET_PREFIX = "a09b2fe7";
+/** 2022 Panini Chronicles Football. */
+export const CHRONICLES_2022_FOOTBALL_SET_PREFIX = "74885a41";
 const TOPPS_1987_FOOTBALL_SET_PREFIX = TOPPS_1987_FOOTBALL_SET_ID.slice(0, 8);
 
 /**
@@ -282,6 +293,13 @@ export const TOPPS_1989_DWAYNE_HENRY_CARD_ID = "c866179d-e613-443f-a6ea-07d93dee
  * sweep REPORT.md. 1994 Topps Football Roaf, Tim Brown, and Bledsoe are small
  * or off-center in the scan, so the fixed band misses the nameplate. That
  * geometry fallback is a follow-up; the cards are blocked until then.
+ *
+ * Design full-pool sweep 2026-10-02 (68): 2024 Basketball 19, 1987 Topps 37,
+ * 2022 Chronicles 12. Each card is either a name leak (surname readable
+ * outside the mask) or BLOCK-CRAFT: the wrong player's image, or a landscape
+ * scan the mask blacks out entirely. Ten 2024 Basketball Refractors share one
+ * promo-collage image, which points at an image-ingest bug on that variant.
+ * Verdicts and crops: sweep-design-20261002/<set>/BLOCKS.json and EVIDENCE.png.
  */
 export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: TOPPS_1987_SCHMIDT_CARD_ID, number: TOPPS_1987_SCHMIDT_NUMBER, surname: "schmidt", variant: "base", reason: "jersey back HMIDT" },
@@ -326,6 +344,79 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "1188d0ca-4421-4364-90ea-3543ee575fa0", number: "196", surname: "bailey", variant: "refractor", reason: "helmet tape BAILEY" },
   { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "6c369ab7-3826-4f7a-be33-3b645e7bb225", number: "196", surname: "bailey", variant: "base", reason: "helmet tape BAILEY" },
   { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "c19b9f98-d2c7-4a4a-86e7-92972ba654b7", number: "205", surname: "teague", variant: "base", reason: "helmet tape EAGU" },
+  // 2024 Basketball, Design full-pool sweep 2026-10-02 (19)
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "346cdebd-eda1-4a12-a723-ec64e25a323a", number: "22", surname: "james", variant: "refractor", reason: "Wrong player: image is a promo collage of tilted cards" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "d3c1ba34-7e6f-473f-9f62-697f4cf528e3", number: "32", surname: "bird", variant: "refractor", reason: "Wrong player: same promo collage image as LeBron #22 Refractor" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "175376f0-c51b-4d72-ac72-49ebe9c49c2a", number: "54", surname: "carter", variant: "orange geometric refractor", reason: "Vertical name plate on left edge reads VINCE CARTE" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "0d172f5a-6948-4783-b916-6fbf37e42762", number: "62", surname: "gordon", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "2654adcc-9364-4a5f-958e-0b3224321986", number: "68", surname: "hardaway", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "d6faed92-494a-4ab7-8313-94b01d315945", number: "89", surname: "barnes", variant: "negative refractor", reason: "Vertical name bar on left edge reads SCOTTIE BARNES in full" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "b3f5c0d2-6813-43b3-be49-29907036f670", number: "98", surname: "johnson", variant: "refractor", reason: "Wrong player: promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "5994c0a4-a95e-4b9a-8ede-36415ca0d535", number: "100", surname: "haliburton", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "02893810-01b0-4476-b478-77da70b38256", number: "101", surname: "durant", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "ac9ec93c-088e-4ee4-afcd-d680ca4875b6", number: "101", surname: "durant", variant: "magenta speckle refractor", reason: "Jersey front lettering DURANT fully legible above number 35" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "fa4302a4-245c-4575-addd-d4c6dd00d6c6", number: "115", surname: "olajuwon", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "2d4c92ea-f166-422d-815c-aad223a9d38b", number: "188", surname: "morant", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "80f42d00-b89a-4afe-b04c-78ded35ab344", number: "193", surname: "wembanyama", variant: "refractor", reason: "Wrong player: shared promo-collage image" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "7b14cfc2-370e-4528-a126-f894f5c2378e", number: "UVAS-1", surname: "wembanyama", variant: "base", reason: "UVAS art: huge vertical surname text on left reads ...ANYAMA" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "88b16fa0-b6c6-41b6-a770-a871857dbb4a", number: "UVAS-10", surname: "morant", variant: "base", reason: "UVAS art: vertical surname text reads ...ORANT" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "bb5f7b28-04f1-47cd-81a6-d512f8423fa8", number: "UVAS-11", surname: "edwards", variant: "base", reason: "UVAS art: vertical surname text reads ...WARDS" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "32b6710c-47ba-4b92-88f3-dbcce6b88df3", number: "UVAS-15", surname: "irving", variant: "base", reason: "UVAS art: vertical surname text reads IRVING in full plus first name KYRIE" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "dae3a6dc-b639-4171-a453-b5e7e623242e", number: "UVAS-5", surname: "brunson", variant: "base", reason: "UVAS art: vertical surname text reads ...UNSON" },
+  { gameSetId: BASKETBALL_2024_SET_PREFIX, id: "4f7c5789-d5a8-4266-a17d-920cfb636bb5", number: "UVAS-7", surname: "jokic", variant: "base", reason: "UVAS art: vertical surname text reads JOKIC in full plus first name NIKOLA" },
+
+  // 1987 Topps, Design full-pool sweep 2026-10-02 (37)
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "e6ea8202-b91f-4554-b1db-3f9b8f1a942f", number: "4", surname: "lopes", variant: "base", reason: "Name plate DAVE LOPES / HOUSTON ASTROS fully visible above the mask" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "a3f75e8e-23e8-49e7-aeb3-28b1e4c82af5", number: "13", surname: "esasky", variant: "base", reason: "Jersey back reads SASKY" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "bddc0554-76ac-48e3-9922-cfad7cb13dbc", number: "88", surname: "wojna", variant: "base", reason: "Whole card masked" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "3195b243-01d2-4df8-9ebc-02b393812767", number: "103", surname: "aguilera", variant: "base", reason: "Whole card masked" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "66186732-4d73-4c0b-ba1e-08a7bf79e4e0", number: "173", surname: "trevino", variant: "base", reason: "Jersey back reads" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "fdc3b1f6-6532-4d1d-b415-0394f109ec06", number: "303", surname: "berenguer", variant: "base", reason: "Jersey back reads BERENG above the #48" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "296e9366-3f07-44ab-b4b1-39175946d816", number: "311", surname: "henderson", variant: "base", reason: "Facsimile autograph Rickey Henderson on the inset 1982 card fully readable above" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "7b979f64-ba9e-44fc-bded-26a59e882afc", number: "312", surname: "jackson", variant: "base", reason: "Name plate YANKEES / REGGIE JACKSON / OUTFIELD fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "66a039a7-f233-447e-be90-240a376f9d3f", number: "315", surname: "wills", variant: "turn back the clock", reason: "Inset 1962 card caption MAURY fully readable and WILLS top halves readable right" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "0dce6af1-da04-454c-875f-f0ac4869065f", number: "323", surname: "newman", variant: "base", reason: "Jersey back reads NEWMAN" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "cb6d792d-b7ef-41b6-931a-cf525bd4b9e5", number: "345", surname: "dawson", variant: "autographs", reason: "Gold on-card autograph Andre Dawson" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "2f0d763e-55ab-4338-a814-5827d0190465", number: "377", surname: "johnson", variant: "base", reason: "Whole card masked" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "b2cbb699-730b-4d7d-ab96-ff8ea6f37b74", number: "461", surname: "mcmurtry", variant: "base", reason: "Jersey back reads McMURTR above the #29" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "128ce6d6-483d-4615-8524-34c34cdc5caf", number: "536", surname: "mulholland", variant: "base", reason: "Jersey back reads MULHOLLAND" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "95bfd0e8-72a4-41d1-aa7a-63cf68fdfb0e", number: "538", surname: "niedenfuer", variant: "base", reason: "Whole card masked" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "36daf665-d782-4df8-804b-d736309b1c15", number: "580", surname: "krukow", variant: "base", reason: "Jersey back reads KRUKOW above the #39" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "f1ba4fda-3293-4835-bbdc-80c03e55f539", number: "596", surname: "sax", variant: "base", reason: "All-Star name plate STEVE SAX fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "115a5770-e624-439c-8209-94b78c149389", number: "597", surname: "schmidt", variant: "all-star", reason: "All-Star name plate MIKE SCHMIDT fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "5357cba3-f14f-4136-9a0a-c263080128e0", number: "597", surname: "schmidt", variant: "base", reason: "All-Star name plate MIKE SCHMIDT fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "586f60c7-d209-43a1-b90a-f2d9ec2d0392", number: "598", surname: "smith", variant: "base", reason: "All-Star name plate OZZIE SMITH fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "63194380-7063-4626-8d69-bcb7342c3ff4", number: "599", surname: "gwynn", variant: "base", reason: "All-Star name plate TONY GWYNN fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "87c2944e-66cf-4cc4-a872-15cec25a98a8", number: "599", surname: "gwynn", variant: "all-star", reason: "All-Star name plate TONY GWYNN fully visible at top" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "ffaa271d-f0fd-4474-b4e8-624e048498f2", number: "600", surname: "parker", variant: "base", reason: "All-Star name plate DAVE PARKER fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "b69cf76b-f82a-4688-aae7-12fc56bb06b3", number: "603", surname: "gooden", variant: "no trademark", reason: "All-Star name plate DWIGHT GOODEN fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "e844f82c-dda2-4497-a956-572623ae8d61", number: "603", surname: "gooden", variant: "all-star", reason: "All-Star name plate DWIGHT GOODEN fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "acf579a3-b01d-4a9f-8a0b-0aebfb8664e8", number: "604", surname: "valenzuela", variant: "base", reason: "All-Star name plate FERNANDO VALENZUELA fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "1d0d1365-87e4-406d-96c2-94e0b224f4ec", number: "606", surname: "mattingly", variant: "no trademark", reason: "All-Star name plate DON MATTINGLY fully visible at top" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "65d3a13e-98f0-4404-aa4d-02b7df0ef016", number: "606", surname: "mattingly", variant: "base", reason: "All-Star name plate DON MATTINGLY fully visible at top" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "1556f885-0521-4cf8-a87c-51cdce912bcb", number: "609", surname: "ripken", variant: "base", reason: "All-Star name plate CAL RIPKEN fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "58650c14-7ee5-4b48-8073-ca02991236e5", number: "610", surname: "rice", variant: "all-star", reason: "All-Star name plate JIM RICE fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "d0a3473c-d15e-4012-a742-8b6bf8a43f21", number: "610", surname: "rice", variant: "base", reason: "Whole card masked" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "b10d0bd9-47f2-4472-8865-771377427760", number: "612", surname: "bell", variant: "base", reason: "All-Star name plate GEORGE BELL fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "2232bdaa-1a23-47d8-8b04-cfe89fceb09b", number: "616", surname: "righetti", variant: "base", reason: "All-Star name plate DAVE RIGHETTI fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "b7eea490-3bcc-4c2b-b7cb-3749a7c3ec0b", number: "616", surname: "righetti", variant: "all-star", reason: "All-Star name plate DAVE RIGHETTI fully visible at top of card" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "4914a815-0ad6-4ef5-8307-9321b4f2c011", number: "650", surname: "brooks", variant: "base", reason: "Jersey back reads BROOKS above the #7" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "f23d2f7a-00c6-430c-b7e7-1933dc211123", number: "739", surname: "lemon", variant: "base", reason: "Jersey back reads" },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: "5b4b7ebf-2474-4a5e-9927-be2d81e07c3c", number: "789", surname: "schatzeder", variant: "base", reason: "Whole card masked" },
+
+  // 2022 Panini Chronicles Football, Design full-pool sweep 2026-10-02 (12)
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "8a7ea95e-c625-487b-ae32-5b55254fbb44", number: "8", surname: "watson", variant: "base", reason: "SGC slab label at top fully legible: #8 DESHAUN WATSON" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "1571856a-a375-4082-adfe-2062351c03a4", number: "38", surname: "gardner", variant: "base", reason: "Wrong player: image is Garrett Wilsons Photogenic PH-38 photo" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "f40cf68c-1bc2-4db8-848d-da5ab5056b40", number: "205", surname: "dotson", variant: "base", reason: "SGC slab label at top fully legible: #205 JAHAN DOTSON LUMINANCE" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "61e6a223-5fc3-4a2e-9c32-39215078de7c", number: "214", surname: "thibodeaux", variant: "base", reason: "SGC slab label at top fully legible: #214 KAYVON THIBODEAUX LEGACY" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "8c42a171-7128-4273-a348-c82e23967596", number: "218", surname: "olave", variant: "teal", reason: "Luminance script name on left side reads Chris Olave in full" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "ac66b3f1-7e37-4416-9d1b-c3c747689235", number: "219", surname: "hutchinson", variant: "base", reason: "Legacy script name on right edge reads ...tchinson" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "1f351ccb-ac0a-42d8-a2e5-a6f54d785770", number: "220", surname: "pierce", variant: "base", reason: "SGC slab label at top fully legible: #220 DAMEON PIERCE LEGACY" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "df2524dc-0dec-4161-94e7-0c8028471c47", number: "220", surname: "hall", variant: "base", reason: "Legacy script name on right edge reads Hall in full" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "b3a69477-9131-438d-ac9e-4de93b830993", number: "222", surname: "watson", variant: "base", reason: "Legacy script name on right edge reads Watso" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "fcf37481-2634-4661-8710-8c3d3239fac9", number: "PH-15", surname: "donald", variant: "base", reason: "Jersey back fully legible: DONALD 99 above the bottom mask" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "61a65ae7-4952-4e2b-8e4c-f04d0ac3ac4c", number: "PH-9", surname: "jacobs", variant: "base", reason: "SGC slab label at top fully legible: PH-9 JOSH JACOBS PHOTOGENIC" },
+  { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "9c6ccbd7-b564-46ef-9f8f-629fcda6a882", number: "PP-RAW", surname: "white", variant: "base", reason: "Vertical name strip on left edge reads RACHAAD WHITE in full" },
 ];
 
 export type BlockedSetNumberRule = {
@@ -335,10 +426,23 @@ export type BlockedSetNumberRule = {
 };
 
 /**
- * Whole checklist numbers blocked on one set. Empty: the 1987 Topps number-28
- * rule also caught Rick Dempsey #28. Schmidt stays blocked by id above.
+ * 1987 Topps baseball All-Star subset, #595-616. The All-Star design puts the
+ * name plate at the top of the card, and the mask covers only the bottom, so
+ * every card in the range leaks (Design sweep 2026-10-02). Blocked by number
+ * on this set only, so a re-import with new ids stays blocked. Base cards of
+ * the same players (Schmidt #430, Mattingly #500, ...) stay playable.
  */
-export const BLOCKED_SET_NUMBERS: readonly BlockedSetNumberRule[] = [];
+export const TOPPS_1987_ALL_STAR_FIRST = 595;
+export const TOPPS_1987_ALL_STAR_LAST = 616;
+
+/**
+ * Whole checklist numbers blocked on one set. The old 1987 Topps number-28
+ * rule is gone (it also caught Rick Dempsey #28); Schmidt stays blocked by id.
+ */
+export const BLOCKED_SET_NUMBERS: readonly BlockedSetNumberRule[] = Array.from(
+  { length: TOPPS_1987_ALL_STAR_LAST - TOPPS_1987_ALL_STAR_FIRST + 1 },
+  (_, i) => ({ gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, prefix: true, number: String(TOPPS_1987_ALL_STAR_FIRST + i) }),
+);
 
 export type CardNumberPatternRule = {
   gameSetId: string;
@@ -355,6 +459,13 @@ export const CARD_NUMBER_PATTERN_RULES: readonly CardNumberPatternRule[] = [
     prefix: true,
     numberPattern: BASKETBALL_2024_H_INSERT_NUMBER,
     sqlPattern: "^H-[0-9]+$",
+  },
+  {
+    // Stays until a mask template exists for the UVAS vertical surname art.
+    gameSetId: BASKETBALL_2024_SET_PREFIX,
+    prefix: true,
+    numberPattern: BASKETBALL_2024_UVAS_NUMBER,
+    sqlPattern: "^UVAS-[0-9]+$",
   },
 ];
 

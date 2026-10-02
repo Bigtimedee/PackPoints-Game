@@ -266,11 +266,12 @@ describe("isBlockedCard", () => {
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=aea515e2") && line.includes("allStarNumbers=1,2,3,4,5,6,7,8,9,10,11"))).toBe(true);
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=37fd025d") && line.includes("mcgwireNumber=366"))).toBe(true);
     expect(leakBlocklistLogLines()).toEqual([
-      "[blocklist] set=37fd025d blockedIds=1 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=37fd025d blockedIds=38 blockedNumbers=22 blockedPatterns=0",
       "[blocklist] set=352b33d1 blockedIds=22 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=91cfdf3f blockedIds=1 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=a09b2fe7 blockedIds=8 blockedNumbers=0 blockedPatterns=0",
-      "[blocklist] set=229f0379 blockedIds=0 blockedNumbers=0 blockedPatterns=1",
+      "[blocklist] set=229f0379 blockedIds=19 blockedNumbers=0 blockedPatterns=2",
+      "[blocklist] set=74885a41 blockedIds=12 blockedNumbers=0 blockedPatterns=0",
     ]);
     for (const line of leakBlocklistLogLines()) expect(spy).toHaveBeenCalledWith(line);
     spy.mockRestore();
