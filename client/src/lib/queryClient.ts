@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { anonRequestHeaders } from "./anonFingerprint";
+import { captureFirstTouch, getSignupAttributionPayload } from "./attribution";
 
 export class ApiError extends Error {
   status: number;
@@ -24,44 +25,21 @@ export class ApiError extends Error {
 }
 
 /**
- * Capture UTM parameters from the current URL and store in sessionStorage.
- * Called once on app load. Parameters are sent with registration requests.
+ * Capture first-touch attribution (utm_*, ref, landing path, referrer host)
+ * into localStorage (30 days, first touch wins) and the legacy sessionStorage
+ * packpts_utm key. Called once on app load.
  */
 export function captureUtmParams(): void {
-  const params = new URLSearchParams(window.location.search);
-  const utmKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
-
-  const captured: Record<string, string> = {};
-  for (const key of utmKeys) {
-    const value = params.get(key);
-    if (value) captured[key] = value;
-  }
-
-  if (Object.keys(captured).length > 0) {
-    sessionStorage.setItem('packpts_utm', JSON.stringify(captured));
-  }
+  captureFirstTouch();
 }
 
 /**
- * Retrieve previously captured UTM params from sessionStorage.
- * Returns camelCase versions for API submission.
+ * Attribution fields for POST /api/auth/register, camelCase
+ * (utmSource, utmMedium, utmCampaign, utmTerm, utmContent, referredByCode,
+ * landingPage, referrerHost). Empty object when nothing was stored.
  */
 export function getStoredUtmParams(): Record<string, string> {
-  try {
-    const stored = sessionStorage.getItem('packpts_utm');
-    if (!stored) return {};
-
-    const raw: Record<string, string> = JSON.parse(stored);
-    // Convert utm_source → utmSource
-    return Object.fromEntries(
-      Object.entries(raw).map(([key, value]) => [
-        key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
-        value,
-      ])
-    );
-  } catch {
-    return {};
-  }
+  return getSignupAttributionPayload() as Record<string, string>;
 }
 
 async function throwIfResNotOk(res: Response) {
