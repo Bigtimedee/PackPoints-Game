@@ -292,7 +292,7 @@ export const TOPPS_1989_DWAYNE_HENRY_CARD_ID = "c866179d-e613-443f-a6ea-07d93dee
 export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: TOPPS_1987_SCHMIDT_CARD_ID, number: TOPPS_1987_SCHMIDT_NUMBER, surname: "schmidt", variant: "base", reason: "jersey back HMIDT" },
 
-  // 1989 Topps (17)
+  // 1989 Topps, Marketing sweep (17)
   { gameSetId: TOPPS_1989_SET_PREFIX, id: "18976a3d-478e-472b-b953-dbbc25916f02", number: "15", surname: "bonilla", variant: "base", reason: "jersey nameplate BONILLA" },
   { gameSetId: TOPPS_1989_SET_PREFIX, id: "4a8f5876-b655-4b87-8a26-f4bfeed8b418", number: "45", surname: "daniels", variant: "base", reason: "jersey nameplate DANIELS" },
   { gameSetId: TOPPS_1989_SET_PREFIX, id: "e907ca50-88fb-40f8-887c-38193c400c18", number: "95", surname: "young", variant: "base", reason: "jersey nameplate YOUNG" },
@@ -311,6 +311,15 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1989_SET_PREFIX, id: "a4d47aae-6e59-4259-95e9-ef857038135f", number: "732", surname: "buechele", variant: "base", reason: "jersey nameplate CHELE" },
   { gameSetId: TOPPS_1989_SET_PREFIX, id: "ee1f2993-acfd-431a-8ac0-70fe05a87b1e", number: "770", surname: "trammell", variant: "base", reason: "nameplate MELL" },
 
+  // 1989 Topps, Design watch review 2026-10-02 (5): two name leaks and three
+  // landscape scans the mask covers almost entirely. Landscape-aware geometry
+  // and a full-height plate band are a follow-up.
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "17f64efb-450d-44a7-8562-2300ff495e9c", number: "286", surname: "jackson", variant: "base", reason: "plate only partly masked: DARRIN JACK" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "b348a75c-808b-4d23-be10-e8fc0036271f", number: "505", surname: "rose", variant: "base", reason: "jersey back ROSE" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "40d0d345-6b42-44eb-a96e-e324ef3b20bf", number: "65", surname: "reuschel", variant: "base", reason: "landscape scan almost fully masked" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "ef288978-d6bb-46b3-9385-7e9d59263271", number: "245", surname: "rice", variant: "base", reason: "landscape scan almost fully masked" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "c0517235-6ab4-4790-ad6c-9cf9a9517494", number: "407", surname: "winfield", variant: "base", reason: "landscape scan almost fully masked" },
+
   // 1987 Topps Football (1)
   { gameSetId: TOPPS_1987_FOOTBALL_SET_PREFIX, id: "1df06ad0-500b-4548-aa24-50eb0b04c9bf", number: "113", surname: "craig", variant: "base", reason: "jersey nameplate CRAIG" },
 
@@ -323,7 +332,6 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "1188d0ca-4421-4364-90ea-3543ee575fa0", number: "196", surname: "bailey", variant: "refractor", reason: "helmet tape BAILEY" },
   { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "6c369ab7-3826-4f7a-be33-3b645e7bb225", number: "196", surname: "bailey", variant: "base", reason: "helmet tape BAILEY" },
   { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "c19b9f98-d2c7-4a4a-86e7-92972ba654b7", number: "205", surname: "teague", variant: "base", reason: "helmet tape EAGU" },
-
   // 1990 Hoops Basketball (12). Coach cards 343-354 print the coach's playing
   // name diagonally across the top and below the 18% band, with playing years.
   // The trusted profile band leaves part of it readable, and OCR does not read

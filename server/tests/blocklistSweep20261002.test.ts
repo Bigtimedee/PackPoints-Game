@@ -40,7 +40,7 @@ import {
 type Sweep = { id: string; set: "1989-topps" | "1987-topps-football" | "1994-topps-football"; player: string; number: string; variant: string };
 
 /** The 26 ids in BLOCKLIST-20261002.json, with the player and number each set's REPORT.md lists. */
-const SWEEP: readonly Sweep[] = [
+const MARKETING: readonly Sweep[] = [
   { set: "1989-topps", id: "18976a3d-478e-472b-b953-dbbc25916f02", player: "Bobby Bonilla", number: "15", variant: "Base" },
   { set: "1989-topps", id: "4a8f5876-b655-4b87-8a26-f4bfeed8b418", player: "Kal Daniels", number: "45", variant: "Base" },
   { set: "1989-topps", id: "e907ca50-88fb-40f8-887c-38193c400c18", player: "Gerald Young", number: "95", variant: "Base" },
@@ -68,6 +68,15 @@ const SWEEP: readonly Sweep[] = [
   { set: "1994-topps-football", id: "6c369ab7-3826-4f7a-be33-3b645e7bb225", player: "Victor Bailey", number: "196", variant: "Base" },
   { set: "1994-topps-football", id: "c19b9f98-d2c7-4a4a-86e7-92972ba654b7", player: "George Teague", number: "205", variant: "Base" },
 ];
+/** Design watch review 2026-10-02: five more 1989 Topps cards. */
+const DESIGN: readonly Sweep[] = [
+  { set: "1989-topps", id: "17f64efb-450d-44a7-8562-2300ff495e9c", player: "Darrin Jackson", number: "286", variant: "Base" },
+  { set: "1989-topps", id: "b348a75c-808b-4d23-be10-e8fc0036271f", player: "Pete Rose", number: "505", variant: "Base" },
+  { set: "1989-topps", id: "40d0d345-6b42-44eb-a96e-e324ef3b20bf", player: "Rick Reuschel", number: "65", variant: "Base" },
+  { set: "1989-topps", id: "ef288978-d6bb-46b3-9385-7e9d59263271", player: "Jim Rice", number: "245", variant: "Base" },
+  { set: "1989-topps", id: "c0517235-6ab4-4790-ad6c-9cf9a9517494", player: "Dave Winfield", number: "407", variant: "Base" },
+];
+const SWEEP: readonly Sweep[] = [...MARKETING, ...DESIGN];
 const SWEEP_IDS = SWEEP.map((row) => row.id);
 
 const stamp = randomUUID().slice(0, 8);
@@ -174,10 +183,12 @@ afterAll(async () => {
 });
 
 describe("v4.6 sweep blocklist: the 26 ids", () => {
-  it("lists exactly the 26 sweep ids plus Schmidt, each with the set and number from the report", () => {
+  it("lists exactly the 26 sweep ids, the 5 Design ids, and Schmidt, each with the set and number from the report", () => {
     const rules = new Map(BLOCKED_CARD_ID_RULES.map((rule) => [rule.id, rule]));
+    expect(MARKETING).toHaveLength(26);
+    expect(DESIGN).toHaveLength(5);
     // 1990 Hoops rows are covered in hoopsTrustedBand.test.ts.
-    expect(BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId !== HOOPS_1990_SET_PREFIX)).toHaveLength(27);
+    expect(BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId !== HOOPS_1990_SET_PREFIX)).toHaveLength(32);
     expect(rules.has(TOPPS_1987_SCHMIDT_CARD_ID)).toBe(true);
     const prefixes: Record<Sweep["set"], string> = { "1989-topps": "352b33d1", "1987-topps-football": "91cfdf3f", "1994-topps-football": "a09b2fe7" };
     for (const card of SWEEP) {
@@ -188,7 +199,7 @@ describe("v4.6 sweep blocklist: the 26 ids", () => {
       expect(card.player.toLowerCase()).toContain(rule!.surname);
       expect(rule!.variant).toBe(card.variant.trim().toLowerCase());
     }
-    expect(SWEEP.filter((c) => c.set === "1989-topps")).toHaveLength(17);
+    expect(SWEEP.filter((c) => c.set === "1989-topps")).toHaveLength(22);
     expect(SWEEP.filter((c) => c.set === "1987-topps-football")).toHaveLength(1);
     expect(SWEEP.filter((c) => c.set === "1994-topps-football")).toHaveLength(8);
     expect(TOPPS_1989_DWAYNE_HENRY_CARD_ID).toBe("c866179d-e613-443f-a6ea-07d93dee3c03");
@@ -287,6 +298,7 @@ describe("v4.6 sweep blocklist: the 26 ids", () => {
       ["1987-topps-football", ["1df06ad0-500b-4548-aa24-50eb0b04c9bf", ...fillerIds.get("1987-topps-football")!.slice(0, 4)]],
       ["1989-topps", [...SWEEP.filter((c) => c.set === "1989-topps").slice(5, 9).map((c) => c.id), SWEEP[16].id]],
       ["1989-topps", [...SWEEP.filter((c) => c.set === "1989-topps").slice(9, 12).map((c) => c.id), ...fillerIds.get("1989-topps")!.slice(0, 2)]],
+      ["1989-topps", DESIGN.map((c) => c.id)],
     ];
     const covered = new Set(hands.flatMap(([, ids]) => ids).filter((id) => SWEEP_IDS.includes(id)));
     expect([...covered].sort()).toEqual([...SWEEP_IDS].sort());
@@ -473,7 +485,7 @@ describe("v4.6 sweep blocklist: refresh and re-import", () => {
     });
     await db.insert(playableCards).values(reimported);
     const ids = reimported.map((r) => r.id);
-    expect(ids).toHaveLength(27);
+    expect(ids).toHaveLength(SWEEP.length + 1);
     for (const r of reimported) {
       expect(isBlockedCard(r.gameSetId, r.player, r), `${r.player} ${r.number}`).toBe(true);
       expect(isBlockedCardIdRow(r), `${r.player} ${r.number}`).toBe(true);
