@@ -5,7 +5,7 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import { injectPlaySetsOgHtml, isPlaySetsHtmlPath } from "./lib/playSetsOg";
+import { decorateSpaIndexHtml } from "./lib/spaIndexHtml";
 
 const viteLogger = createLogger();
 
@@ -50,7 +50,7 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      const html = isPlaySetsHtmlPath(url) ? await injectPlaySetsOgHtml(page, url) : page;
+      const html = await decorateSpaIndexHtml(page, url);
       res.status(200).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
