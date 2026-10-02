@@ -16,7 +16,7 @@ export const SIGNUP_EXCLUSION_RULE =
   "totals, bySource, daily, and authProviders count users where is_admin is false and is_bot is false. totals.excluded reports the rows left out, for the same all-time, rolling 24h, and rolling 7d windows. staffAdmin is users.is_admin (the only staff and admin flag; a row that is also is_bot counts here once). bots is users.is_bot when is_admin is false. test and qa are null: the schema has no column that identifies test or QA accounts, and this report does not guess from username or email. anon_players are not users and are not counted.";
 
 export const SIGNUP_SOURCE_RULE =
-  "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_campaign, and no referrer → direct; otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
+  "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_medium, no utm_campaign, and no referrer → direct (a landing page alone is still direct); otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
 
 export const SIGNUP_AUTH_PROVIDER_RULE =
   "Counted on the same included users as totals. One method each, so the four counts sum to the window total: apple when an apple_users row exists, else workos when users.workos_user_id is set, else email when a local_credentials row exists, else none. Google is not stored. WorkOS AuthKit may include Google and is still workos.";
@@ -28,13 +28,12 @@ export const SIGNUP_WINDOWS = {
 } as const;
 
 export const SIGNUP_SOURCE_GAPS = [
-  "WorkOS signup (GET /api/auth/workos/callback) creates the user and a user_identities row with provider workos. It does not write user_attribution or referral_attributions. Those accounts are unattributed.",
-  "Sign in with Apple (POST /api/auth/apple) creates the user and an apple_users row. It does not write user_attribution or referral_attributions. Those accounts are unattributed.",
-  "The in-game SignupModal posts /api/auth/register without stored UTM params and without referredByCode. Only the /auth page register spreads getStoredUtmParams().",
-  "user_attribution is inserted only when the register body includes utmSource or utmCampaign. A visit that stored only utm_medium, utm_term, or utm_content is not written.",
-  "user_attribution.landing_page exists on the table and is never written.",
-  "GET /r/:code redirects with a ref query param. The web client does not read ref and does not send referredByCode or referralSource on register, so a referral SIGNUP row is not created for that path.",
-  "Beat-me and play-sets share URLs carry UTMs (utm_medium beatme or play_sets). Those values are stored only when /auth register runs while sessionStorage still has them. WorkOS, Apple, and SignupModal drop them.",
+  "Attribution is written only for users created after first-touch capture shipped. Earlier accounts have no user_attribution row and stay unattributed.",
+  "The web client stores first touch (utm_*, ref, landing path, external referrer host) in localStorage for 30 days. The first tagged touch wins; a plain visit with no utm and no ref can be replaced once by a later tagged touch. Visitors who clear storage, use another browser or device, or block storage arrive untagged.",
+  "Every register path writes user_attribution when any field is present: POST /api/auth/register (/auth page and SignupModal send the stored fields), WorkOS (GET /api/auth/workos/callback reads the pp_attr cookie set by POST /api/auth/attribution before the redirect), and Sign in with Apple (POST /api/auth/apple reads an attribution body object or the pp_attr cookie). Only newly created users are written; logins never change an existing row.",
+  "A ref code (from GET /r/:code) records a referral SIGNUP only when the link is active, not expired, and not the new user's own link.",
+  "Web Sign in with Apple that returns by a cross-site form POST does not carry the SameSite=Lax pp_attr cookie, so it is attributed only when the client sends the attribution body object.",
+  "user_attribution.referrer holds the external referrer host only (no path or query). Our own hosts are dropped.",
   "eBay affiliate clicks and X posts are not copied onto the user at signup. There is no eBay or X column on users. A referrer host of ebay.com, x.com, twitter.com, or t.co is used only when a user_attribution row exists and utm_source is empty.",
   "Google is not a stored sign-in method. user_identities.provider is local or workos, and users.workos_user_id does not record the WorkOS IdP. Google sign-in through AuthKit is counted as workos.",
   "users has is_admin and is_bot. It has no test or QA flag. Test and QA accounts are not inferred from username or email. Development POST /api/test/login and seedMockUsers can insert users with neither flag and no attribution; those rows stay in the registered totals as unattributed.",
@@ -159,7 +158,7 @@ export function signupSourceBucket(row: SignupSourceRow): string {
   if (hostBucket) return hostBucket;
   const campaign = norm(row.utmCampaign);
   const referrer = (row.referrer ?? "").trim();
-  if (row.hasAttributionRow && !campaign && !referrer) return "direct";
+  if (row.hasAttributionRow && !campaign && !medium && !referrer) return "direct";
   return "unknown";
 }
 

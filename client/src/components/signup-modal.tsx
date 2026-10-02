@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getStoredUtmParams } from "@/lib/queryClient";
+import { startWorkosAuth } from "@/lib/attribution";
 import { Loader2, Trophy, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -103,6 +104,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
           username: data.username,
           email: data.email,
           password: data.password,
+          ...getStoredUtmParams(),
         });
         return res.json();
       } catch (error: any) {
@@ -399,7 +401,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     type="button"
                     variant="outline"
                     className="w-full min-h-11"
-                    onClick={() => { window.location.href = "/api/auth/workos/start"; }}
+                    onClick={() => { void startWorkosAuth(); }}
                     disabled={isPending}
                     data-testid="button-modal-workos-signup"
                   >
@@ -516,7 +518,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     type="button"
                     variant="outline"
                     className="w-full min-h-11"
-                    onClick={() => { window.location.href = "/api/auth/workos/start"; }}
+                    onClick={() => { void startWorkosAuth(); }}
                     disabled={isPending}
                     data-testid="button-modal-workos"
                   >

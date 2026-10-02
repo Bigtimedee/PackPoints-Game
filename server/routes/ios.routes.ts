@@ -30,6 +30,13 @@ import {
 import { loginLimiter } from "../middleware/rateLimiter";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import {
+  applySignupAttribution,
+  clearAttributionCookie,
+  mergeAttribution,
+  readAttributionCookie,
+  sanitizeAttribution,
+} from "../lib/signupAttribution";
 
 // Apple public keys endpoint for identity-token verification
 const APPLE_JWKS = createRemoteJWKSet(
@@ -71,6 +78,10 @@ const appleAuthSchema = z.object({
     .nullable(),
   email: z.string().email().optional().nullable(),
   deviceHint: z.string().optional(),
+  // Optional first-touch attribution from a native or web client. Untrusted,
+  // analytics only; any shape is accepted here and sanitized later so a bad
+  // value can never block sign-in.
+  attribution: z.unknown().optional(),
 });
 
 const apnsTokenSchema = z.object({
@@ -207,6 +218,15 @@ export function registerIosRoutes(app: Express) {
     const appleUserId: string = appleClaims.sub;
     const appleEmailFromToken: string | undefined = appleClaims.email;
 
+    // Web clients carry attribution in the signed pp_attr cookie; native
+    // clients may send it in the body. Read once after the token verifies, always clear, and use it
+    // only if this request creates the user.
+    const signupAttribution = mergeAttribution(
+      sanitizeAttribution(parsed.data.attribution),
+      readAttributionCookie(req),
+    );
+    clearAttributionCookie(res);
+
     // Look up existing Apple linkage
     const existingAppleUser = await db
       .select()
@@ -259,6 +279,8 @@ export function registerIosRoutes(app: Express) {
       console.log(
         `[Apple Auth] Created new user ${packpointsUser.id} for apple_user_id ${appleUserId}`
       );
+
+      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth");
     }
 
     if (packpointsUser.status === "BANNED") {
