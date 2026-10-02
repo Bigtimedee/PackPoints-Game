@@ -30,6 +30,7 @@ import { logCardBlocklist } from "./lib/cardBlocklist";
 import { logHeldSets } from "./config/heldSets";
 import { logMaskCachePurge } from "./masking/maskCachePurge";
 import { invalidateRegisteredHoopsMaskCache } from "./masking/maskingService";
+import { releaseTrustedBandRefusals } from "./masking/trustedBandRelease";
 import { logPinnedCoversAtBoot } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
@@ -99,6 +100,11 @@ export async function bootAfterListen(
     await invalidateRegisteredHoopsMaskCache();
   } catch (error) {
     console.error("[MaskProfile] hoops cache invalidate failed", error);
+  }
+  try {
+    await releaseTrustedBandRefusals();
+  } catch (error) {
+    console.error("[MaskProfile] trusted band release failed", error);
   }
   app.use((req, res, next) => {
   if (req.path.startsWith('/webhooks/')) {

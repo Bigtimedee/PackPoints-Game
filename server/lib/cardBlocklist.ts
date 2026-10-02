@@ -273,6 +273,12 @@ export const TOPPS_1994_FOOTBALL_SET_PREFIX = "a09b2fe7";
 /** 2022 Panini Chronicles Football. */
 export const CHRONICLES_2022_FOOTBALL_SET_PREFIX = "74885a41";
 const TOPPS_1987_FOOTBALL_SET_PREFIX = TOPPS_1987_FOOTBALL_SET_ID.slice(0, 8);
+/**
+ * 1990 Hoops Basketball as re-added 2026-10-02. A later re-import mints a new
+ * set id, so only the card-id match below survives that; re-add these rows
+ * with the new prefix if the set is purged and imported again.
+ */
+export const HOOPS_1990_SET_PREFIX = "d226801a";
 
 /**
  * 1989 Topps #496 Dwayne Henry. The stored image is a modern Bowman Chrome
@@ -417,6 +423,25 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "fcf37481-2634-4661-8710-8c3d3239fac9", number: "PH-15", surname: "donald", variant: "base", reason: "Jersey back fully legible: DONALD 99 above the bottom mask" },
   { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "61a65ae7-4952-4e2b-8e4c-f04d0ac3ac4c", number: "PH-9", surname: "jacobs", variant: "base", reason: "SGC slab label at top fully legible: PH-9 JOSH JACOBS PHOTOGENIC" },
   { gameSetId: CHRONICLES_2022_FOOTBALL_SET_PREFIX, id: "9c6ccbd7-b564-46ef-9f8f-629fcda6a882", number: "PP-RAW", surname: "white", variant: "base", reason: "Vertical name strip on left edge reads RACHAAD WHITE in full" },
+
+  // 1990 Hoops Basketball (12). Coach cards 343-354 print the coach's playing
+  // name diagonally across the top and below the 18% band, with playing years.
+  // The trusted profile band leaves part of it readable, and OCR does not read
+  // the diagonal text. Every coach-legend card in the deal pool is blocked.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "551ee60e-478f-4c75-b0ab-41c7217d00da", number: "343", surname: "jones", variant: "base", reason: "coach legend diagonal name JO + years" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "467667f7-1149-4270-a568-187ddb9b0ed1", number: "344", surname: "unseld", variant: "base", reason: "coach legend diagonal name UN + years" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "0a468fe3-721d-4e83-a580-cf3df5fc321b", number: "345", surname: "nelson", variant: "base", reason: "coach legend diagonal name NELS" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "41758b03-4135-4593-9fea-a63e2a38d5b6", number: "346", surname: "weiss", variant: "base", reason: "coach legend diagonal name WE + years" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "b077f597-97dd-49f5-800c-341fdda7f2a8", number: "347", surname: "ford", variant: "base", reason: "coach legend diagonal name FO + years" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "63e1216f-0d38-4239-af92-9bd067588c67", number: "348", surname: "jackson", variant: "base", reason: "coach legend diagonal name JACK" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "ffea1480-e2b9-485d-9f6e-6b9f7d12134d", number: "350", surname: "chaney", variant: "base", reason: "coach legend diagonal name CHA" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "a949ea98-bf2d-49fa-b51b-caf592986d81", number: "354", surname: "sloan", variant: "base", reason: "coach legend diagonal name SLO" },
+  // Name printed outside the top plate. The OCR check refuses three of these
+  // today; the block keeps them out if a later mask version re-bakes them.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "2d9492f0-6f04-4a42-9ad6-cf2385938613", number: "382", surname: "jordan", variant: "base", reason: "vertical MICHAEL JORDAN'S PLAYGROUND strip" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "0a61f1ce-6a84-438f-acf6-d6d8c5e9d2c1", number: "391", surname: "payton", variant: "base", reason: "lottery pick GARY PAYTON bottom name" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "349a5190-a09e-4804-bd32-e2bcd50ed9cd", number: "63", surname: "grant", variant: "base", reason: "autograph across the photo" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "8aa2109c-53d4-4417-9cf9-0aae98e59de7", number: "NNO", surname: "robinson", variant: "base", reason: "ROOKIE OF THE YEAR DAVID ROBINSON mid-card text" },
 ];
 
 export type BlockedSetNumberRule = {
