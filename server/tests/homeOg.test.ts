@@ -19,8 +19,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const INDEX_PATH = path.join(ROOT, "client/index.html");
 const HOME_PNG_PATH = path.join(ROOT, "client/public/og-image.png");
 const DAILY_PNG_PATH = path.join(ROOT, "client/public/og/daily-1200x630.png");
-// Design's og-home-A.png, added byte-identical.
-const HOME_PNG_SHA256 = "051520907bb408f504d443cb7b581cf1ff8ae66f034da214fabbf2def735e43c";
+// Design's og-home-A2.png (real masked 1987 Topps cards), added byte-identical.
+const HOME_PNG_SHA256 = "f934c084b388dc5de096666e905a9e869f8812a5a488f3512f2ce15852bab3a7";
+// Design's og-daily-v2.png, added byte-identical.
+const DAILY_PNG_SHA256 = "b01aa469bfc80f508986e954f787db4203b78adf1b83781b8ae2c96b08bdd4a9";
 
 // Approved copy from Design's SPEC.md / COPY.md. Do not edit.
 const TITLE = "Can you name all 5? \u00b7 PackPTS";
@@ -51,14 +53,14 @@ const DAILY_TAGS = [
   `<meta property="og:url" content="https://packpts.com/daily" />`,
   `<meta property="og:title" content="Daily 5. Five cards. Name them." />`,
   `<meta property="og:description" content="A new hand every day. Same five for everyone. Play free at PackPTS." />`,
-  `<meta property="og:image" content="https://packpts.com/og/daily-1200x630.png" />`,
+  `<meta property="og:image" content="https://packpts.com/og/daily-1200x630.png?v=2" />`,
   `<meta property="og:image:width" content="1200" />`,
   `<meta property="og:image:height" content="630" />`,
   `<meta property="og:image:alt" content="Five masked sports cards. Daily 5 on PackPTS." />`,
   `<meta name="twitter:card" content="summary_large_image" />`,
   `<meta name="twitter:title" content="Daily 5. Five cards. Name them." />`,
   `<meta name="twitter:description" content="A new hand every day. Same five for everyone. Play free at PackPTS." />`,
-  `<meta name="twitter:image" content="https://packpts.com/og/daily-1200x630.png" />`,
+  `<meta name="twitter:image" content="https://packpts.com/og/daily-1200x630.png?v=2" />`,
 ];
 
 const ONCE_KEYS: Array<["property" | "name", string]> = [
@@ -267,5 +269,16 @@ describe("served HTML and homepage preview image", () => {
     expect(png.res.status).toBe(200);
     expect(png.res.headers.get("content-type")).toMatch(/^image\/png\b/);
     expect(sha256(png.buf)).toBe(HOME_PNG_SHA256);
+  });
+
+  it("serves the /daily preview at ?v=2 with Design's og-daily-v2 bytes", async () => {
+    const file = fs.readFileSync(DAILY_PNG_PATH);
+    expect(sha256(file)).toBe(DAILY_PNG_SHA256);
+    expect(file.readUInt32BE(16)).toBe(1200);
+    expect(file.readUInt32BE(20)).toBe(630);
+    const png = await read("/og/daily-1200x630.png?v=2");
+    expect(png.res.status).toBe(200);
+    expect(png.res.headers.get("content-type")).toMatch(/^image\/png\b/);
+    expect(sha256(png.buf)).toBe(DAILY_PNG_SHA256);
   });
 });

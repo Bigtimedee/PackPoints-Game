@@ -47,7 +47,7 @@ export const SPA_ROUTE_META: Readonly<Record<string, SpaRouteMeta>> = {
     url: "https://packpts.com/daily",
     type: "website",
     siteName: "PackPTS",
-    image: "https://packpts.com/og/daily-1200x630.png", // If the image ever changes, append ?v=2 so X and iMessage refetch.
+    image: "https://packpts.com/og/daily-1200x630.png?v=2", // v2 = real masked 1987 Topps cards (2026-10-02). Bump ?v= if the file changes again so X and iMessage refetch.
     imageWidth: "1200",
     imageHeight: "630",
     imageAlt: "Five masked sports cards. Daily 5 on PackPTS.",
