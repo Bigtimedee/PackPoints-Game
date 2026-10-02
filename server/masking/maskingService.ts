@@ -3,10 +3,10 @@ import { existsSync, unlinkSync } from "fs";
 import path from "path";
 import { db } from "../db";
 import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@shared/schema";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { applyServedRotation, orientationOcrBudgetMs, uprightCardImage } from "./cardOrientation";
-import { getMaskProfile, logDealtDefaultMaskProfiles } from "./maskProfiles";
+import { getMaskProfile, hoopsBottomBakeIsStale, HOOPS_1990_PROFILE_ID, logDealtDefaultMaskProfiles } from "./maskProfiles";
 import { recognizeWords, resetOcrRuntimeForTests } from "./ocrRuntime";
 import {
   clearOrientNote,
@@ -18,9 +18,13 @@ import {
   type QuarterTurn,
 } from "./orientNote";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
-import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
+import { MASKED_CARDS_DIR, readWarmMaskPlan, warmMaskPlanFilename, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
-import { invalidateMaskReadySidecar } from "./maskReadySidecar";
+import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
+import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
+import { NAME_VISIBLE_OUTSIDE_MASK } from "./nameOutsideMask";
+import { recordMaskBakeRefusal } from "./maskRefusalLog";
+import { scheduleNameVisibilityCheck } from "./nameVisibilityBackfill";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
 
 export { readWarmMaskPlan };
@@ -38,11 +42,12 @@ function filenameRotation(filename: string): QuarterTurn {
 }
 
 /**
- * Disk hit for the current bake. Upright v4.4 files stay `{cardId}_v4.4.jpg`.
+ * Disk hit for the current bake. Upright files stay `{cardId}_${CURRENT_MASK_VERSION}.jpg`.
  * A card that was rotated upright uses a suffix so those warm files are not rebaked.
  */
 export function peekWarmMaskedFilename(cardId: string): string | null {
   if (!cardId) return null;
+  if (readMaskFailureReason(cardId) === NAME_VISIBLE_OUTSIDE_MASK) return null;
   const note = readOrientNote(cardId);
   if (note) {
     const named = warmMaskedFilename(cardId, note.rotation);
@@ -61,6 +66,9 @@ const coverageRefusals = new Map<string, string>();
 const OCR_FAILURE_MEMO_MS = 60 * 60 * 1000;
 const ocrSkipUntil = new Map<string, number>();
 let activeMaskingJobs = 0;
+let liveMaskRequests = 0;
+/** Warm bakes a live caller is already waiting on. Those skip the live gate. */
+const livePromotedBakes = new Set<string>();
 const MAX_CONCURRENT_OCR = 2;
 const SLOT_POLL_MS = 50;
 
@@ -120,6 +128,8 @@ export function recordOcrTimeout(cardId: string, ms: number): void {
 
 export function resetMaskBakeForTests(): void {
   activeMaskingJobs = 0;
+  liveMaskRequests = 0;
+  livePromotedBakes.clear();
   maskingQueue.clear();
   coverageRefusals.clear();
   ocrSkipUntil.clear();
@@ -150,7 +160,7 @@ async function ensureDirectory(): Promise<void> {
   }
 }
 
-async function downloadImage(url: string, cardId: string): Promise<Buffer | null> {
+export async function downloadMaskSource(url: string, cardId: string): Promise<Buffer | null> {
   const started = Date.now();
   try {
     return await withSourceFetchTimeout(async (signal) => {
@@ -184,8 +194,18 @@ function releaseBakeSlot(guard: { released: boolean }): void {
   activeMaskingJobs--;
 }
 
-async function acquireBakeSlot(): Promise<void> {
-  while (activeMaskingJobs >= MAX_CONCURRENT_OCR) {
+function warmBakePromoted(cardId: string | undefined): boolean {
+  return cardId != null && livePromotedBakes.has(cardId);
+}
+
+async function acquireBakeSlot(priority: "live" | "warm" = "live", cardId?: string): Promise<void> {
+  // Re-check promotion inside the wait. A live caller can join after this warm
+  // bake is already parked, and that caller is awaiting this same promise.
+  // The deadline does not start until a slot is held.
+  while (
+    activeMaskingJobs >= MAX_CONCURRENT_OCR
+    || (priority === "warm" && liveMaskRequests > 0 && !warmBakePromoted(cardId))
+  ) {
     await new Promise((resolve) => setTimeout(resolve, SLOT_POLL_MS));
   }
   activeMaskingJobs++;
@@ -198,8 +218,9 @@ async function acquireBakeSlot(): Promise<void> {
 async function runInBakeSlot<T>(
   cardId: string,
   work: (setStage: (stage: MaskBakeStage) => void, isCancelled: () => boolean) => Promise<T>,
+  priority: "live" | "warm" = "live",
 ): Promise<T> {
-  await acquireBakeSlot();
+  await acquireBakeSlot(priority, cardId);
   const guard = { released: false };
   const started = Date.now();
   let stage: MaskBakeStage = "fetch";
@@ -230,17 +251,35 @@ async function runInBakeSlot<T>(
   }
 }
 
+/**
+ * One warm bake slot, same cap and deadline as a player bake.
+ * Warm waits while a live mask request is in flight, so a backfill cannot take the last slot from a player.
+ */
+export async function runWarmBakeJob<T>(
+  cardId: string,
+  work: (setStage: (stage: MaskBakeStage) => void, isCancelled: () => boolean) => Promise<T>,
+): Promise<T> {
+  return runInBakeSlot(cardId, work, "warm");
+}
+
 /** Share one in-flight bake per card. The entry is dropped when that promise settles, including timeout. */
 export function enqueueMaskBake(
   cardId: string,
   start: () => Promise<string | null>,
+  opts?: { promote?: boolean },
 ): Promise<string | null> {
   const existing = maskingQueue.get(cardId);
-  if (existing) return existing;
+  if (existing) {
+    if (opts?.promote) livePromotedBakes.add(cardId);
+    return existing;
+  }
   const promise = start();
   maskingQueue.set(cardId, promise);
   const drop = () => {
-    if (maskingQueue.get(cardId) === promise) maskingQueue.delete(cardId);
+    if (maskingQueue.get(cardId) === promise) {
+      maskingQueue.delete(cardId);
+      livePromotedBakes.delete(cardId);
+    }
   };
   promise.then(drop, drop);
   return promise;
@@ -317,21 +356,152 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
   return true;
 }
 
-export async function getMaskedImagePath(cardId: string): Promise<string | null> {
+const hoopsCardMemo = new Map<string, boolean>();
+
+async function cardUses1990HoopsProfile(cardId: string): Promise<boolean> {
+  const known = hoopsCardMemo.get(cardId);
+  if (known != null) return known;
+  let hoops = false;
+  try {
+    const [card] = await db
+      .select({
+        gameSetId: playableCards.gameSetId,
+        set: playableCards.set,
+        category: playableCards.category,
+      })
+      .from(playableCards)
+      .where(eq(playableCards.id, cardId))
+      .limit(1);
+    if (card?.gameSetId) {
+      const [gameSet] = await db
+        .select({
+          year: gameSets.year,
+          brand: gameSets.brand,
+          sport: gameSets.sport,
+          setName: gameSets.setName,
+        })
+        .from(gameSets)
+        .where(eq(gameSets.id, card.gameSetId))
+        .limit(1);
+      const hint = gameSet
+        ? buildSetMaskHint({
+          year: gameSet.year,
+          brand: gameSet.brand,
+          sport: gameSet.sport,
+          setName: card.set || gameSet.setName,
+          category: card.category,
+        })
+        : card.set;
+      hoops = getMaskProfile(hint, card.gameSetId).id === HOOPS_1990_PROFILE_ID;
+    }
+  } catch {
+    hoops = false;
+  }
+  hoopsCardMemo.set(cardId, hoops);
+  return hoops;
+}
+
+function unlinkWarmMaskFiles(cardId: string): void {
+  for (const deg of [0, 90, 180, 270] as const) {
+    try {
+      unlinkSync(path.join(MASKED_CARDS_DIR, warmMaskedFilename(cardId, deg)));
+    } catch {
+      // already gone
+    }
+  }
+  try {
+    unlinkSync(path.join(MASKED_CARDS_DIR, warmMaskPlanFilename(cardId)));
+  } catch {
+    // plan sidecar already gone
+  }
+  try {
+    unlinkSync(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)));
+  } catch {
+    // marker already gone
+  }
+}
+
+/** Drop a warm Hoops JPEG that still paints the default bottom 46% plaque. */
+async function discardStaleHoopsBottomBake(cardId: string): Promise<boolean> {
+  const plan = readWarmMaskPlan(cardId);
+  if (!plan || !hoopsBottomBakeIsStale(HOOPS_1990_PROFILE_ID, plan.layoutClass, plan.regions)) return false;
+  if (!await cardUses1990HoopsProfile(cardId)) return false;
+  unlinkWarmMaskFiles(cardId);
+  try {
+    await db.delete(cardImageMaskCache).where(eq(cardImageMaskCache.cardId, cardId));
+  } catch {
+    // the next bake overwrites the row
+  }
+  return true;
+}
+
+/**
+ * Re-imported 1990 Hoops cards must not keep a bottom plaque baked before the
+ * top-name profile existed. New card ids have no file. Leftover ids are cleared.
+ */
+export async function invalidateRegisteredHoopsMaskCache(): Promise<{ sets: number; cards: number }> {
+  const rows = await db
+    .select({
+      id: gameSets.id,
+      year: gameSets.year,
+      brand: gameSets.brand,
+      sport: gameSets.sport,
+      setName: gameSets.setName,
+    })
+    .from(gameSets);
+  const setIds = rows
+    .filter((row) => getMaskProfile(buildSetMaskHint(row), row.id).id === HOOPS_1990_PROFILE_ID)
+    .map((row) => row.id);
+  let cards = 0;
+  for (const setId of setIds) {
+    const result = await invalidateMaskedImageCache({ setId });
+    cards += result.cardIds.length;
+    const members = await db
+      .select({ id: playableCards.id })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, setId));
+    for (const member of members) {
+      unlinkWarmMaskFiles(member.id);
+      hoopsCardMemo.set(member.id, true);
+    }
+  }
+  if (setIds.length > 0) {
+    console.log(`[MaskProfile] hoops cache invalidated sets=${setIds.map((id) => id.slice(0, 8)).join(",")} cards=${cards}`);
+  }
+  return { sets: setIds.length, cards };
+}
+
+export async function getMaskedImagePath(
+  cardId: string,
+  opts?: { priority?: "live" | "warm" },
+): Promise<string | null> {
+  const failReason = readMaskFailureReason(cardId);
+  if (failReason) {
+    coverageRefusals.set(cardId, failReason);
+    return null;
+  }
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
+  if (isMaskBandExcluded(cardId)) return null;
+
+  await discardStaleHoopsBottomBake(cardId);
 
   const warm = peekWarmMaskedFilename(cardId);
   if (warm && await acceptWarmMaskedFile(cardId, warm)) {
     return warm;
   }
 
-  return enqueueMaskBake(cardId, () => {
-    const promise = generateMaskedImage(cardId);
-    return promise;
-  });
+  const priority = opts?.priority ?? "live";
+  if (priority === "live") liveMaskRequests++;
+  try {
+    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority), {
+      promote: priority === "live",
+    });
+  } finally {
+    if (priority === "live") liveMaskRequests--;
+  }
 }
 
-async function generateMaskedImage(cardId: string): Promise<string | null> {
+async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "live"): Promise<string | null> {
   await ensureDirectory();
 
   let imageUrl: string | null = null;
@@ -429,7 +599,10 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
       const staleField = field !== 0 && cachedTurn !== field;
       const staleNote = note != null && cachedTurn !== note.rotation;
       const staleSideways = field === 0 && cachedTurn === 0 && landscape && !note?.landscapeDesign && !note?.coverBoth;
-      if (!staleField && !staleNote && !staleSideways) return cachedName;
+      const profile = getMaskProfile(setHint, gameSetId);
+      const staleHoopsBottom = hoopsBottomBakeIsStale(profile.id, cached.layoutClass, cached.regions);
+      if (!staleField && !staleNote && !staleSideways && !staleHoopsBottom) return cachedName;
+      if (staleHoopsBottom) unlinkWarmMaskFiles(cardId);
     } catch {
       // file missing
     }
@@ -442,16 +615,24 @@ async function generateMaskedImage(cardId: string): Promise<string | null> {
     setHint,
     gameSetId,
     imageRotation,
-  });
+  }, priority);
 }
 
-export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<string | null> {
+export async function bakeMaskedCardFromUrl(
+  input: MaskBakeSource,
+  priority: "live" | "warm" = "live",
+): Promise<string | null> {
   const { cardId, imageUrl } = input;
+  const alreadyRefused = readMaskFailureReason(cardId);
+  if (alreadyRefused) {
+    coverageRefusals.set(cardId, alreadyRefused);
+    return null;
+  }
   try {
     return await runInBakeSlot(cardId, async (setStage, isCancelled) => {
       setStage("fetch");
       const fetchStarted = Date.now();
-      const imageBuffer = await downloadImage(imageUrl, cardId);
+      const imageBuffer = await downloadMaskSource(imageUrl, cardId);
       if (!imageBuffer || isCancelled()) return null;
 
       setStage("ocr");
@@ -486,7 +667,37 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
           layoutClass: result.layoutClass,
           maskVersion: CURRENT_MASK_VERSION,
         });
+        await recordMaskBakeRefusal({
+          cardId,
+          gameSetId: input.gameSetId,
+          reason,
+          layoutClass: result.layoutClass,
+          profileSource: result.source,
+          plateTrace: result.plateTrace,
+          paintRegions: result.regions,
+          sourceImage: result.sourceBuffer,
+        });
         await quarantineUncoveredName(cardId, reason);
+        return null;
+      }
+
+      const bandIssue = maskBandFailure(result.regions);
+      if (bandIssue && maskBandGuardEnforces()) {
+        console.error(`[MaskingService] Refusing mask band for ${cardId}`, {
+          reason: bandIssue,
+          maskVersion: CURRENT_MASK_VERSION,
+        });
+        await recordMaskBakeRefusal({
+          cardId,
+          gameSetId: input.gameSetId,
+          reason: bandIssue,
+          layoutClass: result.layoutClass,
+          profileSource: result.source,
+          plateTrace: result.plateTrace,
+          paintRegions: result.regions,
+          sourceImage: result.sourceBuffer,
+        });
+        await rejectMaskBand(cardId, bandIssue);
         return null;
       }
 
@@ -497,6 +708,24 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
 
       await fs.writeFile(filePath, result.maskedBuffer);
       await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
+      const priorFail = readMaskFailureReason(cardId);
+      if (priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
+        clearMaskFailureSidecar(cardId);
+        await db
+          .update(playableCards)
+          .set({
+            isPlayable: true,
+            blockedReason: null,
+            quarantineStatus: "OK",
+            imageReviewStatus: "unreviewed",
+            lastValidationReason: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(playableCards.id, cardId),
+            eq(playableCards.blockedReason, "mask_name_uncovered"),
+          ));
+      }
       for (const deg of [0, 90, 180, 270] as const) {
         if (deg === rotation) continue;
         try {
@@ -540,8 +769,15 @@ export async function bakeMaskedCardFromUrl(input: MaskBakeSource): Promise<stri
         maskVersion: CURRENT_MASK_VERSION,
       });
 
+      scheduleNameVisibilityCheck({
+        cardId,
+        playerName: input.playerName,
+        regions: result.regions,
+        filename,
+      });
+
       return filename;
-    });
+    }, priority);
   } catch (error) {
     if (isMaskBakeTimeout(error)) throw error;
     console.error(`[MaskingService] Failed to mask card ${cardId}:`, error);
@@ -687,11 +923,16 @@ export function clearServedOrientation(cardId: string): void {
 export async function quarantineUncoveredName(cardId: string, reason: string): Promise<void> {
   invalidateMaskReadySidecar(cardId);
   try {
+    writeMaskFailureSidecar(cardId, reason);
+  } catch (error) {
+    console.error(`[MaskingService] Failed to record mask failure sidecar for ${cardId}:`, error);
+  }
+  try {
     await db
       .update(playableCards)
       .set({
         isPlayable: false,
-        blockedReason: "mask_name_uncovered",
+        blockedReason: reason === NAME_VISIBLE_OUTSIDE_MASK ? NAME_VISIBLE_OUTSIDE_MASK : "mask_name_uncovered",
         imageReviewStatus: "flagged",
         quarantineStatus: "QUARANTINED_ADMIN_REVIEW",
         lastValidationReason: reason.slice(0, 240),

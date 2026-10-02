@@ -5,6 +5,8 @@ import {
   remainingPlayCardUrls,
   prefetchMaskedPlayCards,
   prefetchRevealPlayCard,
+  resetPrefetchForTests,
+  retainedPrefetchCount,
 } from "../prefetchPlayCardImages";
 
 const gameSrc = readFileSync(new URL("../../pages/game.tsx", import.meta.url), "utf8");
@@ -35,6 +37,51 @@ describe("prefetchMaskedPlayCards", () => {
     expect(urls.every((url) => url.includes("/api/play/m/"))).toBe(true);
     expect(urls.some((url) => url.includes("/api/images/card/"))).toBe(false);
     expect(urls.some((url) => url.includes("/api/play/r/"))).toBe(false);
+  });
+
+  it("keeps N+1 and N+2 image requests alive and does not prefetch unmasked urls", () => {
+    const created: Array<{ crossOrigin: string | null; src: string }> = [];
+    const links: Array<{ rel: string; as: string; href: string; crossOrigin: string | null }> = [];
+    const previousImage = globalThis.Image;
+    const previousDocument = globalThis.document;
+    class FakeImage {
+      decoding = "";
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(value: string) {
+        created.push({ crossOrigin: this.crossOrigin, src: value });
+      }
+    }
+    (globalThis as { Image?: typeof Image }).Image = FakeImage as unknown as typeof Image;
+    (globalThis as { document?: Document }).document = {
+      querySelector: () => null,
+      head: { appendChild: () => {} },
+      createElement: () => {
+        const link = { rel: "", as: "", href: "", crossOrigin: null as string | null };
+        links.push(link);
+        return link;
+      },
+    } as unknown as Document;
+    try {
+      resetPrefetchForTests();
+      const urls = prefetchMaskedPlayCards([
+        masked("0"),
+        masked("1"),
+        masked("2"),
+        "/api/images/card/nope",
+      ]);
+      expect(urls).toEqual([masked("0"), masked("1"), masked("2")]);
+      expect(created.map((img) => img.src)).toEqual([masked("1"), masked("2"), masked("0")]);
+      expect(created.every((img) => img.crossOrigin === "anonymous")).toBe(true);
+      expect(retainedPrefetchCount()).toBe(3);
+      expect(links.map((link) => link.href)).toEqual([masked("1"), masked("2")]);
+      expect(links.every((link) => link.crossOrigin === "anonymous")).toBe(true);
+    } finally {
+      (globalThis as { Image?: typeof Image }).Image = previousImage;
+      (globalThis as { document?: Document }).document = previousDocument;
+      resetPrefetchForTests();
+    }
   });
 });
 

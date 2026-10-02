@@ -3,6 +3,7 @@
  * Keep this file free of React so vitest can import it in node.
  */
 import { formatPackptsMonDay, isPackptsDayKey } from "@shared/packptsDay";
+import { applySetDisplayTitle, applySetYearLabel } from "@shared/setDisplayOverride";
 import { isMaskedSetCoverUrl, publicSetShareUrl } from "@shared/setCoverUrl";
 
 export const SETS_POLISH = {
@@ -15,18 +16,18 @@ export const SETS_POLISH = {
   panelBorder: "#2a3344",
   cream: "#F3E6C8",
   stockFanAsset: "maker-set-1080.png",
-  volumeGate: 10,
   eyebrow: "SETS",
   indexTitle: "Sets",
   indexSub: "Play sets already in PackPTS.",
-  shortShelfTitle: "A short shelf.",
-  shortShelfBody: "Integrated sets only. Play what's here, or open Daily 5.",
   playThisSet: "Play this set",
   playTodayCue: "Play today’s stack",
   fanMade: "FAN MADE",
   stackHeading: "THE STACK",
   surfaceACaption: "Share cover · runtime Surface A",
 } as const;
+
+/** Compact fanned stack on the /sets index. Hidden covers reserve this height. */
+export const SET_INDEX_COVER_HEIGHT = 168;
 
 export const FORBIDDEN_PUBLIC_SETS_COPY = [
   "times played",
@@ -150,10 +151,39 @@ export function formatDetailMetaLine(opts: {
   return parts.join(" · ");
 }
 
-/** Honest published-list length only — never an admin Maker Rate field. */
-export function shouldShowShortShelf(publishedCount: number): boolean {
-  const n = Math.max(0, Math.floor(publishedCount));
-  return n > 0 && n < SETS_POLISH.volumeGate;
+/**
+ * Index heading. Other sets already carry the brand inside `setName`
+ * ("1987 Topps", "1989 Fleer Basketball"). When the stored name omits a
+ * brand that is on the row, insert that brand. A blank brand leaves the
+ * stored name. The year column is not substituted for the year in the name.
+ */
+export function formatIndexSetTitle(opts: {
+  setName: string;
+  brand?: string | null;
+  id?: string | null;
+}): string {
+  const override = applySetDisplayTitle(opts.id, "");
+  if (opts.id && override) return override;
+  const name = (opts.setName || "").trim();
+  const brand = (opts.brand || "").trim();
+  if (!name) return brand;
+  if (!brand || titleHasBrand(name, brand)) return name;
+  const leading = /^(\d{4})\b\s*(.*)$/.exec(name);
+  if (!leading) return `${brand} ${name}`;
+  const rest = leading[2].trim();
+  return rest ? `${leading[1]} ${brand} ${rest}` : `${leading[1]} ${brand}`;
+}
+
+function titleHasBrand(name: string, brand: string): boolean {
+  const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?:[^A-Za-z0-9]|$)`, "i").test(name);
+}
+
+/** Fanned thumbs paint a solid plaque. The in-game card keeps its label. */
+export type PlaqueChrome = "full" | "bar";
+
+export function plaqueChromeShowsLabel(chrome: PlaqueChrome): boolean {
+  return chrome !== "bar";
 }
 
 export function shouldShowPlayTodayCue(playedToday: boolean | null | undefined): boolean {
@@ -165,6 +195,35 @@ export function playQuestionCount(cardCount: unknown): number | null {
   const n = Math.floor(Number(cardCount) || 0);
   if (n < 5) return null;
   return Math.min(20, n);
+}
+
+export function displaySetYearLabel(setId: string | null | undefined, year: number | null | undefined): string | null {
+  return applySetYearLabel(setId, year);
+}
+
+export interface FanCoverPlacement {
+  leftPct: number;
+  rotateDeg: number;
+  liftPx: number;
+  widthPct: number;
+}
+
+/** Even fan for 1 to 8 real covers. No empty slot is reserved. */
+export function fanCoverPlacements(count: number, compact: boolean): FanCoverPlacement[] {
+  const n = Math.max(0, Math.min(8, Math.floor(count)));
+  if (n === 0) return [];
+  const widthPct = n >= 7 ? (compact ? 20 : 18) : n >= 4 ? (compact ? 24 : 22) : (compact ? 30 : 28);
+  const maxRotate = n === 1 ? 0 : Math.min(16, 5 + (n - 2));
+  const span = n === 1 ? 0 : Math.min(76, 14 * (n - 1));
+  return Array.from({ length: n }, (_, i) => {
+    const t = n === 1 ? 0 : (i / (n - 1)) * 2 - 1;
+    return {
+      leftPct: 50 + t * (span / 2),
+      rotateDeg: Number((t * maxRotate).toFixed(2)),
+      liftPx: Math.abs(t) * (compact ? 10 : 14),
+      widthPct,
+    };
+  });
 }
 
 export function setShareSlug(setName: string, setId: string): string {
@@ -184,4 +243,39 @@ export function publicSetDisplayUrl(setName: string, setId: string): string {
 export function containsForbiddenPublicSetsCopy(text: string): boolean {
   const hay = text.toLowerCase();
   return FORBIDDEN_PUBLIC_SETS_COPY.some((needle) => hay.includes(needle.toLowerCase()));
+}
+
+/** FeedbackWidget narrow size: h-12. */
+export const SETS_CHAT_BUTTON_BLOCK = "3rem";
+/** FeedbackWidget narrow offset: bottom-20, above the mobile nav. */
+export const SETS_CHAT_BUTTON_BOTTOM = "5rem";
+
+export const SETS_PAGE_CLEARANCE_CLASS = "sets-page-clearance";
+export const SETS_SCROLLPORT_CLASS = "sets-scrollport";
+export const SETS_SHELL_CLASS = "sets-shell";
+
+/** Last control scrolls this far above the chat button. Button height plus the home indicator. */
+export const SETS_PAGE_CHAT_PADDING = `calc(${SETS_CHAT_BUTTON_BLOCK} + env(safe-area-inset-bottom, 0px))`;
+
+/**
+ * Scrollport ends at the top of the chat button.
+ * bottom-20 + h-12, plus the home indicator, so a control cannot slide under the button.
+ */
+export const SETS_SCROLLPORT_MARGIN = `calc(${SETS_CHAT_BUTTON_BOTTOM} + ${SETS_CHAT_BUTTON_BLOCK} + env(safe-area-inset-bottom, 0px))`;
+
+/** Public shelf and set detail only. Not /game, /make, or nested paths. */
+export function isPublicSetsPath(path: string): boolean {
+  const bare = (path || "").split("#")[0].split("?")[0];
+  const normalized = bare.length > 1 && bare.endsWith("/") ? bare.slice(0, -1) : bare;
+  return normalized === "/sets" || /^\/sets\/[^/]+$/.test(normalized);
+}
+
+export function setsShellClassName(path: string): string {
+  return isPublicSetsPath(path) ? SETS_SHELL_CLASS : "";
+}
+
+/** Default app scroll column. Public set routes add the narrow-width clearance class. */
+export function setsMainClassName(path: string): string {
+  const base = "flex-1 overflow-y-auto pb-20 md:pb-0";
+  return isPublicSetsPath(path) ? `${base} ${SETS_SCROLLPORT_CLASS}` : base;
 }

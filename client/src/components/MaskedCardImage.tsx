@@ -5,6 +5,7 @@ import { DEFAULT_MASK_REGIONS } from "@shared/schema";
 import type { MaskRegion } from "@shared/schema";
 import { inferLayoutClass, overlayMaskRegions } from "@shared/maskGeometry";
 import { MaskPlaque } from "@/components/MaskPlaque";
+import type { PlaqueChrome } from "@/lib/setsPolish";
 
 interface MaskConfig {
   setKey: string;
@@ -21,6 +22,8 @@ interface MaskedCardImageProps {
   onImageLoad?: () => void;
   onImageError?: () => void;
   maskColor?: string;
+  /** Fanned thumbs pass `bar` so the plaque is a solid seam and no label. */
+  plaqueChrome?: PlaqueChrome;
 }
 
 export function MaskedCardImage({
@@ -31,6 +34,7 @@ export function MaskedCardImage({
   showMasks = true,
   onImageLoad,
   onImageError,
+  plaqueChrome = "full",
 }: MaskedCardImageProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -133,6 +137,7 @@ export function MaskedCardImage({
           regions={regions}
           layoutClass={inferLayoutClass(regions)}
           pending={!imageLoaded}
+          chrome={plaqueChrome}
         />
       )}
     </div>

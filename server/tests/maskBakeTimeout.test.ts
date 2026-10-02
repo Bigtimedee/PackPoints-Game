@@ -20,6 +20,7 @@ vi.mock("../db", () => ({
 import { withSourceFetchTimeout } from "../services/images/sourceFetch";
 import { sendMaskedCard } from "../services/playImageSend";
 import { kickPreMask } from "../masking/preMaskDeal";
+import { clearMaskFailureSidecar } from "../masking/maskReadySidecar";
 import {
   MaskBakeTimeoutError,
   bakeMaskedCardFromUrl,
@@ -77,11 +78,21 @@ const failedCover: MaskResult = {
   layoutClass: "BOTTOM_PLAQUE",
   coverageOk: false,
   coverageReason: "mask_name_uncovered",
+  plateTrace: {
+    imageWidth: 200,
+    imageHeight: 280,
+    expectedPlate: null,
+    ocrBoxes: [],
+    candidates: [],
+    decision: "default",
+  },
+  sourceBuffer: Buffer.from("source"),
 };
 
 describe("mask bake timeouts", () => {
   beforeEach(() => {
     resetMaskBakeForTests();
+    clearMaskFailureSidecar("card-uncovered");
     dbUpdate.mockClear();
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});

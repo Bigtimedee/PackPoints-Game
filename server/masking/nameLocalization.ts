@@ -1,9 +1,12 @@
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
+import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "@shared/maskRefusal";
 import {
+  fitNamePlateBand,
   pixelBoxToRegion,
   unionMaskRegions,
+  type NamePlateBox,
 } from "@shared/maskGeometry";
-import { getMaskProfile, type LayoutClass } from "./maskProfiles";
+import { getMaskProfile, type LayoutClass, type MaskProfile } from "./maskProfiles";
 import { ocrLooksLikeSlab, slabMaskRegions } from "./slabLayout";
 
 export interface OcrWordBox {
@@ -23,7 +26,29 @@ export interface LocalizedNamePlan {
   profileId: string;
   layoutClass: LayoutClass;
   nameBoxes: OcrWordBox[];
+  /** Plate the band was fitted to. Null when the fixed profile band was kept. */
+  plate: NamePlateBox | null;
+  /** Surname was found on a plate the set profile does not use. */
+  layoutDisagreed: boolean;
+  /** A letter plate sits on the other edge and no surname was read. Do not serve the profile band. */
+  namePlateUnresolved: boolean;
+  /** What the resolver measured. Does not change the decision above. */
+  plateTrace: NamePlateTrace;
 }
+
+export interface NamePlateTrace {
+  imageWidth: number;
+  imageHeight: number;
+  expectedPlate: MaskPlateBox | null;
+  ocrBoxes: MaskRefusalOcrBox[];
+  candidates: MaskRefusalCandidate[];
+  decision: string;
+}
+
+/** Center of a word in the top name plate, as a fraction of image height. */
+export const TOP_NAME_PLATE_MAX_CY = 0.35;
+/** Center of a word in the bottom name plate. */
+export const BOTTOM_NAME_PLATE_MIN_CY = 0.62;
 
 const OCR_PAD_PCT = 1.6;
 
@@ -123,6 +148,219 @@ export function boxesToPaddedRegions(
   return unionMaskRegions(regions);
 }
 
+export function plateBoxFromWords(words: OcrWordBox[]): NamePlateBox | null {
+  if (words.length === 0) return null;
+  const x = Math.min(...words.map((word) => word.x));
+  const y = Math.min(...words.map((word) => word.y));
+  const right = Math.max(...words.map((word) => word.x + word.w));
+  const bottom = Math.max(...words.map((word) => word.y + word.h));
+  return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+export function mergePlateBoxes(anchor: "top" | "bottom", boxes: Array<NamePlateBox | null>): NamePlateBox | null {
+  const present = boxes.filter((box): box is NamePlateBox => box != null && box.w > 0 && box.h > 0);
+  if (present.length === 0) return null;
+  const x = Math.min(...present.map((box) => box.x));
+  const y = Math.min(...present.map((box) => box.y));
+  const right = Math.max(...present.map((box) => box.x + box.w));
+  const bottom = Math.max(...present.map((box) => box.y + box.h));
+  if (anchor === "top") {
+    return { x: 0, y: 0, w: right, h: bottom };
+  }
+  return { x, y, w: Math.max(1, right - x), h: Math.max(1, bottom - y) };
+}
+
+/**
+ * The fixed profile band already hides this plate. A couple percent of slack
+ * absorbs detector jitter on a normal ~750x1030 scan. A tight crop whose plate
+ * sticks out past that slack is not covered.
+ */
+export function profileCoversPlate(profile: MaskProfile, plate: NamePlateBox, imageHeight: number): boolean {
+  const height = Math.max(1, imageHeight);
+  const slack = height * 0.02;
+  const bottom = plate.y + plate.h;
+  if (profile.nameAnchor === "top") {
+    return plate.y >= -2 && bottom <= profile.topBandPct * height + slack;
+  }
+  if (profile.nameAnchor === "bottom") {
+    const bandTop = (1 - profile.bottomBandPct) * height;
+    return plate.y >= bandTop - slack && bottom <= height + 2;
+  }
+  return false;
+}
+
+export function splitNamePlateHits(
+  words: OcrWordBox[],
+  imageHeight: number,
+): { top: OcrWordBox[]; bottom: OcrWordBox[] } {
+  const height = Math.max(1, imageHeight);
+  const top: OcrWordBox[] = [];
+  const bottom: OcrWordBox[] = [];
+  for (const word of words) {
+    const cy = (word.y + word.h / 2) / height;
+    if (cy <= TOP_NAME_PLATE_MAX_CY) top.push(word);
+    else if (cy >= BOTTOM_NAME_PLATE_MIN_CY) bottom.push(word);
+  }
+  return { top, bottom };
+}
+
+/** Profile band in the upright source's pixels. This is the plate the set would paint. */
+export function profilePlatePixels(
+  profile: MaskProfile,
+  imageWidth: number,
+  imageHeight: number,
+): MaskPlateBox | null {
+  const region = profile.regions[0];
+  if (!region || imageWidth < 1 || imageHeight < 1) return null;
+  return {
+    x: Math.round((region.xPct / 100) * imageWidth),
+    y: Math.round((region.yPct / 100) * imageHeight),
+    w: Math.max(1, Math.round((region.wPct / 100) * imageWidth)),
+    h: Math.max(1, Math.round((region.hPct / 100) * imageHeight)),
+  };
+}
+
+function boxOrNull(box: NamePlateBox | null | undefined): MaskPlateBox | null {
+  if (!box || box.w <= 0 || box.h <= 0) return null;
+  return { x: box.x, y: box.y, w: box.w, h: box.h };
+}
+
+/**
+ * Records the plate the profile expected, every OCR word, and each candidate
+ * the resolver looked at. `decision` names the branch already taken.
+ */
+export function buildNamePlateTrace(
+  profile: MaskProfile,
+  input: {
+    words?: OcrWordBox[];
+    imageWidth: number;
+    imageHeight: number;
+    plateBox?: NamePlateBox | null;
+    topTextPlate?: NamePlateBox | null;
+    bottomTextPlate?: NamePlateBox | null;
+  },
+  plateHits: { top: OcrWordBox[]; bottom: OcrWordBox[] },
+  decision: string,
+): NamePlateTrace {
+  const height = Math.max(1, input.imageHeight);
+  const unresolved = decision === "name_plate_unresolved";
+  const expectedPlate = profilePlatePixels(profile, input.imageWidth, input.imageHeight);
+  const ocrBoxes: MaskRefusalOcrBox[] = (input.words ?? []).map((word) => {
+    const cy = (word.y + word.h / 2) / height;
+    const zone = cy <= TOP_NAME_PLATE_MAX_CY ? "top" : cy >= BOTTOM_NAME_PLATE_MIN_CY ? "bottom" : "middle";
+    return {
+      text: word.text,
+      confidence: word.confidence ?? null,
+      x: word.x,
+      y: word.y,
+      w: word.w,
+      h: word.h,
+      zone,
+    };
+  });
+  const topText = boxOrNull(input.topTextPlate);
+  const bottomText = boxOrNull(input.bottomTextPlate);
+  const anchor = boxOrNull(input.plateBox);
+  const candidates: MaskRefusalCandidate[] = [
+    {
+      id: "expected_profile",
+      box: expectedPlate,
+      accepted: !unresolved && (decision === "profile_band" || decision === "ocr_plus_profile" || decision === "slab"),
+      why: unresolved
+        ? `not accepted: ${profile.id} ${profile.layoutClass} anchor ${profile.nameAnchor} has no on-profile text plate while the other edge has a letter run`
+        : `profile ${profile.id} band`,
+    },
+    {
+      id: "top_text_plate",
+      box: topText,
+      accepted: false,
+      why: topText
+        ? (unresolved && profile.nameAnchor !== "top"
+          ? "letter run on the other edge; profile band refused"
+          : "top letter run present")
+        : "detectAnchorTextPlate(top) returned null (no bimodal run starting in the top 12% of height, min run 4% of height, ending before 42%)",
+    },
+    {
+      id: "bottom_text_plate",
+      box: bottomText,
+      accepted: false,
+      why: bottomText
+        ? (unresolved && profile.nameAnchor === "top"
+          ? "letter run on the other edge; profile band refused"
+          : "bottom letter run present")
+        : "detectAnchorTextPlate(bottom) returned null (no letter run below 45% of height, min run 3% of height)",
+    },
+    {
+      id: "anchor_plate",
+      box: anchor,
+      accepted: decision === "bottom_band_fit" || decision === "plate_extends_profile",
+      why: anchor ? "detectAnchorPlate result" : "detectAnchorPlate returned null",
+    },
+    {
+      id: "ocr_top_surname",
+      box: boxOrNull(plateBoxFromWords(plateHits.top)),
+      accepted: !unresolved && plateHits.top.length > 0 && profile.nameAnchor === "top",
+      why: `surname boxes with center y/height <= ${TOP_NAME_PLATE_MAX_CY}: ${plateHits.top.length}`,
+    },
+    {
+      id: "ocr_bottom_surname",
+      box: boxOrNull(plateBoxFromWords(plateHits.bottom)),
+      accepted: !unresolved && plateHits.bottom.length > 0 && profile.nameAnchor === "bottom",
+      why: `surname boxes with center y/height >= ${BOTTOM_NAME_PLATE_MIN_CY}: ${plateHits.bottom.length}`,
+    },
+  ];
+  return {
+    imageWidth: input.imageWidth,
+    imageHeight: input.imageHeight,
+    expectedPlate,
+    ocrBoxes,
+    candidates,
+    decision,
+  };
+}
+
+function planFromOffProfileHits(
+  profile: MaskProfile,
+  offProfileHits: OcrWordBox[],
+  onProfileHits: OcrWordBox[],
+  imageWidth: number,
+  imageHeight: number,
+  matchedTokens: string[],
+): Omit<LocalizedNamePlan, "plateTrace"> {
+  const offAnchor = profile.nameAnchor === "top" ? "bottom" : "top";
+  const plate = plateBoxFromWords(offProfileHits);
+  const regions: MaskRegion[] = [];
+  if (plate) {
+    regions.push(fitNamePlateBand({
+      anchor: offAnchor,
+      imageWidth,
+      imageHeight,
+      profileFraction: 0.18,
+      plate,
+    }));
+  }
+  if (onProfileHits.length > 0) {
+    regions.push(...profile.regions.map((region) => ({ ...region })));
+  }
+  const layoutClass: LayoutClass = onProfileHits.length > 0
+    ? "PSA_SLAB"
+    : offAnchor === "top"
+      ? "TOP_PLATE"
+      : "BOTTOM_PLAQUE";
+  const boxes = [...offProfileHits, ...onProfileHits];
+  return {
+    regions: unionMaskRegions(regions),
+    source: "ocr+profile",
+    matchedTokens,
+    profileId: profile.id,
+    layoutClass,
+    nameBoxes: boxes,
+    plate: plateBoxFromWords(boxes),
+    layoutDisagreed: true,
+    namePlateUnresolved: false,
+  };
+}
+
 export function resolveNameMaskPlan(input: {
   playerName: string;
   setHint: string | null | undefined;
@@ -131,6 +369,12 @@ export function resolveNameMaskPlan(input: {
   imageWidth: number;
   imageHeight: number;
   slabLayout?: boolean;
+  /** Detected name plate in this image's pixels. OCR boxes are merged in. */
+  plateBox?: NamePlateBox | null;
+  /** Letter rows on the top edge, independent of the set profile. */
+  topTextPlate?: NamePlateBox | null;
+  /** Letter rows on the bottom edge, independent of the set profile. */
+  bottomTextPlate?: NamePlateBox | null;
 }): LocalizedNamePlan {
   const profile = getMaskProfile(input.setHint, input.gameSetId);
   const ocr = matchPlayerNameBoxes(input.playerName, input.words || []);
@@ -138,6 +382,8 @@ export function resolveNameMaskPlan(input: {
   const lastName = tokenizePlayerName(input.playerName).slice(-1)[0];
   const lastNameMatched = lastName ? ocr.tokens.includes(lastName) : ocr.tokens.length > 0;
   const isSlab = Boolean(input.slabLayout) || ocrLooksLikeSlab(input.words || [], input.imageHeight);
+  const plateHits = splitNamePlateHits(ocr.boxes, input.imageHeight);
+  const trace = (decision: string) => buildNamePlateTrace(profile, input, plateHits, decision);
 
   if (isSlab) {
     const regions = unionMaskRegions([
@@ -151,6 +397,110 @@ export function resolveNameMaskPlan(input: {
       profileId: "psa-slab",
       layoutClass: "PSA_SLAB",
       nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate: null,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
+      plateTrace: trace("slab"),
+    };
+  }
+
+  const offProfileHits = profile.nameAnchor === "top"
+    ? plateHits.bottom
+    : profile.nameAnchor === "bottom"
+      ? plateHits.top
+      : [];
+  const onProfileHits = profile.nameAnchor === "top"
+    ? plateHits.top
+    : profile.nameAnchor === "bottom"
+      ? plateHits.bottom
+      : [];
+  if (profile.matched && offProfileHits.length > 0) {
+    return {
+      ...planFromOffProfileHits(
+        profile,
+        offProfileHits,
+        onProfileHits,
+        input.imageWidth,
+        input.imageHeight,
+        ocr.tokens,
+      ),
+      plateTrace: trace("off_profile_hits"),
+    };
+  }
+  if (profile.matched && profile.nameAnchor !== "both" && plateHits.top.length === 0 && plateHits.bottom.length === 0) {
+    const onProfile = profile.nameAnchor === "top" ? input.topTextPlate : input.bottomTextPlate;
+    const onOther = profile.nameAnchor === "top" ? input.bottomTextPlate : input.topTextPlate;
+    if (onOther && !onProfile) {
+      return {
+        regions: profile.regions.map((region) => ({ ...region })),
+        source: "profile",
+        matchedTokens: ocr.tokens,
+        profileId: profile.id,
+        layoutClass: profile.layoutClass,
+        nameBoxes: [],
+        plate: null,
+        layoutDisagreed: true,
+        namePlateUnresolved: true,
+        plateTrace: trace("name_plate_unresolved"),
+      };
+    }
+  }
+
+  const anchor = profile.nameAnchor === "top" ? "top" : "bottom";
+  const plate = mergePlateBoxes(anchor, [
+    input.plateBox ?? null,
+    lastNameMatched ? plateBoxFromWords(ocr.boxes) : null,
+  ]);
+  if (
+    profile.matched
+    && profile.nameAnchor === "bottom"
+    && plate
+    && plate.h / Math.max(1, input.imageHeight) + 0.06 < profile.bottomBandPct
+  ) {
+    const band = fitNamePlateBand({
+      anchor: "bottom",
+      imageWidth: input.imageWidth,
+      imageHeight: input.imageHeight,
+      profileFraction: profile.bottomBandPct,
+      plate,
+    });
+    return {
+      regions: [band],
+      source: lastNameMatched && ocrRegions.length > 0 ? "ocr+profile" : "profile",
+      matchedTokens: ocr.tokens,
+      profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
+      plateTrace: trace("bottom_band_fit"),
+    };
+  }
+  if (
+    profile.matched
+    && (profile.nameAnchor === "top" || profile.nameAnchor === "bottom")
+    && plate
+    && !profileCoversPlate(profile, plate, input.imageHeight)
+  ) {
+    const band = fitNamePlateBand({
+      anchor,
+      imageWidth: input.imageWidth,
+      imageHeight: input.imageHeight,
+      profileFraction: anchor === "top" ? profile.topBandPct : profile.bottomBandPct,
+      plate,
+    });
+    return {
+      regions: unionMaskRegions([band, ...profile.regions]),
+      source: lastNameMatched && ocrRegions.length > 0 ? "ocr+profile" : "profile",
+      matchedTokens: ocr.tokens,
+      profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
+      plateTrace: trace("plate_extends_profile"),
     };
   }
 
@@ -162,6 +512,10 @@ export function resolveNameMaskPlan(input: {
       profileId: profile.id,
       layoutClass: profile.layoutClass,
       nameBoxes: ocr.boxes,
+      plate: null,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
+      plateTrace: trace("ocr_plus_profile"),
     };
   }
 
@@ -173,6 +527,10 @@ export function resolveNameMaskPlan(input: {
       profileId: profile.id,
       layoutClass: profile.layoutClass,
       nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate: null,
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
+      plateTrace: trace("profile_band"),
     };
   }
 
@@ -185,6 +543,10 @@ export function resolveNameMaskPlan(input: {
       profileId: profile.id,
       layoutClass: topName ? "TOP_PLATE" : "BOTTOM_PLAQUE",
       nameBoxes: ocr.boxes,
+      plate: plateBoxFromWords(ocr.boxes),
+      layoutDisagreed: false,
+      namePlateUnresolved: false,
+      plateTrace: trace("ocr_only"),
     };
   }
 
@@ -195,5 +557,9 @@ export function resolveNameMaskPlan(input: {
     profileId: profile.id,
     layoutClass: profile.layoutClass,
     nameBoxes: lastNameMatched ? ocr.boxes : [],
+    plate: null,
+    layoutDisagreed: false,
+    namePlateUnresolved: false,
+    plateTrace: trace("default"),
   };
 }

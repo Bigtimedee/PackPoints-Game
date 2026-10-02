@@ -3,6 +3,15 @@ import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet, refreshHeldSets } from "./config/heldSets";
+import {
+  commitSoloAdvance,
+  commitSoloAnswer,
+  commitSoloComplete,
+  replaceGameSessionQuestion,
+  stampGameSessionQuestionFlag,
+  stampQuestionShownAt,
+} from "./lib/sessionWrite";
 import {
   loginLimiter,
   matchCreateLimiter,
@@ -33,6 +42,8 @@ import { stripePurchaseService, isStripeConfigured, checkStripeConfigured } from
 import { storeCheckoutService } from "./services/storeCheckoutService";
 import { getStripeDiagnostics, getStripeMode, assertLiveModeForHost, getStripeConfig, isProductionHost } from "./stripeClient";
 import { isAuthenticated } from "./auth";
+import { requireAdmin } from "./auth/requireAdmin";
+import { handleOnboardingStart, ONBOARDING_REWARD_PTS, registerLockedCardRowRoutes } from "./services/lockedCardRows";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
 import { quotaService } from "./services/quotaService";
@@ -69,7 +80,7 @@ import { identityService } from "./services/identityService";
 import * as accessService from "./services/accessService";
 import * as foundersPassService from "./services/foundersPassService";
 import { redeemPackptsSchema, DEFAULT_STREAK_SCHEDULE, DEFAULT_MILESTONE_BONUSES, MAX_DAILY_STREAK_REWARD, daily5AnswerSchema, daily5FinishSchema } from "@shared/schema";
-import { daily5Service, toPublicDaily5Status } from "./services/daily5Service";
+import { daily5Service } from "./services/daily5Service";
 import { createBeatMeFromSession } from "./services/daily5BeatMe";
 import { AnonGateError, beginAnonGame, claimAnonForUser, creditAnonGame, dismissAnonSoft, readAnonGate } from "./services/anonIdentity";
 import { answerAnonDaily5, attachAnonDailyStatus, finishAnonDaily5, isAnonGateError, startAnonDaily5 } from "./services/anonDaily5";
@@ -78,7 +89,7 @@ import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
+import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt, notInArray } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -95,6 +106,9 @@ import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts
 import { eligiblePlayableCardCountSql, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicSets";
 import { handlePublicSetCover } from "./services/setCovers";
+import { registerCoverQaRoutes } from "./routes/coverQa";
+import { registerDealableQaRoutes } from "./routes/dealableQa";
+import { registerSignupQaRoutes } from "./routes/signupQa";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
@@ -116,6 +130,7 @@ import { handleCardIdUnmasked, handleMaskedToken, handleRevealToken, setUnmasked
 import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveReportedCardId, resolveRevealCard } from "./services/playImageAccess";
 import { handlePlayImageReport } from "./services/playImageReport";
 import { sendMaskedCard, sendUnmaskedCard } from "./services/playImageSend";
+import { invalidatePublicMaskSetCache, rejectPublicMask } from "./services/publicMaskGate";
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
 const sessionAnswerLocks = new Map<string, Promise<void>>();
 
@@ -128,27 +143,6 @@ function formatZodError(zodError: ZodError): string {
   }
   return "Invalid request";
 }
-
-// Middleware to require admin role
-const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
-  const user = req.user as any;
-  const session = req.session as any;
-  
-  // Resolve user id from either an OAuth claim (req.user.claims.sub) or
-  // the local-login session (session.localUserId).
-  const userId = user?.claims?.sub || session?.localUserId;
-
-  if (!userId) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const dbUser = await storage.getUser(userId);
-  if (!dbUser?.isAdmin) {
-    return res.status(403).json({ message: "Admin access required" });
-  }
-  
-  next();
-};
 
 // Middleware to require ACTIVE user status (Founders Cap enforcement)
 const requireActiveUser = async (req: any, res: Response, next: NextFunction) => {
@@ -201,42 +195,6 @@ export async function registerRoutes(
   // Deployment version canary (no auth, lightweight, never cached, never 304).
   // buildId matches the client bundle this process is serving.
   registerVersionRoute(app);
-
-  // Diagnostic: test DB connectivity and playableCards table
-  app.get("/api/diag/card-review-test", async (_req, res) => {
-    const steps: Record<string, any> = { v: 7 };
-    try {
-      // Step 1: basic DB connectivity
-      const timeResult = await db.select({ now: sql<string>`now()` }).from(playableCards).limit(0);
-      steps.dbConnected = true;
-
-      // Step 2: count playable cards
-      const countResult = await db.select({ cnt: sql<number>`count(*)` }).from(playableCards);
-      steps.playableCardsCount = Number(countResult[0]?.cnt ?? 0);
-
-      // Step 3: pick a sample card and test SELECT
-      if (steps.playableCardsCount > 0) {
-        const [sample] = await db.select({
-          id: playableCards.id,
-          player: playableCards.player,
-          status: playableCards.imageReviewStatus,
-          isPlayable: playableCards.isPlayable,
-          quarantine: playableCards.quarantineStatus,
-        }).from(playableCards).limit(1);
-        steps.sampleCard = sample;
-      }
-
-      // Step 4: count card_image_reports
-      const rptCount = await db.select({ cnt: sql<number>`count(*)` }).from(cardImageReports);
-      steps.cardImageReportsCount = Number(rptCount[0]?.cnt ?? 0);
-
-      res.json({ ok: true, steps });
-    } catch (err: any) {
-      steps.error = err?.message;
-      steps.stack = err?.stack?.slice(0, 500);
-      res.status(500).json({ ok: false, steps });
-    }
-  });
 
   // ============================================
   // HOME STATS (public, cached)
@@ -542,10 +500,18 @@ export async function registerRoutes(
     await sendMakerDigestEmail(maker.email, maker.username || "Maker", set.setName, playsToday);
   }
 
-  // Baked masked JPEG for a cover slot. No card id, no cold bake.
+  // Baked masked JPEG for a cover slot. X-Card-Id and X-Mask-Version when a file is served. No cold bake.
   app.get("/api/sets/:setId/covers/:slot", (req, res) => {
     void handlePublicSetCover(req, res);
   });
+
+  // Dealable sweep registers /api/qa/cover-image first. A pinned cover that
+  // already passes the cover filters is streamed with no bake. A dealable
+  // card with no sidecar is baked. The cover-QA handler stays registered
+  // and does not bake. Public /sets covers never bake.
+  registerDealableQaRoutes(app);
+  registerCoverQaRoutes(app);
+  registerSignupQaRoutes(app);
 
   // Public: Get a single set by id with maker metadata and play count
   app.get("/api/sets/:id", (req, res) => {
@@ -667,6 +633,11 @@ export async function registerRoutes(
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
+      await ensureHeldSets();
+
+      if (setId && isHeldSet(setId)) {
+        return res.status(404).json({ error: "Set not found" });
+      }
 
       if (setId && await isPanicEnabled(`disable_set_${setId}`)) {
         return res.status(503).json({ error: "This card set is temporarily disabled." });
@@ -773,6 +744,9 @@ export async function registerRoutes(
       try {
         session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId, setId);
       } catch (createError: any) {
+        if (createError?.message === "HELD_SET") {
+          return res.status(404).json({ error: "Set not found" });
+        }
         if (createError?.message === "NO_CARDS_AVAILABLE") {
           return res.status(503).json({ 
             error: "No cards available",
@@ -833,8 +807,9 @@ export async function registerRoutes(
       
       // Mark when the first question is shown for response time tracking
       if (session.questions[0]) {
-        (session.questions[0] as any).shownAt = new Date().toISOString();
-        await storage.updateGameSession(session);
+        const shownAt = new Date().toISOString();
+        (session.questions[0] as any).shownAt = shownAt;
+        await stampQuestionShownAt(session.id, 0, shownAt);
       }
 
       const { kickPreMask, cardIdsFromQuestions } = await import("./masking/preMaskDeal");
@@ -905,25 +880,23 @@ export async function registerRoutes(
 
       // Always flag the failed card for admin review (regardless of replacement availability)
       await storage.flagCardForImageFailure(failedCardId);
-      (session.questions[failedIndex] as any).imageFailure = true;
+      await stampGameSessionQuestionFlag(id, failedIndex, "imageFailure", true);
 
       const result = await storage.getReplacementCardForSession(id, failedCardId, excludeCardIds);
       
       if (!result) {
-        await storage.updateGameSession(session);
         console.log(`[CardReplacement] No replacement available for session ${id}, card ${failedCardId} (flagged for review, marked imageFailure)`);
         return res.status(404).json({ error: "No replacement card available", flagged: true });
       }
 
-      // Update the session with the replacement question, preserving imageFailure flag
+      // One question element. Never currentQuestionIndex.
       const replacement = result.question as any;
       replacement.imageFailure = true;
       const priorIds = Array.isArray((failedQuestion as any)?.replacedFromIds)
         ? (failedQuestion as any).replacedFromIds
         : [];
       replacement.replacedFromIds = [...priorIds, failedCardId];
-      session.questions[failedIndex] = replacement;
-      await storage.updateGameSession(session);
+      await replaceGameSessionQuestion(id, failedIndex, replacement);
 
       console.log(`[CardReplacement] Replaced card ${failedCardId} with ${result.question.card.id} in session ${id}`);
 
@@ -1117,7 +1090,7 @@ export async function registerRoutes(
         (freshCurrentQuestion as any).userAnswer = selectedAnswer;
         (freshCurrentQuestion as any).pointsEarned = pointsEarned;
 
-        // BUG-09: Stamp shownAt BEFORE updateGameSession so the value is persisted
+        // shownAt rides on the question element written below.
         if (!(freshCurrentQuestion as any).shownAt) {
           (freshCurrentQuestion as any).shownAt = new Date().toISOString();
         }
@@ -1143,7 +1116,14 @@ export async function registerRoutes(
           });
         } catch { /* never break gameplay for analytics */ }
 
-        await storage.updateGameSession(freshSession);
+        await commitSoloAnswer({
+          sessionId,
+          questionIndex,
+          question: freshCurrentQuestion,
+          score: freshSession.score,
+          correctAnswers: freshSession.correctAnswers,
+          matchPointsAwarded: (freshSession as any).matchPointsAwarded ?? 0,
+        });
 
         // Sync local session reference so the response below uses fresh data
         Object.assign(session, freshSession);
@@ -1260,6 +1240,7 @@ export async function registerRoutes(
       let shareImageUrl: string | undefined;
       let anonGate: Awaited<ReturnType<typeof creditAnonGame>> = null;
       const wasCompleted = session.status === "completed";
+      const fromIndex = session.currentQuestionIndex;
       if (session.currentQuestionIndex >= effectiveQuestionCount - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
@@ -1356,16 +1337,30 @@ export async function registerRoutes(
         }
         
         session.score = finalScore;
+        await commitSoloComplete({
+          sessionId: session.id,
+          score: session.score,
+          skippedQuestions: session.skippedQuestions ?? 0,
+          completedAt: session.completedAt || new Date().toISOString(),
+        });
       } else {
         session.currentQuestionIndex += 1;
-        // Mark when the new question is shown for response time tracking
         const nextQuestion = session.questions[session.currentQuestionIndex];
+        const shownAt = new Date().toISOString();
         if (nextQuestion) {
-          (nextQuestion as any).shownAt = new Date().toISOString();
+          (nextQuestion as any).shownAt = shownAt;
+        }
+        const advanced = await commitSoloAdvance({
+          sessionId: session.id,
+          expectedIndex: fromIndex,
+          skippedQuestions: session.skippedQuestions ?? 0,
+          shownAt: nextQuestion ? shownAt : null,
+        });
+        if (!advanced) {
+          const fresh = await storage.getGameSession(session.id);
+          if (fresh) Object.assign(session, fresh);
         }
       }
-      
-      await storage.updateGameSession(session);
 
       res.json({ ...sanitizeSessionForClient(session), shareImageUrl, ...(anonGate ? { anonGate } : {}) });
     } catch (error: any) {
@@ -1397,7 +1392,10 @@ export async function registerRoutes(
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       const status = await daily5Service.getStatus(userId || undefined);
       const anonGate = await attachAnonDailyStatus(req, res, status, userId || undefined);
-      res.json({ ...toPublicDaily5Status(status), anonGate });
+      const challenge = status.challenge
+        ? (({ seed: _dealSeed, ...publicChallenge }) => publicChallenge)(status.challenge)
+        : null;
+      res.json({ ...status, challenge, anonGate });
     } catch (error) {
       console.error("[Daily5] Error getting status:", error);
       res.status(500).json({ error: "Failed to get Daily 5 status" });
@@ -1515,8 +1513,6 @@ export async function registerRoutes(
         const streakDays = streakRow?.currentDays && streakRow.currentDays > 0
           ? streakRow.currentDays
           : undefined;
-        const { verifiedGameSetTitleForChallenge } = await import("./services/gameSetTitles");
-        const setName = await verifiedGameSetTitleForChallenge(parsed.data.challengeId);
         const cardPromise = onDaily5Finished({
           challengeId: parsed.data.challengeId,
           userId,
@@ -1526,7 +1522,6 @@ export async function registerRoutes(
           rank: result.rank,
           streak: streakDays,
           date,
-          setName,
         }).catch(err => {
           console.error("[ContentFactory] Daily5 background error:", err?.message);
           return null;
@@ -1554,7 +1549,7 @@ export async function registerRoutes(
         const { generateChallengeShare } = await import("./contentFactory/generateScoreCard");
         const safeUser = String(userId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48);
         const card = await generateChallengeShare(
-          { correctCount: created.correctCount, date: created.puzzleDay, setName: created.setName },
+          { correctCount: created.correctCount, date: created.puzzleDay },
           `beatme-${safeUser}-${created.puzzleDay}`,
         );
         shareImageUrl = card.imageUrl;
@@ -1719,16 +1714,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting profile stats:", error);
       res.status(500).json({ error: "Failed to get profile stats" });
-    }
-  });
-
-  app.get("/api/cards", async (_req, res) => {
-    try {
-      const cards = await storage.getCards();
-      res.json(cards);
-    } catch (error) {
-      console.error("Error getting cards:", error);
-      res.status(500).json({ error: "Failed to get cards" });
     }
   });
 
@@ -2518,6 +2503,11 @@ export async function registerRoutes(
       }
       
       const { totalQuestions, gameSetId, wagerAmount } = parsed.data;
+      await ensureHeldSets();
+
+      if (gameSetId && isHeldSet(gameSetId)) {
+        return res.status(404).json({ error: "Set not found" });
+      }
 
       // If wager match, validate and escrow host's stake
       if (wagerAmount > 0) {
@@ -2680,6 +2670,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to get card stats" });
     }
   });
+
+  // Answer-key rows. Registered after /api/cards/stats so that path stays counts-only.
+  registerLockedCardRowRoutes(app);
 
   // ============================================
   // REDEMPTION ENDPOINTS
@@ -4923,6 +4916,8 @@ export async function registerRoutes(
       };
       
       const [gameSet] = await db.insert(gameSets).values(insertData).returning();
+      invalidatePublicMaskSetCache(gameSet.id);
+      await refreshHeldSets();
       res.status(201).json(gameSet);
     } catch (error) {
       console.error("Error creating game set:", error);
@@ -4946,7 +4941,6 @@ export async function registerRoutes(
       if (parsed.data.brand !== undefined) updateData.brand = parsed.data.brand;
       if (parsed.data.marketplaceKeywords !== undefined) updateData.marketplaceKeywords = parsed.data.marketplaceKeywords;
       if (parsed.data.isActive !== undefined) updateData.isActive = parsed.data.isActive;
-      if (parsed.data.titleVerified !== undefined) updateData.titleVerified = parsed.data.titleVerified;
       if (parsed.data.cardhedgeSetQuery !== undefined) updateData.cardhedgeSetQuery = parsed.data.cardhedgeSetQuery;
       if (parsed.data.cardhedgeCategory !== undefined) updateData.cardhedgeCategory = parsed.data.cardhedgeCategory;
       if (parsed.data.makerNote !== undefined) updateData.makerNote = parsed.data.makerNote;
@@ -4969,7 +4963,9 @@ export async function registerRoutes(
       if (updateData.isActive === false) {
         await invalidateMaskSidecarsForGameSet(id);
       }
-      
+      invalidatePublicMaskSetCache(id);
+      await refreshHeldSets();
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating game set:", error);
@@ -7077,6 +7073,8 @@ export async function registerRoutes(
   // Deduplicates sets with the same name, returning only the one with the most playable cards
   app.get("/api/playable-sets", async (_req, res) => {
     try {
+      await ensureHeldSets();
+      const heldIds = currentHeldSetIds();
       // Get all active sets with actual playable card counts
       const setsWithCounts = await db
         .select({
@@ -7095,7 +7093,10 @@ export async function registerRoutes(
           actualPlayableCards: eligiblePlayableCardCountSql,
         })
         .from(gameSets)
-        .where(eq(gameSets.isActive, true))
+        .where(and(
+          eq(gameSets.isActive, true),
+          ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
+        ))
         .orderBy(gameSets.year, gameSets.setName);
 
       const { kept, duplicateNames } = dedupeSetsByNameYearSport(
@@ -7129,62 +7130,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error getting playable sets:", error);
       res.status(500).json({ error: "Failed to get playable sets" });
-    }
-  });
-
-  // Public: Get cards from a playable set (for gameplay)
-  app.get("/api/playable-sets/:id/cards", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { random, limit = "20", offset = "0", player, number } = req.query;
-      
-      const conditions = [eq(playableCards.gameSetId, id)];
-      
-      if (player) {
-        conditions.push(sql`${playableCards.player} ILIKE ${"%" + player + "%"}`);
-      }
-      
-      if (number) {
-        conditions.push(eq(playableCards.number, number as string));
-      }
-      
-      const orderByClause = random === "1" || random === "true" 
-        ? sql`RANDOM()` 
-        : playableCards.player;
-      
-      const cards = await db
-        .select()
-        .from(playableCards)
-        .where(and(...conditions))
-        .orderBy(orderByClause)
-        .limit(parseInt(limit as string, 10))
-        .offset(parseInt(offset as string, 10));
-      
-      res.json(cards);
-    } catch (error) {
-      console.error("Error getting playable cards:", error);
-      res.status(500).json({ error: "Failed to get playable cards" });
-    }
-  });
-
-  // Public: Get card by Card Hedge ID
-  app.get("/api/cards/:cardhedgeCardId", async (req, res) => {
-    try {
-      const { cardhedgeCardId } = req.params;
-      
-      const [card] = await db
-        .select()
-        .from(playableCards)
-        .where(eq(playableCards.cardhedgeCardId, cardhedgeCardId));
-      
-      if (!card) {
-        return res.status(404).json({ error: "Card not found" });
-      }
-      
-      res.json(card);
-    } catch (error) {
-      console.error("Error getting card:", error);
-      res.status(500).json({ error: "Failed to get card" });
     }
   });
 
@@ -8396,6 +8341,9 @@ export async function registerRoutes(
   app.get("/api/cards/:cardId/masked-image", async (req, res) => {
     // Legacy path still bakes the name-covered JPEG. New deals use /api/play/m, which
     // does not contain the card id, so this URL is not derivable from the guessing payload.
+    // Admins may review a held set here. Everyone else gets the public gate.
+    const allowHeld = await callerIsAdmin(req);
+    if (await rejectPublicMask(req, res, req.params.cardId, { allowHeld })) return;
     await sendMaskedCard(req, res, req.params.cardId);
   });
 
@@ -10524,44 +10472,6 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/card-sets/:id/cards - Public endpoint for set cards (for gameplay)
-  app.get("/api/card-sets/:id/cards", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const page = parseInt(req.query.page as string) || 1;
-      const pageSize = Math.min(parseInt(req.query.pageSize as string) || 50, 100);
-      const offset = (page - 1) * pageSize;
-
-      const [set] = await db.select()
-        .from(cardSets)
-        .where(and(eq(cardSets.id, id), eq(cardSets.isActive, true)))
-        .limit(1);
-
-      if (!set) {
-        return res.status(404).json({ error: "Set not found or not active" });
-      }
-
-      const cards = await db.select({
-        id: catalogCards.id,
-        player: catalogCards.player,
-        description: catalogCards.description,
-        cardNumber: catalogCards.cardNumber,
-        variant: catalogCards.variant,
-        imageUrl: catalogCards.imageUrl,
-      })
-        .from(cardSetCards)
-        .innerJoin(catalogCards, eq(cardSetCards.cardId, catalogCards.id))
-        .where(eq(cardSetCards.setId, id))
-        .limit(pageSize)
-        .offset(offset);
-
-      res.json({ cards });
-    } catch (error: any) {
-      console.error("Error getting set cards:", error);
-      res.status(500).json({ error: "Failed to get set cards" });
-    }
-  });
-
   // ==================== MATCHMAKING & PRESENCE ENDPOINTS ====================
 
   // GET /api/presence/stats - Get online player statistics (public)
@@ -11316,8 +11226,6 @@ export async function registerRoutes(
 
   // ── Onboarding (Prompt 17) ────────────────────────────────────────────────
 
-  const ONBOARDING_REWARD_PTS = 50;
-
   // GET /api/onboarding/status - check onboarding state for current user
   app.get("/api/onboarding/status", isAuthenticated, async (req: any, res) => {
     try {
@@ -11341,47 +11249,9 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/onboarding/start - start onboarding, returns a guided card
-  app.post("/api/onboarding/start", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user?.claims?.sub || req.session?.localUserId;
-      if (!userId) return res.status(401).json({ error: "Unauthorized" });
-
-      // Upsert onboarding record
-      await db
-        .insert(userOnboarding)
-        .values({ userId })
-        .onConflictDoNothing();
-
-      // Pick a guided card: playable, content-verified, lowest image failure count, random
-      const [card] = await db
-        .select({
-          id: playableCards.id,
-          player: playableCards.player,
-          set: playableCards.set,
-          imageUrl: playableCards.imageUrl,
-          cardhedgeCardId: playableCards.cardhedgeCardId,
-        })
-        .from(playableCards)
-        .where(
-          and(
-            eq(playableCards.isPlayable, true),
-            eq(playableCards.quarantineStatus, "OK"),
-            eq(playableCards.imageFailureCount, 0)
-          )
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(1);
-
-      res.json({
-        guidedCard: card || null,
-        rewardPts: ONBOARDING_REWARD_PTS,
-        message: "Guess the player name to earn your first PackPTS!",
-      });
-    } catch (error) {
-      console.error("[Onboarding] start error:", error);
-      res.status(500).json({ error: "Failed to start onboarding" });
-    }
+  // POST /api/onboarding/start - guided card is a masked image, not the answer
+  app.post("/api/onboarding/start", isAuthenticated, (req, res) => {
+    void handleOnboardingStart(req, res);
   });
 
   // POST /api/onboarding/complete - mark complete, award reward, return next action

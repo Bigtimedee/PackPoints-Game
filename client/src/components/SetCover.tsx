@@ -2,108 +2,68 @@ import type { CSSProperties } from "react";
 import { MaskedCardImage } from "@/components/MaskedCardImage";
 import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
 import {
+  SET_INDEX_COVER_HEIGHT,
   SETS_POLISH,
+  fanCoverPlacements,
   resolveSetCover,
+  sanitizeCoverCardUrls,
   type SetCoverSource,
 } from "@/lib/setsPolish";
 
-function CreamSilhouette({ year }: { year?: number | null }) {
-  return (
-    <div
-      className="relative w-full overflow-hidden rounded-[3px]"
-      style={{
-        aspectRatio: "2.5 / 3.5",
-        background: `linear-gradient(180deg, ${SETS_POLISH.cream} 0%, #E2D3B3 100%)`,
-        border: `1px solid ${SETS_POLISH.gold}55`,
-      }}
-      aria-hidden
-    >
-      <div
-        className="absolute left-[8%] right-[8%] rounded-sm"
-        style={{
-          top: "54%",
-          height: "46%",
-          backgroundColor: "#000000",
-        }}
-      />
-      <div className="absolute inset-x-0 top-[18%] text-center">
-        <span
-          className="font-mono text-[10px] tracking-[0.18em]"
-          style={{ color: "#3a3428" }}
-        >
-          {year ? `PTS ${year}` : "PTS"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 function StackCard({
   src,
-  year,
   className,
   style,
 }: {
-  src?: string | null;
-  year?: number | null;
+  src: string;
   className?: string;
   style?: CSSProperties;
 }) {
   return (
     <div className={className} style={style}>
-      {src ? (
-        <div className="overflow-hidden rounded-[3px] shadow-md" style={{ aspectRatio: "2.5 / 3.5" }}>
-          <MaskedCardImage
-            src={src}
-            alt=""
-            className="h-full w-full"
-            maskColor="#000000"
-          />
-        </div>
-      ) : (
-        <CreamSilhouette year={year} />
-      )}
+      <div className="overflow-hidden rounded-[3px] shadow-md" style={{ aspectRatio: "2.5 / 3.5" }}>
+        <MaskedCardImage
+          src={src}
+          alt=""
+          className="h-full w-full"
+          maskColor="#000000"
+          plaqueChrome="bar"
+        />
+      </div>
     </div>
   );
 }
 
 export function MaskedCardStack({
   urls,
-  years,
   compact = false,
 }: {
   urls: string[];
-  years?: Array<number | null>;
   compact?: boolean;
 }) {
-  const count = Math.min(5, Math.max(3, urls.length));
-  const cards = Array.from({ length: count }, (_, i) => ({
-    src: urls[i] ?? null,
-    year: years?.[i] ?? null,
-  }));
+  const cards = sanitizeCoverCardUrls(urls);
+  if (cards.length === 0) return null;
+  const placements = fanCoverPlacements(cards.length, compact);
 
   return (
     <div
       className="relative w-full overflow-hidden"
-      style={{ height: compact ? 168 : 220, backgroundColor: SETS_POLISH.panel }}
+      style={{ height: compact ? SET_INDEX_COVER_HEIGHT : 220 }}
       data-testid="cover-masked-stack"
+      data-cover-count={cards.length}
     >
-      {cards.map((card, i) => {
-        const mid = (cards.length - 1) / 2;
-        const dx = (i - mid) * 18;
-        const rot = (i - mid) * 6;
-        const lift = Math.abs(i - mid) * 8;
+      {cards.map((src, i) => {
+        const place = placements[i];
         return (
           <StackCard
-            key={i}
-            src={card.src}
-            year={card.year}
+            key={`${src}-${i}`}
+            src={src}
             className="absolute"
             style={{
-              width: compact ? "30%" : "28%",
-              left: `${36 + dx}%`,
-              top: compact ? 18 + lift : 28 + lift,
-              transform: `translateX(-50%) rotate(${rot}deg)`,
+              width: `${place.widthPct}%`,
+              left: `${place.leftPct}%`,
+              top: (compact ? 16 : 24) + place.liftPx,
+              transform: `translateX(-50%) rotate(${place.rotateDeg}deg)`,
               zIndex: i + 1,
             }}
           />
@@ -148,6 +108,7 @@ export function SetCover({
     );
   }
 
+  if (cover.urls.length === 0) return null;
   return <MaskedCardStack urls={cover.urls} compact />;
 }
 
@@ -156,16 +117,14 @@ export function TheStack({
 }: {
   cards: Array<{ imageUrl: string | null; year: number | null }>;
 }) {
-  const withArt = cards.filter((c) => isMaskedSetCoverUrl(c.imageUrl));
-  const urls = withArt.map((c) => c.imageUrl as string);
-  const years = withArt.map((c) => c.year);
+  const urls = cards.filter((c) => isMaskedSetCoverUrl(c.imageUrl)).map((c) => c.imageUrl as string);
+  if (urls.length === 0) return null;
   return (
     <div
-      className="rounded-md overflow-hidden"
-      style={{ backgroundColor: SETS_POLISH.panel }}
+      className="overflow-hidden"
       data-testid="section-the-stack"
     >
-      <MaskedCardStack urls={urls} years={years} />
+      <MaskedCardStack urls={urls} />
     </div>
   );
 }

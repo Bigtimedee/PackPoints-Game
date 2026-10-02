@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check } from "drizzle-orm/pg-core";
+import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "./maskRefusal";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2085,8 +2086,6 @@ export const gameSets = pgTable("game_sets", {
   setName: text("set_name").notNull(),
   league: text("league"),
   isActive: boolean("is_active").notNull().default(true),
-  /** Public Daily 5 label uses set_name only when this is true. Default false. */
-  titleVerified: boolean("title_verified").notNull().default(false),
   marketplaceKeywords: jsonb("marketplace_keywords").$type<string[]>().notNull().default([]),
   cardhedgeSetQuery: text("cardhedge_set_query"), // Exact query string for Card Hedge API
   cardhedgeCategory: text("cardhedge_category"), // Card Hedge category (Baseball, Basketball, etc.)
@@ -2116,7 +2115,6 @@ export const updateGameSetSchema = z.object({
   brand: z.string().min(1).optional(),
   marketplaceKeywords: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
-  titleVerified: z.boolean().optional(),
   cardhedgeSetQuery: z.string().optional(),
   cardhedgeCategory: z.string().optional(),
   makerNote: z.string().max(140).optional(),
@@ -2378,6 +2376,8 @@ export const playableCards = pgTable("playable_cards", {
   rawImagesOnly: boolean("raw_images_only").notNull().default(false),
   isPlayable: boolean("is_playable").notNull().default(true), // false for checklists, multi-player cards
   blockedReason: text("blocked_reason"), // Reason if isPlayable=false (e.g., "checklist", "multi-player")
+  /** Subset cards on a quarantineSubsets set stay ineligible until the per-card plate bake and surname check pass. */
+  nameLayoutVerified: boolean("name_layout_verified").notNull().default(false),
   imageReviewStatus: varchar("image_review_status", { length: 20 }).notNull().default("unreviewed"), // Image quality review
   reportCount: integer("report_count").notNull().default(0), // Number of user reports for wrong image
   imageRotation: integer("image_rotation").notNull().default(0), // Rotation correction: 0, 90, 180, 270 degrees
@@ -4041,6 +4041,35 @@ export const cardImageMaskCache = pgTable("card_image_mask_cache", {
 ]);
 
 export type CardImageMaskCache = typeof cardImageMaskCache.$inferSelect;
+
+/**
+ * One row per v4.6 bake that refused to serve a mask.
+ * `source_image` is the upright scan the boxes were measured on. List queries omit it.
+ * Not the masked-image cache. Player routes never read this table.
+ */
+export const maskBakeRefusals = pgTable("mask_bake_refusals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  cardId: text("card_id").notNull(),
+  gameSetId: text("game_set_id"),
+  reason: text("reason").notNull(),
+  layoutClass: text("layout_class"),
+  profileSource: text("profile_source"),
+  expectedPlate: jsonb("expected_plate").$type<MaskPlateBox | null>(),
+  ocrBoxes: jsonb("ocr_boxes").$type<MaskRefusalOcrBox[]>().notNull().default([]),
+  candidates: jsonb("candidates").$type<MaskRefusalCandidate[]>().notNull().default([]),
+  paintRegions: jsonb("paint_regions").$type<MaskRegion[]>().notNull().default([]),
+  maskVersion: text("mask_version").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  sourceImage: bytea("source_image"),
+  contentType: text("content_type"),
+  imageWidth: integer("image_width"),
+  imageHeight: integer("image_height"),
+}, (table) => [
+  index("idx_mask_bake_refusals_card").on(table.cardId),
+  index("idx_mask_bake_refusals_set_created").on(table.gameSetId, table.createdAt),
+]);
+
+export type MaskBakeRefusal = typeof maskBakeRefusals.$inferSelect;
 
 export const operationSources = ["ADMIN_MANUAL", "SYSTEM_NON_DESTRUCTIVE", "CARDHEDGE_CONFIRMED"] as const;
 export type OperationSource = typeof operationSources[number];

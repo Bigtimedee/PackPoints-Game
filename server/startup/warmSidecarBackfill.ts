@@ -3,10 +3,13 @@ import { readdir, writeFile } from "fs/promises";
 import path from "path";
 import { warmMaskedFileAllowed, warmMaskedFilename } from "../masking/maskingService";
 import { invalidateMaskReadySidecar } from "../masking/maskReadySidecar";
+import { isMaskBandExcluded, MASK_BAND_MISPLACED, MASK_BAND_OVERSIZED } from "../masking/maskBandLimit";
 import { isLandscapeJpegFile, normalizeQuarterTurn, readOrientNote, type OrientNote } from "../masking/orientNote";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { cardIdFromWarmJpeg, warmOkMarkerFilename } from "./warmMaskGate";
 import { addShutdownHook } from "./shutdownHooks";
+import { runNameVisibilityBackfill } from "../masking/nameVisibilityBackfill";
+import { logEligibleSetCounts } from "../services/playableSetEligibility";
 
 export const SIDECAR_BACKFILL_BATCH = 50;
 const PAUSE_MS = 200;
@@ -59,7 +62,7 @@ export function warmSidecarRowAllowed(
   if (!row.inPlayable && !row.inBaseball) return false;
   if (row.inPlayable && row.isPlayable === false) return false;
   if (row.setActive === false) return false;
-  if (row.blockedReason === "mask_name_uncovered") return false;
+  if (row.blockedReason === "mask_name_uncovered" || row.blockedReason === "name_visible_outside_mask" || row.blockedReason === MASK_BAND_OVERSIZED || row.blockedReason === MASK_BAND_MISPLACED) return false;
   if (row.imageQuarantineReason) return false;
   if (row.imageCacheStatus === "bad") return false;
   const imageRotation = row.inPlayable ? normalizeQuarterTurn(row.imageRotation) : 0;
@@ -145,6 +148,7 @@ export async function maybeWriteWarmOkSidecar(
 ): Promise<boolean> {
   if (!cardId || !filename) return false;
   const dir = opts?.dir ?? MASKED_CARDS_DIR;
+  if (isMaskBandExcluded(cardId, dir)) return false;
   const marker = path.join(dir, warmOkMarkerFilename(cardId));
   if (existsSync(marker)) return false;
   try {
@@ -206,6 +210,11 @@ export async function runWarmSidecarBackfill(opts?: {
     }
     for (const item of batch) {
       counts.scanned += 1;
+      if (isMaskBandExcluded(item.cardId, dir)) {
+        if (item.hasSidecar) counts.removed += 1;
+        else counts.skipped += 1;
+        continue;
+      }
       const row = rows.get(item.cardId);
       const note = readOrientNote(item.cardId, dir);
       const landscape = isLandscapeJpegFile(path.join(dir, item.filename));
@@ -241,7 +250,20 @@ export function startWarmSidecarBackfill(): void {
   addShutdownHook(() => {
     backfillStop = true;
   });
-  void runWarmSidecarBackfill().catch((err) => {
-    console.error("[Startup] FATAL: warm sidecar backfill crashed:", err instanceof Error ? err.message : err);
-  });
+  void (async () => {
+    try {
+      await runWarmSidecarBackfill();
+      await runNameVisibilityBackfill();
+      const { logAndBakeUnverifiedSubsets } = await import("../masking/subsetQuarantine");
+      await logAndBakeUnverifiedSubsets();
+      const { swapFailedCardsOnTodayChallenge } = await import("../services/daily5FailedCardSwap");
+      await swapFailedCardsOnTodayChallenge();
+    } catch (err) {
+      console.error("[Startup] FATAL: warm sidecar backfill crashed:", err instanceof Error ? err.message : err);
+    } finally {
+      await logEligibleSetCounts().catch((err) => {
+        console.error("[MaskCheck] eligible count log failed", err instanceof Error ? err.message : err);
+      });
+    }
+  })();
 }

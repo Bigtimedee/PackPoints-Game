@@ -27,7 +27,7 @@ export function schemaGateBlocks(path: string): boolean {
   return path === "/api" || path.startsWith("/api/");
 }
 
-/** Warm masked JPEGs with a bake ok sidecar can be HMAC-checked on disk. Reveal and raw scans stay closed. */
+/** Warm masked JPEGs with a bake ok sidecar can be HMAC-checked on disk. The card and set still have to exist. Reveal and raw scans stay closed. */
 export function schemaGateServesWarmMask(method: string, path: string): boolean {
   if (schemaReady) return false;
   if (method !== "GET" && method !== "HEAD") return false;
@@ -39,7 +39,17 @@ export function schemaGateMiddleware(req: Request, res: Response, next: NextFunc
     next();
     return;
   }
-  if (schemaGateServesWarmMask(req.method, req.path) && tryServeWarmMasked(req, res)) {
+  if (schemaGateServesWarmMask(req.method, req.path)) {
+    void tryServeWarmMasked(req, res).then((served) => {
+      if (served || res.headersSent) return;
+      res.setHeader("Retry-After", "2");
+      res.status(503).json({ message: "Starting up", retryAfter: 2 });
+    }).catch(() => {
+      if (!res.headersSent) {
+        res.setHeader("Retry-After", "2");
+        res.status(503).json({ message: "Starting up", retryAfter: 2 });
+      }
+    });
     return;
   }
   res.setHeader("Retry-After", "2");

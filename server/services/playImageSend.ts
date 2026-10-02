@@ -1,13 +1,17 @@
 import type { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
-import { getCachedImageUrl, getOrValidateCardImage, getSourceUrlForCard, markImageBad } from "./images/imageGate";
+import { getCachedImageUrl, getOrValidateCardImage, getPlayableScanUrl, getSourceUrlForCard, markImageBad, rememberPlayableScan } from "./images/imageGate";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { normalizeImageUrl } from "./cards/imageQuality";
 import { acceptWarmMaskedFile, getMaskedImagePath, isMaskBakeTimeout, orientUnmaskedScan, peekWarmMaskedFilename, takeCoverageRefusal } from "../masking/maskingService";
+import { isMaskBandExcluded } from "../masking/maskBandLimit";
+import { readMaskFailureReason } from "../masking/maskReadySidecar";
+import { scanLooksLikeImage, scanResponseContentType } from "./images/scanBytes";
 import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
+import { PUBLIC_MASK_CACHE_CONTROL } from "./publicMaskGate";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
   setUnmaskedHeaders(res);
@@ -47,6 +51,16 @@ export async function sendUnmaskedCard(res: Response, cardId: string): Promise<v
 
     const validation = await getOrValidateCardImage(cardId, normalized);
     if (validation.status !== "ok") {
+      const playableUrl = await getPlayableScanUrl(cardId);
+      const repaired = await fetchPlayableScan(playableUrl);
+      if (repaired && playableUrl) {
+        await rememberPlayableScan(cardId, playableUrl, repaired.bytes.length, repaired.contentType);
+        const oriented = await orientUnmaskedScan(cardId, repaired.bytes);
+        setUnmaskedResponseHeaders(res, repaired.contentType);
+        endUnmasked(res, oriented);
+        console.log(`[ImageProxy] Served playable scan after a failed image check card=${cardId}`);
+        return;
+      }
       setUnmaskedHeaders(res);
       res.status(404).json({ error: "Image not available" });
       return;
@@ -92,6 +106,26 @@ export async function sendUnmaskedCard(res: Response, cardId: string): Promise<v
   }
 }
 
+async function fetchPlayableScan(url: string | null): Promise<{ contentType: string; bytes: Buffer } | null> {
+  if (!url) return null;
+  try {
+    return await withSourceFetchTimeout(async (signal) => {
+      const response = await fetch(url, {
+        signal,
+        redirect: "follow",
+        headers: { "User-Agent": "PackPTS/1.0 ImageProxy" },
+      });
+      if (!response.ok) return null;
+      const headerType = response.headers.get("content-type") || "";
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!scanLooksLikeImage(headerType, bytes)) return null;
+      return { contentType: scanResponseContentType(headerType, bytes), bytes };
+    }, 10_000);
+  } catch {
+    return null;
+  }
+}
+
 /** Baked name-cover JPEG. Cacheable. Does not echo the card id. */
 export async function sendMaskedCard(req: Request, res: Response, cardId: string): Promise<void> {
   const started = Date.now();
@@ -100,14 +134,30 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     return;
   }
 
+  const refused = readMaskFailureReason(cardId);
+  if (refused) {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Mask-Coverage", "fail");
+    res.status(422).json({
+      error: "Playable mask refused",
+      code: "mask_name_uncovered",
+      reason: refused,
+    });
+    return;
+  }
+
   try {
+    if (isMaskBandExcluded(cardId)) {
+      res.status(404).json({ error: "Unable to generate masked image" });
+      return;
+    }
     const warmName = peekWarmMaskedFilename(cardId);
     const warmOk = warmName ? await acceptWarmMaskedFile(cardId, warmName) : false;
     const maskedPath = warmOk && warmName ? warmName : await getMaskedImagePath(cardId);
     const cacheStatus = warmName ? "hit" : "miss";
 
     if (!maskedPath) {
-      const refused = takeCoverageRefusal(cardId);
+      const refused = readMaskFailureReason(cardId) || takeCoverageRefusal(cardId);
       if (refused) {
         res.setHeader("Cache-Control", "no-store");
         res.setHeader("X-Mask-Coverage", "fail");
@@ -133,6 +183,7 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     const etagMatch = maskedPath.match(/_(v[\d.]+(?:_r\d+)?)\.jpg$/);
     const etag = `"${etagMatch?.[1] ?? CURRENT_MASK_VERSION}"`;
     if (req.headers["if-none-match"] === etag) {
+      res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
       res.setHeader("ETag", etag);
       res.setHeader("X-Mask-Cache", cacheStatus);
       res.status(304).end();
@@ -140,7 +191,7 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     }
 
     res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
     res.setHeader("ETag", etag);
     res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
     res.setHeader("X-Mask-Cache", cacheStatus);

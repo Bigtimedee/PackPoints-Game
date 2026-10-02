@@ -37,24 +37,9 @@ describe("Card Image Pipeline", () => {
       expect(response.headers.get("x-card-id")).toBeNull();
     });
 
-    it("does not serve a catalog card's original scan to an anonymous caller", async () => {
+    it("does not serve the legacy card dump to an anonymous caller", async () => {
       const cardsResponse = await fetch(`${BASE_URL}/api/cards`);
-      if (!cardsResponse.ok) {
-        console.log("Skipping proxy test - no cards available");
-        return;
-      }
-      
-      const cards = await cardsResponse.json();
-      if (!cards || cards.length === 0) {
-        console.log("Skipping proxy test - no cards available");
-        return;
-      }
-      
-      const testCard = cards[0];
-      const proxyResponse = await fetch(`${BASE_URL}/api/images/card/${testCard.id}`);
-      expect([403, 404]).toContain(proxyResponse.status);
-      expect(proxyResponse.headers.get("cache-control") || "").toContain("no-store");
-      expect(proxyResponse.headers.get("x-card-id")).toBeNull();
+      expect(cardsResponse.status).toBe(401);
     });
   });
 

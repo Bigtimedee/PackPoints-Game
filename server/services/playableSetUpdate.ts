@@ -2,7 +2,9 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
+import { refreshHeldSets } from "../config/heldSets";
 import { invalidateMaskSidecarsForGameSet } from "../masking/maskReadySidecar";
+import { invalidatePublicMaskSetCache } from "../services/publicMaskGate";
 
 const UpdatePlayableSetSchema = z.object({
   sport: z.string().min(1).optional(),
@@ -58,6 +60,8 @@ export async function updatePlayableSet(id: string, body: unknown) {
   if (updateData.isActive === false) {
     await invalidateMaskSidecarsForGameSet(id);
   }
+  invalidatePublicMaskSetCache(id);
+  await refreshHeldSets();
 
   return updated;
 }

@@ -25,7 +25,7 @@ describe("masked-image warm path", () => {
     expect(maskingSrc).toContain("export function peekWarmMaskedFilename");
     expect(maskingSrc).toContain("${cardId}_${CURRENT_MASK_VERSION}.jpg");
     expect(maskingSrc.indexOf("const warm = peekWarmMaskedFilename(cardId)")).toBeLessThan(
-      maskingSrc.indexOf("const promise = generateMaskedImage(cardId)"),
+      maskingSrc.indexOf("generateMaskedImage(cardId"),
     );
   });
 
@@ -33,9 +33,10 @@ describe("masked-image warm path", () => {
     expect(maskedSendSrc).toContain("peekWarmMaskedFilename");
     expect(maskedSendSrc).toContain('X-Mask-Cache');
     expect(maskedSendSrc).toContain("Server-Timing");
-    expect(maskedSendSrc).toContain("max-age=86400");
+    expect(maskedSendSrc).toContain("PUBLIC_MASK_CACHE_CONTROL");
+    expect(maskedSendSrc).not.toContain("max-age=86400");
     expect(maskedSendSrc).toContain('res.removeHeader("X-Card-Id")');
-    expect(CURRENT_MASK_VERSION).toBe("v4.4");
+    expect(CURRENT_MASK_VERSION).toBe("v4.6");
   });
 
   it("kicks preMask on solo, Daily 5, and 1v1 deal start without awaiting", () => {

@@ -1,19 +1,98 @@
-import { readdirSync, unlinkSync } from "fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { eq } from "drizzle-orm";
+import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { playableCards } from "@shared/schema";
 import { db } from "../db";
 import { MASKED_CARDS_DIR } from "./maskPlanStore";
 
 let dirOverride: string | null = null;
+let refusalIndex: { dir: string; ids: Set<string> } | null = null;
+
+function safeSidecarCardId(cardId: string): boolean {
+  return Boolean(cardId)
+    && cardId.length <= 100
+    && !cardId.includes("/")
+    && !cardId.includes("\\")
+    && !cardId.includes("..")
+    && !cardId.includes("\0");
+}
+
+function scanCurrentMaskRefusalIds(dir: string): Set<string> {
+  const suffix = `_${CURRENT_MASK_VERSION}.fail`;
+  const ids = new Set<string>();
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return ids;
+  }
+  for (const name of names) {
+    if (!name.endsWith(suffix)) continue;
+    const cardId = name.slice(0, -suffix.length);
+    if (!safeSidecarCardId(cardId)) continue;
+    ids.add(cardId);
+  }
+  return ids;
+}
+
+/** Card ids with a `{cardId}_${CURRENT_MASK_VERSION}.fail` marker. One directory scan. */
+export function currentMaskRefusalIds(dir = maskReadySidecarDir()): ReadonlySet<string> {
+  if (!refusalIndex || refusalIndex.dir !== dir) {
+    refusalIndex = { dir, ids: scanCurrentMaskRefusalIds(dir) };
+  }
+  return refusalIndex.ids;
+}
+
+function noteCurrentMaskRefusal(cardId: string, dir: string, present: boolean): void {
+  if (!refusalIndex || refusalIndex.dir !== dir || !safeSidecarCardId(cardId)) return;
+  if (present) refusalIndex.ids.add(cardId);
+  else refusalIndex.ids.delete(cardId);
+}
 
 /** Tests point this at a temp directory. Production uses the masked-card volume. */
 export function setMaskReadySidecarDirForTests(dir: string | null): void {
   dirOverride = dir;
+  refusalIndex = null;
 }
 
 export function maskReadySidecarDir(): string {
   return dirOverride ?? MASKED_CARDS_DIR;
+}
+
+/** Written when post-bake verification still sees the name. Not a ready marker. */
+export function maskFailureSidecarFilename(cardId: string): string {
+  return `${cardId}_${CURRENT_MASK_VERSION}.fail`;
+}
+
+export function writeMaskFailureSidecar(cardId: string, reason: string, dir = maskReadySidecarDir()): void {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
+    return;
+  }
+  const text = (reason || "name_text_visible").replace(/[\r\n]+/g, " ").slice(0, 240);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, maskFailureSidecarFilename(cardId)), `${text}\n`);
+  noteCurrentMaskRefusal(cardId, dir, true);
+}
+
+export function readMaskFailureReason(cardId: string, dir = maskReadySidecarDir()): string | null {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..")) return null;
+  try {
+    const text = readFileSync(path.join(dir, maskFailureSidecarFilename(cardId)), "utf8").trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearMaskFailureSidecar(cardId: string, dir = maskReadySidecarDir()): void {
+  if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..")) return;
+  try {
+    unlinkSync(path.join(dir, maskFailureSidecarFilename(cardId)));
+  } catch {
+    // already gone
+  }
+  noteCurrentMaskRefusal(cardId, dir, false);
 }
 
 /**

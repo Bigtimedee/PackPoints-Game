@@ -18,6 +18,8 @@ import { contentAssets, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
+import { releaseSetsForTests } from "../config/heldSets";
+import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
@@ -67,13 +69,17 @@ async function writeReady(cardId: string, bytes: Buffer) {
   await writeFile(path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}.jpg`), bytes);
 }
 
+let restoreClearance: (() => Promise<void>) | undefined;
+
 beforeAll(async () => {
+  restoreClearance = await releaseSetsForTests([setId]);
   dir = await mkdtemp(path.join(tmpdir(), "packpts-set-covers-"));
   setMaskReadySidecarDirForTests(dir);
   await writeReady(unplayableId, unplayableBytes);
   await writeReady(montanaId, montanaBytes);
   await writeReady(cunninghamId, cunninghamBytes);
   clearReadyCoverIndexForTests();
+  setPinnedCoversForTests(setId, [montanaId, cunninghamId]);
 
   await db.insert(gameSets).values({
     id: setId,
@@ -101,6 +107,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (restoreClearance) await restoreClearance();
+  setPinnedCoversForTests(setId, null);
   setMaskReadySidecarDirForTests(null);
   clearReadyCoverIndexForTests();
   await db.delete(contentAssets).where(eq(contentAssets.sourceEventId, `maker_set_${setId}`)).catch(() => null);
@@ -183,14 +191,14 @@ describe("GET /api/sets cover leak", () => {
     expect(first.status).toBe(200);
     expect(first.headers.get("content-type")).toContain("image/jpeg");
     expect(first.headers.get("x-mask-version")).toBe(CURRENT_MASK_VERSION);
-    expect(first.headers.get("x-card-id")).toBeNull();
+    expect(first.headers.get("x-card-id")).toBe(montanaId);
     expect(Buffer.from(await first.arrayBuffer())).toEqual(montanaBytes);
     expect(first.url).not.toContain(montanaId);
 
     const second = await fetch(`${base}/api/sets/${setId}/covers/1`);
     expect(second.status).toBe(200);
     expect(Buffer.from(await second.arrayBuffer())).toEqual(cunninghamBytes);
-    expect(second.headers.get("x-card-id")).toBeNull();
+    expect(second.headers.get("x-card-id")).toBe(cunninghamId);
 
     const missing = await fetch(`${base}/api/sets/${setId}/covers/2`);
     expect(missing.status).toBe(404);

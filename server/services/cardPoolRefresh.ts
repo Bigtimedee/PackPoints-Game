@@ -1,9 +1,14 @@
 import { db } from "../db";
 import { playableCards } from "@shared/schema";
-import { eq, and, lt, or, sql } from "drizzle-orm";
+import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
+import { eq, and, lt, or, sql, isNull, notInArray, type SQL } from "drizzle-orm";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
 import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
+import { MASK_DEAL_BLOCK_REASONS, refusedAtCurrentMask } from "../masking/maskDealRefusal";
+import { currentMaskRefusalIds } from "../masking/maskReadySidecar";
+import { blockedCardIdClause, isBlockedCardIdRow } from "../lib/cardBlocklist";
 import {
   isKillSwitchEnabled,
   writeAuditLog,
@@ -16,6 +21,37 @@ import {
 const BATCH_SIZE = 50;
 const DELAY_BETWEEN_CARDS_MS = 2000;
 const MAX_FAILURE_COUNT_FOR_REVALIDATION = 5;
+
+/**
+ * Unplayable rows refresh may reconsider. Mask refusals stay out of the batch
+ * so they cannot fill the 50-card window or be marked playable.
+ * Same reasons and fail-sidecar ids as `maskNameStillCovered`.
+ * Cards on BLOCKED_CARD_ID_RULES (by id, or the same row after a re-import)
+ * stay out too.
+ */
+export function cardPoolRefreshCandidateFilter(): SQL {
+  const filters: SQL[] = [
+    eq(playableCards.isPlayable, false),
+    lt(playableCards.imageFailureCount, MAX_FAILURE_COUNT_FOR_REVALIDATION),
+    or(
+      isNull(playableCards.blockedReason),
+      notInArray(playableCards.blockedReason, [...MASK_DEAL_BLOCK_REASONS]),
+    )!,
+  ];
+  const refusedIds = [...currentMaskRefusalIds()];
+  if (refusedIds.length > 0) {
+    filters.push(notInArray(playableCards.id, refusedIds));
+  }
+  const heldIds = currentHeldSetIds();
+  if (heldIds.length > 0) {
+    filters.push(notInArray(playableCards.gameSetId, [...heldIds]));
+  }
+  const blockedIds = blockedCardIdClause("playable_cards");
+  if (blockedIds) {
+    filters.push(sql`NOT (${sql.raw(blockedIds)})`);
+  }
+  return and(...filters)!;
+}
 
 export interface RefreshJobStats {
   cardsProcessed: number;
@@ -72,6 +108,7 @@ export async function getCardPoolStats(): Promise<{
 }
 
 export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
+  await ensureHeldSets();
   if (isJobRunning) {
     console.log("[CardPoolRefresh] Job summary: processed=0 revalidated=0 failed=0 quarantined=0 skipped=already_running");
     return {
@@ -132,15 +169,15 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
   try {
     console.log("[CardPoolRefresh] Starting card pool refresh job (SAFE MODE - no isPlayable changes)...");
 
+    const refusedIds = [...currentMaskRefusalIds()];
+    if (refusedIds.length > 0) {
+      console.log(`[CardPoolRefresh] Excluding ${refusedIds.length} current-mask refusals from revalidation (${CURRENT_MASK_VERSION})`);
+    }
+
     const excludedCards = await db
       .select()
       .from(playableCards)
-      .where(
-        and(
-          eq(playableCards.isPlayable, false),
-          lt(playableCards.imageFailureCount, MAX_FAILURE_COUNT_FOR_REVALIDATION)
-        )
-      )
+      .where(cardPoolRefreshCandidateFilter())
       .limit(BATCH_SIZE);
 
     console.log(`[CardPoolRefresh] Found ${excludedCards.length} cards to attempt revalidation`);
@@ -149,6 +186,16 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
       try {
         if (!card.cardhedgeCardId) {
           stats.cardsFailed++;
+          continue;
+        }
+
+        if (isHeldSet(card.gameSetId)) {
+          continue;
+        }
+
+        const maskRefusal = refusedAtCurrentMask(card);
+        if (maskRefusal) {
+          console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: mask refusal at ${CURRENT_MASK_VERSION} (${maskRefusal})`);
           continue;
         }
 
@@ -161,25 +208,11 @@ export async function runCardPoolRefreshJob(): Promise<RefreshJobStats> {
           const imageResult = await testImageUrl(cardDetails.imageUrl);
 
           if (imageResult.valid) {
-            await db.update(playableCards)
-              .set({
-                imageUrl: cardDetails.imageUrl,
-                isPlayable: true,
-                imageFailureCount: 0,
-                imageLastError: null,
-                lastImageCheck: new Date(),
-                validationFailCount: 0,
-                quarantineStatus: "OK",
-                proposedUnplayable: false,
-                lastValidationReason: null,
-                lastValidationHttpStatus: null,
-                lastValidationCheckedAt: new Date(),
-                firstValidationFailAt: null,
-              })
-              .where(eq(playableCards.id, card.id));
-
-            stats.cardsRevalidated++;
-            console.log(`[CardPoolRefresh] Revalidated card ${card.id} (${card.player}) - now PLAYABLE`);
+            const restored = await restorePlayableIfMaskAllows(card, cardDetails.imageUrl);
+            if (restored) {
+              stats.cardsRevalidated++;
+              console.log(`[CardPoolRefresh] Revalidated card ${card.id} (${card.player}) - now PLAYABLE`);
+            }
           } else {
             const hasTransient = isTransientError(imageResult.statusCode || null, imageResult.error || null);
             const newFailCount = (card.validationFailCount || 0) + 1;
@@ -338,4 +371,51 @@ async function testImageUrl(url: string): Promise<TestImageResult> {
 
 export function isRefreshJobRunning(): boolean {
   return isJobRunning;
+}
+
+/**
+ * Image URL recovered. A current-version mask refusal stays non-playable.
+ * The write uses the same refusal check as `eligibleDealFilter` /
+ * `maskNameStillCovered`. A card on BLOCKED_CARD_ID_RULES also stays
+ * non-playable. Returns false without updating the row.
+ */
+export async function restorePlayableIfMaskAllows(
+  card: {
+    id: string;
+    blockedReason: string | null;
+    gameSetId?: string | null;
+    player?: string | null;
+    number?: string | null;
+    variant?: string | null;
+  },
+  imageUrl: string,
+): Promise<boolean> {
+  if (isBlockedCardIdRow(card)) {
+    console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: blocked card id`);
+    return false;
+  }
+  const maskRefusal = refusedAtCurrentMask(card);
+  if (maskRefusal) {
+    console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: mask refusal at ${CURRENT_MASK_VERSION} (${maskRefusal})`);
+    return false;
+  }
+
+  await db.update(playableCards)
+    .set({
+      imageUrl,
+      isPlayable: true,
+      blockedReason: null,
+      imageFailureCount: 0,
+      imageLastError: null,
+      lastImageCheck: new Date(),
+      validationFailCount: 0,
+      quarantineStatus: "OK",
+      proposedUnplayable: false,
+      lastValidationReason: null,
+      lastValidationHttpStatus: null,
+      lastValidationCheckedAt: new Date(),
+      firstValidationFailAt: null,
+    })
+    .where(eq(playableCards.id, card.id));
+  return true;
 }

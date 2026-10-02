@@ -2,7 +2,7 @@ import { db } from "../db";
 import { dailyChallengeEntries, dailyChallenges, users } from "@shared/schema";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { getPackptsDayKey, PACKPTS_DAY_TZ } from "@shared/packptsDay";
-import { verifiedGameSetTitle } from "./gameSetTitles";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import {
   buildBeatMePath,
   buildBeatMeUrl,
@@ -30,9 +30,9 @@ export async function createBeatMeFromSession(userId: string): Promise<{
   timezone: string;
   correctCount: number;
   displayName?: string;
-  setName: string | null;
 }> {
   const today = getPackptsDayKey();
+  await ensureHeldSets();
 
   const [challenge] = await db
     .select()
@@ -40,7 +40,7 @@ export async function createBeatMeFromSession(userId: string): Promise<{
     .where(eq(dailyChallenges.date, today))
     .limit(1);
 
-  if (!challenge) {
+  if (!challenge || (challenge.setId && isHeldSet(challenge.setId))) {
     throw new Error("No Daily 5 for today's CT day");
   }
 
@@ -79,8 +79,6 @@ export async function createBeatMeFromSession(userId: string): Promise<{
     userId,
   });
 
-  const setName = challenge.setId ? await verifiedGameSetTitle(challenge.setId) : null;
-
   return {
     token,
     path: buildBeatMePath(token),
@@ -89,6 +87,5 @@ export async function createBeatMeFromSession(userId: string): Promise<{
     timezone: PACKPTS_DAY_TZ,
     correctCount: s,
     displayName,
-    setName,
   };
 }

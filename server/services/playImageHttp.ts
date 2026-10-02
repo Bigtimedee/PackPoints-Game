@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
+import { rejectPublicMask } from "./publicMaskGate";
 import { classifyRevealToken, isPlayScope, maskTokenMatches, type PlayScope, type RevealTokenStatus } from "./playImageToken";
 
 /** Unmasked bytes are per player. A shared cache must not replay one player's 200. */
@@ -97,6 +98,7 @@ export async function handleMaskedToken(req: Request, res: Response, deps: PlayI
     res.status(404).json({ error: "Masked image not found" });
     return;
   }
+  if (await rejectPublicMask(req, res, cardId)) return;
   await deps.sendMasked(req, res, cardId);
 }
 

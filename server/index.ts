@@ -24,6 +24,13 @@ import { markSchemaReady } from "./startup/schemaGate";
 import { installBootSchemaShutdownHook, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withStartupTimeout } from "./startup/bootSchema";
 import { runProductionSchemaBoot } from "./startup/schemaBoot";
 import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
+import { startMaskBandGuardScan } from "./masking/maskBandLimit";
+import { startMaskWarmup } from "./startup/maskWarmup";
+import { logCardBlocklist } from "./lib/cardBlocklist";
+import { logHeldSets } from "./config/heldSets";
+import { logMaskCachePurge } from "./masking/maskCachePurge";
+import { invalidateRegisteredHoopsMaskCache } from "./masking/maskingService";
+import { logPinnedCoversAtBoot } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -81,7 +88,19 @@ export async function bootAfterListen(
   app: Express,
   httpServer: Server,
 ): Promise<void> {
-app.use((req, res, next) => {
+  logCardBlocklist();
+  await logHeldSets();
+  try {
+    await logMaskCachePurge();
+  } catch (error) {
+    console.error("[MaskCachePurge] failed", error);
+  }
+  try {
+    await invalidateRegisteredHoopsMaskCache();
+  } catch (error) {
+    console.error("[MaskProfile] hoops cache invalidate failed", error);
+  }
+  app.use((req, res, next) => {
   if (req.path.startsWith('/webhooks/')) {
     return next();
   }
@@ -466,17 +485,12 @@ app.use((req, res, next) => {
   log("schema ready");
   if (process.env.NODE_ENV === "production") {
     startWarmSidecarBackfill();
+    startMaskBandGuardScan();
+    startMaskWarmup();
   }
-
-  try {
-    const { backfillVerifiedSetTitlesOnce } = await import("./services/gameSetTitles");
-    const verifiedTitles = await backfillVerifiedSetTitlesOnce();
-    if (verifiedTitles > 0) {
-      console.log(`[StartupBackfill] Verified ${verifiedTitles} game set titles`);
-    }
-  } catch (err) {
-    console.error("[StartupBackfill] Set title backfill failed:", err);
-  }
+  void logPinnedCoversAtBoot().catch(() => {
+    console.error("[PinnedCovers] boot log failed");
+  });
 
   try {
     const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");

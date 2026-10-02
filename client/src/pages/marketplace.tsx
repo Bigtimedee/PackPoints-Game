@@ -23,6 +23,7 @@ import { SiEbay } from "react-icons/si";
 import { useToast } from "@/hooks/use-toast";
 import { useWallet } from "@/hooks/use-wallet";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { applySetDisplayTitle } from "@shared/setDisplayOverride";
 import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
 import type { RedemptionOption, GameSet } from "@shared/schema";
 
@@ -908,7 +909,7 @@ export default function Marketplace() {
                         onClick={() => setSelectedSetId(set.id)}
                         data-testid={`button-context-${set.id}`}
                       >
-                        {set.setName}
+                        {applySetDisplayTitle(set.id, set.setName)}
                       </Button>
                     ))}
                   </div>
@@ -990,7 +991,7 @@ export default function Marketplace() {
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary" className="gap-1" data-testid={`badge-context-${contextResult.gameSet.id}`}>
                             <Layers className="h-3 w-3" />
-                            {contextResult.gameSet.setName}
+                            {applySetDisplayTitle(contextResult.gameSet.id, contextResult.gameSet.setName)}
                           </Badge>
                           {contextResult.broadened && (
                             <span className="text-xs text-muted-foreground">(broadened search)</span>

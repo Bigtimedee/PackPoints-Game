@@ -13,6 +13,7 @@ import { gameSessionsTable, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { storage } from "../storage";
 import { userSetCardCountSql } from "../routes/userSetCounts";
+import { releaseSetsForTests } from "../config/heldSets";
 import { handlePublicSetsIndex } from "../services/publicSets";
 import { PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "../services/playableSetEligibility";
 
@@ -58,16 +59,19 @@ function manyGood(setId: string, n: number, sport = "baseball") {
   }));
 }
 
+let restoreClearance: (() => Promise<void>) | undefined;
+
 beforeAll(async () => {
+  restoreClearance = await releaseSetsForTests([integratedId, dupeLowId, dupeHighId, otherYearId]);
   await db.insert(gameSets).values([
     { id: integratedId, sport: "baseball", brand: "Topps", year: 1987, setName: integratedName, isUserCreated: false, isActive: true },
     { id: ugcId, sport: "baseball", brand: "Topps", year: 1987, setName: `P0 UGC ${stamp}`, isUserCreated: true, isActive: true },
     { id: inactiveId, sport: "baseball", brand: "Topps", year: 1988, setName: `P0 Inactive ${stamp}`, isUserCreated: false, isActive: false },
     { id: thinId, sport: "baseball", brand: "Topps", year: 1986, setName: `P0 Thin ${stamp}`, isUserCreated: false, isActive: true },
     { id: ineligibleId, sport: "baseball", brand: "Topps", year: 1985, setName: `P0 Bad ${stamp}`, isUserCreated: false, isActive: true },
-    { id: dupeLowId, sport: "baseball", brand: "Topps", year: 1991, setName: dupeName, isUserCreated: false, isActive: true },
-    { id: dupeHighId, sport: "baseball", brand: "Topps", year: 1991, setName: dupeName, isUserCreated: false, isActive: true },
-    { id: otherYearId, sport: "baseball", brand: "Topps", year: 1992, setName: dupeName, isUserCreated: false, isActive: true },
+    { id: dupeLowId, sport: "baseball", brand: "Topps", year: 1989, setName: dupeName, isUserCreated: false, isActive: true },
+    { id: dupeHighId, sport: "baseball", brand: "Topps", year: 1989, setName: dupeName, isUserCreated: false, isActive: true },
+    { id: otherYearId, sport: "baseball", brand: "Topps", year: 1952, setName: dupeName, isUserCreated: false, isActive: true },
   ]);
 
   const fan = "https://packpts.com/assets/maker-set-1080.png";
@@ -93,6 +97,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (restoreClearance) await restoreClearance();
   if (sessionId) {
     await db.delete(gameSessionsTable).where(eq(gameSessionsTable.id, sessionId)).catch(() => null);
   }

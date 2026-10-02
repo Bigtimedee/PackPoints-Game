@@ -18,6 +18,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PlayableSet } from "@shared/schema";
+import { applySetDisplayTitle } from "@shared/setDisplayOverride";
 
 // Returns the membershipSecret stored for a given lobbyId.
 // Written by match.tsx before navigating to /lobby/:id for a rematch.
@@ -544,7 +545,10 @@ export default function Lobby() {
                     <span className="text-muted-foreground">Card Set</span>
                     <span className="font-medium">
                       {lobby.gameSetId
-                        ? (playableSets?.find(s => s.id === lobby.gameSetId)?.setName || "Selected Set")
+                        ? (() => {
+                            const chosen = playableSets?.find(s => s.id === lobby.gameSetId);
+                            return chosen ? applySetDisplayTitle(chosen.id, chosen.setName) : "Selected Set";
+                          })()
                         : "Random (All Sets)"}
                     </span>
                   </div>

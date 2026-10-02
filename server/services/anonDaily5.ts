@@ -16,6 +16,7 @@ import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { mintDailyRevealUrl } from "./playImageAccess";
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { daily5Service } from "./daily5Service";
+import { replaceBlockedDaily5Cards } from "../lib/cardBlocklist";
 import {
   AnonGateError,
   creditAnonGame,
@@ -60,6 +61,9 @@ function mapRun(run: typeof anonDailyRuns.$inferSelect) {
 }
 
 async function maskedCards(challengeId: string, anonId: string) {
+  const stillBlocked = await replaceBlockedDaily5Cards(challengeId);
+  if (stillBlocked > 0) throw new Error("Daily 5 card unavailable");
+
   const cards = await db
     .select()
     .from(dailyChallengeCards)

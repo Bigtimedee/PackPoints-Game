@@ -4,6 +4,8 @@ import type { Request, Response } from "express";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { isPlayScope, maskTokenMatches } from "../services/playImageToken";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
+import { isMaskBandExcluded } from "../masking/maskBandLimit";
+import { denyPublicMask, PUBLIC_MASK_CACHE_CONTROL, rejectPublicMask } from "../services/publicMaskGate";
 
 const VERSION = CURRENT_MASK_VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const WARM_JPEG = new RegExp(`^(.+)_${VERSION}(?:_r(?:90|180|270))?\\.jpg$`);
@@ -64,6 +66,7 @@ export function resolveReadyWarmMaskedFile(dir: string, cardId: string): string 
   if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
     return null;
   }
+  if (isMaskBandExcluded(cardId, dir)) return null;
   if (!existsSync(path.join(dir, warmOkMarkerFilename(cardId)))) return null;
   return warmFile(dir, cardId);
 }
@@ -115,20 +118,33 @@ export function findWarmMaskedPath(args: {
   if (!isPlayScope(args.scope)) return null;
   for (const cardId of cardIds(args.dir)) {
     if (!maskTokenMatches(args.scope, args.sessionId, args.index, cardId, args.token)) continue;
+    if (isMaskBandExcluded(cardId, args.dir)) return null;
     if (!existsSync(path.join(args.dir, warmOkMarkerFilename(cardId)))) return null;
     return warmFile(args.dir, cardId);
   }
   return null;
 }
 
-export function tryServeWarmMasked(req: Request, res: Response): boolean {
+export async function tryServeWarmMasked(req: Request, res: Response): Promise<boolean> {
   const parsed = parseMaskedPlayPath(req.path);
   if (!parsed) return false;
-  const file = findWarmMaskedPath({ dir: dirOverride ?? MASKED_CARDS_DIR, ...parsed });
+  const dir = dirOverride ?? MASKED_CARDS_DIR;
+  const file = findWarmMaskedPath({ dir, ...parsed });
   if (!file) return false;
+  const cardId = cardIdFromWarmJpeg(path.basename(file));
+  if (!cardId) {
+    denyPublicMask(req, res);
+    return true;
+  }
+  try {
+    if (await rejectPublicMask(req, res, cardId)) return true;
+  } catch {
+    denyPublicMask(req, res);
+    return true;
+  }
   const etag = `"${CURRENT_MASK_VERSION}"`;
   res.setHeader("Content-Type", "image/jpeg");
-  res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+  res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
   res.setHeader("ETag", etag);
   res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
   res.setHeader("X-Mask-Cache", "hit");

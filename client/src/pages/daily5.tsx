@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
 import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
+import { applySetDisplayTitle, applySetYearLabel, setDisplayOverride } from "@shared/setDisplayOverride";
 import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
@@ -43,8 +44,6 @@ import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
-import { formatDaily5ShareText } from "@/lib/daily5SetLabel";
-import { Daily5SetLabel } from "@/components/Daily5SetLabel";
 
 interface Daily5Status {
   challenge: {
@@ -54,9 +53,7 @@ interface Daily5Status {
     startsAt: string;
     endsAt: string;
     setId?: string | null;
-    setName?: string | null;
   } | null;
-  setName?: string | null;
   hasPlayed: boolean;
   entry: {
     id: string;
@@ -175,13 +172,12 @@ async function pngFileFromUrl(url: string, filename: string): Promise<File | nul
   }
 }
 
-function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maskedCardUrls, setName }: {
+function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maskedCardUrls }: {
   correctCount: number;
   date?: string;
   challengeId?: string;
   shareImageUrl?: string;
   maskedCardUrls?: readonly (string | null | undefined)[];
-  setName?: string | null;
 }) {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
@@ -191,8 +187,7 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
   const [sessionImageUrl, setSessionImageUrl] = useState<string | undefined>(shareImageUrl);
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const shareCaption = formatDaily5ShareText(correctCount, setName);
-  const beatMeCaption = formatBeatMeShareCaption(correctCount);
+  const shareCaption = formatBeatMeShareCaption(correctCount);
   const sessionFilename = `packpts-daily5-${dateStr}.png`;
 
   const logShareEvent = async (shareType: string, target: string) => {
@@ -240,10 +235,10 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
             await navigator.share({
               files: [file],
               title: BEAT_ME_COPY.primary,
-              text: `${beatMeCaption}\n${created.url}`,
+              text: `${shareCaption}\n${created.url}`,
             });
           } else {
-            await navigator.share({ title: BEAT_ME_COPY.primary, text: beatMeCaption, url: created.url });
+            await navigator.share({ title: BEAT_ME_COPY.primary, text: shareCaption, url: created.url });
           }
           logShareEvent("CHALLENGE_INVITE", "NATIVE_SHARE");
           return;
@@ -251,7 +246,7 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
           if ((err as Error)?.name === "AbortError") return;
         }
       }
-      await navigator.clipboard.writeText(`${beatMeCaption}\n${created.url}`);
+      await navigator.clipboard.writeText(`${shareCaption}\n${created.url}`);
       logShareEvent("CHALLENGE_INVITE", "COPY_LINK");
       toast({ title: "Challenge link copied", description: "Opens today's Daily 5 with your score" });
     } catch {
@@ -733,11 +728,17 @@ export default function Daily5Page() {
               <Calendar className="h-3 w-3" />
               Daily 5
             </Badge>
+            {setDisplayOverride(challengeSetId ?? statusQuery.data?.challenge?.setId) ? (
+              <span className="text-sm text-muted-foreground" data-testid="text-d5-set-label">
+                {applySetDisplayTitle(challengeSetId ?? statusQuery.data?.challenge?.setId, "")}
+                {" · "}
+                {applySetYearLabel(challengeSetId ?? statusQuery.data?.challenge?.setId, null)}
+              </span>
+            ) : null}
             <span className="text-sm text-muted-foreground" data-testid="text-d5-progress">
               {currentPosition}/5
             </span>
           </div>
-          <Daily5SetLabel setName={statusQuery.data?.setName} />
           <Progress value={(currentPosition - 1) / 5 * 100 + (isRevealed ? 20 : 0)} className="mb-4" />
 
           <div className="space-y-4">
@@ -826,7 +827,13 @@ export default function Daily5Page() {
             </div>
             <h1 className="text-3xl font-bold" data-testid="text-d5-complete">Game Complete</h1>
             <p className="text-muted-foreground uppercase tracking-wider text-sm">DAILY 5</p>
-            <Daily5SetLabel setName={status?.setName ?? status?.challenge?.setName} />
+            {setDisplayOverride(challengeSetId ?? status?.challenge?.setId) ? (
+              <p className="text-sm text-muted-foreground" data-testid="text-d5-set-label">
+                {applySetDisplayTitle(challengeSetId ?? status?.challenge?.setId, "")}
+                {" · "}
+                {applySetYearLabel(challengeSetId ?? status?.challenge?.setId, null)}
+              </p>
+            ) : null}
             <div className="grid grid-cols-3 gap-3 items-stretch max-w-md mx-auto" data-testid="grid-d5-final-stats">
               <div className="stat-tile h-full py-4 rounded-md bg-muted flex flex-col text-center">
                 <p className="font-bold font-mono whitespace-nowrap leading-9" style={{ fontSize: statTileValueFontPx(d5Points) }} data-testid="text-d5-final-score">
@@ -885,7 +892,6 @@ export default function Daily5Page() {
             date={status?.challenge?.date}
             challengeId={status?.challenge?.id}
             shareImageUrl={finishResult?.shareImageUrl}
-            setName={status?.setName ?? status?.challenge?.setName}
             maskedCardUrls={[...cards].sort((a, b) => a.position - b.position).map((card) => card.imageUrl)}
           />
 

@@ -1,3 +1,7 @@
+# Masked-image cache rebuild (v4.6)
+
+Current bake id is **`v4.6`**. v4.5 and v4.4 JPEGs are not served. v4.6 places the name band on the plate where that card's surname is read (top, bottom, or both). The set profile is only the prior when no surname is found. v4.5 fitted the band to the detected plate on the profile's edge. A post-bake check that still sees the name writes `{cardId}_v4.6.fail` and excludes the card. See `docs/MASK_PLATE_SWEEP.md`.
+
 # Masked-image cache rebuild (v4.4)
 
 PackPTS bakes player-name masks into JPEGs on the Railway volume and serves them at `/api/cards/:cardId/masked-image`. Gameplay (solo, Daily 5, 1v1) uses that URL. After a masking geometry change, old files stay on disk until the cache key changes.

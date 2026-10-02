@@ -10,6 +10,10 @@ import { logCardDelivery } from "./telemetry/cardDelivery";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
+import { maskNameStillCovered } from "./playableSetEligibility";
+import { cardNotBlockedSql, isBlockedCard } from "../lib/cardBlocklist";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
+import { isMaskBandExcluded } from "../masking/maskBandLimit";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
 export type AnswerAckReason = GuardRejectionReason | "already_answered";
@@ -74,7 +78,11 @@ class MatchService {
   private playerAnswers: Map<string, Map<string, { answer: string; timestamp: number }>> = new Map();
 
   async initialize() {
-    const cards = await db.select().from(playableCards).where(eq(playableCards.isPlayable, true));
+    await ensureHeldSets();
+    const heldIds = currentHeldSetIds();
+    const nameFilters = [eq(playableCards.isPlayable, true)];
+    if (heldIds.length > 0) nameFilters.push(notInArray(playableCards.gameSetId, [...heldIds]));
+    const cards = await db.select().from(playableCards).where(and(...nameFilters));
     this.playerNames = omitNonPlayerNames(cards.map(c => c.player));
     if (this.playerNames.length === 0) {
       const legacyCards = await db.select().from(baseballCards);
@@ -216,6 +224,10 @@ class MatchService {
       console.error(`[MatchService] startMatch failed: lobby status is ${lobby.status}, expected waiting`);
       return { matchState: null, error: "Match already started or ended" };
     }
+    await ensureHeldSets();
+    if (lobby.gameSetId && isHeldSet(lobby.gameSetId)) {
+      return { matchState: null, error: "Set not found" };
+    }
     
     console.log(`[MatchService] Starting match for lobby ${lobbyId}, host=${hostId}, guest=${lobby.guestId}`);
     
@@ -282,6 +294,10 @@ class MatchService {
     if (!lobby.guestId || !lobby.guestUsername) {
       console.error(`[MatchService] startMatchForRandom failed: no guest in lobby ${lobbyId}`);
       return { matchState: null, error: "No guest in lobby" };
+    }
+    await ensureHeldSets();
+    if (lobby.gameSetId && isHeldSet(lobby.gameSetId)) {
+      return { matchState: null, error: "Set not found" };
     }
 
     console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}, set=${lobby.gameSetId || 'all'}, sessionId=${opts?.sessionId || 'none'}, seq=${opts?.sequenceNumber ?? 1}`);
@@ -353,6 +369,8 @@ class MatchService {
       const conditions = [
         eq(playableCards.isPlayable, true),
         inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
+        maskNameStillCovered("playable_cards"),
+        cardNotBlockedSql("playable_cards"),
       ];
       
       if (gameSetId) {
@@ -370,6 +388,8 @@ class MatchService {
         if (!card.imageUrl) return false;
         if (!card.player) return false;
         if (isNonPlayerCard(card.player, card.description)) return false;
+        if (isBlockedCard(card.gameSetId, card.player, card)) return false;
+        if (isMaskBandExcluded(card.id)) return false;
         if (!cardHasRealImage({
           cardId: card.id.toString(),
           imageUrl: card.imageUrl,
@@ -534,7 +554,23 @@ class MatchService {
       return null;
     }
     
-    const availableSpare = queuedCards.find(c => c.isSpare && !c.usedAsReplacement && !c.markedBad);
+    const spares = queuedCards.filter(c => c.isSpare && !c.usedAsReplacement && !c.markedBad);
+    let availableSpare: typeof spares[number] | undefined;
+    let pcCard: PlayableCard | undefined;
+    for (const spare of spares) {
+      const [row] = await db
+        .select()
+        .from(playableCards)
+        .where(eq(playableCards.id, spare.cardId))
+        .limit(1);
+      if (row && (isBlockedCard(row.gameSetId, row.player, row) || isMaskBandExcluded(row.id))) {
+        await db.update(matchCardQueue).set({ markedBad: true }).where(eq(matchCardQueue.id, spare.id));
+        continue;
+      }
+      availableSpare = spare;
+      pcCard = row;
+      break;
+    }
     if (!availableSpare) {
       console.warn(`[MatchService] No spare cards available for replacement in match ${matchId}`);
       return null;
@@ -553,12 +589,6 @@ class MatchService {
       .where(eq(matchCardQueue.id, availableSpare.id));
     
     let replacementDbCard: BaseballCard | null = null;
-    
-    const [pcCard] = await db
-      .select()
-      .from(playableCards)
-      .where(eq(playableCards.id, availableSpare.cardId))
-      .limit(1);
     
     if (pcCard && !isNonPlayerCard(pcCard.player, pcCard.description)) {
       replacementDbCard = playableCardToBaseballCard(pcCard);
@@ -856,10 +886,25 @@ class MatchService {
       return { matchState: null };
     }
     
-    const nextIndex = matchState.currentQuestionIndex + 1;
+    const previousIndex = matchState.currentQuestionIndex;
+    const [advanced] = await db.update(matches)
+      .set({ currentQuestionIndex: sql`${matches.currentQuestionIndex} + 1` })
+      .where(and(
+        eq(matches.id, matchId),
+        eq(matches.currentQuestionIndex, previousIndex),
+      ))
+      .returning({ currentQuestionIndex: matches.currentQuestionIndex });
+    if (!advanced) {
+      const [fresh] = await db
+        .select({ currentQuestionIndex: matches.currentQuestionIndex })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .limit(1);
+      if (fresh) matchState.currentQuestionIndex = fresh.currentQuestionIndex;
+      return { matchState };
+    }
+    const nextIndex = advanced.currentQuestionIndex;
     matchState.currentQuestionIndex = nextIndex;
-    
-    await db.update(matches).set({ currentQuestionIndex: nextIndex }).where(eq(matches.id, matchId));
     
     const matchEnd = await maybeFinish(matchState);
     
@@ -888,21 +933,24 @@ class MatchService {
 
   /** Keep the DB deal in sync so the opaque mask URL resolves to this card. */
   private async persistQuestion(matchId: string, idx: number, question: GameQuestion): Promise<void> {
-    const [match] = await db
-      .select({ questionsData: matches.questionsData })
-      .from(matches)
-      .where(eq(matches.id, matchId))
-      .limit(1);
-    if (!match?.questionsData) return;
-    let questions: GameQuestion[] = [];
-    try {
-      questions = JSON.parse(match.questionsData);
-    } catch {
-      return;
-    }
-    if (idx < 0 || idx >= questions.length) return;
-    questions[idx] = question;
-    await db.update(matches).set({ questionsData: JSON.stringify(questions) }).where(eq(matches.id, matchId));
+    await db.transaction(async (tx) => {
+      const [match] = await tx
+        .select({ questionsData: matches.questionsData })
+        .from(matches)
+        .where(eq(matches.id, matchId))
+        .for("update")
+        .limit(1);
+      if (!match?.questionsData) return;
+      let questions: GameQuestion[] = [];
+      try {
+        questions = JSON.parse(match.questionsData);
+      } catch {
+        return;
+      }
+      if (idx < 0 || idx >= questions.length) return;
+      questions[idx] = question;
+      await tx.update(matches).set({ questionsData: JSON.stringify(questions) }).where(eq(matches.id, matchId));
+    });
   }
 
   async resyncCard(matchId: string, idx: number, userId: string): Promise<{ success: boolean; newQuestion?: GameQuestion; error?: string }> {
@@ -951,7 +999,9 @@ class MatchService {
       .where(
         and(
           eq(playableCards.isPlayable, true),
-          inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"])
+          inArray(playableCards.quarantineStatus, ["OK", "SUSPECT_TRANSIENT"]),
+          maskNameStillCovered("playable_cards"),
+          cardNotBlockedSql("playable_cards"),
         )
       );
 
@@ -960,6 +1010,8 @@ class MatchService {
       if (usedCardIds.has(cardIdStr)) return false;
       if (!card.imageUrl || !card.player) return false;
       if (isNonPlayerCard(card.player, card.description)) return false;
+      if (isBlockedCard(card.gameSetId, card.player, card)) return false;
+      if (isMaskBandExcluded(card.id)) return false;
       if (!cardHasRealImage({
         cardId: cardIdStr,
         imageUrl: card.imageUrl,
@@ -997,6 +1049,8 @@ class MatchService {
     if (!lobby) throw new Error("Lobby not found");
     if (lobby.hostId !== requesterUserId) throw new Error("Only the host can change the card set");
     if (lobby.status !== "waiting") throw new Error("Lobby is not in waiting state");
+    await ensureHeldSets();
+    if (isHeldSet(gameSetId)) throw new Error("Set not found");
 
     const [updated] = await db
       .update(lobbies)

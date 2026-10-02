@@ -204,6 +204,58 @@ export async function getCachedImageUrl(cardId: string): Promise<string | null> 
   return cached.normalizedUrl;
 }
 
+/** The scan URL the mask bake uses. Ignores a bad image-cache row. */
+export async function getPlayableScanUrl(cardId: string): Promise<string | null> {
+  const [pcCard] = await db
+    .select({ imageUrl: playableCards.imageUrl })
+    .from(playableCards)
+    .where(eq(playableCards.id, cardId))
+    .limit(1);
+  if (pcCard?.imageUrl) return normalizeImageUrl(pcCard.imageUrl);
+
+  const [card] = await db
+    .select({ imageUrl: baseballCards.imageUrl })
+    .from(baseballCards)
+    .where(eq(baseballCards.id, cardId))
+    .limit(1);
+  return card?.imageUrl ? normalizeImageUrl(card.imageUrl) : null;
+}
+
+/** A full download succeeded after a range probe had marked the cache bad. */
+export async function rememberPlayableScan(
+  cardId: string,
+  url: string,
+  bytes: number,
+  contentType: string,
+): Promise<void> {
+  await db
+    .insert(cardImageCache)
+    .values({
+      cardId,
+      sourceUrl: url,
+      normalizedUrl: url,
+      proxiedPath: `/api/images/card/${cardId}`,
+      status: "ok",
+      lastHttpStatus: 200,
+      lastContentType: contentType,
+      bytes,
+      failCount: 0,
+    })
+    .onConflictDoUpdate({
+      target: cardImageCache.cardId,
+      set: {
+        sourceUrl: url,
+        normalizedUrl: url,
+        status: "ok",
+        lastHttpStatus: 200,
+        lastContentType: contentType,
+        bytes,
+        failCount: 0,
+        lastCheckedAt: new Date(),
+      },
+    });
+}
+
 export async function getSourceUrlForCard(cardId: string): Promise<string | null> {
   const [cached] = await db
     .select({ normalizedUrl: cardImageCache.normalizedUrl })

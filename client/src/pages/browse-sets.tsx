@@ -5,18 +5,23 @@ import { Loader2 } from "lucide-react";
 import { SetCover } from "@/components/SetCover";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
+  SETS_PAGE_CLEARANCE_CLASS,
   SETS_POLISH,
+  displaySetYearLabel,
+  formatIndexSetTitle,
   formatSetMetaLine,
-  shouldShowShortShelf,
+  sanitizeCoverCardUrls,
 } from "@/lib/setsPolish";
 
 export interface BrowseSet {
   id: string;
   setName: string;
+  brand?: string | null;
   makerNote: string | null;
   makerUsername: string | null;
   isUserCreated?: boolean;
   cardCount: number;
+  year?: number | null;
   createdAt: string | null;
   shareImageUrl?: string | null;
   coverCardUrls?: string[];
@@ -63,26 +68,38 @@ function PlayButton({
   );
 }
 
-function SetRow({ set }: { set: BrowseSet }) {
+function SetRow({ set, coversDisabled }: { set: BrowseSet; coversDisabled: boolean }) {
+  const title = formatIndexSetTitle({ id: set.id, setName: set.setName, brand: set.brand });
+  const yearLabel = displaySetYearLabel(set.id, set.year);
+  const coverUrls = sanitizeCoverCardUrls(set.coverCardUrls);
+  const showCovers = !coversDisabled && coverUrls.length > 0;
   return (
     <article
       className="space-y-3"
       data-testid={`card-set-${set.id}`}
     >
       <Link href={`/sets/${set.id}`} className="block space-y-3">
-        <SetCover shareImageUrl={set.shareImageUrl} cardUrls={set.coverCardUrls} />
+        {showCovers ? <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} /> : null}
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }}>
-            {set.setName}
+          <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }} data-testid="text-set-title">
+            {title}
           </h2>
-          <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
-            {formatSetMetaLine({
-              makerUsername: set.isUserCreated ? set.makerUsername : null,
-              cardCount: set.cardCount,
-              createdAt: set.isUserCreated ? set.createdAt : null,
-              authored: set.isUserCreated === true,
-            })}
-          </p>
+          {!showCovers ? (
+            yearLabel ? (
+              <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-year">
+                {yearLabel}
+              </p>
+            ) : null
+          ) : (
+            <p className="text-xs" style={{ color: SETS_POLISH.muted }} data-testid="text-set-meta">
+              {formatSetMetaLine({
+                makerUsername: set.isUserCreated ? set.makerUsername : null,
+                cardCount: set.cardCount,
+                createdAt: set.isUserCreated ? set.createdAt : null,
+                authored: set.isUserCreated === true,
+              })}
+            </p>
+          )}
         </div>
       </Link>
       <PlayButton setId={set.id} cardCount={Number(set.cardCount)} />
@@ -104,14 +121,14 @@ function SetRowSkeleton() {
 export function BrowseSetsShelf({
   sets,
   isLoading,
+  coversDisabled = false,
 }: {
   sets: BrowseSet[];
   isLoading: boolean;
+  coversDisabled?: boolean;
 }) {
-  const shortShelf = shouldShowShortShelf(sets.length);
-
   return (
-    <div className="min-h-full pb-20 md:pb-10" style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
+    <div className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full pb-20 md:pb-10`} style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}>
       <div className="container mx-auto max-w-lg px-4 py-8 space-y-8">
         <header className="space-y-2">
           <p
@@ -134,19 +151,6 @@ export function BrowseSetsShelf({
           )}
         </header>
 
-        {shortShelf && (
-          <div
-            className="rounded-md px-4 py-3"
-            style={{ backgroundColor: SETS_POLISH.panel, borderLeft: `3px solid ${SETS_POLISH.gold}` }}
-            data-testid="banner-short-shelf"
-          >
-            <p className="text-sm font-semibold">{SETS_POLISH.shortShelfTitle}</p>
-            <p className="text-sm mt-0.5" style={{ color: SETS_POLISH.muted }}>
-              {SETS_POLISH.shortShelfBody}
-            </p>
-          </div>
-        )}
-
         {isLoading ? (
           <div className="space-y-8">
             {[0, 1].map((i) => <SetRowSkeleton key={i} />)}
@@ -158,7 +162,9 @@ export function BrowseSetsShelf({
           </div>
         ) : (
           <div className="space-y-10">
-            {sets.map((set) => <SetRow key={set.id} set={set} />)}
+            {sets.map((set) => (
+              <SetRow key={set.id} set={set} coversDisabled={coversDisabled} />
+            ))}
           </div>
         )}
 
@@ -188,7 +194,7 @@ export function BrowseSetsShelf({
 }
 
 export default function BrowseSets() {
-  const { data, isLoading } = useQuery<{ sets: BrowseSet[] }>({
+  const { data, isLoading } = useQuery<{ sets: BrowseSet[]; coversDisabled?: boolean }>({
     queryKey: ["/api/sets"],
     queryFn: async () => {
       const res = await fetch("/api/sets?limit=50");
@@ -197,5 +203,11 @@ export default function BrowseSets() {
     staleTime: 60_000,
   });
 
-  return <BrowseSetsShelf sets={data?.sets ?? []} isLoading={isLoading} />;
+  return (
+    <BrowseSetsShelf
+      sets={data?.sets ?? []}
+      isLoading={isLoading}
+      coversDisabled={data?.coversDisabled === true}
+    />
+  );
 }

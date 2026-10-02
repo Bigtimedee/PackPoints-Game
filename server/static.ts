@@ -1,7 +1,7 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import fs from "fs";
 import path from "path";
-import { injectPlaySetsOgHtml, isPlaySetsHtmlPath } from "./lib/playSetsOg";
+import { decorateSpaIndexHtml } from "./lib/spaIndexHtml";
 import { ASSET_CACHE_CONTROL, sendNoStoreBody, stripConditionalValidators } from "./lib/noStoreResponse";
 import { assetNotFoundLine, isAssetNotFound } from "./lib/httpErrorLog";
 import { isViteHashedAsset } from "./lib/viteHashedAsset";
@@ -10,8 +10,7 @@ import { schemaWindowHolds } from "./startup/schemaWindow";
 
 async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
   const raw = await fs.promises.readFile(htmlPath, "utf8");
-  if (!isPlaySetsHtmlPath(url)) return raw;
-  return injectPlaySetsOgHtml(raw, url);
+  return decorateSpaIndexHtml(raw, url);
 }
 
 function sendSpaHtml(req: Request, res: Response, next: NextFunction, htmlPath: string): void {

@@ -2,10 +2,13 @@ import sharp from "sharp";
 import { CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
 import {
   resolveNameMaskPlan,
+  type NamePlateTrace,
   type OcrWordBox,
 } from "./nameLocalization";
 import { detectPsaSlabLayout } from "./slabLayout";
 import { assertOpaqueIdentityCover } from "./maskCoverage";
+import { detectAnchorPlate, detectAnchorTextPlate } from "./namePlateDetect";
+import { verifyMaskedNamePlate } from "./maskPlateVerify";
 import { applyServedRotation, uprightCardImage } from "./cardOrientation";
 import { recognizeWords } from "./ocrRuntime";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
@@ -30,6 +33,12 @@ export interface MaskResult {
   landscapeDesign: boolean;
   /** Guessed quarter-turn. Regions include the profile band and its 180° mirror. */
   orientationAmbiguous: boolean;
+  /** The surname was found on a plate the set profile does not use. */
+  layoutDisagreed: boolean;
+  /** Resolver measurements. Present on every bake. */
+  plateTrace: NamePlateTrace;
+  /** Upright source the boxes were measured on. Not written to the mask cache. */
+  sourceBuffer: Buffer;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -173,6 +182,8 @@ export async function maskCardImage(
     gameSetId?: string | null;
     imageRotation?: number | null;
     cardId?: string | null;
+    /** False keeps a dry-run from writing `{cardId}_v4.6.orient.json`. */
+    recordOrientNote?: boolean;
     /** Horizontal design. Overrides the set profile when the caller already knows. */
     cardOrientation?: "portrait" | "landscape";
     onStage?: (stage: "ocr" | "bake") => void;
@@ -202,7 +213,7 @@ export async function maskCardImage(
       recognize: recognizeWords,
       orientationBudgetMs: opts.orientationBudgetMs,
     });
-  if (opts.cardId && !existing) {
+  if (opts.cardId && !existing && opts.recordOrientNote !== false) {
     writeOrientNote(opts.cardId, {
       rotation: upright.rotation,
       landscapeDesign: upright.landscapeDesign,
@@ -241,6 +252,25 @@ export async function maskCardImage(
     slabLayout = false;
   }
 
+  let detectedPlate = null as Awaited<ReturnType<typeof detectAnchorPlate>>;
+  let topTextPlate = null as Awaited<ReturnType<typeof detectAnchorTextPlate>>;
+  let bottomTextPlate = null as Awaited<ReturnType<typeof detectAnchorTextPlate>>;
+  // coverBoth already paints the profile band and its mirror. Measuring a plate
+  // on a turn that was never resolved grows that band across the photo.
+  if (!slabLayout && !upright.orientationAmbiguous) {
+    try {
+      if (profile.nameAnchor !== "both") {
+        detectedPlate = await detectAnchorPlate(upright.buffer, profile.nameAnchor);
+      }
+      topTextPlate = await detectAnchorTextPlate(upright.buffer, "top");
+      bottomTextPlate = await detectAnchorTextPlate(upright.buffer, "bottom");
+    } catch {
+      detectedPlate = null;
+      topTextPlate = null;
+      bottomTextPlate = null;
+    }
+  }
+
   const plan = resolveNameMaskPlan({
     playerName,
     setHint: setName,
@@ -249,6 +279,9 @@ export async function maskCardImage(
     imageWidth: originalWidth,
     imageHeight: originalHeight,
     slabLayout,
+    plateBox: detectedPlate,
+    topTextPlate,
+    bottomTextPlate,
   });
   const regions = !upright.orientationAmbiguous
     ? plan.regions
@@ -257,7 +290,7 @@ export async function maskCardImage(
       : coverBothNameBands(plan.regions);
 
   const maskedBuffer = await applyPercentRegions(upright.buffer, regions);
-  const coverage = await assertOpaqueIdentityCover({
+  let coverage = await assertOpaqueIdentityCover({
     buffer: maskedBuffer,
     regions,
     layoutClass: plan.layoutClass,
@@ -265,6 +298,19 @@ export async function maskCardImage(
     imageWidth: originalWidth,
     imageHeight: originalHeight,
   });
+  if (coverage.ok) {
+    const text = await verifyMaskedNamePlate({
+      buffer: maskedBuffer,
+      plate: plan.plate ?? detectedPlate,
+      layoutClass: plan.layoutClass,
+      imageWidth: originalWidth,
+      imageHeight: originalHeight,
+    });
+    if (!text.ok) coverage = text;
+  }
+  if (plan.namePlateUnresolved) {
+    coverage = { ok: false, reason: "name_plate_unresolved" };
+  }
 
   return {
     maskedBuffer,
@@ -280,6 +326,9 @@ export async function maskCardImage(
     ocrMs,
     landscapeDesign: upright.landscapeDesign,
     orientationAmbiguous: upright.orientationAmbiguous,
+    layoutDisagreed: plan.layoutDisagreed,
+    plateTrace: plan.plateTrace,
+    sourceBuffer: upright.buffer,
   };
 }
 
