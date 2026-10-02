@@ -109,6 +109,7 @@ import { handlePublicSetCover } from "./services/setCovers";
 import { registerCoverQaRoutes } from "./routes/coverQa";
 import { registerDealableQaRoutes } from "./routes/dealableQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { attributeNewUserFromRequest } from "./lib/signupAttribution";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
@@ -1795,53 +1796,11 @@ export async function registerRoutes(
       
       const updatedUser = await storage.getUser(user.id);
 
-      // Capture UTM attribution if provided
-      if (req.body.utmSource || req.body.utmCampaign) {
-        try {
-          const { pool: dbPool } = await import('./db');
-          await dbPool.query(
-            `INSERT INTO user_attribution (user_id, utm_source, utm_medium, utm_campaign, utm_term, utm_content, referrer)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT (user_id) DO NOTHING`,
-            [
-              user.id,
-              req.body.utmSource || null,
-              req.body.utmMedium || null,
-              req.body.utmCampaign || null,
-              req.body.utmTerm || null,
-              req.body.utmContent || null,
-              req.headers.referer || null,
-            ]
-          );
-        } catch (err) {
-          // Non-fatal — don't fail registration if attribution fails
-          console.error('[UTM] Attribution capture failed:', err);
-        }
-      }
-
-      // Auto-attribute referral SIGNUP event (fast path — non-fatal)
-      const referredByCode = req.body.referredByCode || req.body.referralSource;
-      if (referredByCode) {
-        try {
-          const [refLink] = await db
-            .select()
-            .from(referralLinks)
-            .where(and(eq(referralLinks.code, referredByCode), eq(referralLinks.isActive, true)))
-            .limit(1);
-
-          if (refLink && refLink.createdByUserId !== user.id) {
-            await db
-              .insert(referralAttributions)
-              .values({ referralLinkId: refLink.id, invitedUserId: user.id, eventType: "SIGNUP" })
-              .onConflictDoNothing();
-
-            const { grantReferralWelcomeBonus } = await import("./services/referralRewards");
-            await grantReferralWelcomeBonus(user.id, refLink.id);
-          }
-        } catch (refErr) {
-          console.error("[Register] Referral attribution failed (non-fatal):", refErr);
-        }
-      }
+      // First-touch attribution (any field: utm_*, ref code, landing page,
+      // referrer host). Body first, then the OAuth stash cookie if present.
+      // Insert-only for this new user; also records a referral SIGNUP for a
+      // valid ref code. Never fails registration.
+      await attributeNewUserFromRequest(req, res, user.id, req.body, "Register");
 
       // Explicitly save session to ensure it's persisted before response
       req.session.save((err: any) => {

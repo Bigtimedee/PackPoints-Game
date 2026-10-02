@@ -266,12 +266,13 @@ describe("isBlockedCard", () => {
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=aea515e2") && line.includes("allStarNumbers=1,2,3,4,5,6,7,8,9,10,11"))).toBe(true);
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=37fd025d") && line.includes("mcgwireNumber=366"))).toBe(true);
     expect(leakBlocklistLogLines()).toEqual([
-      "[blocklist] set=37fd025d blockedIds=1 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=37fd025d blockedIds=38 blockedNumbers=22 blockedPatterns=0",
       "[blocklist] set=352b33d1 blockedIds=22 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=91cfdf3f blockedIds=1 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=a09b2fe7 blockedIds=8 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=229f0379 blockedIds=19 blockedNumbers=0 blockedPatterns=2",
+      "[blocklist] set=74885a41 blockedIds=12 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=d226801a blockedIds=12 blockedNumbers=0 blockedPatterns=0",
-      "[blocklist] set=229f0379 blockedIds=0 blockedNumbers=0 blockedPatterns=1",
     ]);
     for (const line of leakBlocklistLogLines()) expect(spy).toHaveBeenCalledWith(line);
     spy.mockRestore();
@@ -597,8 +598,13 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
   it("deals the initial Daily 5 hand through the blocklist, including H inserts and Schmidt #28, and deals Dempsey #28", async () => {
     const src = readFileSync(new URL("../services/daily5Service.ts", import.meta.url), "utf8");
     const draw = src.slice(src.indexOf("async selectCardsForChallenge"), src.indexOf("async updateChallengeStatuses"));
-    expect(draw).toContain('cardNotBlockedSql("playable_cards")');
-    expect(draw).toContain("isBlockedCard(");
+    // The deal pool lives in daily5Pool.ts so deal, set resolver, and QA preview share it.
+    expect(draw).toContain("loadDaily5Pool(setId)");
+    const pool = readFileSync(new URL("../services/daily5Pool.ts", import.meta.url), "utf8");
+    expect(pool).toContain('cardNotBlockedSql("playable_cards")');
+    expect(pool).toContain("isBlockedCard(");
+    expect(pool).toContain("isMaskBandExcluded(");
+    expect(pool).toContain('maskNameStillCovered("playable_cards")');
     const create = src.slice(src.indexOf("async createChallengeForDate"), src.indexOf("async selectCardsForChallenge"));
     expect(create).toContain("selectCardsForChallenge");
     const serve = src.slice(src.indexOf("async getOrCreateTodayChallenge"), src.indexOf("async createChallengeForDate"));

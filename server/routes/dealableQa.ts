@@ -19,6 +19,15 @@ import {
   listDealableCards,
 } from "../services/dealableQa";
 import { eligibleCoverFile } from "../services/setCovers";
+import { addPackptsDays, getPackptsDayKey, isPackptsDayKey, PACKPTS_DAY_TZ } from "@shared/packptsDay";
+import {
+  DAILY5_CALENDAR_START,
+  daily5CalendarConfig,
+  daily5Weekday,
+  scheduledDaily5Set,
+  WEEKDAYS,
+} from "../services/daily5Calendar";
+import { daily5Service } from "../services/daily5Service";
 
 function qaHeaders(req: Request, res: Response): void {
   stripConditionalValidators(req);
@@ -68,7 +77,57 @@ function authorized(req: Request, res: Response): boolean {
   return true;
 }
 
+const MAX_PREVIEW_DAYS = 31;
+
 export function registerDealableQaRoutes(app: Express): void {
+  /**
+   * Daily 5 calendar and deal preview. ?date=YYYY-MM-DD (default today CT)
+   * and ?days=1..31. Read-only: a day with no stored row is computed, not
+   * created. Card ids only, no player names.
+   */
+  app.get("/api/qa/daily5/preview", (req, res) => {
+    if (!authorized(req, res)) return;
+    const rawDate = typeof req.query.date === "string" ? req.query.date.trim() : "";
+    const start = rawDate || getPackptsDayKey();
+    const days = Math.min(MAX_PREVIEW_DAYS, Math.max(1, Number.parseInt(String(req.query.days ?? "1"), 10) || 1));
+    if (!isPackptsDayKey(start)) {
+      qaJson(req, res, 400, { error: "date must be YYYY-MM-DD" });
+      return;
+    }
+    void (async () => {
+      const config = daily5CalendarConfig();
+      const out = [];
+      for (let i = 0; i < days; i++) {
+        const date = addPackptsDays(start, i);
+        const scheduled = scheduledDaily5Set(date, config);
+        const preview = await daily5Service.previewDeal(date);
+        out.push({
+          date,
+          weekday: WEEKDAYS[daily5Weekday(date)],
+          scheduledSetId: scheduled?.setId ?? null,
+          slot: scheduled?.slot ?? null,
+          stored: preview.stored,
+          setId: preview.setId,
+          setName: preview.setName,
+          source: preview.choice?.source ?? (preview.stored ? "stored" : null),
+          skipped: preview.choice?.skipped ?? [],
+          dealableCount: preview.dealableCount,
+          cardIds: preview.cardIds,
+        });
+      }
+      qaJson(req, res, 200, {
+        today: getPackptsDayKey(),
+        timezone: PACKPTS_DAY_TZ,
+        calendarStart: DAILY5_CALENDAR_START,
+        greenSetIds: config.greenSetIds,
+        fallbackSetId: config.fallbackSetId,
+        days: out,
+      });
+    })().catch(() => {
+      if (!res.headersSent) qaNotFound(req, res);
+    });
+  });
+
   app.get("/api/qa/sets", (req, res) => {
     if (!authorized(req, res)) return;
     void listActiveDealableSets()

@@ -4,6 +4,14 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { identityService } from "./identityService";
 import type { IdentityProvider } from "@shared/schema";
+import {
+  applySignupAttribution,
+  clearAttributionCookie,
+  isSameOriginRequest,
+  readAttributionCookie,
+  sanitizeAttribution,
+  setAttributionCookie,
+} from "../lib/signupAttribution";
 
 let workos: WorkOS | null = null;
 
@@ -41,6 +49,27 @@ function getClientInfo(req: Request) {
 }
 
 export function registerWorkosRoutes(app: Express): void {
+  /**
+   * POST /api/auth/attribution
+   * The client posts its stored first-touch attribution right before it
+   * navigates to an OAuth start (WorkOS). We keep it in a short-lived, signed,
+   * size-capped, httpOnly SameSite=Lax cookie scoped to /api/auth so the
+   * callback can attribute a newly created user. Analytics only.
+   */
+  app.post("/api/auth/attribution", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!isSameOriginRequest(req)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const attribution = sanitizeAttribution(req.body);
+    if (!attribution) {
+      clearAttributionCookie(res);
+      return res.status(204).end();
+    }
+    setAttributionCookie(res, attribution);
+    return res.status(204).end();
+  });
+
   app.get("/api/auth/workos/start", (req: Request, res: Response) => {
     try {
       const workosInstance = getWorkOS();
@@ -99,6 +128,9 @@ export function registerWorkosRoutes(app: Express): void {
 
     const clientInfo = getClientInfo(req);
     const provider: IdentityProvider = "workos";
+    // Read once and always clear: only a user created below may use it.
+    const stashedAttribution = readAttributionCookie(req);
+    clearAttributionCookie(res);
 
     try {
       const workosInstance = getWorkOS();
@@ -305,6 +337,8 @@ export function registerWorkosRoutes(app: Express): void {
 
       (req.session as any).workosUserId = workosUser.id;
       (req.session as any).localUserId = newUser.id;
+
+      await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS");
 
       try {
         const { claimAnonForUser } = await import("./anonIdentity");
