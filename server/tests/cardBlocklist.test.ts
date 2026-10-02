@@ -266,7 +266,10 @@ describe("isBlockedCard", () => {
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=aea515e2") && line.includes("allStarNumbers=1,2,3,4,5,6,7,8,9,10,11"))).toBe(true);
     expect(multiPlayerBlocklistLogLines().some((line) => line.includes("set=37fd025d") && line.includes("mcgwireNumber=366"))).toBe(true);
     expect(leakBlocklistLogLines()).toEqual([
-      "[blocklist] set=37fd025d blockedIds=1 blockedNumbers=1 blockedPatterns=0",
+      "[blocklist] set=37fd025d blockedIds=1 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=352b33d1 blockedIds=17 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=91cfdf3f blockedIds=1 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=a09b2fe7 blockedIds=8 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=229f0379 blockedIds=0 blockedNumbers=0 blockedPatterns=1",
     ]);
     for (const line of leakBlocklistLogLines()) expect(spy).toHaveBeenCalledWith(line);
@@ -289,7 +292,7 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(fleerSetId, "Stephen Curry", { number: "h-12" })).toBe(false);
   });
 
-  it("blocks 1987 Topps Mike Schmidt #28 by id and by number, and leaves #430", () => {
+  it("blocks 1987 Topps Mike Schmidt #28 by id and by number + surname, and leaves #430 and Dempsey #28", () => {
     const baseball = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
     expect(isBlockedCard(baseball, "Mike Schmidt", { id: TOPPS_1987_SCHMIDT_CARD_ID, number: "28" })).toBe(true);
     expect(isBlockedCard(baseball, "Roster Filler", { id: TOPPS_1987_SCHMIDT_CARD_ID, number: "430" })).toBe(true);
@@ -298,6 +301,8 @@ describe("isBlockedCard", () => {
     expect(isBlockedCard(baseball, "Mike Schmidt", { number: "28" })).toBe(true);
     expect(isBlockedCard(baseball, "Mike Schmidt", { number: "#28" })).toBe(true);
     expect(isBlockedCard(baseball, "Mike Schmidt", { number: "028" })).toBe(true);
+    expect(isBlockedCard(baseball, "Rick Dempsey", { number: "28" })).toBe(false);
+    expect(isBlockedCard(baseball, "Roster Filler", { number: "#028" })).toBe(false);
     expect(isBlockedCard(baseball, "Mike Schmidt", { number: "430" })).toBe(false);
     expect(isBlockedCard(baseball, "Mike Schmidt")).toBe(false);
     expect(isBlockedCard(baseball, "Mike Schmidt", { id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", number: "430" })).toBe(false);
@@ -424,6 +429,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
       { setId: footballSetId, player: "Stephen Curry", number: "H-3", keep: true },
       { setId: baseball, player: "Mike Schmidt", number: "28", keep: false },
       { setId: baseball, player: "Mike Schmidt", number: "#028", keep: false },
+      { setId: baseball, player: "Rick Dempsey", number: "28", keep: true },
       { setId: baseball, player: "Mike Schmidt", number: "430", keep: true },
       { setId: baseball, player: "Roster Filler", number: "430", id: schmidtId, keep: false },
       { setId: basketballSetId, player: "Mike Schmidt", number: "28", keep: true },
@@ -587,7 +593,7 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     }
   });
 
-  it("deals the initial Daily 5 hand through the blocklist, including H inserts and Schmidt #28", async () => {
+  it("deals the initial Daily 5 hand through the blocklist, including H inserts and Schmidt #28, and deals Dempsey #28", async () => {
     const src = readFileSync(new URL("../services/daily5Service.ts", import.meta.url), "utf8");
     const draw = src.slice(src.indexOf("async selectCardsForChallenge"), src.indexOf("async updateChallengeStatuses"));
     expect(draw).toContain('cardNotBlockedSql("playable_cards")');
@@ -602,8 +608,8 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     await ensureSet(baseball, "baseball", 1987, `1987 Topps ${stamp}`);
     const h3 = card(basketballSetId, "Stephen Curry", "2024-03-01T00:00:00.000Z", "basketball");
     const bod = card(basketballSetId, "BOD Keeper", "2024-03-02T00:00:00.000Z", "basketball");
-    const fillers = Array.from({ length: 4 }, (_, i) => card(baseball, `Schmidt Pool ${i + 1}`, `2024-03-0${i + 3}T00:00:00.000Z`, "baseball"));
-    const number28 = card(baseball, "Number Twenty Eight", "2024-03-07T00:00:00.000Z", "baseball");
+    const fillers = Array.from({ length: 3 }, (_, i) => card(baseball, `Schmidt Pool ${i + 1}`, `2024-03-0${i + 3}T00:00:00.000Z`, "baseball"));
+    const number28 = card(baseball, "Rick Dempsey", "2024-03-07T00:00:00.000Z", "baseball");
     const schmidt430 = card(baseball, "Mike Schmidt", "2024-03-08T00:00:00.000Z", "baseball");
     const schmidt28 = {
       ...card(baseball, "Mike Schmidt", "2024-03-09T00:00:00.000Z", "baseball"),
@@ -663,9 +669,9 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     expect(hoopDealt.some((row) => row.cardId === h3.id)).toBe(false);
     expect(hoopDealt.some((row) => BASKETBALL_2024_H_INSERT_NUMBER.test(row.number || ""))).toBe(false);
     expect(baseDealt).toHaveLength(5);
-    expect(baseDealt.map((row) => row.cardId).sort()).toEqual([...fillers.map((row) => row.id), schmidt430.id].sort());
+    expect(baseDealt.map((row) => row.cardId).sort()).toEqual([...fillers.map((row) => row.id), schmidt430.id, number28.id].sort());
     expect(baseDealt.some((row) => row.cardId === TOPPS_1987_SCHMIDT_CARD_ID)).toBe(false);
-    expect(baseDealt.some((row) => row.number === "28")).toBe(false);
+    expect(baseDealt.filter((row) => row.number === "28").map((row) => row.player)).toEqual(["Rick Dempsey"]);
     expect(baseDealt.some((row) => row.number === "430")).toBe(true);
   });
 
