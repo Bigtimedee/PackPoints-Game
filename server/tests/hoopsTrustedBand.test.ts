@@ -7,7 +7,7 @@
  *   refuses on an OCR timeout.
  * - Every other registered profile, and the unmatched default used by
  *   2024 Basketball and 2022 Chronicles, bakes exactly as before.
- * - The 16 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance).
+ * - The 20 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance, 4 from the All-Star subset ruling).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
@@ -386,6 +386,11 @@ describe("1990 Hoops card blocklist", () => {
     { id: "2d7222b3-9acf-4d5d-9b71-c700e22d535e", player: "Detroit Pistons", number: "339" },
     { id: "9e6319f6-40d3-4695-89c1-9c03d45a298d", player: "Dennis Rodman", number: "109" },
     { id: "badf917b-8887-4cd9-b923-5ab703592ca9", player: "Paul Westhead", number: "422" },
+    // All-Star subset: Design blocked #17 and #24, kept #1 and #7 held.
+    { id: "941433b8-f6ba-417c-973b-33fc35d6325a", player: "Charles Barkley", number: "1" },
+    { id: "0b59775d-9a4c-459c-8152-ff4a794cd2b9", player: "Reggie Miller", number: "7" },
+    { id: "3905b67e-e6cf-413d-90c0-05997d4caddc", player: "A.C. Green", number: "17" },
+    { id: "c197de24-b783-465a-ae95-06fbd3975975", player: "David Robinson", number: "24" },
   ];
 
   it("blocks the four coach-legend cards named in the request, the other eight, and Design's four clearance blocks", () => {
@@ -407,6 +412,35 @@ describe("1990 Hoops card blocklist", () => {
     expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000109", gameSetId: HOOPS_SET_ID, player: "Dennis Rodman", number: "109", variant: "Base" })).toBe(true);
     expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000339", gameSetId: HOOPS_SET_ID, player: "Detroit Pistons", number: "339", variant: "Base" })).toBe(true);
     expect(isBlockedCard(HOOPS_SET_ID, "Dennis Rodman", { id: "9210f721-8387-4fa1-8c80-409c550c3394", number: "10", variant: "Base" })).toBe(false);
+  });
+
+  it("leaves the 19 All-Star subset cards Design cleared playable", () => {
+    const cleared = [
+      { id: "0958ffad-e8c7-445d-a8ad-14380ec9457c", player: "Isiah Thomas", number: "11" },
+      { id: "248dcd40-29ac-483d-897b-71c119a1c3bd", player: "Tom Chambers", number: "15" },
+      { id: "593b50f4-44d4-47af-8324-6f9274376813", player: "Clyde Drexler", number: "16" },
+      { id: "5648feda-8ff0-4c69-8276-d675a933aa20", player: "Earvin Johnson", number: "18" },
+      { id: "7eb0eaa5-5f85-4cd9-ab61-59d7894ed74e", player: "Kevin Johnson", number: "19" },
+      { id: "07a77a6d-2948-476f-8f92-4a48218eea9b", player: "Larry Bird", number: "2" },
+      { id: "0705b462-06a6-4258-a038-461660da7e04", player: "Lafayette Lever", number: "20" },
+      { id: "7cdc6abb-5679-4830-95c9-e3041057f73f", player: "Karl Malone", number: "21" },
+      { id: "775e6ba0-abf6-46a6-9d36-a998d16903f3", player: "Hakeem Olajuwon", number: "23" },
+      { id: "ae15a554-385d-43d7-8bde-4ad06e932f31", player: "Akeem Olajuwon", number: "23" },
+      { id: "a8ccae95-5f14-49b5-b98c-d43f8dd379b0", player: "John Stockton", number: "25" },
+      { id: "a0f0f135-eb0f-4436-b022-ab3d73699be0", player: "James Worthy", number: "26" },
+      { id: "7c628f44-b527-47e4-a7c6-b121fb2274ce", player: "Joe Dumars", number: "3" },
+      { id: "95eaec4e-5570-444d-8267-9389510f3d57", player: "Patrick Ewing", number: "4" },
+      { id: "3ad93f9b-a88c-4ea7-a871-631f4d7a48cd", player: "Michael Jordan", number: "5" },
+      { id: "8e49902d-ed15-4521-bbbf-918a164889d4", player: "Kevin McHale", number: "6" },
+      { id: "cb9cf3eb-b8c1-4ef8-81cd-6ac2bccb76dd", player: "Robert Parish", number: "8" },
+      { id: "cec031ac-781d-44a8-8fa0-6547f006e6c6", player: "Robert Parish", number: "8" },
+      { id: "ccb8adde-c761-43b4-a41e-aa60686a2299", player: "Scottie Pippen", number: "9" },
+    ];
+    expect(cleared).toHaveLength(19);
+    for (const row of cleared) {
+      expect(isBlockedCard(HOOPS_SET_ID, row.player, { id: row.id, number: row.number, variant: "Base" }), row.player).toBe(false);
+      expect(isBlockedCardIdRow({ id: row.id, gameSetId: HOOPS_SET_ID, player: row.player, number: row.number, variant: "Base" }), row.player).toBe(false);
+    }
   });
 
   it("leaves Chris Ford #306, Michael Jordan #65, and David Robinson #378 playable", () => {

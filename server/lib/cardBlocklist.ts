@@ -447,6 +447,13 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "2d7222b3-9acf-4d5d-9b71-c700e22d535e", number: "339", surname: "pistons", variant: "base", reason: "team card: Portland jersey back reads PETROVIC 44" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "9e6319f6-40d3-4695-89c1-9c03d45a298d", number: "109", surname: "rodman", variant: "base", reason: "BLJH SPORTS seller watermark on the scan" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "badf917b-8887-4cd9-b923-5ab703592ca9", number: "422", surname: "westhead", variant: "base", reason: "band hides the coach's whole head (playability)" },
+  // 1990 Hoops All-Star subset #1-26. Card-pool revalidation made 23 playable at the clearance boot,
+  // after Design reviewed the 107-card pool. Design (2026-10-02 3:23 PM CT) blocked #17 Green and
+  // #24 Robinson (BARKLEY on a jersey back), kept #1 Barkley and #7 Miller held, and cleared the other 19.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "941433b8-f6ba-417c-973b-33fc35d6325a", number: "1", surname: "barkley", variant: "base", reason: "All-Star subset: Design keeps held; no served image yet" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "0b59775d-9a4c-459c-8152-ff4a794cd2b9", number: "7", surname: "miller", variant: "base", reason: "All-Star subset: Design keeps held; no served image yet" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "3905b67e-e6cf-413d-90c0-05997d4caddc", number: "17", surname: "green", variant: "base", reason: "teammate jersey back reads BARKLEY (Design block)" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "c197de24-b783-465a-ae95-06fbd3975975", number: "24", surname: "robinson", variant: "base", reason: "opponent jersey back reads BARKL (Design block)" },
 ];
 
 export type BlockedSetNumberRule = {
