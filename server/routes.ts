@@ -103,7 +103,7 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
-import { eligiblePlayableCardCountSql, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
+import { eligibleCountsForSetIds, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicSets";
 import { handlePublicSetCover } from "./services/setCovers";
 import { registerCoverQaRoutes } from "./routes/coverQa";
@@ -7048,8 +7048,6 @@ export async function registerRoutes(
           isUserCreated: gameSets.isUserCreated,
           makerNote: gameSets.makerNote,
           createdByUserId: gameSets.createdByUserId,
-          // Same eligible-card count getRandomCardsFromSet deals.
-          actualPlayableCards: eligiblePlayableCardCountSql(),
         })
         .from(gameSets)
         .where(and(
@@ -7057,11 +7055,13 @@ export async function registerRoutes(
           ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
         ))
         .orderBy(gameSets.year, gameSets.setName);
+      // Same eligible-card count getRandomCardsFromSet deals, one grouped query.
+      const eligibleCounts = await eligibleCountsForSetIds(setsWithCounts.map((set) => set.id));
 
       const { kept, duplicateNames } = dedupeSetsByNameYearSport(
         setsWithCounts.map((set) => ({
           ...set,
-          actualPlayableCards: Number(set.actualPlayableCards) || 0,
+          actualPlayableCards: eligibleCounts.get(set.id) ?? 0,
         })),
       );
 

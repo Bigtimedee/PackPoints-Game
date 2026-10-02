@@ -17,6 +17,7 @@ import {
   PUBLIC_SET_MIN_ELIGIBLE_CARDS,
   dedupeSetsByNameYearSport,
   eligiblePlayableCardCountSql,
+  eligibleCountsForSetIds,
 } from "./playableSetEligibility";
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
@@ -61,7 +62,6 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
       createdAt: gameSets.createdAt,
       makerUsername: users.username,
       isUserCreated: gameSets.isUserCreated,
-      cardCount: eligiblePlayableCardCountSql(),
       playCount: userSetPlayCountSql,
     })
     .from(gameSets)
@@ -72,11 +72,12 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
       ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
     ))
     .orderBy(asc(gameSets.year), asc(gameSets.setName));
+  const counts = await eligibleCountsForSetIds(rows.map((row) => row.id));
 
   const { kept } = dedupeSetsByNameYearSport(
     rows.map((row) => ({
       ...row,
-      cardCount: Number(row.cardCount) || 0,
+      cardCount: counts.get(row.id) ?? 0,
       playCount: Number(row.playCount) || 0,
     })),
   );

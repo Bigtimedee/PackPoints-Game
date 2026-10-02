@@ -25,7 +25,12 @@ import {
 } from "../services/cardReview";
 import { loadDaily5Pool } from "../services/daily5Pool";
 import { isDealableCard, listActiveDealableSets } from "../services/dealableQa";
-import { eligibleCountsByActiveSet, maskNameStillCovered } from "../services/playableSetEligibility";
+import {
+  eligibleCountsByActiveSet,
+  eligibleCountsForSetIds,
+  eligiblePlayableCardCountSql,
+  maskNameStillCovered,
+} from "../services/playableSetEligibility";
 import { storage } from "../storage";
 
 const TOKEN = `card-review-${randomUUID().slice(0, 8)}`;
@@ -101,9 +106,17 @@ async function daily5Ids(gameSetId: string): Promise<string[]> {
   return pool.filtered.map((row) => row.id).sort();
 }
 
+/** Shelf lists use one grouped count. It must match the per-set count /api/sets/:id uses. */
 async function shelfCount(gameSetId: string): Promise<number | undefined> {
   const rows = await eligibleCountsByActiveSet();
-  return rows.find((row) => row.setId === gameSetId)?.count;
+  const shelf = rows.find((row) => row.setId === gameSetId)?.count;
+  const [detail] = await db
+    .select({ count: eligiblePlayableCardCountSql() })
+    .from(gameSets)
+    .where(eq(gameSets.id, gameSetId));
+  expect(shelf).toBe(Number(detail?.count));
+  expect((await eligibleCountsForSetIds([gameSetId])).get(gameSetId)).toBe(shelf);
+  return shelf;
 }
 
 async function snapshot(gameSetId: string) {
@@ -317,6 +330,7 @@ describe("card review guard", () => {
   it("leaves user-created sets alone", async () => {
     expect(cardReviewGuardEnabled()).toBe(true);
     expect(await soloIds(userSetId)).toEqual([ids.user]);
+    expect((await eligibleCountsForSetIds([userSetId])).get(userSetId)).toBe(1);
     const [row] = await db.select().from(cardReviewApprovals).where(eq(cardReviewApprovals.cardId, ids.user));
     expect(row).toBeUndefined();
   });

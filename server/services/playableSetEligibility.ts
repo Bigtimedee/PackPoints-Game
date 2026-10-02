@@ -6,8 +6,8 @@
  * Correlated counts must name `game_sets.id` as an identifier. Interpolating
  * the drizzle column rebinds it as a parameter and counts 0.
  */
-import { and, eq, sql, type SQL } from "drizzle-orm";
-import { gameSets } from "@shared/schema";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { cardNotBlockedSql, type BlocklistSqlOpts } from "../lib/cardBlocklist";
 import { maskRefusalStillClearSql, refusedAtCurrentMask } from "../masking/maskDealRefusal";
@@ -77,20 +77,48 @@ export function eligiblePlayableCardCountSql(): SQL<number> {
 )`;
 }
 
+/**
+ * Eligible-deal counts for many sets in one grouped query. Same filter as
+ * eligiblePlayableCardCountSql. Shelf lists use this instead of a correlated
+ * count per set row, which made /api/sets and /api/playable-sets about 8x
+ * slower in production once the card review guard was on.
+ * Every requested id is present in the result, 0 when nothing is eligible.
+ */
+export async function eligibleCountsForSetIds(setIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  for (const id of setIds) out.set(id, 0);
+  if (setIds.length === 0) return out;
+  const rows = await db
+    .select({
+      setId: playableCards.gameSetId,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(playableCards)
+    .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
+    .where(and(
+      inArray(playableCards.gameSetId, setIds),
+      eligibleDealFilter("playable_cards"),
+      sql`LOWER(playable_cards.category) = LOWER(game_sets.sport)`,
+    ))
+    .groupBy(playableCards.gameSetId);
+  for (const row of rows) out.set(row.setId, Number(row.count) || 0);
+  return out;
+}
+
 /** Active integrated sets. Counts are eligible deals, not raw imported rows. No card ids. */
 export async function eligibleCountsByActiveSet(): Promise<Array<{ setId: string; setName: string; count: number }>> {
   const rows = await db
     .select({
       setId: gameSets.id,
       setName: gameSets.setName,
-      count: eligiblePlayableCardCountSql(),
     })
     .from(gameSets)
     .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
+  const counts = await eligibleCountsForSetIds(rows.map((row) => row.setId));
   return rows.map((row) => ({
     setId: row.setId,
     setName: row.setName,
-    count: Number(row.count) || 0,
+    count: counts.get(row.setId) ?? 0,
   }));
 }
 
