@@ -596,8 +596,13 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
   it("deals the initial Daily 5 hand through the blocklist, including H inserts and Schmidt #28, and deals Dempsey #28", async () => {
     const src = readFileSync(new URL("../services/daily5Service.ts", import.meta.url), "utf8");
     const draw = src.slice(src.indexOf("async selectCardsForChallenge"), src.indexOf("async updateChallengeStatuses"));
-    expect(draw).toContain('cardNotBlockedSql("playable_cards")');
-    expect(draw).toContain("isBlockedCard(");
+    // The deal pool lives in daily5Pool.ts so deal, set resolver, and QA preview share it.
+    expect(draw).toContain("loadDaily5Pool(setId)");
+    const pool = readFileSync(new URL("../services/daily5Pool.ts", import.meta.url), "utf8");
+    expect(pool).toContain('cardNotBlockedSql("playable_cards")');
+    expect(pool).toContain("isBlockedCard(");
+    expect(pool).toContain("isMaskBandExcluded(");
+    expect(pool).toContain('maskNameStillCovered("playable_cards")');
     const create = src.slice(src.indexOf("async createChallengeForDate"), src.indexOf("async selectCardsForChallenge"));
     expect(create).toContain("selectCardsForChallenge");
     const serve = src.slice(src.indexOf("async getOrCreateTodayChallenge"), src.indexOf("async createChallengeForDate"));

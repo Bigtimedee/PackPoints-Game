@@ -4,7 +4,7 @@ import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 
 const DEAL_FILES = [
   "server/storage.ts",
-  "server/services/daily5Service.ts",
+  "server/services/daily5Pool.ts",
   "server/services/matchService.ts",
   "server/services/matches/replaceQuestion.ts",
 ];
