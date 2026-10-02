@@ -7,7 +7,7 @@
  *   refuses on an OCR timeout.
  * - Every other registered profile, and the unmatched default used by
  *   2024 Basketball and 2022 Chronicles, bakes exactly as before.
- * - The 20 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance, 4 from the All-Star subset ruling).
+ * - The 21 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance, 4 from the All-Star subset ruling, 1 Design P0 #210 Walker).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
@@ -391,6 +391,8 @@ describe("1990 Hoops card blocklist", () => {
     { id: "0b59775d-9a4c-459c-8152-ff4a794cd2b9", player: "Reggie Miller", number: "7" },
     { id: "3905b67e-e6cf-413d-90c0-05997d4caddc", player: "A.C. Green", number: "17" },
     { id: "c197de24-b783-465a-ae95-06fbd3975975", player: "David Robinson", number: "24" },
+    // Design P0 2026-10-02: BOWIE #25 on a defender's jersey back.
+    { id: "6154edb7-41d7-4f89-862a-1aa04ef5e8e2", player: "Kenny Walker", number: "210" },
   ];
 
   it("blocks the four coach-legend cards named in the request, the other eight, and Design's four clearance blocks", () => {
@@ -406,6 +408,11 @@ describe("1990 Hoops card blocklist", () => {
       expect(isBlockedCardIdRow({ id: row.id, gameSetId: HOOPS_SET_ID, player: row.player, number: row.number, variant: "Base" })).toBe(true);
       expect(body).toContain(row.id);
     }
+  });
+
+  it("blocks #210 Kenny Walker on re-import (Design P0) and leaves #8 Parish All-Star playable", () => {
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000210", gameSetId: HOOPS_SET_ID, player: "Kenny Walker", number: "210", variant: "Base" })).toBe(true);
+    expect(isBlockedCard(HOOPS_SET_ID, "Robert Parish", { id: "cec031ac-781d-44a8-8fa0-6547f006e6c6", number: "8", variant: "Base" })).toBe(false);
   });
 
   it("blocks the Design clearance cards on re-import and leaves Rodman #10 playable", () => {

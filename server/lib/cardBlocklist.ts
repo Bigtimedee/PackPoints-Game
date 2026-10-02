@@ -455,6 +455,8 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "0b59775d-9a4c-459c-8152-ff4a794cd2b9", number: "7", surname: "miller", variant: "base", reason: "All-Star subset: Design keeps held; no served image yet" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "3905b67e-e6cf-413d-90c0-05997d4caddc", number: "17", surname: "green", variant: "base", reason: "teammate jersey back reads BARKLEY (Design block)" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "c197de24-b783-465a-ae95-06fbd3975975", number: "24", surname: "robinson", variant: "base", reason: "opponent jersey back reads BARKL (Design block)" },
+  // Design P0 2026-10-02 4:18 PM CT: dealt live with a defender's jersey back reading BOWIE #25 in full.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "6154edb7-41d7-4f89-862a-1aa04ef5e8e2", number: "210", surname: "walker", variant: "base", reason: "defender jersey back reads BOWIE 25 (Design P0)" },
 ];
 
 export type BlockedSetNumberRule = {
