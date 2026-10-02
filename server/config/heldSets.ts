@@ -34,7 +34,7 @@ export function maskProfileForSet(set: MaskSetIdentity) {
 }
 
 export function setHasRegisteredMaskProfile(set: MaskSetIdentity): boolean {
-  return profileIsRegistered(maskProfileForSet(set));
+  return profileIsRegistered(maskProfileForSet(set), set.id);
 }
 
 export function currentHeldSetIds(): readonly string[] {

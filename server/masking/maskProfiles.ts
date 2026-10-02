@@ -46,9 +46,19 @@ export const MASK_LAYOUT_SET_IDS = {
   fleerBasketball1989: "aea515e2-24bc-42bd-a602-1514b89e8cd1",
   toppsBaseball1989: "352b33d1-c110-4e09-b641-8e3c02a94442",
   toppsFootball1994: "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
-  paniniChroniclesFootball2022: "74885a41-2043-4b7c-ab58-f9e16c05e2e3",
-  chromeBasketball2024: "229f0379-aa56-40a8-abe3-1af217a397e8",
 } as const;
+
+/**
+ * Live sets that still bake from OCR location on the unmatched default profile.
+ * Reviewed by Design. The hold skips these ids only. A re-import gets a new id
+ * and is held until it has a registered profile.
+ */
+export const MASK_HOLD_EXEMPT_SET_IDS = [
+  "74885a41-2043-4b7c-ab58-f9e16c05e2e3",
+  "229f0379-aa56-40a8-abe3-1af217a397e8",
+] as const;
+
+const holdExemptSetIds = new Set<string>(MASK_HOLD_EXEMPT_SET_IDS);
 
 /** 1990 NBA Hoops prints the name in the top plate. Same band as 1989 Fleer Basketball. */
 export const HOOPS_1990_PROFILE_ID = "1990-hoops-top";
@@ -128,20 +138,6 @@ const hoopsBasketball1990 = profile(HOOPS_1990_PROFILE_ID, "top", TOP_NAME_PLATE
   bottomBandPct: 0,
 });
 
-/**
- * These two production sets had no year+brand+sport key and baked the default
- * bottom 46% plaque. The geometry stays. The profile id is registered so a
- * dealable set is never served profileId "default".
- */
-const paniniChroniclesFootball2022 = profile("2022-panini-chronicles-football", "bottom", BOTTOM_PLAQUE_46, {
-  bottomBandPct: 0.46,
-  topBandPct: 0,
-});
-const chromeBasketball2024 = profile("2024-basketball", "bottom", BOTTOM_PLAQUE_46, {
-  bottomBandPct: 0.46,
-  topBandPct: 0,
-});
-
 const toppsBaseball1987 = profile("1987-topps", "bottom", BOTTOM_PLAQUE_46, { bottomBandPct: 0.46, topBandPct: 0 });
 const toppsBaseball1989 = profile("1989-topps", "bottom", BOTTOM_PLAQUE_46, { bottomBandPct: 0.46, topBandPct: 0 });
 const toppsFootball1987 = profile("1987-topps-football", "top", TOP_PLATE_24, {
@@ -174,8 +170,6 @@ const setIdProfiles: Record<string, MaskProfile> = {
   [MASK_LAYOUT_SET_IDS.toppsBaseball1987]: toppsBaseball1987,
   [MASK_LAYOUT_SET_IDS.fleerBasketball1989]: fleerBasketballTop,
   [MASK_LAYOUT_SET_IDS.toppsBaseball1989]: toppsBaseball1989,
-  [MASK_LAYOUT_SET_IDS.paniniChroniclesFootball2022]: paniniChroniclesFootball2022,
-  [MASK_LAYOUT_SET_IDS.chromeBasketball2024]: chromeBasketball2024,
 };
 
 export interface ParsedSetHint {
@@ -237,6 +231,7 @@ function baseballYearBrandProfile(hint: ParsedSetHint): MaskProfile | null {
 /**
  * An unmatched hint still returns the default bottom 46% profile.
  * Active integrated sets that resolve here are held and are not dealt.
+ * MASK_HOLD_EXEMPT_SET_IDS stay on this same default and stay dealable.
  */
 export function getMaskProfile(setName: string | null | undefined, gameSetId?: string | null): MaskProfile {
   const id = (gameSetId || "").trim().toLowerCase();
@@ -262,7 +257,14 @@ export function getMaskProfile(setName: string | null | undefined, gameSetId?: s
   return defaultProfile;
 }
 
-export function profileIsRegistered(profile: MaskProfile): boolean {
+export function isMaskHoldExemptSet(gameSetId?: string | null): boolean {
+  const id = (gameSetId || "").trim().toLowerCase();
+  return id.length > 0 && holdExemptSetIds.has(id);
+}
+
+/** A matched profile, or a legacy id in MASK_HOLD_EXEMPT_SET_IDS. */
+export function profileIsRegistered(profile: MaskProfile, gameSetId?: string | null): boolean {
+  if (isMaskHoldExemptSet(gameSetId)) return true;
   return profile.matched && profile.id !== "default";
 }
 

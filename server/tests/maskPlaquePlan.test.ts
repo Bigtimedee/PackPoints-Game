@@ -162,12 +162,12 @@ describe("live hints stay dealable and bake a region", () => {
     resetDefaultProfileLogForTests();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     logDealtDefaultMaskProfiles([
-      { setHint: LIVE_HINTS[1].hint, gameSetId: "2023-panini-basketball" },
-      { setHint: LIVE_HINTS[1].hint, gameSetId: "2023-panini-basketball" },
+      { setHint: LIVE_HINTS[0].hint, gameSetId: DAILY5_BASKETBALL_SET },
+      { setHint: LIVE_HINTS[0].hint, gameSetId: DAILY5_BASKETBALL_SET },
       { setHint: "1987 Topps baseball", gameSetId: MASK_LAYOUT_SET_IDS.toppsBaseball1987 },
     ]);
     expect(spy).toHaveBeenCalledWith(
-      "[MaskProfile] default profile used set=2023-panini-basketball count=2",
+      `[MaskProfile] default profile used set=${DAILY5_BASKETBALL_SET} count=2`,
     );
     spy.mockRestore();
     resetDefaultProfileLogForTests();
@@ -177,17 +177,17 @@ describe("live hints stay dealable and bake a region", () => {
     resetDefaultProfileLogForTests();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const now = 1_700_000_000_000;
-    const card = { setHint: "unknown set", gameSetId: "2023-panini-basketball" };
+    const card = { setHint: "unknown set", gameSetId: DAILY5_BASKETBALL_SET };
     logDealtDefaultMaskProfiles([card], now);
     logDealtDefaultMaskProfiles([card, card], now + 60_000);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(
-      "[MaskProfile] default profile used set=2023-panini-basketball count=1",
+      `[MaskProfile] default profile used set=${DAILY5_BASKETBALL_SET} count=1`,
     );
     logDealtDefaultMaskProfiles([card, card, card], now + 10 * 60 * 1000);
     expect(spy).toHaveBeenCalledTimes(2);
     expect(spy).toHaveBeenLastCalledWith(
-      "[MaskProfile] default profile used set=2023-panini-basketball count=3",
+      `[MaskProfile] default profile used set=${DAILY5_BASKETBALL_SET} count=3`,
     );
     spy.mockRestore();
     resetDefaultProfileLogForTests();

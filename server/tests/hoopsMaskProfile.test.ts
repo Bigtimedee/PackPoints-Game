@@ -1,6 +1,7 @@
 /**
  * 1990 NBA Hoops resolves to the Fleer-style top plate by set identity.
- * The seven live sets stay registered, so the mask route never answers profileId default for them.
+ * Dealable sets that are not hold-exempt never answer profileId default.
+ * 2022 Panini Chronicles and 2024 Basketball stay on the unmatched default.
  */
 import express from "express";
 import { createServer } from "http";
@@ -12,6 +13,7 @@ import {
   getMaskProfile,
   hoopsBottomBakeIsStale,
   HOOPS_1990_PROFILE_ID,
+  MASK_HOLD_EXEMPT_SET_IDS,
   MASK_LAYOUT_SET_IDS,
   profileIsRegistered,
 } from "../masking/maskProfiles";
@@ -24,7 +26,7 @@ const H = 700;
 const NEW_HOOPS_ID = "11111111-2222-4333-8444-555555555555";
 const OLD_HOOPS_ID = "c2ce5d11-bc9b-43ea-888e-609fdcec76e0";
 
-const SEVEN = [
+const MATCHED = [
   {
     id: MASK_LAYOUT_SET_IDS.toppsBaseball1987,
     hint: buildSetMaskHint({ year: 1987, brand: "Topps", sport: "baseball", setName: "1987 Topps" }),
@@ -55,17 +57,24 @@ const SEVEN = [
     profileId: "1994-topps-football",
     anchor: "bottom",
   },
+] as const;
+
+const OCR_DEFAULT_SETS = [
   {
-    id: MASK_LAYOUT_SET_IDS.paniniChroniclesFootball2022,
+    id: MASK_HOLD_EXEMPT_SET_IDS[0],
     hint: buildSetMaskHint({ year: 2022, brand: "Panini", sport: "football", setName: "2022 Panini Chronicles Football" }),
-    profileId: "2022-panini-chronicles-football",
-    anchor: "bottom",
+    reimport: { year: 2022, brand: "Panini", sport: "football", setName: "2022 Panini Chronicles Football" },
   },
   {
-    id: MASK_LAYOUT_SET_IDS.chromeBasketball2024,
-    hint: buildSetMaskHint({ year: 2025, brand: "Topps", sport: "basketball", setName: "2024 Basketball", category: "basketball" }),
-    profileId: "2024-basketball",
-    anchor: "bottom",
+    id: MASK_HOLD_EXEMPT_SET_IDS[1],
+    hint: buildSetMaskHint({
+      year: 2025,
+      brand: "Topps",
+      sport: "basketball",
+      setName: "2024 Basketball",
+      category: "basketball",
+    }),
+    reimport: { year: 2025, brand: "Topps", sport: "basketball", setName: "2024 Basketball", category: "basketball" },
   },
 ] as const;
 
@@ -145,13 +154,13 @@ describe("1990 Hoops top-name profile", () => {
   });
 });
 
-describe("seven live sets stay registered", () => {
-  it("each id resolves to its profile and is not the default bottom profile", () => {
-    for (const row of SEVEN) {
+describe("live sets", () => {
+  it("matched sets resolve to their profiles", () => {
+    for (const row of MATCHED) {
       const profile = getMaskProfile(row.hint, row.id);
       expect(profile.id, row.id).toBe(row.profileId);
       expect(profile.nameAnchor, row.id).toBe(row.anchor);
-      expect(profileIsRegistered(profile), row.id).toBe(true);
+      expect(profileIsRegistered(profile, row.id), row.id).toBe(true);
       expect(profile.id, row.id).not.toBe("default");
       expect(setHasRegisteredMaskProfile({
         id: row.id,
@@ -179,6 +188,23 @@ describe("seven live sets stay registered", () => {
     expect(hoops).toBe(true);
   });
 
+  it("keeps 2022 Panini and 2024 Basketball on the unmatched default and unheld", () => {
+    const mainDefault = getMaskProfile("no registered profile", null);
+    expect(mainDefault.matched).toBe(false);
+    expect(mainDefault.id).toBe("default");
+    for (const row of OCR_DEFAULT_SETS) {
+      const profile = getMaskProfile(row.hint, row.id);
+      expect(profile, row.id).toEqual(mainDefault);
+      expect(profile.matched, row.id).toBe(false);
+      expect(profile.id, row.id).toBe("default");
+      expect(profileIsRegistered(profile, row.id), row.id).toBe(true);
+      expect(setHasRegisteredMaskProfile({ id: row.id, ...row.reimport }), row.id).toBe(true);
+      const reimportId = `${row.id.slice(0, 8)}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`;
+      expect(setHasRegisteredMaskProfile({ id: reimportId, ...row.reimport }), reimportId).toBe(false);
+      expect(getMaskProfile(row.hint, reimportId), reimportId).toEqual(mainDefault);
+    }
+  });
+
   const app = express();
   app.get("/api/card-sets/:setKey/mask", async (req, res) => {
     const config = await getMaskConfig(req.params.setKey || "");
@@ -198,13 +224,19 @@ describe("seven live sets stay registered", () => {
     });
   });
 
-  it("GET /api/card-sets/:id/mask never returns profileId default for a dealable set", async () => {
-    for (const row of SEVEN) {
+  it("GET /api/card-sets/:id/mask returns default only for the OCR-default exempt sets", async () => {
+    for (const row of MATCHED) {
       const res = await fetch(`${base}/api/card-sets/${row.id}/mask`);
       expect(res.status, row.id).toBe(200);
-      const body = await res.json() as { profileId?: string; regions: Array<{ yPct: number; hPct: number }> };
+      const body = await res.json() as { profileId?: string };
       expect(body.profileId, row.id).toBe(row.profileId);
       expect(body.profileId, row.id).not.toBe("default");
+    }
+    for (const row of OCR_DEFAULT_SETS) {
+      const res = await fetch(`${base}/api/card-sets/${row.id}/mask`);
+      expect(res.status, row.id).toBe(200);
+      const body = await res.json() as { profileId?: string };
+      expect(body.profileId, row.id).toBe("default");
     }
   });
 });
