@@ -19,6 +19,27 @@ export interface SpaRouteMeta {
   twitterCard: string;
 }
 
+/**
+ * Homepage link preview v2 (Design, 2026-10-02). These tags live statically in
+ * client/index.html, so every route without its own SPA_ROUTE_META entry (and
+ * without a play-sets preview) serves them unchanged. Kept here so tests can
+ * hold index.html to the approved copy. The <title> stays "PackPTS" (TikTok
+ * app-name rule in index.html). Twitter uses Design's shorter description.
+ */
+export const HOME_ROUTE_META = {
+  title: "Can you name all 5? \u00b7 PackPTS",
+  description:
+    "A real trading card with the name masked. Pick the player from four choices. Daily 5 is the same five for everyone, new every day. Play free.",
+  twitterDescription:
+    "Real cards, names masked. Pick the player from four. Same Daily 5 for everyone. Play free.",
+  url: "https://packpts.com/",
+  image: "https://packpts.com/og-image.png?v=2", // File is client/public/og-image.png. Bump ?v= if it changes.
+  imageWidth: "1200",
+  imageHeight: "630",
+  imageAlt: "A masked trading card with a gold bar over the name, next to the question: Who's on the card?",
+  twitterCard: "summary_large_image",
+} as const;
+
 export const SPA_ROUTE_META: Readonly<Record<string, SpaRouteMeta>> = {
   "/daily": {
     title: "Daily 5. Five cards. Name them.",
