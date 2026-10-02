@@ -30,11 +30,14 @@ type CardAlias = "pc" | "playable_cards";
 
 /**
  * SQL text, true when the card may be dealt as far as review is concerned:
- * its id is approved, or its set is user-created. Correlated on `alias.id`.
+ * its id is approved, or its set is user-created.
+ * Uncorrelated IN subqueries so Postgres hashes each list once per query
+ * instead of probing per card row. The per-row EXISTS form made /api/sets
+ * about 8x slower in production.
  */
 export function cardReviewApprovedClause(alias: CardAlias): string {
-  return `(EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = ${alias}.id)`
-    + ` OR EXISTS (SELECT 1 FROM game_sets crgs WHERE crgs.id = ${alias}.game_set_id AND crgs.is_user_created = true))`;
+  return `(${alias}.id IN (SELECT cra.card_id FROM card_review_approvals cra)`
+    + ` OR ${alias}.game_set_id IN (SELECT crgs.id FROM game_sets crgs WHERE crgs.is_user_created = true))`;
 }
 
 /** Blocklist OR-clause, true when the card is awaiting review. Null when the guard is off. */
