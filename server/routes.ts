@@ -108,6 +108,7 @@ import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicS
 import { handlePublicSetCover } from "./services/setCovers";
 import { registerCoverQaRoutes } from "./routes/coverQa";
 import { registerDealableQaRoutes } from "./routes/dealableQa";
+import { registerSignupQaRoutes } from "./routes/signupQa";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
@@ -510,6 +511,7 @@ export async function registerRoutes(
   // and does not bake. Public /sets covers never bake.
   registerDealableQaRoutes(app);
   registerCoverQaRoutes(app);
+  registerSignupQaRoutes(app);
 
   // Public: Get a single set by id with maker metadata and play count
   app.get("/api/sets/:id", (req, res) => {
