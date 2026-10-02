@@ -26,6 +26,7 @@ import { cardPoolRefreshCandidateFilter, restorePlayableIfMaskAllows } from "../
 import { eligibleDealFilter, maskNameStillCovered } from "../services/playableSetEligibility";
 import {
   BLOCKED_CARD_ID_RULES,
+  HOOPS_1990_SET_PREFIX,
   BLOCKED_SET_NUMBERS,
   TOPPS_1987_SCHMIDT_CARD_ID,
   TOPPS_1989_DWAYNE_HENRY_CARD_ID,
@@ -175,7 +176,8 @@ afterAll(async () => {
 describe("v4.6 sweep blocklist: the 26 ids", () => {
   it("lists exactly the 26 sweep ids plus Schmidt, each with the set and number from the report", () => {
     const rules = new Map(BLOCKED_CARD_ID_RULES.map((rule) => [rule.id, rule]));
-    expect(BLOCKED_CARD_ID_RULES).toHaveLength(27);
+    // 1990 Hoops rows are covered in hoopsTrustedBand.test.ts.
+    expect(BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId !== HOOPS_1990_SET_PREFIX)).toHaveLength(27);
     expect(rules.has(TOPPS_1987_SCHMIDT_CARD_ID)).toBe(true);
     const prefixes: Record<Sweep["set"], string> = { "1989-topps": "352b33d1", "1987-topps-football": "91cfdf3f", "1994-topps-football": "a09b2fe7" };
     for (const card of SWEEP) {

@@ -9,6 +9,13 @@ import { detectPsaSlabLayout } from "./slabLayout";
 import { assertOpaqueIdentityCover } from "./maskCoverage";
 import { detectAnchorPlate, detectAnchorTextPlate } from "./namePlateDetect";
 import { verifyMaskedNamePlate } from "./maskPlateVerify";
+import { maskBandFailure, maskBandGuardEnforces } from "./maskBandLimit";
+import {
+  trustedProfileBandCheck,
+  trustedProfileBandPlan,
+  verifyTrustedProfileBand,
+  type TrustedBandTrigger,
+} from "./trustedProfileBand";
 import { applyServedRotation, uprightCardImage } from "./cardOrientation";
 import { recognizeWords } from "./ocrRuntime";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
@@ -39,6 +46,11 @@ export interface MaskResult {
   plateTrace: NamePlateTrace;
   /** Upright source the boxes were measured on. Not written to the mask cache. */
   sourceBuffer: Buffer;
+  /**
+   * Set only on a `trustProfileBand` profile when the fixed band replaced a
+   * refusal. Null on every other bake.
+   */
+  trustedBand: { trigger: TrustedBandTrigger; why: string } | null;
 }
 
 /** Same navy as the GameCard name band (`#0a0e16`). No alpha channel. */
@@ -271,7 +283,7 @@ export async function maskCardImage(
     }
   }
 
-  const plan = resolveNameMaskPlan({
+  let plan = resolveNameMaskPlan({
     playerName,
     setHint: setName,
     gameSetId: opts.gameSetId,
@@ -283,6 +295,34 @@ export async function maskCardImage(
     topTextPlate,
     bottomTextPlate,
   });
+
+  // Fixed top-plate profiles only (trustProfileBand). Every other profile
+  // skips this block and bakes exactly as before.
+  const trustEligible = profile.trustProfileBand && !slabLayout && !upright.orientationAmbiguous;
+  const trustCheck = () => trustedProfileBandCheck({
+    profile,
+    topTextPlate,
+    words,
+    playerName,
+    imageWidth: originalWidth,
+    imageHeight: originalHeight,
+  });
+  let trustedBand: MaskResult["trustedBand"] = null;
+  if (trustEligible) {
+    const trigger: TrustedBandTrigger | null = plan.namePlateUnresolved
+      ? "name_plate_unresolved"
+      : plan.plateTrace.decision === "plate_extends_profile" && maskBandGuardEnforces() && maskBandFailure(plan.regions) === "mask_band_oversized"
+        ? "mask_band_oversized"
+        : null;
+    if (trigger) {
+      const check = trustCheck();
+      if (check.ok) {
+        plan = trustedProfileBandPlan(profile, plan, trigger, check.why);
+        trustedBand = { trigger, why: check.why };
+      }
+    }
+  }
+
   const regions = !upright.orientationAmbiguous
     ? plan.regions
     : upright.rotation === 0
@@ -298,7 +338,7 @@ export async function maskCardImage(
     imageWidth: originalWidth,
     imageHeight: originalHeight,
   });
-  if (coverage.ok) {
+  if (coverage.ok && !trustedBand) {
     const text = await verifyMaskedNamePlate({
       buffer: maskedBuffer,
       plate: plan.plate ?? detectedPlate,
@@ -307,6 +347,39 @@ export async function maskCardImage(
       imageHeight: originalHeight,
     });
     if (!text.ok) coverage = text;
+    // The plate row check reads rows just under the band. On a trusted
+    // profile that is the photo arch. The band itself is the opaque fill
+    // (assertOpaqueIdentityCover above), so hand the card to the OCR check.
+    if (
+      trustEligible
+      && !text.ok
+      && text.reason === "name_text_visible"
+      && plan.plateTrace.decision === "profile_band"
+      && !plan.namePlateUnresolved
+    ) {
+      const check = trustCheck();
+      if (check.ok) {
+        plan = trustedProfileBandPlan(profile, plan, "name_text_visible", check.why);
+        trustedBand = { trigger: "name_text_visible", why: check.why };
+        // assertOpaqueIdentityCover passed above. The OCR check below decides.
+        coverage = { ok: true, reason: null };
+      }
+    }
+  }
+  if (coverage.ok && trustedBand) {
+    const verdict = await verifyTrustedProfileBand({
+      buffer: maskedBuffer,
+      playerName,
+      regions,
+      bandBottomPct: profile.topBandPct,
+      imageWidth: originalWidth,
+      imageHeight: originalHeight,
+    });
+    coverage = { ok: verdict.ok, reason: verdict.reason };
+    console.log(
+      `[MaskBake] trusted profile band card=${opts.cardId ?? "none"} profile=${profile.id} from=${trustedBand.trigger} `
+      + `verdict=${verdict.ok ? "ok" : verdict.reason}${verdict.token ? ` token=${verdict.token}` : ""}`,
+    );
   }
   if (plan.namePlateUnresolved) {
     coverage = { ok: false, reason: "name_plate_unresolved" };
@@ -329,6 +402,7 @@ export async function maskCardImage(
     layoutDisagreed: plan.layoutDisagreed,
     plateTrace: plan.plateTrace,
     sourceBuffer: upright.buffer,
+    trustedBand,
   };
 }
 
