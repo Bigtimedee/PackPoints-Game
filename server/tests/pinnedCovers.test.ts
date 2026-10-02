@@ -168,6 +168,24 @@ describe("pinned set covers", () => {
     expect(topps.picks).toContain("0084c5bd-433b-488f-9679-e67550c8f756");
     expect(topps.alternates).toContain("11b7210e-d252-432a-9f20-2727755f9390");
     expect(PINNED_SET_COVERS["229f0379-aa56-40a8-abe3-1af217a397e8"].set).toBe("2024 Basketball");
+    const hoops = PINNED_SET_COVERS["d226801a-da94-47f6-a09a-3735def60b2d"];
+    expect(hoops.set).toBe("1990 Hoops Basketball");
+    expect(hoops.picks).toEqual([
+      "a49bc8e8-9222-4195-809d-d16253619eb9",
+      "9dc6289a-982e-4ce5-a6c0-99bbe7195052",
+      "0389540c-52e1-4e7d-af11-b1ec92c4eb6d",
+      "b7a024cd-6b4a-4afb-85c6-425e26616aad",
+      "d13c5632-2ec0-4dac-86bb-627e44ab46d9",
+      "5325ca93-ce71-415a-bb1b-e226ef9e0fb7",
+      "f20ab3ef-c8a2-4e5a-bbbd-9320a8498a2c",
+      "cecb5369-3e9b-45ed-bcbc-7285b8fc268f",
+    ]);
+    expect(hoops.alternates).toEqual([
+      "b86c37c0-5a56-402d-b466-7b0d177a6950",
+      "328cbaed-0ecd-43ed-b2e4-ea8ee4aa3694",
+      "916b4205-04a9-4380-a589-d07c7c24ea43",
+      "6c5f0f57-7e78-4c3d-adc5-8e5a335a111d",
+    ]);
     for (const list of Object.values(PINNED_SET_COVERS)) {
       expect(list.picks.length).toBeGreaterThan(0);
       expect(list.picks.length).toBeLessThanOrEqual(8);
