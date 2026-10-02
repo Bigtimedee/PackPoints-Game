@@ -140,6 +140,9 @@ export async function collectGrowthSignals(
         bestScore: daily.bestScore ?? 0,
         lookbackHours,
       },
+      // Existing PackPTS-owned Daily 5 social asset. This is a real product
+      // screenshot, not generated filler, and is safe for Growth Agent use.
+      assetPath: "/daily5-masked-1080.png",
       observedAt: now,
       expiresAt,
     });
