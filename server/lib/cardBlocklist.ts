@@ -265,6 +265,13 @@ export type BlockedCardIdRule = {
   variant: string;
   /** Why this one card is blocked. Not shown to players. */
   reason: string;
+  /**
+   * Match this id only, with no re-import match. Used for a duplicate row
+   * whose twin shares set + number + surname + variant and must stay playable.
+   * A re-imported copy gets a new id, which the card review guard holds until
+   * Design approves it.
+   */
+  idOnly?: true;
 };
 
 /** 1989 Topps baseball. */
@@ -457,6 +464,18 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "c197de24-b783-465a-ae95-06fbd3975975", number: "24", surname: "robinson", variant: "base", reason: "opponent jersey back reads BARKL (Design block)" },
   // Design P0 2026-10-02 4:18 PM CT: dealt live with a defender's jersey back reading BOWIE #25 in full.
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "6154edb7-41d7-4f89-862a-1aa04ef5e8e2", number: "210", surname: "walker", variant: "base", reason: "defender jersey back reads BOWIE 25 (Design P0)" },
+  // Design zoom re-review of the Hoops pool 2026-10-02 4:38 PM CT (8).
+  // Duplicate rows. #385 Super Streaks Jordan/Magic is dropped in both copies (sideways, ambiguous).
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "27323dcf-26d9-41bd-899a-e37bd4da9d13", number: "385", surname: "jordan", variant: "base", reason: "Super Streaks Jordan/Magic: sideways and ambiguous (Design drop, copy 1)" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "478616ae-8851-4f8c-a41f-a5845620008a", number: "385", surname: "jordan", variant: "base", reason: "Super Streaks Jordan/Magic: sideways and ambiguous (Design drop, copy 2)" },
+  // One copy of each pair. The kept twin shares number + surname + variant, so these match by id only.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "8a933899-f252-4700-981d-73d5fd8412db", number: "127", surname: "olajuwon", variant: "base", reason: "duplicate of #127 Hakeem Olajuwon 8013caa1", idOnly: true },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "ae15a554-385d-43d7-8bde-4ad06e932f31", number: "23", surname: "olajuwon", variant: "base", reason: "duplicate of #23 Hakeem Olajuwon All-Star 775e6ba0", idOnly: true },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "cb9cf3eb-b8c1-4ef8-81cd-6ac2bccb76dd", number: "8", surname: "parish", variant: "base", reason: "duplicate of #8 Parish All-Star cec031ac (variant 'Base ')", idOnly: true },
+  // Close-up leaks.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "683cc4eb-4a39-46af-b7ee-82e552b1538a", number: "37", surname: "willis", variant: "base", reason: "arena board reads WILKINS" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "8e49902d-ed15-4521-bbbf-918a164889d4", number: "6", surname: "mchale", variant: "base", reason: "All-Star: banner reads Wilt Chamb" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "7cdc6abb-5679-4830-95c9-e3041057f73f", number: "21", surname: "malone", variant: "base", reason: "All-Star: jersey back reads THOMA" },
 ];
 
 export type BlockedSetNumberRule = {
@@ -635,7 +654,8 @@ function reimportedBlockedRow(setId: string, player: string, fields?: BlocklistC
   const number = normalizeCardNumber(fields?.number);
   if (!number) return false;
   return BLOCKED_CARD_ID_RULES.some((rule) =>
-    sameSet(setId, rule.gameSetId, true)
+    !rule.idOnly
+    && sameSet(setId, rule.gameSetId, true)
     && number === rule.number
     && player.includes(rule.surname)
     && variantMatches(rule.variant, fields?.variant));
@@ -825,6 +845,7 @@ export function blockedCardIdClause(alias: CardAlias): string {
   return BLOCKED_CARD_ID_RULES
     .map((rule) => {
       const byId = `lower(${alias}.id) = ${sqlQuote(rule.id.toLowerCase())}`;
+      if (rule.idOnly) return byId;
       const byRow = `(lower(${alias}.game_set_id) LIKE ${sqlQuote(`${rule.gameSetId.toLowerCase()}%`)}`
         + ` AND ${normalizedNumberSql(alias)} = ${sqlQuote(rule.number)}`
         + ` AND strpos(lower(COALESCE(${alias}.player, '')), ${sqlQuote(rule.surname)}) > 0`

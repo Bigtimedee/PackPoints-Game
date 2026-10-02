@@ -272,7 +272,7 @@ describe("isBlockedCard", () => {
       "[blocklist] set=a09b2fe7 blockedIds=8 blockedNumbers=0 blockedPatterns=0",
       "[blocklist] set=229f0379 blockedIds=19 blockedNumbers=0 blockedPatterns=2",
       "[blocklist] set=74885a41 blockedIds=12 blockedNumbers=0 blockedPatterns=0",
-      "[blocklist] set=d226801a blockedIds=21 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=d226801a blockedIds=29 blockedNumbers=0 blockedPatterns=0",
     ]);
     for (const line of leakBlocklistLogLines()) expect(spy).toHaveBeenCalledWith(line);
     spy.mockRestore();
