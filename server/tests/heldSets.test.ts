@@ -1,6 +1,7 @@
 /**
- * An active set with no registered mask profile stays off deals and public set pages.
- * 1990 Hoops matches by identity, so a new id is dealable.
+ * An active integrated set stays off deals and public set pages until its id is cleared.
+ * A new 1990 Hoops id has a profile and is still held for design clearance.
+ * The keeper id is released through CLEARED_SET_IDS_EXTRA.
  */
 import { createServer } from "http";
 import type { AddressInfo } from "net";
@@ -17,7 +18,7 @@ import {
   playableCards,
 } from "@shared/schema";
 import { db } from "../db";
-import { ensureHeldSets, isHeldSet, logHeldSets, NO_MASK_PROFILE_REASON } from "../config/heldSets";
+import { AWAITING_DESIGN_CLEARANCE_REASON, ensureHeldSets, isHeldSet, logHeldSets, NO_MASK_PROFILE_REASON } from "../config/heldSets";
 import { cardBlocklistWhereBody, isBlockedCard } from "../lib/cardBlocklist";
 import { storage } from "../storage";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
@@ -35,6 +36,7 @@ const STALE_HOOPS_ID = "c2ce5d11-bc9b-43ea-888e-609fdcec76e0";
 const date = "2099-09-27";
 const TOKEN = `held-qa-${stamp}`;
 const previousToken = process.env.COVER_QA_TOKEN;
+const previousExtra = process.env.CLEARED_SET_IDS_EXTRA;
 
 const cardIds: string[] = [];
 let heldExisted = false;
@@ -72,6 +74,7 @@ async function clearChallenge(id: string | null) {
 }
 
 beforeAll(async () => {
+  process.env.CLEARED_SET_IDS_EXTRA = keeperId;
   const [prior] = await db.select({ id: dailyChallenges.id }).from(dailyChallenges).where(eq(dailyChallenges.date, date)).limit(1);
   if (prior) await clearChallenge(prior.id);
 
@@ -167,6 +170,8 @@ afterAll(async () => {
   }
   if (previousToken === undefined) delete process.env.COVER_QA_TOKEN;
   else process.env.COVER_QA_TOKEN = previousToken;
+  if (previousExtra === undefined) delete process.env.CLEARED_SET_IDS_EXTRA;
+  else process.env.CLEARED_SET_IDS_EXTRA = previousExtra;
 });
 
 describe("held set blocklist", () => {
@@ -175,17 +180,17 @@ describe("held set blocklist", () => {
     expect(isHeldSet(HELD_ID)).toBe(true);
     expect(isHeldSet(HELD_ID.toUpperCase())).toBe(true);
     expect(isHeldSet(keeperId)).toBe(false);
-    expect(isHeldSet(hoopsId)).toBe(false);
+    expect(isHeldSet(hoopsId)).toBe(true);
     expect(isBlockedCard(HELD_ID, "Michael Jordan")).toBe(true);
     expect(isBlockedCard(HELD_ID, "")).toBe(true);
     expect(isBlockedCard(keeperId, "Michael Jordan")).toBe(false);
-    expect(isBlockedCard(hoopsId, "Michael Jordan")).toBe(false);
+    expect(isBlockedCard(hoopsId, "Michael Jordan")).toBe(true);
 
     const body = cardBlocklistWhereBody("playable_cards");
     expect(body).toContain(`'${HELD_ID}'`);
     const pc = cardBlocklistWhereBody("pc");
     expect(pc).toContain(`'${HELD_ID}'`);
-    expect(body).not.toContain(`'${hoopsId}'`);
+    expect(body).toContain(`'${hoopsId}'`);
     expect(cardBlocklistWhereBody("playable_cards", { ignoreHeldSets: true })).not.toContain(HELD_ID);
 
     const lines: string[] = [];
@@ -196,7 +201,7 @@ describe("held set blocklist", () => {
     spy.mockRestore();
     const boot = lines.find((line) => line.startsWith("[HeldSets] "));
     expect(boot).toContain(`${HELD_ID.slice(0, 8)}:${NO_MASK_PROFILE_REASON}`);
-    expect(boot).not.toContain(hoopsId.slice(0, 8));
+    expect(boot).toContain(`${hoopsId.slice(0, 8)}:${AWAITING_DESIGN_CLEARANCE_REASON}`);
   });
 });
 
@@ -254,7 +259,7 @@ describe("public sets hide a held set", () => {
     const ids = body.sets.map((set) => set.id);
     expect(ids).not.toContain(HELD_ID);
     expect(ids).toContain(keeperId);
-    expect(ids).toContain(hoopsId);
+    expect(ids).not.toContain(hoopsId);
     expect(ids).not.toContain(userSetId);
 
     const detail = await fetch(`${base}/api/sets/${HELD_ID}`);
@@ -264,7 +269,7 @@ describe("public sets hide a held set", () => {
     const keeper = await fetch(`${base}/api/sets/${keeperId}`);
     expect(keeper.status).toBe(200);
     const hoops = await fetch(`${base}/api/sets/${hoopsId}`);
-    expect(hoops.status).toBe(200);
+    expect(hoops.status).toBe(404);
 
     const cover = await fetch(`${base}/api/sets/${HELD_ID}/covers/0`);
     expect(cover.status).toBe(404);
@@ -306,7 +311,7 @@ describe("QA routes flag a held set", () => {
     expect(held?.total).toBeGreaterThan(0);
     expect(keeper).toMatchObject({ setId: keeperId, held: false, reason: null });
     const hoops = setsBody.sets.find((row) => row.setId === hoopsId);
-    expect(hoops).toMatchObject({ setId: hoopsId, held: false, reason: null });
+    expect(hoops).toMatchObject({ setId: hoopsId, held: true, reason: AWAITING_DESIGN_CLEARANCE_REASON });
     expect(setsBody.sets.some((row) => row.setId === userSetId)).toBe(false);
 
     const page = await fetch(`${base}/api/qa/sets/${HELD_ID}/dealable-cards`, { headers });

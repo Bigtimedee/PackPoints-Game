@@ -18,6 +18,7 @@ import { coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { warmMaskPlanFilename } from "../masking/maskPlanStore";
 import { registerCoverQaRoutes } from "../routes/coverQa";
+import { releaseSetsForTests } from "../config/heldSets";
 import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
@@ -66,7 +67,10 @@ describe("cover QA routes", () => {
   registerCoverQaRoutes(app);
   const server = createServer(app);
 
+  let restoreClearance: (() => Promise<void>) | undefined;
+
   beforeAll(async () => {
+    restoreClearance = await releaseSetsForTests([setId]);
     dir = await mkdtemp(path.join(tmpdir(), "packpts-cover-qa-"));
     setMaskReadySidecarDirForTests(dir);
     setToken(undefined);
@@ -137,6 +141,7 @@ describe("cover QA routes", () => {
   });
 
   afterAll(async () => {
+    if (restoreClearance) await restoreClearance();
     setToken(previousToken);
     setCoversFlag(previousCovers);
     setPinnedCoversForTests(setId, null);

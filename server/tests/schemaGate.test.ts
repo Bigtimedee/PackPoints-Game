@@ -35,7 +35,7 @@ describe("schema gate", () => {
     });
   });
 
-  it("serves a warm masked JPEG during the schema window and keeps reveal closed", async () => {
+  it("refuses a warm JPEG for an unknown card during the schema window and keeps reveal closed", async () => {
     resetSchemaGateForTests();
     const dir = await mkdtemp(path.join(tmpdir(), "packpts-warm-"));
     const cardId = "card-warm-1";
@@ -44,9 +44,10 @@ describe("schema gate", () => {
     setWarmMaskDirForTests(dir);
     const token = maskToken("solo", "session-1", 0, cardId);
     const warm = await fetch(`${base}/api/play/m/solo/session-1/0/${token}`);
-    expect(warm.status).toBe(200);
-    expect(warm.headers.get("x-mask-cache")).toBe("hit");
-    expect(warm.headers.get("content-type")).toContain("image/jpeg");
+    expect(warm.status).toBe(404);
+    expect(warm.headers.get("cache-control") || "").toContain("no-store");
+    expect(warm.headers.get("content-type") || "").not.toContain("image/jpeg");
+    expect(warm.headers.get("x-mask-cache")).toBeNull();
     const unmarkedDir = await mkdtemp(path.join(tmpdir(), "packpts-warm-unmarked-"));
     await writeFile(path.join(unmarkedDir, `${cardId}_${CURRENT_MASK_VERSION}.jpg`), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     setWarmMaskDirForTests(unmarkedDir);

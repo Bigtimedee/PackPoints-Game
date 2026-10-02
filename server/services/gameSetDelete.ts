@@ -1,6 +1,9 @@
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
+import { refreshHeldSets } from "../config/heldSets";
+import { purgeMaskCacheForCards } from "../masking/maskCachePurge";
 import { invalidateMaskReadySidecars } from "../masking/maskReadySidecar";
+import { invalidatePublicMaskSetCache } from "../services/publicMaskGate";
 import {
   cardhedgeImportRuns,
   cardImageReports,
@@ -77,5 +80,16 @@ export async function hardDeleteGameSet(id: string): Promise<boolean> {
   });
   if (!outcome) return false;
   invalidateMaskReadySidecars(outcome.cardIds);
+  invalidatePublicMaskSetCache(id);
+  try {
+    await purgeMaskCacheForCards(outcome.cardIds);
+  } catch (error) {
+    console.error("[MaskCachePurge] delete failed", error instanceof Error ? error.message : error);
+  }
+  try {
+    await refreshHeldSets();
+  } catch (error) {
+    console.error("[HeldSets] refresh after delete failed", error instanceof Error ? error.message : error);
+  }
   return outcome.deleted;
 }

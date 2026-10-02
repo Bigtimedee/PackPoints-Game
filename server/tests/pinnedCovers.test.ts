@@ -14,6 +14,7 @@ import { eq, inArray } from "drizzle-orm";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
+import { releaseSetsForTests } from "../config/heldSets";
 import { PINNED_SET_COVERS, setPinnedCoversForTests } from "../config/pinnedCovers";
 import { setMaskReadySidecarDirForTests, writeMaskFailureSidecar } from "../masking/maskReadySidecar";
 import { clearMaskBandCacheForTests, MASK_BAND_OVERSIZED } from "../masking/maskBandLimit";
@@ -66,7 +67,10 @@ describe("pinned set covers", () => {
   });
   const server = createServer(app);
 
+  let restoreClearance: (() => Promise<void>) | undefined;
+
   beforeAll(async () => {
+    restoreClearance = await releaseSetsForTests([setId, otherSetId]);
     dir = await mkdtemp(path.join(tmpdir(), "packpts-pinned-"));
     setMaskReadySidecarDirForTests(dir);
     for (const id of [alphaId, bravoId, blockedId, ineligibleId, dupId, foreignId, spareId, bandId]) {
@@ -133,6 +137,7 @@ describe("pinned set covers", () => {
   });
 
   afterAll(async () => {
+    if (restoreClearance) await restoreClearance();
     setFlag(previousCovers);
     if (previousBand === undefined) delete process.env.MASK_BAND_GUARD;
     else process.env.MASK_BAND_GUARD = previousBand;

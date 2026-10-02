@@ -366,6 +366,9 @@ describe.skipIf(!hasDb)("ineligible card paths drop the sidecar", () => {
     await plant(dir, id);
     const { hardDeleteGameSet } = await import("../services/gameSetDelete");
     expect(await hardDeleteGameSet(doomedSet)).toBe(true);
-    await expectSidecarsGone(dir, id);
+    await expect(readFile(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.ok`), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(dir, `${id}_v0.ok`), "utf8")).rejects.toThrow();
+    await expect(readFile(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.jpg`), "utf8")).rejects.toThrow();
+    expect(await readFile(path.join(dir, `other_${CURRENT_MASK_VERSION}.ok`), "utf8")).toBe("keep\n");
   });
 });

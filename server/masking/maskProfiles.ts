@@ -50,8 +50,8 @@ export const MASK_LAYOUT_SET_IDS = {
 
 /**
  * Live sets that still bake from OCR location on the unmatched default profile.
- * Reviewed by Design. The hold skips these ids only. A re-import gets a new id
- * and is held until it has a registered profile.
+ * These ids count as registered so they are not held for no_mask_profile.
+ * Dealability is CLEARED_SET_IDS, not this list. A re-import gets a new id.
  */
 export const MASK_HOLD_EXEMPT_SET_IDS = [
   "74885a41-2043-4b7c-ab58-f9e16c05e2e3",
@@ -230,8 +230,8 @@ function baseballYearBrandProfile(hint: ParsedSetHint): MaskProfile | null {
 
 /**
  * An unmatched hint still returns the default bottom 46% profile.
- * Active integrated sets that resolve here are held and are not dealt.
- * MASK_HOLD_EXEMPT_SET_IDS stay on this same default and stay dealable.
+ * Active integrated sets that resolve here are held unless the id is exempt.
+ * MASK_HOLD_EXEMPT_SET_IDS stay on this same default. Clearance is separate.
  */
 export function getMaskProfile(setName: string | null | undefined, gameSetId?: string | null): MaskProfile {
   const id = (gameSetId || "").trim().toLowerCase();

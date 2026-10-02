@@ -4,8 +4,9 @@
  * so a held set still lists the cards that would be dealable if the hold
  * were lifted. Blocklist, surname exclusions, and current-mask fail
  * sidecars stay in that filter. This file does not restate them.
- * `held` is true when the set has no registered mask profile.
- * `reason` is `no_mask_profile` for that hold, otherwise null.
+ * `held` is true when the set is held for any reason.
+ * `reason` is `no_mask_profile` or `awaiting_design_clearance`, otherwise null.
+ * The image route ignores the hold so Design can review a held set. Refusals stay out.
  */
 import { existsSync } from "fs";
 import path from "path";
@@ -174,13 +175,16 @@ export async function listDealableCards(
   };
 }
 
-/** True when this card id is in the deal pool. */
-export async function isDealableCard(cardId: string): Promise<boolean> {
+/** True when this card id is in the deal pool. ignoreHeldSets keeps a held set reviewable. */
+export async function isDealableCard(cardId: string, opts?: { ignoreHeldSets?: boolean }): Promise<boolean> {
   if (!safeCardId(cardId)) return false;
   const [row] = await db
     .select({ id: playableCards.id })
     .from(playableCards)
-    .where(and(eq(playableCards.id, cardId), eligibleDealFilter("playable_cards")))
+    .where(and(
+      eq(playableCards.id, cardId),
+      eligibleDealFilter("playable_cards", opts?.ignoreHeldSets ? { ignoreHeldSets: true } : undefined),
+    ))
     .limit(1);
   return Boolean(row);
 }
@@ -193,7 +197,7 @@ export async function isDealableCard(cardId: string): Promise<boolean> {
  */
 export async function dealableMaskedFile(cardId: string): Promise<string | null> {
   if (!safeCardId(cardId)) return null;
-  if (!(await isDealableCard(cardId))) return null;
+  if (!(await isDealableCard(cardId, { ignoreHeldSets: true }))) return null;
 
   const ready = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
   if (ready) return ready;

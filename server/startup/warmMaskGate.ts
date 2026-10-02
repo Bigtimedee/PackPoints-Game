@@ -5,6 +5,7 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { isPlayScope, maskTokenMatches } from "../services/playImageToken";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
+import { denyPublicMask, PUBLIC_MASK_CACHE_CONTROL, rejectPublicMask } from "../services/publicMaskGate";
 
 const VERSION = CURRENT_MASK_VERSION.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const WARM_JPEG = new RegExp(`^(.+)_${VERSION}(?:_r(?:90|180|270))?\\.jpg$`);
@@ -124,14 +125,26 @@ export function findWarmMaskedPath(args: {
   return null;
 }
 
-export function tryServeWarmMasked(req: Request, res: Response): boolean {
+export async function tryServeWarmMasked(req: Request, res: Response): Promise<boolean> {
   const parsed = parseMaskedPlayPath(req.path);
   if (!parsed) return false;
-  const file = findWarmMaskedPath({ dir: dirOverride ?? MASKED_CARDS_DIR, ...parsed });
+  const dir = dirOverride ?? MASKED_CARDS_DIR;
+  const file = findWarmMaskedPath({ dir, ...parsed });
   if (!file) return false;
+  const cardId = cardIdFromWarmJpeg(path.basename(file));
+  if (!cardId) {
+    denyPublicMask(req, res);
+    return true;
+  }
+  try {
+    if (await rejectPublicMask(req, res, cardId)) return true;
+  } catch {
+    denyPublicMask(req, res);
+    return true;
+  }
   const etag = `"${CURRENT_MASK_VERSION}"`;
   res.setHeader("Content-Type", "image/jpeg");
-  res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+  res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
   res.setHeader("ETag", etag);
   res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
   res.setHeader("X-Mask-Cache", "hit");
