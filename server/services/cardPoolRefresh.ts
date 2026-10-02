@@ -8,6 +8,7 @@ import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
 import { MASK_DEAL_BLOCK_REASONS, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { currentMaskRefusalIds } from "../masking/maskReadySidecar";
+import { blockedCardIdClause, isBlockedCardIdRow } from "../lib/cardBlocklist";
 import {
   isKillSwitchEnabled,
   writeAuditLog,
@@ -25,6 +26,8 @@ const MAX_FAILURE_COUNT_FOR_REVALIDATION = 5;
  * Unplayable rows refresh may reconsider. Mask refusals stay out of the batch
  * so they cannot fill the 50-card window or be marked playable.
  * Same reasons and fail-sidecar ids as `maskNameStillCovered`.
+ * Cards on BLOCKED_CARD_ID_RULES (by id, or the same row after a re-import)
+ * stay out too.
  */
 export function cardPoolRefreshCandidateFilter(): SQL {
   const filters: SQL[] = [
@@ -42,6 +45,10 @@ export function cardPoolRefreshCandidateFilter(): SQL {
   const heldIds = currentHeldSetIds();
   if (heldIds.length > 0) {
     filters.push(notInArray(playableCards.gameSetId, [...heldIds]));
+  }
+  const blockedIds = blockedCardIdClause("playable_cards");
+  if (blockedIds) {
+    filters.push(sql`NOT (${sql.raw(blockedIds)})`);
   }
   return and(...filters)!;
 }
@@ -369,12 +376,24 @@ export function isRefreshJobRunning(): boolean {
 /**
  * Image URL recovered. A current-version mask refusal stays non-playable.
  * The write uses the same refusal check as `eligibleDealFilter` /
- * `maskNameStillCovered`. Returns false without updating the row.
+ * `maskNameStillCovered`. A card on BLOCKED_CARD_ID_RULES also stays
+ * non-playable. Returns false without updating the row.
  */
 export async function restorePlayableIfMaskAllows(
-  card: { id: string; blockedReason: string | null },
+  card: {
+    id: string;
+    blockedReason: string | null;
+    gameSetId?: string | null;
+    player?: string | null;
+    number?: string | null;
+    variant?: string | null;
+  },
   imageUrl: string,
 ): Promise<boolean> {
+  if (isBlockedCardIdRow(card)) {
+    console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: blocked card id`);
+    return false;
+  }
   const maskRefusal = refusedAtCurrentMask(card);
   if (maskRefusal) {
     console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: mask refusal at ${CURRENT_MASK_VERSION} (${maskRefusal})`);

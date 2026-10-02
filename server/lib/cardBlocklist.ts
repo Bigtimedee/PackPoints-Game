@@ -221,7 +221,8 @@ export const TOPPS_1987_MCGWIRE_NUMBER = "366";
 
 /**
  * 1987 Topps baseball #28 Mike Schmidt. The jersey back prints HMIDT.
- * Blocked by this card id and by set + normalized number 28.
+ * Blocked by this card id, and after a re-import by set + number 28 + surname
+ * Schmidt. There is no bare number-28 rule: it also caught Rick Dempsey #28.
  * #430 is a Design-pinned cover, so Schmidt is not name-blocked in this set.
  */
 export const TOPPS_1987_SCHMIDT_CARD_ID = "36f1d909-2fdb-4b78-bb36-e7f5c088380a";
@@ -239,13 +240,83 @@ export const BASKETBALL_2024_SET_PREFIX = "229f0379";
 export const BASKETBALL_2024_H_INSERT_NUMBER = /^H-\d+$/i;
 
 export type BlockedCardIdRule = {
-  /** Boot log attributes the id to this set. The id match itself is the row. */
+  /** game_sets.id prefix (8 chars). Boot log attributes the id to this set. */
   gameSetId: string;
+  /** playable_cards.id. Matches on any set. */
   id: string;
+  /** Normalized checklist number of the blocked row. */
+  number: string;
+  /** Lowercase surname. The re-import match needs it in the player field. */
+  surname: string;
+  /**
+   * Variant of the blocked row, lowercase. "base" also matches an empty variant.
+   * Other variants of the same number stay playable.
+   */
+  variant: string;
+  /** Why this one card is blocked. Not shown to players. */
+  reason: string;
 };
 
+/** 1989 Topps baseball. */
+export const TOPPS_1989_SET_PREFIX = "352b33d1";
+/** 1994 Topps Football. */
+export const TOPPS_1994_FOOTBALL_SET_PREFIX = "a09b2fe7";
+const TOPPS_1987_FOOTBALL_SET_PREFIX = TOPPS_1987_FOOTBALL_SET_ID.slice(0, 8);
+
+/**
+ * 1989 Topps #496 Dwayne Henry. The stored image is a modern Bowman Chrome
+ * autograph of another player, and that signature is readable. Blocked until
+ * a correct 1989 Topps image replaces it.
+ */
+export const TOPPS_1989_DWAYNE_HENRY_CARD_ID = "c866179d-e613-443f-a6ea-07d93dee3c03";
+
+/**
+ * Single cards blocked by playable_cards.id. A refresh or an upsert re-import
+ * keeps the id, so the id match holds. A purge-and-reimport inserts a new id;
+ * the same row is then matched by set prefix + normalized number + surname +
+ * variant. The deal predicate, the Daily 5 sweep, covers, and card-pool
+ * refresh all read this list.
+ *
+ * Mask v4.6 sweep 2026-10-02 (Marketing): a surname or full name is readable
+ * outside the mask on each of these 26 cards. Per-card crops are in each set's
+ * sweep REPORT.md. 1994 Topps Football Roaf, Tim Brown, and Bledsoe are small
+ * or off-center in the scan, so the fixed band misses the nameplate. That
+ * geometry fallback is a follow-up; the cards are blocked until then.
+ */
 export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
-  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: TOPPS_1987_SCHMIDT_CARD_ID },
+  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, id: TOPPS_1987_SCHMIDT_CARD_ID, number: TOPPS_1987_SCHMIDT_NUMBER, surname: "schmidt", variant: "base", reason: "jersey back HMIDT" },
+
+  // 1989 Topps (17)
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "18976a3d-478e-472b-b953-dbbc25916f02", number: "15", surname: "bonilla", variant: "base", reason: "jersey nameplate BONILLA" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "4a8f5876-b655-4b87-8a26-f4bfeed8b418", number: "45", surname: "daniels", variant: "base", reason: "jersey nameplate DANIELS" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "e907ca50-88fb-40f8-887c-38193c400c18", number: "95", surname: "young", variant: "base", reason: "jersey nameplate YOUNG" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "5f68eda8-0d8c-4f62-a867-8ecd5e7bce48", number: "129", surname: "clark", variant: "base", reason: "jersey nameplate CLAR" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "100d23d5-9200-4300-8169-d409b00f4a49", number: "259", surname: "mcwilliams", variant: "base", reason: "jersey nameplate McWI" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "7908759d-1957-4f5d-8427-f4b17e4b994e", number: "296", surname: "gant", variant: "base", reason: "jersey GANT" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "786aa786-621c-4332-9f0d-8ca968299694", number: "411", surname: "williams", variant: "base", reason: "jersey WILLIA" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "a59829d3-1b95-403d-8b27-12d794aebde0", number: "440", surname: "bonilla", variant: "base", reason: "nameplate BOBBY BONILLA" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: TOPPS_1989_DWAYNE_HENRY_CARD_ID, number: "496", surname: "henry", variant: "base", reason: "wrong image: another player's autograph card" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "77895a70-ac35-4abb-aee8-da8852c083e6", number: "514", surname: "lemon", variant: "base", reason: "nameplate EMON" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "486a5772-726c-40a5-95f3-61331619e151", number: "521", surname: "tettleton", variant: "base", reason: "nameplate LETON" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "8ebd3d73-20d5-4dc4-bfff-4dc4bad2e3f7", number: "551", surname: "ready", variant: "base", reason: "READY readable" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "8af3429e-3b98-4a14-b4a7-227b7437a2da", number: "555", surname: "blyleven", variant: "base", reason: "BLYLEV readable" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "959f997a-4c85-49be-a47d-9b9668f49189", number: "663", surname: "aaron", variant: "base", reason: "hank aaron readable" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "63887679-9e66-4e82-a10c-6d10147ee322", number: "664", surname: "hodges", variant: "base", reason: "GIL HODGES readable" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "a4d47aae-6e59-4259-95e9-ef857038135f", number: "732", surname: "buechele", variant: "base", reason: "jersey nameplate CHELE" },
+  { gameSetId: TOPPS_1989_SET_PREFIX, id: "ee1f2993-acfd-431a-8ac0-70fe05a87b1e", number: "770", surname: "trammell", variant: "base", reason: "nameplate MELL" },
+
+  // 1987 Topps Football (1)
+  { gameSetId: TOPPS_1987_FOOTBALL_SET_PREFIX, id: "1df06ad0-500b-4548-aa24-50eb0b04c9bf", number: "113", surname: "craig", variant: "base", reason: "jersey nameplate CRAIG" },
+
+  // 1994 Topps Football (8)
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "99b4021a-a4b2-43aa-b996-8b185e117715", number: "19", surname: "roaf", variant: "base", reason: "full name readable; off-center scan" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "4c14660f-2245-42f7-ba63-ede3c1533e8e", number: "71", surname: "andersen", variant: "refractor", reason: "slab label MORTEN ANDERSEN" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "81aee6e1-667a-437e-94fa-30b1512ed892", number: "116", surname: "brown", variant: "base", reason: "nameplate TIM BROWN; small card in scan" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "f64270f3-35f1-458e-95fb-c3c422c92836", number: "144", surname: "givins", variant: "refractor", reason: "nameplate GIVINS" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "04a80e83-905e-408d-9cb7-e93263333471", number: "146", surname: "bledsoe", variant: "base", reason: "nameplate BLEDSOE; off-center scan" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "1188d0ca-4421-4364-90ea-3543ee575fa0", number: "196", surname: "bailey", variant: "refractor", reason: "helmet tape BAILEY" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "6c369ab7-3826-4f7a-be33-3b645e7bb225", number: "196", surname: "bailey", variant: "base", reason: "helmet tape BAILEY" },
+  { gameSetId: TOPPS_1994_FOOTBALL_SET_PREFIX, id: "c19b9f98-d2c7-4a4a-86e7-92972ba654b7", number: "205", surname: "teague", variant: "base", reason: "helmet tape EAGU" },
 ];
 
 export type BlockedSetNumberRule = {
@@ -254,9 +325,11 @@ export type BlockedSetNumberRule = {
   number: string;
 };
 
-export const BLOCKED_SET_NUMBERS: readonly BlockedSetNumberRule[] = [
-  { gameSetId: TOPPS_1987_BASEBALL_SET_PREFIX, prefix: true, number: TOPPS_1987_SCHMIDT_NUMBER },
-];
+/**
+ * Whole checklist numbers blocked on one set. Empty: the 1987 Topps number-28
+ * rule also caught Rick Dempsey #28. Schmidt stays blocked by id above.
+ */
+export const BLOCKED_SET_NUMBERS: readonly BlockedSetNumberRule[] = [];
 
 export type CardNumberPatternRule = {
   gameSetId: string;
@@ -390,9 +463,42 @@ function rowCardId(fields?: BlocklistCardFields | null): string {
   return norm(fields?.id || fields?.cardId);
 }
 
+function variantMatches(ruleVariant: string, variant: string | null | undefined): boolean {
+  const value = (variant || "").trim().toLowerCase();
+  if (ruleVariant === "base") return value === "" || value === "base";
+  return value === ruleVariant;
+}
+
+/** Same row after a purge-and-reimport gave it a new id. */
+function reimportedBlockedRow(setId: string, player: string, fields?: BlocklistCardFields | null): boolean {
+  if (!setId || !player) return false;
+  const number = normalizeCardNumber(fields?.number);
+  if (!number) return false;
+  return BLOCKED_CARD_ID_RULES.some((rule) =>
+    sameSet(setId, rule.gameSetId, true)
+    && number === rule.number
+    && player.includes(rule.surname)
+    && variantMatches(rule.variant, fields?.variant));
+}
+
 function blockedByCardId(fields?: BlocklistCardFields | null): boolean {
   const id = rowCardId(fields);
   return id.length > 0 && BLOCKED_CARD_ID_RULES.some((rule) => rule.id.toLowerCase() === id);
+}
+
+/**
+ * True when a BLOCKED_CARD_ID_RULES row matches this card by id, or by set +
+ * number + surname + variant after a re-import. Card-pool refresh uses this
+ * so it never restores one of those cards.
+ */
+export function isBlockedCardIdRow(card: {
+  id?: string | null;
+  gameSetId?: string | null;
+  player?: string | null;
+  number?: string | null;
+  variant?: string | null;
+}): boolean {
+  return blockedByCardId(card) || reimportedBlockedRow(norm(card.gameSetId), norm(card.player), card);
 }
 
 function blockedSetNumber(setId: string, number: string): boolean {
@@ -437,7 +543,7 @@ export function isBlockedCard(
   if (isHeldSet(gameSetId)) return true;
   const setId = norm(gameSetId);
   const name = norm(player);
-  if (blockedByCardId(fields)) return true;
+  if (blockedByCardId(fields) || reimportedBlockedRow(setId, name, fields)) return true;
   if (setId && name && CARD_BLOCKLIST.some((entry) => sameSet(setId, entry.gameSetId, entry.prefix) && playerMatchesEntry(name, entry))) {
     return true;
   }
@@ -544,9 +650,27 @@ function multiPlayerTextClause(alias: CardAlias): string {
   return `(${blob} ~* ${sqlQuote(MULTI_PLAYER_TEXT_SQL)})`;
 }
 
-function blockedCardIdClause(alias: CardAlias): string {
+function variantClause(alias: CardAlias, ruleVariant: string): string {
+  const col = `lower(btrim(COALESCE(${alias}.variant, '')))`;
+  return ruleVariant === "base"
+    ? `${col} IN ('', 'base')`
+    : `${col} = ${sqlQuote(ruleVariant)}`;
+}
+
+/**
+ * Blocked card ids, plus the same rows after a purge-and-reimport (set prefix +
+ * normalized number + surname + variant). Mirrors isBlockedCardIdRow.
+ */
+export function blockedCardIdClause(alias: CardAlias): string {
   return BLOCKED_CARD_ID_RULES
-    .map((rule) => `lower(${alias}.id) = ${sqlQuote(rule.id.toLowerCase())}`)
+    .map((rule) => {
+      const byId = `lower(${alias}.id) = ${sqlQuote(rule.id.toLowerCase())}`;
+      const byRow = `(lower(${alias}.game_set_id) LIKE ${sqlQuote(`${rule.gameSetId.toLowerCase()}%`)}`
+        + ` AND ${normalizedNumberSql(alias)} = ${sqlQuote(rule.number)}`
+        + ` AND strpos(lower(COALESCE(${alias}.player, '')), ${sqlQuote(rule.surname)}) > 0`
+        + ` AND ${variantClause(alias, rule.variant)})`;
+      return `${byId} OR ${byRow}`;
+    })
     .join(" OR ");
 }
 
@@ -609,7 +733,8 @@ export function cardBlocklistWhereBody(alias: CardAlias, opts?: BlocklistSqlOpts
     const held = heldSetClause(alias);
     if (held) clauses.push(held);
   }
-  return clauses.join(" OR ");
+  // An empty rule list renders "". Joining it would leave a bare "OR OR".
+  return clauses.filter((clause) => clause.trim().length > 0).join(" OR ");
 }
 
 /** SQL body for a deal WHERE clause. True when the card is not on the blocklist. */

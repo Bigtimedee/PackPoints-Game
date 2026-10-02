@@ -203,7 +203,7 @@ async function loadDailyCard(challengeId: string, position: number): Promise<str
     .from(playableCards)
     .where(eq(playableCards.id, exact.cardId))
     .limit(1);
-  if (card && isBlockedCard(card.gameSetId, card.player, card)) return null;
+  if (card && isBlockedCard(card.gameSetId, card.player, { ...card, id: exact.cardId })) return null;
   if (isMaskBandExcluded(exact.cardId)) return null;
   return exact.cardId;
 }
