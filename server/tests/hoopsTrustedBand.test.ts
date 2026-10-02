@@ -7,7 +7,7 @@
  *   refuses on an OCR timeout.
  * - Every other registered profile, and the unmatched default used by
  *   2024 Basketball and 2022 Chronicles, bakes exactly as before.
- * - The 21 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance, 4 from the All-Star subset ruling, 1 Design P0 #210 Walker).
+ * - The 29 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance, 4 from the All-Star subset ruling, 1 Design P0 #210 Walker, 8 from Design's zoom re-review).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
@@ -393,6 +393,15 @@ describe("1990 Hoops card blocklist", () => {
     { id: "c197de24-b783-465a-ae95-06fbd3975975", player: "David Robinson", number: "24" },
     // Design P0 2026-10-02: BOWIE #25 on a defender's jersey back.
     { id: "6154edb7-41d7-4f89-862a-1aa04ef5e8e2", player: "Kenny Walker", number: "210" },
+    // Design zoom re-review 2026-10-02: duplicates and close-up leaks.
+    { id: "27323dcf-26d9-41bd-899a-e37bd4da9d13", player: "Michael Jordan", number: "385" },
+    { id: "478616ae-8851-4f8c-a41f-a5845620008a", player: "Michael Jordan", number: "385" },
+    { id: "8a933899-f252-4700-981d-73d5fd8412db", player: "Akeem Olajuwon", number: "127" },
+    { id: "ae15a554-385d-43d7-8bde-4ad06e932f31", player: "Akeem Olajuwon", number: "23" },
+    { id: "cb9cf3eb-b8c1-4ef8-81cd-6ac2bccb76dd", player: "Robert Parish", number: "8" },
+    { id: "683cc4eb-4a39-46af-b7ee-82e552b1538a", player: "Kevin Willis", number: "37" },
+    { id: "8e49902d-ed15-4521-bbbf-918a164889d4", player: "Kevin McHale", number: "6" },
+    { id: "7cdc6abb-5679-4830-95c9-e3041057f73f", player: "Karl Malone", number: "21" },
   ];
 
   it("blocks the four coach-legend cards named in the request, the other eight, and Design's four clearance blocks", () => {
@@ -415,13 +424,51 @@ describe("1990 Hoops card blocklist", () => {
     expect(isBlockedCard(HOOPS_SET_ID, "Robert Parish", { id: "cec031ac-781d-44a8-8fa0-6547f006e6c6", number: "8", variant: "Base" })).toBe(false);
   });
 
+  it("drops one copy of each duplicate pair by id only and keeps the twin playable (Design re-review)", () => {
+    const body = cardBlocklistWhereBody("playable_cards");
+    const kept = [
+      { id: "8013caa1-b20c-4dba-8f63-3b3d6bb00227", player: "Hakeem Olajuwon", number: "127", variant: "Base" },
+      { id: "775e6ba0-abf6-46a6-9d36-a998d16903f3", player: "Hakeem Olajuwon", number: "23", variant: "Base" },
+      { id: "cec031ac-781d-44a8-8fa0-6547f006e6c6", player: "Robert Parish", number: "8", variant: "Base" },
+    ];
+    for (const row of kept) {
+      expect(isBlockedCard(HOOPS_SET_ID, row.player, row), row.id).toBe(false);
+      expect(isBlockedCardIdRow({ ...row, gameSetId: HOOPS_SET_ID }), row.id).toBe(false);
+      expect(body).not.toContain(row.id);
+    }
+    // The dropped copies match by id only, so the same number + surname + variant is not blocked.
+    for (const row of [
+      { player: "Akeem Olajuwon", number: "127", variant: "Base" },
+      { player: "Akeem Olajuwon", number: "23", variant: "Base" },
+      { player: "Robert Parish", number: "8", variant: "Base " },
+    ]) {
+      expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-0000000000aa", gameSetId: HOOPS_SET_ID, ...row })).toBe(false);
+    }
+    // In SQL a normal rule is followed by its re-import match; an id-only rule is not.
+    const afterId = (id: string) => body.slice(body.indexOf(`'${id}'`) + id.length + 2, body.indexOf(`'${id}'`) + id.length + 50);
+    expect(afterId("6154edb7-41d7-4f89-862a-1aa04ef5e8e2")).toContain("game_set_id");
+    for (const id of ["8a933899-f252-4700-981d-73d5fd8412db", "ae15a554-385d-43d7-8bde-4ad06e932f31", "cb9cf3eb-b8c1-4ef8-81cd-6ac2bccb76dd"]) {
+      expect(body).toContain(id);
+      expect(afterId(id), id).not.toContain("game_set_id");
+    }
+    expect(body).not.toContain("'parish'");
+    // Both #385 copies are dropped, so its re-import match stays on.
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000385", gameSetId: HOOPS_SET_ID, player: "Michael Jordan", number: "385", variant: "Base" })).toBe(true);
+    // The three close-up leaks also block on re-import.
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000037", gameSetId: HOOPS_SET_ID, player: "Kevin Willis", number: "37", variant: "Base" })).toBe(true);
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000006", gameSetId: HOOPS_SET_ID, player: "Kevin McHale", number: "6", variant: "Base" })).toBe(true);
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000021", gameSetId: HOOPS_SET_ID, player: "Karl Malone", number: "21", variant: "Base" })).toBe(true);
+    // Karl Malone base #292 and Jordan #65 (cover picks) stay playable.
+    expect(isBlockedCard(HOOPS_SET_ID, "Karl Malone", { id: "00000000-0000-4000-8000-000000000292", number: "292", variant: "Base" })).toBe(false);
+  });
+
   it("blocks the Design clearance cards on re-import and leaves Rodman #10 playable", () => {
     expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000109", gameSetId: HOOPS_SET_ID, player: "Dennis Rodman", number: "109", variant: "Base" })).toBe(true);
     expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000339", gameSetId: HOOPS_SET_ID, player: "Detroit Pistons", number: "339", variant: "Base" })).toBe(true);
     expect(isBlockedCard(HOOPS_SET_ID, "Dennis Rodman", { id: "9210f721-8387-4fa1-8c80-409c550c3394", number: "10", variant: "Base" })).toBe(false);
   });
 
-  it("leaves the 19 All-Star subset cards Design cleared playable", () => {
+  it("leaves the 15 All-Star subset cards still cleared playable (Design later blocked #6, #21 and one copy each of #8 and #23)", () => {
     const cleared = [
       { id: "0958ffad-e8c7-445d-a8ad-14380ec9457c", player: "Isiah Thomas", number: "11" },
       { id: "248dcd40-29ac-483d-897b-71c119a1c3bd", player: "Tom Chambers", number: "15" },
@@ -430,20 +477,16 @@ describe("1990 Hoops card blocklist", () => {
       { id: "7eb0eaa5-5f85-4cd9-ab61-59d7894ed74e", player: "Kevin Johnson", number: "19" },
       { id: "07a77a6d-2948-476f-8f92-4a48218eea9b", player: "Larry Bird", number: "2" },
       { id: "0705b462-06a6-4258-a038-461660da7e04", player: "Lafayette Lever", number: "20" },
-      { id: "7cdc6abb-5679-4830-95c9-e3041057f73f", player: "Karl Malone", number: "21" },
       { id: "775e6ba0-abf6-46a6-9d36-a998d16903f3", player: "Hakeem Olajuwon", number: "23" },
-      { id: "ae15a554-385d-43d7-8bde-4ad06e932f31", player: "Akeem Olajuwon", number: "23" },
       { id: "a8ccae95-5f14-49b5-b98c-d43f8dd379b0", player: "John Stockton", number: "25" },
       { id: "a0f0f135-eb0f-4436-b022-ab3d73699be0", player: "James Worthy", number: "26" },
       { id: "7c628f44-b527-47e4-a7c6-b121fb2274ce", player: "Joe Dumars", number: "3" },
       { id: "95eaec4e-5570-444d-8267-9389510f3d57", player: "Patrick Ewing", number: "4" },
       { id: "3ad93f9b-a88c-4ea7-a871-631f4d7a48cd", player: "Michael Jordan", number: "5" },
-      { id: "8e49902d-ed15-4521-bbbf-918a164889d4", player: "Kevin McHale", number: "6" },
-      { id: "cb9cf3eb-b8c1-4ef8-81cd-6ac2bccb76dd", player: "Robert Parish", number: "8" },
       { id: "cec031ac-781d-44a8-8fa0-6547f006e6c6", player: "Robert Parish", number: "8" },
       { id: "ccb8adde-c761-43b4-a41e-aa60686a2299", player: "Scottie Pippen", number: "9" },
     ];
-    expect(cleared).toHaveLength(19);
+    expect(cleared).toHaveLength(15);
     for (const row of cleared) {
       expect(isBlockedCard(HOOPS_SET_ID, row.player, { id: row.id, number: row.number, variant: "Base" }), row.player).toBe(false);
       expect(isBlockedCardIdRow({ id: row.id, gameSetId: HOOPS_SET_ID, player: row.player, number: row.number, variant: "Base" }), row.player).toBe(false);
