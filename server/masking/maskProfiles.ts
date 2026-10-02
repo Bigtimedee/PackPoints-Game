@@ -32,6 +32,16 @@ export interface MaskProfile {
   rightBandPct: number;
   blurSigma: number;
   regions: MaskRegion[];
+  /**
+   * Fixed top-plate design whose printed name always sits inside the profile
+   * band. When the plate detector reads the photo as part of the plate (band
+   * would be oversized) or finds no top letter run (name_plate_unresolved), or
+   * the plate row check trips on the photo arch below the band, the bake may
+   * paint the profile band instead, then must pass the OCR surname check in
+   * `trustedProfileBand.ts`. Only 1990 Hoops sets this. Every other profile is
+   * false and bakes exactly as before.
+   */
+  trustProfileBand: boolean;
 }
 
 /**
@@ -104,7 +114,7 @@ function profile(
   id: string,
   nameAnchor: NameAnchor,
   regions: MaskRegion[],
-  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg">> = {},
+  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand">> = {},
 ): MaskProfile {
   const topBandPct = extras.topBandPct ?? (nameAnchor === "top" || nameAnchor === "both" ? regions[0]?.hPct / 100 : 0);
   const bottomBandPct = extras.bottomBandPct ?? (nameAnchor === "bottom" ? (regions[0]?.hPct ?? 46) / 100 : 0);
@@ -123,6 +133,7 @@ function profile(
     rightBandPct: 0,
     blurSigma: extras.blurSigma ?? 25,
     regions: regions.map((region) => ({ ...region })),
+    trustProfileBand: extras.trustProfileBand === true,
   };
 }
 
@@ -136,6 +147,9 @@ const fleerBasketballTop = profile("fleer-bball-top", "top", TOP_NAME_PLATE, {
 const hoopsBasketball1990 = profile(HOOPS_1990_PROFILE_ID, "top", TOP_NAME_PLATE, {
   topBandPct: 0.18,
   bottomBandPct: 0,
+  // Name and position print in the top ~5-10% of every base card. The plate
+  // detector often reads the dark photo arch as plate (28-41% tall).
+  trustProfileBand: true,
 });
 
 const toppsBaseball1987 = profile("1987-topps", "bottom", BOTTOM_PLAQUE_46, { bottomBandPct: 0.46, topBandPct: 0 });

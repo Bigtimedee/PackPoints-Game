@@ -26,6 +26,7 @@ import { cardPoolRefreshCandidateFilter, restorePlayableIfMaskAllows } from "../
 import { eligibleDealFilter, maskNameStillCovered } from "../services/playableSetEligibility";
 import {
   BLOCKED_CARD_ID_RULES,
+  HOOPS_1990_SET_PREFIX,
   BLOCKED_SET_NUMBERS,
   TOPPS_1987_SCHMIDT_CARD_ID,
   TOPPS_1989_DWAYNE_HENRY_CARD_ID,
@@ -186,7 +187,9 @@ describe("v4.6 sweep blocklist: the 26 ids", () => {
     const rules = new Map(BLOCKED_CARD_ID_RULES.map((rule) => [rule.id, rule]));
     expect(MARKETING).toHaveLength(26);
     expect(DESIGN).toHaveLength(5);
-    expect(BLOCKED_CARD_ID_RULES).toHaveLength(32);
+    // 32 = 26 Marketing + 5 Design watch review + Schmidt; the Design full-pool sweep adds 68.
+    // 1990 Hoops rows are covered in hoopsTrustedBand.test.ts.
+    expect(BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId !== HOOPS_1990_SET_PREFIX)).toHaveLength(32 + 68);
     expect(rules.has(TOPPS_1987_SCHMIDT_CARD_ID)).toBe(true);
     const prefixes: Record<Sweep["set"], string> = { "1989-topps": "352b33d1", "1987-topps-football": "91cfdf3f", "1994-topps-football": "a09b2fe7" };
     for (const card of SWEEP) {
@@ -501,8 +504,9 @@ describe("v4.6 sweep blocklist: refresh and re-import", () => {
 });
 
 describe("1987 Topps number-28 rule removed", () => {
-  it("has no whole-number rule left", () => {
-    expect(BLOCKED_SET_NUMBERS).toEqual([]);
+  it("has no number-28 rule left (the only whole-number rules are the 1987 Topps All-Star range)", () => {
+    expect(BLOCKED_SET_NUMBERS.some((rule) => rule.number === "28")).toBe(false);
+    expect(BLOCKED_SET_NUMBERS.every((rule) => Number(rule.number) >= 595 && Number(rule.number) <= 616)).toBe(true);
   });
 
   it("deals Rick Dempsey #28 again", async () => {

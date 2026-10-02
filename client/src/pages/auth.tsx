@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
+import { startWorkosAuth } from "@/lib/attribution";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 
 const signupSchema = z.object({
@@ -162,7 +163,7 @@ export default function AuthPage() {
       });
       return;
     }
-    window.location.href = "/api/auth/workos/start";
+    void startWorkosAuth();
   };
 
   const onSignup = (data: SignupFormData) => {

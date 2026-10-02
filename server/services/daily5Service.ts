@@ -2,25 +2,23 @@ import { createHash } from "crypto";
 import { db } from "../db";
 import { 
   dailyChallenges, dailyChallengeCards, dailyChallengeEntries, anonDailyRuns,
-  playableCards, gameSets, users,
+  gameSets, users,
   type DailyChallenge, type DailyChallengeCard, type DailyChallengeEntry,
   type DailyChallengeStatus, type PlayableCard
 } from "@shared/schema";
-import { eq, and, isNotNull, ne, isNull, or, not, like, sql, asc, gte } from "drizzle-orm";
-import { isKnownSilhouetteUrl } from "../storage";
+import { eq, and, isNotNull, or, sql, asc } from "drizzle-orm";
 import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
 import { maskedPlayPath } from "./playImageToken";
 import { buildSetMaskHint } from "@shared/maskGeometry";
 import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { readWarmMaskPlan } from "../masking/maskPlanStore";
-import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
-import { maskNameStillCovered } from "./playableSetEligibility";
-import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
+import { omitNonPlayerNames } from "@shared/nonPlayerCard";
+import { replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
 import { ensureHeldSets, isHeldSet } from "../config/heldSets";
-import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { swapFailedCardsOnTodayChallenge } from "./daily5FailedCardSwap";
-import { pickDaily5Set } from "./daily5SetPick";
+import { resolveDaily5SetForDate, type Daily5SetChoice } from "./daily5SetPick";
+import { DAILY5_CARDS_PER_DEAL, loadDaily5Pool } from "./daily5Pool";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -162,8 +160,8 @@ export class Daily5Service {
       .limit(1);
     if (startedEntry || startedAnon) return challenge;
 
-    const next = await pickDaily5Set();
-    if (!next) return challenge;
+    const next = await resolveDaily5SetForDate(challenge.date);
+    if (!next || next.id === challenge.setId) return challenge;
 
     const seed = deterministicSeed(challenge.date, next.id);
     const [updated] = await db
@@ -182,7 +180,7 @@ export class Daily5Service {
     const existingCheck = await this.getChallengeByDate(dateStr);
     if (existingCheck) return this.releaseHeldChallenge(existingCheck);
 
-    const activeSet = await pickDaily5Set();
+    const activeSet = await resolveDaily5SetForDate(dateStr);
 
     if (!activeSet) {
       console.error("[Daily5] No active game set found");
@@ -214,7 +212,7 @@ export class Daily5Service {
 
     await this.selectCardsForChallenge(challenge, activeSet.id, seed);
 
-    console.log(`[Daily5] Created challenge for ${dateStr} with set ${activeSet.setName}, starts at ${startsAt.toISOString()}`);
+    console.log(`[Daily5] Created challenge for ${dateStr} with set ${activeSet.setName} (${activeSet.source}${activeSet.skipped.length ? `, skipped ${activeSet.skipped.map((s) => `${s.id.slice(0, 8)}:${s.reason}`).join(",")}` : ""}), starts at ${startsAt.toISOString()}`);
     return challenge;
   }
 
@@ -224,31 +222,7 @@ export class Daily5Service {
       console.error(`[Daily5] Refusing held set for ${challenge.date}`);
       return;
     }
-    const candidates = await db
-      .select()
-      .from(playableCards)
-      .where(
-        and(
-          eq(playableCards.gameSetId, setId),
-          eq(playableCards.isPlayable, true),
-          or(isNull(playableCards.contentVerified), eq(playableCards.contentVerified, true)),
-          isNotNull(playableCards.imageUrl),
-          ne(playableCards.imageUrl, ""),
-          not(like(playableCards.imageUrl, "%null%")),
-          like(playableCards.imageUrl, "https://%"),
-          not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Baseball%")),
-          not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Football%")),
-          not(like(playableCards.imageUrl, "%s3.amazonaws.com/appforest_uf%05-Basketball%")),
-          isNotNull(playableCards.player),
-          ne(playableCards.player, ""),
-          or(
-            isNull(playableCards.imageReviewStatus),
-            ne(playableCards.imageReviewStatus, "rejected")
-          ),
-          maskNameStillCovered("playable_cards"),
-          cardNotBlockedSql("playable_cards"),
-        )
-      );
+    const { candidates, filtered } = await loadDaily5Pool(setId);
 
     const [setRow] = await db
       .select({
@@ -261,14 +235,13 @@ export class Daily5Service {
       .where(eq(gameSets.id, setId))
       .limit(1);
 
-    const filtered = candidates.filter(c => !isKnownSilhouetteUrl(c.imageUrl) && !isNonPlayerCard(c.player, c.description) && !isBlockedCard(c.gameSetId, c.player, c) && !isMaskBandExcluded(c.id));
-    if (filtered.length < 5) {
+    if (filtered.length < DAILY5_CARDS_PER_DEAL) {
       console.error(`[Daily5] Not enough playable cards (${filtered.length}) for date ${challenge.date}`);
       return;
     }
 
     const shuffled = deterministicShuffle(filtered, seed);
-    const selected = shuffled.slice(0, 5);
+    const selected = shuffled.slice(0, DAILY5_CARDS_PER_DEAL);
     logDealtDefaultMaskProfiles(selected.map((card) => ({
       setHint: buildSetMaskHint({
         year: setRow?.year,
@@ -303,6 +276,67 @@ export class Daily5Service {
 
     const { kickPreMask } = await import("../masking/preMaskDeal");
     kickPreMask(selected.map((card) => card.id), "daily5-create");
+  }
+
+  /**
+   * QA preview of a CT day's deal. A stored row is reported as stored. A day
+   * with no row is computed from the current pool and the same seed and
+   * shuffle a real deal would use, without writing anything. A later
+   * blocklist or refusal change can still move a provisional card.
+   */
+  async previewDeal(dateStr: string): Promise<{
+    date: string;
+    stored: boolean;
+    setId: string | null;
+    setName: string | null;
+    choice: Daily5SetChoice | null;
+    dealableCount: number | null;
+    cardIds: string[];
+  }> {
+    const [existing] = await db
+      .select()
+      .from(dailyChallenges)
+      .where(eq(dailyChallenges.date, dateStr))
+      .limit(1);
+    if (existing) {
+      const cards = await db
+        .select({ cardId: dailyChallengeCards.cardId })
+        .from(dailyChallengeCards)
+        .where(eq(dailyChallengeCards.dailyChallengeId, existing.id))
+        .orderBy(asc(dailyChallengeCards.position));
+      const [setRow] = existing.setId
+        ? await db.select({ setName: gameSets.setName }).from(gameSets).where(eq(gameSets.id, existing.setId)).limit(1)
+        : [];
+      return {
+        date: dateStr,
+        stored: true,
+        setId: existing.setId ?? null,
+        setName: setRow?.setName ?? null,
+        choice: null,
+        dealableCount: null,
+        cardIds: cards.map((c) => c.cardId),
+      };
+    }
+
+    const choice = await resolveDaily5SetForDate(dateStr);
+    if (!choice) {
+      return { date: dateStr, stored: false, setId: null, setName: null, choice: null, dealableCount: null, cardIds: [] };
+    }
+    await ensureHeldSets();
+    const { filtered } = isHeldSet(choice.id) ? { filtered: [] as PlayableCard[] } : await loadDaily5Pool(choice.id);
+    const seed = deterministicSeed(dateStr, choice.id);
+    const selected = filtered.length >= DAILY5_CARDS_PER_DEAL
+      ? deterministicShuffle(filtered, seed).slice(0, DAILY5_CARDS_PER_DEAL)
+      : [];
+    return {
+      date: dateStr,
+      stored: false,
+      setId: choice.id,
+      setName: choice.setName,
+      choice,
+      dealableCount: filtered.length,
+      cardIds: selected.map((c) => c.id),
+    };
   }
 
   async updateChallengeStatuses(): Promise<void> {
