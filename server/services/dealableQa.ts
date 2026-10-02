@@ -4,7 +4,8 @@
  * so a held set still lists the cards that would be dealable if the hold
  * were lifted. Blocklist, surname exclusions, and current-mask fail
  * sidecars stay in that filter. This file does not restate them.
- * `held` is true when the set id is on the hold list.
+ * `held` is true when the set has no registered mask profile.
+ * `reason` is `no_mask_profile` for that hold, otherwise null.
  */
 import { existsSync } from "fs";
 import path from "path";
@@ -17,7 +18,7 @@ import { getMaskedImagePath } from "../masking/maskingService";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 import { coverBandPlacement } from "./setCovers";
-import { isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, heldSetReason, isHeldSet } from "../config/heldSets";
 import { eligibleDealFilter } from "./playableSetEligibility";
 
 const DEFAULT_LIMIT = 200;
@@ -74,6 +75,7 @@ export interface DealableCardPage {
   setName: string;
   maskVersion: string;
   held: boolean;
+  reason: string | null;
   total: number;
   offset: number;
   limit: number;
@@ -85,12 +87,14 @@ export interface ActiveDealableSet {
   setName: string;
   total: number;
   held: boolean;
+  reason: string | null;
 }
 
 const activeIntegrated = and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false));
 
 /** Active integrated sets and how many cards eligibleDealFilter keeps in each. */
 export async function listActiveDealableSets(): Promise<ActiveDealableSet[]> {
+  await ensureHeldSets();
   const rows = await db
     .select({
       setId: gameSets.id,
@@ -110,6 +114,7 @@ export async function listActiveDealableSets(): Promise<ActiveDealableSet[]> {
     setName: row.setName,
     total: Number(row.total) || 0,
     held: isHeldSet(row.setId),
+    reason: heldSetReason(row.setId),
   }));
 }
 
@@ -119,6 +124,7 @@ export async function listDealableCards(
   offset: number,
   limit: number,
 ): Promise<DealableCardPage | null> {
+  await ensureHeldSets();
   const [set] = await db
     .select({ id: gameSets.id, setName: gameSets.setName })
     .from(gameSets)
@@ -153,6 +159,7 @@ export async function listDealableCards(
     setName: set.setName,
     maskVersion: CURRENT_MASK_VERSION,
     held: isHeldSet(set.id),
+    reason: heldSetReason(set.id),
     total: Number(countRow?.total) || 0,
     offset,
     limit,

@@ -24,7 +24,7 @@ import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { db } from "../db";
 import { NAME_VISIBLE_OUTSIDE_MASK } from "../masking/nameOutsideMask";
 import { playerCoverIdentity } from "./setCovers";
-import { isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { eligibleDealFilter } from "./playableSetEligibility";
 
 const LEAK_REASONS = new Set(["mask_name_uncovered", NAME_VISIBLE_OUTSIDE_MASK]);
@@ -49,6 +49,7 @@ export async function swapFailedCardsOnTodayChallenge(): Promise<Daily5LeakSwapR
     .limit(1);
   if (!challenge || challenge.status === "CLOSED" || !challenge.setId) return empty;
   if (challenge.date !== today) return empty;
+  await ensureHeldSets();
   if (isHeldSet(challenge.setId)) return empty;
 
   const stored = await db

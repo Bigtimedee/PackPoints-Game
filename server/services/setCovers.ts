@@ -21,7 +21,7 @@ import {
   type CoverListRole,
   type ListedCover,
 } from "../config/pinnedCovers";
-import { isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { isBlockedCard } from "../lib/cardBlocklist";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
@@ -536,6 +536,7 @@ function coverHidden(req: Request, res: Response): void {
 
 /** Serves a baked masked JPEG. Does not bake. Sets X-Card-Id when the file is sent. */
 export async function handlePublicSetCover(req: Request, res: Response): Promise<void> {
+  await ensureHeldSets();
   if (isHeldSet(req.params.setId)) {
     coverHidden(req, res);
     return;

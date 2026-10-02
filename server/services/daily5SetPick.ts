@@ -5,15 +5,17 @@
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import { gameSets } from "@shared/schema";
 import { db } from "../db";
-import { HELD_SET_IDS } from "../config/heldSets";
+import { currentHeldSetIds, ensureHeldSets } from "../config/heldSets";
 
 export async function pickDaily5Set(): Promise<{ id: string; setName: string } | null> {
+  await ensureHeldSets();
+  const heldIds = currentHeldSetIds();
   const filters = [
     eq(gameSets.isActive, true),
     eq(gameSets.isUserCreated, false),
   ];
-  if (HELD_SET_IDS.length > 0) {
-    filters.push(notInArray(gameSets.id, [...HELD_SET_IDS]));
+  if (heldIds.length > 0) {
+    filters.push(notInArray(gameSets.id, [...heldIds]));
   }
   const [row] = await db
     .select({ id: gameSets.id, setName: gameSets.setName })

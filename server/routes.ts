@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
-import { HELD_SET_IDS, isHeldSet } from "./config/heldSets";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "./config/heldSets";
 import {
   commitSoloAdvance,
   commitSoloAnswer,
@@ -630,6 +630,7 @@ export async function registerRoutes(
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
+      await ensureHeldSets();
 
       if (setId && isHeldSet(setId)) {
         return res.status(404).json({ error: "Set not found" });
@@ -2499,6 +2500,7 @@ export async function registerRoutes(
       }
       
       const { totalQuestions, gameSetId, wagerAmount } = parsed.data;
+      await ensureHeldSets();
 
       if (gameSetId && isHeldSet(gameSetId)) {
         return res.status(404).json({ error: "Set not found" });
@@ -7064,6 +7066,8 @@ export async function registerRoutes(
   // Deduplicates sets with the same name, returning only the one with the most playable cards
   app.get("/api/playable-sets", async (_req, res) => {
     try {
+      await ensureHeldSets();
+      const heldIds = currentHeldSetIds();
       // Get all active sets with actual playable card counts
       const setsWithCounts = await db
         .select({
@@ -7084,7 +7088,7 @@ export async function registerRoutes(
         .from(gameSets)
         .where(and(
           eq(gameSets.isActive, true),
-          ...(HELD_SET_IDS.length > 0 ? [notInArray(gameSets.id, [...HELD_SET_IDS])] : []),
+          ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
         ))
         .orderBy(gameSets.year, gameSets.setName);
 

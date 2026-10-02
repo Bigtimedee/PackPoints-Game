@@ -18,7 +18,7 @@ import {
   dedupeSetsByNameYearSport,
   eligiblePlayableCardCountSql,
 } from "./playableSetEligibility";
-import { HELD_SET_IDS, isHeldSet } from "../config/heldSets";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { readyMaskedCoverUrls } from "./setCovers";
 
@@ -48,6 +48,8 @@ export function parseSetsListQuery(query: { limit?: unknown; offset?: unknown })
 }
 
 export async function listIntegratedPublicSets(opts: { limit: number; offset: number }): Promise<PublicSetListRow[]> {
+  await ensureHeldSets();
+  const heldIds = currentHeldSetIds();
   const rows = await db
     .select({
       id: gameSets.id,
@@ -67,7 +69,7 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
     .where(and(
       eq(gameSets.isActive, true),
       eq(gameSets.isUserCreated, false),
-      ...(HELD_SET_IDS.length > 0 ? [notInArray(gameSets.id, [...HELD_SET_IDS])] : []),
+      ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
     ))
     .orderBy(asc(gameSets.year), asc(gameSets.setName));
 
@@ -166,6 +168,7 @@ const publicSetColumns = {
 
 export async function handlePublicSetDetail(req: Request, res: Response): Promise<void> {
   try {
+    await ensureHeldSets();
     const { id } = req.params;
     const setRef = normalizePlaySetsSetRef(id) ?? id;
     const dashedId = playSetsDashedUuid(setRef);

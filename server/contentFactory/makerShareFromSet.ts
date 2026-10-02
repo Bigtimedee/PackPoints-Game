@@ -16,7 +16,7 @@ import {
 } from "./generateMakerShare";
 import { isMakerShareRasterFormat } from "./makerShareAssets";
 import { MAKER_SHARE_MAX_STACK, MAKER_SHARE_VOLUME_GATE } from "./makerShareSlug";
-import { isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import type { ScoreCardOutput } from "./generateScoreCard";
 
 export interface PublishedSetShareSource {
@@ -75,6 +75,7 @@ export async function loadPublishedSetShareSource(setId: string): Promise<Publis
 }
 
 export async function loadMakerCardSlots(setId: string): Promise<MakerCardSlot[]> {
+  await ensureHeldSets();
   if (isHeldSet(setId)) return [];
   const cards = await db.select({
     imageUrl: playableCards.imageUrl,

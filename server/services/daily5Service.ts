@@ -17,7 +17,7 @@ import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
-import { isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { swapFailedCardsOnTodayChallenge } from "./daily5FailedCardSwap";
 import { pickDaily5Set } from "./daily5SetPick";
@@ -147,6 +147,7 @@ export class Daily5Service {
    * sweep, which refuses to serve a held card.
    */
   private async releaseHeldChallenge(challenge: DailyChallenge): Promise<DailyChallenge> {
+    await ensureHeldSets();
     if (!challenge.setId || !isHeldSet(challenge.setId)) return challenge;
 
     const [startedEntry] = await db
@@ -218,6 +219,7 @@ export class Daily5Service {
   }
 
   async selectCardsForChallenge(challenge: DailyChallenge, setId: string, seed: string): Promise<void> {
+    await ensureHeldSets();
     if (isHeldSet(setId)) {
       console.error(`[Daily5] Refusing held set for ${challenge.date}`);
       return;

@@ -1,5 +1,6 @@
 /**
- * 1990 Hoops stays off deals and public set pages until a PR removes the hold.
+ * An active set with no registered mask profile stays off deals and public set pages.
+ * 1990 Hoops matches by identity, so a new id is dealable.
  */
 import { createServer } from "http";
 import type { AddressInfo } from "net";
@@ -16,7 +17,7 @@ import {
   playableCards,
 } from "@shared/schema";
 import { db } from "../db";
-import { HELD_SET_IDS, isHeldSet, logHeldSets } from "../config/heldSets";
+import { ensureHeldSets, isHeldSet, logHeldSets, NO_MASK_PROFILE_REASON } from "../config/heldSets";
 import { cardBlocklistWhereBody, isBlockedCard } from "../lib/cardBlocklist";
 import { storage } from "../storage";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
@@ -25,10 +26,12 @@ import { registerDealableQaRoutes } from "../routes/dealableQa";
 import { daily5Service } from "../services/daily5Service";
 import { pickDaily5Set } from "../services/daily5SetPick";
 
-const HELD_ID = HELD_SET_IDS[0];
+const HELD_ID = randomUUID();
 const stamp = randomUUID().slice(0, 8);
 const keeperId = randomUUID();
+const hoopsId = randomUUID();
 const userSetId = randomUUID();
+const STALE_HOOPS_ID = "c2ce5d11-bc9b-43ea-888e-609fdcec76e0";
 const date = "2099-09-27";
 const TOKEN = `held-qa-${stamp}`;
 const previousToken = process.env.COVER_QA_TOKEN;
@@ -72,6 +75,11 @@ beforeAll(async () => {
   const [prior] = await db.select({ id: dailyChallenges.id }).from(dailyChallenges).where(eq(dailyChallenges.date, date)).limit(1);
   if (prior) await clearChallenge(prior.id);
 
+  await db.update(gameSets).set({
+    isActive: false,
+    cardsImportedCount: 0,
+  }).where(eq(gameSets.id, STALE_HOOPS_ID));
+
   const [existing] = await db.select({
     id: gameSets.id,
     cardsImportedCount: gameSets.cardsImportedCount,
@@ -82,18 +90,22 @@ beforeAll(async () => {
     await db.update(gameSets).set({
       isActive: true,
       isUserCreated: false,
-      cardsImportedCount: 2147483646,
+      sport: "basketball",
+      brand: "Donruss",
+      year: 1991,
+      setName: `1991 Donruss ${stamp}`,
+      cardsImportedCount: 2147483647,
     }).where(eq(gameSets.id, HELD_ID));
   } else {
     await db.insert(gameSets).values({
       id: HELD_ID,
       sport: "basketball",
-      brand: "Hoops",
-      year: 1990,
-      setName: "1990 Hoops Basketball",
+      brand: "Donruss",
+      year: 1991,
+      setName: `1991 Donruss ${stamp}`,
       isUserCreated: false,
       isActive: true,
-      cardsImportedCount: 2147483646,
+      cardsImportedCount: 2147483647,
     });
   }
 
@@ -101,12 +113,22 @@ beforeAll(async () => {
     {
       id: keeperId,
       sport: "basketball",
-      brand: "Topps",
-      year: 1987,
+      brand: "Fleer",
+      year: 1989,
       setName: `Held Keeper ${stamp}`,
       isUserCreated: false,
       isActive: true,
-      cardsImportedCount: 2147483645,
+      cardsImportedCount: 2147483646,
+    },
+    {
+      id: hoopsId,
+      sport: "basketball",
+      brand: "Hoops",
+      year: 1990,
+      setName: "1990 Hoops Basketball",
+      isUserCreated: false,
+      isActive: true,
+      cardsImportedCount: 20,
     },
     {
       id: userSetId,
@@ -122,7 +144,8 @@ beforeAll(async () => {
 
   await db.insert(playableCards).values([
     ...Array.from({ length: 6 }, (_, i) => card(keeperId, `Keeper Player ${i + 1}`)),
-    ...Array.from({ length: 6 }, (_, i) => card(HELD_ID, `Hoops Player ${i + 1}`)),
+    ...Array.from({ length: 6 }, (_, i) => card(hoopsId, `Hoops Player ${i + 1}`)),
+    ...Array.from({ length: 6 }, (_, i) => card(HELD_ID, `Donruss Player ${i + 1}`)),
     card(HELD_ID, "Karl Malone / John Stockton"),
     ...Array.from({ length: 6 }, (_, i) => card(userSetId, `User Player ${i + 1}`)),
   ]);
@@ -135,7 +158,7 @@ afterAll(async () => {
   if (cardIds.length > 0) {
     await db.delete(playableCards).where(inArray(playableCards.id, cardIds)).catch(() => null);
   }
-  await db.delete(gameSets).where(inArray(gameSets.id, [keeperId, userSetId])).catch(() => null);
+  await db.delete(gameSets).where(inArray(gameSets.id, [keeperId, userSetId, hoopsId])).catch(() => null);
   if (heldExisted) {
     await db.update(gameSets).set({ cardsImportedCount: heldCount }).where(eq(gameSets.id, HELD_ID)).catch(() => null);
   } else {
@@ -147,27 +170,33 @@ afterAll(async () => {
 });
 
 describe("held set blocklist", () => {
-  it("blocks every card in the held set and puts that id in the SQL body", () => {
+  it("blocks every card in an unprofiled set and puts that id in the SQL body", async () => {
+    await ensureHeldSets();
     expect(isHeldSet(HELD_ID)).toBe(true);
     expect(isHeldSet(HELD_ID.toUpperCase())).toBe(true);
     expect(isHeldSet(keeperId)).toBe(false);
+    expect(isHeldSet(hoopsId)).toBe(false);
     expect(isBlockedCard(HELD_ID, "Michael Jordan")).toBe(true);
     expect(isBlockedCard(HELD_ID, "")).toBe(true);
     expect(isBlockedCard(keeperId, "Michael Jordan")).toBe(false);
+    expect(isBlockedCard(hoopsId, "Michael Jordan")).toBe(false);
 
     const body = cardBlocklistWhereBody("playable_cards");
-    expect(body).toContain(`lower(playable_cards.game_set_id) IN ('${HELD_ID}')`);
+    expect(body).toContain(`'${HELD_ID}'`);
     const pc = cardBlocklistWhereBody("pc");
-    expect(pc).toContain(`lower(pc.game_set_id) IN ('${HELD_ID}')`);
+    expect(pc).toContain(`'${HELD_ID}'`);
+    expect(body).not.toContain(`'${hoopsId}'`);
     expect(cardBlocklistWhereBody("playable_cards", { ignoreHeldSets: true })).not.toContain(HELD_ID);
 
     const lines: string[] = [];
     const spy = vi.spyOn(console, "log").mockImplementation((line) => {
       lines.push(String(line));
     });
-    logHeldSets();
+    await logHeldSets();
     spy.mockRestore();
-    expect(lines).toContain("[HeldSets] ids=c2ce5d11");
+    const boot = lines.find((line) => line.startsWith("[HeldSets] "));
+    expect(boot).toContain(`${HELD_ID.slice(0, 8)}:${NO_MASK_PROFILE_REASON}`);
+    expect(boot).not.toContain(hoopsId.slice(0, 8));
   });
 });
 
@@ -225,14 +254,17 @@ describe("public sets hide a held set", () => {
     const ids = body.sets.map((set) => set.id);
     expect(ids).not.toContain(HELD_ID);
     expect(ids).toContain(keeperId);
+    expect(ids).toContain(hoopsId);
     expect(ids).not.toContain(userSetId);
 
     const detail = await fetch(`${base}/api/sets/${HELD_ID}`);
     expect(detail.status).toBe(404);
-    const slug = await fetch(`${base}/api/sets/1990-hoops-basketball-c2ce5d11`);
+    const slug = await fetch(`${base}/api/sets/1991-donruss-${HELD_ID.slice(0, 8)}`);
     expect(slug.status).toBe(404);
     const keeper = await fetch(`${base}/api/sets/${keeperId}`);
     expect(keeper.status).toBe(200);
+    const hoops = await fetch(`${base}/api/sets/${hoopsId}`);
+    expect(hoops.status).toBe(200);
 
     const cover = await fetch(`${base}/api/sets/${HELD_ID}/covers/0`);
     expect(cover.status).toBe(404);
@@ -270,15 +302,18 @@ describe("QA routes flag a held set", () => {
     const setsBody = await sets.json() as { sets: Array<{ setId: string; held: boolean; total: number }> };
     const held = setsBody.sets.find((row) => row.setId === HELD_ID);
     const keeper = setsBody.sets.find((row) => row.setId === keeperId);
-    expect(held).toMatchObject({ setId: HELD_ID, held: true });
+    expect(held).toMatchObject({ setId: HELD_ID, held: true, reason: NO_MASK_PROFILE_REASON });
     expect(held?.total).toBeGreaterThan(0);
-    expect(keeper).toMatchObject({ setId: keeperId, held: false });
+    expect(keeper).toMatchObject({ setId: keeperId, held: false, reason: null });
+    const hoops = setsBody.sets.find((row) => row.setId === hoopsId);
+    expect(hoops).toMatchObject({ setId: hoopsId, held: false, reason: null });
     expect(setsBody.sets.some((row) => row.setId === userSetId)).toBe(false);
 
     const page = await fetch(`${base}/api/qa/sets/${HELD_ID}/dealable-cards`, { headers });
     expect(page.status).toBe(200);
-    const pageBody = await page.json() as { held: boolean; cards: Array<{ cardId: string; player: string | null }> };
+    const pageBody = await page.json() as { held: boolean; reason: string | null; cards: Array<{ cardId: string; player: string | null }> };
     expect(pageBody.held).toBe(true);
+    expect(pageBody.reason).toBe(NO_MASK_PROFILE_REASON);
     const ours = pageBody.cards.filter((row) => cardIds.includes(row.cardId));
     expect(ours.length).toBeGreaterThan(0);
     expect(pageBody.cards.some((row) => (row.player || "").includes("/"))).toBe(false);

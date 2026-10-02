@@ -20,7 +20,7 @@ import {
   playSetsSlugIdPrefix,
   type PlaySetsSurface,
 } from "@shared/playSetsShare";
-import { isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import fs from "fs";
 import path from "path";
 import { getShareOutputBase } from "../contentFactory/generateScoreCard";
@@ -44,6 +44,7 @@ async function lookupRuntimeCover(setId: string): Promise<string | undefined> {
 }
 
 export async function resolvePlaySetsSet(idOrSlug: string): Promise<ResolvedPlaySetsSet | null> {
+  await ensureHeldSets();
   const raw = normalizePlaySetsSetRef(idOrSlug) ?? (idOrSlug || "").trim();
   if (!raw) return null;
 

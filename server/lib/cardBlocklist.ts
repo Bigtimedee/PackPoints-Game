@@ -11,7 +11,7 @@ import { dailyChallengeCards, dailyChallenges, playableCards } from "@shared/sch
 import { getPackptsDayKey } from "@shared/packptsDay";
 import { isNonPlayerCard } from "@shared/nonPlayerCard";
 import { db } from "../db";
-import { HELD_SET_IDS, isHeldSet } from "../config/heldSets";
+import { currentHeldSetIds, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
 
@@ -569,7 +569,7 @@ function numberPatternClause(alias: CardAlias): string {
 }
 
 function heldSetClause(alias: CardAlias): string | null {
-  const ids: readonly string[] = HELD_SET_IDS;
+  const ids: readonly string[] = currentHeldSetIds();
   if (ids.length === 0) return null;
   const list = ids.map((id) => sqlQuote(id.toLowerCase())).join(", ");
   return `lower(${alias}.game_set_id) IN (${list})`;

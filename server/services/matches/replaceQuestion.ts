@@ -10,7 +10,7 @@ import {
   type GameQuestion,
 } from "@shared/schema";
 import { eq, and, sql, inArray, notInArray } from "drizzle-orm";
-import { HELD_SET_IDS } from "../../config/heldSets";
+import { currentHeldSetIds, ensureHeldSets } from "../../config/heldSets";
 import { quarantineCard, cardHasRealImage, normalizeImageUrl } from "../cards/imageQuality";
 import { getOrValidateCardImage } from "../images/imageGate";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
@@ -141,6 +141,8 @@ export async function replaceMatchQuestion(
   seedVersion: number,
   reason: string = "image_load_failed"
 ): Promise<ReplaceQuestionResult> {
+  await ensureHeldSets();
+  const heldIds = currentHeldSetIds();
   console.log(`[ReplaceQuestion] Request: matchId=${matchId}, userId=${userId}, idx=${idx}, seedVersion=${seedVersion}, reason=${reason}`);
 
   return await db.transaction(async (tx) => {
@@ -293,7 +295,7 @@ export async function replaceMatchQuestion(
       eq(playableCards.isPlayable, true),
       sql`${playableCards.player} IS NOT NULL`,
     ];
-    if (HELD_SET_IDS.length > 0) nameFilters.push(notInArray(playableCards.gameSetId, [...HELD_SET_IDS]));
+    if (heldIds.length > 0) nameFilters.push(notInArray(playableCards.gameSetId, [...heldIds]));
     const allPlayerNames = await tx
       .select({ player: playableCards.player })
       .from(playableCards)
