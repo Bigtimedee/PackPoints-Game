@@ -442,6 +442,11 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "0a61f1ce-6a84-438f-acf6-d6d8c5e9d2c1", number: "391", surname: "payton", variant: "base", reason: "lottery pick GARY PAYTON bottom name" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "349a5190-a09e-4804-bd32-e2bcd50ed9cd", number: "63", surname: "grant", variant: "base", reason: "autograph across the photo" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "8aa2109c-53d4-4417-9cf9-0aae98e59de7", number: "NNO", surname: "robinson", variant: "base", reason: "ROOKIE OF THE YEAR DAVID ROBINSON mid-card text" },
+  // Design clearance 2026-10-02 (4): Hoops goes GREEN on condition these are blocked.
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "fa62eec8-75b8-4624-ba6b-85b37dacf621", number: "110", surname: "salley", variant: "base", reason: "Knicks jersey back reads ..KLEY 34 (LEY ends SALLEY)" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "2d7222b3-9acf-4d5d-9b71-c700e22d535e", number: "339", surname: "pistons", variant: "base", reason: "team card: Portland jersey back reads PETROVIC 44" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "9e6319f6-40d3-4695-89c1-9c03d45a298d", number: "109", surname: "rodman", variant: "base", reason: "BLJH SPORTS seller watermark on the scan" },
+  { gameSetId: HOOPS_1990_SET_PREFIX, id: "badf917b-8887-4cd9-b923-5ab703592ca9", number: "422", surname: "westhead", variant: "base", reason: "band hides the coach's whole head (playability)" },
 ];
 
 export type BlockedSetNumberRule = {
