@@ -88,11 +88,28 @@ export async function ensureCardReviewSeed(): Promise<{ seeded: boolean; cardCou
  * Boot: seed if needed, then turn the guard on for this process. Routes are not
  * registered yet. A seed that keeps failing exits so no route serves unguarded.
  */
+export async function cardReviewTablesExist(): Promise<boolean> {
+  const result = await db.execute<{ approvals: string | null; seed: string | null }>(sql`
+    SELECT to_regclass('public.card_review_approvals')::text AS approvals,
+           to_regclass('public.card_review_seed')::text AS seed
+  `);
+  const row = result.rows?.[0];
+  return Boolean(row?.approvals && row?.seed);
+}
+
 export async function bootCardReviewGuard(opts?: { attempts?: number; exit?: (code: number) => never }): Promise<void> {
   const attempts = Math.max(1, opts?.attempts ?? 3);
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
+      // A skipped schema push (failed pg_dump) boots on the old schema by design.
+      // Nothing can be approved without the tables, so keep today's behavior and
+      // let the next boot with a successful push seed and enable the guard.
+      if (!(await cardReviewTablesExist())) {
+        setCardReviewGuardEnabled(false);
+        console.error("[CardReview] ERROR: card_review tables missing (schema push skipped?). Guard stays off until a boot with the tables.");
+        return;
+      }
       const result = await ensureCardReviewSeed();
       setCardReviewGuardEnabled(true);
       const awaiting = await countAwaitingReview().catch(() => null);
