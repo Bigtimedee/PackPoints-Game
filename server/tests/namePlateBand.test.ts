@@ -32,6 +32,7 @@ import {
   reportMaskSweep,
 } from "../masking/maskPlateSweep";
 import { storage } from "../storage";
+import { releaseSetsForTests } from "../config/heldSets";
 import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import {
   clearReadyCoverIndexForTests,
@@ -258,8 +259,10 @@ describe("failed post-bake verification stays out of deals and covers", () => {
   const server = createServer(app);
   let base = "";
   let dir = "";
+  let restoreClearance: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
+    restoreClearance = await releaseSetsForTests([setId]);
     dir = await mkdtemp(path.join(tmpdir(), "packpts-plate-fail-"));
     setMaskReadySidecarDirForTests(dir);
     await db.insert(gameSets).values({
@@ -303,6 +306,7 @@ describe("failed post-bake verification stays out of deals and covers", () => {
   });
 
   afterAll(async () => {
+    if (restoreClearance) await restoreClearance();
     setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();

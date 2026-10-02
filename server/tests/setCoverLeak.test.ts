@@ -18,6 +18,7 @@ import { contentAssets, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
+import { releaseSetsForTests } from "../config/heldSets";
 import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
@@ -68,7 +69,10 @@ async function writeReady(cardId: string, bytes: Buffer) {
   await writeFile(path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}.jpg`), bytes);
 }
 
+let restoreClearance: (() => Promise<void>) | undefined;
+
 beforeAll(async () => {
+  restoreClearance = await releaseSetsForTests([setId]);
   dir = await mkdtemp(path.join(tmpdir(), "packpts-set-covers-"));
   setMaskReadySidecarDirForTests(dir);
   await writeReady(unplayableId, unplayableBytes);
@@ -103,6 +107,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (restoreClearance) await restoreClearance();
   setPinnedCoversForTests(setId, null);
   setMaskReadySidecarDirForTests(null);
   clearReadyCoverIndexForTests();

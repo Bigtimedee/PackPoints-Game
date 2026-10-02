@@ -11,6 +11,7 @@ import { scanLooksLikeImage, scanResponseContentType } from "./images/scanBytes"
 import { maybeWriteWarmOkSidecar } from "../startup/warmSidecarBackfill";
 import { CURRENT_MASK_VERSION } from "../masking/maskProfiles";
 import { setUnmaskedHeaders } from "./playImageHttp";
+import { PUBLIC_MASK_CACHE_CONTROL } from "./publicMaskGate";
 
 function setUnmaskedResponseHeaders(res: Response, contentType: string): void {
   setUnmaskedHeaders(res);
@@ -182,6 +183,7 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     const etagMatch = maskedPath.match(/_(v[\d.]+(?:_r\d+)?)\.jpg$/);
     const etag = `"${etagMatch?.[1] ?? CURRENT_MASK_VERSION}"`;
     if (req.headers["if-none-match"] === etag) {
+      res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
       res.setHeader("ETag", etag);
       res.setHeader("X-Mask-Cache", cacheStatus);
       res.status(304).end();
@@ -189,7 +191,7 @@ export async function sendMaskedCard(req: Request, res: Response, cardId: string
     }
 
     res.setHeader("Content-Type", "image/jpeg");
-    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    res.setHeader("Cache-Control", PUBLIC_MASK_CACHE_CONTROL);
     res.setHeader("ETag", etag);
     res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
     res.setHeader("X-Mask-Cache", cacheStatus);

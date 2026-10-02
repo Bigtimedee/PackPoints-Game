@@ -28,6 +28,7 @@ import { startMaskBandGuardScan } from "./masking/maskBandLimit";
 import { startMaskWarmup } from "./startup/maskWarmup";
 import { logCardBlocklist } from "./lib/cardBlocklist";
 import { logHeldSets } from "./config/heldSets";
+import { logMaskCachePurge } from "./masking/maskCachePurge";
 import { invalidateRegisteredHoopsMaskCache } from "./masking/maskingService";
 import { logPinnedCoversAtBoot } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
@@ -89,6 +90,11 @@ export async function bootAfterListen(
 ): Promise<void> {
   logCardBlocklist();
   await logHeldSets();
+  try {
+    await logMaskCachePurge();
+  } catch (error) {
+    console.error("[MaskCachePurge] failed", error);
+  }
   try {
     await invalidateRegisteredHoopsMaskCache();
   } catch (error) {

@@ -17,6 +17,7 @@ import { db } from "../db";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "../services/publicSets";
+import { releaseSetsForTests } from "../config/heldSets";
 import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
@@ -66,8 +67,10 @@ describe("GET /api/sets covers switch", () => {
     void handlePublicSetsIndex(req, res);
   });
   const server = createServer(app);
+  let restoreClearance: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
+    restoreClearance = await releaseSetsForTests([setId]);
     dir = await mkdtemp(path.join(tmpdir(), "packpts-covers-off-"));
     setMaskReadySidecarDirForTests(dir);
     await writeFile(path.join(dir, warmOkMarkerFilename(readyId)), "ok\n");
@@ -114,6 +117,7 @@ describe("GET /api/sets covers switch", () => {
   });
 
   afterAll(async () => {
+    if (restoreClearance) await restoreClearance();
     setFlag(previous);
     setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);

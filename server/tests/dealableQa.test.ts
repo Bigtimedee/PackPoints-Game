@@ -238,7 +238,8 @@ describe("dealable QA routes", () => {
 
   it("keeps the deal filter in one place", async () => {
     const src = await readFile(new URL("../services/dealableQa.ts", import.meta.url), "utf8");
-    expect(src).toContain('eligibleDealFilter("playable_cards")');
+    expect(src).toContain('eligibleDealFilter("playable_cards"');
+    expect(src).toContain("ignoreHeldSets: true");
     const routeSrc = await readFile(new URL("../routes/dealableQa.ts", import.meta.url), "utf8");
     expect(routeSrc).toContain("eligibleCoverFile");
     expect(routeSrc.indexOf("eligibleCoverFile")).toBeLessThan(routeSrc.indexOf("dealableMaskedFile(req.params.cardId)"));

@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
-import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "./config/heldSets";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet, refreshHeldSets } from "./config/heldSets";
 import {
   commitSoloAdvance,
   commitSoloAnswer,
@@ -130,6 +130,7 @@ import { handleCardIdUnmasked, handleMaskedToken, handleRevealToken, setUnmasked
 import { authorizeCardId, callerIsAdmin, mintDailyRevealUrl, mintMatchRevealUrl, mintSoloRevealUrl, registeredDailyEntryId, resolveMaskCard, resolveReportedCardId, resolveRevealCard } from "./services/playImageAccess";
 import { handlePlayImageReport } from "./services/playImageReport";
 import { sendMaskedCard, sendUnmaskedCard } from "./services/playImageSend";
+import { invalidatePublicMaskSetCache, rejectPublicMask } from "./services/publicMaskGate";
 // BUG-02: Per-session async mutex to prevent race conditions on answer submission
 const sessionAnswerLocks = new Map<string, Promise<void>>();
 
@@ -4915,6 +4916,8 @@ export async function registerRoutes(
       };
       
       const [gameSet] = await db.insert(gameSets).values(insertData).returning();
+      invalidatePublicMaskSetCache(gameSet.id);
+      await refreshHeldSets();
       res.status(201).json(gameSet);
     } catch (error) {
       console.error("Error creating game set:", error);
@@ -4960,7 +4963,9 @@ export async function registerRoutes(
       if (updateData.isActive === false) {
         await invalidateMaskSidecarsForGameSet(id);
       }
-      
+      invalidatePublicMaskSetCache(id);
+      await refreshHeldSets();
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating game set:", error);
@@ -8336,6 +8341,9 @@ export async function registerRoutes(
   app.get("/api/cards/:cardId/masked-image", async (req, res) => {
     // Legacy path still bakes the name-covered JPEG. New deals use /api/play/m, which
     // does not contain the card id, so this URL is not derivable from the guessing payload.
+    // Admins may review a held set here. Everyone else gets the public gate.
+    const allowHeld = await callerIsAdmin(req);
+    if (await rejectPublicMask(req, res, req.params.cardId, { allowHeld })) return;
     await sendMaskedCard(req, res, req.params.cardId);
   });
 

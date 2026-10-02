@@ -20,6 +20,7 @@ import {
   userOnboarding,
   users,
 } from "@shared/schema";
+import { releaseSetsForTests } from "../config/heldSets";
 import { db } from "../db";
 import { isAuthenticated } from "../auth";
 import { handleOnboardingStart, registerLockedCardRowRoutes } from "../services/lockedCardRows";
@@ -64,7 +65,10 @@ function assertNoAnswerLeak(value: unknown) {
   expect(text).not.toContain('"variant"');
 }
 
+let restoreClearance: (() => Promise<void>) | undefined;
+
 beforeAll(async () => {
+  restoreClearance = await releaseSetsForTests([setId]);
   await db.insert(users).values([
     {
       id: adminId,
@@ -168,6 +172,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (restoreClearance) await restoreClearance();
   await db.delete(userOnboarding).where(eq(userOnboarding.userId, memberId)).catch(() => null);
   await db.delete(cardSetCards).where(eq(cardSetCards.setId, catalogSetId)).catch(() => null);
   await db.delete(catalogCards).where(eq(catalogCards.id, catalogCardId)).catch(() => null);

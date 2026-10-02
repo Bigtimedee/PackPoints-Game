@@ -33,7 +33,8 @@ describe("masked-image warm path", () => {
     expect(maskedSendSrc).toContain("peekWarmMaskedFilename");
     expect(maskedSendSrc).toContain('X-Mask-Cache');
     expect(maskedSendSrc).toContain("Server-Timing");
-    expect(maskedSendSrc).toContain("max-age=86400");
+    expect(maskedSendSrc).toContain("PUBLIC_MASK_CACHE_CONTROL");
+    expect(maskedSendSrc).not.toContain("max-age=86400");
     expect(maskedSendSrc).toContain('res.removeHeader("X-Card-Id")');
     expect(CURRENT_MASK_VERSION).toBe("v4.6");
   });

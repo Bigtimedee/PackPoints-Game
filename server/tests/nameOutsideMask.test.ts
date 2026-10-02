@@ -25,6 +25,7 @@ import {
   users,
 } from "@shared/schema";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
+import { releaseSetsForTests } from "../config/heldSets";
 import { db } from "../db";
 import { NAME_VISIBILITY_CHECK_VERSION, NAME_VISIBLE_OUTSIDE_MASK, nameVisibilityPassFilename, tokenMatchesPlayerName, verifyNameVisibleOutsideMask, visiblePlayerNameOutsideMask } from "../masking/nameOutsideMask";
 import { runNameVisibilityBackfill } from "../masking/nameVisibilityBackfill";
@@ -208,8 +209,10 @@ describe("visible surname outside the mask", () => {
   const server = createServer(app);
   let base = "";
   let dir = "";
+  let restoreClearance: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
+    restoreClearance = await releaseSetsForTests([setId]);
     dir = await mkdtemp(path.join(tmpdir(), "packpts-name-out-"));
     setMaskReadySidecarDirForTests(dir);
     await db.insert(gameSets).values({
@@ -257,6 +260,7 @@ describe("visible surname outside the mask", () => {
   });
 
   afterAll(async () => {
+    if (restoreClearance) await restoreClearance();
     setPinnedCoversForTests(setId, null);
     setMaskReadySidecarDirForTests(null);
     clearReadyCoverIndexForTests();
@@ -394,7 +398,10 @@ describe("today's Daily 5 name leak", () => {
     createdAt: new Date("2020-06-01T00:00:00.000Z"),
   });
 
+  let restoreClearance: (() => Promise<void>) | undefined;
+
   beforeAll(async () => {
+    restoreClearance = await releaseSetsForTests([setId]);
     await db.insert(gameSets).values({
       id: setId,
       sport: "basketball",
@@ -462,6 +469,7 @@ describe("today's Daily 5 name leak", () => {
   });
 
   afterAll(async () => {
+    if (restoreClearance) await restoreClearance();
     await db.delete(dailyChallengeEntries).where(eq(dailyChallengeEntries.userId, userId)).catch(() => null);
     await db.delete(anonDailyRuns).where(eq(anonDailyRuns.dailyChallengeId, todayChallenge)).catch(() => null);
     await db.delete(dailyChallengeCards).where(inArray(dailyChallengeCards.dailyChallengeId, [todayChallenge, yesterdayChallenge])).catch(() => null);

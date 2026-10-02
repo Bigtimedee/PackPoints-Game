@@ -464,7 +464,7 @@ export async function listCoverCandidates(setId: string, limit: number): Promise
   };
 }
 
-/** Masked file for one card that passes the cover filters. Null never falls back to a raw scan. */
+/** Masked file for one card that passes the cover filters. The set hold is ignored so QA can review it. Null never falls back to a raw scan. */
 export async function eligibleCoverFile(cardId: string): Promise<string | null> {
   if (!cardId || cardId.includes("/") || cardId.includes("\\") || cardId.includes("..") || cardId.includes("\0")) {
     return null;
@@ -477,7 +477,7 @@ export async function eligibleCoverFile(cardId: string): Promise<string | null> 
     .innerJoin(gameSets, eq(gameSets.id, playableCards.gameSetId))
     .where(and(
       eq(playableCards.id, cardId),
-      eligibleDealFilter("playable_cards"),
+      eligibleDealFilter("playable_cards", { ignoreHeldSets: true }),
       sql`LOWER(playable_cards.category) = LOWER(game_sets.sport)`,
     ))
     .limit(1);
