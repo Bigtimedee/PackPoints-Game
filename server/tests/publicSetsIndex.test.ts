@@ -65,9 +65,9 @@ beforeAll(async () => {
     { id: inactiveId, sport: "baseball", brand: "Topps", year: 1988, setName: `P0 Inactive ${stamp}`, isUserCreated: false, isActive: false },
     { id: thinId, sport: "baseball", brand: "Topps", year: 1986, setName: `P0 Thin ${stamp}`, isUserCreated: false, isActive: true },
     { id: ineligibleId, sport: "baseball", brand: "Topps", year: 1985, setName: `P0 Bad ${stamp}`, isUserCreated: false, isActive: true },
-    { id: dupeLowId, sport: "baseball", brand: "Topps", year: 1991, setName: dupeName, isUserCreated: false, isActive: true },
-    { id: dupeHighId, sport: "baseball", brand: "Topps", year: 1991, setName: dupeName, isUserCreated: false, isActive: true },
-    { id: otherYearId, sport: "baseball", brand: "Topps", year: 1992, setName: dupeName, isUserCreated: false, isActive: true },
+    { id: dupeLowId, sport: "baseball", brand: "Topps", year: 1989, setName: dupeName, isUserCreated: false, isActive: true },
+    { id: dupeHighId, sport: "baseball", brand: "Topps", year: 1989, setName: dupeName, isUserCreated: false, isActive: true },
+    { id: otherYearId, sport: "baseball", brand: "Topps", year: 1952, setName: dupeName, isUserCreated: false, isActive: true },
   ]);
 
   const fan = "https://packpts.com/assets/maker-set-1080.png";

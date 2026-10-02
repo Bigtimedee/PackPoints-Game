@@ -117,7 +117,7 @@ describe("live hints stay dealable and bake a region", () => {
     }
     const profiles = readFileSync(new URL("../masking/maskProfiles.ts", import.meta.url), "utf8");
     expect(profiles).not.toContain("shouldDealMaskedCard");
-    expect(profiles).toContain("UNKNOWN exclusion is deferred");
+    expect(profiles).toContain("Active integrated sets that resolve here are held");
   });
 
   it("an OCR miss on an unmatched set bakes the default bottom 46% and does not quarantine", async () => {

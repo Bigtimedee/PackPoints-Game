@@ -1,12 +1,12 @@
 import { createHash } from "crypto";
 import { db } from "../db";
 import { 
-  dailyChallenges, dailyChallengeCards, dailyChallengeEntries,
+  dailyChallenges, dailyChallengeCards, dailyChallengeEntries, anonDailyRuns,
   playableCards, gameSets, users,
   type DailyChallenge, type DailyChallengeCard, type DailyChallengeEntry,
   type DailyChallengeStatus, type PlayableCard
 } from "@shared/schema";
-import { eq, and, desc, isNotNull, ne, isNull, or, not, like, sql, asc, gte } from "drizzle-orm";
+import { eq, and, isNotNull, ne, isNull, or, not, like, sql, asc, gte } from "drizzle-orm";
 import { isKnownSilhouetteUrl } from "../storage";
 import { applyLedgerEntry } from "./packpts/ledgerService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
@@ -17,8 +17,10 @@ import { readWarmMaskPlan } from "../masking/maskPlanStore";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
+import { ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { swapFailedCardsOnTodayChallenge } from "./daily5FailedCardSwap";
+import { pickDaily5Set } from "./daily5SetPick";
 
 const SECRET_SALT = process.env.SECRET_SALT || process.env.GROWTH_AGENT_SECRET_SALT || "packpts-daily5-default-salt-change-me";
 
@@ -128,9 +130,10 @@ export class Daily5Service {
     const today = getTodayDateString();
     const existing = await this.getChallengeByDate(today);
     if (existing) {
+      const released = await this.releaseHeldChallenge(existing);
       await swapFailedCardsOnTodayChallenge();
       await sweepBlockedDaily5Deals(today);
-      return existing;
+      return released;
     }
 
     const created = await this.createChallengeForDate(today);
@@ -138,16 +141,48 @@ export class Daily5Service {
     return created;
   }
 
+  /**
+   * A challenge already pointed at a held set is moved to the next eligible
+   * set when nobody has started. A started hand is left for the blocklist
+   * sweep, which refuses to serve a held card.
+   */
+  private async releaseHeldChallenge(challenge: DailyChallenge): Promise<DailyChallenge> {
+    await ensureHeldSets();
+    if (!challenge.setId || !isHeldSet(challenge.setId)) return challenge;
+
+    const [startedEntry] = await db
+      .select({ id: dailyChallengeEntries.id })
+      .from(dailyChallengeEntries)
+      .where(eq(dailyChallengeEntries.dailyChallengeId, challenge.id))
+      .limit(1);
+    const [startedAnon] = await db
+      .select({ id: anonDailyRuns.id })
+      .from(anonDailyRuns)
+      .where(eq(anonDailyRuns.dailyChallengeId, challenge.id))
+      .limit(1);
+    if (startedEntry || startedAnon) return challenge;
+
+    const next = await pickDaily5Set();
+    if (!next) return challenge;
+
+    const seed = deterministicSeed(challenge.date, next.id);
+    const [updated] = await db
+      .update(dailyChallenges)
+      .set({ setId: next.id, seed })
+      .where(eq(dailyChallenges.id, challenge.id))
+      .returning();
+    await db.delete(dailyChallengeCards).where(eq(dailyChallengeCards.dailyChallengeId, challenge.id));
+    const fresh = updated ?? { ...challenge, setId: next.id, seed };
+    await this.selectCardsForChallenge(fresh, next.id, seed);
+    console.log(`[Daily5] Retargeted ${challenge.date} off held set onto ${next.setName}`);
+    return fresh;
+  }
+
   async createChallengeForDate(dateStr: string): Promise<DailyChallenge | null> {
     const existingCheck = await this.getChallengeByDate(dateStr);
-    if (existingCheck) return existingCheck;
+    if (existingCheck) return this.releaseHeldChallenge(existingCheck);
 
-    const [activeSet] = await db
-      .select()
-      .from(gameSets)
-      .where(eq(gameSets.isActive, true))
-      .orderBy(desc(gameSets.cardsImportedCount))
-      .limit(1);
+    const activeSet = await pickDaily5Set();
 
     if (!activeSet) {
       console.error("[Daily5] No active game set found");
@@ -173,7 +208,8 @@ export class Daily5Service {
       .returning();
 
     if (!challenge) {
-      return this.getChallengeByDate(dateStr);
+      const raced = await this.getChallengeByDate(dateStr);
+      return raced ? this.releaseHeldChallenge(raced) : null;
     }
 
     await this.selectCardsForChallenge(challenge, activeSet.id, seed);
@@ -183,6 +219,11 @@ export class Daily5Service {
   }
 
   async selectCardsForChallenge(challenge: DailyChallenge, setId: string, seed: string): Promise<void> {
+    await ensureHeldSets();
+    if (isHeldSet(setId)) {
+      console.error(`[Daily5] Refusing held set for ${challenge.date}`);
+      return;
+    }
     const candidates = await db
       .select()
       .from(playableCards)

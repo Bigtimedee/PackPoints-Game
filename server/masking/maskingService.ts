@@ -6,7 +6,7 @@ import { cardImageMaskCache, baseballCards, playableCards, gameSets } from "@sha
 import { and, eq, inArray } from "drizzle-orm";
 import { maskCardImage, CURRENT_MASK_VERSION } from "./maskCardImage";
 import { applyServedRotation, orientationOcrBudgetMs, uprightCardImage } from "./cardOrientation";
-import { getMaskProfile, logDealtDefaultMaskProfiles } from "./maskProfiles";
+import { getMaskProfile, hoopsBottomBakeIsStale, HOOPS_1990_PROFILE_ID, logDealtDefaultMaskProfiles } from "./maskProfiles";
 import { recognizeWords, resetOcrRuntimeForTests } from "./ocrRuntime";
 import {
   clearOrientNote,
@@ -18,7 +18,7 @@ import {
   type QuarterTurn,
 } from "./orientNote";
 import { buildSetMaskHint, maskedCardImageUrl } from "@shared/maskGeometry";
-import { MASKED_CARDS_DIR, readWarmMaskPlan, writeWarmMaskPlan } from "./maskPlanStore";
+import { MASKED_CARDS_DIR, readWarmMaskPlan, warmMaskPlanFilename, writeWarmMaskPlan } from "./maskPlanStore";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { clearMaskFailureSidecar, invalidateMaskReadySidecar, readMaskFailureReason, writeMaskFailureSidecar } from "./maskReadySidecar";
 import { isMaskBandExcluded, maskBandFailure, maskBandGuardEnforces, rejectMaskBand } from "./maskBandLimit";
@@ -356,6 +356,121 @@ export async function acceptWarmMaskedFile(cardId: string, filename: string): Pr
   return true;
 }
 
+const hoopsCardMemo = new Map<string, boolean>();
+
+async function cardUses1990HoopsProfile(cardId: string): Promise<boolean> {
+  const known = hoopsCardMemo.get(cardId);
+  if (known != null) return known;
+  let hoops = false;
+  try {
+    const [card] = await db
+      .select({
+        gameSetId: playableCards.gameSetId,
+        set: playableCards.set,
+        category: playableCards.category,
+      })
+      .from(playableCards)
+      .where(eq(playableCards.id, cardId))
+      .limit(1);
+    if (card?.gameSetId) {
+      const [gameSet] = await db
+        .select({
+          year: gameSets.year,
+          brand: gameSets.brand,
+          sport: gameSets.sport,
+          setName: gameSets.setName,
+        })
+        .from(gameSets)
+        .where(eq(gameSets.id, card.gameSetId))
+        .limit(1);
+      const hint = gameSet
+        ? buildSetMaskHint({
+          year: gameSet.year,
+          brand: gameSet.brand,
+          sport: gameSet.sport,
+          setName: card.set || gameSet.setName,
+          category: card.category,
+        })
+        : card.set;
+      hoops = getMaskProfile(hint, card.gameSetId).id === HOOPS_1990_PROFILE_ID;
+    }
+  } catch {
+    hoops = false;
+  }
+  hoopsCardMemo.set(cardId, hoops);
+  return hoops;
+}
+
+function unlinkWarmMaskFiles(cardId: string): void {
+  for (const deg of [0, 90, 180, 270] as const) {
+    try {
+      unlinkSync(path.join(MASKED_CARDS_DIR, warmMaskedFilename(cardId, deg)));
+    } catch {
+      // already gone
+    }
+  }
+  try {
+    unlinkSync(path.join(MASKED_CARDS_DIR, warmMaskPlanFilename(cardId)));
+  } catch {
+    // plan sidecar already gone
+  }
+  try {
+    unlinkSync(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)));
+  } catch {
+    // marker already gone
+  }
+}
+
+/** Drop a warm Hoops JPEG that still paints the default bottom 46% plaque. */
+async function discardStaleHoopsBottomBake(cardId: string): Promise<boolean> {
+  const plan = readWarmMaskPlan(cardId);
+  if (!plan || !hoopsBottomBakeIsStale(HOOPS_1990_PROFILE_ID, plan.layoutClass, plan.regions)) return false;
+  if (!await cardUses1990HoopsProfile(cardId)) return false;
+  unlinkWarmMaskFiles(cardId);
+  try {
+    await db.delete(cardImageMaskCache).where(eq(cardImageMaskCache.cardId, cardId));
+  } catch {
+    // the next bake overwrites the row
+  }
+  return true;
+}
+
+/**
+ * Re-imported 1990 Hoops cards must not keep a bottom plaque baked before the
+ * top-name profile existed. New card ids have no file. Leftover ids are cleared.
+ */
+export async function invalidateRegisteredHoopsMaskCache(): Promise<{ sets: number; cards: number }> {
+  const rows = await db
+    .select({
+      id: gameSets.id,
+      year: gameSets.year,
+      brand: gameSets.brand,
+      sport: gameSets.sport,
+      setName: gameSets.setName,
+    })
+    .from(gameSets);
+  const setIds = rows
+    .filter((row) => getMaskProfile(buildSetMaskHint(row), row.id).id === HOOPS_1990_PROFILE_ID)
+    .map((row) => row.id);
+  let cards = 0;
+  for (const setId of setIds) {
+    const result = await invalidateMaskedImageCache({ setId });
+    cards += result.cardIds.length;
+    const members = await db
+      .select({ id: playableCards.id })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, setId));
+    for (const member of members) {
+      unlinkWarmMaskFiles(member.id);
+      hoopsCardMemo.set(member.id, true);
+    }
+  }
+  if (setIds.length > 0) {
+    console.log(`[MaskProfile] hoops cache invalidated sets=${setIds.map((id) => id.slice(0, 8)).join(",")} cards=${cards}`);
+  }
+  return { sets: setIds.length, cards };
+}
+
 export async function getMaskedImagePath(
   cardId: string,
   opts?: { priority?: "live" | "warm" },
@@ -367,6 +482,8 @@ export async function getMaskedImagePath(
   }
   if (pathLoaderOverride) return pathLoaderOverride(cardId);
   if (isMaskBandExcluded(cardId)) return null;
+
+  await discardStaleHoopsBottomBake(cardId);
 
   const warm = peekWarmMaskedFilename(cardId);
   if (warm && await acceptWarmMaskedFile(cardId, warm)) {
@@ -482,7 +599,10 @@ async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "
       const staleField = field !== 0 && cachedTurn !== field;
       const staleNote = note != null && cachedTurn !== note.rotation;
       const staleSideways = field === 0 && cachedTurn === 0 && landscape && !note?.landscapeDesign && !note?.coverBoth;
-      if (!staleField && !staleNote && !staleSideways) return cachedName;
+      const profile = getMaskProfile(setHint, gameSetId);
+      const staleHoopsBottom = hoopsBottomBakeIsStale(profile.id, cached.layoutClass, cached.regions);
+      if (!staleField && !staleNote && !staleSideways && !staleHoopsBottom) return cachedName;
+      if (staleHoopsBottom) unlinkWarmMaskFiles(cardId);
     } catch {
       // file missing
     }

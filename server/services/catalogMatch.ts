@@ -2,7 +2,8 @@
  * Read-only catalog match for /make.
  * Selects integrated playable sets. Does not insert cards, sets, or photos.
  */
-import { and, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, notInArray, sql } from "drizzle-orm";
+import { currentHeldSetIds, ensureHeldSets } from "../config/heldSets";
 import { db } from "../db";
 import { catalogCards, gameSets, playableCards } from "@shared/schema";
 import { setShareSlug } from "../contentFactory/makerShareSlug";
@@ -56,6 +57,8 @@ async function playableCounts(setIds: string[]): Promise<Map<string, number>> {
 
 /** Membership query is limited to active, non-user-created sets. Scoring drops them again. */
 export async function matchIdentifiedCardReadOnly(fields: IdentifyFields): Promise<CatalogMatchCore> {
+  await ensureHeldSets();
+  const heldIds = currentHeldSetIds();
   const token = playerSearchToken(fields.playerName);
   if (!token) return emptyCatalogMatch();
   const needle = ilikeContains(token);
@@ -92,6 +95,7 @@ export async function matchIdentifiedCardReadOnly(fields: IdentifyFields): Promi
       and(
         eq(gameSets.isUserCreated, false),
         eq(gameSets.isActive, true),
+        ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
         eq(playableCards.isPlayable, true),
         ilike(playableCards.player, needle),
       ),

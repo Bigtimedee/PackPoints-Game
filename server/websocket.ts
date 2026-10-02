@@ -20,6 +20,7 @@ import { eq, and } from "drizzle-orm";
 import { maskedPlayPath } from "./services/playImageToken";
 import { readWarmMaskPlan } from "./masking/maskPlanStore";
 import { mintMatchRevealUrl } from "./services/playImageAccess";
+import { ensureHeldSets, isHeldSet } from "./config/heldSets";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import {
   beginWebSocketShutdown,
@@ -1700,6 +1701,12 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
   }
   
   const socketId = existingClient?.socketId || require('crypto').randomBytes(8).toString('hex');
+
+  await ensureHeldSets();
+  if (gameSetId && isHeldSet(gameSetId)) {
+    ws.send(JSON.stringify({ type: "error", message: "Set not found" }));
+    return;
+  }
   
   clients.set(ws, { 
     userId, 
@@ -1710,7 +1717,7 @@ async function handleJoinQueue(ws: WebSocket, payload: { userId: string; usernam
     socketId
   });
   userSockets.set(userId, ws);
-  
+
   const result = await dbMatchmakingQueue.joinQueue(userId, username, ws, socketId, totalQuestions, gameSetId);
   
   ws.send(JSON.stringify({

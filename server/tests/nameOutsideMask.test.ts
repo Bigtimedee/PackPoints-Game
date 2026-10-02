@@ -215,8 +215,8 @@ describe("visible surname outside the mask", () => {
     await db.insert(gameSets).values({
       id: setId,
       sport: "basketball",
-      brand: "Panini",
-      year: 2024,
+      brand: "Fleer",
+      year: 1989,
       setName: `2024 Basketball ${stamp}`,
       isUserCreated: false,
       isActive: true,
@@ -398,8 +398,8 @@ describe("today's Daily 5 name leak", () => {
     await db.insert(gameSets).values({
       id: setId,
       sport: "basketball",
-      brand: "Panini",
-      year: 2024,
+      brand: "Fleer",
+      year: 1989,
       setName: `2024 Basketball Daily ${stamp}`,
       isUserCreated: false,
       isActive: true,
