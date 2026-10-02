@@ -581,6 +581,13 @@ app.use((req, res, next) => {
   }
 
   try {
+    const { startGrowthMandateLoop } = await import("./services/growthAgent/runner");
+    startGrowthMandateLoop();
+  } catch (err) {
+    console.error("[GrowthMandate] Failed to start loop:", err);
+  }
+
+  try {
     const { startRetentionEmailLoops } = await import("./services/retentionEmails");
     startRetentionEmailLoops();
   } catch (err) {
