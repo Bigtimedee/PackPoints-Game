@@ -82,8 +82,8 @@ describe("pinned set covers", () => {
       {
         id: setId,
         sport: "basketball",
-        brand: "Topps",
-        year: 1991,
+        brand: "Fleer",
+        year: 1989,
         setName: `Pinned ${stamp}`,
         isUserCreated: false,
         isActive: true,
@@ -91,8 +91,8 @@ describe("pinned set covers", () => {
       {
         id: otherSetId,
         sport: "basketball",
-        brand: "Topps",
-        year: 1992,
+        brand: "Fleer",
+        year: 1988,
         setName: `Other ${stamp}`,
         isUserCreated: false,
         isActive: true,

@@ -10,6 +10,7 @@ import { db } from "./db";
 import { eq, sql, desc, and, gte, lt, isNotNull, ne, not, like, or, isNull, notInArray } from "drizzle-orm";
 import { eligibleDealFilter } from "./services/playableSetEligibility";
 import { isBlockedCard } from "./lib/cardBlocklist";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "./config/heldSets";
 import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
@@ -579,6 +580,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRandomCardsFromSet(setId: string, count: number): Promise<PlayableCard[]> {
+    await ensureHeldSets();
+    if (isHeldSet(setId)) return [];
     // First get the game set's sport for validation
     const [gameSet] = await db
       .select({
@@ -710,6 +713,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDefaultPlayableSetId(): Promise<string | null> {
+    await ensureHeldSets();
+    const heldIds = currentHeldSetIds();
     // Get active set that actually has imported playable cards
     // Require at least 10 playable cards to prevent empty/placeholder sets from being selected
     // CRITICAL: Exclude known silhouette URL patterns to prevent serving placeholders
@@ -733,7 +738,8 @@ export class DatabaseStorage implements IStorage {
           // CRITICAL: Exclude known silhouette URL patterns
           not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Baseball%')),
           not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Football%')),
-          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%'))
+          not(like(playableCards.imageUrl, '%s3.amazonaws.com/appforest_uf%05-Basketball%')),
+          ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
         )
       )
       .groupBy(gameSets.id)
@@ -864,6 +870,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createGameSession(userId: string | null, mode: string, totalQuestions: number, guestSessionId?: string, setId?: string): Promise<GameSession> {
+    await ensureHeldSets();
+    if (setId && isHeldSet(setId)) {
+      throw new Error("HELD_SET");
+    }
+
     let questions: GameQuestion[];
     
     const effectiveSetId = setId || await this.getDefaultPlayableSetId();

@@ -3,7 +3,7 @@
  * UGC (is_user_created) is never listed. Publishing is closed.
  */
 import type { Request, Response } from "express";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { normalizePlaySetsSetRef, playSetsDashedUuid, playSetsSlugIdPrefix } from "@shared/playSetsShare";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { publicSetShareUrl } from "@shared/setCoverUrl";
@@ -18,6 +18,7 @@ import {
   dedupeSetsByNameYearSport,
   eligiblePlayableCardCountSql,
 } from "./playableSetEligibility";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { readyMaskedCoverUrls } from "./setCovers";
 
@@ -47,6 +48,8 @@ export function parseSetsListQuery(query: { limit?: unknown; offset?: unknown })
 }
 
 export async function listIntegratedPublicSets(opts: { limit: number; offset: number }): Promise<PublicSetListRow[]> {
+  await ensureHeldSets();
+  const heldIds = currentHeldSetIds();
   const rows = await db
     .select({
       id: gameSets.id,
@@ -63,7 +66,11 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
     })
     .from(gameSets)
     .leftJoin(users, eq(users.id, gameSets.createdByUserId))
-    .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)))
+    .where(and(
+      eq(gameSets.isActive, true),
+      eq(gameSets.isUserCreated, false),
+      ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
+    ))
     .orderBy(asc(gameSets.year), asc(gameSets.setName));
 
   const { kept } = dedupeSetsByNameYearSport(
@@ -161,6 +168,7 @@ const publicSetColumns = {
 
 export async function handlePublicSetDetail(req: Request, res: Response): Promise<void> {
   try {
+    await ensureHeldSets();
     const { id } = req.params;
     const setRef = normalizePlaySetsSetRef(id) ?? id;
     const dashedId = playSetsDashedUuid(setRef);
@@ -177,7 +185,7 @@ export async function handlePublicSetDetail(req: Request, res: Response): Promis
       }
     }
 
-    if (!resolved) {
+    if (!resolved || isHeldSet(resolved.id)) {
       res.status(404).json({ error: "Set not found" });
       return;
     }

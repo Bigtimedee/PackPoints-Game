@@ -27,6 +27,8 @@ import { startWarmSidecarBackfill } from "./startup/warmSidecarBackfill";
 import { startMaskBandGuardScan } from "./masking/maskBandLimit";
 import { startMaskWarmup } from "./startup/maskWarmup";
 import { logCardBlocklist } from "./lib/cardBlocklist";
+import { logHeldSets } from "./config/heldSets";
+import { invalidateRegisteredHoopsMaskCache } from "./masking/maskingService";
 import { logPinnedCoversAtBoot } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
@@ -86,6 +88,12 @@ export async function bootAfterListen(
   httpServer: Server,
 ): Promise<void> {
   logCardBlocklist();
+  await logHeldSets();
+  try {
+    await invalidateRegisteredHoopsMaskCache();
+  } catch (error) {
+    console.error("[MaskProfile] hoops cache invalidate failed", error);
+  }
   app.use((req, res, next) => {
   if (req.path.startsWith('/webhooks/')) {
     return next();

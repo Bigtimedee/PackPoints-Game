@@ -12,6 +12,7 @@ import { logDealtDefaultMaskProfiles } from "../masking/maskProfiles";
 import { isNonPlayerCard, omitNonPlayerNames } from "@shared/nonPlayerCard";
 import { maskNameStillCovered } from "./playableSetEligibility";
 import { cardNotBlockedSql, isBlockedCard } from "../lib/cardBlocklist";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 
 export type AnswerAckStatus = "ACCEPTED" | "REJECTED";
@@ -77,7 +78,11 @@ class MatchService {
   private playerAnswers: Map<string, Map<string, { answer: string; timestamp: number }>> = new Map();
 
   async initialize() {
-    const cards = await db.select().from(playableCards).where(eq(playableCards.isPlayable, true));
+    await ensureHeldSets();
+    const heldIds = currentHeldSetIds();
+    const nameFilters = [eq(playableCards.isPlayable, true)];
+    if (heldIds.length > 0) nameFilters.push(notInArray(playableCards.gameSetId, [...heldIds]));
+    const cards = await db.select().from(playableCards).where(and(...nameFilters));
     this.playerNames = omitNonPlayerNames(cards.map(c => c.player));
     if (this.playerNames.length === 0) {
       const legacyCards = await db.select().from(baseballCards);
@@ -219,6 +224,10 @@ class MatchService {
       console.error(`[MatchService] startMatch failed: lobby status is ${lobby.status}, expected waiting`);
       return { matchState: null, error: "Match already started or ended" };
     }
+    await ensureHeldSets();
+    if (lobby.gameSetId && isHeldSet(lobby.gameSetId)) {
+      return { matchState: null, error: "Set not found" };
+    }
     
     console.log(`[MatchService] Starting match for lobby ${lobbyId}, host=${hostId}, guest=${lobby.guestId}`);
     
@@ -285,6 +294,10 @@ class MatchService {
     if (!lobby.guestId || !lobby.guestUsername) {
       console.error(`[MatchService] startMatchForRandom failed: no guest in lobby ${lobbyId}`);
       return { matchState: null, error: "No guest in lobby" };
+    }
+    await ensureHeldSets();
+    if (lobby.gameSetId && isHeldSet(lobby.gameSetId)) {
+      return { matchState: null, error: "Set not found" };
     }
 
     console.log(`[MatchService] Starting random match for lobby ${lobbyId}, host=${lobby.hostId}, guest=${lobby.guestId}, set=${lobby.gameSetId || 'all'}, sessionId=${opts?.sessionId || 'none'}, seq=${opts?.sequenceNumber ?? 1}`);
@@ -1036,6 +1049,8 @@ class MatchService {
     if (!lobby) throw new Error("Lobby not found");
     if (lobby.hostId !== requesterUserId) throw new Error("Only the host can change the card set");
     if (lobby.status !== "waiting") throw new Error("Lobby is not in waiting state");
+    await ensureHeldSets();
+    if (isHeldSet(gameSetId)) throw new Error("Set not found");
 
     const [updated] = await db
       .update(lobbies)

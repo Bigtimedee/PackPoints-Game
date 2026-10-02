@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "./config/heldSets";
 import {
   commitSoloAdvance,
   commitSoloAnswer,
@@ -88,7 +89,7 @@ import { resolveBeatMeToken } from "./lib/daily5BeatMeToken";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import { TIER_CONFIG } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt } from "drizzle-orm";
+import { eq, sql, desc, and, or, gte, inArray, isNull, isNotNull, ne, like, lt, notInArray } from "drizzle-orm";
 import express from "express";
 import { z } from "zod";
 import * as marketplaceService from "./services/marketplace";
@@ -631,6 +632,11 @@ export async function registerRoutes(
       }
       
       const { mode, totalQuestions, setId } = parsed.data;
+      await ensureHeldSets();
+
+      if (setId && isHeldSet(setId)) {
+        return res.status(404).json({ error: "Set not found" });
+      }
 
       if (setId && await isPanicEnabled(`disable_set_${setId}`)) {
         return res.status(503).json({ error: "This card set is temporarily disabled." });
@@ -737,6 +743,9 @@ export async function registerRoutes(
       try {
         session = await storage.createGameSession(userId, normalizedMode, totalQuestions, guestSessionId, setId);
       } catch (createError: any) {
+        if (createError?.message === "HELD_SET") {
+          return res.status(404).json({ error: "Set not found" });
+        }
         if (createError?.message === "NO_CARDS_AVAILABLE") {
           return res.status(503).json({ 
             error: "No cards available",
@@ -2493,6 +2502,11 @@ export async function registerRoutes(
       }
       
       const { totalQuestions, gameSetId, wagerAmount } = parsed.data;
+      await ensureHeldSets();
+
+      if (gameSetId && isHeldSet(gameSetId)) {
+        return res.status(404).json({ error: "Set not found" });
+      }
 
       // If wager match, validate and escrow host's stake
       if (wagerAmount > 0) {
@@ -7054,6 +7068,8 @@ export async function registerRoutes(
   // Deduplicates sets with the same name, returning only the one with the most playable cards
   app.get("/api/playable-sets", async (_req, res) => {
     try {
+      await ensureHeldSets();
+      const heldIds = currentHeldSetIds();
       // Get all active sets with actual playable card counts
       const setsWithCounts = await db
         .select({
@@ -7072,7 +7088,10 @@ export async function registerRoutes(
           actualPlayableCards: eligiblePlayableCardCountSql,
         })
         .from(gameSets)
-        .where(eq(gameSets.isActive, true))
+        .where(and(
+          eq(gameSets.isActive, true),
+          ...(heldIds.length > 0 ? [notInArray(gameSets.id, [...heldIds])] : []),
+        ))
         .orderBy(gameSets.year, gameSets.setName);
 
       const { kept, duplicateNames } = dedupeSetsByNameYearSport(
