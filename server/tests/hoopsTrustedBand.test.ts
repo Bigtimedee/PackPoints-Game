@@ -7,7 +7,7 @@
  *   refuses on an OCR timeout.
  * - Every other registered profile, and the unmatched default used by
  *   2024 Basketball and 2022 Chronicles, bakes exactly as before.
- * - The 12 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked.
+ * - The 16 Hoops cards on BLOCKED_CARD_ID_RULES stay blocked (12 from #168, 4 from Design clearance).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
@@ -34,6 +34,7 @@ vi.mock("../masking/namePlateDetect", async (importOriginal) => {
 });
 
 import { applyPercentRegions, maskCardImage } from "../masking/maskCardImage";
+import { AWAITING_DESIGN_CLEARANCE_REASON, holdReasonForIdentity } from "../config/heldSets";
 import {
   getMaskProfile,
   HOOPS_1990_PROFILE_ID,
@@ -380,9 +381,14 @@ describe("1990 Hoops card blocklist", () => {
     { id: "0a61f1ce-6a84-438f-acf6-d6d8c5e9d2c1", player: "Gary Payton", number: "391" },
     { id: "349a5190-a09e-4804-bd32-e2bcd50ed9cd", player: "Horace Grant", number: "63" },
     { id: "8aa2109c-53d4-4417-9cf9-0aae98e59de7", player: "David Robinson", number: "NNO" },
+    // Design clearance 2026-10-02.
+    { id: "fa62eec8-75b8-4624-ba6b-85b37dacf621", player: "John Salley", number: "110" },
+    { id: "2d7222b3-9acf-4d5d-9b71-c700e22d535e", player: "Detroit Pistons", number: "339" },
+    { id: "9e6319f6-40d3-4695-89c1-9c03d45a298d", player: "Dennis Rodman", number: "109" },
+    { id: "badf917b-8887-4cd9-b923-5ab703592ca9", player: "Paul Westhead", number: "422" },
   ];
 
-  it("blocks the four coach-legend cards named in the request, and the other eight", () => {
+  it("blocks the four coach-legend cards named in the request, the other eight, and Design's four clearance blocks", () => {
     const hoopsRules = BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId === HOOPS_1990_SET_PREFIX);
     expect(hoopsRules.map((rule) => rule.id).sort()).toEqual(HOOPS_BLOCKED.map((row) => row.id).sort());
     expect(HOOPS_SET_ID.startsWith(HOOPS_1990_SET_PREFIX)).toBe(true);
@@ -397,6 +403,12 @@ describe("1990 Hoops card blocklist", () => {
     }
   });
 
+  it("blocks the Design clearance cards on re-import and leaves Rodman #10 playable", () => {
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000109", gameSetId: HOOPS_SET_ID, player: "Dennis Rodman", number: "109", variant: "Base" })).toBe(true);
+    expect(isBlockedCardIdRow({ id: "00000000-0000-4000-8000-000000000339", gameSetId: HOOPS_SET_ID, player: "Detroit Pistons", number: "339", variant: "Base" })).toBe(true);
+    expect(isBlockedCard(HOOPS_SET_ID, "Dennis Rodman", { id: "9210f721-8387-4fa1-8c80-409c550c3394", number: "10", variant: "Base" })).toBe(false);
+  });
+
   it("leaves Chris Ford #306, Michael Jordan #65, and David Robinson #378 playable", () => {
     expect(isBlockedCard(HOOPS_SET_ID, "Chris Ford", { id: "8d44622f-c944-4fdb-8aea-933d08902ca0", number: "306", variant: "Base" })).toBe(false);
     expect(isBlockedCard(HOOPS_SET_ID, "Michael Jordan", { id: "a49bc8e8-9222-4195-809d-d16253619eb9", number: "65", variant: "Base" })).toBe(false);
@@ -406,5 +418,22 @@ describe("1990 Hoops card blocklist", () => {
   it("still blocks a Hoops coach legend after a re-import on the same set prefix", () => {
     const reimported = { id: "00000000-0000-4000-8000-000000000345", gameSetId: HOOPS_SET_ID, player: "Don Nelson", number: "#345", variant: "Base" };
     expect(isBlockedCardIdRow(reimported)).toBe(true);
+  });
+});
+
+describe("1990 Hoops design clearance", () => {
+  const identity = { id: HOOPS_SET_ID, year: 1990, brand: "Hoops", sport: "Basketball", setName: "1990 Hoops Basketball", isActive: true, isUserCreated: false };
+
+  it("is held until its id is in CLEARED_SET_IDS_EXTRA, and that env alone lifts the hold", () => {
+    const previous = process.env.CLEARED_SET_IDS_EXTRA;
+    try {
+      process.env.CLEARED_SET_IDS_EXTRA = "00000000-0000-4000-8000-000000000001";
+      expect(holdReasonForIdentity(identity)).toBe(AWAITING_DESIGN_CLEARANCE_REASON);
+      process.env.CLEARED_SET_IDS_EXTRA = `00000000-0000-4000-8000-000000000001, ${HOOPS_SET_ID}`;
+      expect(holdReasonForIdentity(identity)).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.CLEARED_SET_IDS_EXTRA;
+      else process.env.CLEARED_SET_IDS_EXTRA = previous;
+    }
   });
 });
