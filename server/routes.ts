@@ -7049,7 +7049,7 @@ export async function registerRoutes(
           makerNote: gameSets.makerNote,
           createdByUserId: gameSets.createdByUserId,
           // Same eligible-card count getRandomCardsFromSet deals.
-          actualPlayableCards: eligiblePlayableCardCountSql,
+          actualPlayableCards: eligiblePlayableCardCountSql(),
         })
         .from(gameSets)
         .where(and(

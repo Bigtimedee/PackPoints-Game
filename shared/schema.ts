@@ -4890,3 +4890,31 @@ export const userFeedback = pgTable("user_feedback", {
 ]);
 
 export type UserFeedback = typeof userFeedback.$inferSelect;
+
+/**
+ * Card ids Design has approved for dealing in an integrated set.
+ * Seeded once with every card dealable at the first boot of the card review
+ * guard (source 'seed'). Later approvals come from the token-gated QA route
+ * (source 'qa'). No FK to playable_cards: purge-and-reimport deletes card rows,
+ * and a re-imported card gets a new id that needs its own approval.
+ */
+export const cardReviewApprovals = pgTable("card_review_approvals", {
+  cardId: varchar("card_id").primaryKey(),
+  gameSetId: varchar("game_set_id").notNull(),
+  source: varchar("source", { length: 20 }).notNull(),
+  approvedBy: varchar("approved_by", { length: 100 }),
+  note: text("note"),
+  approvedAt: timestamptz("approved_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_card_review_approvals_set").on(table.gameSetId),
+  check("card_review_approvals_source_check", sql`${table.source} IN ('seed', 'qa')`),
+]);
+
+export type CardReviewApproval = typeof cardReviewApprovals.$inferSelect;
+
+/** One row once the first-deploy seed of card_review_approvals has run. */
+export const cardReviewSeed = pgTable("card_review_seed", {
+  id: varchar("id", { length: 20 }).primaryKey(),
+  seededAt: timestamptz("seeded_at").notNull().defaultNow(),
+  cardCount: integer("card_count").notNull(),
+});

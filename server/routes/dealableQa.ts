@@ -28,6 +28,13 @@ import {
   WEEKDAYS,
 } from "../services/daily5Calendar";
 import { daily5Service } from "../services/daily5Service";
+import {
+  approveCards,
+  cardReviewStatus,
+  countAwaitingReview,
+  listAwaitingReview,
+  parseApproveBody,
+} from "../services/cardReview";
 
 function qaHeaders(req: Request, res: Response): void {
   stripConditionalValidators(req);
@@ -136,6 +143,55 @@ export function registerDealableQaRoutes(app: Express): void {
       })
       .catch(() => {
         if (!res.headersSent) qaNotFound(req, res);
+      });
+  });
+
+  /**
+   * Per-card review. Cards that became playable after the guard's seed (refresh,
+   * re-import, new import) are held with awaiting_card_review until approved here.
+   */
+  app.get("/api/qa/card-review", (req, res) => {
+    if (!authorized(req, res)) return;
+    void Promise.all([cardReviewStatus(), countAwaitingReview()])
+      .then(([status, awaiting]) => {
+        qaJson(req, res, 200, { ...status, totalAwaiting: awaiting.total, sets: awaiting.sets });
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
+      });
+  });
+
+  app.get("/api/qa/card-review/:setId", (req, res) => {
+    if (!authorized(req, res)) return;
+    const offset = dealablePageOffset(req.query.offset);
+    const limit = dealablePageLimit(req.query.limit);
+    void listAwaitingReview(req.params.setId, offset, limit)
+      .then((page) => {
+        if (!page) {
+          qaNotFound(req, res);
+          return;
+        }
+        qaJson(req, res, 200, page);
+      })
+      .catch(() => {
+        if (!res.headersSent) qaNotFound(req, res);
+      });
+  });
+
+  /** Body: { cardIds: string[] (1..500), approvedBy?: string, note?: string }. Explicit ids only. */
+  app.post("/api/qa/card-review/approve", (req, res) => {
+    if (!authorized(req, res)) return;
+    const input = parseApproveBody(req.body);
+    if (!input) {
+      qaJson(req, res, 400, { error: "cardIds must be 1-500 card id strings" });
+      return;
+    }
+    void approveCards(input)
+      .then((result) => {
+        qaJson(req, res, 200, result);
+      })
+      .catch(() => {
+        if (!res.headersSent) qaJson(req, res, 500, { error: "approve failed" });
       });
   });
 

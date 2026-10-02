@@ -14,6 +14,7 @@ import { db } from "../db";
 import { currentHeldSetIds, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
+import { cardAwaitingReviewClause } from "./cardReviewGuard";
 
 type CardAlias = "pc" | "playable_cards";
 
@@ -870,6 +871,11 @@ function multiPlayerNumberClause(alias: CardAlias): string {
 export type BlocklistSqlOpts = {
   /** QA review lists cards as they would deal if the hold were lifted. */
   ignoreHeldSets?: boolean;
+  /**
+   * QA review and the boot seed see cards still awaiting per-card review.
+   * Never set on a deal path.
+   */
+  ignoreCardReview?: boolean;
 };
 
 /** OR-clauses for a deal WHERE body. True when any blocklist rule hits. */
@@ -890,6 +896,8 @@ export function cardBlocklistWhereBody(alias: CardAlias, opts?: BlocklistSqlOpts
     const held = heldSetClause(alias);
     if (held) clauses.push(held);
   }
+  const awaitingReview = cardAwaitingReviewClause(alias, opts);
+  if (awaitingReview) clauses.push(awaitingReview);
   // An empty rule list renders "". Joining it would leave a bare "OR OR".
   return clauses.filter((clause) => clause.trim().length > 0).join(" OR ");
 }

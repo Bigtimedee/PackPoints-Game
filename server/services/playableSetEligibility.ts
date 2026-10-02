@@ -63,13 +63,19 @@ export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts): S
   `;
 }
 
-export const eligiblePlayableCardCountSql = sql<number>`(
+/**
+ * Built per query so the set hold, mask refusal ids, and the card review guard
+ * are read at request time, the same as getRandomCardsFromSet.
+ */
+export function eligiblePlayableCardCountSql(): SQL<number> {
+  return sql<number>`(
   SELECT COUNT(*)::int
   FROM playable_cards pc
   WHERE pc.game_set_id = game_sets.id
     AND ${eligibleDealFilter("pc")}
     AND LOWER(pc.category) = LOWER(game_sets.sport)
 )`;
+}
 
 /** Active integrated sets. Counts are eligible deals, not raw imported rows. No card ids. */
 export async function eligibleCountsByActiveSet(): Promise<Array<{ setId: string; setName: string; count: number }>> {
@@ -77,7 +83,7 @@ export async function eligibleCountsByActiveSet(): Promise<Array<{ setId: string
     .select({
       setId: gameSets.id,
       setName: gameSets.setName,
-      count: eligiblePlayableCardCountSql,
+      count: eligiblePlayableCardCountSql(),
     })
     .from(gameSets)
     .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
