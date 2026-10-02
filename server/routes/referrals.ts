@@ -91,9 +91,15 @@ router.get("/r/:code", async (req: Request, res: Response) => {
       .set({ clickCount: sql`${referralLinks.clickCount} + 1` })
       .where(eq(referralLinks.id, link.id));
 
-    const destination = link.destinationPath.includes("?")
-      ? `${link.destinationPath}&ref=${code}`
-      : `${link.destinationPath}?ref=${code}`;
+    // Same-site paths only, so a stored destination can never redirect off-site.
+    const rawPath = typeof link.destinationPath === "string" ? link.destinationPath : "/";
+    const safePath = rawPath.startsWith("/") && !rawPath.startsWith("//") && !rawPath.includes("\\")
+      ? rawPath
+      : "/";
+    const refParam = encodeURIComponent(link.code);
+    const destination = safePath.includes("?")
+      ? `${safePath}&ref=${refParam}`
+      : `${safePath}?ref=${refParam}`;
 
     return res.redirect(destination);
   } catch (err: any) {
