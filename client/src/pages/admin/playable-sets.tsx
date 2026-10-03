@@ -1,3 +1,4 @@
+import { AdminHeldMaskReview } from "@/components/admin-held-mask-review";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -507,6 +508,7 @@ export default function AdminPlayableSets() {
 
   return (
     <div className="space-y-6">
+      <AdminHeldMaskReview />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold" data-testid="text-page-title">Playable Sets</h1>
@@ -1056,4 +1058,4 @@ export default function AdminPlayableSets() {
       </Dialog>
     </div>
   );
-}
+                }
