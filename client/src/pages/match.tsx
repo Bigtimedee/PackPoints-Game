@@ -18,6 +18,7 @@ import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchP
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 import { shouldHoldOneVOne } from "@/lib/oneVOneHold";
+import { MATCH_PLAY_CARD_FIT_CLASS } from "@/lib/playCardFit";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -1220,7 +1221,7 @@ export default function Match() {
         <Progress value={progress} className="mb-4" />
         
         {currentQuestion && (
-          <div className="space-y-4">
+          <div className={`space-y-4 ${MATCH_PLAY_CARD_FIT_CLASS}`}>
             <GameCard
               key={gameCardMountKey(
                 matchId || matchState.matchId,
@@ -1272,6 +1273,7 @@ export default function Match() {
               sessionId={matchId}
               playScope="match"
               questionIndex={matchState.currentQuestionIndex}
+              fitToViewport
             />
             
             <div className="grid grid-cols-2 gap-3" role="group" aria-label="Answer choices">

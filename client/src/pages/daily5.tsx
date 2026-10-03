@@ -45,6 +45,8 @@ import { DAILY5_NEXT_PLAY, PLAY_AGAIN_BUTTON_CLASS } from "@/lib/playAgain";
 import { prefetchMaskedPlayCards, prefetchRevealPlayCard } from "@/lib/prefetchPlayCardImages";
 import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
+import { DAILY5_PLAY_CARD_FIT_CLASS } from "@/lib/playCardFit";
+import { usePlayChrome } from "@/lib/playChrome";
 
 interface Daily5Status {
   challenge: {
@@ -399,7 +401,7 @@ function AnswerButton({
   isRevealed: boolean; onSelect: () => void; disabled: boolean;
 }) {
   let variant: "default" | "outline" | "secondary" | "destructive" = "outline";
-  let className = "w-full justify-start gap-3 text-left h-auto py-2.5 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
+  let className = "w-full justify-start gap-3 text-left h-auto min-h-10 py-2 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
   if (isRevealed) {
     className += " disabled:opacity-100";
     if (isSelected && wasCorrectAnswer) className += " bg-accent text-accent-foreground border-accent";
@@ -703,6 +705,9 @@ export default function Daily5Page() {
     return () => setStaleBuildActivity({ daily5Playing: false, inProgressCard: false, holdPlay: false });
   }, [gameState]);
 
+  // Play is fullscreen like /game: no bottom nav or chat bubble over the answers.
+  usePlayChrome(gameState === "playing");
+
   useEffect(() => {
     const remaining = cards.filter((card) => card.position >= currentPosition).map((card) => card.imageUrl);
     if (remaining.length === 0) return;
@@ -729,32 +734,34 @@ export default function Daily5Page() {
 
   if (gameState === "playing" && currentCard) {
     return (
-      <div>
-        <div className="container mx-auto px-4 py-4 max-w-2xl">
+      <div data-testid="d5-play-viewport">
+        <div className="container mx-auto px-4 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] max-w-2xl">
           {beatMe && !bannerHidden && (
             <BeatMeBanner challenge={beatMe} onDismiss={beatMe.status === "active" ? hideBeatMeBanner : undefined} />
           )}
-          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-            <Badge variant="outline" className="gap-1.5">
+          {/* One row on phones (the set label truncates) so the card keeps its height. */}
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <Badge variant="outline" className="gap-1.5 shrink-0">
               <Calendar className="h-3 w-3" />
               Daily 5
             </Badge>
             {setDisplayOverride(challengeSetId ?? statusQuery.data?.challenge?.setId) ? (
-              <span className="text-sm text-muted-foreground" data-testid="text-d5-set-label">
+              <span className="min-w-0 flex-1 truncate text-center text-xs sm:text-sm text-muted-foreground" data-testid="text-d5-set-label">
                 {applySetDisplayTitle(challengeSetId ?? statusQuery.data?.challenge?.setId, "")}
                 {" · "}
                 {applySetYearLabel(challengeSetId ?? statusQuery.data?.challenge?.setId, null)}
               </span>
             ) : null}
-            <span className="text-sm text-muted-foreground" data-testid="text-d5-progress">
+            <span className="shrink-0 text-sm text-muted-foreground" data-testid="text-d5-progress">
               {currentPosition}/5
             </span>
           </div>
-          <Progress value={(currentPosition - 1) / 5 * 100 + (isRevealed ? 20 : 0)} className="mb-4" />
+          <Progress value={(currentPosition - 1) / 5 * 100 + (isRevealed ? 20 : 0)} className="h-1.5 mb-2" />
 
-          <div className="space-y-4">
+          {/* Height-fit: --pc-reserve covers the app header, this row, 4 answers and Submit (playCardFit.ts). */}
+          <div className="space-y-2">
             <div className="flex justify-center">
-              <div className="w-full max-w-xs aspect-[2.5/3.5] relative">
+              <div className={`w-full relative ${DAILY5_PLAY_CARD_FIT_CLASS}`} data-testid="d5-card-slot">
                 <GameCard
                   key={gameCardMountKey(challengeId || "daily5", currentCard.position, currentCard.imageUrl)}
                   imageUrl={currentCard.imageUrl}
@@ -769,11 +776,12 @@ export default function Daily5Page() {
                   sessionId={challengeId}
                   playScope="d5"
                   questionIndex={currentCard.position}
+                  fitToViewport
                 />
               </div>
             </div>
 
-            <div className="space-y-2" data-testid="d5-answer-options">
+            <div className="space-y-1.5" data-testid="d5-answer-options">
               {currentCard.choices.map((option) => (
                 <AnswerButton
                   key={option}

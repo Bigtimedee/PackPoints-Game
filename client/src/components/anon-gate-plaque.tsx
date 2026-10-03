@@ -48,7 +48,7 @@ export function AnonGatePlaque({
       data-testid={hard ? "plaque-anon-hard-gate" : "plaque-anon-soft-gate"}
     >
       <MaskedPMark />
-      <h2 className="mt-5 text-[1.75rem] font-semibold leading-tight tracking-tight" style={{ color: "#F0F2F5" }}>
+      <h2 className="mt-5 text-[1.75rem] font-semibold leading-tight tracking-tight [text-wrap:balance]" style={{ color: "#F0F2F5" }}>
         {hard ? ANON_GATE_COPY.hardTitle : ANON_GATE_COPY.softTitle}
       </h2>
       <p className="mt-3 text-[15px] leading-relaxed" style={{ color: "#8F96A3" }}>

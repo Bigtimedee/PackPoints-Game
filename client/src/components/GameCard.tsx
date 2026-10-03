@@ -196,6 +196,11 @@ interface GameCardProps {
   onRetryImage?: () => void;
   /** 422 mask refusal. Skip image retries and replace the card. */
   onMaskRefused?: () => void;
+  /**
+   * Size the card from the viewport height (index.css .play-card-fit) so the
+   * answers and Submit fit under it. The page sets --pc-cap and --pc-reserve.
+   */
+  fitToViewport?: boolean;
 }
 
 export function GameCard({
@@ -229,6 +234,7 @@ export function GameCard({
   replacePhase,
   onRetryImage,
   onMaskRefused,
+  fitToViewport = false,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const [honestRetry, setHonestRetry] = useState(0);
@@ -510,10 +516,12 @@ export function GameCard({
   const slotAspect = 2.5 / 3.5;
   const scanAspect = naturalSize && naturalSize.h > 0 ? naturalSize.w / naturalSize.h : slotAspect;
   const tallScan = scanAspect < slotAspect;
+  const wideScan = scanAspect > 1;
   const chromeOnBottom = layoutClass === "TOP_PLATE" || layoutClass === "PSA_SLAB";
   const guessingAlt = `Masked card, ${eyebrow ?? "sports card"}`;
   const imageAlt = isRevealed && revealedPlayerName ? `Masked card, ${revealedPlayerName}` : guessingAlt;
-  const outlineButtonClass = "border-plaque-frame text-plaque-ink";
+  // Wraps inside the error plaque when the card is height-fit and narrow.
+  const outlineButtonClass = "h-auto min-h-9 max-w-full whitespace-normal border-plaque-frame text-plaque-ink";
   const canReportImage = playImageReportRequest({
     imageUrl,
     cardId,
@@ -524,7 +532,11 @@ export function GameCard({
   }) !== null;
 
   return (
-    <div className="w-full max-w-xs mx-auto">
+    <div
+      className={fitToViewport ? "play-card-fit mx-auto" : "w-full max-w-xs mx-auto"}
+      data-wide={fitToViewport && wideScan ? "" : undefined}
+      data-testid="game-card-root"
+    >
     <div 
       className="relative aspect-[2.5/3.5] w-full select-none max-h-full flex items-center justify-center"
       onContextMenu={handleContextMenu}
@@ -665,7 +677,11 @@ export function GameCard({
         <div
           data-testid="game-card-image-box"
           className={`relative mx-auto overflow-hidden rounded-md bg-plaque-surface ring-1 ring-plaque-frame shadow-[0_6px_20px_rgba(0,0,0,0.45)] ${tallScan ? "h-full" : "w-full"}`}
-          style={{ aspectRatio: naturalSize ? `${naturalSize.w} / ${naturalSize.h}` : "2.5 / 3.5" }}
+          style={{
+            aspectRatio: naturalSize ? `${naturalSize.w} / ${naturalSize.h}` : "2.5 / 3.5",
+            // Height-fit (fitToViewport) sizes this box from its own aspect ratio.
+            ["--scan-aspect" as string]: String(scanAspect),
+          } as React.CSSProperties}
         >
           {/* CDN delivery: set VITE_CDN_BASE_URL env var to enable (e.g., https://cdn.yoursite.com) */}
           {/* Server serves upright pixels for the bake and the reveal. CSS rotation would move only this frame. */}
@@ -673,7 +689,7 @@ export function GameCard({
             key={imageUrl}
             src={cdnImageUrl}
             alt={imageAlt}
-            className="absolute inset-0 h-full w-full pointer-events-none"
+            className="absolute inset-0 h-full w-full object-contain pointer-events-none"
             crossOrigin="anonymous"
             loading="eager"
             decoding="async"
@@ -692,7 +708,7 @@ export function GameCard({
             <img
               src={revealUrl}
               alt={imageAlt}
-              className={`absolute inset-0 h-full w-full pointer-events-none transition-opacity duration-240 ease-out motion-reduce:transition-none ${revealLoaded ? "opacity-100" : "opacity-0"}`}
+              className={`absolute inset-0 h-full w-full object-contain pointer-events-none transition-opacity duration-240 ease-out motion-reduce:transition-none ${revealLoaded ? "opacity-100" : "opacity-0"}`}
               loading="eager"
               decoding="async"
               draggable={false}

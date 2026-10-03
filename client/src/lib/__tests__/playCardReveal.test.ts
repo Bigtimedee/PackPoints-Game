@@ -106,7 +106,9 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(daily5Src).toContain("imageUrl={currentCard.imageUrl}");
     expect(daily5Src).toContain("revealUrl={isRevealed ? answerResult?.revealUrl ?? undefined : undefined}");
     expect(daily5Src).toContain('plaqueEyebrow="DAILY 5"');
-    expect(daily5Src).toContain("aspect-[2.5/3.5]");
+    // Portrait 2.5:3.5 slot now comes from GameCard fitToViewport (.play-card-fit).
+    expect(daily5Src).toContain("DAILY5_PLAY_CARD_FIT_CLASS");
+    expect(daily5Src).toContain("fitToViewport");
     expect(daily5Src).toContain("allowClientImageReject={false}");
     expect(daily5Src).toContain("gameCardMountKey(challengeId || \"daily5\", currentCard.position, currentCard.imageUrl)");
     expect(daily5Src).toContain('playScope="d5"');

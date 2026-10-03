@@ -55,7 +55,7 @@ describe("public sets chat clearance", () => {
     expect(setsShellClassName("/sets")).toBe(SETS_SHELL_CLASS);
     expect(setsShellClassName("/game/solo")).toBe("");
     expect(setsMainClassName("/sets/abc")).toContain(SETS_SCROLLPORT_CLASS);
-    expect(setsMainClassName("/sets/abc")).toContain("pb-20");
+    expect(setsMainClassName("/sets/abc")).toContain("pb-[calc(5rem+env(safe-area-inset-bottom))]");
     expect(setsMainClassName("/daily")).not.toContain(SETS_SCROLLPORT_CLASS);
     expect(setsMainClassName("/match/abc")).not.toContain(SETS_SCROLLPORT_CLASS);
   });

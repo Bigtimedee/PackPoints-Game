@@ -52,6 +52,7 @@ import {
 import { postGameAnswer } from "@/lib/transientLoad";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 import { notifyLeavingResults } from "@/lib/staleBuildClient";
+import { SOLO_PLAY_CARD_FIT_CLASS } from "@/lib/playCardFit";
 
 function AnswerButton({
   option,
@@ -69,7 +70,7 @@ function AnswerButton({
   disabled: boolean;
 }) {
   let variant: "default" | "outline" | "secondary" | "destructive" = "outline";
-  let className = "w-full justify-start gap-3 text-left h-auto py-2.5 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
+  let className = "w-full justify-start gap-3 text-left h-auto min-h-10 py-2 sm:py-4 px-4 sm:px-5 text-sm sm:text-base";
 
   if (isRevealed) {
     // Stay full strength. disabled:opacity-50 reads as a scrim over the row.
@@ -1273,10 +1274,10 @@ export default function Game() {
     <div data-testid="game-active-viewport" className="h-full flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto max-w-2xl mx-auto w-full px-3 sm:px-4">
         {/* Zone 1: Header */}
-        <div className="pt-2 pb-1">
-          <div className="flex items-center justify-between gap-4 mb-2">
+        <div className="pt-1 pb-1">
+          <div className="flex items-center justify-between gap-4 mb-1">
             <Link href="/">
-              <Button variant="ghost" size="icon" data-testid="button-back">
+              <Button variant="ghost" size="icon" className="h-8 w-8" data-testid="button-back">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
@@ -1291,8 +1292,9 @@ export default function Game() {
         </div>
 
         {/* Zone 2: Card — same in-flow slot before and after submit. No dialog, no zoom. */}
+        {/* Height-fit: --pc-reserve covers the header, label, answers and the revealed stack under them (playCardFit.ts). */}
         <div className="flex items-center justify-center py-1 relative" data-testid="solo-card-slot">
-          <div className="w-full max-w-[280px] sm:max-w-[340px] md:max-w-[380px]">
+          <div className={`w-full ${SOLO_PLAY_CARD_FIT_CLASS}`}>
               <GameCard 
                 key={gameCardMountKey(session.id, session.currentQuestionIndex, currentQuestion.card.imageUrl)}
                 imageUrl={currentQuestion.card.imageUrl}
@@ -1317,17 +1319,18 @@ export default function Game() {
                 sessionId={session?.id}
                 playScope="solo"
                 questionIndex={session.currentQuestionIndex}
+                fitToViewport
               />
           </div>
         </div>
 
         {/* Zone 3: Answers */}
         {currentQuestion && (
-          <div className="pb-4">
+          <div className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
             {currentGameSet?.isUserCreated && currentGameSet?.makerNote && (
               <p className="text-xs text-muted-foreground/60 italic mb-1 line-clamp-1">"{currentGameSet.makerNote}"</p>
             )}
-            <p className="text-xs sm:text-sm text-muted-foreground mb-1.5">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mb-1">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
 
             <div>
               <div className="space-y-1.5" role="group" aria-label="Answer choices">
