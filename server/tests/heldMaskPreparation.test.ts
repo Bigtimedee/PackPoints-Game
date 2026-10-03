@@ -42,6 +42,8 @@ describe("held preparation", () => {
     const source=readFileSync(new URL('../services/heldMaskPreparation.ts',import.meta.url),'utf8');
     const preview=source.slice(source.indexOf('export function preparedMaskFile'),source.indexOf('export interface PreparedCardResult'));
     expect(preview).not.toMatch(/getMaskedImagePath|writeFile|acceptWarm|ensureHeld/);
+    expect(preview).not.toMatch(/readyDonrussCardIds|readdir/);
+    expect(preparedMaskFile("../secret")).toBeNull();
   });
   it("protects all routes with Admin auth and keeps production containment", () => {
     const source=readFileSync(new URL('../routes/heldMaskPreparation.ts',import.meta.url),'utf8');
