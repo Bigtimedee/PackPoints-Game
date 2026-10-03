@@ -188,7 +188,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           hideClose={variant === "hard"}
-          className="max-w-[390px] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain gap-0 border-0 bg-transparent p-0 pb-[env(safe-area-inset-bottom)] shadow-none"
+          className="w-[calc(100%-2rem)] max-w-[390px] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain gap-0 border-0 bg-transparent p-0 pb-[env(safe-area-inset-bottom)] shadow-none"
           onEscapeKeyDown={(event) => {
             if (variant === "hard") event.preventDefault();
           }}
@@ -219,7 +219,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
     <Dialog open={open} onOpenChange={isGate ? handleOpenChange : onOpenChange}>
       <DialogContent
         hideClose={variant === "hard"}
-        className="sm:max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain"
+        className="w-[calc(100%-2rem)] gap-3 rounded-lg p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:max-w-md sm:gap-4 sm:p-6 max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain"
         onEscapeKeyDown={(event) => {
           if (variant === "hard") event.preventDefault();
         }}
@@ -250,9 +250,9 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="signup" className="mt-4">
+          <TabsContent value="signup" className="mt-3 sm:mt-4">
             <Form {...signupForm}>
-              <form onSubmit={signupForm.handleSubmit(onSignupSubmit)} className="space-y-4">
+              <form onSubmit={signupForm.handleSubmit(onSignupSubmit)} className="space-y-3 sm:space-y-4">
                 <FormField
                   control={signupForm.control}
                   name="username"
@@ -415,9 +415,9 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
             </Form>
           </TabsContent>
 
-          <TabsContent value="login" className="mt-4">
+          <TabsContent value="login" className="mt-3 sm:mt-4">
             <Form {...loginForm}>
-              <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+              <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-3 sm:space-y-4">
                 <FormField
                   control={loginForm.control}
                   name="usernameOrEmail"

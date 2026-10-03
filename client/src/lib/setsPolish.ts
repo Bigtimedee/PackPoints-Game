@@ -274,8 +274,14 @@ export function setsShellClassName(path: string): string {
   return isPublicSetsPath(path) ? SETS_SHELL_CLASS : "";
 }
 
-/** Default app scroll column. Public set routes add the narrow-width clearance class. */
-export function setsMainClassName(path: string): string {
-  const base = "flex-1 overflow-y-auto pb-20 md:pb-0";
+/**
+ * Default app scroll column. Public set routes add the narrow-width clearance class.
+ * The bottom pad clears the fixed mobile nav (h-16 plus border plus the home
+ * indicator inset), so the last row of content never sits under it.
+ * `playActive` (Daily 5 play, playChrome.ts) hides the nav, so no pad.
+ */
+export function setsMainClassName(path: string, playActive = false): string {
+  if (playActive) return "flex-1 overflow-y-auto";
+  const base = "flex-1 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0";
   return isPublicSetsPath(path) ? `${base} ${SETS_SCROLLPORT_CLASS}` : base;
 }

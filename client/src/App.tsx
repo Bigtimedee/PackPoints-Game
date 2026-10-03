@@ -12,6 +12,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { feedbackLauncherAllowed, fullscreenMainClassName } from "@/lib/appShellLayout";
+import { usePlayChromeActive } from "@/lib/playChrome";
 import { useAuth } from "@/hooks/use-auth";
 import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
 import { setsMainClassName, setsShellClassName } from "@/lib/setsPolish";
@@ -380,11 +381,12 @@ function AppShell() {
   const isGameRoute = location.startsWith("/game/");
   const isReviewRoute = location.startsWith("/review/");
   const isFullscreen = isMatchRoute || isGameRoute;
+  const playActive = usePlayChromeActive();
 
   return (
     <div className={`h-dvh flex flex-col bg-background text-foreground overflow-hidden ${setsShellClassName(location)}`.trim()}>
       {!isFullscreen && !isReviewRoute && <Header />}
-      <main className={fullscreenMainClassName(location) ?? (isReviewRoute ? "flex-1 overflow-y-auto" : setsMainClassName(location))}>
+      <main className={fullscreenMainClassName(location) ?? (isReviewRoute ? "flex-1 overflow-y-auto" : setsMainClassName(location, playActive))}>
         <Router />
       </main>
       {!isReviewRoute && <MobileNav />}
@@ -412,7 +414,8 @@ function StaleBuildWatcher() {
 
 function AppExtras() {
   const [location] = useLocation();
-  if (!feedbackLauncherAllowed(location)) return null;
+  const playActive = usePlayChromeActive();
+  if (playActive || !feedbackLauncherAllowed(location)) return null;
   return <FeedbackWidget />;
 }
 

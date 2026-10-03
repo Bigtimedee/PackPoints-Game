@@ -1,8 +1,10 @@
 import { Link, useLocation } from "wouter";
 import { Trophy, User, Play, Coins, Compass } from "lucide-react";
+import { usePlayChromeActive } from "@/lib/playChrome";
 
 export function MobileNav() {
   const [location] = useLocation();
+  const playActive = usePlayChromeActive();
 
   const navItems = [
     { href: "/", label: "Play", icon: Play },
@@ -12,13 +14,14 @@ export function MobileNav() {
     { href: "/profile", label: "Profile", icon: User },
   ];
 
-  if (location.startsWith("/match/") || location.startsWith("/game/")) {
+  if (playActive || location.startsWith("/match/") || location.startsWith("/game/")) {
     return null;
   }
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t bg-background"
+      data-testid="nav-mobile-bottom"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <div className="flex items-center justify-around h-16">

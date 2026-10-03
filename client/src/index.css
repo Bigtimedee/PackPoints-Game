@@ -415,6 +415,44 @@ body.app-mounted #static-legal-footer {
 }
 
 
+/*
+ * Play card fit (GameCard fitToViewport). The card slot is sized from the
+ * viewport height so the label, all 4 answers and Submit / Next Question fit
+ * under it without scrolling on a 667px phone. The page sets two variables on
+ * an ancestor:
+ *   --pc-cap      widest the card may be (its old max-width)
+ *   --pc-reserve  height the rest of the play screen needs
+ * --pc-h is the slot height, fixed per viewport so nothing moves when the
+ * image loads. The image box takes the scan's own aspect ratio
+ * (--scan-aspect, set by GameCard) and is as large as fits in cap x --pc-h,
+ * so portrait scans fill the height and landscape scans fill the width.
+ * The image is object-contain inside a box of its own aspect ratio (never
+ * cropped), and the mask plaque is positioned in % of that box, so the mask
+ * scales with the rendered image, never with the slot.
+ */
+.play-card-fit {
+  --pc-h: min(calc(var(--pc-cap, 280px) * 7 / 5), max(240px, calc(100vh - var(--pc-reserve, 352px))));
+  width: 100%;
+  max-width: var(--pc-cap, 280px);
+}
+@supports (height: 100dvh) {
+  .play-card-fit {
+    --pc-h: min(calc(var(--pc-cap, 280px) * 7 / 5), max(240px, calc(100dvh - var(--pc-reserve, 352px))));
+  }
+}
+.play-card-fit > [data-testid="game-card-wrapper"] {
+  aspect-ratio: auto;
+  height: var(--pc-h);
+}
+.play-card-fit [data-testid="game-card-image-box"] {
+  width: min(100%, calc(var(--pc-h) * var(--scan-aspect, 0.7143)));
+  height: auto;
+}
+.play-card-fit [data-testid="game-card-image-error"] {
+  width: min(100%, calc(var(--pc-h) * 5 / 7));
+  margin-inline: auto;
+}
+
 /* Public /sets and /sets/:id, 320 to 430px.
    The chat button is fixed at bottom-20 (5rem) and is h-12 (3rem),
    so its top sits 8rem above the viewport bottom. The scrollport stops
