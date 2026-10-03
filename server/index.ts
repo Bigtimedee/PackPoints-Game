@@ -28,7 +28,7 @@ import { startMaskBandGuardScan } from "./masking/maskBandLimit";
 import { startMaskWarmup } from "./startup/maskWarmup";
 import { logCardBlocklist } from "./lib/cardBlocklist";
 import { logHeldSets } from "./config/heldSets";
-import { logMaskCachePurge, rebuildMaskCacheOnProfileChange } from "./masking/maskCachePurge";
+import { logMaskCachePurge } from "./masking/maskCachePurge";
 import { invalidateRegisteredHoopsMaskCache } from "./masking/maskingService";
 import { releaseTrustedBandRefusals } from "./masking/trustedBandRelease";
 import { logPinnedCoversAtBoot } from "./services/setCovers";
@@ -95,11 +95,6 @@ export async function bootAfterListen(
     await logMaskCachePurge();
   } catch (error) {
     console.error("[MaskCachePurge] failed", error);
-  }
-  try {
-    await rebuildMaskCacheOnProfileChange();
-  } catch (error) {
-    console.error("[MaskProfile] profile rebuild failed", error);
   }
   try {
     await invalidateRegisteredHoopsMaskCache();
