@@ -1,3 +1,4 @@
+import { registerHeldMaskPreparationRoutes } from "./heldMaskPreparation";
 import type { Express, Request, Response, NextFunction } from "express";
 import { isAuthenticated } from "../auth";
 import { storage } from "../storage";
@@ -39,6 +40,7 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
 };
 
 export function registerAdminRoutes(app: Express): void {
+  registerHeldMaskPreparationRoutes(app);
   app.get("/api/admin/dashboard", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
       const [allUsers, activeSubsResult] = await Promise.all([
@@ -1361,4 +1363,4 @@ export function registerAdminRoutes(app: Express): void {
       res.status(500).json({ message: err?.message });
     }
   });
-}
+      }
