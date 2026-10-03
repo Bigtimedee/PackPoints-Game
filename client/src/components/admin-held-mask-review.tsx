@@ -43,7 +43,7 @@ export function AdminHeldMaskReview() {
       <Button onClick={() => { setEnabled(true); if (enabled) void review.refetch(); }}>Read or refresh review records</Button>
       {review.error && <p role="alert">{String(review.error)}</p>}
       <label className="block">Explicit card IDs (1-20)
-        <textarea className="w-full min-h-24 border rounded p-2" value={text} onChange={(e) => { setText(e.target.value); setChecked([]); }} placeholder="Paste exact reviewed candidate IDs, separated by commas or newlines" />
+        <textarea className="w-full min-h-24 border rounded p-2 bg-background text-foreground" value={text} onChange={(e) => { setText(e.target.value); setChecked([]); }} placeholder="Paste exact reviewed candidate IDs, separated by commas or newlines" />
       </label>
       <Button disabled={prepare.isPending || job.data?.state === "running"} onClick={() => {
         if (window.confirm(`Prepare ${ids.length} exact candidate IDs? This writes production mask files. Donruss remains held.`)) prepare.mutate();
@@ -56,6 +56,7 @@ export function AdminHeldMaskReview() {
         <p>{r.player} #{r.number}</p><p className="text-xs break-all">{r.cardId}</p>
         <p className="text-sm">Approval: {r.source ?? "none"}. {r.blockedReason ?? r.refusal ?? "No recorded refusal"}</p>
         {r.maskReady && r.isPlayable ? <><img src={r.previewPath} alt={`Prepared name-covered ${r.player} card`} className="w-full" />
+          <a href={r.previewPath} target="_blank" rel="noreferrer" className="block text-sm underline">Open full-resolution prepared preview</a>
           <label className="text-sm"><input type="checkbox" checked={checked.includes(r.cardId)} onChange={(e) => setChecked((prev) => e.target.checked ? [...prev, r.cardId] : prev.filter((id) => id !== r.cardId))} /> I inspected these pixels: exact lower band, no exposed names/signatures, correct source.</label></>
           : <p>Not ready. Preview will not bake or repair it.</p>}
       </div>)}</div>
