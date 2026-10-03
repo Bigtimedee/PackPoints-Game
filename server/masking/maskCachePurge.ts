@@ -3,7 +3,7 @@
  * set is gone. Boot logs one line. hardDeleteGameSet calls the card purge
  * for the rows it just removed.
  */
-import { readdirSync, unlinkSync } from "fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 import { eq, inArray, isNull } from "drizzle-orm";
 import {
@@ -13,8 +13,10 @@ import {
   maskBakeRefusals,
   playableCards,
 } from "@shared/schema";
+import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { db } from "../db";
 import { MASKED_CARDS_DIR } from "./maskPlanStore";
+import { getMaskProfile, MASK_LAYOUT_SET_IDS } from "./maskProfiles";
 import { maskReadySidecarDir } from "./maskReadySidecar";
 
 const CHUNK = 400;
@@ -180,4 +182,50 @@ export async function logMaskCachePurge(): Promise<{ orphans: number; sets: stri
   const list = result.sets.map((id) => id.slice(0, 8)).join(",");
   console.log(`[MaskCachePurge] orphans=${result.orphans} sets=${list}`);
   return result;
+}
+
+/**
+ * Sets whose cached bakes are dropped once when their registered profile is
+ * new or changes. A marker in the masked-card dir records the profile that the
+ * remaining bakes were made with, so later boots do not re-bake the set.
+ */
+export const PROFILE_REBUILD_SET_IDS: readonly string[] = [MASK_LAYOUT_SET_IDS.donrussBaseball1987];
+
+function profileRebuildMarker(dir: string, setId: string): string {
+  return path.join(dir, `.profile-rebuild-${setId}.json`);
+}
+
+export function profileRebuildSignature(setId: string): string {
+  const profile = getMaskProfile(null, setId);
+  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION });
+}
+
+/** One boot line per rebuilt set. Returns the set ids that were rebuilt. */
+export async function rebuildMaskCacheOnProfileChange(
+  dir = MASKED_CARDS_DIR,
+  setIds: readonly string[] = PROFILE_REBUILD_SET_IDS,
+  purgeDirs = deleteDirs(),
+): Promise<string[]> {
+  const rebuilt: string[] = [];
+  for (const setId of setIds) {
+    const signature = profileRebuildSignature(setId);
+    const marker = profileRebuildMarker(dir, setId);
+    let previous = "";
+    try {
+      previous = readFileSync(marker, "utf8").trim();
+    } catch {
+      previous = "";
+    }
+    if (previous === signature) continue;
+    const rows = await db
+      .select({ id: playableCards.id })
+      .from(playableCards)
+      .where(eq(playableCards.gameSetId, setId));
+    const purged = await purgeMaskCacheForCards(rows.map((row) => row.id), purgeDirs);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(marker, `${signature}\n`);
+    rebuilt.push(setId);
+    console.log(`[MaskProfile] rebuild set=${setId.slice(0, 8)} profile=${getMaskProfile(null, setId).id} cards=${rows.length} purged=${purged}`);
+  }
+  return rebuilt;
 }
