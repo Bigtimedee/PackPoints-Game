@@ -67,7 +67,8 @@ describe("Donruss containment", () => {
     expect(context).toContain("eligibleCountsForSetIds(candidates.map");
     expect(context).toContain(">= PUBLIC_SET_MIN_ELIGIBLE_CARDS");
     const routes = readFileSync("server/routes.ts", "utf8");
-    expect(routes).toContain("kept.filter(set => set.actualPlayableCards >= PUBLIC_SET_MIN_ELIGIBLE_CARDS)");
-    expect(routes).not.toContain("set.actualPlayableCards || set.cardsImportedCount");
+    const eligibility = readFileSync("server/services/playableSetEligibility.ts", "utf8");
+    expect(routes).toContain("dedupeSetsByNameYearSport(");
+    expect(eligibility).toContain("playableCountOf(set) >= PUBLIC_SET_MIN_ELIGIBLE_CARDS");
   });
 });
