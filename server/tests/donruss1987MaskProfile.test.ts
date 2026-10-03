@@ -1,7 +1,7 @@
 /**
  * 1987 Donruss Baseball: bottom 16% opaque plaque (Design approval 2026-10-03).
  * The set id and baseball|1987|donruss resolve to it. Other Donruss sports do not.
- * The id is Design-cleared in code. Bakes made before the profile are dropped once.
+ * The id stays held. Bakes made before the fixed-band revision are dropped once.
  */
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -76,9 +76,9 @@ describe("1987 Donruss baseball mask profile", () => {
     expect(maskBandFailure(getMaskProfile(HINT, SET_ID).regions)).toBeNull();
   });
 
-  it("is cleared in code, and an uncleared id with the profile waits for Design", () => {
-    expect(CLEARED_SET_IDS).toContain(SET_ID);
-    expect(holdReasonForIdentity(IDENTITY)).toBeNull();
+  it("stays held until card and mask QA are complete", () => {
+    expect(CLEARED_SET_IDS).not.toContain(SET_ID);
+    expect(holdReasonForIdentity(IDENTITY)).toBe(AWAITING_DESIGN_CLEARANCE_REASON);
     expect(holdReasonForIdentity({ ...IDENTITY, id: "11111111-2222-4333-8444-555555555555" }))
       .toBe(AWAITING_DESIGN_CLEARANCE_REASON);
   });

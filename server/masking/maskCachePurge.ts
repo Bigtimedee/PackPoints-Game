@@ -197,7 +197,7 @@ function profileRebuildMarker(dir: string, setId: string): string {
 
 export function profileRebuildSignature(setId: string): string {
   const profile = getMaskProfile(null, setId);
-  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION });
+  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1 });
 }
 
 /** One boot line per rebuilt set. Returns the set ids that were rebuilt. */

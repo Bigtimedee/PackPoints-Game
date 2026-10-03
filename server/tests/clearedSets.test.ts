@@ -1,7 +1,7 @@
 /**
  * A registered mask profile does not make a set dealable.
  * The live ids stay unheld. Their bake geometry stays put.
- * 1987 Donruss Baseball joined on 2026-10-03 (bottom 16% plaque).
+ * 1987 Donruss retains its profile but is held pending card and mask QA.
  */
 import { describe, expect, it } from "vitest";
 import { buildSetMaskHint } from "@shared/maskGeometry";
@@ -57,12 +57,6 @@ const LIVE = [
     hint: buildSetMaskHint({ year: 2025, brand: "Topps", sport: "basketball", setName: "2024 Basketball", category: "basketball" }),
     profileId: "default",
     regions: DEFAULT_MASK_REGIONS,
-  },
-  {
-    id: MASK_LAYOUT_SET_IDS.donrussBaseball1987,
-    hint: buildSetMaskHint({ year: 1987, brand: "Donruss", sport: "baseball", setName: "1987 Donruss Baseball" }),
-    profileId: "1987-donruss",
-    regions: [{ xPct: 0, yPct: 84, wPct: 100, hPct: 16, type: "blur" as const, radiusPct: 0 }],
   },
 ] as const;
 

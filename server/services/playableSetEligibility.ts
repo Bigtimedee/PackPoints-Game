@@ -13,6 +13,8 @@ import { cardNotBlockedSql, type BlocklistSqlOpts } from "../lib/cardBlocklist";
 import { maskRefusalStillClearSql, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { subsetStillUnverified } from "../masking/subsetQuarantine";
 
+import { donrussMaskReadySql } from "../masking/donrussReadiness";
+
 export { refusedAtCurrentMask };
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
@@ -43,6 +45,7 @@ export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts): S
   return sql`
     ${sql.raw(`${a}.is_playable`)} = true
     AND ${maskNameStillCovered(alias)}
+    AND ${donrussMaskReadySql(alias)}
     AND (${sql.raw(`${a}.content_verified`)} IS NULL OR ${sql.raw(`${a}.content_verified`)} = true)
     AND ${sql.raw(`${a}.image_url`)} IS NOT NULL
     AND ${sql.raw(`${a}.image_url`)} <> ''
@@ -168,5 +171,5 @@ export function dedupeSetsByNameYearSport<T extends {
       map.set(key, set);
     }
   }
-  return { kept: Array.from(map.values()), duplicateNames };
+  return { kept: Array.from(map.values()).filter((set) => playableCountOf(set) >= PUBLIC_SET_MIN_ELIGIBLE_CARDS), duplicateNames };
 }

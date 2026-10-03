@@ -385,6 +385,28 @@ export function resolveNameMaskPlan(input: {
   const plateHits = splitNamePlateHits(ocr.boxes, input.imageHeight);
   const trace = (decision: string) => buildNamePlateTrace(profile, input, plateHits, decision);
 
+  if (profile.id === "1987-donruss") {
+    // Do not enlarge the fixed band to fit OCR or a detected plate. A slab,
+    // off-band name or plate needs review, not a different mask geometry.
+    const bandTop = input.imageHeight * 0.84;
+    const plate = input.plateBox ?? input.bottomTextPlate;
+    const outside = ocr.boxes.some((box) => box.y < bandTop)
+      || !!input.topTextPlate || !!plate && plate.y < bandTop;
+    const refused = isSlab || outside;
+    return {
+      regions: profile.regions.map((region) => ({ ...region })),
+      source: "profile",
+      matchedTokens: ocr.tokens,
+      profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate: plate ?? null,
+      layoutDisagreed: refused,
+      namePlateUnresolved: refused,
+      plateTrace: trace(refused ? "name_plate_unresolved" : "profile_band"),
+    };
+  }
+
   if (isSlab) {
     const regions = unionMaskRegions([
       ...slabMaskRegions(profile),
@@ -562,4 +584,4 @@ export function resolveNameMaskPlan(input: {
     namePlateUnresolved: false,
     plateTrace: trace("default"),
   };
-}
+                                    }

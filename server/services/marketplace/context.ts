@@ -1,6 +1,8 @@
 import { db } from "../../db";
 import { gameSets, userActiveSets, matchContextLog } from "@shared/schema";
 import { eq, desc, and, gte, inArray } from "drizzle-orm";
+import { ensureHeldSets, isHeldSet } from "../../config/heldSets";
+import { eligibleCountsForSetIds, PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "../playableSetEligibility";
 import type { GameSet } from "@shared/schema";
 
 export interface GameContext {
@@ -29,7 +31,11 @@ export function gameSetToContext(gameSet: GameSet): GameContext {
 }
 
 export async function getActiveGameSets(): Promise<GameSet[]> {
-  return db.select().from(gameSets).where(eq(gameSets.isActive, true));
+  await ensureHeldSets();
+  const rows = await db.select().from(gameSets).where(eq(gameSets.isActive, true));
+  const candidates = rows.filter((row) => !isHeldSet(row.id));
+  const counts = await eligibleCountsForSetIds(candidates.map((row) => row.id));
+  return candidates.filter((row) => (counts.get(row.id) ?? 0) >= PUBLIC_SET_MIN_ELIGIBLE_CARDS);
 }
 
 export async function getGameSetById(id: string): Promise<GameSet | null> {

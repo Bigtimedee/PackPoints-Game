@@ -1,3 +1,5 @@
+import { MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
+
 /**
  * Per-card review guard for integrated sets.
  *
@@ -40,8 +42,13 @@ export function cardReviewApprovedClause(alias: CardAlias): string {
     + ` OR ${alias}.game_set_id IN (SELECT crgs.id FROM game_sets crgs WHERE crgs.is_user_created = true))`;
 }
 
-/** Blocklist OR-clause, true when the card is awaiting review. Null when the guard is off. */
+/** Blocklist OR-clause. Donruss fails closed even when the general guard is off. */
 export function cardAwaitingReviewClause(alias: CardAlias, opts?: { ignoreCardReview?: boolean }): string | null {
-  if (opts?.ignoreCardReview || !guardEnabled) return null;
-  return `NOT ${cardReviewApprovedClause(alias)}`;
+  if (opts?.ignoreCardReview) return null;
+  const donrussSet = `${alias}.game_set_id = '${MASK_LAYOUT_SET_IDS.donrussBaseball1987}'`;
+  // Missing review tables must not enable this new set. Do not reference those
+  // tables while the general guard is off, so other legacy sets still work.
+  if (!guardEnabled) return donrussSet;
+  const unreviewedDonruss = `(${donrussSet} AND ${alias}.id NOT IN (SELECT cra.card_id FROM card_review_approvals cra WHERE cra.source = 'qa'))`;
+  return `(NOT ${cardReviewApprovedClause(alias)} OR ${unreviewedDonruss})`;
 }
