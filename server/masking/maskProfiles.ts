@@ -56,6 +56,7 @@ export const MASK_LAYOUT_SET_IDS = {
   fleerBasketball1989: "aea515e2-24bc-42bd-a602-1514b89e8cd1",
   toppsBaseball1989: "352b33d1-c110-4e09-b641-8e3c02a94442",
   toppsFootball1994: "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
+  donrussBaseball1987: "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4",
 } as const;
 
 /**
@@ -102,6 +103,15 @@ const BOTTOM_PLAQUE_35: MaskRegion[] = [
  */
 const BOTTOM_PLAQUE_28: MaskRegion[] = [
   { xPct: 0, yPct: 72, wPct: 100, hPct: 28, type: "blur", radiusPct: 0 },
+];
+
+/**
+ * 1987 Donruss baseball: the name prints in the team-colour bar at the bottom of
+ * the photo window. Diamond Kings use a gold plaque in the same place. Design
+ * approved this band on 2026-10-03. It is painted opaque like the other plaques.
+ */
+const BOTTOM_PLAQUE_16: MaskRegion[] = [
+  { xPct: 0, yPct: 84, wPct: 100, hPct: 16, type: "blur", radiusPct: 0 },
 ];
 
 function layoutClassFor(nameAnchor: NameAnchor): LayoutClass {
@@ -163,6 +173,9 @@ const toppsFootball1994 = profile("1994-topps-football", "bottom", BOTTOM_PLAQUE
   topBandPct: 0,
 });
 
+export const DONRUSS_1987_PROFILE_ID = "1987-donruss";
+const donrussBaseball1987 = profile(DONRUSS_1987_PROFILE_ID, "bottom", BOTTOM_PLAQUE_16, { bottomBandPct: 0.16 });
+
 /** Year+brand keys. Applied when sport is baseball or absent. A present non-baseball sport must not hit these. */
 const baseballNamedProfiles: Record<string, MaskProfile> = {
   "1987 topps": toppsBaseball1987,
@@ -176,6 +189,7 @@ const sportProfiles: Record<string, MaskProfile> = {
   "football|1994|topps": toppsFootball1994,
   "baseball|1987|topps": toppsBaseball1987,
   "baseball|1989|topps": toppsBaseball1989,
+  "baseball|1987|donruss": donrussBaseball1987,
 };
 
 const setIdProfiles: Record<string, MaskProfile> = {
@@ -184,6 +198,7 @@ const setIdProfiles: Record<string, MaskProfile> = {
   [MASK_LAYOUT_SET_IDS.toppsBaseball1987]: toppsBaseball1987,
   [MASK_LAYOUT_SET_IDS.fleerBasketball1989]: fleerBasketballTop,
   [MASK_LAYOUT_SET_IDS.toppsBaseball1989]: toppsBaseball1989,
+  [MASK_LAYOUT_SET_IDS.donrussBaseball1987]: donrussBaseball1987,
 };
 
 export interface ParsedSetHint {
