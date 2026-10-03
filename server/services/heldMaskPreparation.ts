@@ -2,7 +2,6 @@
 import fs from "fs";
 import path from "path";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
-import { readyDonrussCardIds } from "../masking/donrussReadiness";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 
 export const MAX_PREPARE_CARDS = 20;
@@ -18,7 +17,17 @@ export function explicitPreparationIds(body: unknown): string[] | null {
 
 /** Strict exact-band/current-version readiness. Never calls the bake or image gate. */
 export function preparedMaskFile(cardId: string, dir = maskReadySidecarDir()): string | null {
-  if (!readyDonrussCardIds(dir).includes(cardId)) return null;
+  // Inspect this card only. Scanning the full volume per row made review GET time out.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cardId)) return null;
+  const stem = path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}`);
+  if (!fs.existsSync(`${stem}.ok`) || fs.existsSync(`${stem}.fail`)) return null;
+  try {
+    const plan = JSON.parse(fs.readFileSync(`${stem}.json`, "utf8"));
+    const [band] = plan.regions ?? [];
+    if (plan.maskVersion !== CURRENT_MASK_VERSION || plan.layoutClass !== "BOTTOM_PLAQUE"
+      || plan.regions?.length !== 1 || band.xPct !== 0 || band.yPct !== 84
+      || band.wPct !== 100 || band.hPct !== 16 || band.type !== "blur") return null;
+  } catch { return null; }
   for (const rotation of ["", "_r90", "_r180", "_r270"]) {
     const file = path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}${rotation}.jpg`);
     try { if (fs.statSync(file).isFile()) return file; } catch { /* unavailable */ }
