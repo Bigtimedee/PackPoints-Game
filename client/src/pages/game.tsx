@@ -35,7 +35,8 @@ import {
   type SoloPlayAgainResume,
 } from "@/lib/playAgain";
 import { ANON_GATE_CODE, ANON_GATE_COPY, type PublicAnonGate } from "@shared/anonGate";
-import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
+import { EscrowHeldChip } from "@/components/anon-gate-plaque";
+import { GuestHardWall } from "@/components/guest-hard-wall";
 import {
   prefetchMaskedPlayCards,
   prefetchRevealPlayCard,
@@ -613,7 +614,14 @@ export default function Game() {
 
   useEffect(() => {
     if (!isGameOver || isAuthenticated || !anonGate) return;
-    if (anonGate.phase === "hard") return;
+    if (anonGate.phase === "hard") {
+      // Game Complete at the hard wall: block with the hard SignupModal (not dismissable).
+      if (!showSignupModal) {
+        setGateOpenOn("plaque");
+        setShowSignupModal(true);
+      }
+      return;
+    }
     if (anonGate.prompt === "soft" && !hasSeenSignupPrompt && !showSignupModal) {
       setGateOpenOn("plaque");
       const timer = setTimeout(() => setShowSignupModal(true), 500);
@@ -784,8 +792,53 @@ export default function Game() {
 
   // Show pre-game selection screen for Solo mode
   if (!hasStartedGame && !session) {
+    const setupSignupModal = (
+      <SignupModal
+        open={showSignupModal}
+        onOpenChange={setShowSignupModal}
+        variant={guestGate?.phase === "hard" ? "hard" : "optional"}
+        gateReason={guestGate?.reason}
+        openOn={gateOpenOn}
+        pendingPoints={guestGate?.escrowPoints ?? 0}
+      />
+    );
+
+    // Guest hard wall: a block screen instead of the setup form, so Register
+    // and Sign in are on screen without scrolling. main scrolls on /game/*.
+    if (!isAuthenticated && guestGate?.phase === "hard") {
+      return (
+        <div
+          className="min-h-full flex flex-col px-4 pt-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+          data-testid="screen-solo-guest-block"
+        >
+          <div className="container mx-auto max-w-lg px-0">
+            <Link href="/">
+              <Button variant="ghost" className="mb-2 gap-2" data-testid="button-back-home">
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            </Link>
+          </div>
+          <div className="flex flex-1 flex-col items-center justify-center">
+            <GuestHardWall
+              escrowPoints={guestGate.escrowPoints}
+              onCreate={() => {
+                setGateOpenOn("signup");
+                setShowSignupModal(true);
+              }}
+              onSignIn={() => {
+                setGateOpenOn("login");
+                setShowSignupModal(true);
+              }}
+            />
+          </div>
+          {setupSignupModal}
+        </div>
+      );
+    }
+
     return (
-      <div className="min-h-screen pb-20 md:pb-8 pt-8">
+      <div className="pt-8 pb-[calc(2rem+env(safe-area-inset-bottom))]">
         <div className="container mx-auto px-4 max-w-lg">
           <Link href="/">
             <Button variant="ghost" className="mb-4 gap-2" data-testid="button-back-home">
@@ -793,7 +846,7 @@ export default function Game() {
               Back
             </Button>
           </Link>
-          
+
           <Card>
             <CardContent className="p-6 space-y-6">
               <div className="text-center space-y-2">
@@ -853,43 +906,19 @@ export default function Game() {
                 />
               </div>
               
-              {!isAuthenticated && guestGate?.phase === "hard" ? (
-                <div data-testid="wall-anon-hard-gate">
-                  <AnonGatePlaque
-                    variant="hard"
-                    escrowPoints={guestGate.escrowPoints}
-                    onCreate={() => {
-                      setGateOpenOn("signup");
-                      setShowSignupModal(true);
-                    }}
-                    onSignIn={() => {
-                      setGateOpenOn("login");
-                      setShowSignupModal(true);
-                    }}
-                  />
-                </div>
-              ) : (
-                <Button 
-                  className="w-full gap-2" 
-                  size="lg" 
-                  onClick={handleStartGame}
-                  disabled={!selectedSetId || setsLoading}
-                  data-testid="button-start-game"
-                >
-                  <Play className="h-5 w-5" />
-                  Start Game
-                </Button>
-              )}
+              <Button 
+                className="w-full gap-2" 
+                size="lg" 
+                onClick={handleStartGame}
+                disabled={!selectedSetId || setsLoading}
+                data-testid="button-start-game"
+              >
+                <Play className="h-5 w-5" />
+                Start Game
+              </Button>
             </CardContent>
           </Card>
-          <SignupModal
-            open={showSignupModal}
-            onOpenChange={setShowSignupModal}
-            variant={guestGate?.phase === "hard" ? "hard" : "optional"}
-            gateReason={guestGate?.reason}
-            openOn={gateOpenOn}
-            pendingPoints={guestGate?.escrowPoints ?? 0}
-          />
+          {setupSignupModal}
         </div>
       </div>
     );
@@ -1037,8 +1066,11 @@ export default function Game() {
 
     const canNativeShare = typeof navigator !== "undefined" && !!navigator.share;
 
+    // A guest at the hard wall gets the non-dismissable hard SignupModal over
+    // this screen (opened by an effect above). Play Again stays hidden.
+    const showGuestWall = !isAuthenticated && anonGate?.phase === "hard";
     return (
-      <div className="min-h-screen flex items-center justify-center pb-20 md:pb-8 px-4">
+      <div className="min-h-full flex items-center justify-center px-4 pt-6 pb-[calc(2rem+env(safe-area-inset-bottom))]">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center space-y-6">
             <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
@@ -1072,22 +1104,7 @@ export default function Game() {
             )}
 
             <div className="flex flex-col gap-3 pt-2">
-              {!isAuthenticated && anonGate?.phase === "hard" ? (
-                <div data-testid="wall-anon-hard-gate">
-                  <AnonGatePlaque
-                    variant="hard"
-                    escrowPoints={anonGate.escrowPoints}
-                    onCreate={() => {
-                      setGateOpenOn("signup");
-                      setShowSignupModal(true);
-                    }}
-                    onSignIn={() => {
-                      setGateOpenOn("login");
-                      setShowSignupModal(true);
-                    }}
-                  />
-                </div>
-              ) : (
+              {!showGuestWall && (
                 <Button
                   onClick={handlePlayAgain}
                   size="lg"

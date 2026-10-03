@@ -11,6 +11,7 @@ import { MobileNav } from "@/components/mobile-nav";
 import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
+import { feedbackLauncherAllowed, fullscreenMainClassName } from "@/lib/appShellLayout";
 import { useAuth } from "@/hooks/use-auth";
 import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
 import { setsMainClassName, setsShellClassName } from "@/lib/setsPolish";
@@ -383,7 +384,7 @@ function AppShell() {
   return (
     <div className={`h-dvh flex flex-col bg-background text-foreground overflow-hidden ${setsShellClassName(location)}`.trim()}>
       {!isFullscreen && !isReviewRoute && <Header />}
-      <main className={isFullscreen ? "flex-1 overflow-hidden" : isReviewRoute ? "flex-1 overflow-y-auto" : setsMainClassName(location)}>
+      <main className={fullscreenMainClassName(location) ?? (isReviewRoute ? "flex-1 overflow-y-auto" : setsMainClassName(location))}>
         <Router />
       </main>
       {!isReviewRoute && <MobileNav />}
@@ -411,7 +412,7 @@ function StaleBuildWatcher() {
 
 function AppExtras() {
   const [location] = useLocation();
-  if (location.startsWith("/review/")) return null;
+  if (!feedbackLauncherAllowed(location)) return null;
   return <FeedbackWidget />;
 }
 
