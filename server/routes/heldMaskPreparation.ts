@@ -107,13 +107,13 @@ export function registerHeldMaskPreparationRoutes(app: Express): void {
         if (ready.size !== ids.length) return { refused: ids.filter((x) => !ready.has(x)), approved: [] };
         // An explicit post-mask visual review can promote seed -> qa. Existing qa stays unchanged.
         const approved = await tx.insert(cardReviewApprovals).values(ids.map((cardId) => ({ cardId,
-          gameSetId: DONRUSS_1987_HOLD_ID, source: "qa", approvedBy: req.user.id, note })))
+          gameSetId: DONRUSS_1987_HOLD_ID, source: "qa", approvedBy: req.session?.localUserId || req.user?.claims?.sub || req.user?.id, note })))
           .onConflictDoUpdate({ target: cardReviewApprovals.cardId,
-            set: { source: "qa", approvedBy: req.user.id, note, approvedAt: new Date() },
+            set: { source: "qa", approvedBy: req.session?.localUserId || req.user?.claims?.sub || req.user?.id, note, approvedAt: new Date() },
             setWhere: eq(cardReviewApprovals.source, "seed") }).returning({ cardId: cardReviewApprovals.cardId });
         return { refused: [], approved: approved.map((r) => r.cardId), alreadyQa: ids.filter((x) => !approved.some((r) => r.cardId === x)) };
       });
       res.status(result.refused.length ? 422 : 200).json({ ...result, held: true });
     } catch { res.status(500).json({ error: "Review approvals failed" }); }
   });
-}
+        }
