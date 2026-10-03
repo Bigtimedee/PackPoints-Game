@@ -5,6 +5,9 @@ import "./index.css";
 
 installStaleBuildGuards();
 
+// Takes the static legal footer (index.html) out of layout. See index.css.
+document.body.classList.add("app-mounted");
+
 // Evict any service worker left by the pre-Railway deployment of this domain
 // (this app registers none, so ANY registration is foreign). Without this, a
 // legacy worker keeps serving the old app shell indefinitely. One guarded

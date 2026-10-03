@@ -13,6 +13,7 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ANON_GATE_COPY, type AnonGateReason } from "@shared/anonGate";
 import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
+import { useGuestWallChrome } from "@/lib/guestWallChrome";
 
 const signupModalSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
@@ -50,6 +51,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   const [step, setStep] = useState<"plaque" | "form">("plaque");
   const isGate = variant === "soft" || variant === "hard";
+  // Hard wall dialog: hide the chat bubble and static footer while it is open.
+  useGuestWallChrome(open && variant === "hard");
 
   useEffect(() => {
     if (!open) return;
@@ -185,7 +188,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           hideClose={variant === "hard"}
-          className="max-w-[390px] gap-0 border-0 bg-transparent p-0 shadow-none"
+          className="max-w-[390px] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain gap-0 border-0 bg-transparent p-0 pb-[env(safe-area-inset-bottom)] shadow-none"
           onEscapeKeyDown={(event) => {
             if (variant === "hard") event.preventDefault();
           }}
@@ -216,7 +219,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
     <Dialog open={open} onOpenChange={isGate ? handleOpenChange : onOpenChange}>
       <DialogContent
         hideClose={variant === "hard"}
-        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        className="sm:max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain"
         onEscapeKeyDown={(event) => {
           if (variant === "hard") event.preventDefault();
         }}

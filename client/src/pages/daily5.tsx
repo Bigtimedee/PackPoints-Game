@@ -11,7 +11,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
 import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
 import { applySetDisplayTitle, applySetYearLabel, setDisplayOverride } from "@shared/setDisplayOverride";
-import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
+import { EscrowHeldChip } from "@/components/anon-gate-plaque";
+import { GuestHardWall } from "@/components/guest-hard-wall";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
@@ -532,6 +533,16 @@ export default function Daily5Page() {
     },
   });
 
+  // Results at the hard wall: block with the hard SignupModal (not dismissable),
+  // same as solo Game Complete, instead of a card below the share image.
+  const resultsHardGate = gameState === "results" && !isAuthenticated
+    && (guestGate ?? statusQuery.data?.anonGate)?.phase === "hard";
+  useEffect(() => {
+    if (!resultsHardGate || showGuestGate) return;
+    setGateOpenOn("plaque");
+    setShowGuestGate(true);
+  }, [resultsHardGate, showGuestGate]);
+
   const finishMutation = useMutation({
     mutationFn: (data: { challengeId: string }) => apiRequest("POST", "/api/daily5/finish", data),
     onSuccess: async (res) => {
@@ -900,22 +911,7 @@ export default function Daily5Page() {
             <p className="text-sm text-muted-foreground text-center" data-testid="text-d5-next-play">
               {(guestGate ?? status?.anonGate)?.phase === "hard" ? null : DAILY5_NEXT_PLAY.doneNote}
             </p>
-            {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard" ? (
-              <div data-testid="wall-anon-hard-gate">
-                <AnonGatePlaque
-                  variant="hard"
-                  escrowPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
-                  onCreate={() => {
-                    setGateOpenOn("signup");
-                    setShowGuestGate(true);
-                  }}
-                  onSignIn={() => {
-                    setGateOpenOn("login");
-                    setShowGuestGate(true);
-                  }}
-                />
-              </div>
-            ) : (
+            {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard" ? null : (
               <Link href={DAILY5_NEXT_PLAY.primary.href}>
                 <Button size="lg" className={PLAY_AGAIN_BUTTON_CLASS} data-testid={DAILY5_NEXT_PLAY.primary.testId}>
                   <Play className="h-4 w-4" />
@@ -1010,6 +1006,11 @@ export default function Daily5Page() {
     );
   }
 
+  const preplayGuestWall = !user
+    && status?.challenge?.status === "ACTIVE"
+    && !status?.hasPlayed
+    && (guestGate ?? status?.anonGate)?.phase === "hard";
+
   return (
     <div className="min-h-screen pb-20 md:pb-8">
       <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -1020,10 +1021,27 @@ export default function Daily5Page() {
           </Button>
         </Link>
 
+        {preplayGuestWall && (
+          // The wall replaces the Daily 5 start card.
+          <GuestHardWall
+            className="mb-6"
+            escrowPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
+            onCreate={() => {
+              setGateOpenOn("signup");
+              setShowGuestGate(true);
+            }}
+            onSignIn={() => {
+              setGateOpenOn("login");
+              setShowGuestGate(true);
+            }}
+          />
+        )}
+
         {beatMe && !bannerHidden && (
           <BeatMeBanner challenge={beatMe} onDismiss={beatMe.status === "active" ? hideBeatMeBanner : undefined} />
         )}
 
+        {!preplayGuestWall && (
         <Card className="mb-6">
           <CardHeader className="text-center">
             <div className="inline-flex p-4 rounded-full bg-primary/10 mx-auto mb-2">
@@ -1068,22 +1086,7 @@ export default function Daily5Page() {
                         label="Time remaining"
                       />
                     )}
-                    {!user && (guestGate ?? status.anonGate)?.phase === "hard" ? (
-                      <div data-testid="wall-anon-hard-gate">
-                        <AnonGatePlaque
-                          variant="hard"
-                          escrowPoints={(guestGate ?? status.anonGate)?.escrowPoints ?? 0}
-                          onCreate={() => {
-                            setGateOpenOn("signup");
-                            setShowGuestGate(true);
-                          }}
-                          onSignIn={() => {
-                            setGateOpenOn("login");
-                            setShowGuestGate(true);
-                          }}
-                        />
-                      </div>
-                    ) : (
+                    {!user && (guestGate ?? status.anonGate)?.phase === "hard" ? null : (
                       <>
                       <Button
                         className="w-full gap-2 min-h-11"
@@ -1116,6 +1119,7 @@ export default function Daily5Page() {
             )}
           </CardContent>
         </Card>
+        )}
 
         <Card>
           <CardHeader>
