@@ -43,6 +43,7 @@ import { storeCheckoutService } from "./services/storeCheckoutService";
 import { getStripeDiagnostics, getStripeMode, assertLiveModeForHost, getStripeConfig, isProductionHost } from "./stripeClient";
 import { isAuthenticated } from "./auth";
 import { requireAdmin } from "./auth/requireAdmin";
+import { resolveAdminActorId } from "./auth/adminActor";
 import { handleOnboardingStart, ONBOARDING_REWARD_PTS, registerLockedCardRowRoutes } from "./services/lockedCardRows";
 import { matchService } from "./services/matchService";
 import { tokenService } from "./services/tokenService";
@@ -7639,6 +7640,11 @@ export async function registerRoutes(
     try {
       const { cardId } = req.params;
       const { reason } = req.body;
+      // requireAdmin accepts OAuth (req.user.claims.sub) or PackPTS local login (session.localUserId).
+      const actorUserId = resolveAdminActorId(req);
+      if (!actorUserId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
       const { assertMutationAllowed } = await import("./services/mutationGuard");
       
       const [card] = await db
@@ -7659,13 +7665,13 @@ export async function registerRoutes(
       assertMutationAllowed({
         operationSource: "ADMIN_MANUAL",
         action: "SET_UNPLAYABLE",
-        actorUserId: req.user.id,
+        actorUserId,
         reason: reason || "Manual admin exclusion",
       });
       
       await excludePlayableCard(cardId, reason);
       
-      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${req.user.id}: ${reason || "no reason"}`);
+      console.log(`[Card Exclude] Card ${cardId} manually excluded by admin ${actorUserId}: ${reason || "no reason"}`);
       
       res.json({ success: true, cardId, excluded: true });
     } catch (error) {
