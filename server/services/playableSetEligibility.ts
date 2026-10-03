@@ -171,5 +171,5 @@ export function dedupeSetsByNameYearSport<T extends {
       map.set(key, set);
     }
   }
-  return { kept: Array.from(map.values()), duplicateNames };
+  return { kept: Array.from(map.values()).filter((set) => playableCountOf(set) >= PUBLIC_SET_MIN_ELIGIBLE_CARDS), duplicateNames };
 }
