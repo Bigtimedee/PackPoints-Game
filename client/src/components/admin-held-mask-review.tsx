@@ -20,6 +20,7 @@ export function AdminHeldMaskReview() {
   const [error, setError] = useState("");
   const [excludeId, setExcludeId] = useState("");
   const [reason, setReason] = useState("");
+  const [pendingExclusion, setPendingExclusion] = useState<{ cardId: string; player: string; number: string; reason: string } | null>(null);
   const ids = text.split(/[\s,]+/).filter(Boolean);
   const review = useQuery<{ cards: Row[] }>({ queryKey: [BASE + "/review"], enabled, retry: false });
   const job = useQuery<{ state: string; results: Array<{ cardId: string; status: string; reason?: string }> }>({
@@ -33,9 +34,9 @@ export function AdminHeldMaskReview() {
   const approve = useMutation({ mutationFn: async () => {
     const r = await apiRequest("POST", BASE + "/approve-reviewed", { cardIds: checked, reviewed: true, maskVersion: CURRENT_MASK_VERSION, note }); return r.json();
   }, onSuccess: () => { setChecked([]); setError(""); void review.refetch(); }, onError: (e: Error) => setError(e.message) });
-  const exclude = useMutation({ mutationFn: async () => {
-    const r = await apiRequest("POST", `/api/admin/cards/${excludeId}/exclude`, { reason }); return r.json();
-  }, onSuccess: () => { setExcludeId(""); setReason(""); setError(""); void review.refetch(); }, onError: (e: Error) => setError(e.message) });
+  const exclude = useMutation({ mutationFn: async (choice: { cardId: string; reason: string }) => {
+    const r = await apiRequest("POST", `/api/admin/cards/${choice.cardId}/exclude`, { reason: choice.reason }); return r.json();
+  }, onSuccess: () => { setPendingExclusion(null); setExcludeId(""); setReason(""); setError(""); void review.refetch(); }, onError: (e: Error) => setError(e.message) });
   const selected = review.data?.cards.filter((r) => ids.includes(r.cardId)) ?? [];
   return <Card className="mt-6"><CardHeader><CardTitle>Held Donruss mask preparation</CardTitle></CardHeader>
     <CardContent className="space-y-4">
@@ -70,8 +71,19 @@ export function AdminHeldMaskReview() {
       <label className="block">Exclusion reason<Input value={reason} onChange={(e) => setReason(e.target.value)} /></label>
       <Button variant="destructive" disabled={!reason.trim() || exclude.isPending || !review.data?.cards.some((r) => r.cardId === excludeId && r.isPlayable)} onClick={() => {
         const row = review.data?.cards.find((r) => r.cardId === excludeId);
-        if (window.confirm(`Exclude ${row?.player} #${row?.number} (${excludeId})?\nReason: ${reason}`)) exclude.mutate();
+        if (row?.isPlayable) setPendingExclusion({ cardId: row.cardId, player: row.player, number: row.number, reason: reason.trim() });
       }}>Save this source exclusion</Button>
+      {pendingExclusion && <section role="dialog" aria-modal="false" aria-labelledby="exclusion-confirm-title" className="border border-destructive rounded p-4 space-y-3 bg-background text-foreground">
+        <h3 id="exclusion-confirm-title" className="font-semibold">Confirm source exclusion</h3>
+        <p>{pendingExclusion.player} #{pendingExclusion.number}</p>
+        <p className="text-sm break-all">{pendingExclusion.cardId}</p>
+        <p className="text-sm whitespace-pre-wrap">Reason: {pendingExclusion.reason}</p>
+        <p className="text-sm">This excludes only this card. Donruss remains held. No masks are prepared.</p>
+        <div className="flex gap-3">
+          <Button variant="outline" disabled={exclude.isPending} onClick={() => setPendingExclusion(null)}>Cancel exclusion</Button>
+          <Button variant="destructive" disabled={exclude.isPending} onClick={() => exclude.mutate(pendingExclusion)}>Confirm this source exclusion</Button>
+        </div>
+      </section>}
       {error && <p role="alert" className="text-red-600">{error}</p>}
     </CardContent></Card>;
 }
