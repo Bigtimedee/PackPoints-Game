@@ -93,7 +93,7 @@ export function Header() {
     <>
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/" className={`flex items-center gap-2 ${location === "/" ? "shrink-0" : ""}`}>
           <img src={packptsLogo} alt="PackPTS" className="h-10 w-auto" data-testid="img-logo" />
         </Link>
 
@@ -116,11 +116,11 @@ export function Header() {
           })}
         </nav>
 
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center ${location === "/" ? "gap-1.5 sm:gap-3" : "gap-3"}`}>
           {isAuthenticated && user && (
             <>
-              <StreakBadge />
-              {!isRestricted && <DailyProgressBadge />}
+              <div className={location === "/" ? "hidden sm:block" : ""}><StreakBadge /></div>
+              {!isRestricted && <div className={location === "/" ? "hidden sm:block" : ""}><DailyProgressBadge /></div>}
               {isRestricted ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
