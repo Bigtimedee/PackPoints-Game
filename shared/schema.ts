@@ -4557,6 +4557,51 @@ export const userGrowthRollups = pgTable("user_growth_rollups", {
   uniqueIndex("idx_user_growth_rollups_user_day").on(table.userId, table.dayKey),
 ]);
 
+// ---- Growth Agent Mandate: Listen / Create / Distribute / Learn ----
+
+export const growthSignals = pgTable("growth_signals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  signalKey: varchar("signal_key", { length: 160 }).notNull().unique(),
+  source: varchar("source", { length: 20 }).notNull(),
+  signalType: varchar("signal_type", { length: 40 }).notNull(),
+  title: text("title").notNull(),
+  score: real("score").notNull().default(0),
+  payload: jsonb("payload").default({}),
+  assetPath: text("asset_path"),
+  observedAt: timestamp("observed_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_growth_signals_score").on(table.score),
+  index("idx_growth_signals_type").on(table.signalType),
+  index("idx_growth_signals_observed").on(table.observedAt),
+]);
+
+export type GrowthSignal = typeof growthSignals.$inferSelect;
+
+export const growthCreativeMetrics = pgTable("growth_creative_metrics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creativeId: varchar("creative_id", { length: 100 }).notNull().unique(),
+  platform: varchar("platform", { length: 20 }),
+  contentType: varchar("content_type", { length: 40 }),
+  impressions: integer("impressions").notNull().default(0),
+  clicks: integer("clicks").notNull().default(0),
+  signups: integer("signups").notNull().default(0),
+  gameStarts: integer("game_starts").notNull().default(0),
+  activations: integer("activations").notNull().default(0),
+  d1Retained: integer("d1_retained").notNull().default(0),
+  d7Retained: integer("d7_retained").notNull().default(0),
+  qdauPerThousand: real("qdau_per_thousand").notNull().default(0),
+  computedAt: timestamp("computed_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_growth_creative_metrics_qdau").on(table.qdauPerThousand),
+  index("idx_growth_creative_metrics_platform").on(table.platform),
+  index("idx_growth_creative_metrics_computed").on(table.computedAt),
+]);
+
+export type GrowthCreativeMetric = typeof growthCreativeMetrics.$inferSelect;
+
 // ---- Social Media Agent ----
 
 export const socialPlatformEnum = pgEnum("social_platform", ["TWITTER", "TIKTOK", "DISCORD"]);
