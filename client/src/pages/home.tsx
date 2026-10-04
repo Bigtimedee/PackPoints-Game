@@ -1,6 +1,7 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Calendar, Users, Shuffle, Compass, Trophy, MessageCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -21,9 +22,8 @@ function FeaturedCard() {
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   return (
-    <figure className="relative mx-auto w-[230px] sm:w-[280px] lg:w-[340px]" data-testid="home-featured-card">
-      <div className="absolute -inset-5 rounded-full bg-amber-500/10 blur-3xl" aria-hidden="true" />
-      <div className="relative aspect-[494/694] overflow-hidden rounded-sm bg-[#0b0f16] shadow-[0_18px_60px_-16px_rgba(0,0,0,0.65)] ring-1 ring-amber-200/20">
+    <figure className="mx-auto w-full max-w-[230px] sm:max-w-[280px] lg:max-w-[340px]" data-testid="home-featured-card">
+      <div className="relative overflow-hidden rounded-md bg-muted" style={{ aspectRatio: "494 / 694" }}>
         {!failed ? (
           <img
             key={attempt}
@@ -39,15 +39,15 @@ function FeaturedCard() {
             data-testid="img-hero-masked-card"
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-slate-200" role="status">
+          <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-muted-foreground" role="status">
             <p className="text-sm">The card couldn't load.</p>
-            <Button variant="outline" className="text-slate-900" onClick={() => { setAttempt(a => a + 1); setFailed(false); }}>
+            <Button variant="outline"  onClick={() => { setAttempt(a => a + 1); setFailed(false); }}>
               Try again
             </Button>
           </div>
         )}
       </div>
-      <figcaption className="relative mt-3 text-center text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+      <figcaption className="mt-3 text-center text-xs text-muted-foreground">
         1987 Topps · Baseball
       </figcaption>
     </figure>
@@ -68,12 +68,11 @@ export default function Home() {
   return (
     <div className="min-h-screen pb-20 md:pb-8">
       {/* Card first, including on a first visit: no automatic onboarding dialog. */}
-      <section className="relative isolate overflow-hidden border-b" aria-labelledby="home-title">
-        <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-br from-amber-500/[0.07] via-background to-primary/[0.06]" />
-        <div className="mx-auto grid max-w-5xl items-center gap-5 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
+      <section className="relative overflow-hidden border-b" aria-labelledby="home-title">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />
+        <div className="relative mx-auto grid max-w-5xl items-center gap-5 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
           <FeaturedCard />
           <div className="mx-auto max-w-md text-center md:text-left">
-            <p className="mb-3 hidden text-xs font-semibold uppercase tracking-[0.22em] text-amber-600 dark:text-amber-400 md:block">Your collection. Your memory.</p>
             <h1 id="home-title" className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl" data-testid="text-hero-title">
               Who's on<br className="hidden md:block" /> the card?
             </h1>
@@ -84,7 +83,7 @@ export default function Home() {
               <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
             </Button>
             <p className="mt-3 text-xs text-muted-foreground">{isAuthenticated ? "Your next round starts here." : "Free to play. Try a round before signing up."}</p>
-            <Link href="/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722" className="mt-4 inline-block text-sm underline decoration-border underline-offset-4 hover:text-primary">
+            <Link href="/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722" className="mt-4 inline-block text-sm text-muted-foreground hover:text-primary">
               Play the 1987 Topps set
             </Link>
           </div>
@@ -100,11 +99,15 @@ export default function Home() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           {modes.map(({ id, title, description, href, icon: Icon }) => (
-            <Link key={id} href={href} className="group flex items-center gap-4 rounded-xl border bg-card p-4 transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`card-game-mode-${id}`}>
-              <div className="rounded-lg bg-primary/10 p-2.5 text-primary"><Icon className="h-5 w-5" /></div>
-              <div className="flex-1"><h3 className="font-semibold">{title}</h3><p className="mt-0.5 text-xs text-muted-foreground">{description}</p></div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
-            </Link>
+            <Card key={id} className="hover-elevate" data-testid={`card-game-mode-${id}`}>
+              <Link href={href} className="block">
+                <CardContent className="flex items-center gap-4 p-4">
+                  <div className="rounded-md bg-primary/10 p-2 text-primary"><Icon className="h-5 w-5" /></div>
+                  <div className="flex-1"><h3 className="font-semibold">{title}</h3><p className="mt-1 text-xs text-muted-foreground">{description}</p></div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                </CardContent>
+              </Link>
+            </Card>
           ))}
         </div>
         {quickStats.length > 0 && (
@@ -113,7 +116,7 @@ export default function Home() {
           </div>
         )}
         {!isAuthenticated && (
-          <div className="mt-8 flex flex-col items-center justify-between gap-4 rounded-xl border bg-muted/20 p-5 sm:flex-row sm:text-left">
+          <div className="mt-8 flex flex-col items-center justify-between gap-4 rounded-lg border bg-card p-5 sm:flex-row sm:text-left">
             <div><h2 className="font-semibold">Create a Free Account</h2><p className="mt-1 text-sm text-muted-foreground">Keep Daily 5 and your sets on one profile.</p></div>
             <div className="flex flex-col items-center gap-2">
               <Button asChild variant="outline" data-testid="button-create-free-account"><Link href="/auth" data-testid="button-home-create-account">Create free account</Link></Button>
@@ -121,11 +124,13 @@ export default function Home() {
             </div>
           </div>
         )}
-        <details className="mt-8 border-t pt-5 text-sm text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-foreground">How to play</summary>
+        <Card className="mt-8">
+          <CardContent className="p-4 text-sm text-muted-foreground">
+          <h2 className="font-semibold text-foreground">How to play</h2>
           <p className="mt-3 leading-relaxed">Look at the card with the name hidden. Choose the player from four options. Correct answers earn PackPTS.</p>
           <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. Applied PackPTS stay in your wallet and do not change the price those sites charge.</p>
-        </details>
+          </CardContent>
+        </Card>
       </section>
       <footer className="border-t py-6">
         <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-x-6 gap-y-3 px-5 text-xs text-muted-foreground">
