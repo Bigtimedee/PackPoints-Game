@@ -174,7 +174,11 @@ const toppsFootball1994 = profile("1994-topps-football", "bottom", BOTTOM_PLAQUE
 });
 
 export const DONRUSS_1987_PROFILE_ID = "1987-donruss";
-const donrussBaseball1987 = profile(DONRUSS_1987_PROFILE_ID, "bottom", BOTTOM_PLAQUE_16, { bottomBandPct: 0.16 });
+const donrussBaseball1987 = profile(DONRUSS_1987_PROFILE_ID, "bottom", BOTTOM_PLAQUE_16, {
+  bottomBandPct: 0.16,
+  // Name always prints in the bottom bar. The top logo can read as a text plate and refuse the card.
+  trustProfileBand: true,
+});
 
 /** Year+brand keys. Applied when sport is baseball or absent. A present non-baseball sport must not hit these. */
 const baseballNamedProfiles: Record<string, MaskProfile> = {
