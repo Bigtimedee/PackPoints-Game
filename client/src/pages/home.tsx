@@ -1,3 +1,5 @@
+import { AnswerButton } from "@/pages/game";
+import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -23,7 +25,8 @@ const modes = [
 ];
 
 function FeaturedCard() {
-  const [cover, setCover] = useState<{ imageUrl: string; maskPlan: PublicMaskPlan } | null>(null);
+  const [, navigate] = useLocation();
+  const [cover, setCover] = useState<{ imageUrl: string; maskPlan: PublicMaskPlan; options: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -39,10 +42,12 @@ function FeaturedCard() {
         if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error("Cover unavailable");
         const maskPlan = toPublicMaskPlan(JSON.parse(response.headers.get("X-Mask-Plan") || "null"));
         if (!maskPlan) throw new Error("Cover plan unavailable");
+        const options: unknown = JSON.parse(response.headers.get("X-Card-Options") || "null");
+        if (!Array.isArray(options) || options.length !== 4 || options.some(o => typeof o !== "string" || !o.trim()) || new Set(options).size !== 4) throw new Error("Choices unavailable");
         const image = await response.blob();
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(image);
-        setCover({ imageUrl: objectUrl, maskPlan });
+        setCover({ imageUrl: objectUrl, maskPlan, options });
       } catch {
         if (!controller.signal.aborted) setFailed(true);
       }
@@ -51,15 +56,21 @@ function FeaturedCard() {
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [attempt]);
   return (
-    <figure className="mx-auto w-full max-w-[280px] md:max-w-xs" data-testid="home-featured-card">
+    <figure className="mx-auto w-full max-w-xs" data-testid="home-featured-card">
       {cover ? (
-        <GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan} isRevealed={false} allowClientImageReject={false} onImageError={() => setFailed(true)} />
+        <div className="mx-auto max-w-[230px] md:max-w-xs"><GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan} isRevealed={false} allowClientImageReject={false} onImageError={() => setFailed(true)} /></div>
       ) : (
         <div className="relative aspect-[2.5/3.5] flex items-center justify-center rounded-md bg-plaque-surface ring-1 ring-plaque-frame">
           {failed ? <div className="p-6 text-center text-muted-foreground" role="status"><p className="text-sm">The card couldn't load.</p><Button variant="outline" className="mt-4" onClick={() => setAttempt(a => a + 1)}>Try again</Button></div> : <Loader2 className="h-8 w-8 animate-spin text-plaque-muted" />}
         </div>
       )}
-      <figcaption className="mt-3 text-center text-xs text-muted-foreground">1987 Topps · Baseball</figcaption>
+      {cover && <figcaption className="mt-3">
+        <p className="text-xs sm:text-sm text-muted-foreground mb-1">Who is on this 1987 Topps card?</p>
+        <div className="space-y-1.5" role="group" aria-label="Answer choices">
+          {cover.options.map(option => <AnswerButton key={option} option={option} isSelected={false} isCorrect={false} isRevealed={false} disabled={false} onSelect={() => navigate("/game/solo?set=37fd025d-2ae1-4c92-b8ad-133375d0c722")} />)}
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">Pick a name to try a round.</p>
+      </figcaption>}
     </figure>
   );
 }
@@ -80,23 +91,17 @@ export default function Home() {
       {/* Card first, including on a first visit: no automatic onboarding dialog. */}
       <section className="relative overflow-hidden border-b" aria-labelledby="home-title">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />
-        <div className="relative mx-auto grid max-w-5xl items-center gap-5 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
+        <div className="relative mx-auto grid max-w-5xl items-center gap-3 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
           <FeaturedCard />
           <div className="mx-auto max-w-md text-center md:text-left">
-            <h1 id="home-title" className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl" data-testid="text-hero-title">
-              Who's on<br className="hidden md:block" /> the card?
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground md:mt-5 md:text-lg" data-testid="text-hero-description">
-              Earn PackPTS. Redeem them for cashback on eligible real trading cards from eBay and Goldin.
+            <h1 id="home-title" className="sr-only" data-testid="text-hero-title">Know the player?</h1>
+            <p className="text-sm text-muted-foreground md:text-lg" data-testid="text-hero-description">
+              Earn PackPTS for cashback on eligible real cards from eBay and Goldin.
             </p>
-            <p className="mt-2 text-sm text-muted-foreground" data-testid="text-redemption-how">Pay the normal marketplace price, then claim your PackPTS cashback after your purchase is confirmed.</p>
             <Button asChild size="lg" className="mt-5 min-h-12 w-full gap-2 text-base md:mt-7 md:w-auto md:min-w-56" data-testid="button-play-now">
               <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
             </Button>
-            <p className="mt-3 text-xs text-muted-foreground">{isAuthenticated ? "Your next round starts here." : "Free to play. Try a round before signing up."}</p>
-            <Link href="/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722" className="mt-4 inline-block text-sm text-muted-foreground hover:text-primary">
-              Play the 1987 Topps set
-            </Link>
+            <p className="mt-3 text-xs text-muted-foreground">Free to play.</p>
           </div>
         </div>
       </section>
@@ -139,7 +144,7 @@ export default function Home() {
           <CardContent className="p-4 text-sm text-muted-foreground">
           <h2 className="font-semibold text-foreground">How to play</h2>
           <p className="mt-3 leading-relaxed">Look at the card with the name hidden. Choose the player from four options. Correct answers earn PackPTS.</p>
-          <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. Apply PackPTS to an eligible listing, buy through its tracked link, then claim your cashback after your purchase is confirmed. PackPTS do not change the price eBay charges. We may earn an affiliate commission.</p>
+          <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. PackPTS do not change the price eBay charges. We may earn an affiliate commission.</p>
           </CardContent>
         </Card>
       </section>
