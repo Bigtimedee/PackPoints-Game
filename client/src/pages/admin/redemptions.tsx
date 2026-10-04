@@ -600,12 +600,18 @@ function AdminRebatePayouts() {
   });
 
   const payMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/pay`, { note: "Paid outside Stripe" }),
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/pay`, { note: "Approve sandbox bank payout" }),
     onSuccess: () => {
-      toast({ title: "Marked paid" });
+      toast({ title: "Sandbox payout submitted to Stripe" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/rebate-payouts"] });
     },
     onError: (error: Error) => toast({ title: "Failed", description: error.message, variant: "destructive" }),
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/refresh`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/rebate-payouts"] }),
+    onError: (error: Error) => toast({ title: "Reconciliation failed", description: error.message, variant: "destructive" }),
   });
 
   const denyMutation = useMutation({
@@ -625,7 +631,7 @@ function AdminRebatePayouts() {
     <Card>
       <CardHeader>
         <CardTitle>Cashback payouts</CardTitle>
-        <CardDescription>Send USD via PayPal/Venmo/ACH, then mark paid. Deny returns the cashback balance.</CardDescription>
+        <CardDescription>Sandbox only. All payouts require review, including first and $100+ withdrawals. Approve sends a test bank payout; only Stripe confirms sent status. Deny only before submission.</CardDescription>
       </CardHeader>
       <CardContent>
         {(data?.payouts || []).length === 0 ? (
@@ -649,12 +655,13 @@ function AdminRebatePayouts() {
                   <TableCell className="font-mono">${(p.amountCents / 100).toFixed(2)}</TableCell>
                   <TableCell>{p.method}</TableCell>
                   <TableCell>{p.destination}</TableCell>
-                  <TableCell><Badge variant="outline">{p.status}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{p.status}</Badge><p className="text-xs break-all">{p.stripePaymentId || "No Stripe payment yet"}</p></TableCell>
                   <TableCell className="text-right">
-                    {p.status === "REQUESTED" && (
+                    {p.stripePaymentId && <Button size="sm" variant="ghost" onClick={() => refreshMutation.mutate(p.id)}>Refresh Stripe</Button>}
+                    {(p.status === "REQUESTED" || (p.status === "PROCESSING" && !p.stripePaymentId)) && p.method === "stripe_bank" && (
                       <>
-                        <Button size="sm" variant="ghost" onClick={() => payMutation.mutate(p.id)}>Mark paid</Button>
-                        <Button size="sm" variant="ghost" onClick={() => denyMutation.mutate(p.id)}>Deny</Button>
+                        <Button size="sm" variant="ghost" onClick={() => payMutation.mutate(p.id)}>Approve test payout</Button>
+                        {p.status === "REQUESTED" && <Button size="sm" variant="ghost" onClick={() => denyMutation.mutate(p.id)}>Deny</Button>}
                       </>
                     )}
                   </TableCell>
