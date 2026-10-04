@@ -128,7 +128,7 @@ export default function Home() {
           <CardContent className="p-4 text-sm text-muted-foreground">
           <h2 className="font-semibold text-foreground">How to play</h2>
           <p className="mt-3 leading-relaxed">Look at the card with the name hidden. Choose the player from four options. Correct answers earn PackPTS.</p>
-          <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. Applied PackPTS stay in your wallet and do not change the price those sites charge.</p>
+          <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. Applied PackPTS stay in your wallet and do not change the price eBay charges.</p>
           </CardContent>
         </Card>
       </section>
