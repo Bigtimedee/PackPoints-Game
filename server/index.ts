@@ -1,3 +1,4 @@
+import { registerVerifiedEpnPostback } from "./routes/epnPostback";
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -343,6 +344,7 @@ app.use((req, res, next) => {
 
   setupWebSocket(httpServer);
   console.log("[Startup] Registering routes...");
+  registerVerifiedEpnPostback(app);
   await registerRoutes(httpServer, app);
   console.log("[Startup] Routes registered successfully");
 
