@@ -26,6 +26,9 @@ export const CLEARED_SET_IDS = [
   "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
   "74885a41-2043-4b7c-ab58-f9e16c05e2e3",
   "229f0379-aa56-40a8-abe3-1af217a397e8",
+  // 1987 Donruss Baseball: released after per-card mask inspection. Only cards with a QA
+  // approval in card_review_approvals deal; the card review guard stays on.
+  "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4",
 ] as const;
 
 export const DONRUSS_1987_HOLD_ID = "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4";
@@ -37,8 +40,6 @@ export function clearedSetIds(): Set<string> {
     const id = part.trim().toLowerCase();
     if (id) ids.add(id);
   }
-  // Containment wins over an old environment clearance until card QA is complete.
-  ids.delete(DONRUSS_1987_HOLD_ID);
   return ids;
 }
 
