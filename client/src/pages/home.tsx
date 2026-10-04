@@ -93,7 +93,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />
         <div className="relative mx-auto grid max-w-5xl items-center gap-3 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
           <FeaturedCard />
-          <div className="mx-auto max-w-md text-center md:text-left">
+          <div className="mx-auto max-w-md text-center md:self-start md:pt-40 md:text-left">
             <h1 id="home-title" className="sr-only" data-testid="text-hero-title">Know the player?</h1>
             <p className="text-sm text-muted-foreground md:text-lg" data-testid="text-hero-description">
               Earn PackPTS for cashback on eligible real cards from eBay and Goldin.
