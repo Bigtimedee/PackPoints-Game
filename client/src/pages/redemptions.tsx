@@ -261,12 +261,25 @@ function RedemptionsList() {
   const { toast } = useToast();
   const { wallet } = useWallet();
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState("paypal");
-  const [destination, setDestination] = useState("");
+  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+  const { data: payoutAccount } = useQuery<{ ready: boolean; sandbox: boolean; destination?: string }>({
+    queryKey: ["/api/rebate/payout-account"],
+    queryFn: async () => { const res = await fetch("/api/rebate/payout-account", { credentials: "include" }); return res.json(); },
+  });
+  const onboardingMutation = useMutation({
+    mutationFn: async () => { const res = await apiRequest("POST", "/api/rebate/payout-onboarding", {}); return res.json(); },
+    onSuccess: result => { window.location.assign(result.url); },
+    onError: (error: Error) => toast({ title: "Bank setup unavailable", description: error.message, variant: "destructive" }),
+  });
+  const refreshMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/rebate/payouts/${id}/refresh`, {}),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/marketplace/redemption/receipts"] }); queryClient.invalidateQueries({ queryKey: ["/wallet"] }); },
+    onError: (error: Error) => toast({ title: "Status unavailable", description: error.message, variant: "destructive" }),
+  });
 
   const { data, isLoading } = useQuery<{
     receipts: ReceiptRow[];
-    payouts: Array<{ id: string; amountCents: number; status: string; method: string; createdAt: string }>;
+    payouts: Array<{ id: string; amountCents: number; status: string; method: string; createdAt: string; destination: string; stripePaymentId?: string; providerReceiptUrl?: string; sandbox?: boolean }>;
     rebateBalanceCents: number;
     honesty: string;
   }>({
@@ -283,14 +296,15 @@ function RedemptionsList() {
       const amountCents = Math.round(parseFloat(amount) * 100);
       const res = await apiRequest("POST", "/api/rebate/payout-request", {
         amountCents,
-        method,
-        destination,
+        method: "stripe_bank",
+        requestKey,
       });
       return res.json();
     },
     onSuccess: (result) => {
       toast({ title: "Payout requested", description: result.message });
       setAmount("");
+      setRequestKey(crypto.randomUUID());
       queryClient.invalidateQueries({ queryKey: ["/api/marketplace/redemption/receipts"] });
       queryClient.invalidateQueries({ queryKey: ["/wallet"] });
     },
@@ -313,7 +327,7 @@ function RedemptionsList() {
           <CardHeader>
             <CardTitle>Request withdrawal</CardTitle>
             <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
-              PackPTS sends this as real USD (PayPal / Venmo / ACH) after review. {RECEIPT_COPY.partnerCheckoutUnchanged}.
+              Sandbox only. No real money moves. US bank payouts, $25 minimum, 30-day purchase review hold and admin approval. {RECEIPT_COPY.partnerCheckoutUnchanged}.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -329,31 +343,17 @@ function RedemptionsList() {
               </div>
               <div>
                 <Label>Method</Label>
-                <Select value={method} onValueChange={setMethod}>
-                  <SelectTrigger data-testid="select-payout-method">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="paypal">PayPal</SelectItem>
-                    <SelectItem value="venmo">Venmo</SelectItem>
-                    <SelectItem value="ach">ACH / bank</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <p className="text-sm py-2">Stripe bank payout (test)</p>
               </div>
               <div>
                 <Label>Destination</Label>
-                <Input
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  placeholder="email or handle"
-                  data-testid="input-payout-destination"
-                />
+                <p className="text-sm py-2">{payoutAccount?.destination || "Bank setup required"}</p>
+                <Button variant="outline" onClick={() => onboardingMutation.mutate()} disabled={onboardingMutation.isPending}>Set up bank with Stripe</Button>
               </div>
             </div>
             <Button
               onClick={() => payoutMutation.mutate()}
-              disabled={payoutMutation.isPending || !amount || !destination}
+              disabled={payoutMutation.isPending || !amount || !payoutAccount?.ready || Number(amount) < 25}
               data-testid="button-request-payout"
             >
               {payoutMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -362,6 +362,19 @@ function RedemptionsList() {
           </CardContent>
         </Card>
       )}
+
+      {(data?.payouts || []).map(p => (
+        <Card key={p.id} className="border-0" style={{ background: RECEIPT_COLORS.surface, color: RECEIPT_COLORS.ink }}>
+          <CardHeader><CardTitle>Sandbox withdrawal ${(p.amountCents / 100).toFixed(2)}</CardTitle><CardDescription style={{ color: RECEIPT_COLORS.muted }}>No real money moved</CardDescription></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>Stripe bank payout - {p.destination}</p>
+            <p>Status: {p.status === "SENT" ? "Sent by Stripe; bank arrival not confirmed" : p.status}</p>
+            {p.stripePaymentId && <p className="break-all">Stripe reference: {p.stripePaymentId}</p>}
+            {p.providerReceiptUrl && <a href={p.providerReceiptUrl} target="_blank" rel="noopener noreferrer" className="underline">Stripe test receipt</a>}
+            <Button variant="outline" onClick={() => refreshMutation.mutate(p.id)} disabled={refreshMutation.isPending}>Refresh Stripe status</Button>
+          </CardContent>
+        </Card>
+      ))}
 
       <div className="space-y-3">
         {isLoading ? (
