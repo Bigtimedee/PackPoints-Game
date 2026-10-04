@@ -2700,10 +2700,12 @@ export const rebatePayoutStatusEnum = pgEnum("rebate_payout_status", [
 ]);
 
 export const rebatePayoutAccounts = pgTable("rebate_payout_accounts", {
-  userId: varchar("user_id").primaryKey().references(() => users.id),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  sandbox: boolean("sandbox").notNull().default(true),
+  financialAccountId: text("financial_account_id"),
   stripeRecipientId: text("stripe_recipient_id").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, table => [primaryKey({ columns: [table.userId, table.sandbox] })]);
 
 export const rebatePayoutRequests = pgTable("rebate_payout_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -2716,6 +2718,7 @@ export const rebatePayoutRequests = pgTable("rebate_payout_requests", {
   requestKey: text("request_key").unique(),
   stripeRecipientId: text("stripe_recipient_id"),
   stripePayoutMethodId: text("stripe_payout_method_id"),
+  financialAccountId: text("financial_account_id"),
   stripePaymentId: text("stripe_payment_id").unique(),
   stripeStatus: text("stripe_status"),
   providerReceiptUrl: text("provider_receipt_url"),

@@ -1,22 +1,32 @@
-/** Deliberately sandbox-only. Never fall back to the purchase/live Stripe client. */
+/** Dedicated payout rail, disabled by default. No purchase-key fallback. */
 export const PAYOUT_API_VERSION = "2026-05-27.preview";
 export const MIN_PAYOUT_CENTS = 2500;
 export const BANK_FEE_RESERVE_CENTS = 150;
 export function payoutConfiguration() {
-  const key = process.env.STRIPE_PAYOUTS_SECRET_KEY_TEST;
-  const financialAccount = process.env.STRIPE_PAYOUTS_FINANCIAL_ACCOUNT_TEST;
-  if (process.env.STRIPE_PAYOUTS_ENABLED !== "test" || process.env.NODE_ENV === "production" || process.env.APP_ENV === "production")
-    throw new Error("Cashback payouts disabled: sandbox only");
-  if (!key?.startsWith("sk_test_") && !key?.startsWith("rk_test_")) throw new Error("Sandbox payout key required");
-  if (!financialAccount) throw new Error("Sandbox Global Payouts financial account required");
-  return { key, financialAccount };
+  const mode = process.env.STRIPE_PAYOUTS_ENABLED;
+  if (mode !== "test" && mode !== "live") throw new Error("Cashback payouts disabled");
+  const sandbox = mode === "test";
+  if (sandbox && (process.env.NODE_ENV === "production" || process.env.APP_ENV === "production"))
+    throw new Error("Cashback payouts disabled: sandbox only outside production");
+  if (!sandbox && process.env.STRIPE_PAYOUTS_LIVE_RELEASE_APPROVED !== "true")
+    throw new Error("Live cashback release is not enabled");
+  const key = sandbox ? process.env.STRIPE_PAYOUTS_SECRET_KEY_TEST : process.env.STRIPE_PAYOUTS_SECRET_KEY_LIVE;
+  const financialAccount = sandbox ? process.env.STRIPE_PAYOUTS_FINANCIAL_ACCOUNT_TEST : process.env.STRIPE_PAYOUTS_FINANCIAL_ACCOUNT_LIVE;
+  if (!key || !(sandbox ? /^(sk|rk)_test_/ : /^(sk|rk)_live_/).test(key))
+    throw new Error(sandbox ? "Sandbox payout key required" : "Dedicated live payout key required");
+  if (!financialAccount) throw new Error("Global Payouts financial account required");
+  return { key, financialAccount, sandbox, mode };
+}
+export function assertPayoutMode(object: any) {
+  if (object?.livemode !== !payoutConfiguration().sandbox) throw new Error("Provider object mode mismatch");
+  return object;
 }
 export function assertSandbox(object: any) {
   if (object?.livemode !== false) throw new Error("Provider object is not verified sandbox data");
   return object;
 }
 export function eligibleBank(method: any) {
-  assertSandbox(method);
+  assertPayoutMode(method);
   const bank = method.bank_account;
   if (method.type !== "bank_account" || bank?.archived || bank?.country !== "US" ||
       !bank?.supported_currencies?.includes("usd") || !bank?.enabled_delivery_options?.includes("local") ||
@@ -25,7 +35,7 @@ export function eligibleBank(method: any) {
   return { id: method.id, masked: `Bank ending ${bank.last4}` };
 }
 export function validatePayment(payment: any, expected: { amountCents: number; recipient: string; method: string; financialAccount: string }) {
-  assertSandbox(payment);
+  assertPayoutMode(payment);
   if (!payment.id || payment.amount?.value !== expected.amountCents || payment.amount?.currency !== "usd" ||
       payment.to?.recipient !== expected.recipient || payment.to?.payout_method !== expected.method ||
       payment.from?.financial_account !== expected.financialAccount)
@@ -46,26 +56,30 @@ export class StripeGlobalPayoutsProvider {
     });
     const result = await response.json();
     // Do not log provider bodies, banking information or credentials.
-    if (!response.ok) throw new Error(`Stripe sandbox request failed (${response.status}); review configuration or reconcile before retrying`);
+    if (!response.ok) throw new Error(`Stripe payout request failed (${response.status}); review configuration or reconcile before retrying`);
     return result;
   }
   async createRecipient(userId: string, email: string) {
-    return assertSandbox(await this.call("/v2/core/accounts", {
+    return assertPayoutMode(await this.call("/v2/core/accounts", {
       contact_email: email, identity: { country: "us", entity_type: "individual" },
       configuration: { recipient: { capabilities: { bank_accounts: { local: { requested: true } } } } },
       include: ["identity", "configuration.recipient", "requirements"],
-    }, `packpts-recipient-test:${userId}`));
+    }, `packpts-recipient-${payoutConfiguration().mode}:${userId}`));
   }
   async onboarding(recipient: string) {
     const origin = process.env.STRIPE_PAYOUTS_RETURN_ORIGIN;
-    if (!origin || !/^https:\/\//.test(origin) || new URL(origin).hostname === "packpts.com" || new URL(origin).hostname === "www.packpts.com")
-      throw new Error("Dedicated HTTPS sandbox return origin required");
-    return assertSandbox(await this.call("/v2/core/account_links", { account: recipient,
+    const sandbox = payoutConfiguration().sandbox;
+    if (!origin || !/^https:\/\//.test(origin)) throw new Error("HTTPS payout return origin required");
+    const parsed = new URL(origin);
+    if (parsed.origin !== origin || parsed.username || parsed.password) throw new Error("Bare payout return origin required");
+    const production = ["packpts.com", "www.packpts.com"].includes(parsed.hostname);
+    if (sandbox ? production : !production) throw new Error("Payout return origin does not match mode");
+    return assertPayoutMode(await this.call("/v2/core/account_links", { account: recipient,
       use_case: { type: "account_onboarding", account_onboarding: { configurations: ["recipient"],
         return_url: `${origin}/redemptions`, refresh_url: `${origin}/redemptions` } } }));
   }
   async destination(recipient: string) {
-    const account = assertSandbox(await this.call(`/v2/core/accounts/${encodeURIComponent(recipient)}?include=configuration.recipient&include=identity`));
+    const account = assertPayoutMode(await this.call(`/v2/core/accounts/${encodeURIComponent(recipient)}?include=configuration.recipient&include=identity`));
     if (account.identity?.country?.toLowerCase() !== "us" || account.configuration?.recipient?.capabilities?.bank_accounts?.local?.status !== "active")
       throw new Error("Stripe recipient verification incomplete");
     // Stripe-Account scopes this list to the owner's recipient. Never accept a client-supplied method ID.
@@ -78,9 +92,9 @@ export class StripeGlobalPayoutsProvider {
   }
   async available() {
     const { financialAccount } = payoutConfiguration();
-    const account = assertSandbox(await this.call(`/v2/money_management/financial_accounts/${encodeURIComponent(financialAccount)}`));
+    const account = assertPayoutMode(await this.call(`/v2/money_management/financial_accounts/${encodeURIComponent(financialAccount)}`));
     const available = account.balance?.available?.usd?.value;
-    if (!Number.isSafeInteger(available) || available < 0) throw new Error("Cannot verify available sandbox payout funding");
+    if (!Number.isSafeInteger(available) || available < 0) throw new Error("Cannot verify available payout funding");
     return available;
   }
   async send(id: string, amountCents: number, recipient: string, method: string) {
@@ -88,9 +102,9 @@ export class StripeGlobalPayoutsProvider {
     return validatePayment(await this.call("/v2/money_management/outbound_payments", {
       from: { financial_account: financialAccount, currency: "usd" }, to: { recipient, payout_method: method },
       amount: { value: amountCents, currency: "usd" }, delivery_options: { bank_account: "local" },
-      description: "PackPTS cashback sandbox", recipient_notification: { setting: "none" },
-    }, `packpts-cashback-test:${id}`), { amountCents, recipient, method, financialAccount });
+      description: payoutConfiguration().sandbox ? "PackPTS cashback sandbox" : "PackPTS cashback", recipient_notification: { setting: "none" },
+    }, `packpts-cashback-${payoutConfiguration().mode}:${id}`), { amountCents, recipient, method, financialAccount });
   }
-  async retrieve(id: string) { return assertSandbox(await this.call(`/v2/money_management/outbound_payments/${encodeURIComponent(id)}`)); }
+  async retrieve(id: string) { return assertPayoutMode(await this.call(`/v2/money_management/outbound_payments/${encodeURIComponent(id)}`)); }
 }
 export const stripeGlobalPayoutsProvider = new StripeGlobalPayoutsProvider();

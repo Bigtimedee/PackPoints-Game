@@ -8739,7 +8739,7 @@ export async function registerRoutes(
     if (!userId) return res.status(401).json({ error: "Authentication required" });
     try { const { cashbackPayoutService } = await import("./services/cashbackPayoutService");
       res.json(await cashbackPayoutService.account(userId));
-    } catch { res.status(503).json({ ready: false, sandbox: true, error: "Sandbox payouts unavailable or onboarding incomplete" }); }
+    } catch { res.status(503).json({ ready: false, enabled: false, error: "Payouts unavailable or onboarding incomplete" }); }
   });
   app.post("/api/rebate/payout-onboarding", isAuthenticated, async (req: any, res) => {
     const userId = req.user?.claims?.sub || req.session?.localUserId;

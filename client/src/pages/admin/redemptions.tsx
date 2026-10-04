@@ -600,9 +600,9 @@ function AdminRebatePayouts() {
   });
 
   const payMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/pay`, { note: "Approve sandbox bank payout" }),
+    mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/pay`, { note: "Approve bank payout" }),
     onSuccess: () => {
-      toast({ title: "Sandbox payout submitted to Stripe" });
+      toast({ title: "Payout submitted to Stripe" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/rebate-payouts"] });
     },
     onError: (error: Error) => toast({ title: "Failed", description: error.message, variant: "destructive" }),
@@ -631,7 +631,7 @@ function AdminRebatePayouts() {
     <Card>
       <CardHeader>
         <CardTitle>Cashback payouts</CardTitle>
-        <CardDescription>Sandbox only. All payouts require review, including first and $100+ withdrawals. Approve sends a test bank payout; only Stripe confirms sent status. Deny only before submission.</CardDescription>
+        <CardDescription>All payouts require review. Test rows do not move real money. Live approval sends real money and reserves a $1.50 fee. Only Stripe confirms sent status. Deny only before submission.</CardDescription>
       </CardHeader>
       <CardContent>
         {(data?.payouts || []).length === 0 ? (
@@ -660,7 +660,7 @@ function AdminRebatePayouts() {
                     {p.stripePaymentId && <Button size="sm" variant="ghost" onClick={() => refreshMutation.mutate(p.id)}>Refresh Stripe</Button>}
                     {(p.status === "REQUESTED" || (p.status === "PROCESSING" && !p.stripePaymentId)) && p.method === "stripe_bank" && (
                       <>
-                        <Button size="sm" variant="ghost" onClick={() => payMutation.mutate(p.id)}>Approve test payout</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`Approve ${p.sandbox ? "TEST" : "LIVE"} bank payout of $${(p.amountCents / 100).toFixed(2)} to ${p.destination}? PackPTS covers the $1.50 bank fee.`)) payMutation.mutate(p.id); }}>{p.sandbox ? "Approve test payout" : "Approve live payout"}</Button>
                         {p.status === "REQUESTED" && <Button size="sm" variant="ghost" onClick={() => denyMutation.mutate(p.id)}>Deny</Button>}
                       </>
                     )}

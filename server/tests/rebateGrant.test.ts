@@ -205,20 +205,20 @@ describe("marketplace cashback grant", () => {
       commission: "1.60",
     });
     expect(result.ok).toBe(true);
-    expect(result.grants.some((g) => g.granted)).toBe(true);
+    expect(result.grants).toEqual([]);
 
     const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(after).toBe(before + applied.creditCents);
+    expect(after).toBe(before);
 
     const [intent] = await db
       .select()
       .from(externalPurchaseIntent)
       .where(eq(externalPurchaseIntent.id, quote.purchaseIntentId));
-    expect(intent.status).toBe("CREDIT_GRANTED");
-    expect(intent.grantMethod).toBe("EPN_POSTBACK");
+    expect(intent.status).not.toBe("CREDIT_GRANTED");
+    expect(intent.grantMethod).not.toBe("EPN_POSTBACK");
     const epnReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
-    expect(epnReceipt?.grantMethod).toBe("EPN_POSTBACK");
-    expect(epnReceipt?.plaque.grantMethodLabel).toBe("Affiliate confirm");
+    expect(epnReceipt?.grantMethod).not.toBe("EPN_POSTBACK");
+    await expect(rebateService.grantForIntent({purchaseIntentId: quote.purchaseIntentId, method: "EPN_POSTBACK", skipReview: true})).rejects.toThrow("disabled");
 
     const replay = await processEpnPostback({
       customid,

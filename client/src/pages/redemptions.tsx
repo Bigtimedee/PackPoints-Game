@@ -262,7 +262,7 @@ function RedemptionsList() {
   const { wallet } = useWallet();
   const [amount, setAmount] = useState("");
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
-  const { data: payoutAccount } = useQuery<{ ready: boolean; sandbox: boolean; destination?: string }>({
+  const { data: payoutAccount } = useQuery<{ ready: boolean; enabled?: boolean; sandbox: boolean; destination?: string }>({
     queryKey: ["/api/rebate/payout-account"],
     queryFn: async () => { const res = await fetch("/api/rebate/payout-account", { credentials: "include" }); return res.json(); },
   });
@@ -327,7 +327,7 @@ function RedemptionsList() {
           <CardHeader>
             <CardTitle>Request withdrawal</CardTitle>
             <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
-              Sandbox only. No real money moves. US bank payouts, $25 minimum, 30-day purchase review hold and admin approval. {RECEIPT_COPY.partnerCheckoutUnchanged}.
+              {payoutAccount?.enabled ? (payoutAccount.sandbox ? "Test only. No real money moves. " : "") : "Withdrawals are not enabled. "}US bank payouts, $25 minimum, 30-day purchase review hold and admin approval. PackPTS covers the $1.50 bank fee. {RECEIPT_COPY.partnerCheckoutUnchanged}.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -343,12 +343,12 @@ function RedemptionsList() {
               </div>
               <div>
                 <Label>Method</Label>
-                <p className="text-sm py-2">Stripe bank payout (test)</p>
+                <p className="text-sm py-2">Stripe bank payout{payoutAccount?.sandbox ? " (test)" : ""}</p>
               </div>
               <div>
                 <Label>Destination</Label>
                 <p className="text-sm py-2">{payoutAccount?.destination || "Bank setup required"}</p>
-                <Button variant="outline" onClick={() => onboardingMutation.mutate()} disabled={onboardingMutation.isPending}>Set up bank with Stripe</Button>
+                <Button variant="outline" onClick={() => onboardingMutation.mutate()} disabled={onboardingMutation.isPending || !payoutAccount?.enabled}>Set up bank with Stripe</Button>
               </div>
             </div>
             <Button
@@ -365,12 +365,12 @@ function RedemptionsList() {
 
       {(data?.payouts || []).map(p => (
         <Card key={p.id} className="border-0" style={{ background: RECEIPT_COLORS.surface, color: RECEIPT_COLORS.ink }}>
-          <CardHeader><CardTitle>Sandbox withdrawal ${(p.amountCents / 100).toFixed(2)}</CardTitle><CardDescription style={{ color: RECEIPT_COLORS.muted }}>No real money moved</CardDescription></CardHeader>
+          <CardHeader><CardTitle>{p.sandbox ? "Test withdrawal" : "Withdrawal"} ${(p.amountCents / 100).toFixed(2)}</CardTitle><CardDescription style={{ color: RECEIPT_COLORS.muted }}>{p.sandbox ? "No real money moved" : "Bank arrival is not guaranteed; returns may occur"}</CardDescription></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p>Stripe bank payout - {p.destination}</p>
             <p>Status: {p.status === "SENT" ? "Sent by Stripe; bank arrival not confirmed" : p.status}</p>
             {p.stripePaymentId && <p className="break-all">Stripe reference: {p.stripePaymentId}</p>}
-            {p.providerReceiptUrl && <a href={p.providerReceiptUrl} target="_blank" rel="noopener noreferrer" className="underline">Stripe test receipt</a>}
+            {p.providerReceiptUrl && <a href={p.providerReceiptUrl} target="_blank" rel="noopener noreferrer" className="underline">{p.sandbox ? "Stripe test receipt" : "Stripe receipt"}</a>}
             <Button variant="outline" onClick={() => refreshMutation.mutate(p.id)} disabled={refreshMutation.isPending}>Refresh Stripe status</Button>
           </CardContent>
         </Card>

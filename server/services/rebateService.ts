@@ -249,26 +249,9 @@ class RebateService {
     outboundClickId?: string | null;
     salePriceCents?: number | null;
   }): Promise<RebateGrantResult[]> {
-    if (!input.userId || !input.outboundClickId || !input.attributedPurchaseId || !input.salePriceCents) return [];
-    const [click] = await db.select().from(outboundClicks).where(eq(outboundClicks.id, input.outboundClickId));
-    if (!click || click.customId !== input.customId || click.userId !== input.userId) return [];
-    const [consumed] = await db.select().from(externalPurchaseIntent)
-      .where(eq(externalPurchaseIntent.attributedPurchaseId, input.attributedPurchaseId)).limit(1);
-    if (consumed) return [];
-    const intents = await db.select().from(externalPurchaseIntent).where(and(
-      eq(externalPurchaseIntent.userId, input.userId),
-      or(eq(externalPurchaseIntent.status, "APPROVED"), eq(externalPurchaseIntent.status, "PURCHASE_CONFIRMED")),
-    ));
-    const matches = intents.filter(intent => matchesEpnIntent(intent, click, input.salePriceCents!));
-    if (matches.length !== 1) return []; // Never fan one conversion out across multiple applies.
-    return [await this.grantForIntent({
-      purchaseIntentId: matches[0].id,
-      expectedUserId: input.userId,
-      method: "EPN_POSTBACK",
-      skipReview: true,
-      attributedPurchaseId: input.attributedPurchaseId,
-      outboundClickId: click.id,
-    })];
+    // Automatic eBay cashback is hard off until a separate reviewed release.
+    // Keep the authenticated HTTP route for conversion evidence, never automatic credits.
+    return [];
   }
 
   async grantForIntent(opts: {
@@ -279,6 +262,7 @@ class RebateService {
     attributedPurchaseId?: string;
     outboundClickId?: string;
   }): Promise<RebateGrantResult> {
+    if (opts.method === "EPN_POSTBACK") throw new Error("Automatic eBay cashback is disabled");
     const result = await db.transaction(async (tx) => {
       const [intent] = await tx
         .select()
