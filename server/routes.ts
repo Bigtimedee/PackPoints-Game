@@ -8734,6 +8734,33 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/rebate/payout-account", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub || req.session?.localUserId;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+    try { const { cashbackPayoutService } = await import("./services/cashbackPayoutService");
+      res.json(await cashbackPayoutService.account(userId));
+    } catch { res.status(503).json({ ready: false, sandbox: true, error: "Sandbox payouts unavailable or onboarding incomplete" }); }
+  });
+  app.post("/api/rebate/payout-onboarding", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub || req.session?.localUserId;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+    try { const { cashbackPayoutService } = await import("./services/cashbackPayoutService");
+      res.json(await cashbackPayoutService.onboarding(userId));
+    } catch (error: any) { res.status(503).json({ error: error.message }); }
+  });
+  app.post("/api/rebate/payouts/:id/refresh", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub || req.session?.localUserId;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+    try { const { cashbackPayoutService } = await import("./services/cashbackPayoutService");
+      res.json(await cashbackPayoutService.refresh(req.params.id, userId));
+    } catch (error: any) { res.status(400).json({ error: error.message }); }
+  });
+  app.post("/api/admin/rebate-payouts/:id/refresh", isAuthenticated, requireAdmin, async (req: any, res) => {
+    try { const { cashbackPayoutService } = await import("./services/cashbackPayoutService");
+      res.json(await cashbackPayoutService.refresh(req.params.id));
+    } catch (error: any) { res.status(400).json({ error: error.message }); }
+  });
+
   app.post("/api/rebate/payout-request", isAuthenticated, async (req: any, res) => {
     try {
       const { rebateService } = await import("./services/rebateService");
@@ -8747,8 +8774,7 @@ export async function registerRoutes(
         userId,
         parsed.data.amountCents,
         parsed.data.method,
-        parsed.data.destination,
-        parsed.data.note
+        parsed.data.requestKey
       );
       res.json(result);
     } catch (error: any) {

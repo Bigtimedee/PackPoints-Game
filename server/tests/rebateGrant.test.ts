@@ -299,17 +299,8 @@ describe("marketplace cashback grant", () => {
     expect(created?.plaque.chip.label).toBe("PENDING");
   });
 
-  it("payout request debits rebate balance; deny returns it", async () => {
-    const wallet = await walletService.getWallet(userId);
-    expect(wallet?.rebateBalanceCents).toBeGreaterThan(0);
-    const take = Math.min(100, wallet!.rebateBalanceCents);
-    const req = await rebateService.requestPayout(userId, take, "paypal", "buyer@example.com");
-    expect(req.success).toBe(true);
-    const mid = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(mid).toBe(wallet!.rebateBalanceCents - take);
-
-    await rebateService.adminDenyPayout(req.requestId!, "admin", "could not send");
-    const restored = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(restored).toBe(wallet!.rebateBalanceCents);
-  });
-});
+  it("legacy payout path fails closed rather than pretending money moved", async () => {
+    const before = await rebateService.getRebateBalance(userId);
+    await expect(rebateService.requestPayout(userId, 1, "paypal", "legacy-address")).rejects.toThrow("Cashback payouts disabled");
+    expect(await rebateService.getRebateBalance(userId)).toBe(before);
+  });});
