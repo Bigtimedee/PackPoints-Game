@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import crypto from "crypto";
 import { db } from "../../db";
 import { outboundClicks } from "@shared/schema";
@@ -81,6 +82,12 @@ export interface OutboundClickData {
 }
 
 export async function logOutboundClick(data: OutboundClickData): Promise<void> {
+  if (data.source === "ebay" && data.outboundUrl) {
+    // Persist the actual customid sent to EPN, never a separately generated id.
+    const trackedId = new URL(data.outboundUrl).searchParams.get("customid");
+    data = { ...data, customId: trackedId ?? undefined };
+  }
+
   try {
     await db.insert(outboundClicks).values({
       source: data.source,
@@ -155,7 +162,7 @@ export function generateEpnCustomId(
   const prefix = EPN_CONFIG.customIdPrefix;
   const userPart = userId ? `u_${userId.substring(0, 12)}` : "u_anon";
   const itemPart = `i_${itemId.substring(0, 16)}`;
-  const timePart = `t_${Date.now()}`;
+  const timePart = `t_${randomUUID()}`;
   return `${prefix}:${userPart}:${itemPart}:${timePart}`;
 }
 
@@ -174,7 +181,8 @@ export function normalizeEbayUrl(itemIdOrUrl: string): string {
 export function applyEpnTracking(
   url: string, 
   userId: string | null = null,
-  itemId?: string
+  itemId?: string,
+  trackedCustomId?: string
 ): string {
   const campaignId = EPN_CONFIG.campId;
   if (!campaignId) {
@@ -185,7 +193,7 @@ export function applyEpnTracking(
   // Extract item ID from URL if not provided
   const extractedItemId = itemId || extractItemIdFromUrl(url) || "unknown";
   
-  const customId = generateEpnCustomId(userId, extractedItemId);
+  const customId = trackedCustomId ?? generateEpnCustomId(userId, extractedItemId);
   
   return buildEpnEbayUrl({
     baseEbayUrl: url,

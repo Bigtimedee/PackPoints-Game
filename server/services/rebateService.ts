@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { canonicalEbayItem, matchesEpnIntent, parseEpnMoney } from "./epnVerification";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import {
   attributedPurchases,
@@ -239,64 +240,35 @@ class RebateService {
     return { success: result.success, message: `Denied and refunded PackPTS. ${reason}` };
   }
 
-  /**
-   * After an EPN conversion postback, grant matching APPROVED/held intents.
-   * EPN is partner-verified — skip the $25 user-attestation hold.
-   */
+  /** Grant only one unambiguous intent belonging to the authenticated tracked click. */
   async grantFromEpnPostback(input: {
     customId: string;
     attributedPurchaseId?: string;
     userId?: string | null;
     listingId?: string | null;
     outboundClickId?: string | null;
+    salePriceCents?: number | null;
   }): Promise<RebateGrantResult[]> {
-    const results: RebateGrantResult[] = [];
-    const userId = input.userId || null;
-    const listingId = input.listingId || null;
-
-    const conditions = [];
-    if (userId) conditions.push(eq(externalPurchaseIntent.userId, userId));
-    if (listingId) {
-      conditions.push(
-        or(
-          eq(externalPurchaseIntent.listingId, listingId),
-          sql`${externalPurchaseIntent.listingId} LIKE ${listingId.substring(0, 16) + "%"}`,
-          sql`${externalPurchaseIntent.listingUrl} LIKE ${"%" + listingId + "%"}`
-        )
-      );
-    }
-
-    if (conditions.length === 0) return results;
-
-    const intents = await db
-      .select()
-      .from(externalPurchaseIntent)
-      .where(
-        and(
-          or(
-            eq(externalPurchaseIntent.status, "APPROVED"),
-            eq(externalPurchaseIntent.status, "PURCHASE_CONFIRMED")
-          ),
-          ...conditions
-        )
-      );
-
-    for (const intent of intents) {
-      try {
-        const granted = await this.grantForIntent({
-          purchaseIntentId: intent.id,
-          expectedUserId: intent.userId,
-          method: "EPN_POSTBACK",
-          skipReview: true,
-          attributedPurchaseId: input.attributedPurchaseId,
-          outboundClickId: input.outboundClickId ?? undefined,
-        });
-        results.push(granted);
-      } catch (err: any) {
-        console.error(`[Rebate] EPN grant failed for intent ${intent.id}:`, err?.message);
-      }
-    }
-    return results;
+    if (!input.userId || !input.outboundClickId || !input.attributedPurchaseId || !input.salePriceCents) return [];
+    const [click] = await db.select().from(outboundClicks).where(eq(outboundClicks.id, input.outboundClickId));
+    if (!click || click.customId !== input.customId || click.userId !== input.userId) return [];
+    const [consumed] = await db.select().from(externalPurchaseIntent)
+      .where(eq(externalPurchaseIntent.attributedPurchaseId, input.attributedPurchaseId)).limit(1);
+    if (consumed) return [];
+    const intents = await db.select().from(externalPurchaseIntent).where(and(
+      eq(externalPurchaseIntent.userId, input.userId),
+      or(eq(externalPurchaseIntent.status, "APPROVED"), eq(externalPurchaseIntent.status, "PURCHASE_CONFIRMED")),
+    ));
+    const matches = intents.filter(intent => matchesEpnIntent(intent, click, input.salePriceCents!));
+    if (matches.length !== 1) return []; // Never fan one conversion out across multiple applies.
+    return [await this.grantForIntent({
+      purchaseIntentId: matches[0].id,
+      expectedUserId: input.userId,
+      method: "EPN_POSTBACK",
+      skipReview: true,
+      attributedPurchaseId: input.attributedPurchaseId,
+      outboundClickId: click.id,
+    })];
   }
 
   async grantForIntent(opts: {
@@ -317,6 +289,27 @@ class RebateService {
       if (!intent) throw new Error("Purchase intent not found");
       if (opts.expectedUserId && intent.userId !== opts.expectedUserId) {
         throw new Error("Purchase intent not found");
+      }
+
+      // Revalidate evidence inside the locked grant transaction, including direct callers.
+      if (opts.method === "EPN_POSTBACK") {
+        if (!opts.outboundClickId || !opts.attributedPurchaseId || !opts.expectedUserId) {
+          throw new Error("EPN grant requires tracked purchase evidence");
+        }
+        const [click] = await tx.select().from(outboundClicks).where(eq(outboundClicks.id, opts.outboundClickId));
+        const [purchase] = await tx.select().from(attributedPurchases).where(eq(attributedPurchases.id, opts.attributedPurchaseId));
+        // Serialize grants on the purchase so one transaction cannot fund two intents.
+        const [lockedPurchase] = await tx.select().from(attributedPurchases)
+          .where(eq(attributedPurchases.id, opts.attributedPurchaseId)).for("update");
+        const [used] = await tx.select().from(externalPurchaseIntent)
+          .where(eq(externalPurchaseIntent.attributedPurchaseId, opts.attributedPurchaseId)).limit(1);
+        if (used && used.id !== intent.id) throw new Error("EPN transaction already credited");
+        if (!lockedPurchase || !click || !purchase || purchase.userId !== intent.userId || purchase.outboundClickId !== click.id ||
+            purchase.customId !== click.customId || !purchase.itemId || !purchase.salePriceCents ||
+            canonicalEbayItem(purchase.itemId) !== canonicalEbayItem(click.listingId) ||
+            !matchesEpnIntent(intent, click, purchase.salePriceCents)) {
+          throw new Error("EPN purchase evidence does not match intent");
+        }
       }
 
       if (intent.status === "CREDIT_GRANTED") {
@@ -723,47 +716,37 @@ export async function processEpnPostback(query: {
   commission?: string;
   transaction_date?: string;
 }): Promise<{ ok: true; grants: RebateGrantResult[] }> {
-  const [click] = await db
-    .select()
-    .from(outboundClicks)
-    .where(eq(outboundClicks.customId, query.customid))
-    .limit(1);
-
-  const salePriceCents = query.sale_price ? Math.round(parseFloat(query.sale_price) * 100) : null;
-  const commissionCents = query.commission ? Math.round(parseFloat(query.commission) * 100) : null;
+  const salePriceCents = parseEpnMoney(query.sale_price);
+  if (!salePriceCents || !query.item_id || !query.customid || !query.transaction_id) {
+    throw new Error("EPN postback requires item, transaction and a valid sale price");
+  }
+  const clicks = await db.select().from(outboundClicks)
+    .where(eq(outboundClicks.customId, query.customid)).limit(2);
+  const click = clicks.length === 1 ? clicks[0] : null;
+  if (!click?.userId || click.source !== "ebay" ||
+      canonicalEbayItem(click.listingId) !== canonicalEbayItem(query.item_id)) {
+    throw new Error("EPN postback has no matching authenticated outbound click");
+  }
   const conversionDate = query.transaction_date ? new Date(query.transaction_date) : new Date();
-
-  const [inserted] = await db
-    .insert(attributedPurchases)
-    .values({
-      customId: query.customid,
-      outboundClickId: click?.id || null,
-      userId: click?.userId || null,
-      transactionId: query.transaction_id,
-      itemId: query.item_id || null,
-      salePriceCents,
-      commissionCents,
-      conversionDate,
-      rawPayload: query,
-    })
-    .onConflictDoNothing()
-    .returning();
-
-  const [existing] = inserted
-    ? [inserted]
-    : await db
-        .select()
-        .from(attributedPurchases)
-        .where(eq(attributedPurchases.transactionId, query.transaction_id))
-        .limit(1);
-
+  if (!Number.isFinite(conversionDate.getTime()) || (click.createdAt && conversionDate < click.createdAt)) {
+    throw new Error("EPN conversion date is invalid or precedes click");
+  }
+  const commissionCents = query.commission ? parseEpnMoney(query.commission) : null;
+  const [inserted] = await db.insert(attributedPurchases).values({
+    customId: query.customid, outboundClickId: click.id, userId: click.userId,
+    transactionId: query.transaction_id, itemId: query.item_id,
+    salePriceCents, commissionCents, conversionDate, rawPayload: query,
+  }).onConflictDoNothing().returning();
+  const [existing] = inserted ? [inserted] : await db.select().from(attributedPurchases)
+    .where(eq(attributedPurchases.transactionId, query.transaction_id)).limit(1);
+  if (!existing || existing.customId !== query.customid || existing.userId !== click.userId ||
+      existing.outboundClickId !== click.id || existing.salePriceCents !== salePriceCents ||
+      !existing.itemId || canonicalEbayItem(existing.itemId) !== canonicalEbayItem(query.item_id)) {
+    throw new Error("EPN transaction replay does not match original evidence");
+  }
   const grants = await rebateService.grantFromEpnPostback({
-    customId: query.customid,
-    attributedPurchaseId: existing?.id,
-    userId: click?.userId || existing?.userId || null,
-    listingId: click?.listingId || query.item_id || null,
-    outboundClickId: click?.id || null,
+    customId: query.customid, attributedPurchaseId: existing.id, userId: click.userId,
+    listingId: click.listingId, outboundClickId: click.id, salePriceCents,
   });
-
   return { ok: true, grants };
-}
+  }
