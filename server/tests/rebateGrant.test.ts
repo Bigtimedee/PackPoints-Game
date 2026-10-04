@@ -181,6 +181,22 @@ describe("marketplace cashback grant", () => {
     });
 
     const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    await expect(processEpnPostback({
+      customid: "unknown-click", item_id: listing,
+      transaction_id: `unknown-${suffix}`, sale_price: "80.00",
+    })).rejects.toThrow(/matching authenticated outbound click/);
+    await expect(processEpnPostback({
+      customid, item_id: "wrong-item", transaction_id: `wrong-item-${suffix}`, sale_price: "80.00",
+    })).rejects.toThrow(/matching authenticated outbound click/);
+    await expect(processEpnPostback({
+      customid, item_id: listing, transaction_id: `missing-price-${suffix}`,
+    })).rejects.toThrow(/valid sale price/);
+    const mismatch = await processEpnPostback({
+      customid, item_id: listing, transaction_id: `price-mismatch-${suffix}`, sale_price: "79.99",
+    });
+    expect(mismatch.grants).toHaveLength(0);
+    expect(await rebateService.grantFromEpnPostback({customId:customid, listingId:listing})).toEqual([]);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before);
     const result = await processEpnPostback({
       customid,
       item_id: listing,
@@ -208,6 +224,7 @@ describe("marketplace cashback grant", () => {
       customid,
       item_id: listing,
       transaction_id: `txn-${suffix}-${Date.now()}-b`,
+      sale_price: "80.00",
     });
     expect(replay.grants.every((g) => g.alreadyGranted || g.granted)).toBe(true);
     const afterReplay = (await walletService.getWallet(userId))!.rebateBalanceCents;
