@@ -544,6 +544,11 @@ app.use((req, res, next) => {
   }
 
   try {
+    const { startCashbackPayoutReconciler } = await import("./services/cashbackPayoutService");
+    startCashbackPayoutReconciler();
+  } catch { console.error("[Cashback] sandbox reconciliation unavailable"); }
+
+  try {
     const { startWebhookRetryWorker } = await import("./services/webhookRetryWorker");
     startWebhookRetryWorker();
   } catch (err) {
