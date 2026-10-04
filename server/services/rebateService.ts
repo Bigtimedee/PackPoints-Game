@@ -626,7 +626,5 @@ export async function processEpnPostback(query: {
     listingId: click.listingId, outboundClickId: click.id, salePriceCents,
   });
   return { ok: true, grants };
-  
   }
-
 
