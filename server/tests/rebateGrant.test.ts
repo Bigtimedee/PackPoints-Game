@@ -205,20 +205,20 @@ describe("marketplace cashback grant", () => {
       commission: "1.60",
     });
     expect(result.ok).toBe(true);
-    expect(result.grants.some((g) => g.granted)).toBe(true);
+    expect(result.grants).toEqual([]);
 
     const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(after).toBe(before + applied.creditCents);
+    expect(after).toBe(before);
 
     const [intent] = await db
       .select()
       .from(externalPurchaseIntent)
       .where(eq(externalPurchaseIntent.id, quote.purchaseIntentId));
-    expect(intent.status).toBe("CREDIT_GRANTED");
-    expect(intent.grantMethod).toBe("EPN_POSTBACK");
+    expect(intent.status).not.toBe("CREDIT_GRANTED");
+    expect(intent.grantMethod).not.toBe("EPN_POSTBACK");
     const epnReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
-    expect(epnReceipt?.grantMethod).toBe("EPN_POSTBACK");
-    expect(epnReceipt?.plaque.grantMethodLabel).toBe("Affiliate confirm");
+    expect(epnReceipt?.grantMethod).not.toBe("EPN_POSTBACK");
+    await expect(rebateService.grantForIntent({purchaseIntentId: quote.purchaseIntentId, method: "EPN_POSTBACK", skipReview: true})).rejects.toThrow("disabled");
 
     const replay = await processEpnPostback({
       customid,
@@ -299,17 +299,8 @@ describe("marketplace cashback grant", () => {
     expect(created?.plaque.chip.label).toBe("PENDING");
   });
 
-  it("payout request debits rebate balance; deny returns it", async () => {
-    const wallet = await walletService.getWallet(userId);
-    expect(wallet?.rebateBalanceCents).toBeGreaterThan(0);
-    const take = Math.min(100, wallet!.rebateBalanceCents);
-    const req = await rebateService.requestPayout(userId, take, "paypal", "buyer@example.com");
-    expect(req.success).toBe(true);
-    const mid = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(mid).toBe(wallet!.rebateBalanceCents - take);
-
-    await rebateService.adminDenyPayout(req.requestId!, "admin", "could not send");
-    const restored = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(restored).toBe(wallet!.rebateBalanceCents);
-  });
-});
+  it("legacy payout path fails closed rather than pretending money moved", async () => {
+    const before = await rebateService.getRebateBalance(userId);
+    await expect(rebateService.requestPayout(userId, 1, "paypal", "legacy-address")).rejects.toThrow("Cashback payouts disabled");
+    expect(await rebateService.getRebateBalance(userId)).toBe(before);
+  });});

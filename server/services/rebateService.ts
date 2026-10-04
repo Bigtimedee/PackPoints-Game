@@ -249,26 +249,9 @@ class RebateService {
     outboundClickId?: string | null;
     salePriceCents?: number | null;
   }): Promise<RebateGrantResult[]> {
-    if (!input.userId || !input.outboundClickId || !input.attributedPurchaseId || !input.salePriceCents) return [];
-    const [click] = await db.select().from(outboundClicks).where(eq(outboundClicks.id, input.outboundClickId));
-    if (!click || click.customId !== input.customId || click.userId !== input.userId) return [];
-    const [consumed] = await db.select().from(externalPurchaseIntent)
-      .where(eq(externalPurchaseIntent.attributedPurchaseId, input.attributedPurchaseId)).limit(1);
-    if (consumed) return [];
-    const intents = await db.select().from(externalPurchaseIntent).where(and(
-      eq(externalPurchaseIntent.userId, input.userId),
-      or(eq(externalPurchaseIntent.status, "APPROVED"), eq(externalPurchaseIntent.status, "PURCHASE_CONFIRMED")),
-    ));
-    const matches = intents.filter(intent => matchesEpnIntent(intent, click, input.salePriceCents!));
-    if (matches.length !== 1) return []; // Never fan one conversion out across multiple applies.
-    return [await this.grantForIntent({
-      purchaseIntentId: matches[0].id,
-      expectedUserId: input.userId,
-      method: "EPN_POSTBACK",
-      skipReview: true,
-      attributedPurchaseId: input.attributedPurchaseId,
-      outboundClickId: click.id,
-    })];
+    // Automatic eBay cashback is hard off until a separate reviewed release.
+    // Keep the authenticated HTTP route for conversion evidence, never automatic credits.
+    return [];
   }
 
   async grantForIntent(opts: {
@@ -279,6 +262,7 @@ class RebateService {
     attributedPurchaseId?: string;
     outboundClickId?: string;
   }): Promise<RebateGrantResult> {
+    if (opts.method === "EPN_POSTBACK") throw new Error("Automatic eBay cashback is disabled");
     const result = await db.transaction(async (tx) => {
       const [intent] = await tx
         .select()
@@ -488,140 +472,17 @@ class RebateService {
     }
   }
 
-  async requestPayout(
-    userId: string,
-    amountCents: number,
-    method: string,
-    destination: string,
-    note?: string
-  ): Promise<{ success: boolean; requestId?: string; message: string }> {
-    if (amountCents <= 0) throw new Error("Amount must be positive");
-
-    return db.transaction(async (tx) => {
-      const [wallet] = await tx
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, userId))
-        .for("update");
-      if (!wallet) throw new Error("Wallet not found");
-      if ((wallet.rebateBalanceCents ?? 0) < amountCents) {
-        throw new Error("Insufficient cashback balance");
-      }
-
-      const newBalance = wallet.rebateBalanceCents - amountCents;
-      await tx
-        .update(wallets)
-        .set({ rebateBalanceCents: newBalance, updatedAt: new Date() })
-        .where(eq(wallets.id, wallet.id));
-
-      const [request] = await tx
-        .insert(rebatePayoutRequests)
-        .values({
-          userId,
-          amountCents,
-          method,
-          destination,
-          note: note || null,
-          status: "REQUESTED",
-        })
-        .returning();
-
-      await tx.insert(rebateLedger).values({
-        userId,
-        amountCents: -amountCents,
-        balanceAfterCents: newBalance,
-        type: "PAYOUT",
-        payoutRequestId: request.id,
-        idempotencyKey: `rebate-payout:${request.id}`,
-        note: `Payout requested via ${method}`,
-      });
-
-      return {
-        success: true,
-        requestId: request.id,
-        message: `Payout of $${(amountCents / 100).toFixed(2)} requested. We'll send it via ${method} and email when it's marked paid.`,
-      };
-    });
+  async requestPayout(userId: string, amountCents: number, _method: string, requestKey: string) {
+    const { cashbackPayoutService } = await import("./cashbackPayoutService");
+    return cashbackPayoutService.request(userId, amountCents, requestKey);
   }
-
-  async adminMarkPayoutPaid(
-    requestId: string,
-    adminUserId: string,
-    adminNote?: string
-  ): Promise<{ success: boolean; message: string }> {
-    const [request] = await db
-      .select()
-      .from(rebatePayoutRequests)
-      .where(eq(rebatePayoutRequests.id, requestId));
-    if (!request) throw new Error("Payout request not found");
-    if (request.status !== "REQUESTED") {
-      throw new Error(`Cannot mark paid: status is ${request.status}`);
-    }
-    await db
-      .update(rebatePayoutRequests)
-      .set({
-        status: "PAID",
-        adminNote: adminNote || null,
-        reviewedBy: adminUserId,
-        reviewedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(rebatePayoutRequests.id, requestId));
-    return { success: true, message: "Payout marked paid." };
+  async adminMarkPayoutPaid(requestId: string, adminUserId: string, _note?: string) {
+    const { cashbackPayoutService } = await import("./cashbackPayoutService");
+    return cashbackPayoutService.approve(requestId, adminUserId);
   }
-
-  async adminDenyPayout(
-    requestId: string,
-    adminUserId: string,
-    reason: string
-  ): Promise<{ success: boolean; message: string }> {
-    return db.transaction(async (tx) => {
-      const [request] = await tx
-        .select()
-        .from(rebatePayoutRequests)
-        .where(eq(rebatePayoutRequests.id, requestId))
-        .for("update");
-      if (!request) throw new Error("Payout request not found");
-      if (request.status !== "REQUESTED") {
-        throw new Error(`Cannot deny: status is ${request.status}`);
-      }
-
-      const [wallet] = await tx
-        .select()
-        .from(wallets)
-        .where(eq(wallets.userId, request.userId))
-        .for("update");
-      if (!wallet) throw new Error("Wallet not found");
-
-      const newBalance = (wallet.rebateBalanceCents ?? 0) + request.amountCents;
-      await tx
-        .update(wallets)
-        .set({ rebateBalanceCents: newBalance, updatedAt: new Date() })
-        .where(eq(wallets.id, wallet.id));
-
-      await tx.insert(rebateLedger).values({
-        userId: request.userId,
-        amountCents: request.amountCents,
-        balanceAfterCents: newBalance,
-        type: "PAYOUT_REFUND",
-        payoutRequestId: request.id,
-        idempotencyKey: `rebate-payout-refund:${request.id}`,
-        note: `Payout denied: ${reason}`,
-      });
-
-      await tx
-        .update(rebatePayoutRequests)
-        .set({
-          status: "DENIED",
-          adminNote: reason,
-          reviewedBy: adminUserId,
-          reviewedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(rebatePayoutRequests.id, requestId));
-
-      return { success: true, message: "Payout denied and cashback returned to the user." };
-    });
+  async adminDenyPayout(requestId: string, adminUserId: string, reason: string) {
+    const { cashbackPayoutService } = await import("./cashbackPayoutService");
+    return cashbackPayoutService.deny(requestId, adminUserId, reason);
   }
 
   async listAdminIntents(status?: string): Promise<

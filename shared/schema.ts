@@ -2656,8 +2656,8 @@ export type PurchaseConfirmRequest = z.infer<typeof purchaseConfirmRequestSchema
 
 export const rebatePayoutRequestSchema = z.object({
   amountCents: z.number().int().positive(),
-  method: z.enum(["paypal", "venmo", "ach", "other"]).default("paypal"),
-  destination: z.string().min(3).max(200),
+  method: z.literal("stripe_bank").default("stripe_bank"),
+  requestKey: z.string().uuid(),
   note: z.string().max(500).optional(),
 });
 
@@ -2693,7 +2693,19 @@ export const rebatePayoutStatusEnum = pgEnum("rebate_payout_status", [
   "REQUESTED",
   "PAID",
   "DENIED",
+  "PROCESSING",
+  "SENT",
+  "FAILED",
+  "RETURNED",
 ]);
+
+export const rebatePayoutAccounts = pgTable("rebate_payout_accounts", {
+  userId: varchar("user_id").notNull().references(() => users.id),
+  sandbox: boolean("sandbox").notNull().default(true),
+  financialAccountId: text("financial_account_id"),
+  stripeRecipientId: text("stripe_recipient_id").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, table => [primaryKey({ columns: [table.userId, table.sandbox] })]);
 
 export const rebatePayoutRequests = pgTable("rebate_payout_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -2703,6 +2715,17 @@ export const rebatePayoutRequests = pgTable("rebate_payout_requests", {
   destination: text("destination").notNull(),
   note: text("note"),
   status: rebatePayoutStatusEnum("status").notNull().default("REQUESTED"),
+  requestKey: text("request_key").unique(),
+  stripeRecipientId: text("stripe_recipient_id"),
+  stripePayoutMethodId: text("stripe_payout_method_id"),
+  financialAccountId: text("financial_account_id"),
+  stripePaymentId: text("stripe_payment_id").unique(),
+  stripeStatus: text("stripe_status"),
+  providerReceiptUrl: text("provider_receipt_url"),
+  submitStartedAt: timestamp("submit_started_at"),
+  postedAt: timestamp("posted_at"),
+  sandbox: boolean("sandbox").notNull().default(true),
+  receiptEmailStatus: text("receipt_email_status"),
   adminNote: text("admin_note"),
   reviewedBy: varchar("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
