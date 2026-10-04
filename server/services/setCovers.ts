@@ -4,7 +4,8 @@
  * A served JPEG sets X-Card-Id and X-Mask-Version.
  * QA lists the pins and the old auto picker so Design can compare them.
  */
-import { createHash } from "crypto";
+import { toPublicMaskPlan } from "@shared/maskPlan";
+import { createHash, randomInt } from "crypto";
 import { createReadStream, existsSync, readFileSync, readdirSync } from "fs";
 import path from "path";
 import type { Request, Response } from "express";
@@ -560,8 +561,24 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
       return;
     }
 
+    // The hero uses GameCard with this exact scan-specific plan, not a set fallback.
+    const planFile = path.join(maskReadySidecarDir(), warmMaskPlanFilename(cardId));
+    let maskPlan = null;
+    try { maskPlan = toPublicMaskPlan(JSON.parse(readFileSync(planFile, "utf8"))); } catch { /* Missing plan: hero fails closed; existing cover shelves still work. */ }
+    if (maskPlan) res.setHeader("X-Mask-Plan", JSON.stringify(maskPlan));
+    if (req.query.plaque === "1" && maskPlan) {
+      const [card] = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
+      const pool = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.gameSetId, setId)).limit(2000);
+      const names = [...new Set(pool.map(row => row.player?.trim()).filter((name): name is string => !!name && name !== card?.player?.trim()))];
+      for (let i = names.length - 1; i > 0; i--) { const j = randomInt(i + 1); [names[i], names[j]] = [names[j], names[i]]; }
+      const options = card?.player?.trim() && names.length >= 3 ? [card.player.trim(), ...names.slice(0, 3)] : [];
+      for (let i = options.length - 1; i > 0; i--) { const j = randomInt(i + 1); [options[i], options[j]] = [options[j], options[i]]; }
+      // Four names only, exactly like pre-answer gameplay. Never an answer index.
+      if (options.length === 4) res.setHeader("X-Card-Options", JSON.stringify(options));
+    }
+
     const etag = setCoverEtag(setId, slot, cardId);
-    if (req.headers["if-none-match"] === etag) {
+    if (req.query.plaque !== "1" && req.headers["if-none-match"] === etag) {
       setCoverHeaders(res, etag, cardId);
       res.status(304).end();
       return;

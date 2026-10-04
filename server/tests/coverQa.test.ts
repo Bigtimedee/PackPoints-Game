@@ -243,6 +243,12 @@ describe("cover QA routes", () => {
       expect(pub.headers.get("x-card-id")).toBe(spareIds[slot]);
       expect(pub.headers.get("x-mask-version")).toBe(CURRENT_MASK_VERSION);
       if (slot === 0) {
+      const plan = JSON.parse(pub.headers.get("x-mask-plan") || "null");
+      expect(plan).toMatchObject({ layoutClass: "BOTTOM_PLAQUE", maskVersion: CURRENT_MASK_VERSION });
+      expect(plan.regions.length).toBeGreaterThan(0);
+      expect(plan).not.toHaveProperty("player");
+      }
+      if (slot === 0) {
         const qa = await fetch(`${base}${body.candidates[0].imagePath}`, { headers: { "X-QA-Token": TOKEN } });
         expect(qa.status).toBe(200);
         expect(qa.headers.get("x-card-id")).toBe(spareIds[0]);
@@ -259,6 +265,16 @@ describe("cover QA routes", () => {
         await pub.arrayBuffer();
       }
     }
+
+    const preview = await fetch(`${base}/api/sets/${setId}/covers/0?plaque=1`);
+    const options = JSON.parse(preview.headers.get("x-card-options") || "null");
+    expect(options).toHaveLength(4);
+    expect(new Set(options).size).toBe(4);
+    expect(options).toContain(spareNames[0]);
+    expect(options.every((name: unknown) => typeof name === "string")).toBe(true);
+    expect(preview.headers.get("x-correct-answer")).toBeNull();
+    expect(preview.headers.get("x-answer-index")).toBeNull();
+    await preview.arrayBuffer();
 
     const blocked = await fetch(`${base}/api/qa/cover-image/${blockedId}`, { headers: { "X-QA-Token": TOKEN } });
     expect(blocked.status).toBe(404);
