@@ -82,6 +82,12 @@ export interface OutboundClickData {
 }
 
 export async function logOutboundClick(data: OutboundClickData): Promise<void> {
+  if (data.source === "ebay" && data.outboundUrl) {
+    // Persist the actual customid sent to EPN, never a separately generated id.
+    const trackedId = new URL(data.outboundUrl).searchParams.get("customid");
+    data = { ...data, customId: trackedId ?? undefined };
+  }
+
   try {
     await db.insert(outboundClicks).values({
       source: data.source,
