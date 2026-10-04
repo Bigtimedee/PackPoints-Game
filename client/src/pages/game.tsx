@@ -54,7 +54,7 @@ import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 import { notifyLeavingResults } from "@/lib/staleBuildClient";
 import { SOLO_PLAY_CARD_FIT_CLASS } from "@/lib/playCardFit";
 
-function AnswerButton({
+export function AnswerButton({
   option,
   isSelected,
   isCorrect,
@@ -101,6 +101,7 @@ function AnswerButton({
 }
 
 
+
 export default function Game() {
   const { mode } = useParams<{ mode: string }>();
   const search = useSearch();
@@ -126,7 +127,7 @@ export default function Game() {
   const playAgainBoot = playAgainBootRef.current;
   const [selectedCardCount, setSelectedCardCount] = useState(playAgainBoot ? String(playAgainBoot.cardCount) : "10");
   const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession || !!playAgainBoot);
-  const [selectedSetId, setSelectedSetId] = useState<string | null>(playAgainBoot?.setId ?? null);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(playAgainBoot?.setId ?? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("set"));
 
   const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<ClientGameSession>({
     queryKey: ["/api/game/session", sessionId],
