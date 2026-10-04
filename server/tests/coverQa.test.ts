@@ -243,6 +243,12 @@ describe("cover QA routes", () => {
       expect(pub.headers.get("x-card-id")).toBe(spareIds[slot]);
       expect(pub.headers.get("x-mask-version")).toBe(CURRENT_MASK_VERSION);
       if (slot === 0) {
+      const plan = JSON.parse(pub.headers.get("x-mask-plan") || "null");
+      expect(plan).toMatchObject({ layoutClass: "BOTTOM_PLAQUE", maskVersion: CURRENT_MASK_VERSION });
+      expect(plan.regions.length).toBeGreaterThan(0);
+      expect(plan).not.toHaveProperty("player");
+      }
+      if (slot === 0) {
         const qa = await fetch(`${base}${body.candidates[0].imagePath}`, { headers: { "X-QA-Token": TOKEN } });
         expect(qa.status).toBe(200);
         expect(qa.headers.get("x-card-id")).toBe(spareIds[0]);
