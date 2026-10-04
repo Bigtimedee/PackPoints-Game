@@ -266,6 +266,16 @@ describe("cover QA routes", () => {
       }
     }
 
+    const preview = await fetch(`${base}/api/sets/${setId}/covers/0?plaque=1`);
+    const options = JSON.parse(preview.headers.get("x-card-options") || "null");
+    expect(options).toHaveLength(4);
+    expect(new Set(options).size).toBe(4);
+    expect(options).toContain(spareNames[0]);
+    expect(options.every((name: unknown) => typeof name === "string")).toBe(true);
+    expect(preview.headers.get("x-correct-answer")).toBeNull();
+    expect(preview.headers.get("x-answer-index")).toBeNull();
+    await preview.arrayBuffer();
+
     const blocked = await fetch(`${base}/api/qa/cover-image/${blockedId}`, { headers: { "X-QA-Token": TOKEN } });
     expect(blocked.status).toBe(404);
     expect(blocked.headers.get("cache-control")).toContain("no-store");
