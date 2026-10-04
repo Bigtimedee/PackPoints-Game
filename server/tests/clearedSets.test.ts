@@ -1,7 +1,7 @@
 /**
  * A registered mask profile does not make a set dealable.
  * The live ids stay unheld. Their bake geometry stays put.
- * 1987 Donruss retains its profile but is held pending card and mask QA.
+ * 1987 Donruss is released after per-card mask QA; only QA-approved cards deal.
  */
 import { describe, expect, it } from "vitest";
 import { buildSetMaskHint } from "@shared/maskGeometry";
@@ -62,7 +62,7 @@ const LIVE = [
 
 describe("cleared set allowlist", () => {
   it("keeps the live sets dealable and leaves their bake profiles unchanged", () => {
-    expect([...CLEARED_SET_IDS]).toEqual(LIVE.map((row) => row.id));
+    expect([...CLEARED_SET_IDS]).toEqual([...LIVE.map((row) => row.id), MASK_LAYOUT_SET_IDS.donrussBaseball1987]);
     for (const row of LIVE) {
       expect(isClearedSetId(row.id)).toBe(true);
       expect(holdReasonForIdentity({

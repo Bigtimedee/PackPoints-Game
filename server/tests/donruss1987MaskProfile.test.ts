@@ -76,9 +76,9 @@ describe("1987 Donruss baseball mask profile", () => {
     expect(maskBandFailure(getMaskProfile(HINT, SET_ID).regions)).toBeNull();
   });
 
-  it("stays held until card and mask QA are complete", () => {
-    expect(CLEARED_SET_IDS).not.toContain(SET_ID);
-    expect(holdReasonForIdentity(IDENTITY)).toBe(AWAITING_DESIGN_CLEARANCE_REASON);
+  it("is released as a set; other ids stay held and cards still need QA approval", () => {
+    expect(CLEARED_SET_IDS).toContain(SET_ID);
+    expect(holdReasonForIdentity(IDENTITY)).toBeNull();
     expect(holdReasonForIdentity({ ...IDENTITY, id: "11111111-2222-4333-8444-555555555555" }))
       .toBe(AWAITING_DESIGN_CLEARANCE_REASON);
   });
