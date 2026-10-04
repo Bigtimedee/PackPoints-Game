@@ -53,6 +53,7 @@ describe("held preparation", () => {
     expect(source).toContain('FOR UPDATE');expect(source).toContain('ignoreHeldSets: true, ignoreCardReview: true');
     expect(source).not.toMatch(/setCardReviewGuardEnabled|clearedSetIds\(|invalidateMaskedImageCache|restorePlayable/);
     const hold=readFileSync(new URL('../config/heldSets.ts',import.meta.url),'utf8');
-    expect(hold).toContain('ids.delete(DONRUSS_1987_HOLD_ID)');
+    expect(hold).toContain('3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4');
+    expect(hold).not.toContain('ids.delete(DONRUSS_1987_HOLD_ID)');
   });
 });
