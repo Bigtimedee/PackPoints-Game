@@ -4,6 +4,7 @@
  * A served JPEG sets X-Card-Id and X-Mask-Version.
  * QA lists the pins and the old auto picker so Design can compare them.
  */
+import { toPublicMaskPlan } from "@shared/maskPlan";
 import { createHash } from "crypto";
 import { createReadStream, existsSync, readFileSync, readdirSync } from "fs";
 import path from "path";
@@ -559,6 +560,12 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
       coverNotReady(res);
       return;
     }
+
+    // The hero uses GameCard with this exact scan-specific plan, not a set fallback.
+    const planFile = path.join(maskReadySidecarDir(), warmMaskPlanFilename(cardId));
+    let maskPlan = null;
+    try { maskPlan = toPublicMaskPlan(JSON.parse(readFileSync(planFile, "utf8"))); } catch { /* Missing plan: hero fails closed; existing cover shelves still work. */ }
+    if (maskPlan) res.setHeader("X-Mask-Plan", JSON.stringify(maskPlan));
 
     const etag = setCoverEtag(setId, slot, cardId);
     if (req.headers["if-none-match"] === etag) {
