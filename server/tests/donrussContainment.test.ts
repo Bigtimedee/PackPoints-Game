@@ -16,11 +16,8 @@ const band = { xPct: 0, yPct: 84, wPct: 100, hPct: 16, type: "blur", radiusPct: 
 const input = { gameSetId: id, playerName: "Cal Ripken", setHint: "1987 Donruss baseball", imageWidth: 100, imageHeight: 100 };
 
 describe("Donruss containment", () => {
-  it("holds even a stale environment clearance", () => {
-    const prev = process.env.CLEARED_SET_IDS_EXTRA;
-    process.env.CLEARED_SET_IDS_EXTRA = id;
-    try { expect(holdReasonForIdentity(identity)).toBe("awaiting_design_clearance"); }
-    finally { if (prev === undefined) delete process.env.CLEARED_SET_IDS_EXTRA; else process.env.CLEARED_SET_IDS_EXTRA = prev; }
+  it("is released as a set; per-card QA approval still gates dealing", () => {
+    expect(holdReasonForIdentity(identity)).toBeNull();
   });
   it("requires a real review rather than a seed, and fails closed when guard is off", () => {
     setCardReviewGuardEnabled(false);
