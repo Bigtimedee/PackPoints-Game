@@ -12,9 +12,12 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(covers).toContain('toPublicMaskPlan(JSON.parse(readFileSync(planFile');
   });
   it("puts eligible real-card cashback in the hero, before Play Now", () => {
-    expect(home).toContain('Redeem them for cashback on eligible real trading cards from eBay and Goldin.');
-    expect(home.indexOf('Redeem them for cashback')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
-    expect(home).toContain('after your purchase is confirmed');
+    expect(home).toContain('Earn PackPTS for cashback on eligible real cards from eBay and Goldin.');
+    expect(home.indexOf('Earn PackPTS for cashback')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
+    expect(home).not.toContain('Pay the normal marketplace price');
+    expect(home).toContain('Who is on this 1987 Topps card?');
+    expect(home).toContain('<AnswerButton');
+    expect(home).toContain('response.headers.get("X-Card-Options")');
     expect(home).toContain('do not change the price eBay charges');
   });
 });
