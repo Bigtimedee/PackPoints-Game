@@ -302,6 +302,7 @@ export async function maskCardImage(
   const trustCheck = () => trustedProfileBandCheck({
     profile,
     topTextPlate,
+    bottomTextPlate,
     words,
     playerName,
     imageWidth: originalWidth,
@@ -371,7 +372,8 @@ export async function maskCardImage(
       buffer: maskedBuffer,
       playerName,
       regions,
-      bandBottomPct: profile.topBandPct,
+      bandBottomPct: profile.nameAnchor === "bottom" ? profile.bottomBandPct : profile.topBandPct,
+      anchor: profile.nameAnchor === "bottom" ? "bottom" : "top",
       imageWidth: originalWidth,
       imageHeight: originalHeight,
     });

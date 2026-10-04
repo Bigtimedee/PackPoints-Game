@@ -74,6 +74,7 @@ export interface TrustedBandVerdict {
 export function trustedProfileBandCheck(input: {
   profile: MaskProfile;
   topTextPlate: NamePlateBox | null | undefined;
+  bottomTextPlate?: NamePlateBox | null | undefined;
   words: OcrWordBox[] | null | undefined;
   playerName: string;
   imageWidth: number;
@@ -81,6 +82,9 @@ export function trustedProfileBandCheck(input: {
 }): TrustedBandCheck {
   const { profile } = input;
   if (!profile.trustProfileBand) return { ok: false, why: "profile not flagged trustProfileBand" };
+  if (profile.matched && profile.nameAnchor === "bottom" && profile.layoutClass === "BOTTOM_PLAQUE") {
+    return trustedBottomBandCheck(input);
+  }
   if (!profile.matched || profile.nameAnchor !== "top" || profile.layoutClass !== "TOP_PLATE") {
     return { ok: false, why: "profile is not a fixed top plate" };
   }
@@ -109,6 +113,49 @@ export function trustedProfileBandCheck(input: {
     return { ok: true, why: `top letter run is the photo (${(end * 100).toFixed(1)}%)` };
   }
   return { ok: false, why: `top letter run ends just past the band (${(end * 100).toFixed(1)}%)` };
+}
+
+/**
+ * Bottom-anchored fixed plaque (1987 Donruss). The name always prints in the
+ * bottom bar. A logo at the top can read as a top text plate while the bar text
+ * is not detected, which refuses the card as name_plate_unresolved. The band may
+ * stand in when no surname is read outside it; the masked-image OCR decides.
+ */
+function trustedBottomBandCheck(input: {
+  profile: MaskProfile;
+  bottomTextPlate?: NamePlateBox | null | undefined;
+  words: OcrWordBox[] | null | undefined;
+  playerName: string;
+  imageWidth: number;
+  imageHeight: number;
+}): TrustedBandCheck {
+  const { profile } = input;
+  if (!(profile.bottomBandPct > 0) || profile.regions.length === 0) {
+    return { ok: false, why: "profile has no bottom band" };
+  }
+  const height = Math.max(1, input.imageHeight);
+  const width = Math.max(1, input.imageWidth);
+  if (width > height) return { ok: false, why: "landscape file" };
+
+  const bandTopPct = 1 - profile.bottomBandPct;
+  const bandTop = bandTopPct * height;
+  const ocr = matchPlayerNameBoxes(input.playerName, input.words ?? []);
+  const hits = splitNamePlateHits(ocr.boxes, height);
+  if (hits.top.length > 0) return { ok: false, why: "surname read on the top plate" };
+  if (hits.bottom.some((box) => box.y < bandTop)) {
+    return { ok: false, why: "surname read above the profile band" };
+  }
+
+  const run = input.bottomTextPlate;
+  if (!run || run.h <= 0) return { ok: true, why: "no bottom letter run" };
+  const start = run.y / height;
+  if (start >= bandTopPct - TRUSTED_BAND_INSIDE_SLACK) {
+    return { ok: true, why: `bottom letter run starts inside the band (${(start * 100).toFixed(1)}%)` };
+  }
+  if (start <= bandTopPct - TRUSTED_BAND_PHOTO_MARGIN) {
+    return { ok: true, why: `bottom letter run is the photo (${(start * 100).toFixed(1)}%)` };
+  }
+  return { ok: false, why: `bottom letter run starts just above the band (${(start * 100).toFixed(1)}%)` };
 }
 
 /** The plan with only the fixed profile band painted. */
@@ -190,6 +237,8 @@ export async function verifyTrustedProfileBand(input: {
   playerName: string;
   regions: MaskRegion[];
   bandBottomPct: number;
+  /** "bottom": bandBottomPct is the band height and the strip sits just above the band. */
+  anchor?: "top" | "bottom";
   imageWidth: number;
   imageHeight: number;
   recognize?: Recognize;
@@ -201,8 +250,16 @@ export async function verifyTrustedProfileBand(input: {
   const height = Math.max(1, input.imageHeight);
   if (!playerSurname(input.playerName)) return { ok: false, reason: PROFILE_BAND_UNVERIFIED, token: null };
 
-  const stripTop = Math.min(height - 1, Math.max(0, Math.round(input.bandBottomPct * height)));
-  const stripHeight = Math.max(1, Math.min(height - stripTop, Math.round(TRUSTED_BAND_STRIP_PCT * height)));
+  let stripTop: number;
+  let stripHeight: number;
+  if (input.anchor === "bottom") {
+    const bandTop = Math.round((1 - input.bandBottomPct) * height);
+    stripHeight = Math.max(1, Math.min(bandTop, Math.round(TRUSTED_BAND_STRIP_PCT * height)));
+    stripTop = Math.max(0, bandTop - stripHeight);
+  } else {
+    stripTop = Math.min(height - 1, Math.max(0, Math.round(input.bandBottomPct * height)));
+    stripHeight = Math.max(1, Math.min(height - stripTop, Math.round(TRUSTED_BAND_STRIP_PCT * height)));
+  }
   const half = Math.round(width * 0.55);
   const crops = [
     { left: 0, width: Math.min(width, half) },
