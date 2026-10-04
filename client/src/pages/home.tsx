@@ -1,6 +1,10 @@
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { GameCard } from "@/components/GameCard";
+import { toPublicMaskPlan } from "@shared/maskPlan";
+import type { PublicMaskPlan } from "@shared/schema";
+import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Calendar, Users, Shuffle, Compass, Trophy, MessageCircle } from "lucide-react";
@@ -19,37 +23,43 @@ const modes = [
 ];
 
 function FeaturedCard() {
+  const [cover, setCover] = useState<{ imageUrl: string; maskPlan: PublicMaskPlan } | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setCover(null);
+    setFailed(false);
+    async function load() {
+      try {
+        // Read the exact bake plan and image in one response. A set's generic
+        // mask is not necessarily this scan's name band. Never use a raw scan.
+        const response = await fetch(`${TOPPS_1987_COVER}?plaque=1&retry=${attempt}`, { signal: controller.signal });
+        if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error("Cover unavailable");
+        const maskPlan = toPublicMaskPlan(JSON.parse(response.headers.get("X-Mask-Plan") || "null"));
+        if (!maskPlan) throw new Error("Cover plan unavailable");
+        const image = await response.blob();
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(image);
+        setCover({ imageUrl: objectUrl, maskPlan });
+      } catch {
+        if (!controller.signal.aborted) setFailed(true);
+      }
+    }
+    void load();
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [attempt]);
   return (
-    <figure className="mx-auto w-full max-w-[230px] sm:max-w-[280px] lg:max-w-[340px]" data-testid="home-featured-card">
-      <div className="relative overflow-hidden rounded-md bg-muted" style={{ aspectRatio: "494 / 694" }}>
-        {!failed ? (
-          <img
-            key={attempt}
-            src={attempt ? `${TOPPS_1987_COVER}?retry=${attempt}` : TOPPS_1987_COVER}
-            alt="1987 Topps baseball card with the player's name hidden"
-            width={494}
-            height={694}
-            loading="eager"
-            fetchPriority="high"
-            decoding="async"
-            className="h-full w-full object-contain"
-            onError={() => setFailed(true)}
-            data-testid="img-hero-masked-card"
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-muted-foreground" role="status">
-            <p className="text-sm">The card couldn't load.</p>
-            <Button variant="outline"  onClick={() => { setAttempt(a => a + 1); setFailed(false); }}>
-              Try again
-            </Button>
-          </div>
-        )}
-      </div>
-      <figcaption className="mt-3 text-center text-xs text-muted-foreground">
-        1987 Topps · Baseball
-      </figcaption>
+    <figure className="mx-auto w-full max-w-xs" data-testid="home-featured-card">
+      {cover ? (
+        <GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan} isRevealed={false} allowClientImageReject={false} onImageError={() => setFailed(true)} />
+      ) : (
+        <div className="relative aspect-[2.5/3.5] flex items-center justify-center rounded-md bg-plaque-surface ring-1 ring-plaque-frame">
+          {failed ? <div className="p-6 text-center text-muted-foreground" role="status"><p className="text-sm">The card couldn't load.</p><Button variant="outline" className="mt-4" onClick={() => setAttempt(a => a + 1)}>Try again</Button></div> : <Loader2 className="h-8 w-8 animate-spin text-plaque-muted" />}
+        </div>
+      )}
+      <figcaption className="mt-3 text-center text-xs text-muted-foreground">1987 Topps · Baseball</figcaption>
     </figure>
   );
 }
@@ -77,8 +87,113 @@ export default function Home() {
               Who's on<br className="hidden md:block" /> the card?
             </h1>
             <p className="mt-2 text-sm text-muted-foreground md:mt-5 md:text-lg" data-testid="text-hero-description">
-              Name the player. Earn PackPTS.
+              Earn PackPTS. Redeem them for cashback on eligible real trading cards from eBay and Goldin.
             </p>
+            <p className="mt-2 text-sm text-muted-foreground" data-testid="text-redemption-how">Pay the normal marketplace price, then claim your PackPTS cashback after your purchase is confirmed.</p>
+            <Button asChild size="lg" className="mt-5 min-h-12 w-full gap-2 text-base md:mt-7 md:w-auto md:min-w-56" data-testid="button-play-now">
+              <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
+            </Button>
+            <p className="mt-3 text-xs text-muted-foreground">{isAuthenticated ? "Your next round starts here." : "Free to play. Try a round before signing up."}</p>
+            <Link href="/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722" className="mt-4 inline-block text-sm text-muted-foreground hover:text-primary">
+              Play the 1987 Topps set
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-5 py-8 md:py-12" aria-labelledby="modes-title">
+        <div className="mb-5 flex items-center justify-between gap-4">
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { GameCard } from "@/components/GameCard";
+import { toPublicMaskPlan } from "@shared/maskPlan";
+import type { PublicMaskPlan } from "@shared/schema";
+import { Loader2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { ArrowRight, Calendar, Users, Shuffle, Compass, Trophy, MessageCircle } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { shouldShowHomePlayVanity } from "@shared/homePlayVanity";
+
+// Public covers serve only approved, deal-eligible, already-baked masks.
+// Never substitute an original scan, player name, or an arbitrary card set.
+const TOPPS_1987_COVER = "/api/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722/covers/0";
+
+const modes = [
+  { id: "daily5", title: "Daily 5", description: "Five cards. A new challenge every day.", href: "/daily5", icon: Calendar },
+  { id: "1v1-friend", title: "Play a friend", description: "Same cards. Head-to-head.", href: "/lobby", icon: Users },
+  { id: "1v1-random", title: "Find an opponent", description: "Put your card knowledge to the test.", href: "/queue", icon: Shuffle },
+  { id: "browse", title: "Explore the sets", description: "Pick your sport, set, and era.", href: "/sets", icon: Compass },
+];
+
+function FeaturedCard() {
+  const [cover, setCover] = useState<{ imageUrl: string; maskPlan: PublicMaskPlan } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setCover(null);
+    setFailed(false);
+    async function load() {
+      try {
+        // Read the exact bake plan and image in one response. A set's generic
+        // mask is not necessarily this scan's name band. Never use a raw scan.
+        const response = await fetch(`${TOPPS_1987_COVER}?plaque=1&retry=${attempt}`, { signal: controller.signal });
+        if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error("Cover unavailable");
+        const maskPlan = toPublicMaskPlan(JSON.parse(response.headers.get("X-Mask-Plan") || "null"));
+        if (!maskPlan) throw new Error("Cover plan unavailable");
+        const image = await response.blob();
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(image);
+        setCover({ imageUrl: objectUrl, maskPlan });
+      } catch {
+        if (!controller.signal.aborted) setFailed(true);
+      }
+    }
+    void load();
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [attempt]);
+  return (
+    <figure className="mx-auto w-full max-w-[280px] md:max-w-xs" data-testid="home-featured-card">
+      {cover ? (
+        <GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan} isRevealed={false} allowClientImageReject={false} onImageError={() => setFailed(true)} />
+      ) : (
+        <div className="relative aspect-[2.5/3.5] flex items-center justify-center rounded-md bg-plaque-surface ring-1 ring-plaque-frame">
+          {failed ? <div className="p-6 text-center text-muted-foreground" role="status"><p className="text-sm">The card couldn't load.</p><Button variant="outline" className="mt-4" onClick={() => setAttempt(a => a + 1)}>Try again</Button></div> : <Loader2 className="h-8 w-8 animate-spin text-plaque-muted" />}
+        </div>
+      )}
+      <figcaption className="mt-3 text-center text-xs text-muted-foreground">1987 Topps · Baseball</figcaption>
+    </figure>
+  );
+}
+
+export default function Home() {
+  const { isAuthenticated } = useAuth();
+  const { data: homeStats } = useQuery<{ totalGames: number; totalCards: number; staffPlayVanityOverride?: boolean }>({
+    queryKey: ["/api/home-stats"], staleTime: 5 * 60 * 1000,
+  });
+  const showPlayVanity = shouldShowHomePlayVanity({ totalGames: homeStats?.totalGames, staffOverride: homeStats?.staffPlayVanityOverride });
+  const quickStats = showPlayVanity && homeStats ? [
+    { label: "Total Games Played", value: homeStats.totalGames.toLocaleString() },
+    { label: "Cards Guessed", value: homeStats.totalCards.toLocaleString() },
+  ] : [];
+
+  return (
+    <div className="min-h-screen pb-20 md:pb-8">
+      {/* Card first, including on a first visit: no automatic onboarding dialog. */}
+      <section className="relative overflow-hidden border-b" aria-labelledby="home-title">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />
+        <div className="relative mx-auto grid max-w-5xl items-center gap-5 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
+          <FeaturedCard />
+          <div className="mx-auto max-w-md text-center md:text-left">
+            <h1 id="home-title" className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl" data-testid="text-hero-title">
+              Who's on<br className="hidden md:block" /> the card?
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground md:mt-5 md:text-lg" data-testid="text-hero-description">
+              Earn PackPTS. Redeem them for cashback on eligible real trading cards from eBay and Goldin.
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground" data-testid="text-redemption-how">Pay the normal marketplace price, then claim your PackPTS cashback after your purchase is confirmed.</p>
             <Button asChild size="lg" className="mt-5 min-h-12 w-full gap-2 text-base md:mt-7 md:w-auto md:min-w-56" data-testid="button-play-now">
               <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
             </Button>
@@ -128,7 +243,7 @@ export default function Home() {
           <CardContent className="p-4 text-sm text-muted-foreground">
           <h2 className="font-semibold text-foreground">How to play</h2>
           <p className="mt-3 leading-relaxed">Look at the card with the name hidden. Choose the player from four options. Correct answers earn PackPTS.</p>
-          <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. Applied PackPTS stay in your wallet and do not change the price eBay charges.</p>
+          <p className="mt-2 leading-relaxed">Browse live eBay and Goldin listings in Marketplace. Apply PackPTS to an eligible listing, buy through its tracked link, then claim your cashback after your purchase is confirmed. PackPTS do not change the price eBay charges. We may earn an affiliate commission.</p>
           </CardContent>
         </Card>
       </section>
@@ -142,4 +257,4 @@ export default function Home() {
       </footer>
     </div>
   );
-}
+          }
