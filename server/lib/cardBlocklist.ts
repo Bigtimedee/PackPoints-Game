@@ -287,6 +287,8 @@ const TOPPS_1987_FOOTBALL_SET_PREFIX = TOPPS_1987_FOOTBALL_SET_ID.slice(0, 8);
  * with the new prefix if the set is purged and imported again.
  */
 export const HOOPS_1990_SET_PREFIX = "d226801a";
+/** 1987 Donruss Baseball (3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4). */
+export const DONRUSS_1987_SET_PREFIX = "3ff8de8d";
 
 /**
  * 1989 Topps #496 Dwayne Henry. The stored image is a modern Bowman Chrome
@@ -476,6 +478,15 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "683cc4eb-4a39-46af-b7ee-82e552b1538a", number: "37", surname: "willis", variant: "base", reason: "arena board reads WILKINS" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "8e49902d-ed15-4521-bbbf-918a164889d4", number: "6", surname: "mchale", variant: "base", reason: "All-Star: banner reads Wilt Chamb" },
   { gameSetId: HOOPS_1990_SET_PREFIX, id: "7cdc6abb-5679-4830-95c9-e3041057f73f", number: "21", surname: "malone", variant: "base", reason: "All-Star: jersey back reads THOMA" },
+  // 1987 Donruss Baseball exclusions (Design FINDINGS 2026-10-03). All sat in awaiting_card_review;
+  // the block keeps them out even if a later review batch lists their ids.
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "e85efdfd-415e-418f-b8d2-0fe1da023f36", number: "89", surname: "ripken", variant: "base", reason: "facsimile signature on the wristband above the band" },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "8155aa6a-126d-41a8-84dc-dadda7ab8787", number: "612", surname: "clemente", variant: "base", reason: "off-set card (Clemente is not in 1987 Donruss)" },
+  // PSA slab photos (hometown.jpg): the cert label prints the player name at the top.
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "1015b1e2-3bf9-41d2-a173-4a4a61c77e1f", number: "229", surname: "howell", variant: "base", reason: "PSA slab photo", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "77ae124c-2b13-4077-bd52-4746378d31dd", number: "423", surname: "matuszek", variant: "base", reason: "PSA slab photo, label reads LEN MATUSZEK", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "a2d9c851-a7be-4de7-bd51-6c3355b9cb55", number: "457", surname: "deleon", variant: "base", reason: "PSA slab photo, label reads JOSE DeLEON", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "b48be3da-4ef8-4c01-b272-c545c001afef", number: "479", surname: "mclemore", variant: "base", reason: "PSA slab photo, label reads MARK McLEMORE", idOnly: true },
 ];
 
 export type BlockedSetNumberRule = {
