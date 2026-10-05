@@ -130,10 +130,8 @@ function ReceiptDetail() {
     },
     onSuccess: (result) => {
       toast({
-        title: result.granted ? "USD credit granted to PackPTS wallet" : "Credit pending review",
-        description: result.heldForReview
-          ? "Purchase confirmed. PackPTS will finish review."
-          : result.message,
+        title: result.granted ? "USD credit granted to PackPTS wallet" : "Purchase recorded",
+        description: result.message,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/marketplace/redemption/receipts"] });
       queryClient.invalidateQueries({ queryKey: ["/wallet"] });
@@ -208,7 +206,7 @@ function ReceiptDetail() {
             <CardTitle>I purchased. Claim rebate</CardTitle>
             <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
               {RECEIPT_COPY.confirmToUnlock}. {RECEIPT_COPY.partnerCheckoutUnchanged}. PackPTS reserved {rebateUsd}.
-              Claims stay PURCHASE_CONFIRMED with Credit pending review until PackPTS confirms the purchase.
+              Recording a purchase here does not add cashback. eBay purchases are credited automatically when eBay confirms them.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -313,7 +311,7 @@ function RedemptionsList() {
           <CardHeader>
             <CardTitle>Request withdrawal</CardTitle>
             <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
-              PackPTS sends this as real USD (PayPal / Venmo / ACH) after review. {RECEIPT_COPY.partnerCheckoutUnchanged}.
+              PackPTS sends this as real USD (PayPal / Venmo / ACH) after you request a payout. {RECEIPT_COPY.partnerCheckoutUnchanged}.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

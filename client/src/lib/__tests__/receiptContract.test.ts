@@ -73,7 +73,6 @@ describe("redemptions page copy — #96 + receipt contract", () => {
     expect(surfaces).toContain("Partner price");
     expect(surfaces).toContain("Post-purchase rebate");
     expect(surfaces).toContain("Partner checkout unchanged");
-    expect(surfaces).toContain("Credit pending review");
     expect(surfaces).toContain("USD credit granted to PackPTS wallet");
     expect(surfaces).toContain("/packpts-mark.svg");
     expect(surfaces).toContain("PackPTS receipt");
@@ -90,11 +89,11 @@ describe("redemptions page copy — #96 + receipt contract", () => {
     expect(plaqueSrc).not.toMatch(/UNDER_REVIEW/);
   });
 
-  it("keeps the APPROVED claim form and ≥$25 pending-review helper", () => {
+  it("keeps the APPROVED purchase-record form; recording never promises credit", () => {
     expect(pageSrc).toContain('intent.status === "APPROVED"');
     expect(pageSrc).toContain("button-claim-rebate");
-    expect(pageSrc).toMatch(/PURCHASE_CONFIRMED/);
-    expect(pageSrc).toMatch(/Credit pending review/);
+    expect(pageSrc).not.toMatch(/pending review/i);
+    expect(pageSrc).toMatch(/does not add cashback/);
     expect(surfaces).toContain("text-wallet-header");
   });
 });

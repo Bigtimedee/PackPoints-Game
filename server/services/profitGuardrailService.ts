@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { recordRebateAudit } from "./rebateAuditService";
 import { eq, desc, and, sql } from "drizzle-orm";
 import {
   profitPolicy,
@@ -13,6 +14,9 @@ import {
 } from "@shared/schema";
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
+
+const GOLDIN_NOT_SUPPORTED =
+  "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
 
 export interface CalcSnapshot {
   P: number;
@@ -127,6 +131,9 @@ class ProfitGuardrailService {
     currency: string = "usd",
     listingTitle?: string
   ): Promise<QuoteResult> {
+    if (source === "goldin") {
+      throw new Error(GOLDIN_NOT_SUPPORTED);
+    }
     const policy = await this.getActivePolicy();
     if (!policy) {
       throw new Error("No active profit policy configured");
@@ -219,6 +226,15 @@ class ProfitGuardrailService {
       })
       .returning();
 
+    await recordRebateAudit(db, {
+      event: "QUOTE_CREATED",
+      actor: `user:${userId}`,
+      userId,
+      purchaseIntentId: intent.id,
+      amountCents: priceCents,
+      details: { source, listingId, maxRedeemPackpts: marginBackedRmax },
+    });
+
     let explanationText: string;
     if (!reserveHealthy) {
       explanationText = "PackPTS redemption is temporarily paused while the rewards reserve is replenished.";
@@ -270,6 +286,17 @@ class ProfitGuardrailService {
 
     if (!intent) {
       throw new Error("Purchase intent not found");
+    }
+
+    if (intent.source === "goldin") {
+      await recordRebateAudit(db, {
+        event: "APPLY_REJECTED",
+        actor: `user:${userId}`,
+        userId,
+        purchaseIntentId: intent.id,
+        details: { reason: "goldin purchases cannot be confirmed automatically" },
+      });
+      throw new Error(GOLDIN_NOT_SUPPORTED);
     }
 
     if (intent.status !== "CREATED") {
@@ -486,6 +513,22 @@ class ProfitGuardrailService {
         })
         .where(eq(externalPurchaseIntent.id, purchaseIntentId));
 
+      await recordRebateAudit(tx, {
+        event: "POINTS_APPLIED",
+        actor: `user:${userId}`,
+        userId,
+        purchaseIntentId,
+        amountCents: creditCents,
+        packpts: approvedRedeemPackpts,
+        details: {
+          source: intent.source,
+          listingId: intent.listingId,
+          appliedPriceCents: intent.priceCents,
+          requestedPackpts: requestedRedeemPackpts,
+          redemptionCreditId: credit.id,
+        },
+      });
+
       const clampedMessage = allowed.clamped
         ? ` (clamped from ${requestedRedeemPackpts.toLocaleString()} due to margin limits)`
         : "";
@@ -508,15 +551,6 @@ class ProfitGuardrailService {
   ): Promise<{ success: boolean; message: string; granted?: boolean; heldForReview?: boolean; receiptUrl?: string; creditCents?: number }> {
     const { rebateService } = await import("./rebateService");
     return rebateService.confirmPurchase(userId, purchaseIntentId, { evidence });
-  }
-
-  /**
-   * Admin finalizes a high-value redemption that was held at PURCHASE_CONFIRMED
-   * pending review. Consumes the reservation and grants the credit.
-   */
-  async adminGrantConfirmed(purchaseIntentId: string, actualPriceCents?: number): Promise<{ success: boolean; message: string }> {
-    const { rebateService } = await import("./rebateService");
-    return rebateService.adminGrant(purchaseIntentId, actualPriceCents);
   }
 
   async getPurchaseIntent(
@@ -678,6 +712,15 @@ class ProfitGuardrailService {
         })
         .where(eq(externalPurchaseIntent.id, credit.purchaseIntentId));
 
+      await recordRebateAudit(tx, {
+        event: "CREDIT_REVERSED",
+        actor: "system",
+        userId: credit.userId,
+        purchaseIntentId: credit.purchaseIntentId,
+        packpts: credit.packptsSpent,
+        details: { reason, redemptionCreditId },
+      });
+
       return {
         success: true,
         message: `Reversed ${credit.packptsSpent} PackPTS`,
@@ -748,6 +791,15 @@ class ProfitGuardrailService {
           updatedAt: new Date(),
         })
         .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+
+      await recordRebateAudit(tx, {
+        event: "APPLY_CANCELED",
+        actor: `user:${userId}`,
+        userId,
+        purchaseIntentId,
+        packpts: credit.packptsSpent,
+        details: { redemptionCreditId: credit.id },
+      });
 
       return {
         success: true,

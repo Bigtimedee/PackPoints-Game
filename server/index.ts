@@ -503,6 +503,12 @@ app.use((req, res, next) => {
   // that push finished before this function continued.
   markSchemaReady();
   logBootPhase("routes_ready");
+  try {
+    const { ensureRebateAuditImmutable } = await import("./services/rebateAuditService");
+    await ensureRebateAuditImmutable();
+  } catch (err: any) {
+    console.error("[RebateAudit] could not enforce append-only trigger:", err?.message);
+  }
   log("schema ready");
   if (process.env.NODE_ENV === "production") {
     startWarmSidecarBackfill();

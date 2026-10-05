@@ -17,7 +17,7 @@ export default function TermsOfService() {
         </div>
 
         <h1 className="text-3xl font-bold mb-2">PackPTS Terms of Service</h1>
-        <p className="text-sm text-muted-foreground mb-10">Effective date: March 1, 2026</p>
+        <p className="text-sm text-muted-foreground mb-10">Effective date: October 4, 2026</p>
 
         <div className="space-y-8 text-sm leading-7">
 
@@ -28,7 +28,7 @@ export default function TermsOfService() {
 
           <section>
             <h2 className="text-lg font-semibold mb-3">2. Description of Service</h2>
-            <p>PackPTS is a baseball trading card trivia game where players earn points (PackPTS) by correctly identifying cards, competing in matches, maintaining streaks, and completing daily challenges. Points may be redeemed for rewards as described in the app.</p>
+            <p>PackPTS is a baseball trading card trivia game where players earn points (PackPTS) by correctly identifying cards, competing in matches, maintaining streaks, and completing daily challenges. You can also buy PackPTS. Points may be redeemed for rewards as described in the app. PackPTS has no tournaments, prize pools or cash prizes.</p>
           </section>
 
           <section>
@@ -57,12 +57,26 @@ export default function TermsOfService() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">6. Purchases</h2>
+            <h2 className="text-lg font-semibold mb-3">6. Marketplace and Cashback</h2>
+            <ul className="list-disc pl-5 space-y-2">
+              <li>The Marketplace shows live eBay and Goldin listings. We do not sell the cards. You buy from eBay or Goldin at their full price and under their terms. We may earn an affiliate commission when you buy through our links.</li>
+              <li>You can apply PackPTS only to a listing shown to you inside PackPTS. Applying takes the points from your wallet right away and sets the most cashback you can earn on that listing. It does not lower the price eBay or Goldin charges.</li>
+              <li>Cashback is added to your USD cashback balance only when eBay's affiliate report confirms your purchase of that item through our tracked link. Telling us you bought something does not add cashback, and no one adds it by hand.</li>
+              <li>If eBay reports a total below the price you applied against, your cashback and the points used are reduced in proportion, and the unused points go back to your wallet. If you do not buy, you can cancel the apply and the points go back to your wallet.</li>
+              <li>Goldin gives us no automatic confirmation of purchases, so PackPTS cannot currently be applied to Goldin listings.</li>
+              <li>Cashback is a USD balance, not PackPTS. You can request a payout of your balance. We send payouts ourselves after you request one.</li>
+              <li>Cashback is limited per listing and per user, and is funded from a reserve. We can pause it when the reserve is low.</li>
+              <li>We keep a record of each step: the quote, the apply, any purchase confirmation, each credit, refund and payout request. Records are append-only.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold mb-3">7. Purchases</h2>
             <p>Some features require payment. All purchases are final and non-refundable unless required by law. Payments are processed by Stripe. By making a purchase you agree to Stripe's terms of service.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">7. Prohibited Conduct</h2>
+            <h2 className="text-lg font-semibold mb-3">8. Prohibited Conduct</h2>
             <p>You agree not to:</p>
             <ul className="list-disc pl-5 space-y-2 mt-2">
               <li>Use bots, scripts, or automated tools to play the game or earn points.</li>
@@ -74,37 +88,37 @@ export default function TermsOfService() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">8. Intellectual Property</h2>
+            <h2 className="text-lg font-semibold mb-3">9. Intellectual Property</h2>
             <p>All content, branding, code, and design of PackPTS is owned by us or licensed to us. Card images are provided by CardHedge and are subject to their licensing terms. You may not reproduce or redistribute any content without written permission.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">9. Disclaimers</h2>
+            <h2 className="text-lg font-semibold mb-3">10. Disclaimers</h2>
             <p>The Service is provided "as is" without warranties of any kind. We do not guarantee uninterrupted access, accuracy of card data, or that the Service will be error-free.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">10. Limitation of Liability</h2>
+            <h2 className="text-lg font-semibold mb-3">11. Limitation of Liability</h2>
             <p>To the fullest extent permitted by law, PackPTS shall not be liable for any indirect, incidental, or consequential damages arising from your use of the Service, including loss of points or rewards due to technical issues.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">11. Termination</h2>
+            <h2 className="text-lg font-semibold mb-3">12. Termination</h2>
             <p>We may suspend or terminate your account at any time for violation of these terms. You may delete your account at any time by contacting support. Upon termination, your points and progress are forfeited.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">12. Changes to Terms</h2>
+            <h2 className="text-lg font-semibold mb-3">13. Changes to Terms</h2>
             <p>We may update these terms from time to time. Continued use of the Service after changes constitutes acceptance of the new terms. We will post the updated terms with a new effective date.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">13. Governing Law</h2>
+            <h2 className="text-lg font-semibold mb-3">14. Governing Law</h2>
             <p>These terms are governed by the laws of the United States. Any disputes shall be resolved through binding arbitration rather than in court, except where prohibited by law.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold mb-3">14. Contact</h2>
+            <h2 className="text-lg font-semibold mb-3">15. Contact</h2>
             <p>Questions about these terms? Contact us at: <strong>support@packpts.com</strong></p>
           </section>
 

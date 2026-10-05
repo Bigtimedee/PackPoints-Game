@@ -472,17 +472,6 @@ function AdminMarketplaceIntents() {
     },
   });
 
-  const grantMutation = useMutation({
-    mutationFn: (vars: { id: string; actualPriceCents?: number }) =>
-      apiRequest("POST", `/api/admin/redemption/intents/${vars.id}/grant`, vars.actualPriceCents ? { actualPriceCents: vars.actualPriceCents } : {}),
-    onSuccess: async (res) => {
-      const body = await res.json();
-      toast({ title: "Granted", description: body.message });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/marketplace-intents"] });
-    },
-    onError: (error: Error) => toast({ title: "Grant failed", description: error.message, variant: "destructive" }),
-  });
-
   const denyMutation = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       apiRequest("POST", `/api/admin/redemption/intents/${id}/deny`, { reason }),
@@ -507,7 +496,7 @@ function AdminMarketplaceIntents() {
       <CardHeader>
         <CardTitle>Marketplace cashback</CardTitle>
         <CardDescription>
-          Approve or deny evidence when EPN auto-attribution did not grant. Granting credits USD cashback; deny refunds PackPTS.
+          Read-only view of cashback claims. Cashback is credited only automatically, from eBay purchase confirmations. Deny refunds the PackPTS of an apply that was never bought.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -549,21 +538,6 @@ function AdminMarketplaceIntents() {
                     <TableCell className="text-right space-x-1">
                       {(row.status === "PURCHASE_CONFIRMED" || row.status === "APPROVED") && (
                         <>
-                          <Button size="sm" variant="ghost" onClick={() => grantMutation.mutate({ id: row.id })} data-testid={`button-grant-intent-${row.id}`}>
-                            Grant
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              const input = window.prompt(`Actual price paid in dollars (listed $${((row.priceCents || 0) / 100).toFixed(2)}). Credit and PackPTS are prorated if lower.`);
-                              const dollars = input ? Number(input) : NaN;
-                              if (Number.isFinite(dollars) && dollars > 0) grantMutation.mutate({ id: row.id, actualPriceCents: Math.round(dollars * 100) });
-                            }}
-                            data-testid={`button-grant-at-price-${row.id}`}
-                          >
-                            Grant at price
-                          </Button>
                           <Button size="sm" variant="ghost" onClick={() => setDenyId(row.id)} data-testid={`button-deny-intent-${row.id}`}>
                             Deny
                           </Button>
