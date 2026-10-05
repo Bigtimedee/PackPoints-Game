@@ -491,6 +491,13 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "588fd816-c7f1-48fe-a2cc-a941cd93e5d4", number: "407", surname: "finley", variant: "base", reason: "jersey back reads INLEY (Design)" },
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "b0d05518-8bdd-4623-93e1-dab69dfdc8c1", number: "425", surname: "kingman", variant: "base", reason: "ink autograph across the photo (Design, Ripken rule)" },
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "048b210b-1fa2-49d4-ab37-e4bd086d0a19", number: "453", surname: "tekulve", variant: "base", reason: "jersey back reads TEKULVE (Design)" },
+  // Design QA on #200 (d4c535f) 2026-10-05 ~6:17 PM CT: held batch, 6 rejects.
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "3bf28bf5-8422-486a-8a43-ede8d694cf3f", number: "402", surname: "honeycutt", variant: "base", reason: "jersey back reads HONEYC (Design)", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "643729b0-b658-4cf4-bf7e-82644c9d3f1e", number: "210", surname: "jackson", variant: "base", reason: "jersey back reads JACKSON (Design)", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "dec93348-9ea4-4dc3-8ef5-08cfeea57365", number: "432", surname: "carman", variant: "base", reason: "jersey back reads ARMAN (Design)", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "be44d754-943f-4a31-b05b-74590c734402", number: "494", surname: "habyan", variant: "base", reason: "jersey back reads HABYA (Design)", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "6af8fcf6-4f0c-4106-82c6-aabf7f558e87", number: "201", surname: "trout", variant: "base", reason: "wrong card: 1984 Topps scan (Design)", idOnly: true },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "8adbda59-04c1-4e8f-aee8-450006984a38", number: "87", surname: "guillen", variant: "base", reason: "sideways scan: OZZIE GUILLEN SS on vertical plate outside the bottom band (Design)", idOnly: true },
 ];
 
 export type BlockedSetNumberRule = {
