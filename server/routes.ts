@@ -8860,22 +8860,8 @@ export async function registerRoutes(
   // the winning paginated routes.
 
   // Admin: Get treasury status
-  // Admin: finalize a high-value redemption held for review
-  app.post("/api/admin/redemption/intents/:id/grant", isAuthenticated, requireAdmin, async (req: any, res) => {
-    try {
-      const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      const raw = req.body?.actualPriceCents;
-      const actualPriceCents = raw === undefined || raw === null || raw === "" ? undefined : Number(raw);
-      if (actualPriceCents !== undefined && (!Number.isInteger(actualPriceCents) || actualPriceCents <= 0)) {
-        return res.status(400).json({ error: "actualPriceCents must be a positive whole number" });
-      }
-      const result = await profitGuardrailService.adminGrantConfirmed(req.params.id, actualPriceCents);
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error granting confirmed redemption:", error);
-      res.status(500).json({ error: error.message || "Failed to grant credit" });
-    }
-  });
+  // Removed: the admin "finalize a held claim" route. Claims are never credited by a person;
+  // cashback is credited only from an automatically verified eBay purchase.
 
   // Admin: one-time backfill of answer events from completed session history.
   // Bounded per call; events flagged {backfill:true} so they're distinguishable

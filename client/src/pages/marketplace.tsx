@@ -605,15 +605,15 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
       <Dialog open={showNextStep} onOpenChange={setShowNextStep}>
         <DialogContent data-testid="dialog-apply-next-step">
           <DialogHeader>
-            <DialogTitle>Buy on {platformName}, then claim cashback</DialogTitle>
+            <DialogTitle>Buy on {platformName} to earn cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. PackPTS pays you back ${(appliedCreditCents / 100).toFixed(2)} after the purchase is confirmed.
+              {platformName} checkout stays full price. PackPTS pays you back up to ${(appliedCreditCents / 100).toFixed(2)} after eBay confirms the purchase.
             </DialogDescription>
           </DialogHeader>
           <ol className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground">
             <li>Open the listing with our tracked link (required for eBay attribution).</li>
             <li>Pay the normal {platformName} total.</li>
-            <li>Come back and tap “I’ve purchased. Claim rebate.”</li>
+            <li>Cashback is added automatically when eBay confirms the purchase.</li>
           </ol>
           <DialogFooter className="gap-2 sm:flex-col">
             <Button asChild data-testid="button-buy-on-partner">
@@ -1125,7 +1125,7 @@ export default function Marketplace() {
                 <p className="font-medium">These catalog SKUs are internal PackPTS tokens, not a payout rail.</p>
                 <p className="text-muted-foreground">
                   They are not eBay or Goldin gift cards and nothing on those sites accepts the hex token.
-                  For real USD cashback, use Live Listings → Apply PackPTS → buy at full price → claim rebate.
+                  For real USD cashback, use Live Listings → Apply PackPTS → buy at full price → cashback is added when eBay confirms.
                 </p>
                 <Button variant="secondary" asChild>
                   <Link href="/redemptions">Go to My Redemptions</Link>

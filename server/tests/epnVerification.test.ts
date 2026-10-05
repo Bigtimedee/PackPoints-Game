@@ -29,7 +29,9 @@ describe("EPN evidence verification", () => {
     for (const change of [{userId:null}, {userId:"other"}, {listingId:"19186079996"}, {source:"goldin"}, {createdAt:new Date(500)}, {createdAt:null}, {id:""}]) {
       expect(matchesEpnIntent(intent, {...click, ...change}, 7000)).toBe(false);
     }
-    expect(matchesEpnIntent(intent, click, 6999)).toBe(false);
+    expect(matchesEpnIntent(intent, click, 6999)).toBe(true); // lower total: prorated credit
+    expect(matchesEpnIntent(intent, click, 0)).toBe(false);
+    expect(matchesEpnIntent(intent, click, 70_001)).toBe(false); // over 10 x the applied price
     expect(matchesEpnIntent({...intent, currency:"EUR"}, click, 7000)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, bigserial, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check } from "drizzle-orm/pg-core";
 import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "./maskRefusal";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -4921,3 +4921,22 @@ export const cardReviewSeed = pgTable("card_review_seed", {
   seededAt: timestamptz("seeded_at").notNull().defaultNow(),
   cardCount: integer("card_count").notNull(),
 });
+
+// Append-only audit log for marketplace cashback. One row per state change:
+// who (actor), what (event), when (created_at) and the amounts. Rows are never
+// updated or deleted; a database trigger rejects UPDATE and DELETE.
+export const rebateAuditLog = pgTable("rebate_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  seq: bigserial("seq", { mode: "number" }).notNull(), // strict insert order, gap-detectable
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  event: text("event").notNull(),
+  actor: text("actor").notNull(), // user:<id> | system | epn_postback | admin:<id>
+  userId: varchar("user_id"),
+  purchaseIntentId: varchar("purchase_intent_id"),
+  amountCents: integer("amount_cents"),
+  packpts: integer("packpts"),
+  details: jsonb("details").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+}, (t) => [
+  index("rebate_audit_log_intent_idx").on(t.purchaseIntentId, t.createdAt),
+  index("rebate_audit_log_user_idx").on(t.userId, t.createdAt),
+]);

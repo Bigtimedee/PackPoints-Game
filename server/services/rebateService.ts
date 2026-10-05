@@ -15,16 +15,13 @@ import {
 } from "@shared/schema";
 import { treasuryService } from "./treasuryService";
 import { walletService } from "./walletService";
+import { recordRebateAudit } from "./rebateAuditService";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 
-/**
- * Legacy $25 threshold. Kept for reference only: a user claim (USER_CONFIRM) is
- * unverified, so it is held for admin review at every amount (see grantForIntent).
- */
-export const REVIEW_THRESHOLD_CENTS = 2500;
-
-export type RebateGrantMethod = "EPN_POSTBACK" | "USER_CONFIRM" | "ADMIN_GRANT";
+// Only a verified eBay affiliate postback credits cashback. Older rows may carry
+// USER_CONFIRM or ADMIN_GRANT in grant_method; no new rows are written with them.
+export type RebateGrantMethod = "EPN_POSTBACK";
 
 export interface RebateGrantResult {
   success: boolean;
@@ -185,45 +182,72 @@ class RebateService {
   }
 
   /**
-   * Confirm a purchase the user attests they completed on eBay/Goldin.
-   * Persists evidence and holds the claim for admin review at any amount.
-   * A user claim is never verified against eBay/Goldin, so it never credits on its own.
+   * Record a purchase the user says they made. This never credits: a claim is not
+   * verified against eBay or Goldin. Cashback is credited only when eBay's affiliate
+   * report confirms the purchase (grantFromEpnPostback). The claim is kept as
+   * evidence and written to the audit log.
    */
   async confirmPurchase(
     userId: string,
     purchaseIntentId: string,
     evidence: PurchaseEvidence = {}
   ): Promise<RebateGrantResult> {
-    await this.persistEvidence(userId, purchaseIntentId, evidence);
     const hasEvidence = Boolean(
       evidence.orderId?.trim() || evidence.evidenceNote?.trim() || evidence.evidence?.trim() || evidence.receiptUrl?.trim()
     );
     if (!hasEvidence) {
-      throw new Error("Order id, receipt URL, or a short note is required to claim cashback");
+      throw new Error("Order id, receipt URL, or a short note is required to record a purchase");
     }
-    return this.grantForIntent({
-      purchaseIntentId,
-      expectedUserId: userId,
-      method: "USER_CONFIRM",
-      skipReview: false,
-    });
-  }
-
-  /**
-   * Admin grant. `actualPriceCents` is the real purchase price the admin confirmed.
-   * When it is below the price the user applied against, credit and PackPTS spent are
-   * prorated and the unused PackPTS are refunded. At or above the applied price: full credit.
-   */
-  async adminGrant(purchaseIntentId: string, actualPriceCents?: number): Promise<RebateGrantResult> {
-    if (actualPriceCents !== undefined && (!Number.isInteger(actualPriceCents) || actualPriceCents <= 0)) {
-      throw new Error("Actual price must be a positive whole number of cents");
+    const [intent] = await db
+      .select()
+      .from(externalPurchaseIntent)
+      .where(and(eq(externalPurchaseIntent.id, purchaseIntentId), eq(externalPurchaseIntent.userId, userId)));
+    if (!intent) throw new Error("Purchase intent not found");
+    const [credit] = await db.select().from(redemptionCredit).where(eq(redemptionCredit.purchaseIntentId, intent.id));
+    const wallet = await walletService.getWallet(userId);
+    if (intent.status === "CREDIT_GRANTED") {
+      return {
+        success: true,
+        granted: true,
+        heldForReview: false,
+        alreadyGranted: true,
+        rebateBalanceCents: wallet?.rebateBalanceCents ?? 0,
+        creditCents: credit?.creditCents ?? 0,
+        packptsSpent: credit?.packptsSpent ?? intent.approvedRedeemPackpts,
+        receiptUrl: receiptPath(intent.id),
+        message: "Cashback already granted.",
+      };
     }
-    return this.grantForIntent({
+    if (intent.status !== "APPROVED" && intent.status !== "PURCHASE_CONFIRMED") {
+      throw new Error(`Cannot record a purchase: intent status is ${intent.status}`);
+    }
+    await this.persistEvidence(userId, purchaseIntentId, evidence);
+    await recordRebateAudit(db, {
+      event: "CLAIM_RECORDED",
+      actor: `user:${userId}`,
+      userId,
       purchaseIntentId,
-      method: "ADMIN_GRANT",
-      skipReview: true,
-      actualPriceCents,
+      details: {
+        source: intent.source,
+        orderId: evidence.orderId?.trim() || null,
+        hasReceiptUrl: Boolean(evidence.receiptUrl?.trim()),
+        creditedByClaim: false,
+      },
     });
+    return {
+      success: true,
+      granted: false,
+      heldForReview: false,
+      alreadyGranted: false,
+      rebateBalanceCents: wallet?.rebateBalanceCents ?? 0,
+      creditCents: credit?.creditCents ?? 0,
+      packptsSpent: credit?.packptsSpent ?? intent.approvedRedeemPackpts,
+      receiptUrl: receiptPath(intent.id),
+      message:
+        intent.source === "ebay"
+          ? "Recorded. Cashback is added automatically when eBay confirms your purchase."
+          : "Recorded. Goldin purchases cannot be confirmed automatically, so no cashback is added.",
+    };
   }
 
   async adminDeny(
@@ -252,6 +276,14 @@ class RebateService {
         updatedAt: new Date(),
       })
       .where(eq(externalPurchaseIntent.id, purchaseIntentId));
+    await recordRebateAudit(db, {
+      event: "INTENT_DENIED",
+      actor: "admin",
+      userId: intent.userId,
+      purchaseIntentId,
+      packpts: intent.approvedRedeemPackpts,
+      details: { reason },
+    });
     return { success: result.success, message: `Denied and refunded PackPTS. ${reason}` };
   }
 
@@ -276,26 +308,32 @@ class RebateService {
     ));
     const matches = intents.filter(intent => matchesEpnIntent(intent, click, input.salePriceCents!));
     if (matches.length === 0) {
-      // Same user, item and click but a different total (auction, accepted offer, price change,
-      // partial order). Never auto-credit: hold it for admin review with the reported total.
-      const sameItem = intents.filter(intent => matchesEpnIntent(intent, click, intent.priceCents));
-      if (sameItem.length === 1) {
-        const it = sameItem[0];
-        const note = `EPN reported $${(input.salePriceCents / 100).toFixed(2)} but the applied listing price was $${(it.priceCents / 100).toFixed(2)}. Needs admin review.`;
-        await db.update(externalPurchaseIntent).set({
-          status: "PURCHASE_CONFIRMED",
-          evidenceNote: it.evidenceNote ? `${it.evidenceNote}\n${note}` : note,
-          updatedAt: new Date(),
-        }).where(and(eq(externalPurchaseIntent.id, it.id), eq(externalPurchaseIntent.userId, input.userId)));
-      }
+      await recordRebateAudit(db, {
+        event: "EPN_POSTBACK_NO_MATCH",
+        actor: "epn_postback",
+        userId: input.userId,
+        details: {
+          attributedPurchaseId: input.attributedPurchaseId,
+          outboundClickId: input.outboundClickId,
+          reportedTotalCents: input.salePriceCents,
+          openIntents: intents.length,
+        },
+      });
       return [];
     }
-    if (matches.length !== 1) return []; // Never fan one conversion out across multiple applies.
+    if (matches.length !== 1) {
+      await recordRebateAudit(db, {
+        event: "EPN_POSTBACK_REJECTED",
+        actor: "epn_postback",
+        userId: input.userId,
+        details: { attributedPurchaseId: input.attributedPurchaseId, reason: "more than one open apply matches", matches: matches.length },
+      });
+      return []; // Never fan one conversion out across multiple applies.
+    }
     return [await this.grantForIntent({
       purchaseIntentId: matches[0].id,
       expectedUserId: input.userId,
       method: "EPN_POSTBACK",
-      skipReview: true,
       attributedPurchaseId: input.attributedPurchaseId,
       outboundClickId: click.id,
     })];
@@ -305,10 +343,8 @@ class RebateService {
     purchaseIntentId: string;
     expectedUserId?: string;
     method: RebateGrantMethod;
-    skipReview: boolean;
     attributedPurchaseId?: string;
     outboundClickId?: string;
-    actualPriceCents?: number;
   }): Promise<RebateGrantResult> {
     const result = await db.transaction(async (tx) => {
       const [intent] = await tx
@@ -323,7 +359,9 @@ class RebateService {
       }
 
       // Revalidate evidence inside the locked grant transaction, including direct callers.
-      if (opts.method === "EPN_POSTBACK") {
+      let verifiedSaleCents: number | null = null;
+      if (opts.method !== "EPN_POSTBACK") throw new Error("Only a verified eBay purchase can grant cashback");
+      {
         if (!opts.outboundClickId || !opts.attributedPurchaseId || !opts.expectedUserId) {
           throw new Error("EPN grant requires tracked purchase evidence");
         }
@@ -341,6 +379,7 @@ class RebateService {
             !matchesEpnIntent(intent, click, purchase.salePriceCents)) {
           throw new Error("EPN purchase evidence does not match intent");
         }
+        verifiedSaleCents = purchase.salePriceCents;
       }
 
       if (intent.status === "CREDIT_GRANTED") {
@@ -383,13 +422,35 @@ class RebateService {
         throw new Error("Cannot grant a reversed redemption");
       }
 
-      // Price lower than applied (offer, auction, partial order): prorate credit and
-      // PackPTS spent, and refund the PackPTS that are no longer needed.
+      // eBay reported a total below the price applied (offer, auction, partial order):
+      // prorate credit and PackPTS spent from eBay's reported total, and refund the
+      // PackPTS that are no longer needed. At or above the applied price: full credit.
       let usedReservationCents: number | undefined;
-      if (opts.method === "ADMIN_GRANT" && opts.actualPriceCents !== undefined && opts.actualPriceCents < intent.priceCents) {
-        const prorated = prorateRedemption(credit.creditCents, credit.packptsSpent, intent.priceCents, opts.actualPriceCents);
+      if (verifiedSaleCents !== null && verifiedSaleCents < intent.priceCents) {
+        const prorated = prorateRedemption(credit.creditCents, credit.packptsSpent, intent.priceCents, verifiedSaleCents);
         if (prorated.creditCents <= 0) {
-          throw new Error("Actual price is too low for any credit. Deny the claim instead.");
+          await recordRebateAudit(tx, {
+            event: "EPN_POSTBACK_REJECTED",
+            actor: "epn_postback",
+            userId: intent.userId,
+            purchaseIntentId: intent.id,
+            details: { reason: "reported total too low for any credit", reportedTotalCents: verifiedSaleCents, appliedPriceCents: intent.priceCents },
+          });
+          return {
+            success: true,
+            granted: false,
+            heldForReview: false,
+            alreadyGranted: false,
+            rebateBalanceCents: 0,
+            creditCents: 0,
+            packptsSpent: credit.packptsSpent,
+            receiptUrl: receiptPath(intent.id),
+            message: "The purchase total was too low for any cashback.",
+            userId: intent.userId,
+            listingTitle: intent.listingTitle,
+            source: intent.source,
+            skipEmail: true,
+          };
         }
         if (prorated.refundPackpts > 0) {
           const refund = await walletService.earn(
@@ -403,42 +464,28 @@ class RebateService {
           );
           if (!refund.success) throw new Error(`Partial refund failed: ${refund.error}`);
         }
+        await recordRebateAudit(tx, {
+          event: "PARTIAL_REFUND",
+          actor: "epn_postback",
+          userId: intent.userId,
+          purchaseIntentId: intent.id,
+          packpts: prorated.refundPackpts,
+          amountCents: prorated.creditCents,
+          details: {
+            reportedTotalCents: verifiedSaleCents,
+            appliedPriceCents: intent.priceCents,
+            creditBeforeCents: credit.creditCents,
+            creditAfterCents: prorated.creditCents,
+            packptsSpentBefore: credit.packptsSpent,
+            packptsSpentAfter: prorated.keptPackpts,
+          },
+        });
         [credit] = await tx
           .update(redemptionCredit)
           .set({ creditCents: prorated.creditCents, packptsSpent: prorated.keptPackpts })
           .where(eq(redemptionCredit.id, credit.id))
           .returning();
         usedReservationCents = prorated.creditCents;
-      }
-
-      // Fail closed: only verified (EPN postback) or admin grants may credit.
-      // A user-submitted claim is unverified, so it always waits for admin review.
-      if (opts.method === "USER_CONFIRM" || (!opts.skipReview && credit.creditCents >= REVIEW_THRESHOLD_CENTS)) {
-        await tx
-          .update(externalPurchaseIntent)
-          .set({
-            status: "PURCHASE_CONFIRMED",
-            outboundClickId: opts.outboundClickId ?? intent.outboundClickId,
-            attributedPurchaseId: opts.attributedPurchaseId ?? intent.attributedPurchaseId,
-            updatedAt: new Date(),
-          })
-          .where(eq(externalPurchaseIntent.id, intent.id));
-        return {
-          success: true,
-          granted: false,
-          heldForReview: true,
-          alreadyGranted: false,
-          rebateBalanceCents: 0,
-          creditCents: credit.creditCents,
-          packptsSpent: credit.packptsSpent,
-          receiptUrl: receiptPath(intent.id),
-          message:
-            "Claim received. Cashback is credited after PackPTS reviews your purchase details.",
-          userId: intent.userId,
-          listingTitle: intent.listingTitle,
-          source: intent.source,
-          skipEmail: false,
-        };
       }
 
       await treasuryService.consumeReservation(intent.id, credit.id, tx, usedReservationCents);
@@ -469,6 +516,26 @@ class RebateService {
         })
         .onConflictDoNothing()
         .returning();
+
+      await recordRebateAudit(tx, {
+        event: "CREDIT_GRANTED",
+        actor: "epn_postback",
+        userId: intent.userId,
+        purchaseIntentId: intent.id,
+        amountCents: credit.creditCents,
+        packpts: credit.packptsSpent,
+        details: {
+          method: opts.method,
+          source: intent.source,
+          listingId: intent.listingId,
+          attributedPurchaseId: opts.attributedPurchaseId ?? null,
+          outboundClickId: opts.outboundClickId ?? null,
+          reportedTotalCents: verifiedSaleCents,
+          appliedPriceCents: intent.priceCents,
+          rebateBalanceAfterCents: newBalance,
+          rebateLedgerId: ledger?.id ?? null,
+        },
+      });
 
       const grantedAt = new Date();
       await tx
@@ -596,6 +663,13 @@ class RebateService {
         idempotencyKey: `rebate-payout:${request.id}`,
         note: `Payout requested via ${method}`,
       });
+      await recordRebateAudit(tx, {
+        event: "PAYOUT_REQUESTED",
+        actor: `user:${userId}`,
+        userId,
+        amountCents,
+        details: { payoutRequestId: request.id, method, rebateBalanceAfterCents: newBalance },
+      });
 
       return {
         success: true,
@@ -628,6 +702,13 @@ class RebateService {
         updatedAt: new Date(),
       })
       .where(eq(rebatePayoutRequests.id, requestId));
+    await recordRebateAudit(db, {
+      event: "PAYOUT_PAID",
+      actor: `admin:${adminUserId}`,
+      userId: request.userId,
+      amountCents: request.amountCents,
+      details: { payoutRequestId: requestId, method: request.method, note: adminNote || null },
+    });
     return { success: true, message: "Payout marked paid." };
   }
 
@@ -668,6 +749,13 @@ class RebateService {
         payoutRequestId: request.id,
         idempotencyKey: `rebate-payout-refund:${request.id}`,
         note: `Payout denied: ${reason}`,
+      });
+      await recordRebateAudit(tx, {
+        event: "PAYOUT_DENIED",
+        actor: `admin:${adminUserId}`,
+        userId: request.userId,
+        amountCents: request.amountCents,
+        details: { payoutRequestId: request.id, reason, rebateBalanceAfterCents: newBalance },
       });
 
       await tx
