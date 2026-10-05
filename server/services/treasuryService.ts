@@ -312,7 +312,12 @@ class TreasuryService {
       ));
   }
 
-  async consumeReservation(purchaseIntentId: string, redemptionId: string, txOrDb?: any): Promise<void> {
+  /**
+   * Consume the ACTIVE reservation. With `usedCents` less than the reserved amount
+   * (price lower than applied), only that amount is recorded as margin used; the rest
+   * is freed because only ACTIVE reservations count against the pool.
+   */
+  async consumeReservation(purchaseIntentId: string, redemptionId: string, txOrDb?: any, usedCents?: number): Promise<void> {
     const executeConsume = async (tx: any) => {
       const [reservation] = await tx
         .select()
@@ -339,7 +344,7 @@ class TreasuryService {
         .insert(marginUsage)
         .values({
           redemptionId,
-          amountCents: reservation.reservedCents,
+          amountCents: usedCents === undefined ? reservation.reservedCents : Math.min(usedCents, reservation.reservedCents),
         });
     };
 

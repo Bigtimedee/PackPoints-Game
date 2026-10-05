@@ -14,6 +14,7 @@ import {
   type RedemptionCredit,
 } from "@shared/schema";
 import { treasuryService } from "./treasuryService";
+import { walletService } from "./walletService";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 
@@ -208,11 +209,20 @@ class RebateService {
     });
   }
 
-  async adminGrant(purchaseIntentId: string): Promise<RebateGrantResult> {
+  /**
+   * Admin grant. `actualPriceCents` is the real purchase price the admin confirmed.
+   * When it is below the price the user applied against, credit and PackPTS spent are
+   * prorated and the unused PackPTS are refunded. At or above the applied price: full credit.
+   */
+  async adminGrant(purchaseIntentId: string, actualPriceCents?: number): Promise<RebateGrantResult> {
+    if (actualPriceCents !== undefined && (!Number.isInteger(actualPriceCents) || actualPriceCents <= 0)) {
+      throw new Error("Actual price must be a positive whole number of cents");
+    }
     return this.grantForIntent({
       purchaseIntentId,
       method: "ADMIN_GRANT",
       skipReview: true,
+      actualPriceCents,
     });
   }
 
@@ -298,6 +308,7 @@ class RebateService {
     skipReview: boolean;
     attributedPurchaseId?: string;
     outboundClickId?: string;
+    actualPriceCents?: number;
   }): Promise<RebateGrantResult> {
     const result = await db.transaction(async (tx) => {
       const [intent] = await tx
@@ -362,7 +373,7 @@ class RebateService {
         throw new Error(`Cannot grant: intent status is ${intent.status}`);
       }
 
-      const [credit] = await tx
+      let [credit] = await tx
         .select()
         .from(redemptionCredit)
         .where(eq(redemptionCredit.purchaseIntentId, intent.id))
@@ -370,6 +381,34 @@ class RebateService {
       if (!credit) throw new Error("Redemption credit not found for this purchase intent");
       if (credit.status === "REVERSED") {
         throw new Error("Cannot grant a reversed redemption");
+      }
+
+      // Price lower than applied (offer, auction, partial order): prorate credit and
+      // PackPTS spent, and refund the PackPTS that are no longer needed.
+      let usedReservationCents: number | undefined;
+      if (opts.method === "ADMIN_GRANT" && opts.actualPriceCents !== undefined && opts.actualPriceCents < intent.priceCents) {
+        const prorated = prorateRedemption(credit.creditCents, credit.packptsSpent, intent.priceCents, opts.actualPriceCents);
+        if (prorated.creditCents <= 0) {
+          throw new Error("Actual price is too low for any credit. Deny the claim instead.");
+        }
+        if (prorated.refundPackpts > 0) {
+          const refund = await walletService.earn(
+            intent.userId,
+            prorated.refundPackpts,
+            "Partial refund: purchase price was lower than the price applied",
+            `partial-refund:${intent.id}`,
+            undefined,
+            tx,
+            { source: "redemption", eventType: "redemption_partial_refund", refType: "purchase_intent", refId: String(intent.id) },
+          );
+          if (!refund.success) throw new Error(`Partial refund failed: ${refund.error}`);
+        }
+        [credit] = await tx
+          .update(redemptionCredit)
+          .set({ creditCents: prorated.creditCents, packptsSpent: prorated.keptPackpts })
+          .where(eq(redemptionCredit.id, credit.id))
+          .returning();
+        usedReservationCents = prorated.creditCents;
       }
 
       // Fail closed: only verified (EPN postback) or admin grants may credit.
@@ -402,7 +441,7 @@ class RebateService {
         };
       }
 
-      await treasuryService.consumeReservation(intent.id, credit.id, tx);
+      await treasuryService.consumeReservation(intent.id, credit.id, tx, usedReservationCents);
 
       const [wallet] = await tx
         .select()
@@ -725,6 +764,21 @@ class RebateService {
 }
 
 export const rebateService = new RebateService();
+
+/** Pure proration used when the real price is below the applied price. Rounds in the house's favor on credit. */
+export function prorateRedemption(
+  creditCents: number,
+  packptsSpent: number,
+  appliedPriceCents: number,
+  actualPriceCents: number,
+): { creditCents: number; keptPackpts: number; refundPackpts: number } {
+  if (actualPriceCents >= appliedPriceCents) {
+    return { creditCents, keptPackpts: packptsSpent, refundPackpts: 0 };
+  }
+  const credit = Math.floor((creditCents * actualPriceCents) / appliedPriceCents);
+  const kept = Math.min(packptsSpent, Math.ceil((packptsSpent * actualPriceCents) / appliedPriceCents));
+  return { creditCents: credit, keptPackpts: kept, refundPackpts: packptsSpent - kept };
+}
 
 /**
  * Persist an EPN conversion and grant matching marketplace cashback.

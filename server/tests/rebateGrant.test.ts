@@ -22,7 +22,7 @@ import {
 import { walletService } from "../services/walletService";
 import { treasuryService } from "../services/treasuryService";
 import { profitGuardrailService } from "../services/profitGuardrailService";
-import { rebateService, processEpnPostback } from "../services/rebateService";
+import { rebateService, processEpnPostback, prorateRedemption } from "../services/rebateService";
 
 describe("marketplace cashback grant", () => {
   const suffix = randomUUID().slice(0, 8);
@@ -372,5 +372,55 @@ describe("marketplace cashback grant", () => {
     await rebateService.adminDenyPayout(req.requestId!, "admin", "could not send");
     const restored = (await walletService.getWallet(userId))!.rebateBalanceCents;
     expect(restored).toBe(wallet!.rebateBalanceCents);
+  });
+  it("prorateRedemption: full at or above applied price, rounds credit down, PackPTS kept up", () => {
+    expect(prorateRedemption(1000, 500, 10000, 10000)).toEqual({ creditCents: 1000, keptPackpts: 500, refundPackpts: 0 });
+    expect(prorateRedemption(1000, 500, 10000, 12000)).toEqual({ creditCents: 1000, keptPackpts: 500, refundPackpts: 0 });
+    expect(prorateRedemption(1000, 500, 10000, 5000)).toEqual({ creditCents: 500, keptPackpts: 250, refundPackpts: 250 });
+    const odd = prorateRedemption(999, 501, 10000, 3333);
+    expect(odd.creditCents).toBe(332);
+    expect(odd.keptPackpts + odd.refundPackpts).toBe(501);
+  });
+
+  it("admin grant at a lower real price prorates credit and refunds unused PackPTS, once", async () => {
+    const { quote, applied } = await applyOnListing("ebay", 500, 10_000);
+    const afterApply = await walletService.getWallet(userId);
+    const rebateBefore = afterApply!.rebateBalanceCents;
+    const ptsBefore = afterApply!.balance;
+
+    await rebateService.confirmPurchase(userId, quote.purchaseIntentId, { orderId: "PARTIAL-1" });
+    await expect(rebateService.adminGrant(quote.purchaseIntentId, -5)).rejects.toThrow(/positive/i);
+    const granted = await rebateService.adminGrant(quote.purchaseIntentId, 5_000);
+    expect(granted.granted).toBe(true);
+
+    const expectedCredit = Math.floor(applied.creditCents / 2);
+    const [credit] = await db.select().from(redemptionCredit).where(eq(redemptionCredit.purchaseIntentId, quote.purchaseIntentId));
+    expect(credit.creditCents).toBe(expectedCredit);
+    expect(credit.packptsSpent).toBe(250);
+
+    const w = await walletService.getWallet(userId);
+    expect(w!.rebateBalanceCents).toBe(rebateBefore + expectedCredit);
+    expect(w!.balance).toBe(ptsBefore + 250);
+
+    const [used] = await db.select().from(marginUsage).where(eq(marginUsage.redemptionId, credit.id));
+    expect(used.amountCents).toBe(expectedCredit);
+
+    // Repeat grant changes nothing.
+    const again = await rebateService.adminGrant(quote.purchaseIntentId, 5_000);
+    expect(again.alreadyGranted).toBe(true);
+    const w2 = await walletService.getWallet(userId);
+    expect(w2!.balance).toBe(w!.balance);
+    expect(w2!.rebateBalanceCents).toBe(w!.rebateBalanceCents);
+  });
+
+  it("admin grant at or above the applied price credits in full with no refund", async () => {
+    const { quote, applied } = await applyOnListing("ebay", 500, 10_000);
+    const before = await walletService.getWallet(userId);
+    await rebateService.confirmPurchase(userId, quote.purchaseIntentId, { orderId: "FULL-1" });
+    const granted = await rebateService.adminGrant(quote.purchaseIntentId, 10_000);
+    expect(granted.granted).toBe(true);
+    const after = await walletService.getWallet(userId);
+    expect(after!.rebateBalanceCents).toBe(before!.rebateBalanceCents + applied.creditCents);
+    expect(after!.balance).toBe(before!.balance);
   });
 });

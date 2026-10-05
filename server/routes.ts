@@ -8864,7 +8864,12 @@ export async function registerRoutes(
   app.post("/api/admin/redemption/intents/:id/grant", isAuthenticated, requireAdmin, async (req: any, res) => {
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
-      const result = await profitGuardrailService.adminGrantConfirmed(req.params.id);
+      const raw = req.body?.actualPriceCents;
+      const actualPriceCents = raw === undefined || raw === null || raw === "" ? undefined : Number(raw);
+      if (actualPriceCents !== undefined && (!Number.isInteger(actualPriceCents) || actualPriceCents <= 0)) {
+        return res.status(400).json({ error: "actualPriceCents must be a positive whole number" });
+      }
+      const result = await profitGuardrailService.adminGrantConfirmed(req.params.id, actualPriceCents);
       res.json(result);
     } catch (error: any) {
       console.error("Error granting confirmed redemption:", error);
