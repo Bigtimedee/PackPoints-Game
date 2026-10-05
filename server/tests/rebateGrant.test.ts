@@ -122,37 +122,46 @@ describe("marketplace cashback grant", () => {
     return { quote, applied };
   }
 
-  it("user confirm grants USD cashback and is idempotent", async () => {
+  it("user claim never credits on its own, at any amount; admin review grants it", async () => {
     const { quote, applied } = await applyOnListing("goldin", 500);
+    expect(applied.creditCents).toBeLessThan(2500);
 
     await expect(
       rebateService.confirmPurchase(userId, quote.purchaseIntentId, {})
     ).rejects.toThrow(/required/i);
 
-    const granted = await rebateService.confirmPurchase(userId, quote.purchaseIntentId, {
+    const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    const claimed = await rebateService.confirmPurchase(userId, quote.purchaseIntentId, {
       orderId: "GOLDIN-1",
       evidenceNote: "bought it",
     });
-    expect(granted.granted).toBe(true);
-    expect(granted.creditCents).toBe(applied.creditCents);
+    expect(claimed.granted).toBe(false);
+    expect(claimed.heldForReview).toBe(true);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before);
 
-    const wallet = await walletService.getWallet(userId);
-    expect(wallet?.rebateBalanceCents).toBe(applied.creditCents);
-
+    // Repeating the claim still does not credit.
     const again = await rebateService.confirmPurchase(userId, quote.purchaseIntentId, {
       orderId: "GOLDIN-1",
     });
-    expect(again.alreadyGranted).toBe(true);
-    const wallet2 = await walletService.getWallet(userId);
-    expect(wallet2?.rebateBalanceCents).toBe(applied.creditCents);
+    expect(again.granted).toBe(false);
+    expect(again.heldForReview).toBe(true);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before);
+
+    const heldReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
+    expect(heldReceipt?.intent.status).toBe("PURCHASE_CONFIRMED");
+    expect(heldReceipt?.credit?.status).not.toBe("GRANTED");
+
+    const granted = await rebateService.adminGrant(quote.purchaseIntentId);
+    expect(granted.granted).toBe(true);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before + applied.creditCents);
+
+    const idem = await rebateService.adminGrant(quote.purchaseIntentId);
+    expect(idem.alreadyGranted).toBe(true);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before + applied.creditCents);
 
     const receipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
     expect(receipt?.intent.status).toBe("CREDIT_GRANTED");
-    expect(receipt?.credit?.status).toBe("GRANTED");
-    expect(receipt?.grantMethod).toBe("USER_CONFIRM");
-    expect(receipt?.plaque.grantMethod).toBe("USER_CONFIRM");
-    expect(receipt?.plaque.grantMethodLabel).toBe("You confirmed");
-    expect(receipt?.plaque.chip.label).toBe("CREDIT_GRANTED");
+    expect(receipt?.grantMethod).toBe("ADMIN_GRANT");
     expect(receipt?.honesty).toMatch(/Partner checkout unchanged/i);
   });
 
@@ -273,6 +282,58 @@ describe("marketplace cashback grant", () => {
     const adminReceipt = await rebateService.getReceipt(userId, quote.purchaseIntentId);
     expect(adminReceipt?.grantMethod).toBe("ADMIN_GRANT");
     expect(adminReceipt?.plaque.grantMethodLabel).toBe("PackPTS review");
+  });
+
+  async function applyEbay(listing: string, priceCents: number, packpts: number) {
+    const quote = await profitGuardrailService.createQuote(
+      userId, "ebay", listing, `https://www.ebay.com/itm/${listing}`, priceCents, "usd", `Card ${listing}`
+    );
+    const applied = await profitGuardrailService.applyRedemption(userId, quote.purchaseIntentId, packpts);
+    expect(applied.success).toBe(true);
+    const customid = `packpts:u_${userId.slice(0, 12)}:i_${listing.slice(0, 16)}:t_${Date.now()}`;
+    await db.insert(outboundClicks).values({
+      source: "ebay", listingId: listing, destinationUrl: `https://www.ebay.com/itm/${listing}`,
+      outboundUrl: `https://www.ebay.com/itm/${listing}?campid=1`, customId: customid, userId,
+    });
+    return { quote, applied, customid };
+  }
+
+  it("multi-card order: each listing matches its own postback and credits once", async () => {
+    const a = await applyEbay(`multiA-${suffix}`, 8000, 500);
+    const b = await applyEbay(`multiB-${suffix}`, 5000, 400);
+    const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    const ra = await processEpnPostback({ customid: a.customid, item_id: `multiA-${suffix}`, transaction_id: `mA-${suffix}`, sale_price: "80.00" });
+    const rb = await processEpnPostback({ customid: b.customid, item_id: `multiB-${suffix}`, transaction_id: `mB-${suffix}`, sale_price: "50.00" });
+    expect(ra.grants).toHaveLength(1);
+    expect(rb.grants).toHaveLength(1);
+    const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    expect(after).toBe(before + a.applied.creditCents + b.applied.creditCents);
+  });
+
+  it("quantity: a total of k x the listing price (k copies) matches; non-multiples do not", async () => {
+    const { epnPriceMatches } = await import("../services/epnVerification");
+    expect(epnPriceMatches(5000, 5000)).toBe(true);
+    expect(epnPriceMatches(5000, 10000)).toBe(true);
+    expect(epnPriceMatches(5000, 50000)).toBe(true);
+    expect(epnPriceMatches(5000, 55000)).toBe(false); // 11 copies, over the limit
+    expect(epnPriceMatches(5000, 7500)).toBe(false);
+    expect(epnPriceMatches(5000, 4999)).toBe(false);
+    const q = await applyEbay(`qty-${suffix}`, 6000, 300);
+    const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    const r = await processEpnPostback({ customid: q.customid, item_id: `qty-${suffix}`, transaction_id: `q-${suffix}`, sale_price: "120.00" });
+    expect(r.grants).toHaveLength(1);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before + q.applied.creditCents);
+  });
+
+  it("price change (offer/auction/partial): no auto credit, held for admin with the reported total", async () => {
+    const q = await applyEbay(`chg-${suffix}`, 9000, 500);
+    const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    const r = await processEpnPostback({ customid: q.customid, item_id: `chg-${suffix}`, transaction_id: `c-${suffix}`, sale_price: "75.00" });
+    expect(r.grants).toHaveLength(0);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before);
+    const [intent] = await db.select().from(externalPurchaseIntent).where(eq(externalPurchaseIntent.id, q.quote.purchaseIntentId));
+    expect(intent.status).toBe("PURCHASE_CONFIRMED");
+    expect(intent.evidenceNote).toMatch(/\$75\.00.*\$90\.00/);
   });
 
   it("listReceipts includes CREATED intents as PENDING chip receipts", async () => {

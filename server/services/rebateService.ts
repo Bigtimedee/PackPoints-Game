@@ -17,7 +17,11 @@ import { treasuryService } from "./treasuryService";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 
-export const REVIEW_THRESHOLD_CENTS = 2500; // $25 user-attested confirms need admin
+/**
+ * Legacy $25 threshold. Kept for reference only: a user claim (USER_CONFIRM) is
+ * unverified, so it is held for admin review at every amount (see grantForIntent).
+ */
+export const REVIEW_THRESHOLD_CENTS = 2500;
 
 export type RebateGrantMethod = "EPN_POSTBACK" | "USER_CONFIRM" | "ADMIN_GRANT";
 
@@ -181,7 +185,8 @@ class RebateService {
 
   /**
    * Confirm a purchase the user attests they completed on eBay/Goldin.
-   * Persists evidence. Auto-grants under $25; holds high-value for admin.
+   * Persists evidence and holds the claim for admin review at any amount.
+   * A user claim is never verified against eBay/Goldin, so it never credits on its own.
    */
   async confirmPurchase(
     userId: string,
@@ -260,6 +265,21 @@ class RebateService {
       or(eq(externalPurchaseIntent.status, "APPROVED"), eq(externalPurchaseIntent.status, "PURCHASE_CONFIRMED")),
     ));
     const matches = intents.filter(intent => matchesEpnIntent(intent, click, input.salePriceCents!));
+    if (matches.length === 0) {
+      // Same user, item and click but a different total (auction, accepted offer, price change,
+      // partial order). Never auto-credit: hold it for admin review with the reported total.
+      const sameItem = intents.filter(intent => matchesEpnIntent(intent, click, intent.priceCents));
+      if (sameItem.length === 1) {
+        const it = sameItem[0];
+        const note = `EPN reported $${(input.salePriceCents / 100).toFixed(2)} but the applied listing price was $${(it.priceCents / 100).toFixed(2)}. Needs admin review.`;
+        await db.update(externalPurchaseIntent).set({
+          status: "PURCHASE_CONFIRMED",
+          evidenceNote: it.evidenceNote ? `${it.evidenceNote}\n${note}` : note,
+          updatedAt: new Date(),
+        }).where(and(eq(externalPurchaseIntent.id, it.id), eq(externalPurchaseIntent.userId, input.userId)));
+      }
+      return [];
+    }
     if (matches.length !== 1) return []; // Never fan one conversion out across multiple applies.
     return [await this.grantForIntent({
       purchaseIntentId: matches[0].id,
@@ -352,7 +372,9 @@ class RebateService {
         throw new Error("Cannot grant a reversed redemption");
       }
 
-      if (!opts.skipReview && credit.creditCents >= REVIEW_THRESHOLD_CENTS) {
+      // Fail closed: only verified (EPN postback) or admin grants may credit.
+      // A user-submitted claim is unverified, so it always waits for admin review.
+      if (opts.method === "USER_CONFIRM" || (!opts.skipReview && credit.creditCents >= REVIEW_THRESHOLD_CENTS)) {
         await tx
           .update(externalPurchaseIntent)
           .set({
@@ -372,7 +394,7 @@ class RebateService {
           packptsSpent: credit.packptsSpent,
           receiptUrl: receiptPath(intent.id),
           message:
-            "Purchase recorded. Cashback of $25 or more is held for review and will be granted shortly.",
+            "Claim received. Cashback is credited after PackPTS reviews your purchase details.",
           userId: intent.userId,
           listingTitle: intent.listingTitle,
           source: intent.source,

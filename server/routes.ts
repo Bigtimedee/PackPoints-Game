@@ -4159,6 +4159,7 @@ export async function registerRoutes(
         condition: listing.condition || null,
         endsAt: listing.endTime || null,
         outboundUrl: marketplaceService.generateListingWithOutboundUrl(listing, baseUrl),
+        listingToken: marketplaceService.generateListingToken(listing),
       }));
 
       res.json({
@@ -4489,6 +4490,7 @@ export async function registerRoutes(
           condition: listing.condition || null,
           endsAt: listing.endTime || null,
           outboundUrl: marketplaceService.generateListingWithOutboundUrl(listing, baseUrl),
+          listingToken: marketplaceService.generateListingToken(listing),
         }));
 
         results.push({
@@ -8431,7 +8433,22 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
 
-      const { source, listingId, listingUrl, priceCents, currency, cardhedgeCardId, listingTitle } = parsed.data;
+      const { source, listingId, listingToken, cardhedgeCardId } = parsed.data;
+
+      // PackPTS may only be applied to listings this app showed. The signed token
+      // is the proof; price, url and title come from it, never from the client.
+      const { verifyDiscoveredListing } = await import("./services/marketplace/outbound");
+      const discovered = verifyDiscoveredListing(listingToken, { source, listingId });
+      if (!discovered) {
+        return res.status(400).json({
+          error: "listing_not_discovered",
+          message: "PackPTS can only be applied to eBay or Goldin listings found in PackPTS. Refresh the listings and try again.",
+        });
+      }
+      const listingUrl = discovered.listingUrl;
+      const priceCents = discovered.priceCents;
+      const currency = discovered.currency;
+      const listingTitle = discovered.title;
 
       // Price validation against CardHedge market data (non-blocking; advisory flag)
       let priceValidation: { valid: boolean; marketPriceCents: number | null; ratio: number | null } = {
@@ -8498,7 +8515,7 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      const { items } = req.body as { items: Array<{ provider: "ebay" | "goldin"; externalId: string; priceCents: number; currency?: string }> };
+      const { items } = req.body as { items: Array<{ provider: "ebay" | "goldin"; externalId: string; priceCents: number; currency?: string; listingToken?: string }> };
       
       if (!items || !Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ error: "items array required" });
@@ -8546,14 +8563,17 @@ export async function registerRoutes(
         }
         
         try {
-          // Create quote using existing service
+          // Only listings this app showed can be quoted; price comes from the signed token.
+          const { verifyDiscoveredListing } = await import("./services/marketplace/outbound");
+          const discovered = verifyDiscoveredListing(item.listingToken, { source: item.provider, listingId: item.externalId });
+          if (!discovered) throw new Error("listing_not_discovered");
           const quote = await profitGuardrailService.createQuote(
             userId,
             item.provider,
             item.externalId,
-            "", // listingUrl not needed for batch preview
-            item.priceCents,
-            item.currency || "USD"
+            discovered.listingUrl,
+            discovered.priceCents,
+            discovered.currency
           );
           
           // Transform to spec format

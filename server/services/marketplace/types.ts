@@ -45,5 +45,9 @@ export interface OutboundTokenPayload {
   source: MarketplaceSource;
   listingId: string;
   destinationUrl: string;
+  /** Price the server saw when it served the listing (cents). Signed, so clients cannot change it. */
+  priceCents?: number;
+  currency?: string;
+  title?: string;
   expiresAt: number;
 }
