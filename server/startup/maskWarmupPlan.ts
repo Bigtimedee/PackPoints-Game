@@ -41,17 +41,31 @@ export function setNeedsMaskWarmup(input: {
   return input.distinctBakedPlayers < target;
 }
 
-/** Unbaked, non-failed cards. Eight distinct players first, then everyone else. */
+/**
+ * Unbaked, non-failed cards. Design-pinned covers first (picks, then
+ * alternates, in pinned order), then eight distinct players, then everyone
+ * else. Baking pins first keeps /sets covers on the pinned order after a boot
+ * cache reset instead of falling through to alternates while picks rebake.
+ */
 export function orderWarmupCards<T extends { id: string; player: string | null }>(
   cards: T[],
   opts: {
     isBaked: (id: string) => boolean;
     isFailed: (id: string) => boolean;
     coverTarget?: number;
+    pinnedIds?: readonly string[];
   },
 ): { covers: T[]; rest: T[]; ordered: T[] } {
   const pending = cards.filter((card) => !opts.isBaked(card.id) && !opts.isFailed(card.id));
-  const covers = pickCoverSlots(pending, opts.coverTarget ?? MASK_WARMUP_COVER_TARGET);
+  const byId = new Map(pending.map((card) => [card.id, card] as const));
+  const pinned: T[] = [];
+  for (const id of opts.pinnedIds ?? []) {
+    const card = byId.get(id);
+    if (card && !pinned.includes(card)) pinned.push(card);
+  }
+  const pinnedSet = new Set(pinned.map((card) => card.id));
+  const picked = pickCoverSlots(pending.filter((card) => !pinnedSet.has(card.id)), opts.coverTarget ?? MASK_WARMUP_COVER_TARGET);
+  const covers = [...pinned, ...picked];
   const coverIds = new Set(covers.map((card) => card.id));
   const rest = pending.filter((card) => !coverIds.has(card.id));
   return { covers, rest, ordered: [...covers, ...rest] };

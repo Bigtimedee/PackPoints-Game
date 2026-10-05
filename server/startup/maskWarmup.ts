@@ -10,6 +10,7 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { gameSets, playableCards } from "@shared/schema";
 import { eligibleDealFilter } from "../services/playableSetEligibility";
 import { readyMaskedCardIds } from "../services/setCovers";
+import { listedPinnedCoverIds } from "../config/pinnedCovers";
 import { readMaskFailureReason } from "../masking/maskReadySidecar";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { enqueueJob, jobQueueTableExists, runNextPendingJob, registerJob } from "../jobs/pgJobQueue";
@@ -80,6 +81,7 @@ export async function runSetWarmup(opts: {
   concurrency?: number;
   shouldStop?: () => boolean;
   log?: (message: string) => void;
+  pinnedIds?: readonly string[];
 }): Promise<SetWarmupCounts> {
   const log = opts.log ?? ((message) => console.log(message));
   const shouldStop = opts.shouldStop ?? (() => warmupStop);
@@ -87,6 +89,7 @@ export async function runSetWarmup(opts: {
   const { covers, ordered } = orderWarmupCards(opts.cards, {
     isBaked: opts.isBaked,
     isFailed: opts.isFailed,
+    pinnedIds: opts.pinnedIds,
   });
   const counts: SetWarmupCounts = { warmed: 0, failed: 0, skipped: opts.cards.length - ordered.length };
   log(`[MaskWarmup] set=${opts.setName} id=${opts.setId} queued=${ordered.length} covers=${covers.length} skipped=${counts.skipped}`);
@@ -170,6 +173,7 @@ async function warmOneSet(setId: string, setName: string, cards: Array<{ id: str
     isFailed: (id) => readMaskFailureReason(id) != null,
     bake: bakeWarmCard,
     shouldStop: () => warmupStop,
+    pinnedIds: listedPinnedCoverIds(setId),
   });
 }
 

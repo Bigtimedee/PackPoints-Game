@@ -256,5 +256,18 @@ describe("stock placeholder images", () => {
     expect(rows.find((r) => r.id === a.id)?.isPlayable).toBe(false);
     expect(rows.find((r) => r.id === a.id)?.blockedReason).toBe("stock_placeholder_image");
     expect(rows.find((r) => r.id === b.id)?.isPlayable).toBe(true);
+
+    // The card-pool refresh job must not undo the retire (the stock image still loads).
+    const { cardPoolRefreshCandidateFilter, restorePlayableIfMaskAllows } = await import("../services/cardPoolRefresh");
+    const { and } = await import("drizzle-orm");
+    const candidates = await db.select({ id: playableCards.id }).from(playableCards)
+      .where(and(eq(playableCards.id, a.id), cardPoolRefreshCandidateFilter()));
+    expect(candidates).toEqual([]);
+    const [retired] = await db.select().from(playableCards).where(eq(playableCards.id, a.id));
+    expect(await restorePlayableIfMaskAllows(retired, stock)).toBe(false);
+    expect(await restorePlayableIfMaskAllows({ ...retired, blockedReason: null }, stock)).toBe(false);
+    const [still] = await db.select().from(playableCards).where(eq(playableCards.id, a.id));
+    expect(still.isPlayable).toBe(false);
+    expect(still.blockedReason).toBe("stock_placeholder_image");
   });
 });
