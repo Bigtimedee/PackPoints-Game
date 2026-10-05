@@ -79,4 +79,13 @@ describe("mask warmup plan", () => {
     expect(planned.covers).toHaveLength(8);
     expect(planned.ordered.slice(0, 8)).toEqual(planned.covers);
   });
+
+  it("bakes Design-pinned covers first, picks then alternates, in pinned order", () => {
+    const pins = ["card-9", "card-3", "card-7", "missing-id", "card-10"];
+    const planned = orderWarmupCards(cards, { isBaked: (id) => id === "card-7", isFailed: () => false, pinnedIds: pins });
+    expect(planned.ordered.slice(0, 3).map((c) => c.id)).toEqual(["card-9", "card-3", "card-10"]);
+    expect(new Set(planned.ordered.map((c) => c.id)).size).toBe(planned.ordered.length);
+    expect(planned.ordered.map((c) => c.id)).not.toContain("card-7");
+    expect(planned.ordered).toHaveLength(11);
+  });
 });

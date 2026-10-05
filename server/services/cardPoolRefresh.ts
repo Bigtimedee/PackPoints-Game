@@ -6,6 +6,7 @@ import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets
 import { fetchCardDetailsNormalized, isCardHedgeConfigured } from "./cardhedge/client";
 import { isPlaceholderUrl, MIN_VALID_IMAGE_SIZE } from "./imageValidation";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
+import { isStockPlaceholderImage } from "./setFillMissing";
 import { MASK_DEAL_BLOCK_REASONS, refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { currentMaskRefusalIds } from "../masking/maskReadySidecar";
 import { blockedCardIdClause, isBlockedCardIdRow } from "../lib/cardBlocklist";
@@ -30,13 +31,16 @@ const MAX_FAILURE_COUNT_FOR_REVALIDATION = 5;
  * Cards on BLOCKED_CARD_ID_RULES (by id, or the same row after a re-import)
  * stay out too.
  */
+/** Set by fill-missing retire-placeholders; the refresh job must not undo it. */
+const STOCK_PLACEHOLDER_REASON = "stock_placeholder_image";
+
 export function cardPoolRefreshCandidateFilter(): SQL {
   const filters: SQL[] = [
     eq(playableCards.isPlayable, false),
     lt(playableCards.imageFailureCount, MAX_FAILURE_COUNT_FOR_REVALIDATION),
     or(
       isNull(playableCards.blockedReason),
-      notInArray(playableCards.blockedReason, [...MASK_DEAL_BLOCK_REASONS]),
+      notInArray(playableCards.blockedReason, [...MASK_DEAL_BLOCK_REASONS, STOCK_PLACEHOLDER_REASON]),
     )!,
   ];
   const refusedIds = [...currentMaskRefusalIds()];
@@ -394,6 +398,10 @@ export async function restorePlayableIfMaskAllows(
 ): Promise<boolean> {
   if (isBlockedCardIdRow(card)) {
     console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: blocked card id`);
+    return false;
+  }
+  if (card.blockedReason === STOCK_PLACEHOLDER_REASON || isStockPlaceholderImage(imageUrl)) {
+    console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: stock placeholder image`);
     return false;
   }
   const maskRefusal = refusedAtCurrentMask(card);
