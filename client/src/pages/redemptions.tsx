@@ -208,7 +208,7 @@ function ReceiptDetail() {
             <CardTitle>I purchased. Claim rebate</CardTitle>
             <CardDescription style={{ color: RECEIPT_COLORS.muted }}>
               {RECEIPT_COPY.confirmToUnlock}. {RECEIPT_COPY.partnerCheckoutUnchanged}. PackPTS reserved {rebateUsd}.
-              Rebates of $25 or more stay PURCHASE_CONFIRMED with Credit pending review until PackPTS review finishes.
+              Claims stay PURCHASE_CONFIRMED with Credit pending review until PackPTS confirms the purchase.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

@@ -146,6 +146,7 @@ interface LiveListing {
   condition: string | null;
   endsAt: string | null;
   outboundUrl?: string;
+  listingToken?: string;
 }
 
 interface LiveListingsResponse {
@@ -266,10 +267,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
       const res = await apiRequest("POST", "/api/marketplace/redemption/quote", {
         source: listing.source,
         listingId: listing.id,
-        listingUrl: listing.destinationUrl,
-        priceCents: listing.priceCents || 0,
-        currency: listing.currency || "usd",
-        listingTitle: listing.title,
+        listingToken: listing.listingToken,
       });
       return res.json() as Promise<QuoteResult>;
     },
@@ -762,6 +760,7 @@ export default function Marketplace() {
           externalId: l.id,
           priceCents: l.priceCents || 0,
           currency: l.currency || "USD",
+          listingToken: l.listingToken,
         }));
       if (items.length === 0) return { quotes: {} };
       const res = await apiRequest("POST", "/api/marketplace/redemption/quote-batch", { items });

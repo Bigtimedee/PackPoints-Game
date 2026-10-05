@@ -20,6 +20,18 @@ export function canonicalEbayItem(value: string): string {
   return restId ? restId[1] : value;
 }
 
+export const MAX_EPN_QUANTITY = 10;
+
+/**
+ * eBay reports the line total. A listing bought in quantity k (k identical copies)
+ * reports k x the unit price the app showed. Any other total is not auto-matched.
+ */
+export function epnPriceMatches(intentPriceCents: number, salePriceCents: number): boolean {
+  if (!Number.isInteger(intentPriceCents) || !Number.isInteger(salePriceCents) || intentPriceCents <= 0) return false;
+  if (salePriceCents < intentPriceCents || salePriceCents % intentPriceCents !== 0) return false;
+  return salePriceCents / intentPriceCents <= MAX_EPN_QUANTITY;
+}
+
 export function matchesEpnIntent(
   intent: { userId: string; source: string; listingId: string; priceCents: number; currency: string; createdAt: Date | null },
   click: { id: string; userId: string | null; source: string; listingId: string; createdAt: Date | null },
@@ -28,6 +40,6 @@ export function matchesEpnIntent(
   return !!click.id && !!click.userId && intent.userId === click.userId &&
     intent.source === "ebay" && click.source === "ebay" &&
     canonicalEbayItem(intent.listingId) === canonicalEbayItem(click.listingId) &&
-    intent.currency.toUpperCase() === "USD" && intent.priceCents === salePriceCents &&
+    intent.currency.toUpperCase() === "USD" && epnPriceMatches(intent.priceCents, salePriceCents) &&
     !!intent.createdAt && !!click.createdAt && click.createdAt >= intent.createdAt;
 }

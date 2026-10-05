@@ -2628,8 +2628,11 @@ export type RedemptionCredit = typeof redemptionCredit.$inferSelect;
 export const redemptionQuoteRequestSchema = z.object({
   source: z.enum(["ebay", "goldin"]),
   listingId: z.string().min(1),
-  listingUrl: z.string().url(),
-  priceCents: z.number().int().positive(),
+  // Signed token the server attached to the listing when the app showed it.
+  // Price/url/title are taken from the token; client values are ignored.
+  listingToken: z.string().min(1),
+  listingUrl: z.string().url().optional(),
+  priceCents: z.number().int().positive().optional(),
   currency: z.string().default("usd"),
   cardhedgeCardId: z.string().optional(), // optional: enables price validation vs market data
   listingTitle: z.string().max(300).optional(),

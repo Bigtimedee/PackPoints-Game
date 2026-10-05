@@ -216,15 +216,66 @@ function extractItemIdFromUrl(url: string): string | null {
   }
 }
 
-export function generateListingWithOutboundUrl(
-  listing: { source: MarketplaceSource; listingId: string; url: string },
-  baseUrl: string
-): string {
-  const token = generateOutboundToken({
+type ServedListing = {
+  source: MarketplaceSource;
+  listingId: string;
+  url: string;
+  title?: string;
+  price?: { amount: number; currency: string } | null;
+};
+
+/**
+ * Signed proof that THIS server showed this listing (url, price, title) in the app.
+ * PackPTS can only be applied to listings that carry a valid token.
+ */
+export function generateListingToken(listing: ServedListing): string {
+  return generateOutboundToken({
     source: listing.source,
     listingId: listing.listingId,
     destinationUrl: listing.url,
+    priceCents: listing.price ? Math.round(listing.price.amount * 100) : undefined,
+    currency: listing.price?.currency,
+    title: listing.title?.slice(0, 300),
   });
+}
+
+export interface DiscoveredListing {
+  source: MarketplaceSource;
+  listingId: string;
+  listingUrl: string;
+  priceCents: number;
+  currency: string;
+  title?: string;
+}
+
+/**
+ * Returns the server-trusted listing for a token, or null when the token is
+ * missing, forged, expired, for a different listing, or carries no price.
+ * Callers must use these values, never client-supplied price/url.
+ */
+export function verifyDiscoveredListing(
+  token: string | undefined | null,
+  expected: { source: MarketplaceSource; listingId: string }
+): DiscoveredListing | null {
+  if (!token) return null;
+  const p = validateOutboundToken(token);
+  if (!p || p.source !== expected.source || p.listingId !== expected.listingId) return null;
+  if (!p.destinationUrl || !Number.isInteger(p.priceCents) || (p.priceCents as number) <= 0) return null;
+  return {
+    source: p.source,
+    listingId: p.listingId,
+    listingUrl: p.destinationUrl,
+    priceCents: p.priceCents as number,
+    currency: p.currency || "USD",
+    title: p.title,
+  };
+}
+
+export function generateListingWithOutboundUrl(
+  listing: ServedListing,
+  baseUrl: string
+): string {
+  const token = generateListingToken(listing);
 
   return `${baseUrl}/out/${listing.source}/${listing.listingId}?token=${encodeURIComponent(token)}`;
 }
