@@ -176,8 +176,8 @@ describe("1987 Donruss exclusion blocks", () => {
   it("blocks Ripken #89, Clemente #612 (also after a re-import) and the 4 held PSA slab rows by id", async () => {
     const { isBlockedCardIdRow, BLOCKED_CARD_ID_RULES, DONRUSS_1987_SET_PREFIX } = await import("../lib/cardBlocklist");
     const rules = BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId === DONRUSS_1987_SET_PREFIX);
-    expect(rules).toHaveLength(9);
-    expect(rules.filter((rule) => rule.idOnly)).toHaveLength(4);
+    expect(rules).toHaveLength(15);
+    expect(rules.filter((rule) => rule.idOnly)).toHaveLength(10);
     expect(isBlockedCardIdRow({ id: randomUUID(), gameSetId: DONRUSS_1987_HOLD_ID, player: "Cal Ripken Jr.", number: "89", variant: "Base" })).toBe(true);
     expect(isBlockedCardIdRow({ id: randomUUID(), gameSetId: DONRUSS_1987_HOLD_ID, player: "Roberto Clemente", number: "612", variant: "Base" })).toBe(true);
     expect(isBlockedCardIdRow({ id: "77ae124c-2b13-4077-bd52-4746378d31dd", gameSetId: DONRUSS_1987_HOLD_ID, player: "Len Matuszek", number: "423", variant: "Base" })).toBe(true);
