@@ -191,3 +191,49 @@ describe("1987 Donruss exclusion blocks", () => {
     }
   });
 });
+
+describe("fill-missing prepare (silhouette scan + bake, new cards only)", () => {
+  it("bakes only new unreviewed unrefused cards and never approves", async () => {
+    const { prepareFilledCards } = await import("../services/setFillMissing");
+    const mk = (n: string, extra?: Partial<typeof playableCards.$inferInsert>) => ({
+      id: randomUUID(), gameSetId: DONRUSS_1987_HOLD_ID, cardhedgeCardId: ch(`prep-${n}`), player: `Prep Player ${n}`,
+      set: "1987 Donruss", number: `6${n}`, variant: "Base", imageUrl: `https://img.example/prep-${n}.jpg`, category: "Baseball", isPlayable: true, ...extra,
+    });
+    const fresh = mk("1");
+    const ghost = mk("2");
+    const refused = mk("3");
+    const approved = mk("4");
+    const blockedReason = mk("5", { isPlayable: false, blockedReason: "name_visible_outside_mask" });
+    await db.insert(playableCards).values([fresh, ghost, refused, approved, blockedReason]);
+    await db.insert(cardReviewApprovals).values({ cardId: approved.id, gameSetId: DONRUSS_1987_HOLD_ID, source: "qa", approvedBy: "test", note: "fixture" });
+    const baked: string[] = [];
+    const readySet = new Set<string>();
+    const results: { cardId: string; status: string; reason?: string }[] = [];
+    await prepareFilledCards(DONRUSS_1987_HOLD_ID, [fresh.id, ghost.id, refused.id, approved.id, blockedReason.id, randomUUID()], {
+      analyze: async (url) => ({ isPlaceholder: url.includes("prep-2"), confidence: 90 }),
+      bake: async (id) => { baked.push(id); readySet.add(id); },
+      ready: (id) => readySet.has(id),
+      failure: (id) => (id === refused.id ? "name_visible_outside_mask" : null),
+    }, (r) => results.push(r));
+    const status = Object.fromEntries(results.map((r) => [r.cardId, r.status]));
+    expect(status[fresh.id]).toBe("ready");
+    expect(status[ghost.id]).toBe("silhouette");
+    expect(status[refused.id]).toBe("skipped");
+    expect(status[approved.id]).toBe("skipped");
+    expect(status[blockedReason.id]).toBe("skipped");
+    expect(baked).toEqual([fresh.id]);
+    const rows = await db.select().from(playableCards).where(inArray(playableCards.id, [fresh.id, ghost.id]));
+    expect(rows.find((r) => r.id === fresh.id)?.contentVerified).toBe(true);
+    expect(rows.find((r) => r.id === ghost.id)?.contentVerified).toBe(false);
+    const approvals = await db.select().from(cardReviewApprovals).where(inArray(cardReviewApprovals.cardId, [fresh.id, ghost.id]));
+    expect(approvals).toEqual([]);
+  });
+
+  it("prepare route requires the token and explicit ids", async () => {
+    const url = `${base}/api/qa/sets/${DONRUSS_1987_HOLD_ID}/fill-missing/prepare`;
+    expect((await fetch(url, { method: "POST" })).status).toBe(404);
+    const headers = { "X-QA-Token": TOKEN, "Content-Type": "application/json" };
+    expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({}) })).status).toBe(400);
+    expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({ cardIds: ["nope"] }) })).status).toBe(400);
+  });
+});

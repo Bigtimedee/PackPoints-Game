@@ -323,3 +323,74 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     .where(and(eq(cardhedgeImportRuns.id, run.id)));
   return report;
 }
+
+export const MAX_PREPARE_FILLED = 200;
+
+export interface FilledPrepareResult {
+  cardId: string;
+  status: "ready" | "refused" | "silhouette" | "skipped" | "error";
+  reason?: string;
+}
+
+export interface FilledPrepareDeps {
+  analyze: (url: string) => Promise<{ isPlaceholder: boolean; confidence: number }>;
+  bake: (cardId: string) => Promise<unknown>;
+  ready: (cardId: string) => boolean;
+  failure: (cardId: string) => string | null;
+}
+
+/**
+ * Silhouette scan, then a v4.6 bake, for explicit cards that fill-missing
+ * inserted. Same steps an admin runs today (Rescan Silhouettes, then held-set
+ * Prepare), limited to rows that are new and untouched:
+ * in this set, playable, no blocked_reason, no review approval, no ready mask,
+ * no mask failure sidecar (a refused card is never re-baked, because a clean
+ * bake would clear its refusal), and not on the blocklist.
+ * A bake schedules the usual surname OCR check. Nothing here approves; every
+ * card stays awaiting_card_review.
+ */
+export async function prepareFilledCards(
+  setId: string,
+  cardIds: string[],
+  deps: FilledPrepareDeps,
+  onResult: (result: FilledPrepareResult) => void,
+): Promise<void> {
+  if (!FILL_MISSING_SETS[setId]) throw new Error("fill-missing not enabled for this set");
+  const { cardNotBlockedSql } = await import("../lib/cardBlocklist");
+  const rows = await db.execute<{ id: string; image_url: string | null; content_verified: boolean | null }>(sql`
+    SELECT playable_cards.id, playable_cards.image_url, playable_cards.content_verified
+    FROM playable_cards
+    WHERE playable_cards.game_set_id = ${setId}
+      AND playable_cards.id IN (${sql.join(cardIds.map((id) => sql`${id}`), sql`, `)})
+      AND playable_cards.is_playable = true
+      AND playable_cards.blocked_reason IS NULL
+      AND playable_cards.quarantine_status = 'OK'
+      AND playable_cards.proposed_unplayable = false
+      AND (playable_cards.content_verified IS NULL OR playable_cards.content_verified = true)
+      AND playable_cards.image_url LIKE 'https://%'
+      AND NOT EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = playable_cards.id)
+      AND ${cardNotBlockedSql("playable_cards", { ignoreHeldSets: true, ignoreCardReview: true })}
+  `);
+  const byId = new Map((rows.rows ?? []).map((r) => [r.id, r]));
+  for (const cardId of cardIds) {
+    const row = byId.get(cardId);
+    if (!row) { onResult({ cardId, status: "skipped", reason: "not_a_new_unreviewed_card" }); continue; }
+    if (deps.failure(cardId)) { onResult({ cardId, status: "skipped", reason: "already_refused" }); continue; }
+    if (deps.ready(cardId)) { onResult({ cardId, status: "skipped", reason: "already_ready" }); continue; }
+    try {
+      if (row.content_verified == null) {
+        const analysis = await deps.analyze(row.image_url!);
+        const placeholder = analysis.isPlaceholder && analysis.confidence >= 50;
+        await db.update(playableCards)
+          .set({ contentVerified: !placeholder, contentVerifiedAt: new Date() })
+          .where(and(eq(playableCards.id, cardId), sql`${playableCards.contentVerified} IS NULL`));
+        if (placeholder) { onResult({ cardId, status: "silhouette" }); continue; }
+      }
+      await deps.bake(cardId);
+      const fail = deps.failure(cardId);
+      onResult(deps.ready(cardId) ? { cardId, status: "ready" } : { cardId, status: "refused", reason: fail ?? "not_ready" });
+    } catch (error) {
+      onResult({ cardId, status: "error", reason: error instanceof Error ? error.message.slice(0, 120) : "failed" });
+    }
+  }
+}
