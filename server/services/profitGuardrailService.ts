@@ -514,9 +514,9 @@ class ProfitGuardrailService {
    * Admin finalizes a high-value redemption that was held at PURCHASE_CONFIRMED
    * pending review. Consumes the reservation and grants the credit.
    */
-  async adminGrantConfirmed(purchaseIntentId: string): Promise<{ success: boolean; message: string }> {
+  async adminGrantConfirmed(purchaseIntentId: string, actualPriceCents?: number): Promise<{ success: boolean; message: string }> {
     const { rebateService } = await import("./rebateService");
-    return rebateService.adminGrant(purchaseIntentId);
+    return rebateService.adminGrant(purchaseIntentId, actualPriceCents);
   }
 
   async getPurchaseIntent(
