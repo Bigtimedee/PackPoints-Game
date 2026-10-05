@@ -487,6 +487,10 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "77ae124c-2b13-4077-bd52-4746378d31dd", number: "423", surname: "matuszek", variant: "base", reason: "PSA slab photo, label reads LEN MATUSZEK", idOnly: true },
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "a2d9c851-a7be-4de7-bd51-6c3355b9cb55", number: "457", surname: "deleon", variant: "base", reason: "PSA slab photo, label reads JOSE DeLEON", idOnly: true },
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "b48be3da-4ef8-4c01-b272-c545c001afef", number: "479", surname: "mclemore", variant: "base", reason: "PSA slab photo, label reads MARK McLEMORE", idOnly: true },
+  // Design held-card review 2026-10-05 ~6:10 PM CT (live 049c47f).
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "588fd816-c7f1-48fe-a2cc-a941cd93e5d4", number: "407", surname: "finley", variant: "base", reason: "jersey back reads INLEY (Design)" },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "b0d05518-8bdd-4623-93e1-dab69dfdc8c1", number: "425", surname: "kingman", variant: "base", reason: "ink autograph across the photo (Design, Ripken rule)" },
+  { gameSetId: DONRUSS_1987_SET_PREFIX, id: "048b210b-1fa2-49d4-ab37-e4bd086d0a19", number: "453", surname: "tekulve", variant: "base", reason: "jersey back reads TEKULVE (Design)" },
 ];
 
 export type BlockedSetNumberRule = {

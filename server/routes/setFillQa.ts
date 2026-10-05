@@ -23,6 +23,7 @@ import {
   MAX_PREPARE_FILLED,
   fillMissingCards,
   prepareFilledCards,
+  retirePlaceholderRows,
   type FilledPrepareResult,
   sanitizeAcceptSets,
   sanitizeQueries,
@@ -115,6 +116,18 @@ export function registerSetFillQaRoutes(app: Express): void {
         console.log(`[FillMissing] set=${setId} job=${job.id} dryRun=${job.dryRun} state=${job.state}`
           + ` inserted=${job.report?.inserted.length ?? 0} candidates=${job.report?.candidates.length ?? 0}`);
       });
+  });
+
+  // POST {dryRun?: boolean (default true)}: list / retire stock-placeholder rows (no delete, never approved rows).
+  app.post("/api/qa/sets/:setId/fill-missing/retire-placeholders", (req, res) => {
+    if (!gate(req, res)) return;
+    const dryRun = (req.body && typeof req.body === "object" && (req.body as Record<string, unknown>).dryRun === false) ? false : true;
+    void retirePlaceholderRows(req.params.setId, dryRun)
+      .then((report) => {
+        console.log(`[FillMissing] retire-placeholders set=${req.params.setId} dryRun=${dryRun} placeholders=${report.placeholderRows} retired=${report.retired.length}`);
+        send(res, 200, report);
+      })
+      .catch(() => { if (!res.headersSent) send(res, 500, { error: "retire failed" }); });
   });
 
   app.post("/api/qa/sets/:setId/fill-missing/prepare", (req, res) => {

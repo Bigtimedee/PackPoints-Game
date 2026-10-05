@@ -16,7 +16,7 @@
  * set already has, and the per-set player denylist (1987 Donruss: Cal Ripken,
  * facsimile signature on the wristband; Roberto Clemente, not in the set).
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { cardhedgeImportRuns, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { DONRUSS_1987_HOLD_ID } from "../config/heldSets";
@@ -103,6 +103,15 @@ function isBaseVariant(variant: string | null | undefined): boolean {
 
 function normSet(value: string | null | undefined): string {
   return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Card Hedge's stock "no photo" image (s3 appforest_uf .../05-Baseball.jpg etc).
+ * card-details returns it for cards with no scan. Same pattern the deal filter
+ * already excludes (playableSetEligibility.ts), so it counts as no image.
+ */
+export function isStockPlaceholderImage(imageUrl: string | null | undefined): boolean {
+  return /s3\.amazonaws\.com\/appforest_uf.*05-(Baseball|Football|Basketball)/i.test(imageUrl || "");
 }
 
 /** PSA slab photo: cert label prints the player name above the mask band. */
@@ -259,10 +268,12 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
       try {
         const res = await cardDetails({ card_id: cand.cardhedgeCardId });
         const img = normalizeImageUrl(res.cards?.[0]?.image);
-        if (img) { cand.imageUrl = img; cand.imageFrom = "details"; detailsImagesFound++; }
+        if (img && !isStockPlaceholderImage(img)) { cand.imageUrl = img; cand.imageFrom = "details"; detailsImagesFound++; }
+        else if (img) bump(skipped, "details_stock_placeholder");
       } catch { /* leave missing */ }
       await new Promise((r) => setTimeout(r, 150));
     }
+    if (cand.imageUrl && isStockPlaceholderImage(cand.imageUrl)) cand.imageUrl = null;
     if (!cand.imageUrl) { bump(skipped, "missing_image"); continue; }
     if (!cand.imageUrl.startsWith("https://")) { bump(skipped, "bad_url"); continue; }
     if (isSlabPhoto(cand.imageUrl)) {
@@ -393,4 +404,42 @@ export async function prepareFilledCards(
       onResult({ cardId, status: "error", reason: error instanceof Error ? error.message.slice(0, 120) : "failed" });
     }
   }
+}
+
+export interface RetirePlaceholderReport {
+  setId: string;
+  dryRun: boolean;
+  placeholderRows: number;
+  approvedPlaceholderRows: number;
+  retired: string[];
+  rows: { id: string; number: string | null; player: string | null; approved: boolean; isPlayable: boolean }[];
+}
+
+/**
+ * Rows in the set whose image is the Card Hedge stock placeholder. They can
+ * never deal (the deal filter drops that URL) but they sit in the review list.
+ * Retire = is_playable false + blocked_reason 'stock_placeholder_image'
+ * (reversible, no delete). Rows with a review approval are listed, never touched.
+ */
+export async function retirePlaceholderRows(setId: string, dryRun: boolean): Promise<RetirePlaceholderReport> {
+  if (!FILL_MISSING_SETS[setId]) throw new Error("fill-missing not enabled for this set");
+  const res = await db.execute<{ id: string; number: string | null; player: string | null; image_url: string | null; is_playable: boolean; approved: boolean }>(sql`
+    SELECT pc.id, pc.number, pc.player, pc.image_url, pc.is_playable,
+      EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = pc.id) AS approved
+    FROM playable_cards pc WHERE pc.game_set_id = ${setId}
+  `);
+  const rows = (res.rows ?? []).filter((r) => isStockPlaceholderImage(r.image_url));
+  const target = rows.filter((r) => !r.approved && r.is_playable);
+  const report: RetirePlaceholderReport = {
+    setId, dryRun, placeholderRows: rows.length, approvedPlaceholderRows: rows.filter((r) => r.approved).length, retired: [],
+    rows: rows.map((r) => ({ id: r.id, number: r.number, player: r.player, approved: Boolean(r.approved), isPlayable: Boolean(r.is_playable) })),
+  };
+  if (dryRun || target.length === 0) return report;
+  const updated = await db.update(playableCards)
+    .set({ isPlayable: false, blockedReason: "stock_placeholder_image", updatedAt: new Date() })
+    .where(and(eq(playableCards.gameSetId, setId), inArray(playableCards.id, target.map((r) => r.id)),
+      sql`NOT EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = ${playableCards.id})`))
+    .returning({ id: playableCards.id });
+  report.retired = updated.map((r) => r.id);
+  return report;
 }
