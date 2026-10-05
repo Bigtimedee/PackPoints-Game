@@ -53,6 +53,11 @@ export const PINNED_SET_COVERS: Readonly<Record<string, PinnedCoverList>> = {
     picks: ["a49bc8e8-9222-4195-809d-d16253619eb9", "9dc6289a-982e-4ce5-a6c0-99bbe7195052", "0389540c-52e1-4e7d-af11-b1ec92c4eb6d", "b7a024cd-6b4a-4afb-85c6-425e26616aad", "d13c5632-2ec0-4dac-86bb-627e44ab46d9", "5325ca93-ce71-415a-bb1b-e226ef9e0fb7", "f20ab3ef-c8a2-4e5a-bbbd-9320a8498a2c", "cecb5369-3e9b-45ed-bcbc-7285b8fc268f"],
     alternates: ["b86c37c0-5a56-402d-b466-7b0d177a6950", "328cbaed-0ecd-43ed-b2e4-ea8ee4aa3694", "916b4205-04a9-4380-a589-d07c7c24ea43", "6c5f0f57-7e78-4c3d-adc5-8e5a335a111d"],
   },
+  "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4": {
+    set: "1987 Donruss Baseball",
+    picks: ["0a79dce3-4a0b-4acc-a8c5-fef5b7b8beaa", "c5edb3da-0688-4ea3-a305-4238ff7f430b", "a3d21bbd-7c66-470f-a29b-c04188da577d", "b9d9cd6d-b2dc-4bed-a359-155b7d38d319", "5c5a365d-c61e-4e1c-83df-c26d3dc4a3c7", "e86503dd-5b91-45bb-8f50-bcdd776f38be", "bd8ed5ca-3832-429b-86b4-1e14a3acd403", "31c802bd-9f73-4226-b374-0e258a4a3ac1"],
+    alternates: ["a66814c1-a284-459b-8050-85019b8f9d69", "009ade24-64d0-4686-9ea6-24fb6391a046", "36f8d267-d35b-4544-aa3b-208bf20a2168", "1e197dc4-5d71-43fe-a7dd-90e1b8f24903"],
+  },
 };
 
 export type CoverListRole = "pick" | "alternate";
