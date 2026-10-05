@@ -176,7 +176,7 @@ describe("1987 Donruss exclusion blocks", () => {
   it("blocks Ripken #89, Clemente #612 (also after a re-import) and the 4 held PSA slab rows by id", async () => {
     const { isBlockedCardIdRow, BLOCKED_CARD_ID_RULES, DONRUSS_1987_SET_PREFIX } = await import("../lib/cardBlocklist");
     const rules = BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId === DONRUSS_1987_SET_PREFIX);
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(9);
     expect(rules.filter((rule) => rule.idOnly)).toHaveLength(4);
     expect(isBlockedCardIdRow({ id: randomUUID(), gameSetId: DONRUSS_1987_HOLD_ID, player: "Cal Ripken Jr.", number: "89", variant: "Base" })).toBe(true);
     expect(isBlockedCardIdRow({ id: randomUUID(), gameSetId: DONRUSS_1987_HOLD_ID, player: "Roberto Clemente", number: "612", variant: "Base" })).toBe(true);
@@ -235,5 +235,26 @@ describe("fill-missing prepare (silhouette scan + bake, new cards only)", () => 
     const headers = { "X-QA-Token": TOKEN, "Content-Type": "application/json" };
     expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({}) })).status).toBe(400);
     expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({ cardIds: ["nope"] }) })).status).toBe(400);
+  });
+});
+
+describe("stock placeholder images", () => {
+  it("treats the Card Hedge 05-Baseball stock image as no image and retires such rows reversibly", async () => {
+    const { isStockPlaceholderImage, retirePlaceholderRows } = await import("../services/setFillMissing");
+    const stock = "https://s3.amazonaws.com/appforest_uf/f1598844013957x762581963247106700/05-Baseball.jpg";
+    expect(isStockPlaceholderImage(stock)).toBe(true);
+    expect(isStockPlaceholderImage("https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/f1730363329358x756484817878209200/crop_image")).toBe(false);
+    const a = { id: randomUUID(), gameSetId: DONRUSS_1987_HOLD_ID, cardhedgeCardId: ch("ph-a"), player: "Stock A", number: "640", variant: "Base", imageUrl: stock, category: "Baseball", isPlayable: true };
+    const b = { ...a, id: randomUUID(), cardhedgeCardId: ch("ph-b"), player: "Stock B", number: "641" };
+    await db.insert(playableCards).values([a, b]);
+    await db.insert(cardReviewApprovals).values({ cardId: b.id, gameSetId: DONRUSS_1987_HOLD_ID, source: "qa", approvedBy: "test", note: "fixture" });
+    const dry = await retirePlaceholderRows(DONRUSS_1987_HOLD_ID, true);
+    expect(dry.retired).toEqual([]);
+    const real = await retirePlaceholderRows(DONRUSS_1987_HOLD_ID, false);
+    expect(real.retired).toEqual([a.id]);
+    const rows = await db.select().from(playableCards).where(inArray(playableCards.id, [a.id, b.id]));
+    expect(rows.find((r) => r.id === a.id)?.isPlayable).toBe(false);
+    expect(rows.find((r) => r.id === a.id)?.blockedReason).toBe("stock_placeholder_image");
+    expect(rows.find((r) => r.id === b.id)?.isPlayable).toBe(true);
   });
 });
