@@ -1,3 +1,4 @@
+import { TOPPS_1988_SET_ID } from "../masking/topps1988Geometry";
 import { MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
 
 /**
@@ -45,7 +46,7 @@ export function cardReviewApprovedClause(alias: CardAlias): string {
 /** Blocklist OR-clause. Donruss fails closed even when the general guard is off. */
 export function cardAwaitingReviewClause(alias: CardAlias, opts?: { ignoreCardReview?: boolean }): string | null {
   if (opts?.ignoreCardReview) return null;
-  const donrussSet = `${alias}.game_set_id = '${MASK_LAYOUT_SET_IDS.donrussBaseball1987}'`;
+  const donrussSet = `${alias}.game_set_id IN ('${MASK_LAYOUT_SET_IDS.donrussBaseball1987}', '${TOPPS_1988_SET_ID}')`;
   // Missing review tables must not enable this new set. Do not reference those
   // tables while the general guard is off, so other legacy sets still work.
   if (!guardEnabled) return donrussSet;
