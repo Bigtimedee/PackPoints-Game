@@ -78,6 +78,46 @@ describe("1988 Topps reviewed diagonal profile", () => {
     expect(topps1988OcrRefusal({ words: [word], timedOut: true, ms: 1 }, "Jim Presley", 1000, 1400)).toBe("topps1988_mask_unverified");
     expect(topps1988OcrRefusal({ words: [word], timedOut: false, ms: 1 }, "Jim Presley", 1000, 1400)).toBe("name_visible_outside_mask");
   });
+  it("keeps the expanded reviewed cohort exact-source bound, with unique UUIDs and no inferred all-card clearance", () => {
+    expect(TOPPS_1988_REVIEWED_SOURCES).toHaveLength(563);
+    expect(new Set(TOPPS_1988_REVIEWED_SOURCES.map(s => s.cardId)).size).toBe(563);
+    for (const s of TOPPS_1988_REVIEWED_SOURCES) {
+      expect(s.cardId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(s.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(s.imageUrl.startsWith("https://")).toBe(true);
+      expect(s.player.length).toBeGreaterThan(0);
+    }
+    expect(CLEARED_SET_IDS).not.toContain(ID);
+  });
+  it("excludes all 16 real OCR refusals and the visually rejected Al Pedrique source", async () => {
+    const excluded = [
+      "24cd0a53-d8dc-49f7-aff6-2774a5bf2923",
+      "3eb38dea-ccf6-4bc8-be29-d934dadd5e3b",
+      "3e7085ee-2c7f-4e16-874b-365bd15abc49",
+      "4bbc8c17-1543-4d2b-a674-5b06a0dc8f36",
+      "78a6b49e-1dba-460c-813f-4958a29ccc5c",
+      "82eede2c-2d3d-475b-a144-74855a8757e8",
+      "960b9b51-31d5-4c75-9bbe-3a1588db3f58",
+      "a37d846a-069b-4038-88c7-0c2be49eaf06",
+      "a67a6684-e1a3-4c3f-96a6-0ddb3311fdf3",
+      "b2b1320e-4e8a-4ebb-854c-caffab00f50a",
+      "b75fb316-251f-446b-b4fd-c3dd336609d4",
+      "cbd05901-1cca-43c1-a6b1-e2cedb0fe487",
+      "d00acc0d-e97b-45f1-8324-ce80f924dd61",
+      "d7f2bb72-da6e-4640-9c5d-9057de9bd2b9",
+      "d9741bb6-0b5c-4546-b640-16a7f70d3a03",
+      "fe159daf-04bf-4835-860d-9b354f7a1bdc",
+      "97265426-25cf-41e5-931f-d36f7adcc7c4"
+];
+    const raw = await sharp({ create: { width: 400, height: 600, channels: 3, background: "white" } }).jpeg().toBuffer();
+    for (const cardId of excluded) {
+      expect(TOPPS_1988_REVIEWED_SOURCES.some(s => s.cardId === cardId)).toBe(false);
+      expect(preparedTopps1988MaskFile(cardId)).toBeNull();
+      const result = await maskCardImage(raw, "not a reviewed player", "1988 Topps Baseball", { cardId, gameSetId: ID });
+      expect(result.coverageOk).toBe(false);
+      expect(result.coverageReason).toBe("topps1988_source_not_reviewed");
+    }
+  });
   it("does not accept all/duplicate/implicit preparation", () => {
     const id = TOPPS_1988_REVIEWED_SOURCES[0].cardId;
     expect(explicitPreparationIds({ reviewed: true, all: true, cardIds: [id] })).toBeNull();
