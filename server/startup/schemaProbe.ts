@@ -172,6 +172,7 @@ export function columnTypeCompatible(sqlType: string, live: LiveColumn): boolean
     const len = varchar[1] ? Number(varchar[1]) : null;
     return (live.charMax ?? null) === len;
   }
+  if (t === "uuid") return data === "uuid" && udt === "uuid";
   if (t === "text") return data === "text" || udt === "text";
   if (t === "text[]") return data === "array" && udt === "_text";
   if (t === "integer" || t === "serial") return data === "integer" || udt === "int4";
@@ -210,6 +211,7 @@ export function compatibleLiveColumn(table: string, column: string, sqlType: str
   if (varchar) {
     return { ...base, dataType: "character varying", udtName: "varchar", charMax: varchar[1] ? Number(varchar[1]) : null };
   }
+  if (t === "uuid") return { ...base, dataType: "uuid", udtName: "uuid" };
   if (t === "text") return { ...base, dataType: "text", udtName: "text" };
   if (t === "text[]") return { ...base, dataType: "ARRAY", udtName: "_text" };
   if (t === "integer" || t === "serial") return { ...base, dataType: "integer", udtName: "int4" };
