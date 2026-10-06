@@ -1,3 +1,4 @@
+import { registerAdminCardInspectionRoutes } from "./adminCardInspection";
 import { registerHeldMaskPreparationRoutes } from "./heldMaskPreparation";
 import type { Express, Request, Response, NextFunction } from "express";
 import { isAuthenticated } from "../auth";
@@ -40,6 +41,7 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
 };
 
 export function registerAdminRoutes(app: Express): void {
+  registerAdminCardInspectionRoutes(app, isAuthenticated, requireAdmin);
   registerHeldMaskPreparationRoutes(app);
   app.get("/api/admin/dashboard", isAuthenticated, requireAdmin, async (_req, res) => {
     try {
