@@ -15,6 +15,8 @@ import { subsetStillUnverified } from "../masking/subsetQuarantine";
 
 import { donrussMaskReadySql } from "../masking/donrussReadiness";
 
+import { topps1988MaskReadySql } from "../masking/topps1988Readiness";
+
 export { refusedAtCurrentMask };
 
 /** playQuestionCount floor. Sets under this are not a public shelf row. */
@@ -33,7 +35,7 @@ type CardAlias = "pc" | "playable_cards";
  * Report mode does not write the band reasons.
  */
 export function maskNameStillCovered(alias: CardAlias): SQL {
-  return maskRefusalStillClearSql(alias);
+  return sql`(${maskRefusalStillClearSql(alias)} AND ${topps1988MaskReadySql(alias)})`;
 }
 
 /**
