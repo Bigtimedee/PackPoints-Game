@@ -55,6 +55,7 @@ export async function verifyAllCards(): Promise<{
         
         try {
           const analysis = await analyzeImageContent(card.imageUrl);
+          if (analysis.analysisFailed) return { cardId: card.id, status: "error" as const, reason: "Image analysis unknown" };
           
           if (analysis.isPlaceholder && analysis.confidence >= PLACEHOLDER_CONFIDENCE_THRESHOLD) {
             // This is a placeholder/silhouette - do NOT verify
