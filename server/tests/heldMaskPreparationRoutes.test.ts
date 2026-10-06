@@ -23,6 +23,12 @@ describe('held mask routes',()=>{
   expect((await fetch(`${base}/${setId}/prepare`,{method:'POST',headers,body:JSON.stringify({cardIds:[cardId]})})).status).toBe(400);
   expect(state.bake).not.toHaveBeenCalled();
  });
+ it('rejects unreviewed Topps IDs before any bake while allowing held review',async()=>{
+  const topps='affd57b8-2b1d-4ea3-9f51-1530d8088e5c';
+  expect((await fetch(`${base}/${topps}/review`,{headers})).status).toBe(200);
+  const response=await fetch(`${base}/${topps}/prepare`,{method:'POST',headers,body:JSON.stringify({reviewed:true,cardIds:[cardId]})});
+  expect(response.status).toBe(422);expect(state.bake).not.toHaveBeenCalled();
+ });
  it('does not bake a cold GET preview or review listing',async()=>{
   state.rows=[{id:cardId,cardId,source:'seed'}];state.file=null;
   expect((await fetch(`${base}/${setId}/preview/${cardId}`,{headers})).status).toBe(409);

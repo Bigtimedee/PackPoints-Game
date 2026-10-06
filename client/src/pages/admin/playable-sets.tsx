@@ -1,5 +1,6 @@
+import { startScanOnce, readScanStatus, type ScanIntent, type ScanJob, type ScanTransport } from "@/lib/adminCardScan";
 import { AdminHeldMaskReview } from "@/components/admin-held-mask-review";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -63,6 +64,7 @@ interface GameSet {
   setName: string;
   league: string | null;
   isActive: boolean;
+  holdReason?: string | null;
   cardhedgeSetQuery: string | null;
   cardhedgeCategory: string | null;
   cardsImportedCount: number;
@@ -266,8 +268,24 @@ export default function AdminPlayableSets() {
   const [purgeTargetSet, setPurgeTargetSet] = useState<GameSet | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetSet, setDeleteTargetSet] = useState<GameSet | null>(null);
-  const [rescanningSetId, setRescanningSetId] = useState<string | null>(null);
-  const [scanningMismatchesSetId, setScanningMismatchesSetId] = useState<string | null>(null);
+  const [scanIntent, setScanIntent] = useState<ScanIntent | null>(() => {
+    try { return JSON.parse(sessionStorage.getItem("admin-card-scan-intent") || "null"); } catch { return null; }
+  });
+  const [scanJob, setScanJob] = useState<ScanJob | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const startingRef = useRef(false);
+  const [scanStarting, setScanStarting] = useState(false);
+  const scanBusy = !!scanIntent && (!scanJob || scanJob.status === "running" || scanJob.status === "interrupted");
+  const rescanningSetId = scanBusy && scanIntent?.kind === "silhouettes" ? scanIntent.setId : null;
+  const scanningMismatchesSetId = scanBusy && scanIntent?.kind === "mismatches" ? scanIntent.setId : null;
+  const scanTransport: ScanTransport = async (method, url, body) => {
+    const response = await apiRequest(method, url, body);
+    return response.json();
+  };
+  const rememberScan = (intent: ScanIntent) => {
+    try { sessionStorage.setItem("admin-card-scan-intent", JSON.stringify(intent)); } catch { /* GET recovery remains available in-memory. */ }
+    setScanIntent(intent);
+  };
 
   const purgeReimportMutation = useMutation({
     mutationFn: async (setId: string) => {
@@ -296,65 +314,47 @@ export default function AdminPlayableSets() {
     },
   });
 
-  const rescanSilhouettesMutation = useMutation({
-    mutationFn: async (setId: string) => {
-      setRescanningSetId(setId);
-      const res = await apiRequest("POST", `/api/admin/game-sets/${setId}/rescan-silhouettes`, {});
-      return res.json();
-    },
-    onSuccess: (data) => {
-      const silhouettes = data.silhouettesFound || 0;
-      const scanned = data.scanned || 0;
-      toast({ 
-        title: "Silhouette Scan Complete",
-        description: `Scanned ${scanned} cards, found and blocked ${silhouettes} silhouettes`,
-        variant: silhouettes > 0 ? "default" : undefined,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
-      setRescanningSetId(null);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Rescan failed", description: error.message, variant: "destructive" });
-      setRescanningSetId(null);
-    },
-  });
-
-  const handleRescanSilhouettes = (set: GameSet) => {
-    rescanSilhouettesMutation.mutate(set.id);
+  const beginScan = async (setId: string, kind: ScanIntent["kind"]) => {
+    if (scanBusy || startingRef.current) return;
+    startingRef.current = true;
+    const intent: ScanIntent = { setId, kind, requestId: crypto.randomUUID() };
+    rememberScan(intent); // before POST, so a reload never repeats the mutation
+    setScanJob(null); setScanError(null); setScanStarting(true);
+    try {
+      const job = await startScanOnce(intent, scanTransport);
+      rememberScan({ ...intent, jobId: job.id });
+      setScanJob(job);
+    } catch (error) { setScanError(error instanceof Error ? error.message : "Status unavailable; do not restart this scan."); }
+    finally { startingRef.current = false; setScanStarting(false); }
   };
-
-  const scanMismatchesMutation = useMutation({
-    mutationFn: async (setId: string) => {
-      setScanningMismatchesSetId(setId);
-      const res = await apiRequest("POST", `/api/admin/game-sets/${setId}/detect-player-mismatches`, {
-        limit: 100,
-        autoQuarantine: true,
-      });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      const mismatches = data.mismatches || 0;
-      const checked = data.checked || 0;
-      const quarantined = data.quarantined || 0;
-      toast({ 
-        title: "Player Mismatch Scan Complete",
-        description: mismatches > 0 
-          ? `Scanned ${checked} cards, found and quarantined ${quarantined} mismatches`
-          : `Scanned ${checked} cards, no mismatches found`,
-        variant: mismatches > 0 ? "default" : undefined,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
-      setScanningMismatchesSetId(null);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Mismatch scan failed", description: error.message, variant: "destructive" });
-      setScanningMismatchesSetId(null);
-    },
-  });
-
-  const handleScanMismatches = (set: GameSet) => {
-    scanMismatchesMutation.mutate(set.id);
+  const resumeScanStatus = async () => {
+    if (!scanIntent) return;
+    setScanError(null);
+    try {
+      const job = await readScanStatus(scanIntent, scanTransport);
+      if (!scanIntent.jobId) rememberScan({ ...scanIntent, jobId: job.id });
+      setScanJob(job);
+    } catch (error) { setScanError(error instanceof Error ? error.message : "Status unavailable; do not restart this scan."); }
   };
+  useEffect(() => {
+    if (!scanIntent || scanStarting || scanError || (scanJob && scanJob.status !== "running")) return;
+    let canceled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const job = await readScanStatus(scanIntent, scanTransport);
+        if (!canceled) {
+          setScanJob(job);
+          if (!scanIntent.jobId) rememberScan({ ...scanIntent, jobId: job.id });
+          if (job.status !== "running") void queryClient.invalidateQueries({ queryKey: ["/api/admin/game-sets"] });
+        }
+      } catch (error) {
+        if (!canceled) setScanError(error instanceof Error ? error.message : "Status unavailable; scan may still be running.");
+      }
+    }, 2000);
+    return () => { canceled = true; clearTimeout(timer); };
+  }, [scanIntent, scanJob, scanStarting, scanError]);
+  const handleRescanSilhouettes = (set: GameSet) => { void beginScan(set.id, "silhouettes"); };
+  const handleScanMismatches = (set: GameSet) => { void beginScan(set.id, "mismatches"); };
 
   const handlePurgeReimport = (set: GameSet) => {
     setPurgeTargetSet(set);
@@ -508,6 +508,19 @@ export default function AdminPlayableSets() {
 
   return (
     <div className="space-y-6">
+      {scanIntent && <div className="rounded border p-4 space-y-2" role="status" data-testid="admin-scan-progress">
+        <p>Scan {scanError ? "status unavailable — may still be running" : scanJob?.status ?? "starting"} · {scanIntent.kind} · {scanIntent.setId}</p>
+        {scanJob && <p>{scanJob.report.processed}/{scanJob.report.totalCards} processed; {scanJob.report.scanned} images analyzed; {scanJob.report.checked} player names checked; {scanJob.report.silhouettesFound} silhouettes found / {scanJob.report.blocked} blocked; {scanJob.report.mismatches} mismatches found / {scanJob.report.quarantined} quarantined; {scanJob.report.verified} verified; {scanJob.report.skipped} skipped or writes not applied; {scanJob.report.errors} errors.</p>}
+        {(scanJob?.report.errors || scanJob?.report.skipped) ? <p>Coverage has unresolved items. Zero findings is not a clean bill of health.</p> : null}
+        {scanJob && <details><summary>Findings and unresolved cards</summary>
+          <div className="max-h-64 overflow-auto text-sm">
+            {scanJob.report.findings.map(f => <p key={f.cardId}>{f.cardId}: stored {f.storedPlayer} / provider {f.apiPlayer}</p>)}
+            {scanJob.report.issues.map((issue, i) => <p key={`${issue.cardId}-${i}`}>{issue.cardId}: {issue.stage}</p>)}
+          </div>
+        </details>}
+        {(scanError || scanJob?.error) && <p className="text-destructive">{scanError || scanJob?.error}</p>}
+        <Button variant="outline" onClick={() => void resumeScanStatus()} disabled={scanStarting}>Refresh status (read only)</Button>
+      </div>}
       <AdminHeldMaskReview />
       <div className="flex items-center justify-between">
         <div>
@@ -570,6 +583,7 @@ export default function AdminPlayableSets() {
                     {lastImportLabel(set)}
                   </TableCell>
                   <TableCell>
+                    {set.holdReason && <Badge variant="destructive" className="mb-1">{set.holdReason === "no_mask_profile" ? "Mask profile required" : "Awaiting design clearance"}</Badge>}
                     {set.isActive 
                       ? <Badge variant="outline" className="text-green-600 border-green-600">Active</Badge>
                       : <Badge variant="outline" className="text-gray-500">Inactive</Badge>
@@ -618,7 +632,7 @@ export default function AdminPlayableSets() {
                           variant="ghost" 
                           size="icon"
                           onClick={() => handleRescanSilhouettes(set)}
-                          disabled={rescanningSetId === set.id}
+                          disabled={scanBusy || scanStarting}
                           data-testid={`button-rescan-silhouettes-${set.id}`}
                           title="Rescan for silhouette placeholders"
                         >
@@ -633,7 +647,7 @@ export default function AdminPlayableSets() {
                           variant="ghost" 
                           size="icon"
                           onClick={() => handleScanMismatches(set)}
-                          disabled={scanningMismatchesSetId === set.id}
+                          disabled={scanBusy || scanStarting}
                           data-testid={`button-scan-mismatches-${set.id}`}
                           title="Scan for player/image mismatches"
                         >

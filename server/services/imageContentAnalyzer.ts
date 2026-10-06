@@ -11,6 +11,8 @@ import sharp from "sharp";
 import { withSourceFetchTimeout } from "./images/sourceFetch";
 
 export interface ImageAnalysisResult {
+  /** Unknown pixels/fetch, not a positive silhouette. Legacy booleans remain fail-closed. */
+  analysisFailed?: boolean;
   isPlaceholder: boolean;
   confidence: number;
   reasons: string[];
@@ -269,11 +271,12 @@ export async function analyzeImageContent(url: string): Promise<ImageAnalysisRes
     const buffer = await fetchImageBuffer(url);
     if (!buffer) {
       const result: ImageAnalysisResult = {
+        analysisFailed: true,
         isPlaceholder: true,
         confidence: 100,
         reasons: ["Failed to fetch image"]
       };
-      cacheResult(url, result);
+      // Do not cache transient failure for 24 hours.
       return result;
     }
 
@@ -354,11 +357,12 @@ export async function analyzeImageContent(url: string): Promise<ImageAnalysisRes
   } catch (error: any) {
     console.error(`[ImageAnalyzer] Error analyzing ${url}:`, error.message);
     const result: ImageAnalysisResult = {
+      analysisFailed: true,
       isPlaceholder: true,
       confidence: 50,
       reasons: [`Analysis error: ${error.message}`]
     };
-    cacheResult(url, result);
+    // Failed analysis is unknown; a later explicit scan may recover.
     return result;
   }
 }

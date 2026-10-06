@@ -344,7 +344,7 @@ export interface FilledPrepareResult {
 }
 
 export interface FilledPrepareDeps {
-  analyze: (url: string) => Promise<{ isPlaceholder: boolean; confidence: number }>;
+  analyze: (url: string) => Promise<{ isPlaceholder: boolean; confidence: number; analysisFailed?: boolean }>;
   bake: (cardId: string) => Promise<unknown>;
   ready: (cardId: string) => boolean;
   failure: (cardId: string) => string | null;
@@ -391,6 +391,7 @@ export async function prepareFilledCards(
     try {
       if (row.content_verified == null) {
         const analysis = await deps.analyze(row.image_url!);
+        if (analysis.analysisFailed) throw new Error("Image analysis unknown; verification unchanged");
         const placeholder = analysis.isPlaceholder && analysis.confidence >= 50;
         await db.update(playableCards)
           .set({ contentVerified: !placeholder, contentVerifiedAt: new Date() })

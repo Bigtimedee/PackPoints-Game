@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, type SQL } from "drizzle-orm";
 import { playableCards } from "@shared/schema";
 import { db } from "../db";
 import { invalidateMaskReadySidecar, invalidateMaskReadySidecars } from "../masking/maskReadySidecar";
@@ -11,6 +11,7 @@ async function markUnplayable(
     quarantineStatus?: string;
     imageLastError?: string;
   },
+  guard?: SQL,
 ): Promise<string[]> {
   const ids = [...new Set(cardIds.filter(Boolean))];
   if (ids.length === 0) return [];
@@ -24,20 +25,23 @@ async function markUnplayable(
       ...(patch.imageLastError ? { imageLastError: patch.imageLastError } : {}),
       updatedAt: new Date(),
     })
-    .where(inArray(playableCards.id, ids))
+    .where(and(inArray(playableCards.id, ids), guard))
     .returning({ id: playableCards.id });
   const written = updated.map((row) => row.id);
   invalidateMaskReadySidecars(written);
   return written;
 }
 
-export async function markPlayerMismatchUnplayable(cardId: string, imageLastError?: string): Promise<void> {
-  await markUnplayable([cardId], {
+export async function markPlayerMismatchUnplayable(cardId: string, imageLastError?: string,
+  expected?: { setId: string; player: string; cardhedgeCardId: string }): Promise<boolean> {
+  const written = await markUnplayable([cardId], {
     blockedReason: "player_mismatch",
     imageReviewStatus: "excluded",
     quarantineStatus: "REMOVED_BY_ADMIN",
     imageLastError,
-  });
+  }, expected ? and(eq(playableCards.gameSetId, expected.setId),
+    eq(playableCards.player, expected.player), eq(playableCards.cardhedgeCardId, expected.cardhedgeCardId)) : undefined);
+  return written.includes(cardId);
 }
 
 export async function rejectReportedCardImage(cardId: string): Promise<void> {

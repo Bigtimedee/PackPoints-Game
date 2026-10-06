@@ -1,9 +1,12 @@
+import { registerAdminCardScanRoutes } from "./routes/adminCardScans";
+import { startAdminScan, readAdminScanJob } from "./services/adminCardScanJobs";
+import { describeSetAvailability } from "./services/adminScanCore";
 import type { Express, Request, Response, NextFunction } from "express";
 import type Stripe from "stripe";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { findQuestionIndexByCardId } from "./lib/cardReplacement";
-import { currentHeldSetIds, ensureHeldSets, isHeldSet, refreshHeldSets } from "./config/heldSets";
+import { currentHeldSetIds, ensureHeldSets, isHeldSet, refreshHeldSets, holdReasonForIdentity } from "./config/heldSets";
 import {
   commitSoloAdvance,
   commitSoloAnswer,
@@ -104,7 +107,7 @@ import { getDailyProgress as getMatchDailyProgress } from "./services/progress/d
 import friendsRouter from "./routes/friends";
 import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
-import { eligibleCountsForSetIds, dedupeSetsByNameYearSport } from "./services/playableSetEligibility";
+import { eligibleCountsForSetIds, dedupeSetsByNameYearSport, PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "./services/playableSetEligibility";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicSets";
 import { handlePublicSetCover } from "./services/setCovers";
 import { registerCoverQaRoutes } from "./routes/coverQa";
@@ -4611,10 +4614,17 @@ export async function registerRoutes(
       const totalCards = Number(counts.totalCards) || 0;
       const playableCards_count = Number(fullyPlayable.count) || 0;
       
+      await ensureHeldSets();
+      const eligible = (await eligibleCountsForSetIds([id])).get(id) ?? 0;
+      const availability = describeSetAvailability(gameSet.isActive, gameSet.isUserCreated,
+        holdReasonForIdentity(gameSet), eligible, PUBLIC_SET_MIN_ELIGIBLE_CARDS);
+
       // Diagnose the issue
       let diagnosis = "";
-      if (playableCards_count > 0) {
-        diagnosis = "Cards are queryable for gameplay";
+      if (availability.reason) {
+        diagnosis = `Set unavailable to public players: ${availability.reason}. Imported cards and Active status do not override safety holds.`;
+      } else if (eligible > 0) {
+        diagnosis = "Cards satisfy current gameplay eligibility; mask baking can still refuse individual images";
       } else if (totalCards === 0) {
         diagnosis = "No cards exist in this set - import required";
       } else {
@@ -4658,7 +4668,10 @@ export async function registerRoutes(
           notRejected: Number(counts.notRejected) || 0,
           matchingSport: Number(counts.matchingSport) || 0,
         },
-        fullyPlayableCards: playableCards_count,
+        fullyPlayableCards: eligible, // Current shared deal filter; still subordinate to availability
+        legacyRawPlayableCards: playableCards_count,
+        availability,
+        eligiblePlayableCards: eligible,
         foreignKeySanity: {
           nullSetIdCardsInLastHour: Number(nullSetIdCards?.count) || 0,
         },
@@ -4773,7 +4786,15 @@ export async function registerRoutes(
       const totalCards = Number(counts.totalCards) || 0;
       const playable_count = Number(fullyPlayable.count) || 0;
       
+      await ensureHeldSets();
+      const eligible = (await eligibleCountsForSetIds([setId])).get(setId) ?? 0;
+      const availability = describeSetAvailability(gameSet.isActive, gameSet.isUserCreated,
+        holdReasonForIdentity(gameSet), eligible, PUBLIC_SET_MIN_ELIGIBLE_CARDS);
       res.json({
+        availability,
+        diagnosis: availability.reason ? `Set unavailable to public players: ${availability.reason}`
+          : "Current eligibility gates satisfied; individual mask baking may still refuse cards",
+        legacyRawPlayableCards: playable_count,
         setInfo: {
           id: gameSet.id,
           setName: gameSet.setName,
@@ -4785,8 +4806,8 @@ export async function registerRoutes(
         },
         counts: {
           canonical_cards_total: totalCards,
-          canonical_cards_playable: playable_count,
-          admin_list_count: playable_count, // Same as gameplay query
+          canonical_cards_playable: eligible,
+          admin_list_count: totalCards, // Imported rows; not gameplay availability
           staging_count: 0, // No staging table in this codebase
         },
         flagsBreakdown: {
@@ -4831,6 +4852,7 @@ export async function registerRoutes(
           setName: gameSets.setName,
           league: gameSets.league,
           isActive: gameSets.isActive,
+          isUserCreated: gameSets.isUserCreated,
           cardhedgeSetQuery: gameSets.cardhedgeSetQuery,
           cardhedgeCategory: gameSets.cardhedgeCategory,
           // Every playable_cards row FK-blocks DELETE on game_sets. The
@@ -4852,7 +4874,7 @@ export async function registerRoutes(
         })
         .from(gameSets)
         .orderBy(gameSets.year);
-      res.json(sets);
+      res.json(sets.map((set) => ({ ...set, holdReason: holdReasonForIdentity(set) })));
     } catch (error) {
       console.error("Error getting game sets:", error);
       res.status(500).json({ error: "Failed to get game sets" });
@@ -5317,224 +5339,15 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Force re-scan cards in a game set for silhouettes
-  app.post("/api/admin/game-sets/:id/rescan-silhouettes", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { analyzeImageContent } = await import("./services/imageContentAnalyzer");
-      
-      console.log(`[RescanSilhouettes] Starting silhouette scan for game set ${id}...`);
-      
-      // Get the game set
-      const gameSet = await db.select().from(gameSets).where(eq(gameSets.id, id)).limit(1);
-      if (!gameSet.length) {
-        return res.status(404).json({ error: "Game set not found" });
-      }
-      
-      // Get all cards in this set (even those already verified)
-      const cards = await db
-        .select({
-          id: playableCards.id,
-          imageUrl: playableCards.imageUrl,
-          player: playableCards.player,
-          contentVerified: playableCards.contentVerified,
-        })
-        .from(playableCards)
-        .where(eq(playableCards.gameSetId, id));
-      
-      console.log(`[RescanSilhouettes] Found ${cards.length} cards to scan`);
-      
-      let scanned = 0;
-      let silhouettesFound = 0;
-      let errors = 0;
-      const BATCH_SIZE = 20;
-      const PLACEHOLDER_THRESHOLD = 50;
-      
-      for (let i = 0; i < cards.length; i += BATCH_SIZE) {
-        const batch = cards.slice(i, i + BATCH_SIZE);
-        
-        await Promise.all(batch.map(async (card) => {
-          if (!card.imageUrl) {
-            return;
-          }
-          
-          try {
-            const analysis = await analyzeImageContent(card.imageUrl);
-            scanned++;
-            
-            if (analysis.isPlaceholder && analysis.confidence >= PLACEHOLDER_THRESHOLD) {
-              silhouettesFound++;
-              console.log(`[RescanSilhouettes] SILHOUETTE: ${card.player?.slice(0, 25)} (${analysis.confidence}%): ${analysis.reasons[0]}`);
-              
-              // Mark as NOT verified (will be excluded from gameplay)
-              await db
-                .update(playableCards)
-                .set({
-                  contentVerified: false,
-                  contentVerifiedAt: new Date(),
-                })
-                .where(eq(playableCards.id, card.id));
-            } else if (card.contentVerified === null) {
-              // Only mark good cards as verified if they were previously NULL (pending)
-              // Don't override existing false values from other detection methods
-              await db
-                .update(playableCards)
-                .set({
-                  contentVerified: true,
-                  contentVerifiedAt: new Date(),
-                })
-                .where(eq(playableCards.id, card.id));
-            }
-          } catch (err: any) {
-            errors++;
-            console.error(`[RescanSilhouettes] Error scanning ${card.id.slice(0, 8)}: ${err.message?.slice(0, 50)}`);
-          }
-        }));
-        
-        // Log progress every 100 cards
-        if ((i + BATCH_SIZE) % 100 === 0 || i + BATCH_SIZE >= cards.length) {
-          console.log(`[RescanSilhouettes] Progress: ${Math.min(i + BATCH_SIZE, cards.length)}/${cards.length} scanned, ${silhouettesFound} silhouettes found`);
-        }
-        
-        // Small delay between batches
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      
-      console.log(`[RescanSilhouettes] Complete. Scanned: ${scanned}, Silhouettes: ${silhouettesFound}, Errors: ${errors}`);
-      
-      res.json({
-        success: true,
-        setName: gameSet[0].setName,
-        totalCards: cards.length,
-        scanned,
-        silhouettesFound,
-        errors,
-        message: silhouettesFound > 0 
-          ? `Found and blocked ${silhouettesFound} silhouette images`
-          : "No silhouettes detected"
-      });
-    } catch (error) {
-      console.error("[RescanSilhouettes] Error:", error);
-      res.status(500).json({ error: "Failed to scan for silhouettes" });
-    }
-  });
-
-  // Admin: Detect player name mismatches between stored data and Card Hedge API
-  // Set autoQuarantine=true to automatically disable mismatched cards
-  app.post("/api/admin/game-sets/:id/detect-player-mismatches", isAuthenticated, requireAdmin, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { limit = 50, autoQuarantine = false } = req.body;
-      
-      console.log(`[PlayerMismatch] Starting player mismatch scan for game set ${id}...`);
-      
-      const gameSet = await db.select().from(gameSets).where(eq(gameSets.id, id)).limit(1);
-      if (!gameSet.length) {
-        return res.status(404).json({ error: "Game set not found" });
-      }
-      
-      const cards = await db
-        .select({
-          id: playableCards.id,
-          cardhedgeCardId: playableCards.cardhedgeCardId,
-          player: playableCards.player,
-          imageUrl: playableCards.imageUrl,
-          isPlayable: playableCards.isPlayable,
-          blockedReason: playableCards.blockedReason,
-        })
-        .from(playableCards)
-        .where(
-          and(
-            eq(playableCards.gameSetId, id),
-            isNotNull(playableCards.cardhedgeCardId)
-          )
-        )
-        .limit(parseInt(String(limit), 10));
-      
-      console.log(`[PlayerMismatch] Checking ${cards.length} cards for player mismatches...`);
-      
-      const mismatches: Array<{
-        cardId: string;
-        storedPlayer: string | null;
-        apiPlayer: string | null;
-        cardHedgeId: string | null;
-        imageUrl: string | null;
-      }> = [];
-      
-      let checked = 0;
-      let errors = 0;
-      
-      for (const card of cards) {
-        if (!card.cardhedgeCardId) continue;
-        
-        try {
-          const cardDetails = await fetchCardDetailsNormalized(card.cardhedgeCardId);
-          checked++;
-          
-          if (cardDetails && cardDetails.player) {
-            const storedNormalized = (card.player || "").trim().toLowerCase();
-            const apiNormalized = (cardDetails.player || "").trim().toLowerCase();
-            
-            if (storedNormalized !== apiNormalized) {
-              const oneContainsOther = storedNormalized.includes(apiNormalized) || apiNormalized.includes(storedNormalized);
-              
-              if (!oneContainsOther) {
-                mismatches.push({
-                  cardId: card.id,
-                  storedPlayer: card.player,
-                  apiPlayer: cardDetails.player,
-                  cardHedgeId: card.cardhedgeCardId,
-                  imageUrl: card.imageUrl,
-                });
-                
-                console.log(`[PlayerMismatch] MISMATCH: "${card.player}" vs API "${cardDetails.player}" (${card.id.slice(0, 8)})`);
-                
-                // Auto-quarantine if requested (admin-initiated, uses mutation guard)
-                if (autoQuarantine) {
-                  const { assertMutationAllowed } = await import("./services/mutationGuard");
-                  assertMutationAllowed({
-                    operationSource: "ADMIN_MANUAL",
-                    action: "SET_UNPLAYABLE",
-                    actorUserId: (req as any).user?.id,
-                    reason: `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
-                  });
-                  await markPlayerMismatchUnplayable(
-                    card.id,
-                    `Player mismatch: stored="${card.player}" vs API="${cardDetails.player}"`,
-                  );
-                  console.log(`[PlayerMismatch] AUTO-QUARANTINED by admin: ${card.id.slice(0, 8)}`);
-                }
-              }
-            }
-          }
-          
-          await new Promise(r => setTimeout(r, 200));
-        } catch (err: any) {
-          errors++;
-          console.error(`[PlayerMismatch] Error checking ${card.id.slice(0, 8)}: ${err.message?.slice(0, 50)}`);
-        }
-      }
-      
-      console.log(`[PlayerMismatch] Complete. Checked: ${checked}, Mismatches: ${mismatches.length}, Errors: ${errors}`);
-      
-      res.json({
-        setId: id,
-        setName: gameSet[0].setName,
-        checked,
-        mismatches: mismatches.length,
-        quarantined: autoQuarantine ? mismatches.length : 0,
-        errors,
-        mismatchedCards: mismatches,
-        message: mismatches.length > 0 
-          ? autoQuarantine 
-            ? `Found and quarantined ${mismatches.length} player name mismatches`
-            : `Found ${mismatches.length} player name mismatches (use autoQuarantine=true to disable them)`
-          : "No player name mismatches detected"
-      });
-    } catch (error) {
-      console.error("[PlayerMismatch] Error:", error);
-      res.status(500).json({ error: "Failed to detect player mismatches" });
-    }
+  registerAdminCardScanRoutes(app, isAuthenticated, requireAdmin, {
+    findSet: async (id) => {
+      const [set] = await db.select({ id: gameSets.id }).from(gameSets).where(eq(gameSets.id, id)).limit(1);
+      return set?.id ?? null;
+    },
+    actor: resolveAdminActorId,
+    start: startAdminScan,
+    read: readAdminScanJob,
+    log: console.error,
   });
 
   // Admin: Quarantine specific cards with player mismatches

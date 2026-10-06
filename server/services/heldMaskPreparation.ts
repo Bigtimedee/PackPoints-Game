@@ -4,6 +4,9 @@ import path from "path";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 
+import { TOPPS_1988_SET_ID } from "../masking/topps1988Geometry";
+import { preparedTopps1988MaskFile } from "../masking/topps1988Readiness";
+
 export const MAX_PREPARE_CARDS = 20;
 export function explicitPreparationIds(body: unknown): string[] | null {
   if (!body || typeof body !== "object") return null;
@@ -16,7 +19,8 @@ export function explicitPreparationIds(body: unknown): string[] | null {
 }
 
 /** Strict exact-band/current-version readiness. Never calls the bake or image gate. */
-export function preparedMaskFile(cardId: string, dir = maskReadySidecarDir()): string | null {
+export function preparedMaskFile(cardId: string, dir = maskReadySidecarDir(), setId?: string): string | null {
+  if (setId === TOPPS_1988_SET_ID) return preparedTopps1988MaskFile(cardId, dir);
   // Inspect this card only. Scanning the full volume per row made review GET time out.
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cardId)) return null;
   const stem = path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}`);
