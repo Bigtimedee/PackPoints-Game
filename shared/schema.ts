@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, pgEnum, bigserial, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, bigserial, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check, uuid } from "drizzle-orm/pg-core";
 import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "./maskRefusal";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -4940,3 +4940,25 @@ export const rebateAuditLog = pgTable("rebate_audit_log", {
   index("rebate_audit_log_intent_idx").on(t.purchaseIntentId, t.createdAt),
   index("rebate_audit_log_user_idx").on(t.userId, t.createdAt),
 ]);
+
+
+// Durable admin scan reports; declared here so startup schema sync preserves them.
+export const adminCardScanJobs = pgTable("admin_card_scan_jobs", {
+  id: uuid("id").primaryKey(),
+  setId: varchar("set_id").notNull(),
+  kind: text("kind").notNull(),
+  requestId: uuid("request_id").notNull(),
+  autoQuarantine: boolean("auto_quarantine").notNull().default(false),
+  actorId: varchar("actor_id").notNull(),
+  status: text("status").notNull().default("running"),
+  report: jsonb("report").notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique("admin_card_scan_jobs_request_id_key").on(table.requestId),
+  uniqueIndex("admin_card_scan_one_running_set").on(table.setId).where(sql`${table.status} = 'running'`),
+  index("admin_card_scan_set_created").on(table.setId, table.createdAt.desc()),
+  check("admin_card_scan_jobs_kind_check", sql`${table.kind} IN ('silhouettes', 'mismatches')`),
+  check("admin_card_scan_jobs_status_check", sql`${table.status} IN ('running', 'completed', 'failed')`),
+]).enableRLS();
