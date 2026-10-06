@@ -48,7 +48,7 @@ describe("held preparation", () => {
   it("protects all routes with Admin auth and keeps production containment", () => {
     const source=readFileSync(new URL('../routes/heldMaskPreparation.ts',import.meta.url),'utf8');
     expect(source).toContain('app.use(base, isAuthenticated, requireAdmin');
-    expect(source).toContain('req.params.setId !== DONRUSS_1987_HOLD_ID');
+    expect(source).toContain('[DONRUSS_1987_HOLD_ID, TOPPS_1988_SET_ID].includes(req.params.setId)');
     expect(source).toContain('source: "qa"');expect(source).toContain('setWhere: eq(cardReviewApprovals.source, "seed")');
     expect(source).toContain('FOR UPDATE');expect(source).toContain('ignoreHeldSets: true, ignoreCardReview: true');
     expect(source).not.toMatch(/setCardReviewGuardEnabled|clearedSetIds\(|invalidateMaskedImageCache|restorePlayable/);
