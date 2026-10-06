@@ -1,4 +1,6 @@
 import sharp from "sharp";
+import { TOPPS_1988_PROFILE_ID } from "./topps1988Geometry";
+import { maskReviewedTopps1988 } from "./topps1988Mask";
 import { CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
 import {
   resolveNameMaskPlan,
@@ -204,6 +206,10 @@ export async function maskCardImage(
   } = {},
 ): Promise<MaskResult> {
   const profile = getMaskProfile(setName, opts.gameSetId);
+  if (profile.id === TOPPS_1988_PROFILE_ID) {
+    opts.onStage?.("bake");
+    return maskReviewedTopps1988(rawImageBuffer, playerName, opts);
+  }
   const existing = opts.cardId ? readOrientNote(opts.cardId) : null;
   if (!existing && !opts.skipOcr && !opts.words) opts.onStage?.("ocr");
   const upright = existing

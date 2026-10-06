@@ -1,6 +1,8 @@
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 
+import { TOPPS_1988_SET_ID, TOPPS_1988_PROFILE_ID, TOPPS_1988_REGIONS } from "./topps1988Geometry";
+
 export type NameAnchor = "top" | "bottom" | "both";
 
 /**
@@ -51,6 +53,7 @@ export interface MaskProfile {
  * because a re-import receives a new id.
  */
 export const MASK_LAYOUT_SET_IDS = {
+  toppsBaseball1988: TOPPS_1988_SET_ID,
   toppsBaseball1987: "37fd025d-2ae1-4c92-b8ad-133375d0c722",
   toppsFootball1987: "91cfdf3f-a620-4e73-adc8-22b8df221716",
   fleerBasketball1989: "aea515e2-24bc-42bd-a602-1514b89e8cd1",
@@ -196,7 +199,12 @@ const sportProfiles: Record<string, MaskProfile> = {
   "baseball|1987|donruss": donrussBaseball1987,
 };
 
+const toppsBaseball1988 = profile(TOPPS_1988_PROFILE_ID, "bottom", [...TOPPS_1988_REGIONS], {
+  bottomBandPct: 0, topBandPct: 0, trustProfileBand: false, sidewaysFallbackDeg: 0,
+});
+
 const setIdProfiles: Record<string, MaskProfile> = {
+  [MASK_LAYOUT_SET_IDS.toppsBaseball1988]: toppsBaseball1988,
   [MASK_LAYOUT_SET_IDS.toppsFootball1987]: toppsFootball1987,
   [MASK_LAYOUT_SET_IDS.toppsFootball1994]: toppsFootball1994,
   [MASK_LAYOUT_SET_IDS.toppsBaseball1987]: toppsBaseball1987,
