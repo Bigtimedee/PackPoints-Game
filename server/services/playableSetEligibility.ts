@@ -1,3 +1,4 @@
+import { managedReadyIds } from "./setLifecycle";
 /**
  * Cards a solo deal will actually serve.
  * Shared by GET /api/playable-sets, GET /api/sets, GET /api/sets/:id cardCount,
@@ -42,11 +43,12 @@ export function maskNameStillCovered(alias: CardAlias): SQL {
  * Eligibility body for one card alias. Sport match is added by the caller
  * because the sport expression is either `game_sets.sport` or a bound value.
  */
-export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts): SQL {
+export function eligibleDealFilter(alias: CardAlias, opts?: BlocklistSqlOpts, ignoreLifecycle = false): SQL {
   const a = alias;
   return sql`
     ${sql.raw(`${a}.is_playable`)} = true
     AND ${maskNameStillCovered(alias)}
+    AND ${ignoreLifecycle ? sql`true` : managedSetCardReadySql(alias)}
     AND ${donrussMaskReadySql(alias)}
     AND (${sql.raw(`${a}.content_verified`)} IS NULL OR ${sql.raw(`${a}.content_verified`)} = true)
     AND ${sql.raw(`${a}.image_url`)} IS NOT NULL
@@ -174,4 +176,19 @@ export function dedupeSetsByNameYearSport<T extends {
     }
   }
   return { kept: Array.from(map.values()).filter((set) => playableCountOf(set) >= PUBLIC_SET_MIN_ELIGIBLE_CARDS), duplicateNames };
+}
+
+/** Source identity, geometry revision and actual file hashes must still match the admin's viewed JPEG. */
+export function managedSetCardReadySql(alias: CardAlias): SQL {
+  const a = (f: string) => sql.raw(`${alias}.${f}`);
+  return sql`(NOT EXISTS (SELECT 1 FROM admin_set_lifecycles asl WHERE asl.set_id = ${a("game_set_id")}) OR EXISTS (
+    SELECT 1 FROM admin_set_card_reviews ar JOIN admin_set_lifecycles asl ON asl.set_id=ar.set_id
+    JOIN game_sets gs ON gs.id=asl.set_id
+    WHERE ar.card_id=${a("id")} AND ar.set_id=${a("game_set_id")} AND asl.published=true
+    AND ar.revision=asl.revision AND ar.status='approved'
+    AND gs.is_active AND NOT gs.is_user_created AND asl.identity::jsonb=jsonb_build_array(gs.year,gs.brand,gs.sport,gs.set_name)
+    AND ar.witness->>'imageUrl'=${a("image_url")} AND ar.witness->>'player'=${a("player")}
+    AND COALESCE(ar.witness->>'number','')=COALESCE(${a("number")},'')
+    AND (ar.witness->>'imageRotation')::int=COALESCE(${a("image_rotation")},0)
+    AND ar.card_id = ANY(${sql.param(managedReadyIds())}::varchar[])))`;
 }
