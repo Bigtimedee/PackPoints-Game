@@ -691,7 +691,7 @@ export default function AdminPlayableSets() {
       </Card>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingSet ? "Edit Set" : "Create Set"}</DialogTitle>
             <DialogDescription>
