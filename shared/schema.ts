@@ -4962,3 +4962,42 @@ export const adminCardScanJobs = pgTable("admin_card_scan_jobs", {
   check("admin_card_scan_jobs_kind_check", sql`${table.kind} IN ('silhouettes', 'mismatches')`),
   check("admin_card_scan_jobs_status_check", sql`${table.status} IN ('running', 'completed', 'failed')`),
 ]).enableRLS();
+
+/** Admin-authored set releases: none are populated automatically for legacy sets. */
+export const adminSetLifecycles = pgTable("admin_set_lifecycles", {
+  setId: varchar("set_id").primaryKey().references(() => gameSets.id, { onDelete: "cascade" }),
+  identity: text("identity").notNull(),
+  profile: jsonb("profile"),
+  revision: text("revision").notNull(),
+  published: boolean("published").notNull().default(false),
+  updatedBy: varchar("updated_by").notNull(),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+});
+export const adminSetCardReviews = pgTable("admin_set_card_reviews", {
+  cardId: varchar("card_id").primaryKey().references(() => playableCards.id, { onDelete: "cascade" }),
+  setId: varchar("set_id").notNull().references(() => adminSetLifecycles.setId, { onDelete: "cascade" }),
+  revision: text("revision").notNull(),
+  witness: jsonb("witness").notNull(),
+  witnessKey: text("witness_key").notNull(),
+  requestId: varchar("request_id").notNull(),
+  status: text("status").notNull(),
+  sourceHash: text("source_hash"),
+  previewHash: text("preview_hash"),
+  planHash: text("plan_hash"),
+  filename: text("filename"),
+  reason: text("reason"),
+  approvedBy: varchar("approved_by"),
+  approvedAt: timestamptz("approved_at"),
+  leaseUntil: timestamptz("lease_until"),
+  updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+}, table => [index("admin_set_card_reviews_queue").on(table.status, table.leaseUntil)]);
+
+/** Idempotent full-set snapshot and terminal per-card outcomes survive worker/reload restarts. */
+export const adminSetPreparationJobs = pgTable("admin_set_preparation_jobs", {
+  requestId: varchar("request_id").primaryKey(),
+  setId: varchar("set_id").notNull().references(() => adminSetLifecycles.setId, { onDelete: "cascade" }),
+  revision: text("revision").notNull(),
+  inputHash: text("input_hash").notNull(),
+  results: jsonb("results").notNull(),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+});
