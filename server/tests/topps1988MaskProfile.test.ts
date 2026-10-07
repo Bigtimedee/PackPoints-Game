@@ -6,7 +6,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 vi.mock("../db", () => ({ db: {}, pool: {} }));
 import { getMaskProfile, profileIsRegistered } from "../masking/maskProfiles";
 import { TOPPS_1988_SET_ID as ID, TOPPS_1988_PROFILE_ID, TOPPS_1988_REGIONS, TOPPS_1988_REVIEWED_SOURCES, isTopps1988Plan } from "../masking/topps1988Geometry";
-import { holdReasonForIdentity, CLEARED_SET_IDS } from "../config/heldSets";
+import { holdReasonForIdentity, CLEARED_SET_IDS, NO_MASK_PROFILE_REASON } from "../config/heldSets";
 import { maskBandFailure } from "../masking/maskBandLimit";
 import { preparedTopps1988MaskFile } from "../masking/topps1988Readiness";
 import { preparedMaskFile, explicitPreparationIds } from "../services/heldMaskPreparation";
@@ -18,7 +18,7 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 const identity = { id: ID, year: 1988, brand: "Topps", sport: "baseball", setName: "1988 Topps Baseball", isActive: true };
 afterEach(() => { resetOcrRuntimeForTests(); setCardReviewGuardEnabled(false); });
 describe("1988 Topps reviewed diagonal profile", () => {
-  it("registers exact ID only and never grants design clearance", () => {
+  it("clears only the source-bound set id and leaves its profile unchanged", () => {
     const profile = getMaskProfile("1988 Topps baseball", ID);
     expect(profile.id).toBe(TOPPS_1988_PROFILE_ID);
     expect(profileIsRegistered(profile, ID)).toBe(true);
@@ -26,12 +26,17 @@ describe("1988 Topps reviewed diagonal profile", () => {
     expect(profile.regions).toEqual(TOPPS_1988_REGIONS);
     expect(getMaskProfile("1988 Topps baseball").id).toBe("default");
     expect(getMaskProfile("1988 Topps football").id).toBe("default");
-    expect(CLEARED_SET_IDS).not.toContain(ID);
-    expect(holdReasonForIdentity(identity)).toBe("awaiting_design_clearance");
+    expect(CLEARED_SET_IDS).toContain(ID);
+    expect(holdReasonForIdentity(identity)).toBeNull();
+    const reimportedIdentity = { ...identity, id: "11111111-2222-4333-8444-555555555555" };
+    expect(getMaskProfile(reimportedIdentity.setName, reimportedIdentity.id).id).toBe("default");
+    expect(holdReasonForIdentity(reimportedIdentity)).toBe(NO_MASK_PROFILE_REASON);
     expect(maskBandFailure(profile.regions)).toBeNull();
     expect(TOPPS_1988_REGIONS.every(r => r.wPct < 6 && r.yPct >= 57)).toBe(true);
   });
   it("requires QA, not seed; when general guard off it fails closed", () => {
+    expect(CLEARED_SET_IDS).toContain(ID);
+    
     expect(cardAwaitingReviewClause("pc")).toContain(ID);
     setCardReviewGuardEnabled(true);
     expect(cardAwaitingReviewClause("pc")).toContain("cra.source = 'qa'");
@@ -87,7 +92,7 @@ describe("1988 Topps reviewed diagonal profile", () => {
       expect(s.imageUrl.startsWith("https://")).toBe(true);
       expect(s.player.length).toBeGreaterThan(0);
     }
-    expect(CLEARED_SET_IDS).not.toContain(ID);
+    expect(CLEARED_SET_IDS).toContain(ID);
   });
   it("excludes all 16 real OCR refusals and the visually rejected Al Pedrique source", async () => {
     const excluded = [
