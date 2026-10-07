@@ -6,11 +6,19 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 type Challenge = { key:string;sourceHash:string;previewHash:string;planHash:string };
 type Review = {id:string;player:string;number:string|null;status:string;eligible:boolean;reason:string|null;challenge:Challenge|null;previewUrl:string|null;sourceUrl:string|null};
-type Snapshot = {set:{setName:string;isActive:boolean};lifecycle:{revision:string;published:boolean;profile:unknown}|null;registeredProfile:unknown;cards:Review[];counts:Record<string,number>;jobs:{request_id:string;results:Record<string,{status:string}>}[]};
+type Snapshot = {set:{setName:string;isActive:boolean};lifecycle:{revision:string;published:boolean;profile:{nameAnchor?:string;topBandPct?:number;bottomBandPct?:number;fixedNameBand?:boolean}|null}|null;registeredProfile:unknown;cards:Review[];counts:Record<string,number>;jobs:{request_id:string;results:Record<string,{status:string}>}[]};
 export function AdminSetLifecycle({setId,onClose}:{setId:string;onClose:()=>void}) {
   const base=`/api/admin/set-lifecycle/${setId}`;
   const {data,error,refetch,isFetching}=useQuery<Snapshot>({queryKey:[base],refetchInterval:5000});
   const [edge,setEdge]=useState('bottom');const [height,setHeight]=useState(16);
+  useEffect(()=>{
+    const profile=data?.lifecycle?.profile;
+    if(profile?.nameAnchor==='top'||profile?.nameAnchor==='bottom'){
+      setEdge(profile.nameAnchor);
+      const fraction=profile.nameAnchor==='top'?profile.topBandPct:profile.bottomBandPct;
+      if(typeof fraction==='number'&&Number.isFinite(fraction))setHeight(Math.round(fraction*10000)/100);
+    }
+  },[data?.lifecycle?.revision]);
   const [busy,setBusy]=useState(false);const [message,setMessage]=useState('');const [selected,setSelected]=useState<string|null>(null);
   const [sourceReviewed,setSourceReviewed]=useState(false);const [maskReviewed,setMaskReviewed]=useState(false);const [note,setNote]=useState('');
   const [sourceLoaded,setSourceLoaded]=useState(false);const [maskLoaded,setMaskLoaded]=useState(false);
