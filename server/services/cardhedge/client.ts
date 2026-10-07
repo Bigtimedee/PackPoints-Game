@@ -328,9 +328,9 @@ export async function cardHedgeFetch<T>(
   }
 }
 
-export async function cardSearch(request: CardSearchRequest): Promise<CardSearchResponse> {
+export async function cardSearch(request: CardSearchRequest, options?: { useCache?: boolean }): Promise<CardSearchResponse> {
   const validated = CardSearchRequestSchema.parse(request);
-  return cardHedgeFetch<CardSearchResponse>("/v1/cards/card-search", "POST", validated);
+  return cardHedgeFetch<CardSearchResponse>("/v1/cards/card-search", "POST", validated, options);
 }
 
 export async function cardSearchSorted(request: CardSearchSortedRequest): Promise<CardSearchResponse> {
