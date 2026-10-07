@@ -1,3 +1,4 @@
+import { AdminImportPreflight } from "@/components/admin-import-preflight";
 import { startScanOnce, readScanStatus, type ScanIntent, type ScanJob, type ScanTransport } from "@/lib/adminCardScan";
 import { AdminSetLifecycle } from "@/components/admin-set-lifecycle";
 import { AdminHeldMaskReview } from "@/components/admin-held-mask-review";
@@ -468,7 +469,6 @@ export default function AdminPlayableSets() {
       return;
     }
     setSelectedSetForImport(set);
-    importMutation.mutate(set.id);
   };
 
   const handleSearch = () => {
@@ -778,7 +778,7 @@ export default function AdminPlayableSets() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Click the search button to find and select the exact set name
+                Lookup suggests names from a general-search sample. Verify the exact source below before importing.
               </p>
             </div>
 
@@ -798,6 +798,8 @@ export default function AdminPlayableSets() {
                 </SelectContent>
               </Select>
             </div>
+
+            <AdminImportPreflight key={`${formData.cardhedgeSetQuery}|${formData.cardhedgeCategory}`} query={formData.cardhedgeSetQuery || formData.setName} category={formData.cardhedgeCategory} />
 
             <div className="flex items-center gap-2">
               <Switch 
@@ -823,6 +825,14 @@ export default function AdminPlayableSets() {
               {editingSet ? "Update" : "Create"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!selectedSetForImport} onOpenChange={open=>{if(!open&&!importMutation.isPending)setSelectedSetForImport(null);}}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Check before importing {selectedSetForImport?.setName}</DialogTitle><DialogDescription>Preview the exact source and its provider-reported scope before importing all pages. Nothing is published by this check.</DialogDescription></DialogHeader>
+          {selectedSetForImport&&<AdminImportPreflight key={selectedSetForImport.id} query={selectedSetForImport.cardhedgeSetQuery||''} category={selectedSetForImport.cardhedgeCategory||''} importing={importMutation.isPending} onImport={()=>importMutation.mutate(selectedSetForImport.id)} />}
+          <DialogFooter><Button variant="outline" disabled={importMutation.isPending} onClick={()=>setSelectedSetForImport(null)}>Cancel</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -871,7 +881,7 @@ export default function AdminPlayableSets() {
             {searchMutation.data && (
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  Found {searchMutation.data.total || searchMutation.data.cards?.length || 0} results
+                  Showing {searchMutation.data.cards?.length || 0} general-search sample cards; this is not an exact-set import count
                 </p>
                 <div className="border rounded-md divide-y max-h-[400px] overflow-y-auto">
                   {searchMutation.data.cards?.map((card, i) => (
@@ -949,7 +959,7 @@ export default function AdminPlayableSets() {
                     >
                       <span className="font-medium truncate">{result.setName}</span>
                       <Badge variant="secondary" className="shrink-0">
-                        {result.cardCount} card{result.cardCount !== 1 ? "s" : ""}
+                        {result.cardCount} sampled card{result.cardCount !== 1 ? "s" : ""}
                       </Badge>
                     </Button>
                   ))}
