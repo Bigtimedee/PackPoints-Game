@@ -16,6 +16,8 @@ export type LayoutClass = "TOP_PLATE" | "BOTTOM_PLAQUE" | "PSA_SLAB" | "UNKNOWN"
 export interface MaskProfile {
   id: string;
   matched: boolean;
+  /** Admin-authored geometry is exact; detectors may reject it, never refit it. */
+  fixedNameBand?: boolean;
   nameAnchor: NameAnchor;
   layoutClass: LayoutClass;
   /**

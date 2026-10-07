@@ -12,7 +12,7 @@ export function customBandProfile(value: unknown): MaskProfile | null {
   if (!value || typeof value !== 'object') return null;
   const { edge, height } = value as { edge?: unknown; height?: unknown };
   if ((edge !== 'top' && edge !== 'bottom') || typeof height !== 'number' || !Number.isFinite(height) || height < 5 || height > (edge === 'top' ? 35 : 55)) return null;
-  return { id: `admin-${edge}-${height}`, matched: true, nameAnchor: edge, layoutClass: edge === 'top' ? 'TOP_PLATE' : 'BOTTOM_PLAQUE',
+  return { id: `admin-${edge}-${height}`, matched: true, fixedNameBand: true, nameAnchor: edge, layoutClass: edge === 'top' ? 'TOP_PLATE' : 'BOTTOM_PLAQUE',
     cardOrientation: 'portrait', sidewaysFallbackDeg: 0, topBandPct: edge === 'top' ? height / 100 : 0,
     bottomBandPct: edge === 'bottom' ? height / 100 : 0, leftBandPct: 0, rightBandPct: 0, blurSigma: 25,
     regions: [{ xPct: 0, yPct: edge === 'top' ? 0 : 100 - height, wPct: 100, hPct: height, type: 'blur', radiusPct: 0 }], trustProfileBand: false };
