@@ -385,6 +385,30 @@ export function resolveNameMaskPlan(input: {
   const plateHits = splitNamePlateHits(ocr.boxes, input.imageHeight);
   const trace = (decision: string) => buildNamePlateTrace(profile, input, plateHits, decision);
 
+  if (profile.fixedNameBand === true) {
+    // An explicitly authored band is not a detector suggestion. In particular,
+    // fitting a smaller bottom plate can expose an autograph above that plate.
+    // Keep exact geometry; slab or recognized off-band names still fail closed.
+    const outside = ocr.boxes.some(box => !profile.regions.some(region =>
+      box.x >= input.imageWidth * region.xPct / 100
+      && box.y >= input.imageHeight * region.yPct / 100
+      && box.x + box.w <= input.imageWidth * (region.xPct + region.wPct) / 100
+      && box.y + box.h <= input.imageHeight * (region.yPct + region.hPct) / 100));
+    const refused = isSlab || outside;
+    return {
+      regions: profile.regions.map(region => ({ ...region })),
+      source: "profile",
+      matchedTokens: ocr.tokens,
+      profileId: profile.id,
+      layoutClass: profile.layoutClass,
+      nameBoxes: lastNameMatched ? ocr.boxes : [],
+      plate: input.plateBox ?? null,
+      layoutDisagreed: refused,
+      namePlateUnresolved: refused,
+      plateTrace: trace(refused ? "name_plate_unresolved" : "authored_fixed_band"),
+    };
+  }
+
   if (profile.id === "1987-donruss") {
     // Do not enlarge the fixed band to fit OCR or a detected plate. A slab,
     // off-band name or plate needs review, not a different mask geometry.
