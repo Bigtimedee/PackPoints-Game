@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { consumeDaily5AuthReturn } from "@/lib/daily5AuthReturn";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -24,7 +25,7 @@ export default function AuthSuccess() {
     if (user) {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       const timer = setTimeout(() => {
-        setLocation("/");
+        setLocation(consumeDaily5AuthReturn());
       }, 1500);
       return () => clearTimeout(timer);
     }
