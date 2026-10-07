@@ -1,7 +1,7 @@
 /**
  * A registered mask profile does not make a set dealable.
  * The live ids stay unheld. Their bake geometry stays put.
- * 1987 Donruss is released after per-card mask QA; only QA-approved cards deal.
+* 1988 Topps and 1987 Donruss require per-card QA approval before dealing.
  */
 import { describe, expect, it } from "vitest";
 import { buildSetMaskHint } from "@shared/maskGeometry";
@@ -14,6 +14,7 @@ import {
   NO_MASK_PROFILE_REASON,
 } from "../config/heldSets";
 import { getMaskProfile, MASK_LAYOUT_SET_IDS } from "../masking/maskProfiles";
+import { TOPPS_1988_PROFILE_ID, TOPPS_1988_REGIONS } from "../masking/topps1988Geometry";
 
 const LIVE = [
   {
@@ -58,10 +59,17 @@ const LIVE = [
     profileId: "default",
     regions: DEFAULT_MASK_REGIONS,
   },
+
+  {
+    id: MASK_LAYOUT_SET_IDS.toppsBaseball1988,
+    hint: buildSetMaskHint({ year: 1988, brand: "Topps", sport: "baseball", setName: "1988 Topps Baseball" }),
+    profileId: TOPPS_1988_PROFILE_ID,
+    regions: TOPPS_1988_REGIONS,
+  },
 ] as const;
 
 describe("cleared set allowlist", () => {
-  it("keeps the live sets dealable and leaves their bake profiles unchanged", () => {
+  it("keeps released sets dealable and leaves their bake profiles unchanged", () => {
     expect([...CLEARED_SET_IDS]).toEqual([...LIVE.map((row) => row.id), MASK_LAYOUT_SET_IDS.donrussBaseball1987]);
     for (const row of LIVE) {
       expect(isClearedSetId(row.id)).toBe(true);
