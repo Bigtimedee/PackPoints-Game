@@ -1,3 +1,4 @@
+import { lifecycleProfile } from "../services/setLifecycleRegistry";
 import { DEFAULT_MASK_REGIONS, type MaskRegion } from "@shared/schema";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 
@@ -277,6 +278,8 @@ function baseballYearBrandProfile(hint: ParsedSetHint): MaskProfile | null {
 export function getMaskProfile(setName: string | null | undefined, gameSetId?: string | null): MaskProfile {
   const id = (gameSetId || "").trim().toLowerCase();
   if (id && setIdProfiles[id]) return setIdProfiles[id];
+  const authored = lifecycleProfile(id);
+  if (authored) return authored;
 
   const hint = parseSetHint(setName);
   if (!hint.raw && !id) return defaultProfile;

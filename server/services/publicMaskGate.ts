@@ -5,7 +5,7 @@
  * the hold list changes. The card row and the fail sidecar are read every time.
  */
 import type { Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import { holdReasonForIdentity } from "../config/heldSets";
@@ -94,6 +94,7 @@ export async function publicMaskDenyReason(
         id: playableCards.id,
         gameSetId: playableCards.gameSetId,
         blockedReason: playableCards.blockedReason,
+        lifecycleManaged: sql<boolean>`EXISTS (SELECT 1 FROM admin_set_lifecycles asl WHERE asl.set_id = ${playableCards.gameSetId})`,
       })
       .from(playableCards)
       .where(eq(playableCards.id, cardId))
@@ -101,6 +102,10 @@ export async function publicMaskDenyReason(
     if (!card) return "missing";
     if (refusedAtCurrentMask({ id: card.id, blockedReason: card.blockedReason })) return "refused";
     if (!card.gameSetId) return "missing";
+    if (card.lifecycleManaged) {
+      const { lifecycleCardAllowed } = await import("./setLifecycle");
+      if (!await lifecycleCardAllowed(cardId)) return "refused";
+    }
     const gate = await setGate(card.gameSetId);
     if (!gate.exists) return "missing";
     if (gate.held && !opts?.allowHeld) return "held";

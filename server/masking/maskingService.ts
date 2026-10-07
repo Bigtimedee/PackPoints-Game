@@ -150,6 +150,9 @@ export interface MaskBakeSource {
   setHint: string | null;
   gameSetId: string | null;
   imageRotation?: number | null;
+  /** Admin lifecycle already fetched and bound these bytes. Never supplied by an HTTP body. */
+  sourceBuffer?: Buffer;
+  deferNameVisibility?: boolean;
 }
 
 async function ensureDirectory(): Promise<void> {
@@ -632,7 +635,7 @@ export async function bakeMaskedCardFromUrl(
     return await runInBakeSlot(cardId, async (setStage, isCancelled) => {
       setStage("fetch");
       const fetchStarted = Date.now();
-      const imageBuffer = await downloadMaskSource(imageUrl, cardId);
+      const imageBuffer = input.sourceBuffer ?? await downloadMaskSource(imageUrl, cardId);
       if (!imageBuffer || isCancelled()) return null;
 
       setStage("ocr");
@@ -709,7 +712,8 @@ export async function bakeMaskedCardFromUrl(
       await fs.writeFile(filePath, result.maskedBuffer);
       await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
       const priorFail = readMaskFailureReason(cardId);
-      if (priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
+      if (input.deferNameVisibility && priorFail) return null;
+      if (!input.deferNameVisibility && priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
         clearMaskFailureSidecar(cardId);
         await db
           .update(playableCards)
@@ -769,7 +773,7 @@ export async function bakeMaskedCardFromUrl(
         maskVersion: CURRENT_MASK_VERSION,
       });
 
-      scheduleNameVisibilityCheck({
+      if (!input.deferNameVisibility) scheduleNameVisibilityCheck({
         cardId,
         playerName: input.playerName,
         regions: result.regions,

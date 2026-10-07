@@ -1,4 +1,5 @@
 import { startScanOnce, readScanStatus, type ScanIntent, type ScanJob, type ScanTransport } from "@/lib/adminCardScan";
+import { AdminSetLifecycle } from "@/components/admin-set-lifecycle";
 import { AdminHeldMaskReview } from "@/components/admin-held-mask-review";
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -145,6 +146,7 @@ const categories = ["Baseball", "Basketball", "Football", "Hockey"];
 
 export default function AdminPlayableSets() {
   const { toast } = useToast();
+  const [lifecycleSetId, setLifecycleSetId] = useState<string | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [showSearchDialog, setShowSearchDialog] = useState(false);
   const [showSetLookupDialog, setShowSetLookupDialog] = useState(false);
@@ -522,6 +524,7 @@ export default function AdminPlayableSets() {
         <Button variant="outline" onClick={() => void resumeScanStatus()} disabled={scanStarting}>Refresh status (read only)</Button>
       </div>}
       <AdminHeldMaskReview />
+      {lifecycleSetId && <AdminSetLifecycle key={lifecycleSetId} setId={lifecycleSetId} onClose={() => setLifecycleSetId(null)} />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold" data-testid="text-page-title">Playable Sets</h1>
@@ -591,6 +594,7 @@ export default function AdminPlayableSets() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      <Button variant="outline" size="sm" onClick={() => setLifecycleSetId(set.id)} data-testid={`button-release-${set.id}`}>Review &amp; release</Button>
                       <Button 
                         variant="ghost" 
                         size="icon"
