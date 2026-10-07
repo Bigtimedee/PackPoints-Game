@@ -1,3 +1,5 @@
+import { lifecycleSet } from "../services/setLifecycleRegistry";
+import { identityKey } from "../services/setLifecycleCore";
 /**
  * Active integrated sets stay out of deals and public set pages until Design
  * has cleared that exact id. A registered mask profile is not enough.
@@ -85,6 +87,12 @@ export function setHasRegisteredMaskProfile(set: MaskSetIdentity): boolean {
  * those leave the flags unset.
  */
 export function holdReasonForIdentity(set: MaskSetIdentity): string | null {
+  const authored = lifecycleSet(set.id);
+  if (authored) {
+    const identity = identityKey({ year: set.year ?? 0, brand: set.brand ?? "", sport: set.sport ?? "", setName: set.setName ?? "" });
+    if (set.isUserCreated || set.isActive === false || authored.identity !== identity || !authored.published) return AWAITING_DESIGN_CLEARANCE_REASON;
+    return null;
+  }
   if (set.isUserCreated) return null;
   if (set.isActive === false) return null;
   if (!setHasRegisteredMaskProfile(set)) return NO_MASK_PROFILE_REASON;
@@ -108,6 +116,8 @@ export function isHeldSet(id: string | null | undefined): boolean {
 
 export async function refreshHeldSets(): Promise<HeldSetRecord[]> {
   const ticket = ++refreshGeneration;
+  const { refreshLifecycleRegistry } = await import("../services/setLifecycle");
+  await refreshLifecycleRegistry();
   const rows = await db
     .select({
       id: gameSets.id,
