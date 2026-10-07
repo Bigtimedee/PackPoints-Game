@@ -1,3 +1,4 @@
+import { CreatePlayableSetSchema, ImportPreflightInput, exactImportParameters, performImportPreflight } from "./services/importPreflightCore";
 import { registerAdminCardScanRoutes } from "./routes/adminCardScans";
 import { startAdminScan, readAdminScanJob } from "./services/adminCardScanJobs";
 import { describeSetAvailability } from "./services/adminScanCore";
@@ -5965,15 +5966,16 @@ export async function registerRoutes(
     }
   });
 
-  // Zod schemas for playable sets validation
-  const CreatePlayableSetSchema = z.object({
-    sport: z.string().min(1, "sport is required"),
-    brand: z.string().min(1, "brand is required"),
-    year: z.coerce.number().int().min(1850).max(2100),
-    setName: z.string().min(1, "setName is required"),
-    cardhedgeSetQuery: z.string().optional(),
-    cardhedgeCategory: z.string().optional(),
-    marketplaceKeywords: z.array(z.string()).optional().default([]),
+  // Read-only exact-import preflight: no DB rows, jobs, approvals or import writes.
+  app.post("/api/admin/playable-sets/import-preflight", isAuthenticated, requireAdmin, async (req, res) => {
+    const parsed = ImportPreflightInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Enter an exact set query and valid category" });
+    const session = req.session as any;
+    const actor = session?.localUserId || (req.user as any)?.claims?.sub || "unknown";
+    if (!checkRateLimit(`import-preflight:admin:${actor}`, 30, 60000))
+      return res.status(429).json({ error: "Too many preflight checks. Try again shortly." });
+    const result = await performImportPreflight(parsed.data, cardSearch);
+    return res.status(result.status).json(result.body);
   });
 
   // Admin: Create playable set (game set with Card Hedge config)
@@ -5991,7 +5993,7 @@ export async function registerRoutes(
           cardhedgeSetQuery: validated.cardhedgeSetQuery || validated.setName,
           cardhedgeCategory: validated.cardhedgeCategory || validated.sport.charAt(0).toUpperCase() + validated.sport.slice(1),
           marketplaceKeywords: validated.marketplaceKeywords,
-          isActive: true,
+          isActive: validated.isActive,
         })
         .returning();
       
@@ -6063,12 +6065,7 @@ export async function registerRoutes(
         
         while (hasMorePages) {
           // Use cardSearch instead of cardSearchSorted - the sorted endpoint returns many cards with empty images
-          const result = await cardSearch({
-            set: gameSet.cardhedgeSetQuery,
-            category: gameSet.cardhedgeCategory || undefined,
-            page,
-            page_size: pageSize,
-          });
+          const result = await cardSearch(exactImportParameters(gameSet.cardhedgeSetQuery, gameSet.cardhedgeCategory, page, pageSize));
           
           if (!result.cards || result.cards.length === 0) {
             hasMorePages = false;
@@ -6301,12 +6298,7 @@ export async function registerRoutes(
       
       while (hasMorePages) {
         // Use cardSearch instead of cardSearchSorted - the sorted endpoint returns many cards with empty images
-        const result = await cardSearch({
-          set: gameSet.cardhedgeSetQuery,
-          category: gameSet.cardhedgeCategory || undefined,
-          page,
-          page_size: pageSize,
-        });
+        const result = await cardSearch(exactImportParameters(gameSet.cardhedgeSetQuery, gameSet.cardhedgeCategory, page, pageSize));
         
         pagesFetched++;
         
