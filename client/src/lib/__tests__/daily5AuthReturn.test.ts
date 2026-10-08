@@ -68,6 +68,24 @@ describe("Daily5 auth return", () => {
     expect(location.href).toBe("/auth?tab=login");
     expect(consumeDaily5AuthReturn()).toBe("/daily5?challenge=test-token");
   });
+  it("header login starts local auth with native modified-click behavior preserved", () => {
+    const src = readFileSync(new URL("../../components/header.tsx", import.meta.url), "utf8");
+    expect(src).toContain('import { startLocalAuth } from "@/lib/attribution"');
+    expect(src).toMatch(/href="\/auth\?tab=login" onClick=\{\(event\) => \{/);
+    expect(src).toMatch(/event\.button !== 0 .*event\.metaKey.*event\.ctrlKey.*event\.shiftKey.*event\.altKey/);
+    expect(src).toMatch(/event\.preventDefault\(\);\s*startLocalAuth\(\);/);
+  });
+  it("a fresh non-Daily5 local auth start clears abandoned intent", () => {
+    const session = new MemoryStore();
+    const location = {pathname: "/daily5", search: "?challenge=abandoned", href: ""};
+    vi.stubGlobal("window", {location, sessionStorage: session});
+    startLocalAuth();
+    location.pathname = "/sets";
+    location.search = "?next=https://example.org";
+    startLocalAuth();
+    expect(location.href).toBe("/auth?tab=login");
+    expect(consumeDaily5AuthReturn()).toBe("/");
+  });
   it("wires consumption inside the authenticated navigation timer; retains auth error path", () => {
     const src = readFileSync(new URL("../../pages/auth-success.tsx", import.meta.url), "utf8");
     expect(src).toMatch(/if \(user\)\s*\{[\s\S]*?setTimeout\(\(\) => \{\s*setLocation\(consumeDaily5AuthReturn\(\)\);\s*\}, 1500\)/);
