@@ -1,3 +1,6 @@
+import { isSameOriginRequest } from "./lib/signupAttribution";
+import { establishLocalSession, claimGuestAfterSignIn } from "./auth/localTransition";
+import { redeemLocalPassword, uniqueRecoveryAccount } from "./auth/localRecovery";
 import { CreatePlayableSetSchema, ImportPreflightInput, exactImportParameters, performImportPreflight } from "./services/importPreflightCore";
 import { registerAdminCardScanRoutes } from "./routes/adminCardScans";
 import { startAdminScan, readAdminScanJob } from "./services/adminCardScanJobs";
@@ -1726,6 +1729,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/register", registrationLimiter, async (req: any, res) => {
+    if (!isSameOriginRequest(req) || req.headers["sec-fetch-site"] === "cross-site") return res.status(403).json({error: "Forbidden"});
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1779,7 +1783,7 @@ export async function registerRoutes(
         }
       }
       
-      req.session.localUserId = user.id;
+      await establishLocalSession(req, user.id);
 
       try {
         await walletService.getOrCreateWallet(user.id);
@@ -1795,11 +1799,7 @@ export async function registerRoutes(
         console.error("[Register] Error ensuring wallet exists (non-fatal):", walletErr);
       }
 
-      try {
-        await claimAnonForUser(req, res, user.id);
-      } catch (claimErr) {
-        console.error("[Register] Guest escrow claim failed (non-fatal):", claimErr);
-      }
+      const guestClaim = await claimGuestAfterSignIn(req, res, user.id);
       
       const updatedUser = await storage.getUser(user.id);
 
@@ -1817,6 +1817,7 @@ export async function registerRoutes(
         }
         res.json({ 
           success: true, 
+          guestClaim,
           activated: activationResult.activated,
           waitlistPosition: activationResult.waitlistPosition,
           foundersPassShareUrl,
@@ -1890,6 +1891,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/local-login", loginLimiter, async (req: any, res) => {
+    if (!isSameOriginRequest(req) || req.headers["sec-fetch-site"] === "cross-site") return res.status(403).json({error: "Forbidden"});
     try {
       console.log("[Login] Starting login attempt");
       
@@ -1937,7 +1939,7 @@ export async function registerRoutes(
         // Don't throw - risk pipeline errors shouldn't block login
       }
       
-      req.session.localUserId = user.id;
+      await establishLocalSession(req, user.id);
       console.log("[Login] Session localUserId set:", user.id);
 
       try {
@@ -1946,11 +1948,7 @@ export async function registerRoutes(
         console.error("[Login] Error ensuring wallet exists (non-fatal):", walletErr);
       }
 
-      try {
-        await claimAnonForUser(req, res, user.id);
-      } catch (claimErr) {
-        console.error("[Login] Guest escrow claim failed (non-fatal):", claimErr);
-      }
+      const guestClaim = await claimGuestAfterSignIn(req, res, user.id);
       
       // Get updated user stats after transferring points
       let updatedUser;
@@ -1972,6 +1970,7 @@ export async function registerRoutes(
         console.log("[Login] Session saved successfully, returning response");
         res.json({ 
           success: true, 
+          guestClaim,
           user: {
             id: updatedUser!.id,
             username: updatedUser!.username,
@@ -1984,6 +1983,13 @@ export async function registerRoutes(
       console.error("[Login] Unhandled error:", error);
       res.status(500).json({ error: "Failed to login" });
     }
+  });
+
+  app.post("/api/guest/claim", isAuthenticated, async (req: any, res) => {
+    if (!isSameOriginRequest(req) || req.headers["sec-fetch-site"] === "cross-site") return res.status(403).json({error: "Forbidden"});
+    const userId = req.session?.localUserId || req.user?.claims?.sub;
+    const guestClaim = await claimGuestAfterSignIn(req, res, userId);
+    res.status(guestClaim.status === "pending" ? 409 : 200).json({ guestClaim });
   });
 
   app.get("/api/guest/pending-points", async (req: any, res) => {
@@ -2009,6 +2015,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/local-logout", async (req: any, res) => {
+    if (!isSameOriginRequest(req) || req.headers["sec-fetch-site"] === "cross-site") return res.status(403).json({error: "Forbidden"});
     try {
       req.session.destroy((err: any) => {
         if (err) {
@@ -2084,10 +2091,11 @@ export async function registerRoutes(
   // Password reset - request reset link. A failed send logs the masked
   // recipient and the error. The token and the reset URL stay out of the logs.
   app.post("/api/auth/forgot-password", forgotPasswordLimiter, async (req, res) => {
+    if (!isSameOriginRequest(req) || req.headers["sec-fetch-site"] === "cross-site") return res.status(403).json({error: "Forbidden"});
     try {
       const result = await requestPasswordReset({
         email: req.body?.email,
-        getUserByEmail: (email) => storage.getUserByEmail(email),
+        getUserByEmail: uniqueRecoveryAccount,
         createPasswordResetToken: (userId) => storage.createPasswordResetToken(userId),
         sendPasswordResetEmail,
         baseUrl: process.env.APP_URL || "https://packpts.com",
@@ -2124,37 +2132,19 @@ export async function registerRoutes(
 
   // Password reset - reset password with token
   app.post("/api/auth/reset-password", resetPasswordLimiter, async (req, res) => {
+    if (!isSameOriginRequest(req) || req.headers["sec-fetch-site"] === "cross-site") return res.status(403).json({error: "Forbidden"});
     try {
       const { token, password } = req.body;
       
-      if (!token || !password) {
+      if (typeof token !== "string" || typeof password !== "string" || token.length > 256) {
         return res.status(400).json({ error: "Token and password are required" });
       }
-      
-      if (password.length < 8) {
-        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      if (password.length < 8 || password.length > 100) {
+        return res.status(400).json({ error: "Password must be between 8 and 100 characters" });
       }
-      
-      const resetToken = await storage.getPasswordResetToken(token);
-      if (!resetToken) {
+      if (!await redeemLocalPassword(token, password)) {
         return res.status(400).json({ error: "Invalid or expired reset link" });
       }
-      
-      // Update password
-      await storage.updateUserPassword(resetToken.userId, password);
-      
-      // Mark token as used
-      await storage.markPasswordResetTokenUsed(resetToken.id);
-
-      // SEC-01: Revoke all existing sessions so a hijacked cookie cannot survive the reset.
-      try {
-        await db.delete(sessions).where(
-          sql`sess->>'localUserId' = ${resetToken.userId}`
-        );
-      } catch (sweepErr) {
-        console.error("[ResetPassword] Session sweep failed:", sweepErr);
-      }
-
       res.json({ success: true, message: "Password has been reset successfully" });
     } catch (error) {
       console.error("Error resetting password:", error);
@@ -2175,6 +2165,9 @@ export async function registerRoutes(
       }
 
       const challenge = await identityService.getPendingChallenge(challengeId);
+      if (challenge?.provider === "workos") {
+        return res.status(410).json({ error: "This provider has been retired. Use password recovery for your existing account." });
+      }
       if (!challenge) {
         return res.status(404).json({ error: "Challenge not found" });
       }
@@ -2217,6 +2210,9 @@ export async function registerRoutes(
       }
 
       const challenge = await identityService.getPendingChallenge(challengeId);
+      if (challenge?.provider === "workos") {
+        return res.status(410).json({ error: "This provider has been retired. Use password recovery for your existing account." });
+      }
       if (!challenge) {
         return res.status(404).json({ error: "Challenge not found" });
       }
@@ -2307,6 +2303,9 @@ export async function registerRoutes(
       }
 
       const challenge = await identityService.getPendingChallenge(challengeId);
+      if (challenge?.provider === "workos") {
+        return res.status(410).json({ error: "This provider has been retired. Use password recovery for your existing account." });
+      }
       if (!challenge) {
         return res.status(404).json({ error: "Challenge not found" });
       }
@@ -2373,6 +2372,9 @@ export async function registerRoutes(
       }
 
       const challenge = await identityService.findChallengeByMagicToken(token);
+      if (challenge?.provider === "workos") {
+        return res.status(410).json({ error: "This provider has been retired. Use password recovery for your existing account." });
+      }
       if (!challenge) {
         return res.redirect("/auth/error?code=INVALID_TOKEN");
       }
