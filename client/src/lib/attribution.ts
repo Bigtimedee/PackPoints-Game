@@ -1,3 +1,5 @@
+import { rememberDaily5AuthReturn } from "./daily5AuthReturn";
+
 /**
  * First-touch signup attribution (analytics only).
  *
@@ -266,6 +268,7 @@ export async function stashAttributionForOAuth(
 
 /** Stash attribution, then navigate to the WorkOS start route. */
 export async function startWorkosAuth(path = "/api/auth/workos/start"): Promise<void> {
+  rememberDaily5AuthReturn(window.location.pathname, window.location.search);
   await stashAttributionForOAuth();
   window.location.href = path;
 }
