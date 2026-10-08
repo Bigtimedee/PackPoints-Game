@@ -394,84 +394,91 @@ async function applyClaimStats(userId: string, plan: { creditPoints: number; gam
 
 /**
  * Move escrow onto the real wallet. Idempotent per anon row (claimed_at).
- * Also folds a legacy session `pendingPoints` blob when the row has no escrow
- * yet, so a deploy does not drop an in-flight guest score.
+ * Unproven legacy `pendingPoints` remain saved for review instead of receiving
+ * an unverified credit or being silently discarded.
  */
 export async function claimAnonForUser(req: GateRequest, res: Response, userId: string): Promise<{ credited: number }> {
   const player = await resolveAnonPlayer(req, res, { create: false });
   const legacy = req.session?.pendingPoints;
 
   if (player && !player.claimedAt) {
-    const plan = planEscrowClaim(snapshotOf(player));
-    const useLegacy = plan.creditPoints === 0 && plan.games === 0 && legacy && legacy.score > 0;
-    const effective = useLegacy
-      ? {
-          alreadyClaimed: false,
-          creditPoints: Math.max(0, Math.floor(legacy!.score)),
-          games: Math.max(0, legacy!.gamesPlayed || 0),
-          correct: Math.max(0, legacy!.correctAnswers || 0),
-          answers: Math.max(0, legacy!.totalAnswers || 0),
+    // Reconcile actual guest rewards at claim; never deduct previously credited balances.
+    const result = await db.transaction(async (tx) => {
+      const [lockedPlayer] = await tx.select().from(anonPlayers)
+        .where(eq(anonPlayers.id, player.id)).for("update").limit(1);
+      if (!lockedPlayer || lockedPlayer.claimedAt) return { credited: 0 };
+      // Serialize different guest rows claiming into this account. A conflicting
+      // incomplete authenticated entry remains unresolved and aborts this claim.
+      const [account] = await tx.select().from(users).where(eq(users.id, userId)).for("no key update").limit(1);
+      if (!account) throw new Error("Claim account not found");
+      const plan = planEscrowClaim(snapshotOf(lockedPlayer));
+      const useLegacy = plan.creditPoints === 0 && plan.games === 0 && legacy && legacy.score > 0;
+      const effective = useLegacy ? {
+        creditPoints: Math.max(0, Math.floor(legacy!.score)),
+        games: Math.max(0, legacy!.gamesPlayed || 0),
+        correct: Math.max(0, legacy!.correctAnswers || 0),
+        answers: Math.max(0, legacy!.totalAnswers || 0),
+      } : plan;
+      const runs = await tx.select().from(anonDailyRuns).where(and(
+        eq(anonDailyRuns.anonPlayerId, player.id), sql`${anonDailyRuns.completedAt} is not null`));
+      const credits = await tx.select().from(anonGameCredits).where(eq(anonGameCredits.anonPlayerId, player.id));
+      const hasDailyProvenance = runs.length > 0 || credits.some(c => c.surface === "daily5");
+      if (useLegacy || (hasDailyProvenance && (
+        credits.reduce((sum, c) => sum + c.points, 0) !== effective.creditPoints ||
+        credits.some(c => c.points < 0 || (c.surface === "daily5" && !runs.some(r => c.id === `daily5:${r.id}`))) ||
+        runs.some(r => !credits.some(c => c.surface === "daily5" && c.id === `daily5:${r.id}`))
+      ))) throw new Error("Claim reconciliation requires review: missing or inconsistent reward provenance");
+      let excludedPoints = 0;
+      const excludedCreditIds: string[] = [];
+      for (const run of runs) {
+        const inserted = await tx.insert(dailyChallengeEntries).values({
+          dailyChallengeId: run.dailyChallengeId, userId,
+          startedAt: run.startedAt, completedAt: run.completedAt, creditedAt: new Date(),
+          score: run.score, correctCount: run.correctCount, timeMs: run.timeMs,
+          flagged: run.flagged, flagReason: run.flagReason, answers: run.answers ?? [],
+        }).onConflictDoNothing().returning({ id: dailyChallengeEntries.id });
+        if (inserted.length > 0) continue;
+        const [existing] = await tx.select().from(dailyChallengeEntries).where(and(
+          eq(dailyChallengeEntries.userId, userId), eq(dailyChallengeEntries.dailyChallengeId, run.dailyChallengeId)));
+        if (!existing?.completedAt) throw new Error("Claim reconciliation requires review: existing Daily5 entry is incomplete");
+        // Reward provenance is the actual credit, NOT run.score (flagged runs
+        // can have a positive display score but a zero-point credit).
+        const credit = credits.find(c => c.id === `daily5:${run.id}` && c.surface === "daily5");
+        const sum = credits.reduce((total, c) => total + c.points, 0);
+        const unknownDaily = credits.some(c => c.surface === "daily5" && !runs.some(r => c.id === `daily5:${r.id}`));
+        if (useLegacy || !credit || unknownDaily || sum !== effective.creditPoints || credits.some(c => c.points < 0)) {
+          throw new Error("Claim reconciliation requires review: missing or inconsistent reward provenance");
         }
-      : plan;
-
-    const locked = await db
-      .update(anonPlayers)
-      .set({ claimedByUserId: userId, claimedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(anonPlayers.id, player.id), isNull(anonPlayers.claimedAt)))
-      .returning({ id: anonPlayers.id });
-
-    if (locked.length === 0) {
-      clearLegacy(req);
-      return { credited: 0 };
-    }
-
-    try {
-      const idempotentPlan = effective;
-      if (idempotentPlan.creditPoints > 0) {
-        const earned = await walletService.earn(
-          userId,
-          idempotentPlan.creditPoints,
-          "Guest play claimed",
-          `anon_escrow:${player.id}`,
-          { source: "anon_escrow", anonPlayerId: player.id },
-        );
-        if (!earned.success) {
-          throw new Error(earned.error || "Failed to credit guest PackPTS");
-        }
+        excludedPoints += credit.points;
+        excludedCreditIds.push(credit.id);
       }
-      if (idempotentPlan.games > 0 || idempotentPlan.creditPoints > 0) {
-        await storage.updateUserStats(userId, {
-          pointsEarned: idempotentPlan.creditPoints,
-          correctAnswers: idempotentPlan.correct,
-          totalAnswers: idempotentPlan.answers,
-        });
-        for (let i = 1; i < idempotentPlan.games; i++) {
-          await db.update(users).set({
-            gamesPlayed: sql`${users.gamesPlayed} + 1`,
-          }).where(eq(users.id, userId));
-        }
+      const credited = effective.creditPoints - excludedPoints;
+      if (credited < 0) throw new Error("Claim reconciliation requires review: invalid credit allocation");
+      if (credited > 0) {
+        const earned = await walletService.earn(userId, credited, "Guest play claimed",
+          `anon_escrow:${player.id}`, { source: "anon_escrow", anonPlayerId: player.id, excludedCreditIds }, tx);
+        if (!earned.success) throw new Error(earned.error || "Failed to credit guest PackPTS");
       }
-      await copyDailyRunsToUser(player.id, userId);
-      clearLegacy(req);
-      return { credited: idempotentPlan.creditPoints };
-    } catch (err) {
-      await db
-        .update(anonPlayers)
-        .set({ claimedByUserId: null, claimedAt: null, updatedAt: new Date() })
-        .where(and(eq(anonPlayers.id, player.id), eq(anonPlayers.claimedByUserId, userId)));
-      throw err;
-    }
+      // Reward-only policy: keep recorded play/accuracy counters unchanged by exclusion.
+      if (effective.games > 0 || effective.creditPoints > 0) {
+        await tx.update(users).set({
+          points: sql`${users.points} + ${credited}`,
+          gamesPlayed: sql`${users.gamesPlayed} + ${Math.max(1, effective.games)}`,
+          correctAnswers: sql`${users.correctAnswers} + ${effective.correct}`,
+          totalAnswers: sql`${users.totalAnswers} + ${effective.answers}`,
+        }).where(eq(users.id, userId));
+      }
+      await tx.update(anonPlayers).set({ claimedByUserId: userId, claimedAt: new Date(), updatedAt: new Date() })
+        .where(eq(anonPlayers.id, player.id));
+      return { credited };
+    });
+    clearLegacy(req);
+    return result;
   }
 
   if (legacy && (legacy.score > 0 || legacy.gamesPlayed > 0)) {
-    await applyClaimStats(userId, {
-      creditPoints: Math.max(0, Math.floor(legacy.score || 0)),
-      games: Math.max(0, legacy.gamesPlayed || 0),
-      correct: Math.max(0, legacy.correctAnswers || 0),
-      answers: Math.max(0, legacy.totalAnswers || 0),
-    });
-    clearLegacy(req);
-    return { credited: Math.max(0, Math.floor(legacy.score || 0)) };
+    // Pre-cookie blobs cannot prove a per-challenge credit; retain for review.
+    throw new Error("Claim reconciliation requires review: missing legacy reward provenance");
   }
 
   return { credited: 0 };
