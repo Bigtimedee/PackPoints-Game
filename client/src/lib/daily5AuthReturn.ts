@@ -1,4 +1,4 @@
-/** One-tab, one-use Daily5 intent across WorkOS. Never accepts a redirect URL. */
+/** One-tab, one-use Daily5 intent across sign-in. Never accepts a redirect URL. */
 export const DAILY5_AUTH_RETURN_KEY = "packpts_daily5_auth_return_v1";
 export const DAILY5_AUTH_RETURN_TTL_MS = 30 * 60 * 1000;
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
