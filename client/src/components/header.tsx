@@ -5,6 +5,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { Trophy, User, ShoppingBag, Play, Zap, LogIn, LogOut, Loader2, ExternalLink, AlertCircle, Coins, ShieldAlert } from "lucide-react";
 import packptsLogo from "@/assets/packpts-logo.png";
 import { useAuth } from "@/hooks/use-auth";
+import { startLocalAuth } from "@/lib/attribution";
 import { useWallet } from "@/hooks/use-wallet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StreakBadge } from "./streak-card";
@@ -193,7 +194,12 @@ export function Header() {
             </DropdownMenu>
           ) : (
             <Button asChild data-testid="button-login">
-              <Link href="/auth">
+              <Link href="/auth?tab=login" onClick={(event) => {
+                // Keep native modified-click behavior; record intent for this tab's auth start.
+                if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                startLocalAuth();
+              }}>
                 <LogIn className="h-4 w-4 mr-2" />
                 Log in
               </Link>
