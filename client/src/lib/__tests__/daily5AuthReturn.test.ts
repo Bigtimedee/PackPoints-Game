@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { consumeDaily5AuthReturn, rememberDaily5AuthReturn, DAILY5_AUTH_RETURN_KEY as KEY, DAILY5_AUTH_RETURN_TTL_MS as TTL } from "../daily5AuthReturn";
-import { captureFirstTouch, startWorkosAuth } from "../attribution";
+import { captureFirstTouch, startLocalAuth } from "../attribution";
 class MemoryStore {
   data = new Map<string, string>();
   getItem(k: string) { return this.data.get(k) ?? null; }
@@ -59,21 +59,13 @@ describe("Daily5 auth return", () => {
     s.removeItem = () => { throw Error("blocked"); };
     expect(consumeDaily5AuthReturn(s, NOW)).toBe("/");
   });
-  it("actual WorkOS start saves context but still stashes attribution before leaving", async () => {
+  it("actual local auth start preserves intent, never navigates to a provider", () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW);
-    const session = new MemoryStore(), local = new MemoryStore();
-    const location = { pathname: "/daily", search: "?challenge=test-token", host: "packpts.com", href: "" };
-    vi.stubGlobal("window", { location, sessionStorage: session, localStorage: local });
-    captureFirstTouch({ pathname: "/daily", search: "?utm_source=collector", host: "packpts.com", referrer: "", local, session, now: NOW });
-    let resolve!: (value: Response) => void;
-    const fetchMock = vi.fn((_url: string, _init?: RequestInit) => new Promise<Response>((r) => { resolve = r; }));
-    vi.stubGlobal("fetch", fetchMock);
-    const starting = startWorkosAuth();
-    expect(session.getItem(KEY)).not.toBeNull();
-    expect(location.href).toBe("");
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/attribution");
-    resolve(new Response(null, { status: 204 })); await starting;
-    expect(location.href).toBe("/api/auth/workos/start");
+    const session = new MemoryStore();
+    const location = {pathname: "/daily", search: "?challenge=test-token", href: ""};
+    vi.stubGlobal("window", {location, sessionStorage: session});
+    startLocalAuth();
+    expect(location.href).toBe("/auth?tab=login");
     expect(consumeDaily5AuthReturn()).toBe("/daily5?challenge=test-token");
   });
   it("wires consumption inside the authenticated navigation timer; retains auth error path", () => {
