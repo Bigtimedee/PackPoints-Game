@@ -5,7 +5,7 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 
 /**
  * First-party SPA on packpts.com (host-only cookies; www → apex).
- * WorkOS / TikTok OAuth callbacks are top-level GET navigations to apex, which
+ * TikTok OAuth callbacks are top-level GET navigations to apex, which
  * send SameSite=Lax cookies. SameSite=None is not required for that flow and
  * would allow credentialed cross-site POSTs against cookie-auth /api/*.
  */

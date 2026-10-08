@@ -12,14 +12,14 @@ export function registerAuthRoutes(app: Express): void {
       if (req.session?.localUserId) {
         const user = await authStorage.getUser(req.session.localUserId);
         if (user) {
-          return res.json(user);
+          return res.json({ ...user, guestClaim: (req.session as any).guestClaimNotice });
         }
       }
 
       if (req.session?.workosUserId) {
         const user = await authStorage.getUserByWorkosId(req.session.workosUserId);
         if (user) {
-          return res.json(user);
+          return res.json({ ...user, guestClaim: (req.session as any).guestClaimNotice });
         }
       }
 
