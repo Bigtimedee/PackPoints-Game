@@ -15,7 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
-import { startWorkosAuth } from "@/lib/attribution";
+import { consumeDaily5AuthReturn } from "@/lib/daily5AuthReturn";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 
 const signupSchema = z.object({
@@ -108,10 +108,11 @@ export default function AuthPage() {
       } else {
         toast({
           title: "Account created!",
-          description: "Welcome to PackPTS. Start playing to earn PackPTS!",
+          description: data.guestClaim?.status === "pending" ? data.guestClaim.message : "Welcome to PackPTS. Start playing to earn PackPTS!",
+          duration: data.guestClaim?.status === "pending" ? 20000 : undefined,
         });
         await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-        setLocation("/");
+        setLocation(consumeDaily5AuthReturn());
       }
     },
     onError: (error: Error) => {
@@ -138,11 +139,12 @@ export default function AuthPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
       toast({
         title: "Welcome back!",
-        description: "You've successfully logged in.",
+        description: data.guestClaim?.status === "pending" ? data.guestClaim.message : "You've successfully logged in.",
+          duration: data.guestClaim?.status === "pending" ? 20000 : undefined,
       });
       // Invalidate and refetch auth state before navigating
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      setLocation("/");
+      setLocation(consumeDaily5AuthReturn());
     },
     onError: (error: Error) => {
       const message = error?.message || "Invalid username or password";
@@ -153,18 +155,6 @@ export default function AuthPage() {
       });
     },
   });
-
-  const handleWorkOSLogin = () => {
-    if (window.self !== window.top) {
-      toast({
-        title: "Open in new tab",
-        description: "WorkOS login requires opening the app in a new browser tab.",
-        variant: "destructive",
-      });
-      return;
-    }
-    void startWorkosAuth();
-  };
 
   const onSignup = (data: SignupFormData) => {
     signupMutation.mutate(data);
@@ -409,26 +399,9 @@ export default function AuthPage() {
             </TabsContent>
           </Tabs>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <Separator className="w-full" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleWorkOSLogin}
-              data-testid="button-workos-login"
-            >
-              <Lock className="mr-2 h-4 w-4" />
-              Continue with WorkOS
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground" data-testid="local-recovery-help">
+            Previously used WorkOS? Use Forgot password with your existing account email to set a password. Your account and balance stay the same.
+          </p>
 
           <p className="text-center text-xs text-muted-foreground">
             By continuing, you agree to our Terms of Service and Privacy Policy.
