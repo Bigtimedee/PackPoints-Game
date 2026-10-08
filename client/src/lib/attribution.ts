@@ -266,9 +266,8 @@ export async function stashAttributionForOAuth(
   }
 }
 
-/** Stash attribution, then navigate to the WorkOS start route. */
-export async function startWorkosAuth(path = "/api/auth/workos/start"): Promise<void> {
+/** Navigate to local auth, retaining only validated Daily5 intent. */
+export function startLocalAuth(): void {
   rememberDaily5AuthReturn(window.location.pathname, window.location.search);
-  await stashAttributionForOAuth();
-  window.location.href = path;
+  window.location.href = "/auth?tab=login";
 }
