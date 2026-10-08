@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { GuestClaimNotice } from "@/components/guest-claim-notice";
 import { Header } from "@/components/header";
 import { MobileNav } from "@/components/mobile-nav";
 import { AdminLayout } from "@/components/admin-layout";
@@ -464,6 +465,7 @@ function App() {
               </div>
             )}
             <StaleBuildWatcher />
+            <GuestClaimNotice />
             <AppShell />
             <AppExtras />
             <Toaster />
