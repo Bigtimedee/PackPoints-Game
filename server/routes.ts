@@ -113,6 +113,7 @@ import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicS
 import { handlePublicSetCover } from "./services/setCovers";
 import { registerCoverQaRoutes } from "./routes/coverQa";
 import { registerDealableQaRoutes } from "./routes/dealableQa";
+import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
 import { attributeNewUserFromRequest } from "./lib/signupAttribution";
@@ -517,6 +518,7 @@ export async function registerRoutes(
   // card with no sidecar is baked. The cover-QA handler stays registered
   // and does not bake. Public /sets covers never bake.
   registerDealableQaRoutes(app);
+  registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
   registerSetFillQaRoutes(app);

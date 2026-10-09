@@ -8,7 +8,8 @@ import { buildSetMaskHint, CURRENT_MASK_VERSION } from '@shared/maskGeometry';
 import { db, pool } from '../db';
 import { isAuthenticated } from '../auth';
 import { requireAdmin } from '../auth/requireAdmin';
-import { isClearedSetId, refreshHeldSets } from '../config/heldSets';
+import { isClearedSetId, isDesignApprovedSetId, refreshHeldSets } from '../config/heldSets';
+import { publishGateError, refreshDesignApprovals } from '../services/setDesignApproval';
 import { TOPPS_1988_SET_ID } from '../masking/topps1988Geometry';
 import { getMaskProfile } from '../masking/maskProfiles';
 import { MASKED_CARDS_DIR } from '../masking/maskPlanStore';
@@ -144,6 +145,9 @@ export function registerAdminSetLifecycleRoutes(app: Express, options: { startWo
       if(!set||!set.isActive||set.isUserCreated||!lifecycle||lifecycle.identity!==identityKey(set)){
         await client.query('ROLLBACK');res.status(409).json({error:'Set identity changed or inactive; save layout and review again'});return;
       }
+      await refreshDesignApprovals();
+      const gate=publishGateError({setId:set.id,designApproved:isDesignApprovedSetId(set.id),hasMaskProfile:!!lifecycle.profile});
+      if(gate){await client.query('ROLLBACK');res.status(409).json({error:gate,code:'design_approval_required'});return;}
       const busy=(await client.query("SELECT 1 FROM admin_set_card_reviews WHERE set_id=$1 AND status IN ('pending','processing') LIMIT 1",[set.id])).rowCount;
       const cards=await db.select().from(playableCards).where(and(eq(playableCards.gameSetId,set.id),eligibleDealFilter('playable_cards',{ignoreHeldSets:true,ignoreCardReview:true},true)));
       const reviews=(await client.query<ReviewRecord>('SELECT * FROM admin_set_card_reviews WHERE set_id=$1',[set.id])).rows;

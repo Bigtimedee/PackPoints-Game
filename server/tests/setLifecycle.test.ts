@@ -13,7 +13,7 @@ import { sql } from 'drizzle-orm';
 import * as schema from '@shared/schema';
 import { CURRENT_MASK_VERSION } from '@shared/maskGeometry';
 import { customBandProfile, digest, identityKey, witnessKey, profileRevision, reviewMatches } from '../services/setLifecycleCore';
-const fixture=vi.hoisted(()=>({ pg:null as any,db:null as any,dir:'',refusal:null as string|null,ocrSkip:false,bakes:0,admin:true }));
+const fixture=vi.hoisted(()=>({ pg:null as any,db:null as any,dir:'',refusal:null as string|null,ocrSkip:false,bakes:0,admin:true,designApproved:true }));
 vi.mock('../db',()=>({db:new Proxy({}, {get:(_t,p)=>(...args:any[])=>fixture.db[p](...args)}),pool:{
   query:async(text:string,values?:unknown[])=> {const r=await fixture.pg.query(text,values);return {...r,rowCount:/^\s*SELECT/i.test(text)?r.rows.length:(r.affectedRows??r.rows.length)};},
   connect:async()=>({query:async(text:string,values?:unknown[])=>{if(text.includes('pg_try_advisory_lock'))return {rows:[{acquired:true}]};if(text.includes('pg_advisory_unlock'))return {rows:[]};const r=await fixture.pg.query(text,values);return {...r,rowCount:/^\s*SELECT/i.test(text)?r.rows.length:(r.affectedRows??r.rows.length)};},release:()=>{}})
@@ -32,7 +32,8 @@ vi.mock('../masking/maskingService',()=>({downloadMaskSource:async()=>Buffer.fro
 // Isolate lifecycle behavior; canonical eligibility's own regression tests remain separate.
 vi.mock('../services/playableSetEligibility',()=>({eligibleDealFilter:()=>sql`is_playable=true AND content_verified=true`}));
 vi.mock('../services/publicMaskGate',()=>({invalidatePublicMaskSetCache:()=>{}}));
-vi.mock('../config/heldSets',()=>({isClearedSetId:(id:string)=>id==='3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4',refreshHeldSets:async()=>{}}));
+vi.mock('../config/heldSets',()=>({isClearedSetId:(id:string)=>id==='3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4',isDesignApprovedSetId:()=>fixture.designApproved,refreshHeldSets:async()=>{}}));
+vi.mock('../services/setDesignApproval',async(orig)=>({...await orig<any>(),refreshDesignApprovals:async()=>{}}));
 import { registerAdminSetLifecycleRoutes } from '../routes/adminSetLifecycle';
 import { configureLifecycle, refreshLifecycleRegistry, requestPreparation, tickLifecycleQueue, reviewFile, managedReadyIds, lifecycleCardAllowed } from '../services/setLifecycle';
 const setId=randomUUID();const identity={year:2026,brand:'Fixture',sport:'baseball',setName:'Fixture new set'};
@@ -90,6 +91,7 @@ describe('self-service lifecycle',()=>{
     let snap=await (await api()).json();const first=snap.cards[0];
     expect((await api(`/approve/${first.id}`,{sourceReviewed:true,maskReviewed:true,note:'Reviewed exact images',challenge:{...first.challenge,sourceHash:digest('wrong')}})).status).toBe(409);
     for(const card of snap.cards)expect((await api(`/approve/${card.id}`,{sourceReviewed:true,maskReviewed:true,note:'Reviewed exact images',challenge:card.challenge})).status).toBe(200);
+    fixture.designApproved=false;const gated=await api('/publish',{publish:true});expect(gated.status).toBe(409);expect((await gated.json()).code).toBe('design_approval_required');fixture.designApproved=true;
     expect((await api('/publish',{publish:true})).status).toBe(200);expect(await lifecycleCardAllowed(ids[0])).toBe(true);expect(managedReadyIds()).toHaveLength(5);
     const row=(await fixture.pg.query('SELECT * FROM admin_set_card_reviews WHERE card_id=$1',[ids[0]])).rows[0];expect(reviewFile(row)).not.toBeNull();
     writeFileSync(path.join(fixture.dir,row.filename),'tampered');expect(reviewFile(row)).toBeNull();expect(await lifecycleCardAllowed(ids[0])).toBe(false);

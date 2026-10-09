@@ -4992,6 +4992,20 @@ export const adminSetCardReviews = pgTable("admin_set_card_reviews", {
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 }, table => [index("admin_set_card_reviews_queue").on(table.status, table.leaseUntil)]);
 
+/**
+ * Recorded Design approval of a set's mask profile, written only by the
+ * X-QA-Token gated /api/qa/sets/:setId/design-approval route. Lifecycle publish
+ * and public release require a live (unrevoked) row or a CLEARED_SET_IDS entry.
+ */
+export const setDesignApprovals = pgTable("set_design_approvals", {
+  setId: varchar("set_id").primaryKey().references(() => gameSets.id, { onDelete: "cascade" }),
+  maskProfileId: text("mask_profile_id").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  note: text("note"),
+  approvedAt: timestamptz("approved_at").notNull().defaultNow(),
+  revokedAt: timestamptz("revoked_at"),
+});
+
 /** Idempotent full-set snapshot and terminal per-card outcomes survive worker/reload restarts. */
 export const adminSetPreparationJobs = pgTable("admin_set_preparation_jobs", {
   requestId: varchar("request_id").primaryKey(),
