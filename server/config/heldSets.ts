@@ -28,10 +28,8 @@ export const CLEARED_SET_IDS = [
   "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
   "74885a41-2043-4b7c-ab58-f9e16c05e2e3",
   "229f0379-aa56-40a8-abe3-1af217a397e8",
-  // 1988 Topps Baseball: released after source-bound per-card production inspection;
-  // per-card card_review_approvals remains mandatory for dealing.
-  "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
-  
+  // 1988 Topps Baseball (affd57b8) is HELD: #206 cleared it without a Design mask
+  // approval. It stays out until Design approves its mask profile and clears the pool.
   // 1987 Donruss Baseball: released after per-card mask inspection. Only cards with a QA
   // approval in card_review_approvals deal; the card review guard stays on.
   "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4",

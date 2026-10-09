@@ -1,7 +1,7 @@
 /**
  * A registered mask profile does not make a set dealable.
  * The live ids stay unheld. Their bake geometry stays put.
-* 1988 Topps and 1987 Donruss require per-card QA approval before dealing.
+* 1988 Topps is held pending Design. 1987 Donruss requires per-card QA approval before dealing.
  */
 import { describe, expect, it } from "vitest";
 import { buildSetMaskHint } from "@shared/maskGeometry";
@@ -59,13 +59,6 @@ const LIVE = [
     profileId: "default",
     regions: DEFAULT_MASK_REGIONS,
   },
-
-  {
-    id: MASK_LAYOUT_SET_IDS.toppsBaseball1988,
-    hint: buildSetMaskHint({ year: 1988, brand: "Topps", sport: "baseball", setName: "1988 Topps Baseball" }),
-    profileId: TOPPS_1988_PROFILE_ID,
-    regions: TOPPS_1988_REGIONS,
-  },
 ] as const;
 
 describe("cleared set allowlist", () => {
@@ -83,6 +76,15 @@ describe("cleared set allowlist", () => {
       expect(profile.id, row.id).toBe(row.profileId);
       expect(profile.regions, row.id).toEqual(row.regions.map((region) => ({ ...region })));
     }
+  });
+
+  it("holds 1988 Topps until Design approves its mask", () => {
+    expect(isClearedSetId(MASK_LAYOUT_SET_IDS.toppsBaseball1988)).toBe(false);
+    const hint = buildSetMaskHint({ year: 1988, brand: "Topps", sport: "baseball", setName: "1988 Topps Baseball" });
+    expect(getMaskProfile(hint, MASK_LAYOUT_SET_IDS.toppsBaseball1988).id).toBe(TOPPS_1988_PROFILE_ID);
+    expect(getMaskProfile(hint, MASK_LAYOUT_SET_IDS.toppsBaseball1988).regions).toEqual(TOPPS_1988_REGIONS.map((r) => ({ ...r })));
+    expect(holdReasonForIdentity({ id: MASK_LAYOUT_SET_IDS.toppsBaseball1988, setName: hint, isActive: true, isUserCreated: false }))
+      .toBe(AWAITING_DESIGN_CLEARANCE_REASON);
   });
 
   it("holds a new profiled set until its id is in CLEARED_SET_IDS_EXTRA", () => {
