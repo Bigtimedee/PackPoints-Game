@@ -2,12 +2,12 @@ import { createHash } from "crypto";
 import { db } from "../db";
 import { 
   dailyChallenges, dailyChallengeCards, dailyChallengeEntries, anonDailyRuns,
-  gameSets, users,
+  gameSets, users, packptsEvents,
   type DailyChallenge, type DailyChallengeCard, type DailyChallengeEntry,
   type DailyChallengeStatus, type PlayableCard
 } from "@shared/schema";
 import { eq, and, isNotNull, or, sql, asc } from "drizzle-orm";
-import { applyLedgerEntry } from "./packpts/ledgerService";
+import { walletService } from "./walletService";
 import { addPackptsDays, getDailyStartEnd, getPackptsDayKey } from "@shared/packptsDay";
 import { maskedPlayPath } from "./playImageToken";
 import { buildSetMaskHint } from "@shared/maskGeometry";
@@ -615,81 +615,84 @@ export class Daily5Service {
     correctAnswers: { position: number; correctAnswer: string }[];
     pointsCredited: number;
   }> {
-    const [entry] = await db
-      .select()
-      .from(dailyChallengeEntries)
-      .where(
-        and(
-          eq(dailyChallengeEntries.dailyChallengeId, challengeId),
-          eq(dailyChallengeEntries.userId, userId)
+    const finished = await db.transaction(async tx => {
+      // Match guest-claim serialization. NO KEY UPDATE permits wallet bucket FK
+      // KEY SHARE locks; FOR UPDATE here would invert wallet -> FK-user ordering.
+      const [account] = await tx.select().from(users).where(eq(users.id, userId)).for("no key update").limit(1);
+      if (!account) throw new Error("Account not found");
+      const [entry] = await tx
+        .select()
+        .from(dailyChallengeEntries)
+        .where(
+          and(
+            eq(dailyChallengeEntries.dailyChallengeId, challengeId),
+            eq(dailyChallengeEntries.userId, userId)
+          )
         )
-      )
-      .limit(1);
+        .for("update").limit(1);
 
-    if (!entry) throw new Error("No entry found");
-    if (entry.completedAt) throw new Error("Already completed");
+      if (!entry) throw new Error("No entry found");
+      if (entry.completedAt) throw new Error("Already completed");
 
-    const now = new Date();
-    const startedAt = entry.startedAt ? new Date(entry.startedAt) : now;
-    const totalTimeMs = now.getTime() - startedAt.getTime();
+      const now = new Date();
+      const startedAt = entry.startedAt ? new Date(entry.startedAt) : now;
+      const totalTimeMs = now.getTime() - startedAt.getTime();
 
-    const flagReasons: string[] = [];
+      const flagReasons: string[] = [];
 
-    if (totalTimeMs < DAILY5_MIN_TIME_MS) {
-      flagReasons.push(`completed_too_fast:${totalTimeMs}ms`);
-    }
-
-    const perfectStreak = await this.checkPerfectStreak(userId);
-    if (perfectStreak >= DAILY5_PERFECT_STREAK_THRESHOLD && entry.correctCount === 5) {
-      flagReasons.push(`perfect_streak:${perfectStreak + 1}_consecutive`);
-    }
-
-    const isNewAccount = await this.isNewAccount(userId);
-    if (isNewAccount && entry.correctCount === 5) {
-      flagReasons.push("new_account_perfect_score");
-    }
-
-    const isFlagged = flagReasons.length > 0;
-
-    const cappedScore = Math.min(entry.score, DAILY5_MAX_POINTS);
-
-    await db
-      .update(dailyChallengeEntries)
-      .set({
-        completedAt: now,
-        timeMs: totalTimeMs,
-        score: cappedScore,
-        flagged: isFlagged,
-        flagReason: isFlagged ? flagReasons.join("; ") : null,
-      })
-      .where(eq(dailyChallengeEntries.id, entry.id));
-
-    let pointsCredited = 0;
-    if (!isFlagged && cappedScore > 0) {
-      try {
-        await applyLedgerEntry({
-          userId,
-          direction: "credit",
-          amountPackpts: cappedScore,
-          source: "gameplay",
-          eventType: "daily5_reward",
-          refType: "daily_challenge_entry",
-          refId: entry.id,
-          idempotencyKey: `daily5:${challengeId}:${userId}`,
-          metadata: { challengeId, correctCount: entry.correctCount, timeMs: totalTimeMs },
-        });
-        pointsCredited = cappedScore;
-        await db
-          .update(dailyChallengeEntries)
-          .set({ creditedAt: now })
-          .where(eq(dailyChallengeEntries.id, entry.id));
-        console.log(`[Daily5] Credited ${cappedScore} PackPTS to user ${userId} for challenge ${challengeId}`);
-      } catch (err) {
-        console.error(`[Daily5] Failed to credit PackPTS to user ${userId}:`, err);
+      if (totalTimeMs < DAILY5_MIN_TIME_MS) {
+        flagReasons.push(`completed_too_fast:${totalTimeMs}ms`);
       }
-    } else if (isFlagged) {
-      console.warn(`[Daily5] Entry flagged for user ${userId}: ${flagReasons.join("; ")} - points withheld`);
-    }
+
+      const perfectStreak = await this.checkPerfectStreak(userId);
+      if (perfectStreak >= DAILY5_PERFECT_STREAK_THRESHOLD && entry.correctCount === 5) {
+        flagReasons.push(`perfect_streak:${perfectStreak + 1}_consecutive`);
+      }
+
+      const isNewAccount = await this.isNewAccount(userId);
+      if (isNewAccount && entry.correctCount === 5) {
+        flagReasons.push("new_account_perfect_score");
+      }
+
+      const isFlagged = flagReasons.length > 0;
+
+      const cappedScore = Math.min(entry.score, DAILY5_MAX_POINTS);
+
+      await tx
+        .update(dailyChallengeEntries)
+        .set({
+          completedAt: now,
+          timeMs: totalTimeMs,
+          score: cappedScore,
+          flagged: isFlagged,
+          flagReason: isFlagged ? flagReasons.join("; ") : null,
+        })
+        .where(eq(dailyChallengeEntries.id, entry.id));
+
+      let pointsCredited = 0;
+      if (!isFlagged && cappedScore > 0) {
+        const reward = await walletService.earn(
+          userId, cappedScore, `gameplay:daily5_reward (daily_challenge_entry:${entry.id})`,
+          `daily5:${challengeId}:${userId}`,
+          { challengeId, correctCount: entry.correctCount, timeMs: totalTimeMs }, tx,
+          {source: "gameplay", eventType: "daily5_reward", refType: "daily_challenge_entry", refId: entry.id},
+        );
+        if (!reward.success) throw new Error(reward.error || "Daily5 reward failed");
+        pointsCredited = reward.idempotent ? 0 : cappedScore;
+        // Keep the existing reward audit classification inside the same transaction.
+        await tx.insert(packptsEvents).values({type: "daily5_reward", status: "processed", payload: {
+          userId, direction: "credit", amountPackpts: cappedScore, source: "gameplay",
+          refType: "daily_challenge_entry", refId: entry.id, idempotencyKey: `daily5:${challengeId}:${userId}`,
+          idempotent: reward.idempotent || false, newBalance: reward.wallet?.balance,
+        }});
+        await tx.update(dailyChallengeEntries).set({ creditedAt: now }).where(eq(dailyChallengeEntries.id, entry.id));
+      } else if (isFlagged) {
+        console.warn(`[Daily5] Entry flagged for user ${userId}: ${flagReasons.join("; ")} - points withheld`);
+      }
+
+      return { entry, cappedScore, totalTimeMs, isFlagged, pointsCredited };
+    });
+    const { entry, cappedScore, totalTimeMs, isFlagged, pointsCredited } = finished;
 
     const cards = await db
       .select({ position: dailyChallengeCards.position, correctAnswer: dailyChallengeCards.correctAnswer })

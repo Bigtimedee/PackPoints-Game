@@ -8,7 +8,7 @@ import { setupWebSocket } from "./websocket";
 import { matchService } from "./services/matchService";
 import { setupAuth, registerAuthRoutes } from "./auth";
 import { verifyEmailConfig } from "./services/emailService";
-import { registerWorkosRoutes } from "./services/workosAuth";
+import { registerRetiredProviderRoutes } from "./auth/retiredProvider";
 import { registerTiktokSandboxRoutes } from "./routes/tiktokSandbox.routes";
 import { initializeStripeConnection } from "./stripeClient";
 import { seedPackageGuardrailConfig } from "./services/store/packageGuardrailService";
@@ -42,7 +42,6 @@ function validateEnvironment() {
   const RECOMMENDED = [
     { key: 'STRIPE_SECRET_KEY', feature: 'Stripe payments' },
     { key: 'STRIPE_WEBHOOK_SECRET', feature: 'Stripe webhooks' },
-    { key: 'WORKOS_API_KEY', feature: 'WorkOS auth' },
     { key: 'OPENAI_API_KEY', feature: 'AI content generation' },
   ];
 
@@ -308,7 +307,7 @@ app.use((req, res, next) => {
     console.error("[Startup] setupAuth() failed (non-fatal):", err);
   }
   registerAuthRoutes(app);
-  registerWorkosRoutes(app);
+  registerRetiredProviderRoutes(app);
   registerTiktokSandboxRoutes(app);
   
   // Register OpenAPI docs (dev only or when SHOW_API_DOCS=true)

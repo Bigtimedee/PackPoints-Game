@@ -9,7 +9,6 @@ import { resolveBuildId } from "../server/lib/resolveBuildId";
 // which helps cold start times
 const allowlist = [
   "@google/generative-ai",
-  "@workos-inc/node",
   "axios",
   "connect-pg-simple",
   "cors",

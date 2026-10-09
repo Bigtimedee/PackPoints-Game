@@ -1,6 +1,6 @@
 /**
  * Signup attribution: sanitization, the signed OAuth stash cookie, and each
- * signup path (register helper, WorkOS callback, Sign in with Apple) writing
+ * signup path (register helper, retired-provider shared stash, Sign in with Apple) writing
  * user_attribution for new users only. No live database: the attribution store
  * and auth dependencies are mocked.
  */
@@ -24,15 +24,6 @@ const mocks = vi.hoisted(() => ({
   jwtVerify: vi.fn(),
   appleSelect: vi.fn(),
   userInsert: vi.fn(),
-}));
-
-vi.mock("@workos-inc/node", () => ({
-  WorkOS: class {
-    userManagement = {
-      getAuthorizationUrl: () => "https://auth.example.test/authorize",
-      authenticateWithCode: mocks.authenticateWithCode,
-    };
-  },
 }));
 
 vi.mock("../storage", () => ({
@@ -114,7 +105,7 @@ import {
   type ReferralLinkLite,
   type SignupAttribution,
 } from "../lib/signupAttribution";
-import { registerWorkosRoutes } from "../services/workosAuth";
+import { registerRetiredProviderRoutes } from "../auth/retiredProvider";
 import { registerIosRoutes } from "../routes/ios.routes";
 import referralsRouter from "../routes/referrals";
 import { signupSourceBucket, type SignupSourceRow } from "../services/signupSources";
@@ -401,7 +392,7 @@ function clearsAttrCookie(res: Response): boolean {
 describe("WorkOS: stash cookie round trip", () => {
   let h: Harness;
   beforeAll(async () => {
-    h = await startApp((app) => registerWorkosRoutes(app));
+    h = await startApp((app) => registerRetiredProviderRoutes(app));
   });
   afterAll(async () => {
     await new Promise((r) => h.server.close(r));
@@ -445,74 +436,11 @@ describe("WorkOS: stash cookie round trip", () => {
     expect(clearsAttrCookie(res)).toBe(true);
   });
 
-  async function callback(cookie: string | null) {
-    h.session.workosState = "state-1";
-    return fetch(`${h.base}/api/auth/workos/callback?code=c1&state=state-1`, {
-      redirect: "manual",
-      headers: cookie ? { Cookie: `${ATTRIBUTION_COOKIE}=${cookie}` } : {},
-    });
-  }
-
-  it("writes attribution for a newly created WorkOS user and clears the cookie", async () => {
-    links.REFW = { id: "link-w", createdByUserId: "someone-else", expiresAt: null };
-    const s = await stash({ utmSource: "creator_jane", utmMedium: "dm", utmCampaign: "launch", referredByCode: "REFW", landingPage: "/daily", referrerHost: "instagram.com" });
-    const cookie = attrCookieFrom(s)!;
-    mocks.authenticateWithCode.mockResolvedValue({ user: { id: "wos_new", email: "new@example.com", emailVerified: true } });
-    mocks.findIdentity.mockResolvedValue(null);
-    mocks.findUsersByEmail.mockResolvedValue([]);
-    mocks.getUserByUsername.mockResolvedValue(undefined);
-    mocks.createWorkosUser.mockResolvedValue({ id: "user-new-workos" });
-
-    const res = await callback(cookie);
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/auth/success");
-    expect(clearsAttrCookie(res)).toBe(true);
-    expect(written).toEqual([
-      {
-        userId: "user-new-workos",
-        a: attr({ utmSource: "creator_jane", utmMedium: "dm", utmCampaign: "launch", refCode: "REFW", landingPage: "/daily", referrerHost: "instagram.com" }),
-      },
-    ]);
-    expect(referralSignups).toEqual([{ linkId: "link-w", userId: "user-new-workos" }]);
-  });
-
-  it("does not write for an existing WorkOS user logging in, and still clears the cookie", async () => {
-    const s = await stash({ utmSource: "creator_jane", utmMedium: "dm" });
-    const cookie = attrCookieFrom(s)!;
-    mocks.authenticateWithCode.mockResolvedValue({ user: { id: "wos_old", email: "old@example.com", emailVerified: true } });
-    mocks.findIdentity.mockResolvedValue({ userId: "user-existing" });
-    mocks.getUser.mockResolvedValue({ id: "user-existing" });
-
-    const res = await callback(cookie);
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/auth/success");
-    expect(clearsAttrCookie(res)).toBe(true);
-    expect(written).toEqual([]);
-    expect(referralSignups).toEqual([]);
+  it("retired callback returns 410 and never creates a provider identity", async () => {
+    const r = await fetch(`${h.base}/api/auth/workos/callback?code=anything&state=anything`);
+    expect(r.status).toBe(410);
     expect(mocks.createWorkosUser).not.toHaveBeenCalled();
-  });
-
-  it("does not write on an email collision (existing account, link required)", async () => {
-    const s = await stash({ utmSource: "creator_jane" });
-    mocks.authenticateWithCode.mockResolvedValue({ user: { id: "wos_dup", email: "dup@example.com", emailVerified: true } });
-    mocks.findIdentity.mockResolvedValue(null);
-    mocks.findUsersByEmail.mockResolvedValue([{ id: "user-existing" }]);
-    const res = await callback(attrCookieFrom(s));
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toMatch(/^\/auth\/link-required/);
-    expect(clearsAttrCookie(res)).toBe(true);
-    expect(written).toEqual([]);
-  });
-
-  it("ignores a forged cookie on a new WorkOS user", async () => {
-    mocks.authenticateWithCode.mockResolvedValue({ user: { id: "wos_new2", email: null, emailVerified: false } });
-    mocks.findIdentity.mockResolvedValue(null);
-    mocks.getUserByUsername.mockResolvedValue(undefined);
-    mocks.createWorkosUser.mockResolvedValue({ id: "user-new-2" });
-    const forged = Buffer.from(JSON.stringify({ i: Math.floor(Date.now() / 1000), s: "forged" })).toString("base64url") + ".bad";
-    const res = await callback(forged);
-    expect(res.status).toBe(302);
-    expect(written).toEqual([]);
+    expect(mocks.createIdentity).not.toHaveBeenCalled();
   });
 });
 

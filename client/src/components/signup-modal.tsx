@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getStoredUtmParams } from "@/lib/queryClient";
-import { startWorkosAuth } from "@/lib/attribution";
+import { useToast } from "@/hooks/use-toast";
 import { Loader2, Trophy, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,7 +18,7 @@ import { useGuestWallChrome } from "@/lib/guestWallChrome";
 const signupModalSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
   email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters").max(100),
+  password: z.string().min(8, "Password must be at least 8 characters").max(100),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
@@ -48,6 +48,7 @@ interface SignupModalProps {
 
 export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain, variant = "optional", gateReason: _gateReason, openOn = "plaque" }: SignupModalProps) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   const [step, setStep] = useState<"plaque" | "form">("plaque");
   const isGate = variant === "soft" || variant === "hard";
@@ -124,6 +125,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       }
     },
     onSuccess: async (data) => {
+      if (data.guestClaim?.status === "pending") toast({ title: "Guest points still saved", description: data.guestClaim.message, duration: 20000 });
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
@@ -155,6 +157,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       }
     },
     onSuccess: async (data) => {
+      if (data.guestClaim?.status === "pending") toast({ title: "Guest points still saved", description: data.guestClaim.message, duration: 20000 });
       if (data.user) {
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
@@ -400,22 +403,14 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                       Skip for Now
                     </Button>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full min-h-11"
-                    onClick={() => { void startWorkosAuth(); }}
-                    disabled={isPending}
-                    data-testid="button-modal-workos-signup"
-                  >
-                    Continue with WorkOS
-                  </Button>
+
                 </div>
               </form>
             </Form>
           </TabsContent>
 
           <TabsContent value="login" className="mt-3 sm:mt-4">
+            <p className="mb-3 text-sm text-muted-foreground">Previously used WorkOS? Forgot password lets you set a password for your existing account.</p>
             <Form {...loginForm}>
               <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-3 sm:space-y-4">
                 <FormField
@@ -517,16 +512,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                       Skip for Now
                     </Button>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full min-h-11"
-                    onClick={() => { void startWorkosAuth(); }}
-                    disabled={isPending}
-                    data-testid="button-modal-workos"
-                  >
-                    Continue with WorkOS
-                  </Button>
+
                 </div>
               </form>
             </Form>
