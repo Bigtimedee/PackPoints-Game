@@ -190,7 +190,7 @@ describe("v4.6 sweep blocklist: the 26 ids", () => {
     expect(DESIGN).toHaveLength(5);
     // 32 = 26 Marketing + 5 Design watch review + Schmidt; the Design full-pool sweep adds 68.
     // 1990 Hoops rows are covered in hoopsTrustedBand.test.ts; 1987 Donruss rows in setFillMissing.test.ts; 1995 UD Basketball rows in upperDeck1995Profile.test.ts.
-    expect(BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId !== HOOPS_1990_SET_PREFIX && rule.gameSetId !== DONRUSS_1987_SET_PREFIX && rule.gameSetId !== "3235b4fd")).toHaveLength(32 + 68);
+    expect(BLOCKED_CARD_ID_RULES.filter((rule) => rule.gameSetId !== HOOPS_1990_SET_PREFIX && rule.gameSetId !== DONRUSS_1987_SET_PREFIX && rule.gameSetId !== "3235b4fd" && rule.gameSetId !== "2b77043a")).toHaveLength(32 + 68);
     expect(rules.has(TOPPS_1987_SCHMIDT_CARD_ID)).toBe(true);
     const prefixes: Record<Sweep["set"], string> = { "1989-topps": "352b33d1", "1987-topps-football": "91cfdf3f", "1994-topps-football": "a09b2fe7" };
     for (const card of SWEEP) {

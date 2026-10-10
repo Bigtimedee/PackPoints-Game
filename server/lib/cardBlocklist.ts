@@ -291,6 +291,7 @@ export const HOOPS_1990_SET_PREFIX = "d226801a";
 export const DONRUSS_1987_SET_PREFIX = "3ff8de8d";
 /** 1995-96 Upper Deck Basketball (3235b4fd-858a-424b-b9df-6f0f2d070d1b), held. */
 export const UPPER_DECK_1995_BASKETBALL_SET_PREFIX = "3235b4fd";
+export const TOPPS_1986_BASEBALL_SET_PREFIX = "2b77043a";
 
 /**
  * 1989 Topps #496 Dwayne Henry. The stored image is a modern Bowman Chrome
@@ -571,6 +572,11 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "4a8f0f81-e819-4dbc-8af4-c853c20daac3", number: "349", surname: "robinson", variant: "base", reason: "subset layout with vertical edge name (not base design) (Design pool RED 2026-10-10)", idOnly: true },
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "427b1d81-9e7c-4718-af8f-d84aaa6fcee5", number: "353", surname: "ceballos", variant: "base", reason: "subset layout with vertical edge name (not base design) (Design pool RED 2026-10-10)", idOnly: true },
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "a6be7e94-8e03-4634-9f8d-f8f09eecdd49", number: "356", surname: "rodman", variant: "base", reason: "subset layout with vertical edge name (not base design) (Design pool RED 2026-10-10)", idOnly: true },
+  // 1986 Topps Baseball (held): Eng by-eye sample screen 2026-10-10.
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "7a55140f-b67f-485c-aed3-05e8e380924b", number: "1", surname: "rose", variant: "base", reason: "seller watermark under the name plate", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "4ef7d29f-a443-4e54-891a-674e51f781dc", number: "269", surname: "iorg", variant: "base", reason: "front+back composite scan (landscape)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "2bb0bb24-84e4-4a91-a918-81c2da00109c", number: "596", surname: "concepcion", variant: "base", reason: "ink autograph", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "411865cc-55fe-4a83-9bd8-3c064206b2e5", number: "633", surname: "gutierrez", variant: "base", reason: "wrong set: modern Topps Derek Jeter scan", idOnly: true },
 ];
 
 export type BlockedSetNumberRule = {
