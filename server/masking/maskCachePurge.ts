@@ -198,7 +198,7 @@ function profileRebuildMarker(dir: string, setId: string): string {
 
 export function profileRebuildSignature(setId: string): string {
   const profile = getMaskProfile(null, setId);
-  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1, ...(setId === TOPPS_1988_SET_ID ? { reviewedSources: TOPPS_1988_REVIEWED_SOURCES } : {}) });
+  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1, ...(setId === TOPPS_1988_SET_ID ? { reviewedSources: TOPPS_1988_REVIEWED_SOURCES } : {}), ...(setId === MASK_LAYOUT_SET_IDS.upperDeckBasketball1995 ? { baseSourceSize: getMaskProfile(null, setId).baseSourceSize, rotatedOcr: 1 } : {}) });
 }
 
 /** One boot line per rebuilt set. Returns the set ids that were rebuilt. */
@@ -223,10 +223,37 @@ export async function rebuildMaskCacheOnProfileChange(
       .from(playableCards)
       .where(eq(playableCards.gameSetId, setId));
     const purged = await purgeMaskCacheForCards(rows.map((row) => row.id), purgeDirs);
+    const reopened = await reopenHeldMaskRefusals(setId);
     mkdirSync(dir, { recursive: true });
     writeFileSync(marker, `${signature}\n`);
     rebuilt.push(setId);
-    console.log(`[MaskProfile] rebuild set=${setId.slice(0, 8)} profile=${getMaskProfile(null, setId).id} cards=${rows.length} purged=${purged}`);
+    console.log(`[MaskProfile] rebuild set=${setId.slice(0, 8)} profile=${getMaskProfile(null, setId).id} cards=${rows.length} purged=${purged} reopened=${reopened}`);
   }
   return rebuilt;
+}
+
+/**
+ * A held (not CLEARED_SET_IDS) set whose profile changed: rows the old bake
+ * refused as mask_name_uncovered, with no review approval, go back to the
+ * unrefused held pool so the explicit prepare re-bakes them under the new
+ * profile. The set stays hidden and the card review guard still holds every
+ * row; a re-bake that still leaks refuses the card again. Cleared sets are
+ * never touched.
+ */
+export async function reopenHeldMaskRefusals(setId: string): Promise<number> {
+  const { CLEARED_SET_IDS } = await import("../config/heldSets");
+  if ((CLEARED_SET_IDS as readonly string[]).includes(setId)) return 0;
+  const { sql, and } = await import("drizzle-orm");
+  const { clearMaskFailureSidecar } = await import("./maskReadySidecar");
+  const rows = await db
+    .update(playableCards)
+    .set({ isPlayable: true, blockedReason: null, quarantineStatus: "OK", updatedAt: new Date() })
+    .where(and(
+      eq(playableCards.gameSetId, setId),
+      eq(playableCards.blockedReason, "mask_name_uncovered"),
+      sql`NOT EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = ${playableCards.id})`,
+    ))
+    .returning({ id: playableCards.id });
+  for (const row of rows) clearMaskFailureSidecar(row.id);
+  return rows.length;
 }

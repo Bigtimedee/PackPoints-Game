@@ -30,9 +30,46 @@ describe('1995-96 Upper Deck Basketball profile', () => {
     expect(off.regions).toEqual(BAND);
     expect(off.namePlateUnresolved).toBe(true);
   });
-  it('rebuilds stale default-profile bakes and blocks the four Design rejects only', () => {
+  it('rebuilds stale default-profile bakes and blocks the Design rejects and the non-base pool', () => {
     expect(PROFILE_REBUILD_SET_IDS).toContain(ID);
     const nums = BLOCKED_CARD_ID_RULES.filter(r => r.gameSetId === '3235b4fd').map(r => r.number).sort();
-    expect(nums).toEqual(['132', '14', '145', '31']);
+    for (const n of ['14', '132', '31', '145', '21', '30', '27', '140', '194']) expect(nums).toContain(n);
+    expect(nums).toHaveLength(68);
+  });
+});
+
+import sharp from 'sharp';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
+import { verifyFixedBandRotations, FIXED_BAND_ROTATED_REASON } from '../masking/fixedBandRotatedCheck';
+import { preparedMaskFile } from '../services/heldMaskPreparation';
+import { CURRENT_MASK_VERSION } from '@shared/maskGeometry';
+
+describe('fixed band rotated OCR and readiness', () => {
+  it('refuses a surname read only at 90 or 270 degrees, passes a clean image, fails closed on timeout', async () => {
+    const buf = await sharp({ create: { width: 70, height: 120, channels: 3, background: '#000' } }).jpeg().toBuffer();
+    const seen: number[] = [];
+    const vertical = await verifyFixedBandRotations({ buffer: buf, playerName: 'Charles Barkley', recognize: async (_b, w) => {
+      seen.push(w); return { words: seen.length === 2 ? [{ text: 'BARKLEY', confidence: 90, x: 0, y: 0, w: 10, h: 10 }] : [], timedOut: false, ms: 1 } as any; } });
+    expect(seen).toEqual([120, 120]);
+    expect(vertical).toMatchObject({ ok: false, reason: FIXED_BAND_ROTATED_REASON });
+    const clean = await verifyFixedBandRotations({ buffer: buf, playerName: 'Charles Barkley', recognize: async () => ({ words: [{ text: 'LAKERS', confidence: 90, x: 0, y: 0, w: 1, h: 1 }], timedOut: false, ms: 1 }) as any });
+    expect(clean.ok).toBe(true);
+    const slow = await verifyFixedBandRotations({ buffer: buf, playerName: 'Charles Barkley', recognize: async () => ({ words: [], timedOut: true, ms: 1 }) as any });
+    expect(slow.ok).toBe(false);
+  });
+  it('treats an exact y83/h17 bake as ready for this set only', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ud95-'));
+    const card = '11111111-2222-4333-8444-555555555555';
+    const stem = path.join(dir, `${card}_${CURRENT_MASK_VERSION}`);
+    writeFileSync(`${stem}.ok`, '');
+    writeFileSync(`${stem}.jpg`, 'x');
+    writeFileSync(`${stem}.json`, JSON.stringify({ maskVersion: CURRENT_MASK_VERSION, layoutClass: 'BOTTOM_PLAQUE', regions: BAND }));
+    expect(preparedMaskFile(card, dir, ID)).toBe(`${stem}.jpg`);
+    expect(preparedMaskFile(card, dir)).toBeNull();
+  });
+  it('declares the 705x1200 base scan size', () => {
+    expect(getMaskProfile(null, ID).baseSourceSize).toEqual({ width: 705, height: 1200 });
   });
 });

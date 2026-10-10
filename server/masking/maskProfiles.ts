@@ -18,6 +18,12 @@ export interface MaskProfile {
   matched: boolean;
   /** Admin-authored geometry is exact; detectors may reject it, never refit it. */
   fixedNameBand?: boolean;
+  /**
+   * Fail-closed base layout gate for a fixed band. A source scan whose pixel
+   * size differs is not the base design this band was authored on and is
+   * refused as `layout_not_base`. Unset on every other profile.
+   */
+  baseSourceSize?: { width: number; height: number };
   nameAnchor: NameAnchor;
   layoutClass: LayoutClass;
   /**
@@ -131,7 +137,7 @@ function profile(
   id: string,
   nameAnchor: NameAnchor,
   regions: MaskRegion[],
-  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand" | "fixedNameBand">> = {},
+  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand" | "fixedNameBand" | "baseSourceSize">> = {},
 ): MaskProfile {
   const topBandPct = extras.topBandPct ?? (nameAnchor === "top" || nameAnchor === "both" ? regions[0]?.hPct / 100 : 0);
   const bottomBandPct = extras.bottomBandPct ?? (nameAnchor === "bottom" ? (regions[0]?.hPct ?? 46) / 100 : 0);
@@ -152,6 +158,7 @@ function profile(
     regions: regions.map((region) => ({ ...region })),
     trustProfileBand: extras.trustProfileBand === true,
     ...(extras.fixedNameBand === true ? { fixedNameBand: true } : {}),
+    ...(extras.baseSourceSize ? { baseSourceSize: { ...extras.baseSourceSize } } : {}),
   };
 }
 
@@ -202,6 +209,8 @@ const upperDeckBasketball1995 = profile(UPPER_DECK_1995_BASKETBALL_PROFILE_ID, "
   topBandPct: 0,
   sidewaysFallbackDeg: 0,
   fixedNameBand: true,
+  // Design: base design is the 705x1200 scan (UD logo top left, foil name across the bottom).
+  baseSourceSize: { width: 705, height: 1200 },
 });
 
 /** Year+brand keys. Applied when sport is baseball or absent. A present non-baseball sport must not hit these. */
