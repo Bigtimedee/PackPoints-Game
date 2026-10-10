@@ -577,6 +577,17 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "4ef7d29f-a443-4e54-891a-674e51f781dc", number: "269", surname: "iorg", variant: "base", reason: "front+back composite scan (landscape)", idOnly: true },
   { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "2bb0bb24-84e4-4a91-a918-81c2da00109c", number: "596", surname: "concepcion", variant: "base", reason: "ink autograph", idOnly: true },
   { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "411865cc-55fe-4a83-9bd8-3c064206b2e5", number: "633", surname: "gutierrez", variant: "base", reason: "wrong set: modern Topps Derek Jeter scan", idOnly: true },
+  // Design t86 pool pass 2026-10-10.
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "0cce41e2-9ad8-4b47-a183-a07be3a94b2b", number: "293", surname: "chambliss", variant: "base", reason: "jersey-back surname (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "7460bdf2-09af-4f21-8804-7d29e5ff5d4d", number: "365", surname: "flanagan", variant: "base", reason: "jersey-back surname (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "f2333288-e902-4843-acef-d9e57c9f79fb", number: "416", surname: "martinez", variant: "base", reason: "jersey-back surname (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "280c1627-3fca-4001-bc14-3af90d13983c", number: "442", surname: "robinson", variant: "base", reason: "jersey-back surname (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "8a307536-1472-47cc-a55d-802755867574", number: "735", surname: "dravecky", variant: "base", reason: "jersey-back surname (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "df5772cc-91e4-469c-9f98-ba1234a52eec", number: "85", surname: "perez", variant: "base", reason: "extra margin, not base geometry (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "53006813-234f-4b47-bf77-3820f951f915", number: "150", surname: "andujar", variant: "base", reason: "extra margin, not base geometry (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "0953eafb-6ba9-47b9-aba7-2d061a8f4c6f", number: "161", surname: "tunnell", variant: "base", reason: "REDISCOVER TOPPS stamp (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "215027a4-38f2-4dc7-9130-a0f31cfa61b9", number: "233", surname: "lyons", variant: "base", reason: "REDISCOVER TOPPS stamp (Design)", idOnly: true },
+  { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "8eba0b0f-9c3b-454b-8e3c-2bdcd0b709c3", number: "270", surname: "morris", variant: "base", reason: "All-Star subset, not base layout (Design)", idOnly: true },
 ];
 
 export type BlockedSetNumberRule = {
