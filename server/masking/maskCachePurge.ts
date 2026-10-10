@@ -190,7 +190,7 @@ export async function logMaskCachePurge(): Promise<{ orphans: number; sets: stri
  * new or changes. A marker in the masked-card dir records the profile that the
  * remaining bakes were made with, so later boots do not re-bake the set.
  */
-export const PROFILE_REBUILD_SET_IDS: readonly string[] = [MASK_LAYOUT_SET_IDS.donrussBaseball1987, MASK_LAYOUT_SET_IDS.toppsBaseball1988];
+export const PROFILE_REBUILD_SET_IDS: readonly string[] = [MASK_LAYOUT_SET_IDS.donrussBaseball1987, MASK_LAYOUT_SET_IDS.toppsBaseball1988, MASK_LAYOUT_SET_IDS.upperDeckBasketball1995];
 
 function profileRebuildMarker(dir: string, setId: string): string {
   return path.join(dir, `.profile-rebuild-${setId}.json`);

@@ -289,6 +289,8 @@ const TOPPS_1987_FOOTBALL_SET_PREFIX = TOPPS_1987_FOOTBALL_SET_ID.slice(0, 8);
 export const HOOPS_1990_SET_PREFIX = "d226801a";
 /** 1987 Donruss Baseball (3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4). */
 export const DONRUSS_1987_SET_PREFIX = "3ff8de8d";
+/** 1995-96 Upper Deck Basketball (3235b4fd-858a-424b-b9df-6f0f2d070d1b), held. */
+export const UPPER_DECK_1995_BASKETBALL_SET_PREFIX = "3235b4fd";
 
 /**
  * 1989 Topps #496 Dwayne Henry. The stored image is a modern Bowman Chrome
@@ -498,6 +500,11 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "be44d754-943f-4a31-b05b-74590c734402", number: "494", surname: "habyan", variant: "base", reason: "jersey back reads HABYA (Design)", idOnly: true },
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "6af8fcf6-4f0c-4106-82c6-aabf7f558e87", number: "201", surname: "trout", variant: "base", reason: "wrong card: 1984 Topps scan (Design)", idOnly: true },
   { gameSetId: DONRUSS_1987_SET_PREFIX, id: "8adbda59-04c1-4e8f-aee8-450006984a38", number: "87", surname: "guillen", variant: "base", reason: "sideways scan: OZZIE GUILLEN SS on vertical plate outside the bottom band (Design)", idOnly: true },
+  // Design mask profile post 2026-10-10 (1995-96 Upper Deck Basketball, held).
+  { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "8a436400-46eb-40c0-89f8-285979ac479f", number: "14", surname: "houston", variant: "base", reason: "ink autograph across the photo (Design)" },
+  { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "7fe36bd2-758e-4eea-9181-c7dc7a5608fc", number: "132", surname: "henderson", variant: "base", reason: "ink autograph across the photo (Design)" },
+  { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "decb90e1-a95d-4390-9772-52c47d92e30c", number: "31", surname: "richmond", variant: "base", reason: "holo insert design, not the base layout (Design)" },
+  { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "ef52f775-34c1-42da-b50d-f81ba72e9d25", number: "145", surname: "bogues", variant: "base", reason: "name runs vertically up the right edge, outside the bottom band (Design)" },
 ];
 
 export type BlockedSetNumberRule = {

@@ -63,6 +63,7 @@ export const MASK_LAYOUT_SET_IDS = {
   toppsBaseball1989: "352b33d1-c110-4e09-b641-8e3c02a94442",
   toppsFootball1994: "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
   donrussBaseball1987: "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4",
+  upperDeckBasketball1995: "3235b4fd-858a-424b-b9df-6f0f2d070d1b",
 } as const;
 
 /**
@@ -130,7 +131,7 @@ function profile(
   id: string,
   nameAnchor: NameAnchor,
   regions: MaskRegion[],
-  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand">> = {},
+  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand" | "fixedNameBand">> = {},
 ): MaskProfile {
   const topBandPct = extras.topBandPct ?? (nameAnchor === "top" || nameAnchor === "both" ? regions[0]?.hPct / 100 : 0);
   const bottomBandPct = extras.bottomBandPct ?? (nameAnchor === "bottom" ? (regions[0]?.hPct ?? 46) / 100 : 0);
@@ -150,6 +151,7 @@ function profile(
     blurSigma: extras.blurSigma ?? 25,
     regions: regions.map((region) => ({ ...region })),
     trustProfileBand: extras.trustProfileBand === true,
+    ...(extras.fixedNameBand === true ? { fixedNameBand: true } : {}),
   };
 }
 
@@ -186,6 +188,22 @@ const donrussBaseball1987 = profile(DONRUSS_1987_PROFILE_ID, "bottom", BOTTOM_PL
   trustProfileBand: true,
 });
 
+/**
+ * 1995-96 Upper Deck Basketball: foil name across the bottom (~86-91%), team and
+ * position line ~93%. Design profile 2026-10-10. Opaque, exact fixed band (#210):
+ * never refit or widened; an OCR surname outside the band refuses the card.
+ */
+export const UPPER_DECK_1995_BASKETBALL_PROFILE_ID = "1995-upper-deck-bb";
+const BOTTOM_PLAQUE_17_UD95: MaskRegion[] = [
+  { xPct: 0, yPct: 83, wPct: 100, hPct: 17, type: "blur", radiusPct: 0 },
+];
+const upperDeckBasketball1995 = profile(UPPER_DECK_1995_BASKETBALL_PROFILE_ID, "bottom", BOTTOM_PLAQUE_17_UD95, {
+  bottomBandPct: 0.17,
+  topBandPct: 0,
+  sidewaysFallbackDeg: 0,
+  fixedNameBand: true,
+});
+
 /** Year+brand keys. Applied when sport is baseball or absent. A present non-baseball sport must not hit these. */
 const baseballNamedProfiles: Record<string, MaskProfile> = {
   "1987 topps": toppsBaseball1987,
@@ -200,6 +218,7 @@ const sportProfiles: Record<string, MaskProfile> = {
   "baseball|1987|topps": toppsBaseball1987,
   "baseball|1989|topps": toppsBaseball1989,
   "baseball|1987|donruss": donrussBaseball1987,
+  "basketball|1995|upper deck": upperDeckBasketball1995,
 };
 
 const toppsBaseball1988 = profile(TOPPS_1988_PROFILE_ID, "bottom", [...TOPPS_1988_REGIONS], {
@@ -214,6 +233,7 @@ const setIdProfiles: Record<string, MaskProfile> = {
   [MASK_LAYOUT_SET_IDS.fleerBasketball1989]: fleerBasketballTop,
   [MASK_LAYOUT_SET_IDS.toppsBaseball1989]: toppsBaseball1989,
   [MASK_LAYOUT_SET_IDS.donrussBaseball1987]: donrussBaseball1987,
+  [MASK_LAYOUT_SET_IDS.upperDeckBasketball1995]: upperDeckBasketball1995,
 };
 
 export interface ParsedSetHint {
