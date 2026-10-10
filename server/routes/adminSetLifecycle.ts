@@ -13,11 +13,11 @@ import { publishGateError, refreshDesignApprovals } from '../services/setDesignA
 import { TOPPS_1988_SET_ID } from '../masking/topps1988Geometry';
 import { getMaskProfile } from '../masking/maskProfiles';
 import { MASKED_CARDS_DIR } from '../masking/maskPlanStore';
-import { customBandProfile, identityKey, validRequestId, witnessKey, reviewMatches, digest } from '../services/setLifecycleCore';
+import { customBandProfile, identityKey, validRequestId, witnessKey, reviewMatches, digest, validHash } from '../services/setLifecycleCore';
 import { lifecycleSet } from '../services/setLifecycleRegistry';
 import { eligibleDealFilter } from '../services/playableSetEligibility';
 import { candidate, cardWitness, configureLifecycle, findSet, managedReadyIds, refreshLifecycleRegistry, requestPreparation,
-  reviewFile, startLifecycleWorker, type ReviewRecord } from '../services/setLifecycle';
+  reviewFile, inspectReviewFile, startLifecycleWorker, type ReviewRecord } from '../services/setLifecycle';
 import { invalidatePublicMaskSetCache } from '../services/publicMaskGate';
 
 const actor = (req: Request) => (req.user as any)?.claims?.sub || (req.session as any)?.localUserId;
@@ -31,6 +31,38 @@ async function currentReview(setId: string, cardId: string) {
 }
 export function registerAdminSetLifecycleRoutes(app: Express, options: { startWorker?: boolean } = {}) {
   const base='/api/admin/set-lifecycle/:setId';
+  // Register BEFORE the existing common middleware: the diagnostic does not
+  // refresh/mutate the lifecycle registry or any process-local mask cache.
+  app.get(`${base}/artifact-diagnostic/:cardId`,(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');next();},
+    isAuthenticated,requireAdmin,asyncRoute(async(req,res)=> {
+      const {setId,cardId}=req.params;
+      if(!validRequestId(setId)||!validRequestId(cardId)||Object.keys(req.query).length){res.status(400).json({error:'Exact set/card UUIDs required; query options are not supported'});return;}
+      if(isClearedSetId(setId)||setId===TOPPS_1988_SET_ID){res.status(409).json({error:'This release uses its protected review workflow'});return;}
+      try {
+        const set=await findSet(setId);if(!set){res.status(404).json({error:'Set not found'});return;}
+        // Ownership only: do not hide excluded/unplayable cards behind candidate().
+        const [card]=await db.select({id:playableCards.id,gameSetId:playableCards.gameSetId,player:playableCards.player,
+          number:playableCards.number,imageUrl:playableCards.imageUrl,imageRotation:playableCards.imageRotation})
+          .from(playableCards).where(and(eq(playableCards.gameSetId,setId),eq(playableCards.id,cardId))).limit(1);
+        if(!card){res.status(404).json({error:'Card not found in this set'});return;}
+        const [lifecycle]=(await pool.query('SELECT revision,identity FROM admin_set_lifecycles WHERE set_id=$1 LIMIT 1',[setId])).rows;
+        const [row]=(await pool.query<ReviewRecord>('SELECT card_id,set_id,status,revision,witness_key,filename,plan_hash,preview_hash,source_hash FROM admin_set_card_reviews WHERE set_id=$1 AND card_id=$2 LIMIT 1',[setId,cardId])).rows;
+        if(!row){res.status(404).json({error:'No saved review for this card'});return;}
+        const witness={cardId:card.id,setId:set.id,player:card.player||'',number:card.number,imageUrl:card.imageUrl||'',imageRotation:card.imageRotation??0};
+        const fileCheck=inspectReviewFile(row,true);
+        const sha=(v:unknown)=>typeof v==='string'&&/^[0-9a-f]{7,40}$/i.test(v)?v:null;
+        res.json({setId,cardId,readAt:new Date().toISOString(),
+          runtime:{cwd:process.cwd(),artifactRoot:MASKED_CARDS_DIR,maskVersion:CURRENT_MASK_VERSION,
+            buildCommit:sha(process.env.BUILD_COMMIT_SHA),deploymentCommit:sha(process.env.RAILWAY_GIT_COMMIT_SHA)},
+          review:{status:typeof row.status==='string'&&/^[a-z_]{1,64}$/.test(row.status)?row.status:'malformed_status_redacted',
+            revision:validHash(row.revision)?row.revision:null,currentRevision:validHash(lifecycle?.revision)?lifecycle.revision:null,
+            revisionMatches:!!lifecycle&&row.revision===lifecycle.revision,identityMatches:!!lifecycle&&lifecycle.identity===identityKey(set),
+            storedWitnessKey:validHash(row.witness_key)?row.witness_key:null,
+            computedWitnessKey:witnessKey(witness,row.revision),witnessMatches:witnessKey(witness,row.revision)===row.witness_key},
+          artifacts:{valid:fileCheck.valid,category:fileCheck.category,checks:fileCheck.checks,refusalObservation:fileCheck.refusalObservation},
+          scope:'Read-only, first-failure snapshot; later files are not checked. Not an approval or release decision.'});
+      }catch {res.status(500).json({error:'Artifact diagnostic unavailable; no changes were made'});}
+    }));
   app.use(base,isAuthenticated,requireAdmin,(req,res,next)=> {
     res.setHeader('Cache-Control','private, no-store');
     if (!validRequestId(req.params.setId)) { res.status(400).json({error:'Invalid set'}); return; }
