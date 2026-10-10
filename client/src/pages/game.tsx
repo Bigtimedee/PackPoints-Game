@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useSearch } from "wouter";
+import { useParams, Link, useSearch, useLocation } from "wouter";
 import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -108,10 +108,25 @@ export default function Game() {
   const incomingSession = new URLSearchParams(
     search.startsWith("?") ? search.slice(1) : search,
   ).get("session");
+  const [, navigate] = useLocation();
   const { toast } = useToast();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
-  const [sessionId, setSessionId] = useState<string | null>(incomingSession);
+  const sessionId = incomingSession;
+  const sessionQueryKey = ["/api/game/session", sessionId, user?.id ?? "guest"] as const;
+  const locateRound = (id: string | null) => {
+    const params = new URLSearchParams(search);
+    if (id) params.set("session", id); else params.delete("session");
+    const query = params.toString();
+    navigate(`/game/${mode || "solo"}${query ? `?${query}` : ""}`, { replace: true });
+  };
+  useEffect(() => {
+    setSelectedAnswer(null);
+    setIsRevealed(false);
+    setRevealedCorrectAnswer(null);
+    setHasStartedGame(!!sessionId);
+  }, [sessionId, user?.id]);
+  const [replayTransition, setReplayTransition] = useState(false);
   const [shareImageUrl, setShareImageUrl] = useState<string | undefined>(undefined);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
@@ -129,10 +144,15 @@ export default function Game() {
   const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession || !!playAgainBoot);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(playAgainBoot?.setId ?? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("set"));
 
-  const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useQuery<ClientGameSession>({
-    queryKey: ["/api/game/session", sessionId],
-    enabled: !!sessionId,
+  const { data: loadedSession, isLoading: sessionLoading, error: sessionError, isFetching: sessionFetching, refetch: refetchSession } = useQuery<ClientGameSession>({
+    queryKey: sessionQueryKey,
+    queryFn: async () => (await apiRequest("GET", `/api/game/session/${encodeURIComponent(sessionId!)}`)).json(),
+    enabled: !!sessionId && !authLoading,
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: false,
   });
+  const session = authLoading || sessionError || sessionFetching ? undefined : loadedSession;
 
   
   const { data: anonStatus } = useQuery<PublicAnonGate | { anonymous: false; phase: string; canStart: boolean }>({
@@ -180,7 +200,8 @@ export default function Game() {
       return res.json();
     },
     onSuccess: (data) => {
-      setSessionId(data.id);
+      setReplayTransition(false);
+      locateRound(data.id);
       setSelectedAnswer(null);
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
@@ -194,6 +215,7 @@ export default function Game() {
       setReplacementStartTime(null);
     },
     onError: (error: any) => {
+      setReplayTransition(false);
       if (error instanceof ApiError && error.code === ANON_GATE_CODE) {
         setAnonGate({
           phase: "hard",
@@ -268,7 +290,7 @@ export default function Game() {
       if (!sessionId) {
         throw new Error("Cannot submit answer: game session has not started.");
       }
-      const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
+      const freshSession = queryClient.getQueryData<ClientGameSession>(sessionQueryKey);
       const questionIndex = freshSession?.currentQuestionIndex ?? session?.currentQuestionIndex ?? 0;
       return postGameAnswer({
         sessionId,
@@ -281,7 +303,7 @@ export default function Game() {
       setRevealedCorrectAnswer(typeof data.correctAnswer === "string" ? data.correctAnswer : null);
       if (data.correct) {
         // Trigger marketplace listing fetch for user-created sets
-        const freshSession = queryClient.getQueryData<ClientGameSession>(["/api/game/session", sessionId]);
+        const freshSession = queryClient.getQueryData<ClientGameSession>(sessionQueryKey);
         const card = freshSession?.questions?.[freshSession.currentQuestionIndex]?.card;
         const setId = card?.gameSetId;
         const cardId = data.cardId as string | undefined;
@@ -290,7 +312,7 @@ export default function Game() {
         }
       }
       if (data.session && typeof data.session === "object") {
-        queryClient.setQueryData(["/api/game/session", sessionId], data.session);
+        queryClient.setQueryData(sessionQueryKey, data.session);
       }
       // Invalidate daily progress to update the header badge
       queryClient.invalidateQueries({ queryKey: DAILY_PROGRESS_QUERY_KEY });
@@ -298,22 +320,12 @@ export default function Game() {
     onError: (error: Error) => {
       setIsRevealed(false); // BUG-15: roll back optimistic state on submission error
       setRevealedCorrectAnswer(null);
-      const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
-      if (isSessionExpired) {
-        toast({
-          title: "Session Expired",
-          description: "Your game session has ended. Starting a new game...",
-          variant: "destructive",
-        });
-        setHasStartedGame(false);
-        setSessionId(null);
-        return;
-      }
       toast({
         title: "Error",
-        description: "Failed to submit answer. Please try again.",
+        description: "Could not confirm your answer. Checking the saved round before you retry.",
         variant: "destructive",
       });
+      void refetchSession();
     },
   });
 
@@ -335,21 +347,10 @@ export default function Game() {
         queryClient.invalidateQueries({ queryKey: ["/api/anon/status"] });
       }
       if (data) {
-        queryClient.setQueryData(["/api/game/session", sessionId], data);
+        queryClient.setQueryData(sessionQueryKey, data);
       }
     },
     onError: (error: Error) => {
-      const isSessionExpired = error.message?.includes("404") || error.message?.includes("Session not found");
-      if (isSessionExpired) {
-        toast({
-          title: "Session Expired",
-          description: "Your game session has ended. Starting a new game...",
-          variant: "destructive",
-        });
-        setHasStartedGame(false);
-        setSessionId(null);
-        return;
-      }
       toast({
         title: "Error",
         description: "Failed to load next question. Please try again.",
@@ -442,7 +443,7 @@ export default function Game() {
     },
     onSuccess: (data, questionIndex) => {
       if (data?.success && data.question?.card?.imageUrl) {
-        queryClient.setQueryData(["/api/game/session", sessionId], (oldData: any) => {
+        queryClient.setQueryData(sessionQueryKey, (oldData: any) => {
           if (!oldData) return oldData;
           if (questionIndex < 0 || questionIndex >= oldData.questions.length) return oldData;
           const newQuestions = [...oldData.questions];
@@ -715,7 +716,7 @@ export default function Game() {
       setIsRevealed(false);
       setRevealedCorrectAnswer(null);
       setListingTarget(null);
-      queryClient.setQueryData(["/api/game/session", sessionId], {
+      queryClient.setQueryData(sessionQueryKey, {
         ...session,
         currentQuestionIndex: nextIndex,
       });
@@ -729,7 +730,6 @@ export default function Game() {
     const cardCount = Number.isFinite(parsedCount) ? parsedCount : 10;
     if (setId) setSelectedSetId(setId);
     if (cardCount) setSelectedCardCount(String(cardCount));
-    setSessionId(null);
     setHasStartedGame(true);
     setStartError(null);
     setPointsUpdatedForSession(null);
@@ -743,6 +743,8 @@ export default function Game() {
   };
 
   const handlePlayAgain = () => {
+    if (replayTransition || startGameMutation.isPending) return;
+    setReplayTransition(true);
     const setId = replaySetIdFromSession(session) || selectedSetId || currentGameSet?.id || null;
     const parsedCount = replayCardCountFromSession(session) ?? parseInt(selectedCardCount, 10);
     const cardCount = Number.isFinite(parsedCount) ? parsedCount : 10;
@@ -755,6 +757,8 @@ export default function Game() {
     } catch {
       // private mode
     }
+    // A deploy reload consumes the replay intent, not the old round URL.
+    locateRound(null);
     void notifyLeavingResults().then((reloading) => {
       if (reloading) return;
       try {
@@ -771,7 +775,7 @@ export default function Game() {
     startGameMutation.mutate({ cardCount: parseInt(selectedCardCount, 10), setId: selectedSetId });
   };
 
-  if (startGameMutation.isPending || sessionLoading) {
+  if (replayTransition || startGameMutation.isPending || authLoading || sessionLoading || sessionFetching) {
     return (
       <div className="flex flex-col items-center gap-4 p-6 max-w-lg mx-auto">
         <Skeleton className="h-8 w-48" />
@@ -784,6 +788,21 @@ export default function Game() {
         </div>
       </div>
     );
+  }
+
+  if (sessionId && sessionError) {
+    const status = sessionError instanceof ApiError ? sessionError.status : 0;
+    const unavailable = status === 404 || status === 410;
+    const forbidden = status === 401 || status === 403;
+    const title = unavailable ? "Round unavailable" : forbidden ? "Round access denied" : "Could not load your round";
+    const message = unavailable ? "This round is missing or expired. No replacement round has been started."
+      : forbidden ? "This round belongs to a different account or guest session. Return using the original account or browser session."
+      : "Your saved round has not been replaced. Retry loading it when your connection is ready.";
+    return <div className="flex items-center justify-center p-6"><Card className="w-full max-w-md"><CardContent className="p-6 space-y-4 text-center" data-testid="screen-round-recovery-error">
+      <h2 className="text-xl font-bold">{title}</h2><p>{message}</p>
+      {!unavailable && !forbidden && <Button disabled={sessionFetching} onClick={() => void refetchSession()} data-testid="button-retry-round">Retry saved round</Button>}
+      <Link href="/sets"><Button variant="outline">Browse Sets</Button></Link>
+    </CardContent></Card></div>;
   }
 
   const getSetDisplayName = (set: PlayableSet | undefined) => {
