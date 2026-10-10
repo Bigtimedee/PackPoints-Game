@@ -18,6 +18,8 @@ import { lifecycleSet } from '../services/setLifecycleRegistry';
 import { eligibleDealFilter } from '../services/playableSetEligibility';
 import { candidate, cardWitness, configureLifecycle, findSet, managedReadyIds, refreshLifecycleRegistry, requestPreparation,
   reviewFile, inspectReviewFile, startLifecycleWorker, type ReviewRecord } from '../services/setLifecycle';
+import { inventoryReviewArtifacts } from '../services/lifecycleArtifactInventory';
+import { maskBandFailure } from '../masking/maskBandLimit';
 import { invalidatePublicMaskSetCache } from '../services/publicMaskGate';
 
 const actor = (req: Request) => (req.user as any)?.claims?.sub || (req.session as any)?.localUserId;
@@ -33,7 +35,7 @@ export function registerAdminSetLifecycleRoutes(app: Express, options: { startWo
   const base='/api/admin/set-lifecycle/:setId';
   // Register BEFORE the existing common middleware: the diagnostic does not
   // refresh/mutate the lifecycle registry or any process-local mask cache.
-  app.get(`${base}/artifact-diagnostic/:cardId`,(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');next();},
+  for(const inspection of ['artifact-diagnostic','artifact-inventory'] as const)app.get(`${base}/${inspection}/:cardId`,(req,res,next)=>{res.setHeader('Cache-Control','private, no-store');next();},
     isAuthenticated,requireAdmin,asyncRoute(async(req,res)=> {
       const {setId,cardId}=req.params;
       if(!validRequestId(setId)||!validRequestId(cardId)||Object.keys(req.query).length){res.status(400).json({error:'Exact set/card UUIDs required; query options are not supported'});return;}
@@ -60,6 +62,7 @@ export function registerAdminSetLifecycleRoutes(app: Express, options: { startWo
             storedWitnessKey:validHash(row.witness_key)?row.witness_key:null,
             computedWitnessKey:witnessKey(witness,row.revision),witnessMatches:witnessKey(witness,row.revision)===row.witness_key},
           artifacts:{valid:fileCheck.valid,category:fileCheck.category,checks:fileCheck.checks,refusalObservation:fileCheck.refusalObservation},
+          ...(inspection==='artifact-inventory'?{inventory:inventoryReviewArtifacts(row,MASKED_CARDS_DIR,CURRENT_MASK_VERSION,maskBandFailure)}:{}),
           scope:'Read-only, first-failure snapshot; later files are not checked. Not an approval or release decision.'});
       }catch {res.status(500).json({error:'Artifact diagnostic unavailable; no changes were made'});}
     }));
