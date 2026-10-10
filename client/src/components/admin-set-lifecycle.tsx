@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
+import { AdminArtifactDiagnostic } from './admin-artifact-diagnostic';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 type Challenge = { key:string;sourceHash:string;previewHash:string;planHash:string };
@@ -60,6 +61,7 @@ export function AdminSetLifecycle({setId,onClose}:{setId:string;onClose:()=>void
         {!!working&&<p role="status">{working} cards queued or processing. You may leave this screen and return later.</p>}
         <div className="max-h-56 overflow-y-auto border rounded divide-y">{rows.length?rows.map(c=><button key={c.id} className={`w-full text-left p-3 hover:bg-muted ${selected===c.id?'bg-muted':''}`} onClick={()=>setSelected(c.id)}><span className="font-medium">{c.number||'—'} · {c.player}</span><span className="ml-3 text-sm">{c.status}</span>{c.reason&&<span className="block text-sm text-muted-foreground">{c.reason}</span>}</button>):<p className="p-3">No cards in this filter.</p>}</div>
         {card&&<div className="space-y-3"><h4 className="font-semibold">{card.number} · {card.player}</h4>
+          <AdminArtifactDiagnostic key={`${setId}:${card.id}`} setId={setId} cardId={card.id} />
           {card.challenge&&<><div className="grid md:grid-cols-2 gap-4"><figure><figcaption>Captured source — check image/name accuracy</figcaption><a href={card.sourceUrl!} target="_blank" rel="noreferrer"><img alt={`Captured source for ${card.player}`} src={card.sourceUrl!} onLoad={()=>setSourceLoaded(true)} onError={()=>setSourceLoaded(false)} className="w-full max-h-[600px] object-contain bg-muted" /></a></figure><figure><figcaption>Prepared mask — check names and remaining art</figcaption><a href={card.previewUrl!} target="_blank" rel="noreferrer"><img alt={`Prepared mask for ${card.player}`} src={card.previewUrl!} onLoad={()=>setMaskLoaded(true)} onError={()=>setMaskLoaded(false)} className="w-full max-h-[600px] object-contain bg-muted" /></a></figure></div>
           <p className="text-sm text-muted-foreground">Open images for full size. Approve only if the source is correct, every player name is unreadable, and useful card art remains. OCR is a safeguard, not a substitute for visual review.</p>
           <label className="block text-sm"><input type="checkbox" disabled={!sourceLoaded||busy} checked={sourceReviewed} onChange={e=>setSourceReviewed(e.target.checked)} /> I inspected the captured source and it is accurate.</label>

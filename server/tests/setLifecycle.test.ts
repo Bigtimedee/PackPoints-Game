@@ -13,9 +13,9 @@ import { sql } from 'drizzle-orm';
 import * as schema from '@shared/schema';
 import { CURRENT_MASK_VERSION } from '@shared/maskGeometry';
 import { customBandProfile, digest, identityKey, witnessKey, profileRevision, reviewMatches } from '../services/setLifecycleCore';
-const fixture=vi.hoisted(()=>({ pg:null as any,db:null as any,dir:'',refusal:null as string|null,ocrSkip:false,bakes:0,admin:true,designApproved:true }));
+const fixture=vi.hoisted(()=>({ pg:null as any,db:null as any,dir:'',refusal:null as string|null,ocrSkip:false,bakes:0,admin:true,designApproved:true,queries:[] as string[],diagnosticDbError:false }));
 vi.mock('../db',()=>({db:new Proxy({}, {get:(_t,p)=>(...args:any[])=>fixture.db[p](...args)}),pool:{
-  query:async(text:string,values?:unknown[])=> {const r=await fixture.pg.query(text,values);return {...r,rowCount:/^\s*SELECT/i.test(text)?r.rows.length:(r.affectedRows??r.rows.length)};},
+  query:async(text:string,values?:unknown[])=> {fixture.queries.push(text);if(fixture.diagnosticDbError&&text.startsWith('SELECT revision,identity'))throw new Error('DO_NOT_EXPOSE_DB_SECRET');const r=await fixture.pg.query(text,values);return {...r,rowCount:/^\s*SELECT/i.test(text)?r.rows.length:(r.affectedRows??r.rows.length)};},
   connect:async()=>({query:async(text:string,values?:unknown[])=>{if(text.includes('pg_try_advisory_lock'))return {rows:[{acquired:true}]};if(text.includes('pg_advisory_unlock'))return {rows:[]};const r=await fixture.pg.query(text,values);return {...r,rowCount:/^\s*SELECT/i.test(text)?r.rows.length:(r.affectedRows??r.rows.length)};},release:()=>{}})
 }}));
 vi.mock('../auth',()=>({isAuthenticated:(req:any,res:any,next:any)=>{if(req.headers['x-fixture-user']){req.session={localUserId:'fixture-admin'};next();}else res.status(401).end();}}));
@@ -34,6 +34,7 @@ vi.mock('../services/playableSetEligibility',()=>({eligibleDealFilter:()=>sql`is
 vi.mock('../services/publicMaskGate',()=>({invalidatePublicMaskSetCache:()=>{}}));
 vi.mock('../config/heldSets',()=>({isClearedSetId:(id:string)=>id==='3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4',isDesignApprovedSetId:()=>fixture.designApproved,refreshHeldSets:async()=>{}}));
 vi.mock('../services/setDesignApproval',async(orig)=>({...await orig<any>(),refreshDesignApprovals:async()=>{}}));
+import { lifecycleSet, replaceLifecycleRegistry } from '../services/setLifecycleRegistry';
 import { registerAdminSetLifecycleRoutes } from '../routes/adminSetLifecycle';
 import { configureLifecycle, refreshLifecycleRegistry, requestPreparation, tickLifecycleQueue, reviewFile, managedReadyIds, lifecycleCardAllowed } from '../services/setLifecycle';
 const setId=randomUUID();const identity={year:2026,brand:'Fixture',sport:'baseball',setName:'Fixture new set'};
@@ -53,7 +54,7 @@ beforeAll(async()=>{
   const app=express();app.use(express.json());registerAdminSetLifecycleRoutes(app,{startWorker:false});server=createServer(app);await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));origin=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 afterAll(async()=>{if(server)await new Promise<void>(r=>server.close(()=>r()));if(fixture.pg)await fixture.pg.close();if(fixture.dir)rmSync(fixture.dir,{recursive:true,force:true});});
-beforeEach(async()=>{fixture.admin=true;fixture.refusal=null;fixture.ocrSkip=false;fixture.bakes=0;await fixture.pg.exec('DELETE FROM admin_set_preparation_jobs;DELETE FROM admin_set_card_reviews;DELETE FROM admin_set_lifecycles;DELETE FROM card_review_approvals;DELETE FROM playable_cards;UPDATE game_sets SET year=2026;');for(const f of readdirSync(fixture.dir))rmSync(path.join(fixture.dir,f));await refreshLifecycleRegistry();});
+beforeEach(async()=>{fixture.diagnosticDbError=false;fixture.queries=[];fixture.admin=true;fixture.refusal=null;fixture.ocrSkip=false;fixture.bakes=0;await fixture.pg.exec('DELETE FROM admin_set_preparation_jobs;DELETE FROM admin_set_card_reviews;DELETE FROM admin_set_lifecycles;DELETE FROM card_review_approvals;DELETE FROM playable_cards;UPDATE game_sets SET year=2026;');for(const f of readdirSync(fixture.dir))rmSync(path.join(fixture.dir,f));await refreshLifecycleRegistry();});
 describe('self-service lifecycle',()=>{
   it('bounds authored layouts and binds every identity/source/rotation/hash field',()=>{
     for(const value of [null,{}, {edge:'left',height:10},{edge:'top',height:36},{edge:'bottom',height:56},{edge:'bottom',height:NaN},{edge:'top',height:'10'}])expect(customBandProfile(value)).toBeNull();
@@ -124,4 +125,68 @@ describe('self-service lifecycle',()=>{
     await configureLifecycle(setId,identity,customBandProfile({edge:'top',height:12})!,'admin');expect(managedReadyIds()).toEqual([]);expect(await lifecycleCardAllowed(ids[0])).toBe(false);expect((await(await api()).json()).lifecycle.published).toBe(false);
   });
 
+});
+
+describe('Admin exact-card artifact diagnostic GET',()=>{
+  async function prepared() {
+    await configureLifecycle(setId,identity,profile,'admin');const id=await insertCard();await requestPreparation(setId,randomUUID(),[id]);await tickLifecycleQueue();return id;
+  }
+  async function businessSnapshot() {
+    const out:Record<string,unknown>={};for(const table of ['admin_set_lifecycles','admin_set_card_reviews','admin_set_preparation_jobs','card_review_approvals','playable_cards','game_sets'])out[table]=(await fixture.pg.query(`SELECT * FROM ${table}`)).rows;
+    out.files=readdirSync(fixture.dir).sort().map(name=>[name,digest(readFileSync(path.join(fixture.dir,name)))]);return out;
+  }
+  it('authenticated Admin only, malformed IDs/options blocked, no-store even errors',async()=>{
+    const id=randomUUID();for(const [auth,admin,status] of [[false,true,401],[true,false,403]] as const){fixture.admin=admin;fixture.queries=[];const response=await api(`/artifact-diagnostic/${id}`,undefined,auth);expect(response.status).toBe(status);expect(response.headers.get('cache-control')).toBe('private, no-store');expect(fixture.queries).toHaveLength(0);}
+    fixture.admin=true;
+    for(const url of [`${origin}/api/admin/set-lifecycle/bad/artifact-diagnostic/${id}`,`${origin}/api/admin/set-lifecycle/${setId}/artifact-diagnostic/bad`,`${origin}/api/admin/set-lifecycle/${setId}/artifact-diagnostic/${id}?path=/etc/passwd`]){
+      fixture.queries=[];const response=await fetch(url,{headers:{'x-fixture-user':'yes'}});expect(response.status).toBe(400);expect(response.headers.get('cache-control')).toBe('private, no-store');expect(fixture.queries).toHaveLength(0);
+    }
+  });
+  it('protects cleared/1988 workflows before any diagnostic data query',async()=>{
+    for(const id of ['3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4','affd57b8-2b1d-4ea3-9f51-1530d8088e5c']){
+      fixture.queries=[];const response=await fetch(`${origin}/api/admin/set-lifecycle/${id}/artifact-diagnostic/${randomUUID()}`,{headers:{'x-fixture-user':'yes'}});expect(response.status).toBe(409);expect(fixture.queries).toHaveLength(0);
+    }
+  });
+  it('404s missing set/card/review and wrong-set ownership, never falls back to another row',async()=>{
+    const id=await insertCard();expect((await api(`/artifact-diagnostic/${id}`)).status).toBe(404);
+    expect((await api(`/artifact-diagnostic/${randomUUID()}`)).status).toBe(404);
+    const missing=await fetch(`${origin}/api/admin/set-lifecycle/${randomUUID()}/artifact-diagnostic/${id}`,{headers:{'x-fixture-user':'yes'}});expect(missing.status).toBe(404);
+    await fixture.pg.query('UPDATE playable_cards SET game_set_id=$2 WHERE id=$1',[id,randomUUID()]);expect((await api(`/artifact-diagnostic/${id}`)).status).toBe(404);
+  });
+  it('returns raw saved status/revision/witness and exact byte comparisons without mutation or registry refresh',async()=>{
+    const id=await prepared();const row=(await fixture.pg.query('SELECT * FROM admin_set_card_reviews WHERE card_id=$1',[id])).rows[0];
+    replaceLifecycleRegistry([{setId,identity:identityKey(identity),revision:digest('old cached revision'),profile,published:false}]);
+    const cached=lifecycleSet(setId);const before=await businessSnapshot();fixture.queries=[];
+    for(let i=0;i<2;i++){
+      const response=await api(`/artifact-diagnostic/${id}`);expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('private, no-store');
+      const result=await response.json();expect(result.review.status).toBe('ready');expect(result.review.revision).toBe(row.revision);expect(result.review.revisionMatches).toBe(true);expect(result.review.witnessMatches).toBe(true);expect(result.review.identityMatches).toBe(true);
+      expect(result.artifacts.valid).toBe(true);expect(result.artifacts.checks.preview.computedHash).toBe(row.preview_hash);expect(result.runtime.cwd).toBe(process.cwd());expect(result.runtime.artifactRoot).toBe(fixture.dir);expect(result).not.toHaveProperty('witness');expect(result.artifacts).not.toHaveProperty('file');expect(result).not.toHaveProperty('sourceUrl');
+    }
+    expect(fixture.queries).toHaveLength(4);expect(fixture.queries.every(q=>/^SELECT .* WHERE .* LIMIT 1$/.test(q))).toBe(true);
+    expect(lifecycleSet(setId)).toBe(cached);expect(await businessSnapshot()).toEqual(before);
+  });
+  it('shows changed preview while retaining the saved approval; excluded cards still diagnosable',async()=>{
+    const id=await prepared();await fixture.pg.query("UPDATE admin_set_card_reviews SET status='approved' WHERE card_id=$1",[id]);
+    const row=(await fixture.pg.query('SELECT * FROM admin_set_card_reviews WHERE card_id=$1',[id])).rows[0];writeFileSync(path.join(fixture.dir,row.filename),'changed fixture preview');
+    await fixture.pg.query("UPDATE playable_cards SET is_playable=false,proposed_unplayable=true,image_review_status='excluded' WHERE id=$1",[id]);
+    const before=await businessSnapshot();const result=await(await api(`/artifact-diagnostic/${id}`)).json();expect(result.review.status).toBe('approved');expect(result.artifacts.category).toBe('preview_hash_changed');expect(result.artifacts.checks.preview.storedHash).toBe(row.preview_hash);expect(result.artifacts.checks.preview.computedHash).toBe(digest('changed fixture preview'));expect(result.artifacts.checks.source.state).toBe('not_checked');expect(await businessSnapshot()).toEqual(before);
+  });
+  it('reports current refusal without returning marker text or non-allowlisted environment',async()=>{
+    const id=await prepared();writeFileSync(path.join(fixture.dir,`${id}_${CURRENT_MASK_VERSION}.fail`),'DO_NOT_EXPOSE_MARKER_TEXT');
+    const saved=process.env.BUILD_COMMIT_SHA;process.env.BUILD_COMMIT_SHA='DO_NOT_EXPOSE_ENV_VALUE';
+    try {
+      const before=await businessSnapshot();const result=await(await api(`/artifact-diagnostic/${id}`)).json();
+      expect(result.artifacts.category).toBe('current_refusal');expect(result.artifacts.refusalObservation).toBe('present');expect(result.artifacts.checks.plan.state).toBe('not_checked');expect(result.runtime.buildCommit).toBeNull();
+      expect(JSON.stringify(result)).not.toContain('DO_NOT_EXPOSE');expect(await businessSnapshot()).toEqual(before);
+    }finally{if(saved===undefined)delete process.env.BUILD_COMMIT_SHA;else process.env.BUILD_COMMIT_SHA=saved;}
+  });
+  it('reports revision/witness/identity mismatches separately from file validity',async()=>{
+    const id=await prepared();await fixture.pg.query('UPDATE playable_cards SET image_rotation=90 WHERE id=$1',[id]);await fixture.pg.query('UPDATE admin_set_lifecycles SET revision=$2 WHERE set_id=$1',[setId,digest('changed revision')]);await fixture.pg.query('UPDATE game_sets SET year=2027 WHERE id=$1',[setId]);
+    const result=await(await api(`/artifact-diagnostic/${id}`)).json();expect(result.review.revisionMatches).toBe(false);expect(result.review.witnessMatches).toBe(false);expect(result.review.identityMatches).toBe(false);expect(result.artifacts.valid).toBe(true);
+  });
+  it('bounds filename ownership and returns a sanitized database failure without side effects',async()=>{
+    const id=await prepared();await fixture.pg.query('UPDATE admin_set_card_reviews SET filename=$2 WHERE card_id=$1',[id,`${randomUUID()}_${CURRENT_MASK_VERSION}.jpg`]);
+    expect((await(await api(`/artifact-diagnostic/${id}`)).json()).artifacts.category).toBe('diagnostic_filename_not_owned');
+    const before=await businessSnapshot();fixture.diagnosticDbError=true;const response=await api(`/artifact-diagnostic/${id}`);expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('private, no-store');expect(await response.text()).not.toContain('DO_NOT_EXPOSE_DB_SECRET');expect(await businessSnapshot()).toEqual(before);
+  });
 });

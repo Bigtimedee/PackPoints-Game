@@ -9,6 +9,7 @@ import { lifecycleSet, replaceLifecycleRegistry } from './setLifecycleRegistry';
 import { digest, identityKey, profileRevision, witnessKey, type SetIdentity, type CardWitness } from './setLifecycleCore';
 import { MASKED_CARDS_DIR } from '../masking/maskPlanStore';
 import { readMaskFailureReason } from '../masking/maskReadySidecar';
+import { validateReviewArtifacts, diagnosticArtifactIO } from './lifecycleArtifactValidation';
 import { maskBandFailure } from '../masking/maskBandLimit';
 import { clearNameVisibilityPassed, writeNameVisibilityPassed, verifyNameVisibleOutsideMask } from '../masking/nameOutsideMask';
 import { bakeMaskedCardFromUrl, downloadMaskSource } from '../masking/maskingService';
@@ -31,21 +32,18 @@ export async function refreshLifecycleRegistry() {
 }
 export function managedSetIds() { return [...managed]; }
 /** Never trust DB ready flags alone: missing/changed JPEG or raw-byte witness fails closed. */
-export function reviewFile(row: ReviewRecord): string | null {
-  if (!row.filename || !/^[0-9a-f-]+_v[0-9.]+(?:_r(?:90|180|270))?\.jpg$/i.test(row.filename)) return null;
-  const root = path.join(MASKED_CARDS_DIR, row.filename);
-  try {
-    if (readMaskFailureReason(row.card_id)) return null;
-    if (!existsSync(path.join(MASKED_CARDS_DIR, `${row.card_id}_${CURRENT_MASK_VERSION}.ok`))) return null;
-    const planBytes = readFileSync(path.join(MASKED_CARDS_DIR, `${row.card_id}_${CURRENT_MASK_VERSION}.json`));
-    if (digest(planBytes) !== row.plan_hash) return null;
-    const plan = JSON.parse(planBytes.toString());
-    if (plan.maskVersion !== CURRENT_MASK_VERSION || !Array.isArray(plan.regions) || !plan.regions.length || maskBandFailure(plan.regions)) return null;
-    if (digest(readFileSync(root)) !== row.preview_hash) return null;
-    if (digest(readFileSync(path.join(MASKED_CARDS_DIR, `${row.card_id}_${CURRENT_MASK_VERSION}.lifecycle-source`))) !== row.source_hash) return null;
-    return root;
-  } catch { return null; }
+export function inspectReviewFile(row: ReviewRecord, diagnostic = false) {
+  const bounded = diagnostic ? diagnosticArtifactIO(MASKED_CARDS_DIR, row.card_id, CURRENT_MASK_VERSION) : null;
+  // Never use a different card's filename for the diagnostic. The release
+  // predicate retains its original trusted-row filename semantics.
+  if (diagnostic && row.filename && !row.filename.toLowerCase().startsWith(`${row.card_id.toLowerCase()}_`)) {
+    return {file:null,valid:false,category:'diagnostic_filename_not_owned',checks:{},refusalObservation:'not_checked'};
+  }
+  const result = validateReviewArtifacts(row, MASKED_CARDS_DIR, CURRENT_MASK_VERSION, maskBandFailure,
+    () => readMaskFailureReason(row.card_id), bounded?.io);
+  return {...result, ...(bounded ? {refusalObservation:bounded.observation()} : {})};
 }
+export function reviewFile(row: ReviewRecord): string | null { return inspectReviewFile(row).file; }
 export function managedReadyIds() { return approved.filter(row => lifecycleSet(row.set_id)?.revision === row.revision && reviewFile(row)).map(row => row.card_id); }
 export async function findSet(setId: string) {
   const [row] = await db.select().from(gameSets).where(eq(gameSets.id, setId));
