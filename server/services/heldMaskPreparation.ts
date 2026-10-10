@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
+import { getMaskProfile } from "../masking/maskProfiles";
 
 import { TOPPS_1988_SET_ID } from "../masking/topps1988Geometry";
 import { preparedTopps1988MaskFile } from "../masking/topps1988Readiness";
@@ -28,9 +29,13 @@ export function preparedMaskFile(cardId: string, dir = maskReadySidecarDir(), se
   try {
     const plan = JSON.parse(fs.readFileSync(`${stem}.json`, "utf8"));
     const [band] = plan.regions ?? [];
+    // A set with an exact authored bottom band must match that band. Others keep the 84/16 check.
+    const fixed = setId ? getMaskProfile(null, setId) : null;
+    const want = fixed?.fixedNameBand === true && fixed.nameAnchor === "bottom" && fixed.regions.length === 1
+      ? fixed.regions[0] : { xPct: 0, yPct: 84, wPct: 100, hPct: 16, type: "blur" };
     if (plan.maskVersion !== CURRENT_MASK_VERSION || plan.layoutClass !== "BOTTOM_PLAQUE"
-      || plan.regions?.length !== 1 || band.xPct !== 0 || band.yPct !== 84
-      || band.wPct !== 100 || band.hPct !== 16 || band.type !== "blur") return null;
+      || plan.regions?.length !== 1 || band.xPct !== want.xPct || band.yPct !== want.yPct
+      || band.wPct !== want.wPct || band.hPct !== want.hPct || band.type !== want.type) return null;
   } catch { return null; }
   for (const rotation of ["", "_r90", "_r180", "_r270"]) {
     const file = path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}${rotation}.jpg`);

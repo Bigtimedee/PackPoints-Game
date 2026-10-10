@@ -20,6 +20,7 @@ import {
 } from "./trustedProfileBand";
 import { applyServedRotation, uprightCardImage } from "./cardOrientation";
 import { recognizeWords } from "./ocrRuntime";
+import { verifyFixedBandRotations } from "./fixedBandRotatedCheck";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
 import { clampRegion } from "@shared/maskGeometry";
 import type { MaskRegion } from "@shared/schema";
@@ -391,6 +392,17 @@ export async function maskCardImage(
   }
   if (plan.namePlateUnresolved) {
     coverage = { ok: false, reason: "name_plate_unresolved" };
+  }
+  if (profile.baseSourceSize) {
+    const raw = await sharp(rawImageBuffer).metadata();
+    if (raw.width !== profile.baseSourceSize.width || raw.height !== profile.baseSourceSize.height) {
+      coverage = { ok: false, reason: "layout_not_base" };
+    }
+  }
+  if (coverage.ok && profile.fixedNameBand === true && !opts.skipOcr) {
+    // A vertical or rotated name (rookie-flashback edge names) reads only at 90 or 270.
+    const rotated = await verifyFixedBandRotations({ buffer: maskedBuffer, playerName });
+    if (!rotated.ok) coverage = { ok: false, reason: rotated.reason };
   }
 
   return {

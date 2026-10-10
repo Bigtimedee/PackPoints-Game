@@ -156,7 +156,7 @@ export function registerSetFillQaRoutes(app: Express): void {
       await prepareFilledCards(setId, ids, {
         analyze: analyzeImageContent,
         bake: (cardId) => getMaskedImagePath(cardId, { priority: "warm" }),
-        ready: (cardId) => Boolean(preparedMaskFile(cardId)),
+        ready: (cardId) => Boolean(preparedMaskFile(cardId, undefined, setId)),
         failure: (cardId) => readMaskFailureReason(cardId),
       }, (result) => job.results.push(result));
     })()
