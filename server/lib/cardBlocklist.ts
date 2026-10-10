@@ -505,6 +505,7 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "7fe36bd2-758e-4eea-9181-c7dc7a5608fc", number: "132", surname: "henderson", variant: "base", reason: "ink autograph across the photo (Design)" },
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "decb90e1-a95d-4390-9772-52c47d92e30c", number: "31", surname: "richmond", variant: "base", reason: "holo insert design, not the base layout (Design)" },
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "ef52f775-34c1-42da-b50d-f81ba72e9d25", number: "145", surname: "bogues", variant: "base", reason: "name runs vertically up the right edge, outside the bottom band (Design)" },
+  { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "4e47e629-8517-487e-85be-1acb7f08aefd", number: "210", surname: "peeler", variant: "base", reason: "jersey back leak (Design by-eye check on e4a7a3c)", idOnly: true },
   // Design full-pool RED on 7ccc42a: base design only (705x1200, UD logo top left, foil name bottom).
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "1cf561ba-e263-483f-b24c-2abe328c5ad4", number: "1", surname: "jones", variant: "base", reason: "framed scan, name band not at base geometry (Design pool RED 2026-10-10)", idOnly: true },
   { gameSetId: UPPER_DECK_1995_BASKETBALL_SET_PREFIX, id: "c1306e3c-f338-4f34-b09c-30cd56e12e35", number: "21", surname: "cheaney", variant: "base", reason: "not a 1995 Upper Deck card (other brand/year scan) (Design pool RED 2026-10-10)", idOnly: true },

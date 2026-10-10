@@ -13,6 +13,12 @@ export interface PinnedCoverList {
 }
 
 export const PINNED_SET_COVERS: Readonly<Record<string, PinnedCoverList>> = {
+  // Held: covers only show once Design records approval and the set is cleared.
+  "3235b4fd-858a-424b-b9df-6f0f2d070d1b": {
+    set: "1995 Upper Deck Basketball",
+    picks: ["d2e88d79-d7c2-4729-bb31-5f6d908214bc", "85453244-0450-4f1e-8e83-78d518d2fe0a", "3b201583-9e59-42d6-9957-6036071414ab", "dce22062-53c5-490e-a343-001de2eab791", "d4355d6e-a921-4ac7-8fd5-247d318d3b7a", "26cb6a98-ec82-439f-b0aa-5612af79748f", "8cd12c69-974d-4bd0-868b-c92d14ed5b20", "e911394f-d41c-422b-a270-82fd1aa7e129"],
+    alternates: [],
+  },
   "91cfdf3f-a620-4e73-adc8-22b8df221716": {
     set: "1987 Topps Football",
     picks: ["704c2dab-140a-4276-b57e-b9febfa1ff20", "d0bce132-6137-497c-9d4c-884027c8d9ce", "7cdcf458-551f-429c-bc78-f75969bf74b9", "531ed7a8-f40d-4406-b5b2-f7b073a37443", "bf9fffc0-52e6-44fe-abe9-e6edb73f86fe", "69d09707-5f0a-4bd6-b92f-18f07dfe3529", "9bc2d83a-95e7-4a7e-9249-04c0362c17e8", "a0ae2b5d-9509-4426-91a1-dca3f3958840"],
