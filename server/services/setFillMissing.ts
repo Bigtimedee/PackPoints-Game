@@ -28,7 +28,14 @@ export interface FillMissingSetConfig {
   baseCount: number;
   /** Player text that must never be imported into this set (lowercase regex). */
   playerDenylist: { pattern: RegExp; reason: string }[];
+  /** Card Hedge set name to enforce when the set has no rows yet (first import). */
+  canonicalSet?: string;
+  /** Lets POST /api/qa/held-imports/:setId/create insert this game_sets row (held, no profile). */
+  createIdentity?: { sport: string; brand: string; year: number; setName: string; cardhedgeSetQuery: string; cardhedgeCategory: string };
 }
+
+/** 1995-96 Upper Deck Basketball base (Series 1 + 2, #1-360). Held: no profile, not cleared. */
+export const UD_1995_BASKETBALL_HOLD_ID = "3235b4fd-858a-424b-b9df-6f0f2d070d1b";
 
 export const FILL_MISSING_SETS: Record<string, FillMissingSetConfig> = {
   [DONRUSS_1987_HOLD_ID]: {
@@ -37,6 +44,19 @@ export const FILL_MISSING_SETS: Record<string, FillMissingSetConfig> = {
       { pattern: /\bripken\b/i, reason: "denylist_ripken_wristband_signature" },
       { pattern: /\bclemente\b/i, reason: "denylist_off_set_clemente" },
     ],
+  },
+  [UD_1995_BASKETBALL_HOLD_ID]: {
+    baseCount: 360,
+    playerDenylist: [],
+    canonicalSet: "1995 Upper Deck Basketball",
+    createIdentity: {
+      sport: "basketball",
+      brand: "Upper Deck",
+      year: 1995,
+      setName: "1995 Upper Deck Basketball",
+      cardhedgeSetQuery: "1995 Upper Deck Basketball",
+      cardhedgeCategory: "Basketball",
+    },
   },
 };
 
@@ -191,7 +211,7 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     const n = normalizeBaseNumber(row.number);
     if (n != null && isBaseVariant(row.variant)) haveNumbers.add(n);
   }
-  const canonicalSet = Object.entries(setCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const canonicalSet = Object.entries(setCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? config.canonicalSet ?? null;
 
   const existingFlagged: FillMissingReport["existingFlagged"] = [];
   for (const row of existingRows) {
