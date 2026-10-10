@@ -33,11 +33,18 @@ export interface FillMissingSetConfig {
   /** Card Hedge set name to enforce when the set has no rows yet (first import). */
   canonicalSet?: string;
   /** Lets POST /api/qa/held-imports/:setId/create insert this game_sets row (held, no profile). */
+  /** Base numbers whose printed layout is not the base design (subsets); refused. */
+  excludeNumbers?: { numbers: number[]; reason: string }[];
   createIdentity?: { sport: string; brand: string; year: number; setName: string; cardhedgeSetQuery: string; cardhedgeCategory: string };
 }
 
 /** 1995-96 Upper Deck Basketball base (Series 1 + 2, #1-360). Held: no profile, not cleared. */
 export const UD_1995_BASKETBALL_HOLD_ID = "3235b4fd-858a-424b-b9df-6f0f2d070d1b";
+
+/** 1986 Topps Baseball base (#1-792). Held: no profile, not cleared. Design owns the profile. */
+export const TOPPS_1986_BASEBALL_HOLD_ID = "2b77043a-6583-4d79-b59d-d2ab20291a17";
+
+const range = (a: number, b: number): number[] => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
 export const FILL_MISSING_SETS: Record<string, FillMissingSetConfig> = {
   [DONRUSS_1987_HOLD_ID]: {
@@ -61,6 +68,35 @@ export const FILL_MISSING_SETS: Record<string, FillMissingSetConfig> = {
       setName: "1995 Upper Deck Basketball",
       cardhedgeSetQuery: "1995 Upper Deck Basketball",
       cardhedgeCategory: "Basketball",
+    },
+  },
+  [TOPPS_1986_BASEBALL_HOLD_ID]: {
+    baseCount: 792,
+    playerDenylist: [
+      { pattern: /\bleaders?\b/i, reason: "team_leaders" },
+      { pattern: /record\s*breaker/i, reason: "subset_record_breaker" },
+      { pattern: /turn\s*back/i, reason: "subset_turn_back_the_clock" },
+      { pattern: /all[-\s]?star/i, reason: "subset_all_star" },
+      { pattern: /\b(checklist|team card|team photo)\b/i, reason: "non_player" },
+      { pattern: /\s(&|and|\/)\s/i, reason: "multi_player" },
+      { pattern: /\b(auto|autograph|signed|psa|bgs|sgc|relic|patch)\b/i, reason: "auto_slab_relic" },
+    ],
+    // Non-base layouts: Pete Rose tribute #2-7, Record Breakers #201-207,
+    // Turn Back the Clock #401-405, All-Stars #701-722.
+    excludeNumbers: [
+      { numbers: range(2, 7), reason: "subset_rose_tribute" },
+      { numbers: range(201, 207), reason: "subset_record_breaker" },
+      { numbers: range(401, 405), reason: "subset_turn_back_the_clock" },
+      { numbers: range(701, 722), reason: "subset_all_star" },
+    ],
+    canonicalSet: "1986 Topps Baseball",
+    createIdentity: {
+      sport: "baseball",
+      brand: "Topps",
+      year: 1986,
+      setName: "1986 Topps Baseball",
+      cardhedgeSetQuery: "1986 Topps Baseball",
+      cardhedgeCategory: "Baseball",
     },
   },
 };
@@ -181,6 +217,9 @@ export function fillExclusionReason(
   if (!cls.isPlayable) return `classifier_${cls.blockedReason || "rejected"}`;
   for (const rule of ctx.config.playerDenylist) {
     if (rule.pattern.test(card.player)) return rule.reason;
+  }
+  for (const rule of ctx.config.excludeNumbers ?? []) {
+    if (rule.numbers.includes(n)) return rule.reason;
   }
   for (const rule of ctx.config.playerOnlyNumbers ?? []) {
     if (rule.pattern.test(card.player) && !rule.numbers.includes(n)) return rule.reason;
