@@ -13,6 +13,12 @@ export interface PinnedCoverList {
 }
 
 export const PINNED_SET_COVERS: Readonly<Record<string, PinnedCoverList>> = {
+  // Held: covers only show once Design records approval.
+  "2b77043a-6583-4d79-b59d-d2ab20291a17": {
+    set: "1986 Topps Baseball",
+    picks: ["87500d10-5cc7-41b2-ab68-3c28194f5ee0", "f6c9f373-0d30-4872-8d63-2718d1d46461", "96032a2e-56c8-41c0-a384-1a5982312de6", "d405e8c2-d3d6-45d1-9fd5-f655774bb5de", "91a99eba-152e-42ba-a723-cf0e32e99880", "0290ed84-b832-48fa-9e1e-600314e2c7d4", "6eff30af-7d0b-4a0d-9f54-9c01e34488bf", "5c54b589-35de-4ebd-93e2-f76c612a424d"],
+    alternates: [],
+  },
   // Held: covers only show once Design records approval and the set is cleared.
   "3235b4fd-858a-424b-b9df-6f0f2d070d1b": {
     set: "1995 Upper Deck Basketball",
