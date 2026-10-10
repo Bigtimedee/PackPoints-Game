@@ -694,7 +694,11 @@ export default function Game() {
 
   useEffect(() => {
     const current = session?.questions?.[session.currentQuestionIndex ?? 0];
-    if (current?.answered && current.card?.revealUrl) setIsRevealed(true);
+    if (current?.answered && current.card?.revealUrl) {
+      setIsRevealed(true);
+      if (typeof current.correctAnswer === "string") setRevealedCorrectAnswer(current.correctAnswer);
+      if (typeof current.userAnswer === "string") setSelectedAnswer(current.userAnswer);
+    }
   }, [session?.id, session?.currentQuestionIndex, session?.questions]);
 
   const answersLocked = soloAnswersLocked(replacePhase);

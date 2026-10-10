@@ -20,6 +20,7 @@ function dealtCardId(card: GameQuestion["card"]): string {
 export function sanitizeQuestionForClient(q: GameQuestion, ctx: QuestionImageContext): ClientGameQuestion {
   const cardId = dealtCardId(q.card);
   const answered = (q as { answered?: boolean }).answered === true;
+  const stored = (q as { userAnswer?: unknown }).userAnswer;
   const maskScope: PlayScope = ctx.scope === "ad5" ? "d5" : ctx.scope;
   const card: ClientGameQuestion["card"] = {
     imageUrl: maskedPlayPath({
@@ -45,6 +46,13 @@ export function sanitizeQuestionForClient(q: GameQuestion, ctx: QuestionImageCon
     options: q.options,
     pointValue: q.pointValue,
     ...(answered ? { answered: true } : {}),
+    // Recovery: only for questions the server already graded, Solo only.
+    ...(answered && ctx.scope === "solo"
+      ? {
+          userAnswer: typeof stored === "string" ? stored : null,
+          correctAnswer: q.correctAnswer,
+        }
+      : {}),
     card,
   };
 }

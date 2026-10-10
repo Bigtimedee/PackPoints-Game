@@ -283,6 +283,9 @@ export type ClientGameQuestion = {
   options: string[];
   pointValue: number;
   answered?: boolean;
+  /** Present only on answered Solo questions (post-submit recovery). */
+  userAnswer?: string | null;
+  correctAnswer?: string;
   card: ClientGameplayCard;
 };
 
