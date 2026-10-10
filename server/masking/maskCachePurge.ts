@@ -190,7 +190,7 @@ export async function logMaskCachePurge(): Promise<{ orphans: number; sets: stri
  * new or changes. A marker in the masked-card dir records the profile that the
  * remaining bakes were made with, so later boots do not re-bake the set.
  */
-export const PROFILE_REBUILD_SET_IDS: readonly string[] = [MASK_LAYOUT_SET_IDS.donrussBaseball1987, MASK_LAYOUT_SET_IDS.toppsBaseball1988, MASK_LAYOUT_SET_IDS.upperDeckBasketball1995];
+export const PROFILE_REBUILD_SET_IDS: readonly string[] = [MASK_LAYOUT_SET_IDS.donrussBaseball1987, MASK_LAYOUT_SET_IDS.toppsBaseball1988, MASK_LAYOUT_SET_IDS.upperDeckBasketball1995, MASK_LAYOUT_SET_IDS.toppsBaseball1986];
 
 function profileRebuildMarker(dir: string, setId: string): string {
   return path.join(dir, `.profile-rebuild-${setId}.json`);
@@ -198,7 +198,7 @@ function profileRebuildMarker(dir: string, setId: string): string {
 
 export function profileRebuildSignature(setId: string): string {
   const profile = getMaskProfile(null, setId);
-  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1, ...(setId === TOPPS_1988_SET_ID ? { reviewedSources: TOPPS_1988_REVIEWED_SOURCES } : {}), ...(setId === MASK_LAYOUT_SET_IDS.upperDeckBasketball1995 ? { baseSourceSize: getMaskProfile(null, setId).baseSourceSize, rotatedOcr: 1 } : {}) });
+  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1, ...(setId === TOPPS_1988_SET_ID ? { reviewedSources: TOPPS_1988_REVIEWED_SOURCES } : {}), ...(setId === MASK_LAYOUT_SET_IDS.upperDeckBasketball1995 ? { baseSourceSize: getMaskProfile(null, setId).baseSourceSize, rotatedOcr: 1 } : {}), ...(setId === MASK_LAYOUT_SET_IDS.toppsBaseball1986 ? { sourceAspectGate: getMaskProfile(null, setId).sourceAspectGate, rotatedOcr: 1 } : {}) });
 }
 
 /** One boot line per rebuilt set. Returns the set ids that were rebuilt. */

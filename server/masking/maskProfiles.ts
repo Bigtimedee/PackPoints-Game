@@ -24,6 +24,12 @@ export interface MaskProfile {
    * refused as `layout_not_base`. Unset on every other profile.
    */
   baseSourceSize?: { width: number; height: number };
+  /**
+   * Fail-closed aspect/width gate for a fixed band whose scans vary in size.
+   * width/height outside [minRatio,maxRatio] or width < minWidth -> `layout_not_base`.
+   * Opt-in; unset on every live profile.
+   */
+  sourceAspectGate?: { minRatio: number; maxRatio: number; minWidth: number };
   nameAnchor: NameAnchor;
   layoutClass: LayoutClass;
   /**
@@ -70,6 +76,7 @@ export const MASK_LAYOUT_SET_IDS = {
   toppsFootball1994: "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
   donrussBaseball1987: "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4",
   upperDeckBasketball1995: "3235b4fd-858a-424b-b9df-6f0f2d070d1b",
+  toppsBaseball1986: "2b77043a-6583-4d79-b59d-d2ab20291a17",
 } as const;
 
 /**
@@ -137,7 +144,7 @@ function profile(
   id: string,
   nameAnchor: NameAnchor,
   regions: MaskRegion[],
-  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand" | "fixedNameBand" | "baseSourceSize">> = {},
+  extras: Partial<Pick<MaskProfile, "topBandPct" | "bottomBandPct" | "blurSigma" | "cardOrientation" | "sidewaysFallbackDeg" | "trustProfileBand" | "fixedNameBand" | "baseSourceSize" | "sourceAspectGate">> = {},
 ): MaskProfile {
   const topBandPct = extras.topBandPct ?? (nameAnchor === "top" || nameAnchor === "both" ? regions[0]?.hPct / 100 : 0);
   const bottomBandPct = extras.bottomBandPct ?? (nameAnchor === "bottom" ? (regions[0]?.hPct ?? 46) / 100 : 0);
@@ -159,6 +166,7 @@ function profile(
     trustProfileBand: extras.trustProfileBand === true,
     ...(extras.fixedNameBand === true ? { fixedNameBand: true } : {}),
     ...(extras.baseSourceSize ? { baseSourceSize: { ...extras.baseSourceSize } } : {}),
+    ...(extras.sourceAspectGate ? { sourceAspectGate: { ...extras.sourceAspectGate } } : {}),
   };
 }
 
@@ -213,6 +221,33 @@ const upperDeckBasketball1995 = profile(UPPER_DECK_1995_BASKETBALL_PROFILE_ID, "
   baseSourceSize: { width: 705, height: 1200 },
 });
 
+/** 1986 Topps Baseball (2b77043a): gate for Design's fixed-band profile (not registered here). */
+export const TOPPS_1986_SOURCE_ASPECT_GATE = { minRatio: 0.68, maxRatio: 0.76, minWidth: 360 } as const;
+
+/** Pure: does a source of this size pass the aspect/width gate? */
+export function passesSourceAspectGate(width: number, height: number, gate: { minRatio: number; maxRatio: number; minWidth: number }): boolean {
+  if (!(width > 0) || !(height > 0)) return false;
+  const r = width / height;
+  return width >= gate.minWidth && r >= gate.minRatio && r <= gate.maxRatio;
+}
+
+/**
+ * 1986 Topps Baseball: player name in a small box at the bottom. Design profile
+ * 2026-10-10: opaque fixed band y 86-100%, never refit or widened. Team name (top
+ * black band) and the position circle stay visible. Scans vary in size, so the
+ * aspect/width gate refuses composites, extra margin and under-card watermarks.
+ */
+export const TOPPS_1986_BASEBALL_PROFILE_ID = "1986-topps";
+const toppsBaseball1986 = profile(TOPPS_1986_BASEBALL_PROFILE_ID, "bottom", [
+  { xPct: 0, yPct: 86, wPct: 100, hPct: 14, type: "blur", radiusPct: 0 },
+], {
+  bottomBandPct: 0.14,
+  topBandPct: 0,
+  sidewaysFallbackDeg: 0,
+  fixedNameBand: true,
+  sourceAspectGate: { ...TOPPS_1986_SOURCE_ASPECT_GATE },
+});
+
 /** Year+brand keys. Applied when sport is baseball or absent. A present non-baseball sport must not hit these. */
 const baseballNamedProfiles: Record<string, MaskProfile> = {
   "1987 topps": toppsBaseball1987,
@@ -228,6 +263,7 @@ const sportProfiles: Record<string, MaskProfile> = {
   "baseball|1989|topps": toppsBaseball1989,
   "baseball|1987|donruss": donrussBaseball1987,
   "basketball|1995|upper deck": upperDeckBasketball1995,
+  "baseball|1986|topps": toppsBaseball1986,
 };
 
 const toppsBaseball1988 = profile(TOPPS_1988_PROFILE_ID, "bottom", [...TOPPS_1988_REGIONS], {
@@ -243,6 +279,7 @@ const setIdProfiles: Record<string, MaskProfile> = {
   [MASK_LAYOUT_SET_IDS.toppsBaseball1989]: toppsBaseball1989,
   [MASK_LAYOUT_SET_IDS.donrussBaseball1987]: donrussBaseball1987,
   [MASK_LAYOUT_SET_IDS.upperDeckBasketball1995]: upperDeckBasketball1995,
+  [MASK_LAYOUT_SET_IDS.toppsBaseball1986]: toppsBaseball1986,
 };
 
 export interface ParsedSetHint {

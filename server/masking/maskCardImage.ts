@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import { TOPPS_1988_PROFILE_ID } from "./topps1988Geometry";
 import { maskReviewedTopps1988 } from "./topps1988Mask";
-import { CURRENT_MASK_VERSION, getMaskProfile } from "./maskProfiles";
+import { CURRENT_MASK_VERSION, getMaskProfile, passesSourceAspectGate } from "./maskProfiles";
 import {
   resolveNameMaskPlan,
   type NamePlateTrace,
@@ -396,6 +396,12 @@ export async function maskCardImage(
   if (profile.baseSourceSize) {
     const raw = await sharp(rawImageBuffer).metadata();
     if (raw.width !== profile.baseSourceSize.width || raw.height !== profile.baseSourceSize.height) {
+      coverage = { ok: false, reason: "layout_not_base" };
+    }
+  }
+  if (profile.sourceAspectGate) {
+    const raw = await sharp(rawImageBuffer).metadata();
+    if (!passesSourceAspectGate(raw.width ?? 0, raw.height ?? 0, profile.sourceAspectGate)) {
       coverage = { ok: false, reason: "layout_not_base" };
     }
   }
