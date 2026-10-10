@@ -172,7 +172,20 @@ export default function Game() {
   // Filter to only show sets with imported cards
   const availableSets = playableSets?.filter(s => s.cardsImportedCount > 0) || [];
   
-  const currentGameSet = availableSets.find(s => s.id === selectedSetId) || availableSets[0];
+  // A recovered round has no ?set= hint, so name the set from the round itself.
+  const roundSetId = replaySetIdFromSession(session);
+  const { data: roundSetDetail } = useQuery<{ id: string; year: number; brand: string }>({
+    queryKey: ["/api/sets", roundSetId],
+    queryFn: async () => (await apiRequest("GET", `/api/sets/${encodeURIComponent(roundSetId!)}`)).json(),
+    enabled: !!roundSetId && !availableSets.some(s => s.id === roundSetId),
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+  const currentGameSet = (roundSetId ? availableSets.find(s => s.id === roundSetId) : undefined)
+    || availableSets.find(s => s.id === selectedSetId) || availableSets[0];
+  const promptSet: { year: number; brand: string } | undefined = roundSetId
+    ? (availableSets.find(s => s.id === roundSetId) ?? (roundSetDetail?.id === roundSetId ? roundSetDetail : undefined))
+    : currentGameSet;
   
   useEffect(() => {
     if (availableSets.length && !selectedSetId) {
@@ -1354,7 +1367,7 @@ export default function Game() {
             {currentGameSet?.isUserCreated && currentGameSet?.makerNote && (
               <p className="text-xs text-muted-foreground/60 italic mb-1 line-clamp-1">"{currentGameSet.makerNote}"</p>
             )}
-            <p className="text-xs sm:text-sm text-muted-foreground mb-1">Who is on this {currentGameSet ? `${currentGameSet.year} ${currentGameSet.brand}` : ""} card?</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mb-1">Who is on this {promptSet ? `${promptSet.year} ${promptSet.brand} ` : ""}card?</p>
 
             <div>
               <div className="space-y-1.5" role="group" aria-label="Answer choices">
