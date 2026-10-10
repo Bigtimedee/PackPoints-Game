@@ -1,3 +1,4 @@
+import { createGameSessionReadHandler, createSoloRoundOwnershipGuard, ownsStoredRound } from "./routes/gameSessionRead";
 import { CreatePlayableSetSchema, ImportPreflightInput, exactImportParameters, performImportPreflight } from "./services/importPreflightCore";
 import { registerAdminCardScanRoutes } from "./routes/adminCardScans";
 import { startAdminScan, readAdminScanJob } from "./services/adminCardScanJobs";
@@ -838,21 +839,10 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/game/session/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const session = await storage.getGameSession(id);
-      
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
-
-      res.json(sanitizeSessionForClient(session));
-    } catch (error) {
-      console.error("Error getting session:", error);
-      res.status(500).json({ error: "Failed to get session" });
-    }
-  });
+  app.get("/api/game/session/:id", createGameSessionReadHandler({
+    getGameSession: (id) => storage.getGameSession(id),
+    sanitize: sanitizeSessionForClient,
+  }));
 
   // Replace a card that failed to load - serves new card without losing PackPTS opportunity
   app.post("/api/game/session/:id/replace-card", async (req, res) => {
@@ -864,6 +854,10 @@ export async function registerRoutes(
       const session = await storage.getGameSession(id);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
+      }
+
+      if (!ownsStoredRound(req, session)) {
+        return res.status(403).json({ error: "Round access denied" });
       }
 
       if (session.status !== "active") {
@@ -941,14 +935,8 @@ export async function registerRoutes(
       
       const userId = session.userId || req.session?.localUserId;
 
-      // BUG-01: Ownership guard — reject if a different local user tries to answer another user's session
-      if (session.userId && req.session?.localUserId && req.session.localUserId !== session.userId) {
-        console.warn("[Game Answer] Ownership mismatch", {
-          sessionOwner: session.userId.substring(0, 8),
-          requestor: req.session.localUserId.substring(0, 8),
-          sessionId: sessionId.substring(0, 8),
-        });
-        return res.status(403).json({ error: "Forbidden" });
+      if (!ownsStoredRound(req, session)) {
+        return res.status(403).json({ error: "Round access denied" });
       }
 
       if (userId) {
@@ -1218,6 +1206,10 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Session not found" });
       }
       
+      if (!ownsStoredRound(req, session)) {
+        return res.status(403).json({ error: "Round access denied" });
+      }
+
       if (reason === "image_failure") {
         const currentQ = session.questions[session.currentQuestionIndex] as any;
         if (currentQ?.imageFailure) {
@@ -7123,13 +7115,22 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to submit report" });
     }
   };
-  app.post("/api/cards/:cardId/report", reportCardImage);
-  app.post("/api/game/session/:id/report-image", (req: any, res) => {
+  app.post("/api/cards/:cardId/report", createSoloRoundOwnershipGuard({
+    getGameSession: (id) => storage.getGameSession(id),
+    getSessionId: (req) => req.body?.sessionId ? String(req.body.sessionId) : null,
+  }), reportCardImage);
+  app.post("/api/game/session/:id/report-image", createSoloRoundOwnershipGuard({
+    getGameSession: (id) => storage.getGameSession(id),
+    getSessionId: (req) => req.params.id,
+  }), (req: any, res) => {
     req.body = { ...(req.body || {}), sessionId: req.params.id };
     req.params.cardId = req.params.cardId || "session";
     return reportCardImage(req, res);
   });
-  app.post("/api/play/report", async (req, res) => {
+  app.post("/api/play/report", createSoloRoundOwnershipGuard({
+    getGameSession: (id) => storage.getGameSession(id),
+    getSessionId: (req) => req.body?.scope === "solo" && req.body?.sessionId ? String(req.body.sessionId) : null,
+  }), async (req, res) => {
     await handlePlayImageReport(req, res, {
       resolveCard: resolveReportedCardId,
       submit: async (request, response, cardId) => {

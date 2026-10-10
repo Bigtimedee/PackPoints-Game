@@ -2,7 +2,8 @@
  * In-game earnings toasts are gone. Crossing a score (500 and the other
  * thresholds) must not toast in solo or Daily 5. The quiet +N row is gone
  * too: points show on Game Complete only. Submit/network errors still toast,
- * and on play routes that toast sits in the bottom band so it does not cover
+ * Solo uncertain submissions reconcile the saved round before offering retry.
+ * On play routes that toast sits in the bottom band so it does not cover
  * the card.
  */
 import { readFileSync } from "fs";
@@ -96,7 +97,12 @@ describe("error toasts still work and stay off the card", () => {
       "const nextQuestionMutation",
     );
     expect(soloError).toContain('title: "Error"');
-    expect(soloError).toContain("Failed to submit answer. Please try again.");
+    expect(soloError).toContain("Could not confirm your answer. Checking the saved round before you retry.");
+    expect(soloError).toContain("void refetchSession();");
+    // A failed response is not proof the answer was uncommitted. Reconcile by
+    // GET rather than automatically replaying Answer or starting a new round.
+    expect(soloError).not.toContain(".mutate(");
+    expect(soloError).not.toContain("apiRequest(");
     expect(soloError).toContain('variant: "destructive"');
 
     const dailyError = sliceBetween(
