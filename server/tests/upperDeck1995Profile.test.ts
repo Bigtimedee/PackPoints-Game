@@ -34,7 +34,7 @@ describe('1995-96 Upper Deck Basketball profile', () => {
     expect(PROFILE_REBUILD_SET_IDS).toContain(ID);
     const nums = BLOCKED_CARD_ID_RULES.filter(r => r.gameSetId === '3235b4fd').map(r => r.number).sort();
     for (const n of ['14', '132', '31', '145', '21', '30', '27', '140', '194']) expect(nums).toContain(n);
-    expect(nums).toHaveLength(68);
+    expect(nums).toHaveLength(69);
   });
 });
 
