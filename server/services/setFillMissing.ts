@@ -28,6 +28,8 @@ export interface FillMissingSetConfig {
   baseCount: number;
   /** Player text that must never be imported into this set (lowercase regex). */
   playerDenylist: { pattern: RegExp; reason: string }[];
+  /** A player that may only land on these base numbers (Card Hedge files insert rows as Base). */
+  playerOnlyNumbers?: { pattern: RegExp; numbers: number[]; reason: string }[];
   /** Card Hedge set name to enforce when the set has no rows yet (first import). */
   canonicalSet?: string;
   /** Lets POST /api/qa/held-imports/:setId/create insert this game_sets row (held, no profile). */
@@ -48,6 +50,9 @@ export const FILL_MISSING_SETS: Record<string, FillMissingSetConfig> = {
   [UD_1995_BASKETBALL_HOLD_ID]: {
     baseCount: 360,
     playerDenylist: [],
+    // Card Hedge files ~50 Jordan Collection / insert rows as "Base" #1-#360.
+    // Jordan's only 1995-96 Upper Deck base card is #23.
+    playerOnlyNumbers: [{ pattern: /\bjordan\b/i, numbers: [23], reason: "off_base_jordan_insert" }],
     canonicalSet: "1995 Upper Deck Basketball",
     createIdentity: {
       sport: "basketball",
@@ -158,6 +163,9 @@ export function fillExclusionReason(
   if (!cls.isPlayable) return `classifier_${cls.blockedReason || "rejected"}`;
   for (const rule of ctx.config.playerDenylist) {
     if (rule.pattern.test(card.player)) return rule.reason;
+  }
+  for (const rule of ctx.config.playerOnlyNumbers ?? []) {
+    if (rule.pattern.test(card.player) && !rule.numbers.includes(n)) return rule.reason;
   }
   return null;
 }

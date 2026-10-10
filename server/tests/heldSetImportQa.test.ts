@@ -20,6 +20,8 @@ describe("1995 Upper Deck Basketball held import", () => {
     expect(fillExclusionReason({ ...base, variant: "Electric Court" }, ctx)).toBe("not_base");
     expect(fillExclusionReason({ ...base, set: "1995 Upper Deck Collector's Choice Basketball" }, ctx)).toBe("off_set");
     expect(fillExclusionReason({ ...base, number: "361" }, ctx)).toBe("bad_number");
+    expect(fillExclusionReason({ ...base, player: "Michael Jordan", number: "4" }, ctx)).toBe("off_base_jordan_insert");
+    expect(fillExclusionReason({ ...base, player: "Michael Jordan", number: "23" }, ctx)).toBeNull();
   });
   it("raw source route refuses every Design-cleared set", () => {
     for (const id of CLEARED_SET_IDS) expect(isHeldForQa(id)).toBe(false);
