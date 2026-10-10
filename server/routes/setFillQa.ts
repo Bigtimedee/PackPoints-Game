@@ -93,7 +93,8 @@ export function registerSetFillQaRoutes(app: Express): void {
     const acceptSets = sanitizeAcceptSets(body.acceptSets);
     if ((body.queries !== undefined && !queries) || !acceptSets
       || (body.dryRun !== undefined && typeof body.dryRun !== "boolean")
-      || (body.details !== undefined && typeof body.details !== "boolean")) {
+      || (body.details !== undefined && typeof body.details !== "boolean")
+      || (body.adoptFromInactive !== undefined && typeof body.adoptFromInactive !== "boolean")) {
       send(res, 400, { error: "dryRun/details must be boolean; queries 1-8 of {set,search,player}; acceptSets up to 8 strings" });
       return;
     }
@@ -107,7 +108,7 @@ export function registerSetFillQaRoutes(app: Express): void {
     jobs.set(job.id, job);
     running.add(setId);
     send(res, 202, { jobId: job.id, dryRun: job.dryRun, statusPath: `/api/qa/sets/${setId}/fill-missing/${job.id}` });
-    void fillMissingCards(setId, { dryRun: job.dryRun, details: body.details === true, queries: queries ?? undefined, acceptSets })
+    void fillMissingCards(setId, { dryRun: job.dryRun, details: body.details === true, queries: queries ?? undefined, acceptSets, adoptFromInactive: body.adoptFromInactive === true })
       .then((report) => { job.report = report; job.state = "completed"; })
       .catch((error) => { job.state = "failed"; job.error = error instanceof Error ? error.message.slice(0, 300) : "failed"; })
       .finally(() => {

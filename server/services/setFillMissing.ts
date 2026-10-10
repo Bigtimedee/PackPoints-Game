@@ -74,6 +74,22 @@ export interface FillMissingOptions {
   queries?: FillQuery[];
   /** Extra Card Hedge set names accepted as this set (besides the existing rows' set name). */
   acceptSets?: string[];
+  /**
+   * Move candidate rows whose Card Hedge id already sits in another set into this
+   * set, only when that set is inactive, not user-created and not Design-cleared,
+   * and the row has no review approval. Keeps the row id (game history intact).
+   */
+  adoptFromInactive?: boolean;
+}
+
+export interface ConflictOwner {
+  gameSetId: string;
+  setName: string;
+  isActive: boolean;
+  isUserCreated: boolean;
+  rows: number;
+  approvedRows: number;
+  adoptable: boolean;
 }
 
 export interface FillCandidate {
@@ -105,6 +121,8 @@ export interface FillMissingReport {
   insertConflicts: number;
   missingNumbers: number[];
   existingFlagged: { id: string; number: string | null; player: string | null; reason: string }[];
+  conflictOwners: ConflictOwner[];
+  adopted: { id: string; cardhedgeCardId: string; number: string | null; player: string | null; fromSetId: string }[];
   totalRowsAfter: number | null;
   importRunId: string | null;
 }
@@ -321,9 +339,46 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
     existing: { rows: existingRows.length, baseNumbers: haveNumbers.size },
     fetched, distinctFetched: byId.size, setsSeen, variantsSeen, skipped, excluded,
     detailsLookups, detailsImagesFound, candidates, inserted: [], insertConflicts: 0,
-    missingNumbers, existingFlagged, totalRowsAfter: null, importRunId: null,
+    missingNumbers, existingFlagged, conflictOwners: [], adopted: [], totalRowsAfter: null, importRunId: null,
   };
+  const owned = candidates.length === 0 ? [] : (await db.execute<{ id: string; cardhedge_card_id: string; game_set_id: string;
+    set_name: string; is_active: boolean; is_user_created: boolean; approved: boolean }>(sql`
+    SELECT pc.id, pc.cardhedge_card_id, pc.game_set_id, gs.set_name, gs.is_active, gs.is_user_created,
+      EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = pc.id) AS approved
+    FROM playable_cards pc JOIN game_sets gs ON gs.id = pc.game_set_id
+    WHERE pc.game_set_id <> ${setId}
+      AND pc.cardhedge_card_id IN (${sql.join(candidates.map((c) => sql`${c.cardhedgeCardId}`), sql`, `)})`)).rows ?? [];
+  const { isDesignApprovedSetId } = await import("../config/heldSets");
+  const ownerMap = new Map<string, ConflictOwner>();
+  for (const row of owned) {
+    let o = ownerMap.get(row.game_set_id);
+    if (!o) {
+      o = { gameSetId: row.game_set_id, setName: row.set_name, isActive: Boolean(row.is_active), isUserCreated: Boolean(row.is_user_created),
+        rows: 0, approvedRows: 0, adoptable: !row.is_active && !row.is_user_created && !isDesignApprovedSetId(row.game_set_id) };
+      ownerMap.set(row.game_set_id, o);
+    }
+    o.rows++;
+    if (row.approved) o.approvedRows++;
+  }
+  report.conflictOwners = [...ownerMap.values()];
   if (opts.dryRun || candidates.length === 0) return report;
+
+  if (opts.adoptFromInactive) {
+    for (const row of owned) {
+      const owner = ownerMap.get(row.game_set_id)!;
+      if (!owner.adoptable || row.approved) continue;
+      const cand = candidates.find((c) => c.cardhedgeCardId === row.cardhedge_card_id)!;
+      const card = byId.get(cand.cardhedgeCardId)!;
+      const moved = await db.update(playableCards).set({
+        gameSetId: setId, description: card.description, player: card.player, set: card.set, number: card.number,
+        variant: card.variant, imageUrl: cand.imageUrl, category: card.category, rookie: card.rookie,
+        isPlayable: true, blockedReason: null, updatedAt: new Date(),
+      }).where(and(eq(playableCards.id, row.id), eq(playableCards.gameSetId, row.game_set_id),
+        sql`NOT EXISTS (SELECT 1 FROM card_review_approvals cra WHERE cra.card_id = ${playableCards.id})`))
+        .returning({ id: playableCards.id });
+      if (moved[0]) report.adopted.push({ id: row.id, cardhedgeCardId: cand.cardhedgeCardId, number: cand.number, player: cand.player, fromSetId: row.game_set_id });
+    }
+  }
 
   const [run] = await db.insert(cardhedgeImportRuns)
     .values({ gameSetId: setId, status: "RUNNING", pageSize: PAGE_SIZE })
