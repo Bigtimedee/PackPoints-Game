@@ -116,6 +116,7 @@ import { registerCoverQaRoutes } from "./routes/coverQa";
 import { registerDealableQaRoutes } from "./routes/dealableQa";
 import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
+import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
 import { attributeNewUserFromRequest } from "./lib/signupAttribution";
 import cardhedgeRouter from "./routes/cardhedge.routes";
@@ -523,6 +524,7 @@ export async function registerRoutes(
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
   registerSetFillQaRoutes(app);
+  registerHeldSetImportQaRoutes(app);
 
   // Public: Get a single set by id with maker metadata and play count
   app.get("/api/sets/:id", (req, res) => {
