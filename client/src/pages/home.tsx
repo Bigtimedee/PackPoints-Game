@@ -152,6 +152,7 @@ export default function Home() {
         <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-x-6 gap-y-3 px-5 text-xs text-muted-foreground">
           <Link href="/terms-of-service" className="hover:text-foreground">Terms of Service</Link>
           <Link href="/privacy-policy" className="hover:text-foreground">Privacy Policy</Link>
+          <Link href="/points" className="hover:text-foreground" data-testid="link-footer-how-points-work">How points work</Link>
           <a href="mailto:support@packpts.com" className="hover:text-foreground">Contact</a>
           {import.meta.env.VITE_DISCORD_INVITE_URL && <a href={import.meta.env.VITE_DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-foreground"><MessageCircle className="h-3.5 w-3.5" /> Discord</a>}
         </div>

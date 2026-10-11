@@ -1,3 +1,4 @@
+import { PointsStrip } from "@/components/points-strip";
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useSearch, useLocation } from "wouter";
 import { logger } from "@/lib/logger";
@@ -1141,18 +1142,24 @@ export default function Game() {
               </div>
             )}
 
-            <div className="flex flex-col gap-3 pt-2">
-              {!showGuestWall && (
+            <PointsStrip
+              points={session.score}
+              isGuest={!isAuthenticated}
+              playAgain={!showGuestWall && (
                 <Button
                   onClick={handlePlayAgain}
                   size="lg"
+                  variant="outline"
                   className={PLAY_AGAIN_BUTTON_CLASS}
                   data-testid="button-play-again"
                 >
                   <RefreshCw className="h-4 w-4" />
-                  Play Again
+                  Play again
                 </Button>
               )}
+            />
+
+            <div className="flex flex-col gap-3">
               <Link href="/">
                 <Button variant="outline" className={PLAY_AGAIN_BUTTON_CLASS} data-testid="button-back-home">
                   <ArrowLeft className="h-4 w-4" />

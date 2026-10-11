@@ -173,6 +173,25 @@ class TreasuryService {
     };
   }
 
+  /**
+   * Current PackPTS value in cents per point from the active profit policy.
+   * Single source for redemption math and the public /api/points/value endpoint.
+   */
+  async getPackptsValueCents(): Promise<{ centsPerPoint: number; policyEffectiveFrom: string | null }> {
+    const [policy] = await db
+      .select()
+      .from(profitPolicy)
+      .where(eq(profitPolicy.enabled, true))
+      .orderBy(sql`${profitPolicy.effectiveFrom} DESC`)
+      .limit(1);
+    if (!policy) return { centsPerPoint: 0.2, policyEffectiveFrom: null }; // Default $0.002 = 0.2 cents
+    const eff = policy.effectiveFrom as unknown as Date | string | null;
+    return {
+      centsPerPoint: policy.packptsValueVMicrousd / 10000, // micro-USD to cents (2000 = 0.2 cents)
+      policyEffectiveFrom: eff ? new Date(eff).toISOString() : null,
+    };
+  }
+
   async computeAllowedRedemption(
     userId: string,
     source: "ebay" | "goldin",
@@ -180,17 +199,8 @@ class TreasuryService {
     requestedPackpts: number,
     userBalance: number
   ): Promise<AllowedRedemptionResult> {
-    // Get PackPTS value from active profit policy
-    const [policy] = await db
-      .select()
-      .from(profitPolicy)
-      .where(eq(profitPolicy.enabled, true))
-      .orderBy(sql`${profitPolicy.effectiveFrom} DESC`)
-      .limit(1);
-
-    const packptsValueCents = policy 
-      ? policy.packptsValueVMicrousd / 10000  // Convert micro-USD to cents (2000 micro-USD = 0.2 cents)
-      : 0.2; // Default $0.002 = 0.2 cents
+    // Get PackPTS value from active profit policy (shared with GET /api/points/value)
+    const { centsPerPoint: packptsValueCents } = await this.getPackptsValueCents();
 
     // Compute requested credit value
     const requestedCreditCents = Math.floor(requestedPackpts * packptsValueCents);
