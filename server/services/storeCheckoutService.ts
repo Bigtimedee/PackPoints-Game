@@ -168,6 +168,19 @@ class StoreCheckoutService {
       return { success: false, error: "Invalid product configuration - missing price" };
     }
 
+    // Package guardrail (30% margin floor), observe mode: logged on every bundle
+    // checkout but NOT enforced yet. The live bundles fail the floor, and
+    // enforcing would stop all sales; that is a pricing decision for Dave.
+    try {
+      const { packageGuardrailService } = await import("./store/packageGuardrailService");
+      const evaluation = await packageGuardrailService.evaluatePackage(priceUsd, packptsGrant, "web_stripe");
+      if (evaluation.decision !== "PASS") {
+        console.warn(`[StoreCheckout] package guardrail ${evaluation.decision} (observe-only) for ${sku}: ${evaluation.reasons.join("; ")}`);
+      }
+    } catch (err: any) {
+      console.warn(`[StoreCheckout] package guardrail unavailable for ${sku}:`, err?.message);
+    }
+
     try {
       const stripeClient = await getStripeClient(host);
 
