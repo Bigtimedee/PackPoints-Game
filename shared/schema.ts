@@ -2511,7 +2511,7 @@ export const profitPolicy = pgTable("profit_policy", {
   maxDiscountPct: real("max_discount_pct").notNull().default(0.15), // max credit as fraction of purchase price (0.15 = 15%)
   perUserDailyCreditCents: integer("per_user_daily_credit_cents").notNull().default(2500), // $25/day/user
   perUserWeeklyCreditCents: integer("per_user_weekly_credit_cents").notNull().default(10000), // $100/week/user
-  minRedemptionPackpts: integer("min_redemption_packpts").notNull().default(500), // floor per redemption
+  minRedemptionPackpts: integer("min_redemption_packpts").notNull().default(1), // legacy; code enforces REDEMPTION_MIN_PACKPTS = 1
   reserveFloorCents: integer("reserve_floor_cents").notNull().default(0), // redemptions disabled if funded reserve below this
   enabled: boolean("enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),

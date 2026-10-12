@@ -68,7 +68,7 @@ export const PROFIT_POLICY_DEFAULTS = {
   maxDiscountPct: 0.15,
   perUserDailyCreditCents: 2500,
   perUserWeeklyCreditCents: 10000,
-  minRedemptionPackpts: 500,
+  minRedemptionPackpts: 1,
   reserveFloorCents: MIN_RESERVE_FLOOR_CENTS,
 } as const;
 
@@ -151,3 +151,6 @@ export function payoutReviewFlags(counts: { device: number; ip: number; destinat
   if (counts.destination > 0) f.push("SHARED_DESTINATION");
   return f;
 }
+
+/** Minimum PackPTS per marketplace redemption. 1 = any whole point earns. */
+export const REDEMPTION_MIN_PACKPTS = 1;
