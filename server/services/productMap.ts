@@ -42,7 +42,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "com.packpoints.packpts15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "15,000 PackPTS",
+      displayName: "1,592 PackPTS",
       type: "CONSUMABLE",
     },
     "com.packpoints.pro_monthly": {
@@ -74,7 +74,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "packpts_15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "15,000 PackPTS",
+      displayName: "1,592 PackPTS",
       type: "CONSUMABLE",
     },
     "pro_monthly": {
@@ -138,7 +138,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "price_packpts_15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "15,000 PackPTS",
+      displayName: "1,592 PackPTS",
       type: "CONSUMABLE",
     },
     "price_pro_monthly": {
@@ -289,26 +289,29 @@ export function getStoreProductIds(internalSku: string): string[] {
 }
 
 // Internal SKU definitions with PackPTS amounts
-// Updated to new guardrail-compliant pricing: ~3,000 pts/$ at 200 microusd per point
+// Grants are the largest that pass the package guardrail (store_package_policy
+// minMarginRate 30%, Stripe web 2.9% + 30c, 0.2c redeemable value per point):
+// redeemable value <= (price - fees) x (1 - margin). SKU ids are legacy names
+// kept so in-flight checkouts and receipts still resolve.
 export const PRODUCT_DEFINITIONS = {
   PACKPTS_15000: {
     name: "Starter Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 15000,
+    packptsGrant: 1592,
     priceUsd: 499, // $4.99
     description: "Starter bundle - great for trying out the game",
   },
   PACKPTS_45000: {
     name: "Value Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 45000,
+    packptsGrant: 4992,
     priceUsd: 1499, // $14.99 - Best value
     description: "Most popular - best value for regular players",
   },
   PACKPTS_80000: {
     name: "Premium Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 80000,
+    packptsGrant: 8387,
     priceUsd: 2499, // $24.99
     description: "Power pack - for serious collectors",
   },

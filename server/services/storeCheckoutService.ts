@@ -77,6 +77,33 @@ class StoreCheckoutService {
   }
 
   async getPackPtsBundles(): Promise<PackPtsBundleProduct[]> {
+    return this.onlyGuardrailPassing(await this.listPackPtsBundlesUnchecked());
+  }
+
+  /**
+   * Package guardrail, ENFORCED and fail closed: a bundle whose redeemable value
+   * exceeds (price - fees) x (1 - minMarginRate) is neither shown nor sold. If the
+   * guardrail can't be evaluated, nothing is shown.
+   */
+  async onlyGuardrailPassing<T extends { sku: string; priceUsd: number; packptsGrant: number }>(list: T[]): Promise<T[]> {
+    const { packageGuardrailService } = await import("./store/packageGuardrailService");
+    const out: T[] = [];
+    for (const b of list) {
+      try {
+        const ev = await packageGuardrailService.evaluatePackage(b.priceUsd, b.packptsGrant, "web_stripe");
+        if (ev.decision === "BLOCK") {
+          console.warn(`[StoreCheckout] hiding ${b.sku}: package guardrail BLOCK (${ev.reasons.join("; ")})`);
+          continue;
+        }
+        out.push(b);
+      } catch (err: any) {
+        console.error(`[StoreCheckout] hiding ${b.sku}: package guardrail unavailable:`, err?.message);
+      }
+    }
+    return out;
+  }
+
+  private async listPackPtsBundlesUnchecked(): Promise<PackPtsBundleProduct[]> {
     try {
       const dbProducts = await db
         .select()
@@ -92,14 +119,20 @@ class StoreCheckoutService {
       }
 
       return dbProducts.map(product => {
-        const priceUsd = (product.priceUsd || 0) / 100;
-        const packptsGrant = product.packptsGrant || 0;
+        // Bundle SKUs: grant and price come from PRODUCT_DEFINITIONS, the same
+        // source Stripe fulfillment credits from, so shown == charged == credited.
+        const def = (PACKPTS_BUNDLE_SKUS as readonly string[]).includes(product.sku)
+          ? (PRODUCT_DEFINITIONS[product.sku as InternalSku] as { packptsGrant?: number; priceUsd: number })
+          : null;
+        const priceCents = def ? def.priceUsd : (product.priceUsd || 0);
+        const packptsGrant = def?.packptsGrant ?? (product.packptsGrant || 0);
+        const priceUsd = priceCents / 100;
         const valuePerDollar = priceUsd > 0 ? packptsGrant / priceUsd : 0;
         return {
           sku: product.sku,
           name: product.name,
           packptsGrant,
-          priceUsd: product.priceUsd || 0,
+          priceUsd: priceCents,
           description: product.description || "",
           formattedPrice: `$${priceUsd.toFixed(2)}`,
           valuePerDollar: Math.round(valuePerDollar),
@@ -144,8 +177,11 @@ class StoreCheckoutService {
     if (dbProduct.length > 0) {
       const product = dbProduct[0];
       productName = product.name;
-      packptsGrant = product.packptsGrant || 0;
-      priceUsd = product.priceUsd || 0;
+      const def = (PACKPTS_BUNDLE_SKUS as readonly string[]).includes(sku)
+        ? (PRODUCT_DEFINITIONS[sku as InternalSku] as { packptsGrant?: number; priceUsd: number })
+        : null;
+      packptsGrant = def?.packptsGrant ?? (product.packptsGrant || 0);
+      priceUsd = def ? def.priceUsd : (product.priceUsd || 0);
       description = product.description || `Get ${packptsGrant} PackPTS`;
       stripePriceId = product.stripePriceId || null;
     } else if (PACKPTS_BUNDLE_SKUS.includes(sku as any)) {
@@ -168,17 +204,17 @@ class StoreCheckoutService {
       return { success: false, error: "Invalid product configuration - missing price" };
     }
 
-    // Package guardrail (30% margin floor), observe mode: logged on every bundle
-    // checkout but NOT enforced yet. The live bundles fail the floor, and
-    // enforcing would stop all sales; that is a pricing decision for Dave.
+    // Package guardrail ENFORCED, fail closed (redeemable value <= net x (1 - margin)).
     try {
       const { packageGuardrailService } = await import("./store/packageGuardrailService");
       const evaluation = await packageGuardrailService.evaluatePackage(priceUsd, packptsGrant, "web_stripe");
-      if (evaluation.decision !== "PASS") {
-        console.warn(`[StoreCheckout] package guardrail ${evaluation.decision} (observe-only) for ${sku}: ${evaluation.reasons.join("; ")}`);
+      if (evaluation.decision === "BLOCK") {
+        console.error(`[StoreCheckout] package guardrail BLOCK for ${sku}: ${evaluation.reasons.join("; ")}`);
+        return { success: false, error: "This bundle is not available right now" };
       }
     } catch (err: any) {
-      console.warn(`[StoreCheckout] package guardrail unavailable for ${sku}:`, err?.message);
+      console.error(`[StoreCheckout] package guardrail unavailable for ${sku}:`, err?.message);
+      return { success: false, error: "The store is temporarily unavailable" };
     }
 
     try {
@@ -329,6 +365,10 @@ class StoreCheckoutService {
 
   // Get available monthly PackPTS subscription products from database
   async getPackPtsSubscriptions(): Promise<PackPtsSubscriptionProduct[]> {
+    return this.onlyGuardrailPassing(await this.listPackPtsSubscriptionsUnchecked());
+  }
+
+  private async listPackPtsSubscriptionsUnchecked(): Promise<PackPtsSubscriptionProduct[]> {
     try {
       const dbProducts = await db
         .select()
@@ -421,6 +461,12 @@ class StoreCheckoutService {
       description = (productDef as { description?: string }).description || `Get ${packptsGrant} PackPTS every month`;
     } else {
       return { success: false, error: "Invalid subscription product" };
+    }
+
+    // Same enforced package guardrail as bundles (per billing period), fail closed.
+    const passing = await this.onlyGuardrailPassing([{ sku, priceUsd, packptsGrant }]);
+    if (passing.length === 0) {
+      return { success: false, error: "This subscription is not available right now" };
     }
 
     try {
