@@ -19,6 +19,10 @@ describe("points chip during play", () => {
     const game = readFileSync(new URL("../../pages/game.tsx", import.meta.url), "utf8");
     expect(game).toContain("useCompleteScreen(isGameOver && !!session)");
   });
+  it("app shell mounts the header on solo Game Complete only", () => {
+    const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+    expect(app).toContain("const isFullscreen = isMatchRoute || (isGameRoute && !(completeActive && !playActive));");
+  });
   it("header gates the chip on it", () => {
     const src = readFileSync(new URL("../../components/header.tsx", import.meta.url), "utf8");
     expect(src).toContain("pointsChipHidden(location, playActive, completeActive)");
