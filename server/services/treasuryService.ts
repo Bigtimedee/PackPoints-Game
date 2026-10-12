@@ -12,6 +12,7 @@ import {
   InsertMarginUsage,
 } from "@shared/schema";
 import { eq, sql, and, sum } from "drizzle-orm";
+import { effectiveReserveFloorCents, isReserveHealthy } from "./guardrailPolicy";
 
 const VALID_SOURCE_TYPES = ["PACKPTS_SALE", "AFFILIATE_PAYOUT", "PARTNER_REBATE", "MANUAL_ADJUSTMENT"] as const;
 type MarginSourceType = typeof VALID_SOURCE_TYPES[number];
@@ -113,7 +114,9 @@ class TreasuryService {
       .limit(1);
 
     const packptsValueMicroUsd = policy?.packptsValueVMicrousd ?? 2000;
-    const reserveFloorCents = policy?.reserveFloorCents ?? 0;
+    // Fail closed: floor is never below MIN_RESERVE_FLOOR_CENTS, and no active
+    // policy means redemptions are paused.
+    const reserveFloorCents = effectiveReserveFloorCents(policy?.reserveFloorCents);
 
     const outstandingPackpts = Number(liabilityRow?.total ?? 0);
     // micro-USD → cents: /10000
@@ -126,7 +129,7 @@ class TreasuryService {
     const fundedReserveCents = Number(marginRow?.total ?? 0) - Number(usedRow?.total ?? 0);
 
     const coverageRatio = liabilityCents > 0 ? fundedReserveCents / liabilityCents : Infinity;
-    const redemptionsHealthy = fundedReserveCents >= reserveFloorCents;
+    const redemptionsHealthy = isReserveHealthy(fundedReserveCents, policy?.reserveFloorCents, !!policy);
 
     return {
       outstandingPackpts,

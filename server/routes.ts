@@ -8658,7 +8658,27 @@ export async function registerRoutes(
     try {
       const { profitGuardrailService } = await import("./services/profitGuardrailService");
       
-      const newPolicy = await profitGuardrailService.updatePolicy(req.body);
+      // Partial update: validate only the fields sent; omitted fields keep
+      // their live values (merged in updatePolicy). Unknown keys are rejected.
+      const policyPatchSchema = z.object({
+        minMarginM: z.number().min(0).max(1).optional(),
+        affiliateRateA: z.number().min(0).max(1).optional(),
+        affiliateHaircutH: z.number().min(0).max(1).optional(),
+        processingFeeRateR: z.number().min(0).max(1).optional(),
+        fixedFeeFCents: z.number().int().min(0).optional(),
+        packptsValueVMicrousd: z.number().int().positive().optional(),
+        maxDiscountPct: z.number().min(0).max(1).optional(),
+        perUserDailyCreditCents: z.number().int().min(0).optional(),
+        perUserWeeklyCreditCents: z.number().int().min(0).optional(),
+        minRedemptionPackpts: z.number().int().min(0).optional(),
+        reserveFloorCents: z.number().int().min(0).optional(),
+      }).strict();
+      const parsed = policyPatchSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+
+      const newPolicy = await profitGuardrailService.updatePolicy(parsed.data);
       
       res.json(newPolicy);
     } catch (error: any) {
@@ -9216,6 +9236,17 @@ export async function registerRoutes(
       const parsed = updateSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+      // One source of truth: the store's value-per-point is the treasury's
+      // PackPTS value (profit_policy.packptsValueVMicrousd). Change it there.
+      if (parsed.data.maxValuePerPtMicrousd !== undefined) {
+        const treasuryValue = await packageGuardrailService.getTreasuryPointValueMicrousd();
+        if (treasuryValue !== null && parsed.data.maxValuePerPtMicrousd !== treasuryValue) {
+          return res.status(409).json({
+            error: "maxValuePerPtMicrousd is derived from the profit policy's PackPTS value; update /api/admin/profit-policy packptsValueVMicrousd instead",
+            treasuryValueMicrousd: treasuryValue,
+          });
+        }
       }
 
       const updatedPolicy = await packageGuardrailService.updatePolicy(parsed.data);

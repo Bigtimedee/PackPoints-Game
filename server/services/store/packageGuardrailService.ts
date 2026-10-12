@@ -7,8 +7,10 @@ import {
   adminBundleAuditLog,
   type StoreFeeProfile,
   type StorePackagePolicy,
-  type InsertStorePackageValidation
+  type InsertStorePackageValidation,
+  profitPolicy,
 } from "@shared/schema";
+import { syncedValuePerPtMicrousd } from "../guardrailPolicy";
 import { eq, and, desc, sql } from "drizzle-orm";
 
 export type SalesChannel = "web_stripe" | "ios_iap" | "android_iap";
@@ -78,7 +80,24 @@ class PackageGuardrailService {
       .orderBy(desc(storePackagePolicy.createdAt))
       .limit(1);
     
-    return policies[0] || null;
+    const policy = policies[0] || null;
+    if (!policy) return null;
+    // Single source of truth for value-per-point: the treasury/profit policy.
+    const treasuryValue = await this.getTreasuryPointValueMicrousd();
+    return treasuryValue !== null
+      ? { ...policy, maxValuePerPtMicrousd: syncedValuePerPtMicrousd(policy.maxValuePerPtMicrousd, treasuryValue) }
+      : policy;
+  }
+
+  /** profit_policy.packptsValueVMicrousd of the active policy, or null. */
+  async getTreasuryPointValueMicrousd(): Promise<number | null> {
+    const [row] = await db
+      .select({ v: profitPolicy.packptsValueVMicrousd })
+      .from(profitPolicy)
+      .where(eq(profitPolicy.enabled, true))
+      .orderBy(desc(profitPolicy.effectiveFrom))
+      .limit(1);
+    return row?.v ?? null;
   }
 
   async getFeeProfile(channel: SalesChannel): Promise<StoreFeeProfile | null> {
@@ -457,7 +476,7 @@ class PackageGuardrailService {
       .values({
         minMarginRate: updates.minMarginRate ?? currentPolicy?.minMarginRate ?? 0.30,
         warnMarginBand: updates.warnMarginBand ?? currentPolicy?.warnMarginBand ?? 0.05,
-        maxValuePerPtMicrousd: updates.maxValuePerPtMicrousd ?? currentPolicy?.maxValuePerPtMicrousd ?? 2000,
+        maxValuePerPtMicrousd: (await this.getTreasuryPointValueMicrousd()) ?? updates.maxValuePerPtMicrousd ?? currentPolicy?.maxValuePerPtMicrousd ?? 2000,
         allowOverride: updates.allowOverride ?? currentPolicy?.allowOverride ?? false,
         reserveRate: updates.reserveRate ?? currentPolicy?.reserveRate ?? 1.0,
         isActive: true,
