@@ -13,6 +13,8 @@ export interface PointsValue {
   policyEffectiveFrom?: string | null;
   sources?: string[];
   expiry: PointsExpiry | null;
+  payoutMinimum?: { cents: number; display: string };
+  holdDays?: number;
   asOf?: string;
 }
 
