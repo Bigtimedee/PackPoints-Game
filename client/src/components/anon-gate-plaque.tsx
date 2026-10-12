@@ -1,4 +1,6 @@
 import { ANON_GATE_COPY } from "@shared/anonGate";
+import { usePointsValue } from "@/hooks/use-points-value";
+import { SIGNUP_BODY_LIVE } from "@/lib/pointsCopy";
 
 /** B masked-P. Gold bar is the mask, not a second mark. */
 function MaskedPMark() {
@@ -41,6 +43,9 @@ export function AnonGatePlaque({
   onSignIn?: () => void;
 }) {
   const hard = variant === "hard";
+  const { rebateLive } = usePointsValue();
+  // The soft body says "Rebates open soon"; never show it once rebates are live.
+  const softBody = rebateLive ? SIGNUP_BODY_LIVE : ANON_GATE_COPY.softBody;
   return (
     <div
       className="w-full max-w-[390px] rounded-2xl border px-6 py-7 text-left"
@@ -52,7 +57,7 @@ export function AnonGatePlaque({
         {hard ? ANON_GATE_COPY.hardTitle : ANON_GATE_COPY.softTitle}
       </h2>
       <p className="mt-3 text-[15px] leading-relaxed" style={{ color: "#8F96A3" }}>
-        {hard ? ANON_GATE_COPY.hardBody : ANON_GATE_COPY.softBody}
+        {hard ? ANON_GATE_COPY.hardBody : softBody}
       </p>
       <div className="mt-4">
         <EscrowHeldChip points={escrowPoints} />
