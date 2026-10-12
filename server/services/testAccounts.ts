@@ -14,7 +14,8 @@ export async function seedTestAccounts(): Promise<number> {
     UPDATE users SET is_test_account = true
     WHERE is_test_account = false
       AND (id = ${QA_TEST_USER_ID}
-        OR lower(coalesce(username_normalized, username, '')) IN (${sql.join(names.map((n) => sql`${n}`), sql`, `)}))
+        OR lower(coalesce(username_normalized, username, '')) IN (${sql.join(names.map((n) => sql`${n}`), sql`, `)})
+        OR lower(coalesce(username, '')) IN (${sql.join(names.map((n) => sql`${n}`), sql`, `)}))
   `);
   return (res as any).rowCount ?? 0;
 }
