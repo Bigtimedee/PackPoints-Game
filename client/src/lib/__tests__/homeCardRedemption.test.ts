@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
+import { HOME_HERO } from "../pointsCopy";
 const home = readFileSync(new URL("../../pages/home.tsx", import.meta.url), "utf8");
 const covers = readFileSync(new URL("../../../../server/services/setCovers.ts", import.meta.url), "utf8");
 describe("home reuses gameplay and explains redemption", () => {
@@ -12,8 +13,11 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(covers).toContain('toPublicMaskPlan(JSON.parse(readFileSync(planFile');
   });
   it("puts eligible real-card cashback in the hero, before Play Now", () => {
-    expect(home).toContain('Earn PackPTS for cashback on eligible real cards from eBay and Goldin.');
-    expect(home.indexOf('Earn PackPTS for cashback')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
+    expect(HOME_HERO.live).toBe('Earn PackPTS for cashback on eligible real cards from eBay and Goldin.');
+    expect(HOME_HERO.soon).toBe('Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.');
+    expect(HOME_HERO.soon.toLowerCase()).not.toContain('cash');
+    expect(home).toContain('{heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}');
+    expect(home.indexOf('HOME_HERO.live : HOME_HERO.soon')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
     expect(home).not.toContain('Pay the normal marketplace price');
     expect(home).toContain('Who is on this 1987 Topps card?');
     expect(home).toContain('<AnswerButton');

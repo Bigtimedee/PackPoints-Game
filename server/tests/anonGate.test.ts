@@ -303,7 +303,7 @@ describe("registeredUsersNonStaff ignores anon", () => {
 describe("gate copy", () => {
   it("uses the locked soft and hard strings", () => {
     expect(ANON_GATE_COPY.softTitle).toBe("Keep your points");
-    expect(ANON_GATE_COPY.softBody).toBe("Save your points. They'll work toward rebates on real cards. Coming soon.");
+    expect(ANON_GATE_COPY.softBody).toBe("Save your points. They'll work toward rebates on real cards. Rebates open soon.");
     expect(ANON_GATE_COPY.softCta).toBe("Create free account");
     expect(ANON_GATE_COPY.softSecondary).toBe("Continue once more");
     expect(ANON_GATE_COPY.hardTitle).toBe("Register to keep playing");

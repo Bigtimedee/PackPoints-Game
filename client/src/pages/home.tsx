@@ -1,3 +1,5 @@
+import { usePointsValue } from "@/hooks/use-points-value";
+import { HOME_HERO } from "@/lib/pointsCopy";
 import { OnboardingPointsCard } from "@/components/onboarding-points-card";
 import { AnswerButton } from "@/pages/game";
 import { useLocation } from "wouter";
@@ -81,6 +83,7 @@ export default function Home() {
   const { data: homeStats } = useQuery<{ totalGames: number; totalCards: number; staffPlayVanityOverride?: boolean }>({
     queryKey: ["/api/home-stats"], staleTime: 5 * 60 * 1000,
   });
+  const { rebateLive: heroRebateLive } = usePointsValue();
   const showPlayVanity = shouldShowHomePlayVanity({ totalGames: homeStats?.totalGames, staffOverride: homeStats?.staffPlayVanityOverride });
   const quickStats = showPlayVanity && homeStats ? [
     { label: "Total Games Played", value: homeStats.totalGames.toLocaleString() },
@@ -97,7 +100,7 @@ export default function Home() {
           <div className="mx-auto max-w-md text-center md:self-start md:pt-40 md:text-left">
             <h1 id="home-title" className="sr-only" data-testid="text-hero-title">Know the player?</h1>
             <p className="text-sm text-muted-foreground md:text-lg" data-testid="text-hero-description">
-              Earn PackPTS for cashback on eligible real cards from eBay and Goldin.
+              {heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}
             </p>
             <Button asChild size="lg" className="mt-5 min-h-12 w-full gap-2 text-base md:mt-7 md:w-auto md:min-w-56" data-testid="button-play-now">
               <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
