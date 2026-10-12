@@ -3,6 +3,7 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { buildPointsValueResponse, rebatesLive, registerPointsValueRoute, setPointsValueLoaderForTests } from "../routes/pointsValue";
+import { PAYOUT_HOLD_DAYS, PAYOUT_MIN_CENTS } from "../services/guardrailPolicy";
 import * as copy from "../../client/src/lib/pointsCopy";
 
 const snap = { centsPerPoint: 0.2, policyEffectiveFrom: "2026-01-01T00:00:00.000Z", expiry: { earnedDays: 365, purchasedDays: null, bonusDays: 90 } };
@@ -30,6 +31,8 @@ describe("GET /api/points/value", () => {
     expect(r.body.rebateLive).toBe(false);
     expect(r.body.centsPerPoint).toBeUndefined();
     expect(r.body.expiry).toEqual(snap.expiry);
+    expect(r.body.payoutMinimum).toEqual({ cents: PAYOUT_MIN_CENTS, display: "$10" });
+    expect(r.body.holdDays).toBe(PAYOUT_HOLD_DAYS);
   });
 
   it("only exact REBATES_LIVE=true flips it", () => {
@@ -43,6 +46,19 @@ describe("GET /api/points/value", () => {
     const src = fs.readFileSync(path.join(__dirname, "../services/treasuryService.ts"), "utf8");
     const body = src.slice(src.indexOf("async computeAllowedRedemption("));
     expect(body.slice(0, 600)).toContain("getPackptsValueCents()");
+  });
+});
+
+describe("payout terms", () => {
+  it("formats the minimum", async () => {
+    const { formatPayoutMinimum } = await import("../routes/pointsValue");
+    expect(formatPayoutMinimum(1000)).toBe("$10");
+    expect(formatPayoutMinimum(1050)).toBe("$10.50");
+  });
+  it("endpoint reads the enforced constants, not literals", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../routes/pointsValue.ts"), "utf8");
+    expect(src).toContain("cents: PAYOUT_MIN_CENTS");
+    expect(src).toContain("holdDays: PAYOUT_HOLD_DAYS");
   });
 });
 

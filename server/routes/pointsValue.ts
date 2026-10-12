@@ -7,6 +7,12 @@
  * is active, buckets are written with no expiry, so expiry is reported as null.
  */
 import type { Express, Request, Response } from "express";
+import { PAYOUT_HOLD_DAYS, PAYOUT_MIN_CENTS } from "../services/guardrailPolicy";
+
+/** "$10" for whole dollars, "$10.50" otherwise. */
+export function formatPayoutMinimum(cents: number): string {
+  return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+}
 
 export interface PointsExpiry {
   earnedDays: number | null;
@@ -29,6 +35,9 @@ export function buildPointsValueResponse(snap: PointsValueSnapshot, live: boolea
     rebateLive: live,
     sources: ["ebay", "goldin"],
     expiry: snap.expiry,
+    // Same constants rebateService enforces (#232), so the copy cannot drift from the rule.
+    payoutMinimum: { cents: PAYOUT_MIN_CENTS, display: formatPayoutMinimum(PAYOUT_MIN_CENTS) },
+    holdDays: PAYOUT_HOLD_DAYS,
     asOf: now.toISOString(),
   };
   if (!live) return base;
