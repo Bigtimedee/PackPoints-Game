@@ -161,7 +161,9 @@ export function generateEpnCustomId(
 ): string {
   const prefix = EPN_CONFIG.customIdPrefix;
   const userPart = userId ? `u_${userId.substring(0, 12)}` : "u_anon";
-  const itemPart = `i_${itemId.substring(0, 16)}`;
+  // Canonical numeric item id (Browse ids look like "v1|123|0"); no "|" so EPN echoes it intact.
+  const restId = /^v1\|(\d+)\|\d+$/.exec(itemId);
+  const itemPart = `i_${(restId ? restId[1] : itemId).replace(/[^A-Za-z0-9_-]/g, "").substring(0, 16)}`;
   const timePart = `t_${randomUUID()}`;
   return `${prefix}:${userPart}:${itemPart}:${timePart}`;
 }

@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { canonicalEbayItem, matchesEpnIntent, parseEpnMoney } from "./epnVerification";
+import { canonicalEbayItem, matchesEpnIntent, parseEpnMoney, resolveEpnLine, epnItemList, normalizeEpnCustomId } from "./epnVerification";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import {
   attributedPurchases,
@@ -939,36 +939,52 @@ export async function processEpnPostback(query: {
   commission?: string;
   transaction_date?: string;
 }): Promise<{ ok: true; grants: RebateGrantResult[] }> {
-  const salePriceCents = parseEpnMoney(query.sale_price);
-  if (!salePriceCents || !query.item_id || !query.customid || !query.transaction_id) {
+  if (!query.item_id || !query.customid || !query.transaction_id || !query.sale_price) {
     throw new Error("EPN postback requires item, transaction and a valid sale price");
   }
-  const clicks = await db.select().from(outboundClicks)
+  let clicks = await db.select().from(outboundClicks)
     .where(eq(outboundClicks.customId, query.customid)).limit(2);
+  if (clicks.length === 0) {
+    // EPN may strip characters like "|" from the customid it echoes back.
+    const norm = normalizeEpnCustomId(query.customid);
+    clicks = await db.select().from(outboundClicks)
+      .where(sql`regexp_replace(${outboundClicks.customId}, '[^A-Za-z0-9:_-]', '', 'g') = ${norm}`).limit(2);
+  }
   const click = clicks.length === 1 ? clicks[0] : null;
-  if (!click?.userId || click.source !== "ebay" ||
-      canonicalEbayItem(click.listingId) !== canonicalEbayItem(query.item_id)) {
+  if (!click?.userId || click.source !== "ebay") {
     throw new Error("EPN postback has no matching authenticated outbound click");
   }
+  const line = resolveEpnLine(click.listingId, query.item_id, query.sale_price);
+  if (!line) {
+    if (epnItemList(query.item_id).includes(canonicalEbayItem(click.listingId))) {
+      throw new Error("EPN postback requires item, transaction and a valid sale price");
+    }
+    throw new Error("EPN postback has no matching authenticated outbound click");
+  }
+  const salePriceCents = line.salePriceCents;
+  const matchedItemId = line.itemId;
   const conversionDate = query.transaction_date ? new Date(query.transaction_date) : new Date();
-  if (!Number.isFinite(conversionDate.getTime()) || (click.createdAt && conversionDate < click.createdAt)) {
+  // EPN often sends a date-only or local-time transaction_date; allow a day of
+  // slack before the click rather than rejecting same-day purchases.
+  if (!Number.isFinite(conversionDate.getTime()) ||
+      (click.createdAt && conversionDate.getTime() < click.createdAt.getTime() - 86_400_000)) {
     throw new Error("EPN conversion date is invalid or precedes click");
   }
   const commissionCents = query.commission ? parseEpnMoney(query.commission) : null;
   const [inserted] = await db.insert(attributedPurchases).values({
-    customId: query.customid, outboundClickId: click.id, userId: click.userId,
-    transactionId: query.transaction_id, itemId: query.item_id,
+    customId: click.customId!, outboundClickId: click.id, userId: click.userId,
+    transactionId: query.transaction_id, itemId: matchedItemId,
     salePriceCents, commissionCents, conversionDate, rawPayload: query,
   }).onConflictDoNothing().returning();
   const [existing] = inserted ? [inserted] : await db.select().from(attributedPurchases)
     .where(eq(attributedPurchases.transactionId, query.transaction_id)).limit(1);
-  if (!existing || existing.customId !== query.customid || existing.userId !== click.userId ||
+  if (!existing || existing.customId !== click.customId || existing.userId !== click.userId ||
       existing.outboundClickId !== click.id || existing.salePriceCents !== salePriceCents ||
-      !existing.itemId || canonicalEbayItem(existing.itemId) !== canonicalEbayItem(query.item_id)) {
+      !existing.itemId || canonicalEbayItem(existing.itemId) !== matchedItemId) {
     throw new Error("EPN transaction replay does not match original evidence");
   }
   const grants = await rebateService.grantFromEpnPostback({
-    customId: query.customid, attributedPurchaseId: existing.id, userId: click.userId,
+    customId: click.customId!, attributedPurchaseId: existing.id, userId: click.userId,
     listingId: click.listingId, outboundClickId: click.id, salePriceCents,
   });
   return { ok: true, grants };
