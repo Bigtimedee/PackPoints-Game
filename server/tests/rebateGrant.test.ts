@@ -97,7 +97,9 @@ describe("marketplace cashback grant", () => {
       maxDiscountPct: 0.15,
       perUserDailyCreditCents: 10000,
       perUserWeeklyCreditCents: 50000,
-      minRedemptionPackpts: 500,
+      // Credit is capped by the affiliate formula (~1.05% of price), so an $80
+      // listing tops out at 420 PackPTS; keep the floor below that for these flows.
+      minRedemptionPackpts: 100,
       reserveFloorCents: 0,
       enabled: true,
     });

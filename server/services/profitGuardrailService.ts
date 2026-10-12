@@ -14,6 +14,7 @@ import {
 } from "@shared/schema";
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
+import { computeCreditCeilingCents, mergeProfitPolicyUpdate } from "./guardrailPolicy";
 
 const GOLDIN_NOT_SUPPORTED =
   "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
@@ -187,14 +188,14 @@ class ProfitGuardrailService {
     // but never more than the reserve, the per-user caps, or the affiliate formula
     // would each independently allow.
     const formulaCreditCents = Math.floor(calc.Rmax * packptsValueCents);
-    const marginBackedCreditCentsMax = reserveHealthy
-      ? Math.max(0, Math.min(
-          meaningfulCreditCents,
-          allowedCapCents,
-          dailyRemainingCents,
-          weeklyRemainingCents,
-        ))
-      : 0;
+    const marginBackedCreditCentsMax = computeCreditCeilingCents({
+      reserveHealthy,
+      meaningfulCreditCents,
+      allowedCapCents,
+      dailyRemainingCents,
+      weeklyRemainingCents,
+      formulaCreditCents,
+    });
     let marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
 
     // Enforce the minimum-redemption floor: sub-threshold offers show as ineligible
@@ -603,34 +604,22 @@ class ProfitGuardrailService {
       reserveFloorCents: number;
     }>
   ): Promise<ProfitPolicy> {
-    await db
-      .update(profitPolicy)
-      .set({ enabled: false })
-      .where(eq(profitPolicy.enabled, true));
+    // Merge onto the CURRENT active policy: omitted fields keep their live
+    // values (previously every omitted field silently reset to its default).
+    const current = await this.getActivePolicy();
+    const merged = mergeProfitPolicyUpdate(current as any, policyData as any);
 
-    const defaults = {
-      minMarginM: 0.25,
-      affiliateRateA: 0.02,
-      affiliateHaircutH: 0.70,
-      processingFeeRateR: 0.00,
-      fixedFeeFCents: 0,
-      packptsValueVMicrousd: 2000,
-      maxDiscountPct: 0.15,
-      perUserDailyCreditCents: 2500,
-      perUserWeeklyCreditCents: 10000,
-      minRedemptionPackpts: 500,
-      reserveFloorCents: 0,
-    };
-
-    const [newPolicy] = await db
-      .insert(profitPolicy)
-      .values({
-        ...defaults,
-        ...policyData,
-        effectiveFrom: new Date(),
-        enabled: true,
-      })
-      .returning();
+    const newPolicy = await db.transaction(async (tx) => {
+      await tx
+        .update(profitPolicy)
+        .set({ enabled: false })
+        .where(eq(profitPolicy.enabled, true));
+      const [row] = await tx
+        .insert(profitPolicy)
+        .values({ ...merged, effectiveFrom: new Date(), enabled: true })
+        .returning();
+      return row;
+    });
 
     return newPolicy;
   }
