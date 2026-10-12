@@ -98,9 +98,9 @@ export function Header() {
   return (
     <>
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
-        <Link href="/" className={`flex items-center gap-2 ${location === "/" ? "shrink-0" : ""}`}>
-          <img src={packptsLogo} alt="PackPTS" className="h-10 w-auto" data-testid="img-logo" />
+      <div className="container mx-auto flex h-16 flex-nowrap items-center justify-between gap-2 sm:gap-4 pl-3 pr-3 sm:px-4" data-testid="header-bar">
+        <Link href="/" className="flex min-w-0 shrink items-center gap-2">
+          <img src={packptsLogo} alt="PackPTS" className="h-8 min-[400px]:h-10 w-auto max-w-full min-w-0 object-contain object-left" data-testid="img-logo" />
         </Link>
 
         <nav className="hidden md:flex items-center gap-1">
@@ -122,11 +122,11 @@ export function Header() {
           })}
         </nav>
 
-        <div className={`flex items-center ${location === "/" ? "gap-1.5 sm:gap-3" : "gap-3"}`}>
+        <div className="flex shrink-0 flex-nowrap items-center gap-1 min-[400px]:gap-1.5 sm:gap-3">
           {isAuthenticated && user && (
             <>
               <div className={location === "/" ? "hidden sm:block" : ""}><StreakBadge /></div>
-              {!isRestricted && <div className={location === "/" ? "hidden sm:block" : ""}><DailyProgressBadge /></div>}
+              {!isRestricted && <div className={location === "/" ? "hidden sm:block" : "hidden min-[400px]:block"}><DailyProgressBadge /></div>}
               {hideChip ? null : isRestricted ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -164,7 +164,7 @@ export function Header() {
           ) : isAuthenticated && user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="gap-2 px-2" data-testid="button-user-menu">
+                <Button variant="ghost" className="shrink-0 gap-2 px-1.5 sm:px-2" data-testid="button-user-menu">
                   <Avatar className="h-7 w-7">
                     <AvatarImage src={user.profileImageUrl || undefined} alt={getDisplayName()} />
                     <AvatarFallback className="text-xs">{getInitials()}</AvatarFallback>
