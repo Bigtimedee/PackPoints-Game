@@ -1,3 +1,4 @@
+import { QA_TEST_USER_ID } from "@shared/qaTestAccount";
 import { createHash } from "crypto";
 import { db } from "../db";
 import { 
@@ -791,6 +792,7 @@ export class Daily5Service {
       WHERE dce.daily_challenge_id = ${challenge.id}
         AND dce.completed_at IS NOT NULL
         AND (dce.flagged IS NULL OR dce.flagged = false)
+        AND dce.user_id <> ${QA_TEST_USER_ID}
       ORDER BY dce.score DESC, dce.time_ms ASC NULLS LAST
       LIMIT ${limit}
     `);

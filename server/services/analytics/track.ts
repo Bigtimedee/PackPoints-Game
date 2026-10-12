@@ -1,3 +1,4 @@
+import { isQaTestUser } from "@shared/qaTestAccount";
 /**
  * Analytics Event Spine — fire-and-forget capture (ANALYTICS_PROMPTS.md, Prompt 1).
  *
@@ -69,6 +70,7 @@ export interface TrackInput {
 /** Enqueue an analytics event. Never throws. */
 export function track(input: TrackInput): void {
   try {
+    if (isQaTestUser(input.userId)) return; // QA test account never lands in analytics
     ensureStarted();
     const userHash = input.userHash ?? hashUser(input.userId);
     const isClean = input.isClean ?? (userHash ? !flaggedHashes.has(userHash) : true);

@@ -1,3 +1,4 @@
+import { QA_TEST_USER_ID } from "@shared/qaTestAccount";
 /**
  * Aggregate signup counts for GET /api/qa/signups.
  * Counts only. No user ids, names, emails, or raw referrer URLs leave this module.
@@ -336,6 +337,7 @@ SELECT
   ) AS referral_purpose
 FROM users u
 LEFT JOIN user_attribution ua ON ua.user_id = u.id
+WHERE u.id <> '${QA_TEST_USER_ID}'
 `.trim();
 
 const PURPOSES = new Set<ReferralPurpose>(["INVITE", "DAILY5_CHALLENGE", "SCORE_SHARE"]);

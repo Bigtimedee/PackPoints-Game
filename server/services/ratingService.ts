@@ -1,3 +1,4 @@
+import { QA_TEST_USER_ID } from "@shared/qaTestAccount";
 /**
  * ratingService.ts
  *
@@ -6,7 +7,7 @@
  */
 import { db } from "../db";
 import { playerRatings, ratingHistory, users, RANKED_TIER_THRESHOLDS } from "@shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, ne, sql } from "drizzle-orm";
 
 const K_FACTOR = 32;
 const DEFAULT_RATING = 1200;
@@ -91,6 +92,7 @@ export async function getRankedLeaderboard(limit: number = 50) {
     })
     .from(playerRatings)
     .leftJoin(users, eq(playerRatings.userId, users.id))
+    .where(ne(playerRatings.userId, QA_TEST_USER_ID))
     .orderBy(desc(playerRatings.rating))
     .limit(limit);
 
