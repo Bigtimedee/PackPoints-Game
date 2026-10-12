@@ -151,3 +151,22 @@ export function payoutReviewFlags(counts: { device: number; ip: number; destinat
   if (counts.destination > 0) f.push("SHARED_DESTINATION");
   return f;
 }
+
+/**
+ * Only points EARNED by playing can ever be converted to USD (marketplace
+ * rebates, discount tokens). Store-bought (PURCHASED), BONUS and ADJUSTMENT
+ * points are play-only. Store bundles are priced at ~0.03c/pt against a
+ * 0.2c/pt redemption value, so a redeemable purchased point would be a 6x
+ * cash arbitrage.
+ */
+export const CASH_REDEEMABLE_SOURCES = ["EARNED"] as const;
+export const PURCHASED_POINTS_CASH_VALUE_MICROUSD = 0;
+
+export function isCashRedeemableSource(sourceType: string): boolean {
+  return (CASH_REDEEMABLE_SOURCES as readonly string[]).includes(sourceType);
+}
+
+/** Clamp a redemption request to what the user has in earned, redeemable points. */
+export function clampToEarned(requested: number, walletBalance: number, earnedRedeemable: number): number {
+  return Math.max(0, Math.min(requested, walletBalance, earnedRedeemable));
+}

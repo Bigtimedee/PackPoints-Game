@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { CASH_REDEEMABLE_SOURCES } from "./guardrailPolicy";
 import {
   packptsBucket,
   packptsExpirationPolicy,
@@ -288,9 +289,32 @@ class BucketService {
       );
   }
 
-  async getUserOpenBucketsFIFO(userId: string): Promise<PackptsBucket[]> {
+  /**
+   * Points that may be converted to USD (rebates / discount tokens): EARNED
+   * buckets only. PURCHASED (bought in the store), BONUS and ADJUSTMENT points
+   * never convert to cash.
+   */
+  async getCashRedeemableBalance(userId: string, tx?: any): Promise<number> {
+    const executor = tx || db;
     const now = new Date();
-    const redeemableFilter = sql`(${packptsBucket.redeemableAt} IS NULL OR ${packptsBucket.redeemableAt} <= ${now})`;
+    const [row] = await executor
+      .select({ total: sql<number>`COALESCE(SUM(${packptsBucket.remainingAmount}), 0)::int` })
+      .from(packptsBucket)
+      .where(and(
+        eq(packptsBucket.userId, userId),
+        eq(packptsBucket.status, "OPEN"),
+        gt(packptsBucket.remainingAmount, 0),
+        sql`${packptsBucket.sourceType} IN (${sql.join(CASH_REDEEMABLE_SOURCES.map((t) => sql`${t}`), sql`, `)})`,
+        sql`(${packptsBucket.redeemableAt} IS NULL OR ${packptsBucket.redeemableAt} <= ${now})`,
+      ));
+    return Number(row?.total ?? 0);
+  }
+
+  async getUserOpenBucketsFIFO(userId: string, opts: { cashRedeemableOnly?: boolean } = {}): Promise<PackptsBucket[]> {
+    const now = new Date();
+    const redeemableFilter = opts.cashRedeemableOnly
+      ? sql`(${packptsBucket.redeemableAt} IS NULL OR ${packptsBucket.redeemableAt} <= ${now}) AND ${packptsBucket.sourceType} IN (${sql.join(CASH_REDEEMABLE_SOURCES.map((t) => sql`${t}`), sql`, `)})`
+      : sql`(${packptsBucket.redeemableAt} IS NULL OR ${packptsBucket.redeemableAt} <= ${now})`;
 
     const bucketsWithExpiry = await db
       .select()
@@ -327,11 +351,12 @@ class BucketService {
     userId: string,
     amount: number,
     spendLedgerEntryId: string,
-    tx?: any
+    tx?: any,
+    opts: { cashRedeemableOnly?: boolean } = {}
   ): Promise<SpendAllocationResult> {
     const executor = tx || db;
 
-    const buckets = await this.getUserOpenBucketsFIFO(userId);
+    const buckets = await this.getUserOpenBucketsFIFO(userId, opts);
     let remainingToAllocate = amount;
     const allocations: Array<{ bucketId: string; amount: number }> = [];
 

@@ -9,7 +9,10 @@ export function registerVerifiedEpnPostback(app: Express): void {
       res.status(503).json({ error: "EPN postback disabled" });
       return;
     }
-    if (!verifyEpnSecret(secret, req.headers["x-epn-postback-secret"])) {
+    // EPN postback templates are URL-based, so accept the secret as ?secret= as
+    // well as the x-epn-postback-secret header. Both are timing-safe compares.
+    if (!verifyEpnSecret(secret, req.headers["x-epn-postback-secret"]) &&
+        !verifyEpnSecret(secret, req.query.secret)) {
       res.status(401).json({ error: "Unauthorized postback" });
       return;
     }

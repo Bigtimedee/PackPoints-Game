@@ -9707,9 +9707,17 @@ export async function registerRoutes(
   // GET /api/store/bundles - Get available PackPTS bundle products
   app.get("/api/store/bundles", async (_req, res) => {
     try {
-      const bundles = await storeCheckoutService.getPackPtsBundles();
+      const rawBundles = await storeCheckoutService.getPackPtsBundles();
       const { isStripeConfiguredAsync } = await import("./stripeClient");
       const stripeConfigured = await isStripeConfiguredAsync().catch(() => false);
+      const { packageGuardrailService } = await import("./services/store/packageGuardrailService");
+      // Each bundle carries its package-guardrail decision; purchased points are
+      // play-only (redeemableForCash false), never part of rebates.
+      const bundles = await Promise.all(rawBundles.map(async (b: any) => {
+        let guardrail: string = "UNAVAILABLE";
+        try { guardrail = (await packageGuardrailService.evaluatePackage(b.priceUsd, b.packptsGrant, "web_stripe")).decision; } catch {}
+        return { ...b, guardrail, redeemableForCash: false };
+      }));
       res.json({ bundles, stripeConfigured });
     } catch (error: any) {
       console.error("[StoreCheckout] Error getting bundles:", error);

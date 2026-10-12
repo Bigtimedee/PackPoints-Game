@@ -168,6 +168,19 @@ class StoreCheckoutService {
       return { success: false, error: "Invalid product configuration - missing price" };
     }
 
+    // Package guardrail (30% margin floor) gates every bundle sale. Fail closed.
+    try {
+      const { packageGuardrailService } = await import("./store/packageGuardrailService");
+      const evaluation = await packageGuardrailService.evaluatePackage(priceUsd, packptsGrant, "web_stripe");
+      if (evaluation.decision === "BLOCK") {
+        console.error(`[StoreCheckout] package guardrail BLOCK for ${sku}: ${evaluation.reasons.join("; ")}`);
+        return { success: false, error: "This bundle is not available right now" };
+      }
+    } catch (err: any) {
+      console.error(`[StoreCheckout] package guardrail unavailable for ${sku}:`, err?.message);
+      return { success: false, error: "The store is temporarily unavailable" };
+    }
+
     try {
       const stripeClient = await getStripeClient(host);
 

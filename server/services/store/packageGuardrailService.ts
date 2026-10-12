@@ -10,7 +10,7 @@ import {
   type InsertStorePackageValidation,
   profitPolicy,
 } from "@shared/schema";
-import { syncedValuePerPtMicrousd } from "../guardrailPolicy";
+import { syncedValuePerPtMicrousd, PURCHASED_POINTS_CASH_VALUE_MICROUSD } from "../guardrailPolicy";
 import { eq, and, desc, sql } from "drizzle-orm";
 
 export type SalesChannel = "web_stripe" | "ios_iap" | "android_iap";
@@ -144,7 +144,10 @@ class PackageGuardrailService {
     // Step 5: Total redemption cost - the liability created when granting pts
     // Uses maxValuePerPtMicrousd as the expected redemption value per point
     // microusd = millionths of a dollar, so divide by 1,000,000 to get dollars, then * 100 for cents
-    const totalRedemptionCostCents = Math.round(ptsGrant * policy.maxValuePerPtMicrousd / 10000);
+    // Store-bought points are play-only (never convert to USD), so their cash
+    // liability per point is PURCHASED_POINTS_CASH_VALUE_MICROUSD (0). If that
+    // rule is ever relaxed, this cost (and the 30% margin floor) bites again.
+    const totalRedemptionCostCents = Math.round(ptsGrant * PURCHASED_POINTS_CASH_VALUE_MICROUSD / 10000);
     
     // Step 6: Gross margin = (netRevenue - totalRedemptionCost) / netRevenue
     // This measures what % of net revenue is profit after accounting for redemption liability

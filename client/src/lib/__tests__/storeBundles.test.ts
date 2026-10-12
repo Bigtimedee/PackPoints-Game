@@ -18,6 +18,7 @@ describe("store bundles wiring", () => {
   });
   it("uses the points heading and intro", () => {
     expect(store).toContain("Get points");
-    expect(store).toContain("Points let you keep playing. They'll also work toward rebates on real cards.");
+    expect(store).toContain("Points let you keep playing. Rebates come only from points you earn by playing.");
+    expect(store).not.toContain("PackageRebateLine");
   });
 });
