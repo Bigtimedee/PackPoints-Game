@@ -7,6 +7,8 @@ import packptsLogo from "@/assets/packpts-logo.png";
 import { useAuth } from "@/hooks/use-auth";
 import { useWallet } from "@/hooks/use-wallet";
 import { WalletChip } from "@/components/wallet-sheet";
+import { usePlayChromeActive } from "@/lib/playChrome";
+import { pointsChipHidden } from "@/lib/pointsChipVisibility";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StreakBadge } from "./streak-card";
 import { DailyProgressBadge } from "./daily-progress-badge";
@@ -31,6 +33,8 @@ import {
 
 export function Header() {
   const [location] = useLocation();
+  const playActive = usePlayChromeActive();
+  const hideChip = pointsChipHidden(location, playActive);
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { isRestricted, isFrozen, isUnderReview, restrictedReason, availablePts } = useWallet();
   const [showLoginWarning, setShowLoginWarning] = useState(false);
@@ -122,7 +126,7 @@ export function Header() {
             <>
               <div className={location === "/" ? "hidden sm:block" : ""}><StreakBadge /></div>
               {!isRestricted && <div className={location === "/" ? "hidden sm:block" : ""}><DailyProgressBadge /></div>}
-              {isRestricted ? (
+              {hideChip ? null : isRestricted ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-destructive/20 border border-destructive font-mono cursor-help" data-testid="text-points-balance-restricted">
