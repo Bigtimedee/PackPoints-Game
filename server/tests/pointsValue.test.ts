@@ -83,6 +83,6 @@ describe("points copy", () => {
   });
   it("value line matches the deck", () => {
     expect(copy.valueLine(320, null)).toBe("You have 320 points. Points work toward rebates on real cards. Rebates open soon.");
-    expect(copy.valueLine(1000, "$2.00")).toBe("Your 1,000 points are worth up to $2.00 back on your next eBay or Goldin card.");
+    expect(copy.valueLine(1000, "$2.00")).toBe("Your 1,000 points are worth up to $2.00 back on eligible eBay cards.");
   });
 });

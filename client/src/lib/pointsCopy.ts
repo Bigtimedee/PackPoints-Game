@@ -43,7 +43,7 @@ export function stripSteps(live: boolean) {
 
 export function valueLine(points: number, usd: string | null): string {
   const n = points.toLocaleString("en-US");
-  if (usd) return `Your ${n} points are worth up to ${usd} back on your next eBay or Goldin card.`;
+  if (usd) return `Your ${n} points are worth up to ${usd} back on eligible eBay cards.`;
   return `You have ${n} points. Points work toward rebates on real cards. Rebates open soon.`;
 }
 
@@ -57,10 +57,10 @@ export function pageSteps(live: boolean) {
   return [
     { title: "Play and earn", body: "Name the player on each card. Correct answers earn points into your wallet." },
     live
-      ? { title: "Apply on a real card", body: "Pick a live eBay or Goldin listing and apply your points. Buy at the normal price." }
+      ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." }
       : { title: "Apply on a real card", body: "Soon you'll apply points on live eBay and Goldin listings." },
     live
-      ? { title: "Claim your rebate", body: "After you buy, confirm the purchase and claim your cash rebate on Redemptions." }
+      ? { title: "Get your rebate", body: "When eBay confirms the sale, usually within a day or two, your rebate lands in your wallet. It's held 30 days, then you can cash out from $10." }
       : { title: "Get a rebate", body: "Coming soon. We'll tell you the day it opens." },
   ];
 }
@@ -89,7 +89,7 @@ export function expiryAnswer(expiry: PointsExpiry | null): string {
 
 export function checkoutAnswer(live: boolean): string {
   return live
-    ? "No. You buy on eBay or Goldin exactly like normal. The rebate comes from PackPTS after you confirm the purchase."
+    ? "No. You buy on eBay exactly like normal. The rebate comes from PackPTS once eBay confirms the purchase."
     : "No. When rebates open, you'll still buy on eBay or Goldin like normal.";
 }
 
@@ -113,7 +113,7 @@ export function cashOutAnswer(value: PointsValue | undefined): string | null {
 export const WALLET = {
   title: "Your points",
   balance: (points: number) => `${points.toLocaleString("en-US")} points`,
-  live: (usd: string) => `Worth up to ${usd} back on your next eBay or Goldin card.`,
+  live: (usd: string) => `Worth up to ${usd} back on eligible eBay cards.`,
   soon: "Points work toward rebates on real cards. Rebates open soon.",
   expiring: (n: number) => `${n.toLocaleString("en-US")} points expire in the next 30 days.`,
   link: "How points work",
@@ -142,6 +142,6 @@ export function tourEarnStep(live: boolean): string {
 
 /** Home hero line. No cashback claim until rebates are live. */
 export const HOME_HERO = {
-  live: "Earn PackPTS for cashback on eligible real cards from eBay and Goldin.",
+  live: "Earn PackPTS for cashback on eligible real cards from eBay.",
   soon: "Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.",
 };

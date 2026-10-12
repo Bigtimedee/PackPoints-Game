@@ -33,7 +33,7 @@ export function rebatesLive(env: NodeJS.ProcessEnv = process.env): boolean {
 export function buildPointsValueResponse(snap: PointsValueSnapshot, live: boolean, now = new Date()) {
   const base = {
     rebateLive: live,
-    sources: ["ebay", "goldin"],
+    sources: ["ebay"], // Goldin has no purchase confirmation, so it never credits
     expiry: snap.expiry,
     // Same constants rebateService enforces (#232), so the copy cannot drift from the rule.
     payoutMinimum: { cents: PAYOUT_MIN_CENTS, display: formatPayoutMinimum(PAYOUT_MIN_CENTS) },

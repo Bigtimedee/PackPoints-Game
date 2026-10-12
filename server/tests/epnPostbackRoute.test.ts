@@ -33,3 +33,23 @@ describe("EPN HTTP authentication", () => {
     }
   });
 });
+
+describe("EPN POST postbacks", () => {
+  it("accepts the same auth and fields via POST body", async () => {
+    const prior = process.env.EPN_POSTBACK_SECRET;
+    const app = express();
+    registerVerifiedEpnPostback(app);
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>(resolve => server.once("listening", resolve));
+    const url = `http://127.0.0.1:${(server.address() as {port:number}).port}/api/webhooks/epn-postback`;
+    try {
+      process.env.EPN_POSTBACK_SECRET = "p".repeat(40);
+      expect((await fetch(url, { method: "POST" })).status).toBe(401);
+      const body = new URLSearchParams({ secret: "p".repeat(40) });
+      expect((await fetch(url, { method: "POST", body })).status).toBe(400); // authed, missing fields
+    } finally {
+      if (prior === undefined) delete process.env.EPN_POSTBACK_SECRET; else process.env.EPN_POSTBACK_SECRET = prior;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
