@@ -1,3 +1,5 @@
+import { usePointsValue } from "@/hooks/use-points-value";
+import { storeLine } from "@/lib/pointsCopy";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -108,6 +110,7 @@ function BundleCard({
             <span className="font-mono">{bundle.valuePerDollar.toLocaleString()} pts/$</span>
           </div>
         </div>
+        <PackageRebateLine id={bundle.sku} points={bundle.packptsGrant} />
 
         <Button 
           className="w-full gap-2"
@@ -124,6 +127,14 @@ function BundleCard({
   );
 }
 
+function PackageRebateLine({ id, points }: { id: string; points: number }) {
+  const { value, loaded, rebateLive, usdFor } = usePointsValue();
+  return (
+    <p className="text-center text-xs text-muted-foreground" data-testid={`text-package-rebate-${id}`}>
+      {storeLine(rebateLive ? usdFor(points) : null, value.expiry, loaded)}
+    </p>
+  );
+}
 
 function SubscriptionCard({ 
   subscription, 
@@ -203,6 +214,7 @@ function SubscriptionCard({
             <span className="font-mono">{subscription.valuePerDollar.toLocaleString()} pts/$</span>
           </div>
         </div>
+        <PackageRebateLine id={subscription.sku} points={subscription.packptsGrant} />
 
         <Button 
           className="w-full gap-2"
@@ -338,7 +350,7 @@ export default function Store() {
             Get points
           </h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Points let you keep playing. Rebates come only from points you earn by playing.
+            Points let you keep playing. They'll also work toward rebates on real cards.
           </p>
         </div>
 

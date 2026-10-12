@@ -12,7 +12,6 @@ import { walletService } from "../services/walletService";
 import { treasuryService } from "../services/treasuryService";
 import { profitGuardrailService } from "../services/profitGuardrailService";
 import { rebateService } from "../services/rebateService";
-import { bucketService } from "../services/bucketService";
 import { applyEpnTracking, generateEpnCustomId, logOutboundClick } from "../services/marketplace/outbound";
 import { registerVerifiedEpnPostback } from "../routes/epnPostback";
 
@@ -105,27 +104,13 @@ describe("rebate path end to end", () => {
     return { url, customid, click };
   }
 
-  it("bought points alone can never be redeemed", async () => {
+  it("bought and earned points both redeem, within the #230 formula cap", async () => {
     const bought = await walletService.purchaseCredit(userId, 80_000, "e2e store bundle", `e2e-buy-${suffix}`);
     expect(bought.success).toBe(true);
-    expect((await walletService.getWallet(userId))!.balance).toBe(80_000);
-    expect(await bucketService.getCashRedeemableBalance(userId)).toBe(0);
-    const { a } = await quoteAndApply(`bought-${suffix}`, 20_000, 1000);
-    expect(a.success).toBe(false);
-    expect(a.creditCents).toBe(0);
-  });
-
-  it("earned points redeem within the formula cap and never touch bought points", async () => {
     await walletService.earn(userId, 2_000, "e2e play", `e2e-earn-${suffix}`);
-    expect(await bucketService.getCashRedeemableBalance(userId)).toBe(2_000);
-    const purchasedBefore = await db.select().from(packptsBucket).where(eq(packptsBucket.userId, userId));
-    const boughtRemaining = purchasedBefore.filter((b) => b.sourceType === "PURCHASED").reduce((s, b) => s + b.remainingAmount, 0);
     const { q, a } = await quoteAndApply(`earned-${suffix}`, 10_000, 5_000);
     expect(a.success).toBe(true);
     expect(a.creditCents).toBeLessThanOrEqual(105); // 0.7 * 2% * 75% of $100
-    expect(a.approvedRedeemPackpts).toBeLessThanOrEqual(2_000);
-    const after = await db.select().from(packptsBucket).where(eq(packptsBucket.userId, userId));
-    expect(after.filter((b) => b.sourceType === "PURCHASED").reduce((s, b) => s + b.remainingAmount, 0)).toBe(boughtRemaining);
     expect(q.marginBackedCreditCentsMax).toBeLessThanOrEqual(105);
   });
 

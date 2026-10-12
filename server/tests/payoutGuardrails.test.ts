@@ -46,18 +46,3 @@ describe("multi-account review flags", () => {
     expect(payoutReviewFlags({ device: 1, ip: 2, destination: 1 })).toEqual(["SHARED_DEVICE", "SHARED_IP", "SHARED_DESTINATION"]);
   });
 });
-
-import { CASH_REDEEMABLE_SOURCES, isCashRedeemableSource, clampToEarned, PURCHASED_POINTS_CASH_VALUE_MICROUSD } from "../services/guardrailPolicy";
-describe("earned-only cash redemption", () => {
-  it("only EARNED converts to cash", () => {
-    expect(CASH_REDEEMABLE_SOURCES).toEqual(["EARNED"]);
-    expect(isCashRedeemableSource("PURCHASED")).toBe(false);
-    expect(isCashRedeemableSource("BONUS")).toBe(false);
-    expect(isCashRedeemableSource("EARNED")).toBe(true);
-    expect(PURCHASED_POINTS_CASH_VALUE_MICROUSD).toBe(0);
-  });
-  it("clamps to earned points even with a large bought balance", () => {
-    expect(clampToEarned(5000, 95_000, 2000)).toBe(2000);
-    expect(clampToEarned(5000, 80_000, 0)).toBe(0);
-  });
-});

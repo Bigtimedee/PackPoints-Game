@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { usePointsValue } from "@/hooks/use-points-value";
-import { PRIMARY, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
+import { PRIMARY, addingAnswer, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
 
 export default function PointsPage() {
   const { value, loaded, rebateLive, usdFor } = usePointsValue();
@@ -40,7 +40,7 @@ export default function PointsPage() {
         </div>
         <div className="border-t pt-3" data-testid="faq-adding">
           <h3 className="font-semibold">What does adding points get me?</h3>
-          <p className="text-sm text-muted-foreground">More points to play with. Points you buy are for play only and don't count toward rebates.</p>
+          <p className="text-sm text-muted-foreground">{loaded ? addingAnswer(rebateLive, value.expiry) : "Loading..."}</p>
         </div>
         <div className="flex flex-col gap-3 pt-2">
           <Link href="/game/solo">

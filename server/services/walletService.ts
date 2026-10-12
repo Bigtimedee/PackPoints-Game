@@ -261,18 +261,6 @@ class WalletService {
         return { success: false, error: `Wallet is ${wallet.status}` };
       }
 
-      // Cash conversions (rebates, discount tokens) may only draw on EARNED points.
-      const cashRedemption = classification?.source === "redemption";
-      if (cashRedemption) {
-        const earned = await bucketService.getCashRedeemableBalance(userId, tx);
-        if (earned < amount) {
-          return {
-            success: false,
-            error: `Only points you earn by playing can be redeemed. You have ${earned.toLocaleString()} earned points available.`,
-          };
-        }
-      }
-
       if (wallet.balance < amount) {
         return { success: false, error: "Insufficient balance" };
       }
@@ -316,14 +304,9 @@ class WalletService {
         userId,
         amount,
         insertedEntries[0].id,
-        tx,
-        { cashRedeemableOnly: cashRedemption }
+        tx
       );
       
-      if (!allocationResult.success && cashRedemption) {
-        // Fail closed: roll back rather than let a cash redemption touch bought points.
-        throw new Error(`Redemption could not be fully drawn from earned points: ${allocationResult.error}`);
-      }
       if (!allocationResult.success) {
         console.warn(`Bucket allocation warning for spend: ${allocationResult.error}`);
       }

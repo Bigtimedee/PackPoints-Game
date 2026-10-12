@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
-import { computeCreditCeilingCents, mergeProfitPolicyUpdate, clampToEarned } from "./guardrailPolicy";
+import { computeCreditCeilingCents, mergeProfitPolicyUpdate } from "./guardrailPolicy";
 
 const GOLDIN_NOT_SUPPORTED =
   "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
@@ -371,10 +371,7 @@ class ProfitGuardrailService {
       };
     }
 
-    // Only EARNED points convert to cash; bought/bonus points never count.
-    const { bucketService } = await import("./bucketService");
-    const earnedRedeemable = await bucketService.getCashRedeemableBalance(userId);
-    const userBalance = clampToEarned(Number.MAX_SAFE_INTEGER, wallet.balance, earnedRedeemable);
+    const userBalance = wallet.balance;
 
     const policy = await this.getActivePolicy();
     if (!policy) {
@@ -408,7 +405,7 @@ class ProfitGuardrailService {
         message: allowed.reason === "INSUFFICIENT_MARGIN_BACKING"
           ? "PackPTS redemption temporarily unavailable - insufficient margin backing"
           : userBalance === 0
-            ? "Only points you earn by playing can be redeemed, and you have none available"
+            ? "Insufficient PackPTS balance"
             : "No redemption allowed for this purchase",
       };
     }
