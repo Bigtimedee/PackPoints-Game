@@ -104,24 +104,24 @@ describe("rebate path end to end", () => {
     return { url, customid, click };
   }
 
-  it("bought and earned points both redeem, within the #230 formula cap", async () => {
+  it("bought and earned points both redeem, capped at the commission estimate (price x 2%)", async () => {
     const bought = await walletService.purchaseCredit(userId, 80_000, "e2e store bundle", `e2e-buy-${suffix}`);
     expect(bought.success).toBe(true);
     await walletService.earn(userId, 2_000, "e2e play", `e2e-earn-${suffix}`);
     const { q, a } = await quoteAndApply(`earned-${suffix}`, 10_000, 5_000);
     expect(a.success).toBe(true);
-    expect(a.creditCents).toBeLessThanOrEqual(105); // 0.7 * 2% * 75% of $100
-    expect(q.marginBackedCreditCentsMax).toBeLessThanOrEqual(105);
+    expect(a.creditCents).toBe(200); // TRADING_CARD_COMMISSION_RATE default 2% of $100, no haircut
+    expect(q.marginBackedCreditCentsMax).toBe(200);
   });
 
   it("a $2 purchase earns whole PackPTS credit (no 500-point minimum)", async () => {
     const q = await profitGuardrailService.createQuote(userId, "ebay", `two-${suffix}`, `https://www.ebay.com/itm/two-${suffix}`, 200, "usd", "e2e $2 card");
-    expect(q.marginBackedRmax).toBe(10); // 0.7*2%*75% of $2 = 2.1c -> 10 whole PackPTS at 0.2c
-    expect(q.marginBackedCreditCentsMax).toBe(2);
-    const a = await profitGuardrailService.applyRedemption(userId, q.purchaseIntentId, 10);
+    expect(q.marginBackedRmax).toBe(20); // 2% of $2 = 4c -> 20 whole PackPTS at 0.2c
+    expect(q.marginBackedCreditCentsMax).toBe(4);
+    const a = await profitGuardrailService.applyRedemption(userId, q.purchaseIntentId, 20);
     expect(a.success).toBe(true);
-    expect(a.approvedRedeemPackpts).toBe(10);
-    expect(a.creditCents).toBe(2);
+    expect(a.approvedRedeemPackpts).toBe(20);
+    expect(a.creditCents).toBe(4);
   });
 
   it("tracked link carries the customid that is stored, and a signed postback credits the user", async () => {
@@ -129,22 +129,31 @@ describe("rebate path end to end", () => {
     const { url, customid, click } = await trackedClick(listing);
     expect(new URL(url).searchParams.get("campid")).toBe("5338000000");
     expect(click?.userId).toBe(userId);
-    const qs = `customid=${encodeURIComponent(customid)}&item_id=${listing}&transaction_id=e2e-${suffix}&sale_price=100.00`;
+    const qs = `customid=${encodeURIComponent(customid)}&item_id=${listing}&transaction_id=e2e-${suffix}&sale_price=100.00&commission=1.50`;
     expect((await fetch(`${base}?${qs}`)).status).toBe(401); // unsigned forgeries rejected
     const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
     const res = await fetch(`${base}?${qs}`, { headers: { "x-epn-postback-secret": SECRET } });
     expect(res.status).toBe(200);
     const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(after).toBeGreaterThan(before);
+    expect(after).toBe(before + 150); // rebate = confirmed commission
     // replay of the same transaction never double-credits (query-param secret also accepted)
     expect((await fetch(`${base}?${qs}&secret=${SECRET}`)).status).toBe(200);
     expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(after);
+    // eBay return: a signed status postback claws back the held rebate, once.
+    const rev = `transaction_id=e2e-${suffix}&status=returned`;
+    expect((await fetch(`${base}?${rev}`)).status).toBe(401);
+    const r1 = await fetch(`${base}?${rev}`, { headers: { "x-epn-postback-secret": SECRET } });
+    expect(r1.status).toBe(200);
+    expect((await r1.json()).action).toBe("clawed_back");
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before);
+    await fetch(`${base}?${rev}`, { headers: { "x-epn-postback-secret": SECRET } });
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before);
   });
 
-  it("fresh credit is on the 30-day hold, payouts start at $10, and go to admin approval", async () => {
+  it("fresh credit is on the 60-day hold, payouts start at $10, and go to admin approval", async () => {
     const bal = (await walletService.getWallet(userId))!.rebateBalanceCents;
     await expect(rebateService.requestPayout(userId, Math.max(1000, bal), "paypal", `e2e_${suffix}@example.com`)).rejects.toThrow(/hold|Insufficient/);
-    const old = new Date(Date.now() - 31 * 86_400_000);
+    const old = new Date(Date.now() - 61 * 86_400_000);
     await db.update(rebateLedger).set({ createdAt: old }).where(eq(rebateLedger.userId, userId));
     const topUp = Math.max(0, 1200 - bal);
     await db.update(wallets).set({ rebateBalanceCents: bal + topUp }).where(eq(wallets.userId, userId));
