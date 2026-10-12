@@ -29,7 +29,7 @@ interface PackPtsBundle {
 }
 
 interface StoreProductsResponse {
-  products: PackPtsBundle[];
+  bundles: PackPtsBundle[];
   stripeConfigured: boolean;
 }
 
@@ -251,12 +251,18 @@ function StoreSkeleton() {
   );
 }
 
+/** The checkout routes require both return URLs; /store/success reads session_id. */
+function storeReturnUrls() {
+  const origin = window.location.origin;
+  return { successUrl: `${origin}/store/success?session_id={CHECKOUT_SESSION_ID}`, cancelUrl: `${origin}/store/cancel` };
+}
+
 export default function Store() {
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
 
   const { data, isLoading } = useQuery<StoreProductsResponse>({
-    queryKey: ["/api/store/products"],
+    queryKey: ["/api/store/bundles"],
   });
 
   const { data: subscriptionsData, isLoading: subscriptionsLoading } = useQuery<SubscriptionsResponse>({
@@ -265,7 +271,7 @@ export default function Store() {
 
   const checkoutMutation = useMutation({
     mutationFn: async (sku: string) => {
-      const response = await apiRequest("POST", "/api/store/checkout", { sku });
+      const response = await apiRequest("POST", "/api/store/checkout", { sku, ...storeReturnUrls() });
       return response.json();
     },
     onSuccess: (data) => {
@@ -284,7 +290,7 @@ export default function Store() {
 
   const subscribeMutation = useMutation({
     mutationFn: async (sku: string) => {
-      const response = await apiRequest("POST", "/api/store/subscribe", { sku });
+      const response = await apiRequest("POST", "/api/store/subscribe", { sku, ...storeReturnUrls() });
       return response.json();
     },
     onSuccess: (data) => {
@@ -333,7 +339,7 @@ export default function Store() {
     subscribeMutation.mutate(sku);
   };
 
-  const bundles = data?.products || [];
+  const bundles = data?.bundles || [];
   const subscriptions = subscriptionsData?.subscriptions || [];
 
   return (
@@ -341,11 +347,10 @@ export default function Store() {
       <div className="container mx-auto px-4 py-8">
         <div className="text-center mb-12">
           <h1 className="text-3xl md:text-4xl font-bold mb-3" data-testid="text-store-title">
-            Get PackPTS
+            Get points
           </h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Power up your gameplay with PackPTS. Use them to enter premium game modes,
-            compete in tournaments, and browse live eBay and Goldin listings from Marketplace.
+            Points let you keep playing. They'll also work toward rebates on real cards.
           </p>
         </div>
 

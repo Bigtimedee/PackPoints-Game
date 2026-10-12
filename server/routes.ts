@@ -9697,7 +9697,9 @@ export async function registerRoutes(
   app.get("/api/store/bundles", async (_req, res) => {
     try {
       const bundles = await storeCheckoutService.getPackPtsBundles();
-      res.json({ bundles });
+      const { isStripeConfiguredAsync } = await import("./stripeClient");
+      const stripeConfigured = await isStripeConfiguredAsync().catch(() => false);
+      res.json({ bundles, stripeConfigured });
     } catch (error: any) {
       console.error("[StoreCheckout] Error getting bundles:", error);
       res.status(500).json({ error: "Failed to get bundle products" });
