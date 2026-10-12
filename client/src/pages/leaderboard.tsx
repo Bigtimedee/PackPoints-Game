@@ -142,7 +142,7 @@ export default function Leaderboard() {
                 ))}
                 {rest.length === 0 && topThree.length > 0 && (
                   <p className="text-center text-muted-foreground py-4">
-                    More players coming soon!
+                    Invite friends to fill the board.
                   </p>
                 )}
               </CardContent>

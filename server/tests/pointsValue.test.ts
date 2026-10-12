@@ -72,7 +72,12 @@ describe("points copy", () => {
   it("has no em or en dashes", () => {
     for (const s of [...allStrings(true), ...allStrings(false)]) expect(s).not.toMatch(/[\u2013\u2014]/);
   });
-  it("rebateLive=false surfaces carry no $", () => {
+  it("no surface ever carries rebate-off copy (Dave lock, Oct 12)", () => {
+    for (const s of [...allStrings(true), ...allStrings(false), copy.WALLET.soon, copy.HOME_HERO.soon, copy.tourEarnStep(false), copy.storeLine(null, null, true)]) {
+      expect(s).not.toMatch(/open soon|coming soon|once they open|when rebates open|soon you/i);
+    }
+  });
+  it.skip("rebateLive=false surfaces carry no $ (superseded: no off-state copy)", () => {
     const soon = [copy.PRIMARY.soon, copy.primaryCta(false), ...copy.stripSteps(false).flatMap((s) => [s.title, s.body]), ...copy.pageSteps(false).flatMap((s) => [s.title, s.body]), copy.valueLine(320, copy.usdFor({ rebateLive: false, centsPerPoint: 0.2, expiry: null }, 320)), copy.checkoutAnswer(false), copy.addingAnswer(false, snap.expiry), copy.expiryAnswer(snap.expiry)];
     for (const s of soon) expect(s).not.toContain("$");
   });
@@ -82,7 +87,7 @@ describe("points copy", () => {
     expect(copy.expiryAnswer(null)).toContain("don't expire");
   });
   it("value line matches the deck", () => {
-    expect(copy.valueLine(320, null)).toBe("You have 320 points. Points work toward rebates on real cards. Rebates open soon.");
+    expect(copy.valueLine(320, null)).toBe("You have 320 points. Use them for cash back on real cards.");
     expect(copy.valueLine(1000, "$2.00")).toBe("Your 1,000 points are worth up to $2.00 back on eligible eBay cards.");
   });
 });

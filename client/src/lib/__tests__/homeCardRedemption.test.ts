@@ -14,8 +14,7 @@ describe("home reuses gameplay and explains redemption", () => {
   });
   it("puts eligible real-card cashback in the hero, before Play Now", () => {
     expect(HOME_HERO.live).toBe('Earn PackPTS for cashback on eligible real cards from eBay.');
-    expect(HOME_HERO.soon).toBe('Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.');
-    expect(HOME_HERO.soon.toLowerCase()).not.toContain('cash');
+    expect(HOME_HERO.soon).toBe(HOME_HERO.live);
     expect(home).toContain('{heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}');
     expect(home.indexOf('HOME_HERO.live : HOME_HERO.soon')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
     expect(home).not.toContain('Pay the normal marketplace price');

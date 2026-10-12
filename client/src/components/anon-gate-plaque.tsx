@@ -44,7 +44,7 @@ export function AnonGatePlaque({
 }) {
   const hard = variant === "hard";
   const { rebateLive } = usePointsValue();
-  // The soft body says "Rebates open soon"; never show it once rebates are live.
+  // Soft body and live body both read as live copy.
   const softBody = rebateLive ? SIGNUP_BODY_LIVE : ANON_GATE_COPY.softBody;
   return (
     <div

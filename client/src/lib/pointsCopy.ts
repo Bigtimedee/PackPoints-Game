@@ -30,21 +30,21 @@ export function usdFor(value: PointsValue | undefined, points: number): string |
 
 export const PRIMARY = {
   live: "Name the player. Earn points. Use them for cash back on real cards.",
-  soon: "Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.",
+  soon: "Name the player. Earn points. Use them for cash back on real cards.",
 };
 
 export function stripSteps(live: boolean) {
   return [
     { title: "Play", body: "Name the player" },
     { title: "Earn", body: "Points land in your wallet" },
-    live ? { title: "Get cash back", body: "Rebate on your next real card" } : { title: "Cash back", body: "Coming soon" },
+    live ? { title: "Get cash back", body: "Rebate on your next real card" } : { title: "Get cash back", body: "Rebate on your next real card" },
   ];
 }
 
 export function valueLine(points: number, usd: string | null): string {
   const n = points.toLocaleString("en-US");
   if (usd) return `Your ${n} points are worth up to ${usd} back on eligible eBay cards.`;
-  return `You have ${n} points. Points work toward rebates on real cards. Rebates open soon.`;
+  return `You have ${n} points. Use them for cash back on real cards.`;
 }
 
 export const GUEST_KEEP = "Sign up to keep these points.";
@@ -60,10 +60,10 @@ export function pageSteps(live: boolean, holdDays?: number, payoutMin?: string) 
     { title: "Play and earn", body: "Name the player on each card. Correct answers earn points into your wallet." },
     live
       ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." }
-      : { title: "Apply on a real card", body: "Soon you'll apply points on live eBay listings." },
+      : { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." },
     live
       ? { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. It's held ${days} days, then you can cash out from ${min}.` }
-      : { title: "Get a rebate", body: "Coming soon. We'll tell you the day it opens." },
+      : { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. It's held ${days} days, then you can cash out from ${min}.` },
   ];
 }
 
@@ -92,15 +92,13 @@ export function expiryAnswer(expiry: PointsExpiry | null): string {
 export function checkoutAnswer(live: boolean): string {
   return live
     ? "No. You buy on eBay exactly like normal. The rebate comes from PackPTS once eBay confirms the purchase."
-    : "No. When rebates open, you'll still buy on eBay like normal.";
+    : "No. You buy on eBay exactly like normal. The rebate comes from PackPTS once eBay confirms the purchase.";
 }
 
 export function addingAnswer(live: boolean, expiry: PointsExpiry | null): string {
   if (live) return "Your points count toward a rebate on your next card, up to the limit for that purchase.";
-  const neverExpire = !expiry || expiry.purchasedDays == null;
-  return neverExpire
-    ? "Your points will count toward rebates once they open. Points you buy never expire."
-    : "Your points will count toward rebates once they open.";
+  void expiry;
+  return "Your points count toward a rebate on your next card, up to the limit for that purchase.";
 }
 
 /** Cash-out FAQ. Live only; both values come from /api/points/value. Null hides the question. */
@@ -116,7 +114,7 @@ export const WALLET = {
   title: "Your points",
   balance: (points: number) => `${points.toLocaleString("en-US")} points`,
   live: (usd: string) => `Worth up to ${usd} back on eligible eBay cards.`,
-  soon: "Points work toward rebates on real cards. Rebates open soon.",
+  soon: "Use your points for cash back on real cards.",
   expiring: (n: number) => `${n.toLocaleString("en-US")} points expire in the next 30 days.`,
   link: "How points work",
   close: "Close",
@@ -127,8 +125,8 @@ export function storeLine(usd: string | null, expiry: PointsExpiry | null, loade
   if (usd) return `Adds up to ${usd} to your next rebate.`;
   const never = loaded && (!expiry || expiry.purchasedDays == null);
   return never
-    ? "Points work toward rebates on real cards. Coming soon. Bought points never expire."
-    : "Points work toward rebates on real cards. Coming soon.";
+    ? "Use points for cash back on real cards. Bought points never expire."
+    : "Use points for cash back on real cards.";
 }
 
 /** Hold and payout line. Values come live from /api/points/value. Null until loaded. */
@@ -152,11 +150,11 @@ export const ONBOARDING = { title: "Name the player. Earn points.", start: "Star
 export function tourEarnStep(live: boolean): string {
   return live
     ? "Correct answers earn PackPTS (points) into your wallet. Use them for cash back on real cards."
-    : "Correct answers earn PackPTS (points) into your wallet. Points work toward rebates on real cards. Rebates open soon.";
+    : "Correct answers earn PackPTS (points) into your wallet. Use them for cash back on real cards.";
 }
 
 /** Home hero line. No cashback claim until rebates are live. */
 export const HOME_HERO = {
   live: "Earn PackPTS for cashback on eligible real cards from eBay.",
-  soon: "Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.",
+  soon: "Earn PackPTS for cashback on eligible real cards from eBay.",
 };
