@@ -4,7 +4,7 @@ import { purchaseEvents, stripeCustomers, stripeCheckoutSessions, userRiskState,
 import { eq, sql } from "drizzle-orm";
 import { walletService } from "./walletService";
 import { storage } from "../storage";
-import { getInternalSku, PRODUCT_DEFINITIONS, type InternalSku, isPackPtsSubscription } from "./productMap";
+import { getInternalSku, PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, type InternalSku, isPackPtsSubscription } from "./productMap";
 import { analyticsService } from "./analyticsService";
 import { getStripeClient, isStripeConfiguredSync, isStripeConfiguredAsync, getWebhookSecret, getStripeMode } from "../stripeClient";
 import { marginLedgerService } from "./marginLedgerService";
@@ -159,7 +159,7 @@ class StripePurchaseService {
         const priceId = item.price?.id;
         if (!priceId) continue;
 
-        const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+        const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId) || this.resolveBundleSkuFromSession(session, item);
         if (!internalSku) continue;
 
         const productDef = PRODUCT_DEFINITIONS[internalSku as InternalSku];
@@ -433,7 +433,7 @@ class StripePurchaseService {
       const priceId = item.price?.id;
       if (!priceId) continue;
 
-      const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId);
+      const internalSku = getInternalSku(priceId) || this.extractSkuFromPriceId(priceId) || this.resolveBundleSkuFromSession(session, item);
       if (!internalSku) {
         const msg = `[Stripe] FULFILLMENT_ERROR: Unknown price ID ${priceId} in session ${session.id} for user ${userId} — paid but no PackPTS granted`;
         console.error(msg);
@@ -1382,6 +1382,28 @@ class StripePurchaseService {
       .limit(1);
 
     return mapping[0]?.userId || null;
+  }
+
+  /**
+   * Store bundles are sold with inline price_data, so Stripe assigns an ad-hoc
+   * price id that no static map knows. Fall back to the SKU our own server wrote
+   * into session metadata, but only for a known bundle whose charged amount
+   * matches that bundle's server-side price exactly.
+   */
+  resolveBundleSkuFromSession(
+    session: Pick<Stripe.Checkout.Session, "id" | "metadata">,
+    item: Pick<Stripe.LineItem, "amount_total" | "quantity">
+  ): string | null {
+    const sku = session.metadata?.sku;
+    if (!sku || !(PACKPTS_BUNDLE_SKUS as readonly string[]).includes(sku)) return null;
+    const def = PRODUCT_DEFINITIONS[sku as InternalSku];
+    if (!def || def.type !== "CONSUMABLE" || !("priceUsd" in def)) return null;
+    const expected = def.priceUsd * (item.quantity || 1);
+    if (item.amount_total !== expected) {
+      console.error(`[Stripe] FULFILLMENT_ERROR: session ${session.id} metadata sku ${sku} expects ${expected} cents but line item charged ${item.amount_total}; not granting`);
+      return null;
+    }
+    return sku;
   }
 
   private extractSkuFromPriceId(priceId: string): string | null {
