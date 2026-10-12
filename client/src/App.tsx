@@ -13,6 +13,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { feedbackLauncherAllowed, fullscreenMainClassName } from "@/lib/appShellLayout";
 import { usePlayChromeActive } from "@/lib/playChrome";
+import { useWalletSheetOpen } from "@/lib/walletSheetOpen";
 import { useAuth } from "@/hooks/use-auth";
 import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
 import { setsMainClassName, setsShellClassName } from "@/lib/setsPolish";
@@ -417,7 +418,8 @@ function StaleBuildWatcher() {
 function AppExtras() {
   const [location] = useLocation();
   const playActive = usePlayChromeActive();
-  if (playActive || !feedbackLauncherAllowed(location)) return null;
+  const walletOpen = useWalletSheetOpen();
+  if (playActive || walletOpen || !feedbackLauncherAllowed(location)) return null;
   return <FeedbackWidget />;
 }
 

@@ -1,3 +1,5 @@
+import { usePointsValue } from "@/hooks/use-points-value";
+import { storeLine } from "@/lib/pointsCopy";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,7 +101,7 @@ function BundleCard({
             <span className="text-2xl font-bold font-mono text-accent" data-testid={`text-bundle-pts-${bundle.sku}`}>
               {bundle.packptsGrant.toLocaleString()}
             </span>
-            <span className="text-muted-foreground text-sm">PackPTS</span>
+            <span className="text-muted-foreground text-sm">points</span>
           </div>
         </div>
         
@@ -108,6 +110,7 @@ function BundleCard({
             <span className="font-mono">{bundle.valuePerDollar.toLocaleString()} pts/$</span>
           </div>
         </div>
+        <PackageRebateLine id={bundle.sku} points={bundle.packptsGrant} />
 
         <Button 
           className="w-full gap-2"
@@ -121,6 +124,15 @@ function BundleCard({
         </Button>
       </CardContent>
     </Card>
+  );
+}
+
+function PackageRebateLine({ id, points }: { id: string; points: number }) {
+  const { value, loaded, rebateLive, usdFor } = usePointsValue();
+  return (
+    <p className="text-center text-xs text-muted-foreground" data-testid={`text-package-rebate-${id}`}>
+      {storeLine(rebateLive ? usdFor(points) : null, value.expiry, loaded)}
+    </p>
   );
 }
 
@@ -192,7 +204,7 @@ function SubscriptionCard({
             <span className="text-2xl font-bold font-mono text-accent" data-testid={`text-subscription-pts-${subscription.sku}`}>
               {subscription.packptsGrant.toLocaleString()}
             </span>
-            <span className="text-muted-foreground text-sm">PackPTS/mo</span>
+            <span className="text-muted-foreground text-sm">points/mo</span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">{subscription.description}</p>
         </div>
@@ -202,6 +214,7 @@ function SubscriptionCard({
             <span className="font-mono">{subscription.valuePerDollar.toLocaleString()} pts/$</span>
           </div>
         </div>
+        <PackageRebateLine id={subscription.sku} points={subscription.packptsGrant} />
 
         <Button 
           className="w-full gap-2"
@@ -368,7 +381,7 @@ export default function Store() {
               <div className="text-center py-12">
                 <Coins className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
                 <h2 className="text-xl font-semibold mb-2">No Bundles Available</h2>
-                <p className="text-muted-foreground">Check back soon for PackPTS bundles.</p>
+                <p className="text-muted-foreground">Check back soon for point bundles.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -391,7 +404,7 @@ export default function Store() {
               <div className="text-center py-12">
                 <Calendar className="h-16 w-16 mx-auto text-muted-foreground/30 mb-4" />
                 <h2 className="text-xl font-semibold mb-2">No Subscriptions Available</h2>
-                <p className="text-muted-foreground">Check back soon for monthly PackPTS packages.</p>
+                <p className="text-muted-foreground">Check back soon for monthly point packages.</p>
               </div>
             ) : (
               <>

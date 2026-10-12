@@ -98,3 +98,24 @@ export function addingAnswer(live: boolean, expiry: PointsExpiry | null): string
     ? "More points now means more toward rebates when they open. Points you buy never expire."
     : "More points now means more toward rebates when they open.";
 }
+
+export const WALLET = {
+  title: "Your points",
+  balance: (points: number) => `${points.toLocaleString("en-US")} points`,
+  live: (usd: string) => `Worth up to ${usd} back on your next eBay or Goldin card.`,
+  soon: "Points work toward rebates on real cards. Coming soon.",
+  expiring: (n: number) => `${n.toLocaleString("en-US")} points expire in the next 30 days.`,
+  link: "How points work",
+  close: "Close",
+};
+
+/** Store package line. The "never expire" clause only shows when the live policy says so. */
+export function storeLine(usd: string | null, expiry: PointsExpiry | null, loaded: boolean): string {
+  if (usd) return `Adds up to ${usd} to your next rebate.`;
+  const never = loaded && (!expiry || expiry.purchasedDays == null);
+  return never
+    ? "Points work toward rebates on real cards. Coming soon. Bought points never expire."
+    : "Points work toward rebates on real cards. Coming soon.";
+}
+
+export const SIGNUP_BODY_LIVE = "Save your points and use them for cash back on real cards.";

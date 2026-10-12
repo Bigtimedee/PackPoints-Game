@@ -302,14 +302,14 @@ describe("registeredUsersNonStaff ignores anon", () => {
 
 describe("gate copy", () => {
   it("uses the locked soft and hard strings", () => {
-    expect(ANON_GATE_COPY.softTitle).toBe("Keep your PackPTS");
-    expect(ANON_GATE_COPY.softBody).toBe("Create a free account to save streak and resume where you left off.");
+    expect(ANON_GATE_COPY.softTitle).toBe("Keep your points");
+    expect(ANON_GATE_COPY.softBody).toBe("Save your points. They'll work toward rebates on real cards. Coming soon.");
     expect(ANON_GATE_COPY.softCta).toBe("Create free account");
     expect(ANON_GATE_COPY.softSecondary).toBe("Continue once more");
     expect(ANON_GATE_COPY.hardTitle).toBe("Register to keep playing");
-    expect(ANON_GATE_COPY.hardBody).toBe("You've played two games as a guest. Create a free PackPTS account to continue Daily 5 and sets.");
+    expect(ANON_GATE_COPY.hardBody).toBe("Save your points and use them toward rebates on real cards.");
     expect(ANON_GATE_COPY.hardCta).toBe("Create free account");
     expect(ANON_GATE_COPY.signInCta).toBe("Sign in");
-    expect(ANON_GATE_COPY.escrowLabel).toBe("PackPTS held");
+    expect(ANON_GATE_COPY.escrowLabel).toBe("Points held");
   });
 });
