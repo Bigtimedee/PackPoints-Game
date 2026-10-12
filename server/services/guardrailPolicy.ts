@@ -154,3 +154,14 @@ export function payoutReviewFlags(counts: { device: number; ip: number; destinat
 
 /** Minimum PackPTS per marketplace redemption. 1 = any whole point earns. */
 export const REDEMPTION_MIN_PACKPTS = 1;
+
+/**
+ * Listing-card preview of what Apply would credit: the margin-backed cap,
+ * clamped to the wallet balance, at the policy cents-per-point. This mirrors
+ * applyRedemption -> computeAllowedRedemption so the badge equals the credit.
+ */
+export function previewCreditFromQuote(marginBackedRmax: number, availablePts: number, centsPerPoint: number): { pts: number; creditCents: number } {
+  const pts = Math.max(0, Math.floor(Math.min(marginBackedRmax, availablePts)));
+  if (!Number.isFinite(centsPerPoint) || centsPerPoint <= 0) return { pts: 0, creditCents: 0 };
+  return { pts, creditCents: Math.floor(pts * centsPerPoint) };
+}

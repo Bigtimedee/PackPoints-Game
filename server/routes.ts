@@ -8402,9 +8402,12 @@ export async function registerRoutes(
           // Transform to spec format. Use the margin-backed limit: it is the
           // formula cap after the reserve, per-user and discount ceilings.
           const ptsMaxApplicable = quote.marginBackedRmax;
-          const ptsApplied = Math.min(ptsMaxApplicable, Math.floor(ptsMaxApplicable * 0.5)); // Default 50%
-          const valuePerPtCents = quote.policySummary?.packptsValueUsd || 0.002;
-          const usdSavingsCents = Math.round(ptsApplied * valuePerPtCents * 100);
+          const valuePerPtCents = quote.policySummary?.packptsValueUsd || 0.002; // USD per point
+          // One figure for the card: what Apply would credit (cap clamped to balance).
+          const { previewCreditFromQuote } = await import("./services/guardrailPolicy");
+          const preview = previewCreditFromQuote(ptsMaxApplicable, availablePts, valuePerPtCents * 100);
+          const ptsApplied = preview.pts;
+          const usdSavingsCents = preview.creditCents;
           const usdDueCents = Math.max(0, item.priceCents - usdSavingsCents);
           
           quotes[key] = {
@@ -8416,7 +8419,7 @@ export async function registerRoutes(
             usdSavingsCents,
             effectiveValuePerPtMicrousds: Math.round(valuePerPtCents * 1000000),
             // Most cashback this listing can earn: capped points x value (same cap as the quote).
-            maxCreditCents: Math.min(quote.marginBackedCreditCentsMax, Math.floor(ptsMaxApplicable * valuePerPtCents * 100)),
+            maxCreditCents: preview.creditCents,
             reasons: [],
             ctaLabel: ptsMaxApplicable > 0 ? "Apply PackPTS" : "Earn PackPTS",
           };

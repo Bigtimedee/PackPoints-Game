@@ -205,6 +205,7 @@ function formatTimeRemaining(endsAt: string | null): string {
 
 interface QuoteResult {
   rMax: number;
+  marginBackedRmax?: number;
   creditCentsMax: number;
   policySummary: {
     minMargin: number;
@@ -250,8 +251,6 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
   const isWalletActive = walletStatus === "NORMAL";
   const canApplyPackPTS = isWalletActive && batchQuote && batchQuote.ptsMaxApplicable > 0;
   const savingsInDollars = batchQuote ? (batchQuote.usdSavingsCents / 100).toFixed(2) : "0.00";
-  const priceWithPackPTS = batchQuote ? (batchQuote.usdDueCents / 100).toFixed(2) : null;
-  const ptsToApply = batchQuote?.ptsApplied || 0;
   
   const platformIcon = listing.source === "goldin" ? (
     <span className="font-bold text-xs">G</span>
@@ -275,8 +274,9 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
     },
     onSuccess: (data) => {
       setQuote(data);
-      if (data.rMax > 0) {
-        setSelectedAmount(Math.min(data.rMax, userBalance));
+      const cap = data.marginBackedRmax ?? 0;
+      if (cap > 0) {
+        setSelectedAmount(Math.min(cap, userBalance));
         setShowRedemptionModal(true);
       } else {
         toast({
@@ -409,20 +409,6 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   </span>
                 </div>
                 
-                {/* Second Line: PackPTS offer (highlighted) */}
-                {isAuthenticated && canApplyPackPTS && priceWithPackPTS && (
-                  <div className="flex items-center justify-between gap-2 bg-accent/10 rounded-md px-2 py-1.5 border border-accent/20">
-                    <div className="flex items-center gap-1.5">
-                      <Zap className="h-3.5 w-3.5 text-accent" />
-                      <span className="text-xs font-medium text-accent">PackPTS reserve:</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono font-semibold text-accent text-sm" data-testid={`text-packpts-price-${listing.id}`}>
-                        {ptsToApply.toLocaleString()} pts
-                      </span>
-                    </div>
-                  </div>
-                )}
                 {isAuthenticated && canApplyPackPTS && (
                   <p className="text-xs text-muted-foreground">
                     Does not change the {platformName} price
@@ -539,7 +525,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
               <p className="font-medium text-foreground mb-2">{listing.title}</p>
               <p>Price: ${((listing.priceCents || 0) / 100).toFixed(2)}</p>
               <p>Your Balance: {userBalance.toLocaleString()} PackPTS</p>
-              {quote && <p>Maximum Redeemable: {quote.rMax.toLocaleString()} PackPTS</p>}
+              {quote && <p>Maximum Redeemable: {(quote.marginBackedRmax ?? 0).toLocaleString()} PackPTS</p>}
             </div>
             
             <div className="space-y-2">
@@ -549,7 +535,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   id="redemption-amount"
                   type="range"
                   min={0}
-                  max={Math.min(quote?.rMax || 0, userBalance)}
+                  max={Math.min(quote?.marginBackedRmax ?? 0, userBalance)}
                   value={selectedAmount}
                   onChange={(e) => setSelectedAmount(Number(e.target.value))}
                   className="flex-1"
@@ -571,7 +557,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
               </p>
             </div>
             
-            {quote?.rMax === 0 && (
+            {(quote?.marginBackedRmax ?? 0) === 0 && quote && (
               <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
                 <p>This listing is not eligible for PackPTS credit due to margin requirements.</p>

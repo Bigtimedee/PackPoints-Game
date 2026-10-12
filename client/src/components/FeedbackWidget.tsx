@@ -58,8 +58,8 @@ export function FeedbackWidget() {
     }, 300);
   };
 
-  // /points cards run to the right edge at 390; the launcher covered their text.
-  if (location === "/points") return null;
+  // /points and /marketplace cards run to the right edge at 390; the launcher covered their text.
+  if (location === "/points" || location.startsWith("/marketplace")) return null;
 
   return (
     <>
