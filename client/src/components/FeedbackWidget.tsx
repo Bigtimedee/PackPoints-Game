@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,6 +23,7 @@ const CATEGORIES = [
 ];
 
 export function FeedbackWidget() {
+  const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [category, setCategory] = useState("");
@@ -55,6 +57,9 @@ export function FeedbackWidget() {
       setMessage("");
     }, 300);
   };
+
+  // /points cards run to the right edge at 390; the launcher covered their text.
+  if (location === "/points") return null;
 
   return (
     <>

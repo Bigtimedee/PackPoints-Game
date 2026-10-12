@@ -25,6 +25,11 @@ export const QA_BLOCKED_POST_PATHS: RegExp[] = [
   /^\/api\/wager\//,
 ];
 
+/** Read-only POSTs the QA account may use inside blocked prefixes. */
+export const QA_READ_ONLY_POST_PATHS: RegExp[] = [/^\/api\/marketplace\/redemption\/quote-batch\/?$/];
+
 export function qaBlockedPath(method: string, path: string): boolean {
-  return method.toUpperCase() === "POST" && QA_BLOCKED_POST_PATHS.some((re) => re.test(path));
+  if (method.toUpperCase() !== "POST") return false;
+  if (QA_READ_ONLY_POST_PATHS.some((re) => re.test(path))) return false;
+  return QA_BLOCKED_POST_PATHS.some((re) => re.test(path));
 }

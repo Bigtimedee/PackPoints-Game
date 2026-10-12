@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { upToBackLabel } from "@/lib/pointsCopy";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -428,10 +429,10 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   </p>
                 )}
                 
-                {isAuthenticated && canApplyPackPTS && (batchQuote?.maxCreditCents ?? 0) > 0 && (
+                {isAuthenticated && canApplyPackPTS && upToBackLabel(batchQuote?.maxCreditCents) && (
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="bg-accent/10 text-accent border-accent/20 gap-1" data-testid={`badge-up-to-${listing.id}`}>
-                      Up to ${((batchQuote!.maxCreditCents ?? 0) / 100).toFixed(2)} back
+                      {upToBackLabel(batchQuote?.maxCreditCents)}
                     </Badge>
                   </div>
                 )}

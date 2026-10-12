@@ -121,6 +121,7 @@ import { registerSignupQaRoutes } from "./routes/signupQa";
 import { registerPointsValueRoute } from "./routes/pointsValue";
 import { registerPointsEventsRoute } from "./routes/pointsEvents";
 import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
+import { isQaTestUser } from "@shared/qaTestAccount";
 import { attributeNewUserFromRequest } from "./lib/signupAttribution";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
@@ -8393,11 +8394,14 @@ export async function registerRoutes(
             item.externalId,
             discovered.listingUrl,
             discovered.priceCents,
-            discovered.currency
+            discovered.currency,
+            undefined,
+            { readOnly: isQaTestUser(userId) }
           );
           
-          // Transform to spec format
-          const ptsMaxApplicable = quote.rMax;
+          // Transform to spec format. Use the margin-backed limit: it is the
+          // formula cap after the reserve, per-user and discount ceilings.
+          const ptsMaxApplicable = quote.marginBackedRmax;
           const ptsApplied = Math.min(ptsMaxApplicable, Math.floor(ptsMaxApplicable * 0.5)); // Default 50%
           const valuePerPtCents = quote.policySummary?.packptsValueUsd || 0.002;
           const usdSavingsCents = Math.round(ptsApplied * valuePerPtCents * 100);
@@ -8412,7 +8416,7 @@ export async function registerRoutes(
             usdSavingsCents,
             effectiveValuePerPtMicrousds: Math.round(valuePerPtCents * 1000000),
             // Most cashback this listing can earn: capped points x value (same cap as the quote).
-            maxCreditCents: Math.floor(ptsMaxApplicable * valuePerPtCents * 100),
+            maxCreditCents: Math.min(quote.marginBackedCreditCentsMax, Math.floor(ptsMaxApplicable * valuePerPtCents * 100)),
             reasons: [],
             ctaLabel: ptsMaxApplicable > 0 ? "Apply PackPTS" : "Earn PackPTS",
           };

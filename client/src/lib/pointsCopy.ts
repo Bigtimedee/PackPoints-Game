@@ -135,6 +135,12 @@ export function holdLine(value: PointsValue | undefined): string | null {
   return `Rebates are held ${value.holdDays} days, then you can cash out from ${value.payoutMinimum.display}. Payouts are reviewed before they're sent.`;
 }
 
+/** Listing badge. Null (badge hidden) unless the capped credit is above zero. */
+export function upToBackLabel(maxCreditCents: number | null | undefined): string | null {
+  if (typeof maxCreditCents !== "number" || !Number.isFinite(maxCreditCents) || maxCreditCents <= 0) return null;
+  return `Up to ${formatUsd(maxCreditCents)} back`;
+}
+
 export const SIGNUP_BODY_LIVE = "Save your points and use them for cash back on real cards.";
 
 export const ONBOARDING = { title: "Name the player. Earn points.", start: "Start playing", skip: "Skip" };
