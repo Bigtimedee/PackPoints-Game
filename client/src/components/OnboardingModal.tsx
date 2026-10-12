@@ -19,7 +19,7 @@ const steps = [
   {
     icon: Zap,
     title: "Earn PackPTS",
-    description: "Answer correctly and earn PackPTS (points). Faster answers earn bonus points. Build a streak for multipliers!",
+    description: "Correct answers earn PackPTS (points) into your wallet. Points work toward rebates on real cards. Coming soon.",
     badge: "Step 2 of 4",
     color: "text-yellow-500",
     bg: "bg-yellow-500/10",

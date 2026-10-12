@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { usePointsValue } from "@/hooks/use-points-value";
-import { PRIMARY, addingAnswer, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
+import { PRIMARY, addingAnswer, cashOutAnswer, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
 
 export default function PointsPage() {
   const { value, loaded, rebateLive, usdFor } = usePointsValue();
@@ -9,6 +9,7 @@ export default function PointsPage() {
   const steps = pageSteps(rebateLive);
   const example = 1000;
   const exampleUsd = rebateLive ? usdFor(example) : null;
+  const cashOut = loaded ? cashOutAnswer(value) : null;
   return (
     <div className="mx-auto max-w-2xl px-4 sm:px-6 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] space-y-3" data-testid="page-points">
       <h1 className="text-3xl font-bold">How points work</h1>
@@ -42,6 +43,12 @@ export default function PointsPage() {
           <h3 className="font-semibold">What does adding points get me?</h3>
           <p className="text-sm text-muted-foreground">{loaded ? addingAnswer(rebateLive, value.expiry) : "Loading..."}</p>
         </div>
+        {cashOut && (
+          <div className="border-t pt-3" data-testid="faq-cashout">
+            <h3 className="font-semibold">When can I cash out?</h3>
+            <p className="text-sm text-muted-foreground">{cashOut}</p>
+          </div>
+        )}
         <div className="flex flex-col gap-3 pt-2">
           <Link href="/game/solo">
             <Button size="lg" className="w-full min-h-11" data-testid="button-play-now">Play now</Button>
