@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { trackPoints } from "@/lib/pointsEvents";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { usePointsValue } from "@/hooks/use-points-value";
@@ -18,6 +19,8 @@ export function PointsStrip({
   const { rebateLive, usdFor } = usePointsValue();
   const usd = rebateLive ? usdFor(points) : null;
   const steps = stripSteps(rebateLive);
+  const viewed = useRef(false);
+  useEffect(() => { if (!viewed.current) { viewed.current = true; trackPoints("points_strip_view", { surface: "game_complete" }); } }, []);
   return (
     <section className="rounded-lg border bg-card p-4 sm:p-6 text-left space-y-3" data-testid="points-strip">
       <h3 className="text-lg font-semibold">What your points are for</h3>
@@ -33,7 +36,7 @@ export function PointsStrip({
       <p className="rounded-md border p-3 text-sm" data-testid="points-value-line">{valueLine(points, usd)}</p>
       {isGuest && <p className="text-sm text-muted-foreground" data-testid="text-guest-keep-points">{GUEST_KEEP}</p>}
       <div className="flex flex-col gap-3">
-        <Link href="/points?from=game">
+        <Link href="/points?from=game" onClick={() => trackPoints("points_cta_click", { surface: "game_complete", cta: "how_points_work" })}>
           <Button size="lg" className="w-full min-h-11" data-testid="button-how-points-work">{primaryCta(rebateLive)}</Button>
         </Link>
         {playAgain || null}

@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Link } from "wouter";
+import { trackPoints } from "@/lib/pointsEvents";
 import { Button } from "@/components/ui/button";
 import { usePointsValue } from "@/hooks/use-points-value";
 import { PRIMARY, addingAnswer, cashOutAnswer, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
@@ -7,6 +9,7 @@ export default function PointsPage() {
   const { value, loaded, rebateLive, usdFor } = usePointsValue();
   const fromGame = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("from") === "game";
   const steps = pageSteps(rebateLive);
+  useEffect(() => { trackPoints("points_page_view", { surface: "points_page" }); }, []);
   const example = 1000;
   const exampleUsd = rebateLive ? usdFor(example) : null;
   const cashOut = loaded ? cashOutAnswer(value) : null;
@@ -50,11 +53,11 @@ export default function PointsPage() {
           </div>
         )}
         <div className="flex flex-col gap-3 pt-2">
-          <Link href="/game/solo">
+          <Link href="/game/solo" onClick={() => trackPoints("points_cta_click", { surface: "points_page", cta: "play_now" })}>
             <Button size="lg" className="w-full min-h-11" data-testid="button-play-now">Play now</Button>
           </Link>
           {fromGame && (
-            <Button size="lg" variant="outline" className="w-full min-h-11" onClick={() => window.history.back()} data-testid="button-back-to-game">Back to game</Button>
+            <Button size="lg" variant="outline" className="w-full min-h-11" onClick={() => { trackPoints("points_cta_click", { surface: "points_page", cta: "back_to_game" }); window.history.back(); }} data-testid="button-back-to-game">Back to game</Button>
           )}
         </div>
       </div>

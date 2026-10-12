@@ -8,6 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { usePointsValue } from "@/hooks/use-points-value";
 import { WALLET } from "@/lib/pointsCopy";
 import { setWalletSheetOpen } from "@/lib/walletSheetOpen";
+import { trackPoints } from "@/lib/pointsEvents";
 
 function WalletBody({ balance, onClose }: { balance: number; onClose: () => void }) {
   const { rebateLive, usdFor } = usePointsValue();
@@ -21,7 +22,7 @@ function WalletBody({ balance, onClose }: { balance: number; onClose: () => void
       <p className="text-sm text-muted-foreground" data-testid="text-wallet-value">{usd ? WALLET.live(usd) : WALLET.soon}</p>
       {expiring > 0 && <p className="text-sm" data-testid="text-wallet-expiring">{WALLET.expiring(expiring)}</p>}
       <div className="flex flex-col gap-3 pt-1">
-        <Link href="/points" onClick={onClose}>
+        <Link href="/points" onClick={() => { trackPoints("points_cta_click", { surface: "wallet_sheet", cta: "how_points_work" }); onClose(); }}>
           <Button variant="outline" className="w-full min-h-11" data-testid="link-how-points-work">{WALLET.link}</Button>
         </Link>
         <Button className="w-full min-h-11" onClick={onClose} data-testid="button-wallet-close">{WALLET.close}</Button>
@@ -34,7 +35,7 @@ function WalletBody({ balance, onClose }: { balance: number; onClose: () => void
 export function WalletChip({ balance, children }: { balance: number; children: ReactNode }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  useEffect(() => { setWalletSheetOpen(open); return () => setWalletSheetOpen(false); }, [open]);
+  useEffect(() => { setWalletSheetOpen(open); if (open) trackPoints("wallet_sheet_open", { surface: "wallet_sheet" }); return () => setWalletSheetOpen(false); }, [open]);
   const trigger = (
     <button type="button" aria-label={`${WALLET.title}: ${balance}`} className="min-h-11 flex items-center" onClick={isMobile ? () => setOpen(true) : undefined} data-testid="button-wallet-chip">
       {children}
