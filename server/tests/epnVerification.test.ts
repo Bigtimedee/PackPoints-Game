@@ -35,3 +35,30 @@ describe("EPN evidence verification", () => {
     expect(matchesEpnIntent({...intent, currency:"EUR"}, click, 7000)).toBe(false);
   });
 });
+
+import { epnItemList, epnMoneyList, resolveEpnLine, normalizeEpnCustomId } from "../services/epnVerification";
+import { generateEpnCustomId } from "../services/marketplace/outbound";
+describe("EPN item lists ({join(items...)})", () => {
+  it("splits joined item ids and Browse ids", () => {
+    expect(epnItemList("407243534695")).toEqual(["407243534695"]);
+    expect(epnItemList("407243534695,191860799962")).toEqual(["407243534695", "191860799962"]);
+    expect(epnItemList("[407243534695; 191860799962]")).toEqual(["407243534695", "191860799962"]);
+    expect(epnItemList("v1|407243534695|0")).toEqual(["407243534695"]);
+  });
+  it("picks the clicked line and its price", () => {
+    expect(resolveEpnLine("v1|407243534695|0", "407243534695", "1.49")).toEqual({ itemId: "407243534695", salePriceCents: 149 });
+    expect(resolveEpnLine("v1|407243534695|0", "191860799962,407243534695", "3.00,1.49")).toEqual({ itemId: "407243534695", salePriceCents: 149 });
+    expect(resolveEpnLine("v1|407243534695|0", "407243534695", "1.49 USD")).toEqual({ itemId: "407243534695", salePriceCents: 149 });
+    expect(resolveEpnLine("v1|407243534695|0", "191860799962", "1.49")).toBeNull();
+    expect(resolveEpnLine("v1|407243534695|0", "407243534695,1", "1.49,2,3")).toBeNull();
+    expect(epnMoneyList("$1.49")).toEqual([149]);
+  });
+  it("new customids carry the numeric item id, no '|'", () => {
+    const id = generateEpnCustomId("0125683a-f641-4318", "v1|407243534695|0");
+    expect(id).toContain(":i_407243534695:");
+    expect(id).not.toContain("|");
+  });
+  it("normalizes echoed customids", () => {
+    expect(normalizeEpnCustomId("packpts:u_x:i_v1|4072435346|:t_ab-c")).toBe("packpts:u_x:i_v14072435346:t_ab-c");
+  });
+});
