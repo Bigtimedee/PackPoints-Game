@@ -5,7 +5,9 @@
  * Game Complete on /daily releases play chrome, so the chip returns there.
  */
 const PLAY_ROUTE_PREFIXES = ["/game/", "/match/", "/match", "/tournament/", "/beat-me/", "/b/"];
-export function pointsChipHidden(location: string, playActive: boolean): boolean {
+export function pointsChipHidden(location: string, playActive: boolean, completeActive = false): boolean {
   if (playActive) return true;
+  // Solo Game Complete on /game/:id shows the chip like the other modes.
+  if (completeActive) return false;
   return PLAY_ROUTE_PREFIXES.some((p) => location === p || location.startsWith(p.endsWith("/") ? p : p + "/"));
 }

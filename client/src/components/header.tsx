@@ -7,7 +7,7 @@ import packptsLogo from "@/assets/packpts-logo.png";
 import { useAuth } from "@/hooks/use-auth";
 import { useWallet } from "@/hooks/use-wallet";
 import { WalletChip } from "@/components/wallet-sheet";
-import { usePlayChromeActive } from "@/lib/playChrome";
+import { useCompleteScreenActive, usePlayChromeActive } from "@/lib/playChrome";
 import { pointsChipHidden } from "@/lib/pointsChipVisibility";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StreakBadge } from "./streak-card";
@@ -34,7 +34,8 @@ import {
 export function Header() {
   const [location] = useLocation();
   const playActive = usePlayChromeActive();
-  const hideChip = pointsChipHidden(location, playActive);
+  const completeActive = useCompleteScreenActive();
+  const hideChip = pointsChipHidden(location, playActive, completeActive);
   const { user, isLoading, isAuthenticated, logout } = useAuth();
   const { isRestricted, isFrozen, isUnderReview, restrictedReason, availablePts } = useWallet();
   const [showLoginWarning, setShowLoginWarning] = useState(false);
