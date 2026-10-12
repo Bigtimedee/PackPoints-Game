@@ -32,3 +32,31 @@ describe("Stripe webhook route", () => {
     expect(src).toContain("verifyAndParseWebhook(req.rawBody");
   });
 });
+
+describe("live server ignores test-mode webhook events", () => {
+  it("flags livemode=false only when the server is on live keys", async () => {
+    const { isModeMismatchedEvent } = await import("../stripeClient");
+    expect(isModeMismatchedEvent("live", false)).toBe(true);
+    expect(isModeMismatchedEvent("live", true)).toBe(false);
+    expect(isModeMismatchedEvent("test", false)).toBe(false);
+    expect(isModeMismatchedEvent("test", true)).toBe(false);
+    expect(isModeMismatchedEvent("live", undefined)).toBe(false);
+  });
+
+  it("the route acknowledges mismatched events before processing them", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../routes.ts"), "utf8");
+    const route = src.slice(src.indexOf('app.post("/api/stripe/webhook"'));
+    const ignoreAt = route.indexOf("isModeMismatchedEvent(");
+    const processAt = route.indexOf("processWebhookEvent(event)");
+    expect(ignoreAt).toBeGreaterThan(0);
+    expect(ignoreAt).toBeLessThan(processAt);
+  });
+});
+
+describe("startup env warning", () => {
+  it("does not warn about STRIPE_WEBHOOK_SECRET when a _LIVE/_TEST secret is set", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../index.ts"), "utf8");
+    expect(src).toContain("alternates: ['STRIPE_WEBHOOK_SECRET_LIVE', 'STRIPE_WEBHOOK_SECRET_TEST']");
+    expect(src).toContain("if (alternates?.some((alt) => !!process.env[alt])) continue;");
+  });
+});
