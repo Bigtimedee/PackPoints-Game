@@ -1181,7 +1181,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(users)
       .innerJoin(wallets, eq(wallets.userId, users.id))
-      .where(sql`${wallets.balance} > 0 AND ${users.id} <> ${QA_TEST_USER_ID}`)
+      .where(sql`${wallets.balance} > 0 AND ${users.id} <> ${QA_TEST_USER_ID} AND ${users.isTestAccount} = false`)
       .orderBy(desc(wallets.balance))
       .limit(limit);
     

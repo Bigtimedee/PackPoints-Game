@@ -38,9 +38,10 @@ async function defaultEnsure(): Promise<void> {
       emailNormalized: QA_TEST_EMAIL,
       firstName: "QA Test",
       isAdmin: false,
+      isTestAccount: true,
       status: "ACTIVE",
     } as any)
-    .onConflictDoUpdate({ target: users.id, set: { isAdmin: false } as any });
+    .onConflictDoUpdate({ target: users.id, set: { isAdmin: false, isTestAccount: true } as any });
   await walletService.getOrCreateWallet(QA_TEST_USER_ID);
   // Idempotent: the seed lands once, ever.
   await walletService.adjust(QA_TEST_USER_ID, QA_TEST_SEED_POINTS, "QA test account seed", QA_TEST_SEED_KEY, { qaTestAccount: true });
@@ -69,7 +70,26 @@ export function qaTestAccountGuard(req: Request, res: Response, next: NextFuncti
   next();
 }
 
+export type TestAccountInventoryLoader = () => Promise<unknown>;
+let inventory: TestAccountInventoryLoader = async () => (await import("../services/testAccounts")).testAccountInventory();
+export function setTestAccountInventoryForTests(next: TestAccountInventoryLoader | null): void {
+  inventory = next ?? (async () => (await import("../services/testAccounts")).testAccountInventory());
+}
+
 export function registerQaSessionRoute(app: Express): void {
+  // Read-only: flagged test accounts, unflagged look-alikes (usernames only), signup totals.
+  app.get("/api/qa/test-accounts", async (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Robots-Tag", "noindex");
+    if (!qaSessionTokenMatches(req.get("X-QA-Token"))) return notFound(res);
+    try {
+      res.json(await inventory());
+    } catch (err) {
+      console.error("[qa/test-accounts] failed", (err as any)?.message);
+      res.status(500).json({ error: "unavailable" });
+    }
+  });
+
   app.post("/api/qa/session", async (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Robots-Tag", "noindex");

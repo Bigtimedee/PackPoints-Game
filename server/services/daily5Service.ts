@@ -793,6 +793,7 @@ export class Daily5Service {
         AND dce.completed_at IS NOT NULL
         AND (dce.flagged IS NULL OR dce.flagged = false)
         AND dce.user_id <> ${QA_TEST_USER_ID}
+        AND u.is_test_account = false
       ORDER BY dce.score DESC, dce.time_ms ASC NULLS LAST
       LIMIT ${limit}
     `);
