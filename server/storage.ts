@@ -1,3 +1,4 @@
+import { QA_TEST_USER_ID } from "@shared/qaTestAccount";
 import { type User, type InsertUser, type BaseballCard, type GameSession, type GameQuestion, type LeaderboardEntry, type RedemptionOption, users, baseballCards, localCredentials, type InsertBaseballCard, type LocalCredential, products, userEntitlements, type Product, type InsertProduct, type UserEntitlement, type InsertUserEntitlement, passwordResetTokens, type PasswordResetToken, playableCards, gameSets, type PlayableCard, type GameplayCard, activeUserCounter, wallets, gameSessionsTable } from "@shared/schema";
 import { randomUUID, createHash } from "crypto";
 
@@ -1180,7 +1181,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(users)
       .innerJoin(wallets, eq(wallets.userId, users.id))
-      .where(sql`${wallets.balance} > 0`)
+      .where(sql`${wallets.balance} > 0 AND ${users.id} <> ${QA_TEST_USER_ID}`)
       .orderBy(desc(wallets.balance))
       .limit(limit);
     

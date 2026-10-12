@@ -119,6 +119,7 @@ import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
 import { registerPointsValueRoute } from "./routes/pointsValue";
+import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
 import { attributeNewUserFromRequest } from "./lib/signupAttribution";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
@@ -182,7 +183,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+  // QA test account: refuse money paths before any route can run (shared/qaTestAccount).
+  app.use(qaTestAccountGuard);
+
   // Friends and match invite routes
   app.use(friendsRouter);
 
@@ -525,6 +528,7 @@ export async function registerRoutes(
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
   registerPointsValueRoute(app);
+  registerQaSessionRoute(app);
   registerSetFillQaRoutes(app);
   registerHeldSetImportQaRoutes(app);
 
