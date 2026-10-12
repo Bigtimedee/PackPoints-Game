@@ -39,6 +39,7 @@ const StoreCancel = lazy(() => import("@/pages/store-cancel"));
 const Profile = lazy(() => import("@/pages/profile"));
 const Friends = lazy(() => import("@/pages/friends"));
 const Daily5 = lazy(() => import("@/pages/daily5"));
+const PointsPage = lazy(() => import("@/pages/points"));
 const Waitlist = lazy(() => import("@/pages/waitlist"));
 const Invite = lazy(() => import("@/pages/invite"));
 const Redeem = lazy(() => import("@/pages/redeem"));
@@ -364,6 +365,7 @@ function Router() {
       <Route path="/creators" component={Creators} />
       <Route path="/partners" component={Partners} />
       <Route path="/roadmap" component={Roadmap} />
+      <Route path="/points" component={PointsPage} />
       <Route path="/make" component={MakeRoute} />
       <Route path="/sets" component={BrowseSets} />
       <Route path="/sets/:id" component={SetPage} />

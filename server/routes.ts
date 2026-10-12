@@ -118,6 +118,7 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { registerPointsValueRoute } from "./routes/pointsValue";
 import { attributeNewUserFromRequest } from "./lib/signupAttribution";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
@@ -523,6 +524,7 @@ export async function registerRoutes(
   registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
+  registerPointsValueRoute(app);
   registerSetFillQaRoutes(app);
   registerHeldSetImportQaRoutes(app);
 
