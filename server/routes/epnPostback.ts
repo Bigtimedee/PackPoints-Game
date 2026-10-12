@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { verifyEpnSecret } from "../services/epnVerification";
+import { classifyEpnStatus, verifyEpnSecret } from "../services/epnVerification";
 
 /** Register before the legacy route: this handler always terminates the request. */
 export function registerVerifiedEpnPostback(app: Express): void {
@@ -19,6 +19,21 @@ export function registerVerifiedEpnPostback(app: Express): void {
         !verifyEpnSecret(secret, req.query.secret)) {
       res.status(401).json({ error: "Unauthorized postback" });
       return;
+    }
+    // Status-only postback (return, cancel, reversal, lock) for a recorded sale.
+    const statusRaw = typeof req.query.status === "string" ? req.query.status
+      : typeof req.query.event_type === "string" ? req.query.event_type : undefined;
+    if (typeof req.query.transaction_id === "string" && req.query.transaction_id && classifyEpnStatus(statusRaw)) {
+      const { processEpnStatus } = await import("../services/rebateService");
+      {
+        try {
+          const r = await processEpnStatus({ transaction_id: req.query.transaction_id, status: statusRaw! });
+          res.json({ ok: true, action: r.action });
+        } catch {
+          res.status(400).json({ error: "Postback evidence rejected" });
+        }
+        return;
+      }
     }
     const fields = ["customid", "transaction_id", "item_id", "sale_price"];
     if (fields.some(key => typeof req.query[key] !== "string" || !req.query[key])) {

@@ -266,8 +266,8 @@ describe("marketplace cashback grant", () => {
     const a = await applyEbay(`multiA-${suffix}`, 8000, 500);
     const b = await applyEbay(`multiB-${suffix}`, 5000, 400);
     const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    const ra = await processEpnPostback({ customid: a.customid, item_id: `multiA-${suffix}`, transaction_id: `mA-${suffix}`, sale_price: "80.00" });
-    const rb = await processEpnPostback({ customid: b.customid, item_id: `multiB-${suffix}`, transaction_id: `mB-${suffix}`, sale_price: "50.00" });
+    const ra = await processEpnPostback({ customid: a.customid, item_id: `multiA-${suffix}`, transaction_id: `mA-${suffix}`, sale_price: "80.00", commission: "9.99" });
+    const rb = await processEpnPostback({ customid: b.customid, item_id: `multiB-${suffix}`, transaction_id: `mB-${suffix}`, sale_price: "50.00", commission: "9.99" });
     expect(ra.grants).toHaveLength(1);
     expect(rb.grants).toHaveLength(1);
     const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
@@ -282,22 +282,22 @@ describe("marketplace cashback grant", () => {
     expect(epnSaleAcceptable(5000, 0)).toBe(false);
     const q = await applyEbay(`qty-${suffix}`, 6000, 300);
     const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    const r = await processEpnPostback({ customid: q.customid, item_id: `qty-${suffix}`, transaction_id: `q-${suffix}`, sale_price: "120.00" });
+    const r = await processEpnPostback({ customid: q.customid, item_id: `qty-${suffix}`, transaction_id: `q-${suffix}`, sale_price: "120.00", commission: "9.99" });
     expect(r.grants).toHaveLength(1);
     expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before + q.applied.creditCents);
   });
 
-  it("price below the applied price: credit and PackPTS prorate automatically from eBay's total, with a full audit trail", async () => {
+  it("commission below the applied credit: credit = confirmed commission, extra PackPTS refunded, full audit trail", async () => {
     const q = await applyEbay(`chg-${suffix}`, 10_000, 500);
     const w0 = await walletService.getWallet(userId);
-    const r = await processEpnPostback({ customid: q.customid, item_id: `chg-${suffix}`, transaction_id: `c-${suffix}`, sale_price: "50.00" });
+    const r = await processEpnPostback({ customid: q.customid, item_id: `chg-${suffix}`, transaction_id: `c-${suffix}`, sale_price: "50.00", commission: "0.50" });
     expect(r.grants).toHaveLength(1);
     expect(r.grants[0].granted).toBe(true);
 
-    const expectedCredit = Math.floor(q.applied.creditCents / 2);
+    const expectedCredit = 50;
     const [credit] = await db.select().from(redemptionCredit).where(eq(redemptionCredit.purchaseIntentId, q.quote.purchaseIntentId));
     expect(credit.creditCents).toBe(expectedCredit);
-    const kept = Math.ceil(q.applied.approvedRedeemPackpts / 2);
+    const kept = Math.ceil(50 / (q.applied.creditCents / q.applied.approvedRedeemPackpts));
     expect(credit.packptsSpent).toBe(kept);
     const w1 = await walletService.getWallet(userId);
     expect(w1!.rebateBalanceCents).toBe(w0!.rebateBalanceCents + expectedCredit);
@@ -346,11 +346,11 @@ describe("marketplace cashback grant", () => {
   });
 
   it("payout request debits rebate balance; deny returns it", async () => {
-    // Fresh credit is on a 30-day hold and payouts start at $10: age this user's
+    // Fresh credit is on a 60-day hold and payouts start at $10: age this user's
     // credit past the hold and top up to the minimum with a backdated adjustment.
     const w0 = await walletService.getWallet(userId);
     expect(w0?.rebateBalanceCents).toBeGreaterThan(0);
-    const old = new Date(Date.now() - 31 * 86_400_000);
+    const old = new Date(Date.now() - 61 * 86_400_000);
     await db.update(rebateLedger).set({ createdAt: old }).where(eq(rebateLedger.userId, userId));
     const topUp = Math.max(0, 1500 - w0!.rebateBalanceCents);
     if (topUp > 0) {

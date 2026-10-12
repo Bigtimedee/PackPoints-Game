@@ -11,14 +11,14 @@ const now = new Date("2026-10-12T00:00:00Z");
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
 
 describe("payout minimum and hold", () => {
-  it("minimum is $10 and hold is 30 days", () => {
+  it("minimum is $10 and hold is 60 days", () => {
     expect(PAYOUT_MIN_CENTS).toBe(1000);
-    expect(PAYOUT_HOLD_DAYS).toBe(30);
+    expect(PAYOUT_HOLD_DAYS).toBe(60);
   });
-  it("credit younger than 30 days is held", () => {
+  it("credit younger than 60 days is held", () => {
     const r = computeWithdrawableCents(1500, [
       { amountCents: 500, type: "GRANT", createdAt: daysAgo(5) },
-      { amountCents: 1000, type: "GRANT", createdAt: daysAgo(40) },
+      { amountCents: 1000, type: "GRANT", createdAt: daysAgo(61) },
     ], now);
     expect(r).toEqual({ withdrawableCents: 1000, heldCents: 500 });
   });

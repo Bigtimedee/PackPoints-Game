@@ -103,3 +103,16 @@ export function matchesEpnIntent(
     intent.currency.toUpperCase() === "USD" && epnSaleAcceptable(intent.priceCents, salePriceCents) &&
     !!intent.createdAt && !!click.createdAt && click.createdAt >= intent.createdAt;
 }
+
+/** EPN statuses that undo a sale, and the one that makes it final. */
+const EPN_REVERSAL = /^(reversed?|reversal|returned?|return|cancell?ed|cancel|refunded?|void(ed)?|chargeback)$/i;
+const EPN_LOCKED = /^(locked|lock|final(ized)?|paid)$/i;
+
+export function classifyEpnStatus(raw: string | undefined | null): "reversal" | "locked" | null {
+  const v = (raw || "").trim();
+  if (!v) return null;
+  if (EPN_REVERSAL.test(v)) return "reversal";
+  if (EPN_LOCKED.test(v)) return "locked";
+  return null;
+}
+

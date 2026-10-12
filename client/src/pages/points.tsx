@@ -8,7 +8,7 @@ import { PRIMARY, addingAnswer, cashOutAnswer, checkoutAnswer, expiryAnswer, pag
 export default function PointsPage() {
   const { value, loaded, rebateLive, usdFor } = usePointsValue();
   const fromGame = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("from") === "game";
-  const steps = pageSteps(rebateLive);
+  const steps = pageSteps(rebateLive, value?.holdDays, value?.payoutMinimum?.display);
   useEffect(() => { trackPoints("points_page_view", { surface: "points_page" }); }, []);
   const example = 1000;
   const exampleUsd = rebateLive ? usdFor(example) : null;

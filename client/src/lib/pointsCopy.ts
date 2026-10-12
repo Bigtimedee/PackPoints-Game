@@ -53,14 +53,16 @@ export function primaryCta(live: boolean) {
   return live ? "See how cash back works" : "See how points work";
 }
 
-export function pageSteps(live: boolean) {
+export function pageSteps(live: boolean, holdDays?: number, payoutMin?: string) {
+  const days = typeof holdDays === "number" && holdDays > 0 ? holdDays : 60;
+  const min = payoutMin || "$10";
   return [
     { title: "Play and earn", body: "Name the player on each card. Correct answers earn points into your wallet." },
     live
       ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." }
       : { title: "Apply on a real card", body: "Soon you'll apply points on live eBay listings." },
     live
-      ? { title: "Get your rebate", body: "When eBay confirms the sale, usually within a day or two, your rebate lands in your wallet. It's held 30 days, then you can cash out from $10." }
+      ? { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. It's held ${days} days, then you can cash out from ${min}.` }
       : { title: "Get a rebate", body: "Coming soon. We'll tell you the day it opens." },
   ];
 }
@@ -135,11 +137,11 @@ export function holdLine(value: PointsValue | undefined): string | null {
   return `Rebates are held ${value.holdDays} days, then you can cash out from ${value.payoutMinimum.display}. Payouts are reviewed before they're sent.`;
 }
 
-/** Listing badge. Null (badge hidden) unless the capped credit is at least 25 cents. */
+/** Listing badge: estimated rebate (price x trading card commission rate). Hidden under 25 cents. */
 export const UP_TO_BACK_MIN_CENTS = 25;
 export function upToBackLabel(maxCreditCents: number | null | undefined): string | null {
   if (typeof maxCreditCents !== "number" || !Number.isFinite(maxCreditCents) || maxCreditCents < UP_TO_BACK_MIN_CENTS) return null;
-  return `Up to ${formatUsd(maxCreditCents)} back`;
+  return `About ${formatUsd(maxCreditCents)} back`;
 }
 
 export const SIGNUP_BODY_LIVE = "Save your points and use them for cash back on real cards.";

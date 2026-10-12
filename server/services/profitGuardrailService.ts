@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
-import { computeCreditCeilingCents, mergeProfitPolicyUpdate, REDEMPTION_MIN_PACKPTS } from "./guardrailPolicy";
+import { computeCreditCeilingCents, estimateCommissionCents, mergeProfitPolicyUpdate, REDEMPTION_MIN_PACKPTS } from "./guardrailPolicy";
 
 const GOLDIN_NOT_SUPPORTED =
   "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
@@ -149,15 +149,12 @@ class ProfitGuardrailService {
     const txMargin = await treasuryService.computeTransactionMargin(source, priceCents);
     const solvency = await treasuryService.getSolvencyStatus();
 
-    // Compute margin-backed allowed cap (the SOLVENCY gate — never pay beyond it)
-    const allowedCapCents = treasury.availableMarginPoolCents + txMargin.transactionMarginCents;
+    // eBay rebate = 100% of the confirmed EPN commission. The pre-purchase
+    // ceiling is the commission estimate (price x TRADING_CARD_COMMISSION_RATE);
+    // the commission itself funds the credit, so the margin pool is not a cap.
+    const commissionEstimateCents = estimateCommissionCents(priceCents);
+    const allowedCapCents = commissionEstimateCents;
     const packptsValueCents = policy.packptsValueVMicrousd / 10000; // micro-USD to cents
-
-    // MEANINGFUL-DISCOUNT ceiling: up to maxDiscountPct of the purchase price.
-    // This is the headline generosity dial, decoupled from the ~1% affiliate
-    // formula. It is only ACHIEVED when the reserve + per-user caps allow it.
-    const maxDiscountPct = (policy as any).maxDiscountPct ?? 0.15;
-    const meaningfulCreditCents = Math.floor(priceCents * maxDiscountPct);
 
     // Per-user velocity caps (rolling 24h / 7d, counts PENDING + GRANTED credit)
     const perUserDailyCents = (policy as any).perUserDailyCreditCents ?? 2500;
@@ -185,17 +182,14 @@ class ProfitGuardrailService {
     // are globally paused (solvency protection).
     const reserveHealthy = solvency.redemptionsHealthy;
 
-    // Final credit = the MINIMUM of every ceiling. Meaningful up to maxDiscountPct,
-    // but never more than the reserve, the per-user caps, or the affiliate formula
-    // would each independently allow.
-    const formulaCreditCents = Math.floor(calc.Rmax * packptsValueCents);
+    // Final ceiling = MIN(commission estimate, per-user daily, per-user weekly);
+    // 0 if the reserve floor trips. The formula is kept for reference only.
+    const formulaCreditCents = commissionEstimateCents;
     const marginBackedCreditCentsMax = computeCreditCeilingCents({
       reserveHealthy,
-      meaningfulCreditCents,
-      allowedCapCents,
+      commissionEstimateCents,
       dailyRemainingCents,
       weeklyRemainingCents,
-      formulaCreditCents,
     });
     let marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
 
@@ -225,7 +219,7 @@ class ProfitGuardrailService {
         calcSnapshot: {
           ...calc,
           marginPoolCents: treasury.availableMarginPoolCents,
-          txMarginCents: txMargin.transactionMarginCents,
+          txMarginCents: commissionEstimateCents,
           allowedCapCents,
         },
         status: "CREATED",
