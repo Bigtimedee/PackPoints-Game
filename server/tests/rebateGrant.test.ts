@@ -131,6 +131,19 @@ describe("marketplace cashback grant", () => {
     return { quote, applied };
   }
 
+  it("read-only quote (QA batch preview) computes caps but writes no intent and cannot be applied", async () => {
+    const before = await db.select({ id: externalPurchaseIntent.id }).from(externalPurchaseIntent).where(eq(externalPurchaseIntent.userId, userId));
+    const quote = await profitGuardrailService.createQuote(
+      userId, "ebay", `ro-${listingId}`, `https://www.ebay.com/itm/ro-${listingId}`, 10_000, "usd", undefined, { readOnly: true }
+    );
+    expect(quote.marginBackedRmax).toBeGreaterThan(0);
+    expect(quote.marginBackedCreditCentsMax).toBeGreaterThan(0);
+    expect(quote.purchaseIntentId).toBe("");
+    const after = await db.select({ id: externalPurchaseIntent.id }).from(externalPurchaseIntent).where(eq(externalPurchaseIntent.userId, userId));
+    expect(after.length).toBe(before.length);
+    await expect(profitGuardrailService.applyRedemption(userId, quote.purchaseIntentId, 10)).rejects.toThrow();
+  });
+
   it("Goldin: quote and apply are refused, because there is no automatic purchase signal", async () => {
     await expect(
       profitGuardrailService.createQuote(userId, "goldin", listingId, "https://goldin.co/item/1", 10_000, "usd", "Goldin card")

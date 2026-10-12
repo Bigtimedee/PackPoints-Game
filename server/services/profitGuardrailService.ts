@@ -130,7 +130,8 @@ class ProfitGuardrailService {
     listingUrl: string,
     priceCents: number,
     currency: string = "usd",
-    listingTitle?: string
+    listingTitle?: string,
+    opts: { readOnly?: boolean } = {}
   ): Promise<QuoteResult> {
     if (source === "goldin") {
       throw new Error(GOLDIN_NOT_SUPPORTED);
@@ -208,7 +209,9 @@ class ProfitGuardrailService {
 
     const marginPoolAvailable = allowedCapCents > 0 && reserveHealthy;
 
-    const [intent] = await db
+    // Read-only quotes (batch preview for the QA test account) compute the same
+    // caps but write nothing: no purchase intent, no audit row, no reservation.
+    const [intent] = opts.readOnly ? [{ id: "" } as { id: string }] : await db
       .insert(externalPurchaseIntent)
       .values({
         userId,
@@ -229,7 +232,7 @@ class ProfitGuardrailService {
       })
       .returning();
 
-    await recordRebateAudit(db, {
+    if (!opts.readOnly) await recordRebateAudit(db, {
       event: "QUOTE_CREATED",
       actor: `user:${userId}`,
       userId,
