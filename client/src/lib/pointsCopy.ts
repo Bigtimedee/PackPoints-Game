@@ -94,11 +94,20 @@ export function checkoutAnswer(live: boolean): string {
 }
 
 export function addingAnswer(live: boolean, expiry: PointsExpiry | null): string {
-  if (live) return "More points means a bigger rebate on your next card, up to the limit for that purchase.";
+  if (live) return "Your points count toward a rebate on your next card, up to the limit for that purchase.";
   const neverExpire = !expiry || expiry.purchasedDays == null;
   return neverExpire
-    ? "More points now means more toward rebates when they open. Points you buy never expire."
-    : "More points now means more toward rebates when they open.";
+    ? "Your points will count toward rebates once they open. Points you buy never expire."
+    : "Your points will count toward rebates once they open.";
+}
+
+/** Cash-out FAQ. Live only; both values come from /api/points/value. Null hides the question. */
+export function cashOutAnswer(value: PointsValue | undefined): string | null {
+  if (!value || !value.rebateLive) return null;
+  const min = value.payoutMinimum?.display;
+  const days = value.holdDays;
+  if (!min || typeof days !== "number" || days <= 0) return null;
+  return `Once you have ${min} in rebates that are at least ${days} days old.`;
 }
 
 export const WALLET = {
