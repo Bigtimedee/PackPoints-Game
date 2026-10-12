@@ -1111,7 +1111,7 @@ export default function Game() {
     return (
       <div className="min-h-full flex items-center justify-center px-4 pt-6 pb-[calc(2rem+env(safe-area-inset-bottom))]">
         <Card className="max-w-md w-full">
-          <CardContent className="p-8 text-center space-y-6">
+          <CardContent className="p-4 sm:p-8 text-center space-y-6">
             <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
               <Trophy className="h-10 w-10 text-primary" />
             </div>
@@ -1235,7 +1235,7 @@ export default function Game() {
             {currentGameSet && (
               <div className="pt-2 border-t">
                 <Link href={`/marketplace?setId=${currentGameSet.id}`}>
-                  <Button variant="outline" className="w-full gap-2" data-testid="button-browse-cards">
+                  <Button variant="outline" className="w-full gap-2 h-auto min-h-11 whitespace-normal py-2" data-testid="button-browse-cards">
                     <ShoppingBag className="h-4 w-4" />
                     Browse {applySetDisplayTitle(currentGameSet.id, currentGameSet.setName)} Cards for Sale
                   </Button>
