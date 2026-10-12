@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
-import { computeCreditCeilingCents, mergeProfitPolicyUpdate } from "./guardrailPolicy";
+import { computeCreditCeilingCents, mergeProfitPolicyUpdate, REDEMPTION_MIN_PACKPTS } from "./guardrailPolicy";
 
 const GOLDIN_NOT_SUPPORTED =
   "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
@@ -198,8 +198,10 @@ class ProfitGuardrailService {
     });
     let marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
 
-    // Enforce the minimum-redemption floor: sub-threshold offers show as ineligible
-    const minRedemptionPackpts = (policy as any).minRedemptionPackpts ?? 500;
+    // Minimum per-purchase redemption is 1 whole PackPTS (Dave, Oct 11 2026):
+    // small purchases earn. Credit is already floored to whole points above.
+    // The legacy policy column (live 500) is ignored.
+    const minRedemptionPackpts = REDEMPTION_MIN_PACKPTS;
     if (marginBackedRmax < minRedemptionPackpts) {
       marginBackedRmax = 0;
     }

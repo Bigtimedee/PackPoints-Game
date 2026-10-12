@@ -114,6 +114,16 @@ describe("rebate path end to end", () => {
     expect(q.marginBackedCreditCentsMax).toBeLessThanOrEqual(105);
   });
 
+  it("a $2 purchase earns whole PackPTS credit (no 500-point minimum)", async () => {
+    const q = await profitGuardrailService.createQuote(userId, "ebay", `two-${suffix}`, `https://www.ebay.com/itm/two-${suffix}`, 200, "usd", "e2e $2 card");
+    expect(q.marginBackedRmax).toBe(10); // 0.7*2%*75% of $2 = 2.1c -> 10 whole PackPTS at 0.2c
+    expect(q.marginBackedCreditCentsMax).toBe(2);
+    const a = await profitGuardrailService.applyRedemption(userId, q.purchaseIntentId, 10);
+    expect(a.success).toBe(true);
+    expect(a.approvedRedeemPackpts).toBe(10);
+    expect(a.creditCents).toBe(2);
+  });
+
   it("tracked link carries the customid that is stored, and a signed postback credits the user", async () => {
     const listing = `earned-${suffix}`;
     const { url, customid, click } = await trackedClick(listing);
