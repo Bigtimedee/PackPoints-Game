@@ -130,3 +130,12 @@ export function storeLine(usd: string | null, expiry: PointsExpiry | null, loade
 }
 
 export const SIGNUP_BODY_LIVE = "Save your points and use them for cash back on real cards.";
+
+export const ONBOARDING = { title: "Name the player. Earn points.", start: "Start playing", skip: "Skip" };
+
+/** Tour step 2 body, switched on rebateLive like the rest of the deck. */
+export function tourEarnStep(live: boolean): string {
+  return live
+    ? "Correct answers earn PackPTS (points) into your wallet. Use them for cash back on real cards."
+    : "Correct answers earn PackPTS (points) into your wallet. Points work toward rebates on real cards. Rebates open soon.";
+}

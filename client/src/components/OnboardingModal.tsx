@@ -3,11 +3,13 @@ import { Link } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { usePointsValue } from "@/hooks/use-points-value";
+import { tourEarnStep } from "@/lib/pointsCopy";
 import { Eye, Zap, Gift, ChevronRight, Check, UserPlus } from "lucide-react";
 
 const ONBOARDING_KEY = "packpts_onboarded";
 
-const steps = [
+const baseSteps = [
   {
     icon: Eye,
     title: "Guess the Player",
@@ -19,7 +21,7 @@ const steps = [
   {
     icon: Zap,
     title: "Earn PackPTS",
-    description: "Correct answers earn PackPTS (points) into your wallet. Points work toward rebates on real cards. Rebates open soon.",
+    description: tourEarnStep(false),
     badge: "Step 2 of 4",
     color: "text-yellow-500",
     bg: "bg-yellow-500/10",
@@ -45,6 +47,8 @@ const steps = [
 export function OnboardingModal() {
   const [open, setOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const { rebateLive } = usePointsValue();
+  const steps = baseSteps.map((s, i) => (i === 1 ? { ...s, description: tourEarnStep(rebateLive) } : s));
 
   useEffect(() => {
     const hasOnboarded = localStorage.getItem(ONBOARDING_KEY);
