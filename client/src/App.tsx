@@ -12,7 +12,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { feedbackLauncherAllowed, fullscreenMainClassName } from "@/lib/appShellLayout";
-import { usePlayChromeActive } from "@/lib/playChrome";
+import { useCompleteScreenActive, usePlayChromeActive } from "@/lib/playChrome";
 import { useOnboardingCardOpen, useWalletSheetOpen } from "@/lib/walletSheetOpen";
 import { useAuth } from "@/hooks/use-auth";
 import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
@@ -383,8 +383,11 @@ function AppShell() {
   const isMatchRoute = location === "/match" || location.startsWith("/match/");
   const isGameRoute = location.startsWith("/game/");
   const isReviewRoute = location.startsWith("/review/");
-  const isFullscreen = isMatchRoute || isGameRoute;
   const playActive = usePlayChromeActive();
+  // Solo Game Complete on /game/:id gets the header (and wallet chip) back,
+  // like /daily after Daily 5. During play the route stays fullscreen.
+  const completeActive = useCompleteScreenActive();
+  const isFullscreen = isMatchRoute || (isGameRoute && !(completeActive && !playActive));
 
   return (
     <div className={`h-dvh flex flex-col bg-background text-foreground overflow-hidden ${setsShellClassName(location)}`.trim()}>
