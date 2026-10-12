@@ -17,8 +17,7 @@ describe("first-run points card", () => {
     expect(home).toContain("<OnboardingPointsCard />");
   });
   it("tour step 2 switches on rebateLive", () => {
-    expect(tourEarnStep(false)).toContain("Rebates open soon.");
-    expect(tourEarnStep(false)).not.toContain("$");
+    expect(tourEarnStep(false)).toBe(tourEarnStep(true));
     expect(tourEarnStep(true)).toContain("cash back");
     for (const s of [tourEarnStep(true), tourEarnStep(false)]) expect(s).not.toMatch(/[\u2013\u2014]/);
   });

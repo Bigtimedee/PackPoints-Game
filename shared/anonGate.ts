@@ -54,7 +54,7 @@ export type PublicAnonGate = AnonGateDecision & {
 /** Locked Design / Marketing strings. Do not paraphrase. */
 export const ANON_GATE_COPY = {
   softTitle: "Keep your points",
-  softBody: "Save your points. They'll work toward rebates on real cards. Rebates open soon.",
+  softBody: "Save your points and use them for cash back on real cards.",
   softCta: "Create free account",
   softSecondary: "Continue once more",
   hardTitle: "Register to keep playing",

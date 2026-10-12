@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { usdFor as usdForValue, type PointsValue } from "@/lib/pointsCopy";
 
-const FALLBACK: PointsValue = { rebateLive: false, expiry: null };
+// Rebates are live; never render off-state copy while the value loads (Dave lock).
+const FALLBACK: PointsValue = { rebateLive: true, expiry: null };
 
 export function usePointsValue() {
   const q = useQuery<PointsValue>({
