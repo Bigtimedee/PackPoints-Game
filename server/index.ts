@@ -39,9 +39,9 @@ import { stopAllJobs } from "./jobs/pgJobQueue";
 // --- Environment validation ---
 function validateEnvironment() {
   const REQUIRED = ['DATABASE_URL', 'SESSION_SECRET'];
-  const RECOMMENDED = [
+  const RECOMMENDED: Array<{ key: string; feature: string; alternates?: string[] }> = [
     { key: 'STRIPE_SECRET_KEY', feature: 'Stripe payments' },
-    { key: 'STRIPE_WEBHOOK_SECRET', feature: 'Stripe webhooks' },
+    { key: 'STRIPE_WEBHOOK_SECRET', feature: 'Stripe webhooks', alternates: ['STRIPE_WEBHOOK_SECRET_LIVE', 'STRIPE_WEBHOOK_SECRET_TEST'] },
     { key: 'WORKOS_API_KEY', feature: 'WorkOS auth' },
     { key: 'OPENAI_API_KEY', feature: 'AI content generation' },
   ];
@@ -56,7 +56,8 @@ function validateEnvironment() {
     process.exit(1);
   }
 
-  for (const { key, feature } of RECOMMENDED) {
+  for (const { key, feature, alternates } of RECOMMENDED) {
+    if (alternates?.some((alt) => !!process.env[alt])) continue;
     if (!process.env[key]) {
       console.warn(`[Startup] WARNING: ${key} not set — ${feature} will be unavailable`);
     }

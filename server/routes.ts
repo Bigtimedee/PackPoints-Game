@@ -9848,6 +9848,11 @@ export async function registerRoutes(
       console.error("[Stripe] Webhook signature verification failed:", (err as Error).message);
       return res.status(400).json({ error: "Invalid signature" });
     }
+    const { getStripeMode, isModeMismatchedEvent } = await import("./stripeClient");
+    if (isModeMismatchedEvent(getStripeMode(req.get("host")), event.livemode)) {
+      console.warn(`[Stripe] Ignoring test-mode webhook ${event.id} (${event.type}) on live server`);
+      return res.json({ received: true, status: "ignored", reason: "test-mode event on live server" });
+    }
     const result = await stripePurchaseService.processWebhookEvent(event);
     if (result.status === "failed") {
       console.error(`[Stripe] Webhook ${event.id} (${event.type}) failed: ${result.error}`);

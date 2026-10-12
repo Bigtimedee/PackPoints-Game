@@ -226,3 +226,11 @@ export async function getStripeConfig(host?: string): Promise<{ mode: "live" | "
   const publishableKey = await getStripePublishableKey(host);
   return { mode, publishableKey };
 }
+
+/**
+ * A server on live keys must not act on test-mode events (livemode=false):
+ * acknowledge them so Stripe stops retrying, but grant nothing.
+ */
+export function isModeMismatchedEvent(serverMode: "live" | "test", eventLivemode: unknown): boolean {
+  return serverMode === "live" && eventLivemode === false;
+}
