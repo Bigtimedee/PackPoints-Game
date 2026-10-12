@@ -139,3 +139,9 @@ export function tourEarnStep(live: boolean): string {
     ? "Correct answers earn PackPTS (points) into your wallet. Use them for cash back on real cards."
     : "Correct answers earn PackPTS (points) into your wallet. Points work toward rebates on real cards. Rebates open soon.";
 }
+
+/** Home hero line. No cashback claim until rebates are live. */
+export const HOME_HERO = {
+  live: "Earn PackPTS for cashback on eligible real cards from eBay and Goldin.",
+  soon: "Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.",
+};
