@@ -92,7 +92,7 @@ export async function getRankedLeaderboard(limit: number = 50) {
     })
     .from(playerRatings)
     .leftJoin(users, eq(playerRatings.userId, users.id))
-    .where(ne(playerRatings.userId, QA_TEST_USER_ID))
+    .where(sql`${playerRatings.userId} <> ${QA_TEST_USER_ID} AND COALESCE(${users.isTestAccount}, false) = false`)
     .orderBy(desc(playerRatings.rating))
     .limit(limit);
 

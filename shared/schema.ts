@@ -41,6 +41,8 @@ export const users = pgTable("users", {
   totalAnswers: integer("total_answers").notNull().default(0),
   isAdmin: boolean("is_admin").notNull().default(false),
   isBot: boolean("is_bot").notNull().default(false),
+  // Internal QA / e2e accounts: left out of leaderboards, analytics and signup reports.
+  isTestAccount: boolean("is_test_account").notNull().default(false),
   workosUserId: varchar("workos_user_id").unique(),
   status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
   activatedAt: timestamp("activated_at"),
@@ -5026,3 +5028,9 @@ export const adminSetPreparationJobs = pgTable("admin_set_preparation_jobs", {
   results: jsonb("results").notNull(),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
 });
+
+/**
+ * Startup seed for users.is_test_account (server/services/testAccounts.ts).
+ * Matched on username_normalized / lower(username). Adding a name here flags it on next boot.
+ */
+export const TEST_ACCOUNT_SEED_USERNAMES = ["designqa", "claude_e2e_test", "qa_design_test"] as const;

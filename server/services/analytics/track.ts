@@ -26,6 +26,9 @@ let started = false;
 // is_clean can be set at capture with no hot-path query. Empty until first
 // refresh (fail-open to clean=true; the rollup layer re-derives authoritatively).
 let flaggedHashes = new Set<string>();
+// users.is_test_account, refreshed with the risk set. Events from these users are dropped.
+let testUserIds = new Set<string>();
+let testHashes = new Set<string>();
 
 async function refreshFlaggedUsers(): Promise<void> {
   try {
@@ -36,6 +39,14 @@ async function refreshFlaggedUsers(): Promise<void> {
       if (r.user_id) next.add(crypto.createHmac("sha256", salt).update(r.user_id).digest("hex"));
     }
     flaggedHashes = next;
+    const testRows = await db.execute(sql`SELECT id FROM users WHERE is_test_account = true`);
+    const ids = new Set<string>();
+    const hashes = new Set<string>();
+    for (const r of (testRows.rows as any[])) {
+      if (r.id) { ids.add(r.id); hashes.add(crypto.createHmac("sha256", salt).update(r.id).digest("hex")); }
+    }
+    testUserIds = ids;
+    testHashes = hashes;
   } catch {
     // keep the previous set on failure
   }
@@ -71,8 +82,10 @@ export interface TrackInput {
 export function track(input: TrackInput): void {
   try {
     if (isQaTestUser(input.userId)) return; // QA test account never lands in analytics
+    if (input.userId && testUserIds.has(input.userId)) return;
     ensureStarted();
     const userHash = input.userHash ?? hashUser(input.userId);
+    if (userHash && testHashes.has(userHash)) return;
     const isClean = input.isClean ?? (userHash ? !flaggedHashes.has(userHash) : true);
     buffer.push({
       eventType: input.eventType,

@@ -96,7 +96,7 @@ describe("QA account exclusions", () => {
   it("leaderboards, analytics and signup counts exclude the account", () => {
     expect(read("storage.ts")).toContain("<> ${QA_TEST_USER_ID}");
     expect(read("services/daily5Service.ts")).toContain("dce.user_id <> ${QA_TEST_USER_ID}");
-    expect(read("services/ratingService.ts")).toContain("ne(playerRatings.userId, QA_TEST_USER_ID)");
+    expect(read("services/ratingService.ts")).toContain("${playerRatings.userId} <> ${QA_TEST_USER_ID}");
     expect(read("services/analytics/track.ts")).toContain("if (isQaTestUser(input.userId)) return;");
     expect(read("services/signupSources.ts")).toContain("WHERE u.id <> '${QA_TEST_USER_ID}'");
   });
@@ -104,5 +104,33 @@ describe("QA account exclusions", () => {
     const src = read("routes/qaSession.ts");
     expect(src).toContain("isAdmin: false");
     expect(src).not.toMatch(/isAdmin:\s*true/);
+  });
+});
+
+describe("is_test_account flag", () => {
+  const read = (p: string) => fs.readFileSync(path.join(__dirname, "..", p), "utf8");
+  it("schema carries the column and the seed list", async () => {
+    const schema = fs.readFileSync(path.join(__dirname, "../../shared/schema.ts"), "utf8");
+    expect(schema).toContain('isTestAccount: boolean("is_test_account").notNull().default(false)');
+    const { TEST_ACCOUNT_SEED_USERNAMES } = await import("@shared/schema");
+    expect([...TEST_ACCOUNT_SEED_USERNAMES]).toEqual(expect.arrayContaining(["designqa", "claude_e2e_test"]));
+  });
+  it("seed is migration-safe and never unflags", () => {
+    const src = read("services/testAccounts.ts");
+    expect(src).toContain("ADD COLUMN IF NOT EXISTS is_test_account");
+    expect(src).not.toMatch(/SET is_test_account = false/);
+  });
+  it("every leaderboard, analytics and signup report reads the flag", () => {
+    expect(read("storage.ts")).toContain("${users.isTestAccount} = false");
+    expect(read("services/daily5Service.ts")).toContain("u.is_test_account = false");
+    expect(read("services/ratingService.ts")).toContain("COALESCE(${users.isTestAccount}, false) = false");
+    expect(read("services/signupSources.ts")).toContain("u.is_test_account = false");
+    expect(read("services/analytics/track.ts")).toContain("testUserIds.has(input.userId)");
+  });
+  it("/api/qa/test-accounts is 404 without the token", async () => {
+    process.env.QA_SESSION_TOKEN = TOKEN;
+    await withServer(async (base) => {
+      expect((await fetch(`${base}/api/qa/test-accounts`)).status).toBe(404);
+    });
   });
 });
