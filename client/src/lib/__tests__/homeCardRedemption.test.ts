@@ -13,7 +13,7 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(covers).toContain('toPublicMaskPlan(JSON.parse(readFileSync(planFile');
   });
   it("puts eligible real-card cashback in the hero, before Play Now", () => {
-    expect(HOME_HERO.live).toBe('Earn PackPTS for cashback on eligible real cards from eBay and Goldin.');
+    expect(HOME_HERO.live).toBe('Earn PackPTS for cashback on eligible real cards from eBay.');
     expect(HOME_HERO.soon).toBe('Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.');
     expect(HOME_HERO.soon.toLowerCase()).not.toContain('cash');
     expect(home).toContain('{heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}');

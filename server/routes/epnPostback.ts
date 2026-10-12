@@ -1,9 +1,13 @@
-import type { Express } from "express";
+import express, { type Express } from "express";
 import { verifyEpnSecret } from "../services/epnVerification";
 
 /** Register before the legacy route: this handler always terminates the request. */
 export function registerVerifiedEpnPostback(app: Express): void {
-  app.get("/api/webhooks/epn-postback", async (req, res) => {
+  const handler = async (req: any, res: any) => {
+    // EPN may POST (form or JSON); fields can come in the body or the query.
+    if (req.method === "POST" && req.body && typeof req.body === "object") {
+      req.query = { ...req.body, ...req.query };
+    }
     const secret = process.env.EPN_POSTBACK_SECRET;
     if (!secret || secret.length < 32) {
       res.status(503).json({ error: "EPN postback disabled" });
@@ -40,5 +44,7 @@ export function registerVerifiedEpnPostback(app: Express): void {
     } catch {
       res.status(400).json({ error: "Postback evidence rejected" });
     }
-  });
+  };
+  app.get("/api/webhooks/epn-postback", handler);
+  app.post("/api/webhooks/epn-postback", express.urlencoded({ extended: false, limit: "16kb" }), express.json({ limit: "16kb" }), handler);
 }
