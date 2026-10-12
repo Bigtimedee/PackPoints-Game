@@ -30,7 +30,7 @@ export function usdFor(value: PointsValue | undefined, points: number): string |
 
 export const PRIMARY = {
   live: "Name the player. Earn points. Use them for cash back on real cards.",
-  soon: "Name the player. Earn points. Points work toward rebates on real cards. Coming soon.",
+  soon: "Name the player. Earn points. Points work toward rebates on real cards. Rebates open soon.",
 };
 
 export function stripSteps(live: boolean) {
@@ -44,7 +44,7 @@ export function stripSteps(live: boolean) {
 export function valueLine(points: number, usd: string | null): string {
   const n = points.toLocaleString("en-US");
   if (usd) return `Your ${n} points are worth up to ${usd} back on your next eBay or Goldin card.`;
-  return `You have ${n} points. Points work toward rebates on real cards. Coming soon.`;
+  return `You have ${n} points. Points work toward rebates on real cards. Rebates open soon.`;
 }
 
 export const GUEST_KEEP = "Sign up to keep these points.";
@@ -114,7 +114,7 @@ export const WALLET = {
   title: "Your points",
   balance: (points: number) => `${points.toLocaleString("en-US")} points`,
   live: (usd: string) => `Worth up to ${usd} back on your next eBay or Goldin card.`,
-  soon: "Points work toward rebates on real cards. Coming soon.",
+  soon: "Points work toward rebates on real cards. Rebates open soon.",
   expiring: (n: number) => `${n.toLocaleString("en-US")} points expire in the next 30 days.`,
   link: "How points work",
   close: "Close",
