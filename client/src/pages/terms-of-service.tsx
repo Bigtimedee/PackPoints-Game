@@ -59,8 +59,8 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-lg font-semibold mb-3">6. Marketplace and Cashback</h2>
             <ul className="list-disc pl-5 space-y-2">
-              <li>The Marketplace shows live eBay and Goldin listings. We do not sell the cards. You buy from eBay or Goldin at their full price and under their terms. We may earn an affiliate commission when you buy through our links.</li>
-              <li>You can apply PackPTS only to a listing shown to you inside PackPTS. Applying takes the points from your wallet right away and sets the most cashback you can earn on that listing. It does not lower the price eBay or Goldin charges.</li>
+              <li>The Marketplace shows live eBay listings. We do not sell the cards. You buy from eBay at its full price and under its terms. We may earn an affiliate commission when you buy through our links.</li>
+              <li>You can apply PackPTS only to a listing shown to you inside PackPTS. Applying takes the points from your wallet right away and sets the most cashback you can earn on that listing. It does not lower the price eBay charges.</li>
               <li>Cashback is added to your USD cashback balance only when eBay's affiliate report confirms your purchase of that item through our tracked link. Telling us you bought something does not add cashback, and no one adds it by hand.</li>
               <li>If eBay reports a total below the price you applied against, your cashback and the points used are reduced in proportion, and the unused points go back to your wallet. If you do not buy, you can cancel the apply and the points go back to your wallet.</li>
               <li>Goldin gives us no automatic confirmation of purchases, so PackPTS cannot currently be applied to Goldin listings.</li>

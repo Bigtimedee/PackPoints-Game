@@ -91,6 +91,6 @@ describe("eBay apply-PackPTS product copy honesty", () => {
     expect(home).toMatch(/do not change the price eBay charges/i);
     expect(storage).toMatch(/PackPTS Credit Token/);
     expect(storage).not.toMatch(/eBay Gift Card/);
-    expect(routes).toMatch(/not usable at eBay or Goldin checkout/);
+    expect(routes).toMatch(/not usable at eBay checkout/);
   });
 });

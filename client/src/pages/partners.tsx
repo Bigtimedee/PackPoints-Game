@@ -18,13 +18,6 @@ const MARKETPLACE_PARTNERS = [
     features: ["Live sports-card listing search", "Affiliate (EPN) outbound links", "Buyer protection stays on eBay"],
     active: true,
   },
-  {
-    name: "Goldin Auctions",
-    logo: "Goldin",
-    description: "Browse admin-curated Goldin listings on PackPTS. Applying PackPTS does not change what Goldin charges.",
-    features: ["VIP auction access", "Exclusive lots", "Authentication included"],
-    active: true,
-  },
 ];
 
 interface InquiryForm {
@@ -71,7 +64,7 @@ export default function Partners() {
           <Badge variant="secondary" className="mb-4">Marketplace</Badge>
           <h1 className="text-4xl font-bold mb-4">Browse Real Cards from PackPTS</h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Browse live eBay and Goldin listings from PackPTS. PackPTS you apply are reserved in your wallet and do not change the price those marketplaces charge.
+            Browse live eBay listings from PackPTS. PackPTS you apply are reserved in your wallet and do not change the price those marketplaces charge.
           </p>
         </div>
 
@@ -80,7 +73,7 @@ export default function Partners() {
           {[
             { step: "1", title: "Earn PackPTS", desc: "Play trivia games and answer correctly to earn points.", icon: Zap },
             { step: "2", title: "Browse Cards", desc: "Find cards you want from our marketplace partners.", icon: TrendingUp },
-            { step: "3", title: "Reserve PackPTS", desc: "PackPTS you apply stay in your wallet. That does not change eBay or Goldin checkout.", icon: Users },
+            { step: "3", title: "Reserve PackPTS", desc: "PackPTS you apply stay in your wallet. That does not change eBay checkout.", icon: Users },
           ].map(({ step, title, desc, icon: Icon }) => (
             <Card key={step}>
               <CardContent className="p-6 text-center">

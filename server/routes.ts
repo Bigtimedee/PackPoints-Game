@@ -2747,7 +2747,7 @@ export async function registerRoutes(
         requiresReview: result.requiresReview,
         message: result.requiresReview 
           ? "Your redemption is pending admin review due to the high value."
-          : "Redemption successful. Your PackPTS token is shown below. It is not usable at eBay or Goldin checkout.",
+          : "Redemption successful. Your PackPTS token is shown below. It is not usable at eBay checkout.",
       });
     } catch (error) {
       console.error("Error processing redemption:", error);
@@ -5771,7 +5771,7 @@ export async function registerRoutes(
       if (error.name === "CardHedgeError") {
         return res.status(503).json({ 
           error: "CARDHEDGE_UNAVAILABLE",
-          message: "Card data temporarily unavailable — retrying"
+          message: "Card data temporarily unavailable. Retrying."
         });
       }
       res.status(500).json({ error: error.message || "Failed to search Card Hedge" });
@@ -8262,7 +8262,7 @@ export async function registerRoutes(
       if (!discovered) {
         return res.status(400).json({
           error: "listing_not_discovered",
-          message: "PackPTS can only be applied to eBay or Goldin listings found in PackPTS. Refresh the listings and try again.",
+          message: "PackPTS can only be applied to eBay listings found in PackPTS. Refresh the listings and try again.",
         });
       }
       const listingUrl = discovered.listingUrl;
@@ -8411,6 +8411,8 @@ export async function registerRoutes(
             usdDueCents,
             usdSavingsCents,
             effectiveValuePerPtMicrousds: Math.round(valuePerPtCents * 1000000),
+            // Most cashback this listing can earn: capped points x value (same cap as the quote).
+            maxCreditCents: Math.floor(ptsMaxApplicable * valuePerPtCents * 100),
             reasons: [],
             ctaLabel: ptsMaxApplicable > 0 ? "Apply PackPTS" : "Earn PackPTS",
           };

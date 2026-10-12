@@ -17,6 +17,8 @@ import { Loader2, ExternalLink, ArrowLeft, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWallet } from "@/hooks/use-wallet";
+import { usePointsValue } from "@/hooks/use-points-value";
+import { holdLine } from "@/lib/pointsCopy";
 import { ReceiptPlaque } from "@/components/receipt-plaque";
 import {
   RECEIPT_COLORS,
@@ -399,6 +401,8 @@ function RedemptionsList() {
 
 export default function RedemptionsPage() {
   const [isDetail] = useRoute("/redemptions/:intentId");
+  const { value } = usePointsValue();
+  const hold = holdLine(value);
 
   return (
     <div className="min-h-screen pb-20 md:pb-8" style={{ background: RECEIPT_COLORS.canvas, color: RECEIPT_COLORS.ink }}>
@@ -406,9 +410,10 @@ export default function RedemptionsPage() {
         <h1 className="text-3xl font-bold mb-2" data-testid="text-redemptions-title">
           {isDetail ? "PackPTS receipt" : "My Redemptions"}
         </h1>
-        <p className="mb-8" style={{ color: RECEIPT_COLORS.muted }}>
-          Post-purchase rebate after eBay or Goldin purchases. Partner checkout unchanged.
+        <p className={hold ? "mb-2" : "mb-8"} style={{ color: RECEIPT_COLORS.muted }}>
+          Post-purchase rebate after eBay purchases. eBay checkout unchanged.
         </p>
+        {hold && <p className="mb-8 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-redemptions-hold">{hold}</p>}
         {isDetail ? <ReceiptDetail /> : <RedemptionsList />}
       </div>
     </div>

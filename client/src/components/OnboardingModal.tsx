@@ -29,7 +29,7 @@ const baseSteps = [
   {
     icon: Gift,
     title: "Browse Real Listings",
-    description: "Visit Marketplace to browse live eBay and Goldin listings. PackPTS you apply stay in your wallet and do not change the price those sites charge.",
+    description: "Visit Marketplace to browse live eBay listings. PackPTS you apply stay in your wallet and do not change the price those sites charge.",
     badge: "Step 3 of 4",
     color: "text-green-500",
     bg: "bg-green-500/10",

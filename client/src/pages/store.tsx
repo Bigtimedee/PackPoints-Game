@@ -470,7 +470,7 @@ export default function Store() {
                 <div>
                   <h4 className="font-medium">Browse Live Listings</h4>
                   <p className="text-sm text-muted-foreground">
-                    Browse live eBay and Goldin listings from Marketplace. PackPTS you apply stay in your wallet and do not change the price those sites charge.
+                    Browse live eBay listings from Marketplace. PackPTS you apply stay in your wallet and do not change the price those sites charge.
                   </p>
                 </div>
               </div>
@@ -493,7 +493,7 @@ export default function Store() {
                 <div className="flex-1 text-center md:text-left">
                   <h3 className="font-semibold text-lg mb-1">Browse Live Listings</h3>
                   <p className="text-sm text-muted-foreground">
-                    Search real-time listings from Goldin Auctions and eBay. We may earn an affiliate commission. Applied PackPTS do not change the eBay price.
+                    Search real-time eBay listings. We may earn an affiliate commission. Applied PackPTS do not change the eBay price.
                   </p>
                 </div>
                 <Link href="/marketplace">

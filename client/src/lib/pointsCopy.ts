@@ -58,7 +58,7 @@ export function pageSteps(live: boolean) {
     { title: "Play and earn", body: "Name the player on each card. Correct answers earn points into your wallet." },
     live
       ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." }
-      : { title: "Apply on a real card", body: "Soon you'll apply points on live eBay and Goldin listings." },
+      : { title: "Apply on a real card", body: "Soon you'll apply points on live eBay listings." },
     live
       ? { title: "Get your rebate", body: "When eBay confirms the sale, usually within a day or two, your rebate lands in your wallet. It's held 30 days, then you can cash out from $10." }
       : { title: "Get a rebate", body: "Coming soon. We'll tell you the day it opens." },
@@ -90,7 +90,7 @@ export function expiryAnswer(expiry: PointsExpiry | null): string {
 export function checkoutAnswer(live: boolean): string {
   return live
     ? "No. You buy on eBay exactly like normal. The rebate comes from PackPTS once eBay confirms the purchase."
-    : "No. When rebates open, you'll still buy on eBay or Goldin like normal.";
+    : "No. When rebates open, you'll still buy on eBay like normal.";
 }
 
 export function addingAnswer(live: boolean, expiry: PointsExpiry | null): string {
@@ -127,6 +127,12 @@ export function storeLine(usd: string | null, expiry: PointsExpiry | null, loade
   return never
     ? "Points work toward rebates on real cards. Coming soon. Bought points never expire."
     : "Points work toward rebates on real cards. Coming soon.";
+}
+
+/** Hold and payout line. Values come live from /api/points/value. Null until loaded. */
+export function holdLine(value: PointsValue | undefined): string | null {
+  if (!value || !value.rebateLive || typeof value.holdDays !== "number" || !value.payoutMinimum) return null;
+  return `Rebates are held ${value.holdDays} days, then you can cash out from ${value.payoutMinimum.display}. Payouts are reviewed before they're sent.`;
 }
 
 export const SIGNUP_BODY_LIVE = "Save your points and use them for cash back on real cards.";

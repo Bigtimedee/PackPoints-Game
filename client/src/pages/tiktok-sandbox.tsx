@@ -183,7 +183,7 @@ export default function TiktokSandbox() {
         publishId: null,
         status: null,
         kind: "error",
-        message: `${postMode} failed — network error.`,
+        message: `${postMode} failed. Network error.`,
       });
     } finally {
       setBusy(null);
@@ -207,7 +207,7 @@ export default function TiktokSandbox() {
         </header>
 
         <p className="mb-6 text-sm leading-6 text-white/70">
-          Daily 5 shows the same five masked cards to everyone. Name the player — names stay hidden
+          Daily 5 shows the same five masked cards to everyone. Name the player. Names stay hidden
           until you answer. This page is a review-only Login Kit + Content Posting demo. It is not
           linked from the main nav.
         </p>
@@ -220,7 +220,7 @@ export default function TiktokSandbox() {
             {urlError && (
               <p>
                 <span className="font-semibold">{urlError}</span>
-                {urlDetail ? ` — ${urlDetail}` : ""}
+                {urlDetail ? `: ${urlDetail}` : ""}
               </p>
             )}
             {sessionError && <p>{sessionError}</p>}
@@ -325,17 +325,17 @@ export default function TiktokSandbox() {
               </div>
               <div>
                 <dt className="text-white/45">publish_id</dt>
-                <dd data-testid="tiktok-publish-id">{publish.publishId ?? "—"}</dd>
+                <dd data-testid="tiktok-publish-id">{publish.publishId ?? "None"}</dd>
               </div>
               <div>
                 <dt className="text-white/45">status</dt>
-                <dd data-testid="tiktok-publish-status">{publish.status ?? "—"}</dd>
+                <dd data-testid="tiktok-publish-status">{publish.status ?? "None"}</dd>
               </div>
               {publish.kind === "success" && (
                 <p className="text-sm font-sans text-emerald-300">
                   {publish.status === "SEND_TO_USER_INBOX"
-                    ? "Sandbox success — photo sent to the TikTok inbox (MEDIA_UPLOAD)."
-                    : "Sandbox success — PUBLISH_COMPLETE."}
+                    ? "Sandbox success. Photo sent to the TikTok inbox (MEDIA_UPLOAD)."
+                    : "Sandbox success: PUBLISH_COMPLETE."}
                 </p>
               )}
               {publish.kind === "error" && (

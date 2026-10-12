@@ -223,6 +223,7 @@ interface BatchQuote {
   effectiveValuePerPtMicrousds: number;
   reasons: string[];
   ctaLabel: string;
+  maxCreditCents?: number;
 }
 
 interface LiveListingCardProps {
@@ -427,10 +428,10 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                   </p>
                 )}
                 
-                {isAuthenticated && canApplyPackPTS && parseFloat(savingsInDollars) >= 0.50 && (
+                {isAuthenticated && canApplyPackPTS && (batchQuote?.maxCreditCents ?? 0) > 0 && (
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="bg-accent/10 text-accent border-accent/20 gap-1">
-                      Reserve ${savingsInDollars} in PackPTS
+                    <Badge variant="secondary" className="bg-accent/10 text-accent border-accent/20 gap-1" data-testid={`badge-up-to-${listing.id}`}>
+                      Up to ${((batchQuote!.maxCreditCents ?? 0) / 100).toFixed(2)} back
                     </Badge>
                   </div>
                 )}
@@ -672,7 +673,8 @@ export default function Marketplace() {
   
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<"all" | "ebay" | "goldin">("all");
+  // Rebates credit on eBay only (Goldin sends no purchase confirmation), so Marketplace shows eBay only.
+  const sourceFilter = "ebay" as const;
   const [sortBy, setSortBy] = useState<"relevance" | "priceAsc" | "priceDesc" | "endingSoon">("relevance");
   
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
@@ -844,7 +846,7 @@ export default function Marketplace() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold" data-testid="text-marketplace-title">Marketplace</h1>
-            <p className="text-muted-foreground">Browse live listings. eBay/Goldin checkout stays full price. PackPTS pays cashback after you buy.</p>
+            <p className="text-muted-foreground">Browse live listings. eBay checkout stays full price. PackPTS pays cashback after you buy.</p>
             <p className="mt-1">
               <Link href="/redemptions" className="text-sm text-accent underline-offset-4 hover:underline">
                 My Redemptions / receipts
@@ -933,16 +935,6 @@ export default function Marketplace() {
                     />
                   </div>
                   <div className="flex gap-2">
-                    <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as any)}>
-                      <SelectTrigger className="w-32" data-testid="select-source">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Sources</SelectItem>
-                        <SelectItem value="ebay">eBay Only</SelectItem>
-                        <SelectItem value="goldin">Goldin Only</SelectItem>
-                      </SelectContent>
-                    </Select>
                     <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
                       <SelectTrigger className="w-36" data-testid="select-sort">
                         <SelectValue />
@@ -1047,7 +1039,7 @@ export default function Marketplace() {
                   <div>
                     <h3 className="font-semibold text-lg">Search for Cards</h3>
                     <p className="text-muted-foreground">
-                      Find live listings from eBay and Goldin Auctions. PackPTS you apply stay in your wallet and do not change the price those sites charge. We may earn an affiliate commission.
+                      Find live listings from eBay. PackPTS you apply stay in your wallet and do not change the price eBay charges. We may earn an affiliate commission.
                     </p>
                   </div>
                 </CardContent>
@@ -1124,7 +1116,7 @@ export default function Marketplace() {
               <CardContent className="p-4 text-sm space-y-2">
                 <p className="font-medium">These catalog SKUs are internal PackPTS tokens, not a payout rail.</p>
                 <p className="text-muted-foreground">
-                  They are not eBay or Goldin gift cards and nothing on those sites accepts the hex token.
+                  They are not eBay gift cards and nothing on those sites accepts the hex token.
                   For real USD cashback, use Live Listings → Apply PackPTS → buy at full price → cashback is added when eBay confirms.
                 </p>
                 <Button variant="secondary" asChild>
@@ -1149,13 +1141,13 @@ export default function Marketplace() {
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                         2
                       </div>
-                      <p className="text-muted-foreground">Browse PackPTS token options: internal wallet tokens, not eBay or Goldin gift cards</p>
+                      <p className="text-muted-foreground">Browse PackPTS token options: internal wallet tokens, not eBay gift cards</p>
                     </div>
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                         3
                       </div>
-                      <p className="text-muted-foreground">Spend PackPTS to mint a hex token. Tokens are not usable at eBay or Goldin checkout.</p>
+                      <p className="text-muted-foreground">Spend PackPTS to mint a hex token. Tokens are not usable at eBay checkout.</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1229,7 +1221,7 @@ export default function Marketplace() {
           <DialogHeader>
             <DialogTitle>Confirm Redemption</DialogTitle>
             <DialogDescription>
-              You're about to spend PackPTS for an internal PackPTS token. This is not store credit on eBay or Goldin.
+              You're about to spend PackPTS for an internal PackPTS token. This is not store credit on eBay.
             </DialogDescription>
           </DialogHeader>
           
@@ -1319,7 +1311,7 @@ export default function Marketplace() {
               </p>
             ) : (
               <p className="text-muted-foreground">
-                Your PackPTS token was created. No email is sent. This token is not accepted at eBay or Goldin checkout.
+                Your PackPTS token was created. No email is sent. This token is not accepted at eBay checkout.
               </p>
             )}
             

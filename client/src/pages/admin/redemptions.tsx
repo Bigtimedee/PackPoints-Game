@@ -598,7 +598,7 @@ function AdminRebatePayouts() {
   const denyMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/admin/rebate-payouts/${id}/deny`, { reason: "Could not send" }),
     onSuccess: () => {
-      toast({ title: "Payout denied — cashback returned" });
+      toast({ title: "Payout denied. Cashback returned." });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/rebate-payouts"] });
     },
     onError: (error: Error) => toast({ title: "Failed", description: error.message, variant: "destructive" }),

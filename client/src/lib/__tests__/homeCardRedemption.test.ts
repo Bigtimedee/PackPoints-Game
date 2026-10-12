@@ -25,3 +25,13 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(home).toContain('do not change the price eBay charges');
   });
 });
+
+import { holdLine } from "../pointsCopy";
+describe("hold line", () => {
+  it("reads hold days and minimum from the live value", () => {
+    expect(holdLine({ rebateLive: true, expiry: null, holdDays: 30, payoutMinimum: { cents: 1000, display: "$10" } }))
+      .toBe("Rebates are held 30 days, then you can cash out from $10. Payouts are reviewed before they're sent.");
+    expect(holdLine({ rebateLive: false, expiry: null, holdDays: 30, payoutMinimum: { cents: 1000, display: "$10" } })).toBeNull();
+    expect(holdLine({ rebateLive: true, expiry: null })).toBeNull();
+  });
+});
