@@ -1,8 +1,9 @@
 import { db } from "../db";
-import { canonicalEbayItem, matchesEpnIntent, parseEpnMoney, resolveEpnLine, epnItemList, normalizeEpnCustomId } from "./epnVerification";
+import { classifyEpnStatus, canonicalEbayItem, matchesEpnIntent, parseEpnMoney, resolveEpnLine, epnItemList, normalizeEpnCustomId } from "./epnVerification";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import {
   attributedPurchases,
+  marginLedger,
   externalPurchaseIntent,
   outboundClicks,
   rebateLedger,
@@ -20,6 +21,7 @@ import {
   PAYOUT_MIN_CENTS,
   PAYOUT_HOLD_DAYS,
   computeWithdrawableCents,
+  commissionGrant,
   normalizePayoutDestination,
   payoutReviewFlags,
 } from "./guardrailPolicy";
@@ -367,6 +369,7 @@ class RebateService {
 
       // Revalidate evidence inside the locked grant transaction, including direct callers.
       let verifiedSaleCents: number | null = null;
+      let verifiedCommissionCents: number | null = null;
       if (opts.method !== "EPN_POSTBACK") throw new Error("Only a verified eBay purchase can grant cashback");
       {
         if (!opts.outboundClickId || !opts.attributedPurchaseId || !opts.expectedUserId) {
@@ -387,6 +390,7 @@ class RebateService {
           throw new Error("EPN purchase evidence does not match intent");
         }
         verifiedSaleCents = purchase.salePriceCents;
+        verifiedCommissionCents = purchase.commissionCents ?? null;
       }
 
       if (intent.status === "CREDIT_GRANTED") {
@@ -429,41 +433,34 @@ class RebateService {
         throw new Error("Cannot grant a reversed redemption");
       }
 
-      // eBay reported a total below the price applied (offer, auction, partial order):
-      // prorate credit and PackPTS spent from eBay's reported total, and refund the
-      // PackPTS that are no longer needed. At or above the applied price: full credit.
+      // Rebate = 100% of the confirmed EPN commission (Dave, Oct 12 2026), capped
+      // at the credit applied. No commission on the postback means nothing to pay
+      // yet: leave the apply open so a later postback carrying it can grant.
       let usedReservationCents: number | undefined;
-      if (verifiedSaleCents !== null && verifiedSaleCents < intent.priceCents) {
-        const prorated = prorateRedemption(credit.creditCents, credit.packptsSpent, intent.priceCents, verifiedSaleCents);
-        if (prorated.creditCents <= 0) {
-          await recordRebateAudit(tx, {
-            event: "EPN_POSTBACK_REJECTED",
-            actor: "epn_postback",
-            userId: intent.userId,
-            purchaseIntentId: intent.id,
-            details: { reason: "reported total too low for any credit", reportedTotalCents: verifiedSaleCents, appliedPriceCents: intent.priceCents },
-          });
-          return {
-            success: true,
-            granted: false,
-            heldForReview: false,
-            alreadyGranted: false,
-            rebateBalanceCents: 0,
-            creditCents: 0,
-            packptsSpent: credit.packptsSpent,
-            receiptUrl: receiptPath(intent.id),
-            message: "The purchase total was too low for any cashback.",
-            userId: intent.userId,
-            listingTitle: intent.listingTitle,
-            source: intent.source,
-            skipEmail: true,
-          };
-        }
-        if (prorated.refundPackpts > 0) {
+      if (!verifiedCommissionCents || verifiedCommissionCents <= 0) {
+        await recordRebateAudit(tx, {
+          event: "EPN_POSTBACK_REJECTED",
+          actor: "epn_postback",
+          userId: intent.userId,
+          purchaseIntentId: intent.id,
+          details: { reason: "postback has no commission yet", reportedTotalCents: verifiedSaleCents },
+        });
+        return {
+          success: true, granted: false, heldForReview: false, alreadyGranted: false,
+          rebateBalanceCents: 0, creditCents: 0, packptsSpent: credit.packptsSpent,
+          receiptUrl: receiptPath(intent.id),
+          message: "Waiting for eBay to confirm the commission on this sale.",
+          userId: intent.userId, listingTitle: intent.listingTitle, source: intent.source, skipEmail: true,
+        };
+      }
+      const centsPerPoint = credit.packptsSpent > 0 ? credit.creditCents / credit.packptsSpent : 0.2;
+      const final = commissionGrant(credit.creditCents, credit.packptsSpent, verifiedCommissionCents, centsPerPoint);
+      if (final.creditCents < credit.creditCents) {
+        if (final.refundPackpts > 0) {
           const refund = await walletService.earn(
             intent.userId,
-            prorated.refundPackpts,
-            "Partial refund: purchase price was lower than the price applied",
+            final.refundPackpts,
+            "Points returned: eBay's confirmed commission was below the rebate applied",
             `partial-refund:${intent.id}`,
             undefined,
             tx,
@@ -476,24 +473,30 @@ class RebateService {
           actor: "epn_postback",
           userId: intent.userId,
           purchaseIntentId: intent.id,
-          packpts: prorated.refundPackpts,
-          amountCents: prorated.creditCents,
+          packpts: final.refundPackpts,
+          amountCents: final.creditCents,
           details: {
+            reason: "credit set to confirmed commission",
+            commissionCents: verifiedCommissionCents,
             reportedTotalCents: verifiedSaleCents,
-            appliedPriceCents: intent.priceCents,
             creditBeforeCents: credit.creditCents,
-            creditAfterCents: prorated.creditCents,
-            packptsSpentBefore: credit.packptsSpent,
-            packptsSpentAfter: prorated.keptPackpts,
+            creditAfterCents: final.creditCents,
           },
         });
         [credit] = await tx
           .update(redemptionCredit)
-          .set({ creditCents: prorated.creditCents, packptsSpent: prorated.keptPackpts })
+          .set({ creditCents: final.creditCents, packptsSpent: final.keptPackpts })
           .where(eq(redemptionCredit.id, credit.id))
           .returning();
-        usedReservationCents = prorated.creditCents;
+        usedReservationCents = final.creditCents;
       }
+      // Book the confirmed commission into the pool so the rebate it funds is net zero.
+      await tx.insert(marginLedger).values({
+        sourceType: "AFFILIATE_PAYOUT",
+        amountCents: verifiedCommissionCents,
+        referenceId: opts.attributedPurchaseId ?? null,
+        note: `EPN commission ${intent.source} ${intent.listingId}`,
+      });
 
       await treasuryService.consumeReservation(intent.id, credit.id, tx, usedReservationCents);
 
@@ -650,9 +653,15 @@ class RebateService {
         throw new Error("Insufficient cashback balance");
       }
 
-      // 30-day hold: fresh credit can't be withdrawn until it outlasts the return window.
+      // Hold (PAYOUT_HOLD_DAYS, 60) from purchase; a sale EPN reports as locked
+      // releases at PAYOUT_LOCKED_MIN_HOLD_DAYS (45), never earlier.
       const recent = await tx
-        .select({ amountCents: rebateLedger.amountCents, type: rebateLedger.type, createdAt: rebateLedger.createdAt })
+        .select({
+          amountCents: rebateLedger.amountCents,
+          type: rebateLedger.type,
+          createdAt: rebateLedger.createdAt,
+          locked: sql<boolean>`COALESCE((SELECT (ap.raw_payload->>'epnLockedAt') IS NOT NULL FROM ${externalPurchaseIntent} epi JOIN ${attributedPurchases} ap ON ap.id = epi.attributed_purchase_id WHERE epi.id = ${rebateLedger.purchaseIntentId} LIMIT 1), false)`,
+        })
         .from(rebateLedger)
         .where(and(
           eq(rebateLedger.userId, userId),
@@ -662,7 +671,7 @@ class RebateService {
       const { withdrawableCents, heldCents } = computeWithdrawableCents(wallet.rebateBalanceCents ?? 0, recent);
       if (amountCents > withdrawableCents) {
         throw new Error(
-          `Only $${(withdrawableCents / 100).toFixed(2)} is available to withdraw; $${(heldCents / 100).toFixed(2)} is on a ${PAYOUT_HOLD_DAYS}-day hold`
+          `Only $${(withdrawableCents / 100).toFixed(2)} is available to withdraw; $${(heldCents / 100).toFixed(2)} is still on hold`
         );
       }
 
@@ -976,8 +985,13 @@ export async function processEpnPostback(query: {
     transactionId: query.transaction_id, itemId: matchedItemId,
     salePriceCents, commissionCents, conversionDate, rawPayload: query,
   }).onConflictDoNothing().returning();
-  const [existing] = inserted ? [inserted] : await db.select().from(attributedPurchases)
+  let [existing] = inserted ? [inserted] : await db.select().from(attributedPurchases)
     .where(eq(attributedPurchases.transactionId, query.transaction_id)).limit(1);
+  // A first postback may arrive before the commission; a later one carries it.
+  if (existing && !inserted && !existing.commissionCents && commissionCents) {
+    [existing] = await db.update(attributedPurchases).set({ commissionCents })
+      .where(eq(attributedPurchases.id, existing.id)).returning();
+  }
   if (!existing || existing.customId !== click.customId || existing.userId !== click.userId ||
       existing.outboundClickId !== click.id || existing.salePriceCents !== salePriceCents ||
       !existing.itemId || canonicalEbayItem(existing.itemId) !== matchedItemId) {
@@ -989,3 +1003,64 @@ export async function processEpnPostback(query: {
   });
   return { ok: true, grants };
   }
+
+/**
+ * Status postback (or report import) for a sale we already recorded.
+ * locked: mark the sale so its rebate may release at 45 days.
+ * reversal: claw back the held rebate from the wallet. Credits are held 60 days
+ * so a reversal normally lands before payout; if the balance no longer covers
+ * it, the shortfall is audited for admin follow-up.
+ */
+export { classifyEpnStatus };
+export async function processEpnStatus(query: { transaction_id: string; status: string }): Promise<{ ok: true; action: string }> {
+  const kind = classifyEpnStatus(query.status);
+  if (!kind) return { ok: true, action: "ignored" };
+  const [purchase] = await db.select().from(attributedPurchases)
+    .where(eq(attributedPurchases.transactionId, query.transaction_id)).limit(1);
+  if (!purchase) throw new Error("Unknown EPN transaction");
+  const now = new Date().toISOString();
+  const raw = (purchase.rawPayload && typeof purchase.rawPayload === "object") ? purchase.rawPayload as Record<string, unknown> : {};
+  if (kind === "locked") {
+    if (raw.epnLockedAt || raw.epnReversedAt) return { ok: true, action: "noop" };
+    await db.update(attributedPurchases).set({ rawPayload: { ...raw, epnLockedAt: now } })
+      .where(eq(attributedPurchases.id, purchase.id));
+    await recordRebateAudit(db, { event: "EPN_SALE_LOCKED", actor: "epn_postback", userId: purchase.userId, details: { attributedPurchaseId: purchase.id } });
+    return { ok: true, action: "locked" };
+  }
+  if (raw.epnReversedAt) return { ok: true, action: "noop" };
+  return db.transaction(async (tx) => {
+    await tx.update(attributedPurchases).set({ rawPayload: { ...raw, epnReversedAt: now } })
+      .where(eq(attributedPurchases.id, purchase.id));
+    const [intent] = await tx.select().from(externalPurchaseIntent)
+      .where(eq(externalPurchaseIntent.attributedPurchaseId, purchase.id)).limit(1);
+    if (!intent) return { ok: true as const, action: "reversed_no_grant" };
+    const [credit] = await tx.select().from(redemptionCredit)
+      .where(eq(redemptionCredit.purchaseIntentId, intent.id)).for("update");
+    if (!credit || credit.status !== "GRANTED") return { ok: true as const, action: "reversed_no_grant" };
+    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, intent.userId)).for("update");
+    const balance = wallet?.rebateBalanceCents ?? 0;
+    const take = Math.max(0, Math.min(balance, credit.creditCents));
+    if (wallet && take > 0) {
+      const newBalance = balance - take;
+      await tx.update(wallets).set({ rebateBalanceCents: newBalance, updatedAt: new Date() }).where(eq(wallets.id, wallet.id));
+      await tx.insert(rebateLedger).values({
+        userId: intent.userId, amountCents: -take, balanceAfterCents: newBalance, type: "ADJUSTMENT",
+        purchaseIntentId: intent.id, idempotencyKey: `rebate-clawback:${intent.id}`,
+        note: `EPN reversal (${query.status}) ${intent.source} ${intent.listingId}`,
+      }).onConflictDoNothing();
+    }
+    await tx.update(redemptionCredit).set({ status: "REVERSED" }).where(eq(redemptionCredit.id, credit.id));
+    await recordRebateAudit(tx, {
+      event: "CREDIT_REVERSED", actor: "epn_postback", userId: intent.userId, purchaseIntentId: intent.id,
+      amountCents: take, details: { status: query.status, creditCents: credit.creditCents, attributedPurchaseId: purchase.id },
+    });
+    if (take < credit.creditCents) {
+      await recordRebateAudit(tx, {
+        event: "EPN_REVERSAL_UNRECOVERED", actor: "epn_postback", userId: intent.userId, purchaseIntentId: intent.id,
+        amountCents: credit.creditCents - take, details: { attributedPurchaseId: purchase.id },
+      });
+    }
+    return { ok: true as const, action: take > 0 ? "clawed_back" : "reversed_unrecovered" };
+  });
+}
+

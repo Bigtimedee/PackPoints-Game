@@ -7,39 +7,56 @@ import {
   MIN_RESERVE_FLOOR_CENTS,
   PROFIT_POLICY_DEFAULTS,
   syncedValuePerPtMicrousd,
+  tradingCardCommissionRate,
+  estimateCommissionCents,
+  commissionGrant,
+  computeWithdrawableCents,
+  PAYOUT_HOLD_DAYS,
+  PAYOUT_LOCKED_MIN_HOLD_DAYS,
 } from "../services/guardrailPolicy";
 import { profitGuardrailService } from "../services/profitGuardrailService";
 
 const base = {
   reserveHealthy: true,
-  meaningfulCreditCents: 1500, // 15% of $100
-  allowedCapCents: 1_000_000,
+  commissionEstimateCents: 200, // 2% of $100
   dailyRemainingCents: 2500,
   weeklyRemainingCents: 10000,
-  formulaCreditCents: 105, // 1.05% of $100
 };
 
-describe("credit ceiling includes the affiliate formula cap", () => {
-  it("credit never exceeds the affiliate formula even when every other cap is generous", () => {
-    expect(computeCreditCeilingCents(base)).toBe(105);
+describe("eBay rebate = commission (estimate before purchase)", () => {
+  it("ceiling is the commission estimate when caps are generous", () => {
+    expect(computeCreditCeilingCents(base)).toBe(200);
   });
-  it("formula cap of 0 means no credit", () => {
-    expect(computeCreditCeilingCents({ ...base, formulaCreditCents: 0 })).toBe(0);
-  });
-  it("other caps still bind when lower than the formula", () => {
+  it("per-user caps still bind", () => {
     expect(computeCreditCeilingCents({ ...base, dailyRemainingCents: 40 })).toBe(40);
-    expect(computeCreditCeilingCents({ ...base, allowedCapCents: 10 })).toBe(10);
+    expect(computeCreditCeilingCents({ ...base, weeklyRemainingCents: 0 })).toBe(0);
   });
   it("unhealthy reserve pays nothing", () => {
     expect(computeCreditCeilingCents({ ...base, reserveHealthy: false })).toBe(0);
   });
-  it("end to end with live-shaped policy: $100 eBay purchase caps at ~1.05%, not 15%", () => {
-    const policy: any = { ...PROFIT_POLICY_DEFAULTS };
-    const calc = profitGuardrailService.computeRmax(10_000, policy);
-    const formulaCreditCents = Math.floor(calc.Rmax * (policy.packptsValueVMicrousd / 10000));
-    const credit = computeCreditCeilingCents({ ...base, formulaCreditCents });
-    expect(credit).toBeLessThanOrEqual(Math.floor(10_000 * policy.affiliateRateA));
-    expect(credit).toBe(105); // 0.7*0.02*0.75*$100 = $1.05 = 525 PackPTS at $0.002
+  it("estimate = price x TRADING_CARD_COMMISSION_RATE, default 0.02, no haircut", () => {
+    expect(tradingCardCommissionRate(undefined)).toBe(0.02);
+    expect(tradingCardCommissionRate("0.045")).toBe(0.045);
+    expect(tradingCardCommissionRate("abc")).toBe(0.02);
+    expect(tradingCardCommissionRate("0.9")).toBe(0.02);
+    expect(estimateCommissionCents(5000, 0.02)).toBe(100);
+    expect(estimateCommissionCents(2500, 0.02)).toBe(50);
+    expect(estimateCommissionCents(10000, 0.045)).toBe(450);
+  });
+  it("grant = confirmed commission, capped at applied credit, extra points refunded", () => {
+    expect(commissionGrant(100, 500, 100, 0.2)).toEqual({ creditCents: 100, keptPackpts: 500, refundPackpts: 0 });
+    expect(commissionGrant(100, 500, 250, 0.2)).toEqual({ creditCents: 100, keptPackpts: 500, refundPackpts: 0 });
+    expect(commissionGrant(100, 500, 61, 0.2)).toEqual({ creditCents: 61, keptPackpts: 305, refundPackpts: 195 });
+  });
+  it("hold is 60 days; a locked sale releases at 45, never earlier", () => {
+    expect(PAYOUT_HOLD_DAYS).toBe(60);
+    expect(PAYOUT_LOCKED_MIN_HOLD_DAYS).toBe(45);
+    const now = new Date("2026-12-31T00:00:00Z");
+    const ago = (d: number) => new Date(now.getTime() - d * 86_400_000);
+    expect(computeWithdrawableCents(1000, [{ amountCents: 1000, type: "GRANT", createdAt: ago(50) }], now).withdrawableCents).toBe(0);
+    expect(computeWithdrawableCents(1000, [{ amountCents: 1000, type: "GRANT", createdAt: ago(50), locked: true }], now).withdrawableCents).toBe(1000);
+    expect(computeWithdrawableCents(1000, [{ amountCents: 1000, type: "GRANT", createdAt: ago(40), locked: true }], now).withdrawableCents).toBe(0);
+    expect(computeWithdrawableCents(1000, [{ amountCents: 1000, type: "GRANT", createdAt: ago(61) }], now).withdrawableCents).toBe(1000);
   });
 });
 

@@ -32,29 +32,57 @@ export function isReserveHealthy(
 
 export interface CreditCeilings {
   reserveHealthy: boolean;
-  meaningfulCreditCents: number; // maxDiscountPct * price
-  allowedCapCents: number; // margin pool + this transaction's margin
+  commissionEstimateCents: number; // price x TRADING_CARD_COMMISSION_RATE
   dailyRemainingCents: number;
   weeklyRemainingCents: number;
-  formulaCreditCents: number; // affiliate formula: h*A*P*(1-m) net of fees
 }
 
 /**
- * Final credit = MIN of every ceiling, INCLUDING the affiliate formula, so
- * credit can never exceed the (haircut, margin-retained) eBay revenue share
- * on this purchase. Before Oct 2026 the formula was computed but left out of
- * the min(), letting credit reach maxDiscountPct (15%) of price against ~1-2%
- * affiliate revenue.
+ * eBay rebate = 100% of the confirmed EPN commission (Dave, Oct 12 2026).
+ * Pre-purchase ceiling = MIN(commission estimate, per-user daily, per-user
+ * weekly), and 0 when the reserve floor trips. The old affiliate formula,
+ * haircut and margin min() no longer apply to eBay sale credits. The final
+ * grant is the postback commission_cents, never more than was applied.
  */
 export function computeCreditCeilingCents(c: CreditCeilings): number {
   if (!c.reserveHealthy) return 0;
   return Math.max(0, Math.floor(Math.min(
-    c.meaningfulCreditCents,
-    c.allowedCapCents,
+    c.commissionEstimateCents,
     c.dailyRemainingCents,
     c.weeklyRemainingCents,
-    c.formulaCreditCents,
   )));
+}
+
+/** Default trading card EPN commission rate used only for the pre-purchase estimate. */
+export const DEFAULT_TRADING_CARD_COMMISSION_RATE = 0.02;
+
+/** Single source for the estimate rate: env TRADING_CARD_COMMISSION_RATE, default 0.02, sane range 0..0.2. */
+export function tradingCardCommissionRate(raw: string | undefined = process.env.TRADING_CARD_COMMISSION_RATE): number {
+  const n = raw === undefined || raw === "" ? NaN : Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 0.2 ? n : DEFAULT_TRADING_CARD_COMMISSION_RATE;
+}
+
+/** Estimated rebate for a listing: price x rate, floored to cents. No haircut. */
+export function estimateCommissionCents(priceCents: number, rate: number = tradingCardCommissionRate()): number {
+  if (!Number.isFinite(priceCents) || priceCents <= 0) return 0;
+  return Math.floor(priceCents * rate);
+}
+
+/**
+ * Final eBay credit from a postback: the confirmed commission, capped at the
+ * credit the user applied (points are the currency). Points beyond what the
+ * final credit needs are refunded.
+ */
+export function commissionGrant(
+  appliedCreditCents: number,
+  packptsSpent: number,
+  commissionCents: number,
+  centsPerPoint: number,
+): { creditCents: number; keptPackpts: number; refundPackpts: number } {
+  const credit = Math.max(0, Math.min(appliedCreditCents, Math.floor(commissionCents)));
+  if (credit >= appliedCreditCents) return { creditCents: appliedCreditCents, keptPackpts: packptsSpent, refundPackpts: 0 };
+  const kept = Math.min(packptsSpent, centsPerPoint > 0 ? Math.ceil(credit / centsPerPoint) : packptsSpent);
+  return { creditCents: credit, keptPackpts: kept, refundPackpts: packptsSpent - kept };
 }
 
 /** Fields an admin may set on profit_policy, with their fallback defaults. */
@@ -106,8 +134,10 @@ export function syncedValuePerPtMicrousd(storedMicrousd: number, treasuryMicrous
 
 /** Smallest cash-back payout a user can request ($10). */
 export const PAYOUT_MIN_CENTS = 1000;
-/** Rebate credit is held this long before it can be withdrawn (outlasts eBay's 30-day return window). */
-export const PAYOUT_HOLD_DAYS = 30;
+/** Rebate credit is held this long from purchase before it can be withdrawn (outlasts eBay returns and EPN reversals). */
+export const PAYOUT_HOLD_DAYS = 60;
+/** A sale EPN reports as locked may release early, but never before this many days. */
+export const PAYOUT_LOCKED_MIN_HOLD_DAYS = 45;
 
 /**
  * Withdrawable = balance minus positive GRANT/ADJUSTMENT credit younger than the
@@ -115,17 +145,18 @@ export const PAYOUT_HOLD_DAYS = 30;
  */
 export function computeWithdrawableCents(
   balanceCents: number,
-  ledger: { amountCents: number; type: string; createdAt: Date | string | null }[],
+  ledger: { amountCents: number; type: string; createdAt: Date | string | null; locked?: boolean | null }[],
   now: Date = new Date(),
   holdDays: number = PAYOUT_HOLD_DAYS,
+  lockedMinDays: number = PAYOUT_LOCKED_MIN_HOLD_DAYS,
 ): { withdrawableCents: number; heldCents: number } {
-  const cutoff = now.getTime() - holdDays * 86_400_000;
   let held = 0;
   for (const e of ledger) {
     if (e.amountCents <= 0) continue;
     if (e.type !== "GRANT" && e.type !== "ADJUSTMENT") continue;
     const t = e.createdAt ? new Date(e.createdAt).getTime() : now.getTime();
-    if (t > cutoff) held += e.amountCents;
+    const days = e.locked ? Math.min(holdDays, lockedMinDays) : holdDays;
+    if (t > now.getTime() - days * 86_400_000) held += e.amountCents;
   }
   const heldCents = Math.min(Math.max(0, balanceCents), held);
   return { withdrawableCents: Math.max(0, balanceCents - heldCents), heldCents };

@@ -484,6 +484,7 @@ export async function registerRoutes(
   // In-memory daily dedup for maker play notifications (clears at midnight UTC)
   const makerNotifiedToday = new Set<string>();
   setInterval(() => makerNotifiedToday.clear(), 86_400_000).unref();
+  void import("./services/epnReportSync").then(m => m.startEpnReportSync()).catch(() => {});
 
   async function notifyMakerIfUserCreated(setId: string, playedByUserId: string | null): Promise<void> {
     const todayKey = `${setId}:${new Date().toISOString().slice(0, 10)}`;

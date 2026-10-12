@@ -29,16 +29,16 @@ describe("QA account: quote yes, apply no", () => {
   });
 });
 
-describe("Up to $X back badge", () => {
+describe("About $X back badge", () => {
   it("is hidden at 0, null, undefined or negative", () => {
     for (const v of [0, null, undefined, -5, NaN]) expect(upToBackLabel(v as any)).toBeNull();
   });
   it("shows the capped credit", () => {
-    expect(upToBackLabel(105)).toBe("Up to $1.05 back");
+    expect(upToBackLabel(105)).toBe("About $1.05 back");
   });
   it("is hidden under 25 cents and shown at 25", () => {
     expect(upToBackLabel(24)).toBeNull();
-    expect(upToBackLabel(25)).toBe("Up to $0.25 back");
+    expect(upToBackLabel(25)).toBe("About $0.25 back");
   });
 });
 

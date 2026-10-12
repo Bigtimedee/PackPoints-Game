@@ -1,3 +1,4 @@
+import { estimateCommissionCents } from "./guardrailPolicy";
 import { db } from "../db";
 import {
   marginLedger,
@@ -214,8 +215,11 @@ class TreasuryService {
     // Get transaction margin for this purchase
     const txMargin = await this.computeTransactionMargin(source, priceCents);
 
-    // Compute allowed cap
-    const allowedCapCents = treasury.availableMarginPoolCents + txMargin.transactionMarginCents;
+    // eBay: the confirmed commission funds the rebate, so the cap is the
+    // commission estimate (price x TRADING_CARD_COMMISSION_RATE), not the pool.
+    const allowedCapCents = source === "ebay"
+      ? estimateCommissionCents(priceCents)
+      : treasury.availableMarginPoolCents + txMargin.transactionMarginCents;
 
     // Clamp to user balance first
     const balanceLimitedPackpts = Math.min(requestedPackpts, userBalance);
@@ -280,7 +284,9 @@ class TreasuryService {
       txMarginCents = Number((intent?.calcSnapshot as any)?.txMarginCents ?? 0);
     } catch {}
 
-    if (availableCents + txMarginCents < reservedCents) {
+    // eBay reservations are backed by their own commission estimate, which the
+    // grant books into the pool before consuming; only the estimate must cover.
+    if (Math.max(0, availableCents) + txMarginCents < reservedCents) {
       throw new Error(
         `Insufficient margin to create reservation: need ${reservedCents} cents, only ${availableCents + txMarginCents} available`
       );

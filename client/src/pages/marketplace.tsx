@@ -548,19 +548,19 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
             </div>
             
             <div className="bg-muted rounded-lg p-4 text-center">
-              <p className="text-sm text-muted-foreground">PackPTS cashback after you buy</p>
+              <p className="text-sm text-muted-foreground">Estimated rebate after you buy</p>
               <p className="text-2xl font-bold text-accent" data-testid="text-credit-value">
-                ${creditAmount}
+                About ${creditAmount} back
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Not a coupon on {platformName}. You pay full price there; we pay you back ${creditAmount}.
+                Not a coupon on {platformName}. You pay full price there. Your rebate equals the commission eBay confirms on the sale.
               </p>
             </div>
             
             {(quote?.marginBackedRmax ?? 0) === 0 && quote && (
               <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                <p>This listing is not eligible for PackPTS credit due to margin requirements.</p>
+                <p>This listing is not eligible for a rebate right now.</p>
               </div>
             )}
           </div>
@@ -595,13 +595,13 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <DialogHeader>
             <DialogTitle>Buy on {platformName} to earn cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. PackPTS pays you back up to ${(appliedCreditCents / 100).toFixed(2)} after eBay confirms the purchase.
+              {platformName} checkout stays full price. Your rebate is about ${(appliedCreditCents / 100).toFixed(2)}, the commission eBay confirms on the sale.
             </DialogDescription>
           </DialogHeader>
           <ol className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground">
             <li>Open the listing with our tracked link (required for eBay attribution).</li>
             <li>Pay the normal {platformName} total.</li>
-            <li>Cashback is added automatically when eBay confirms the purchase.</li>
+            <li>Your rebate lands in your wallet when eBay confirms the sale.</li>
           </ol>
           <DialogFooter className="gap-2 sm:flex-col">
             <Button asChild data-testid="button-buy-on-partner">
