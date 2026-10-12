@@ -1,3 +1,5 @@
+import { usePointsValue } from "@/hooks/use-points-value";
+import { SIGNUP_BODY_LIVE } from "@/lib/pointsCopy";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -180,7 +182,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
 
   const isPending = registerMutation.isPending || loginMutation.isPending;
   const title = variant === "hard" ? ANON_GATE_COPY.hardTitle : ANON_GATE_COPY.softTitle;
-  const description = variant === "hard" ? ANON_GATE_COPY.hardBody : ANON_GATE_COPY.softBody;
+  const { rebateLive } = usePointsValue();
+  const description = rebateLive ? SIGNUP_BODY_LIVE : variant === "hard" ? ANON_GATE_COPY.hardBody : ANON_GATE_COPY.softBody;
   const allowAnotherRound = variant === "optional" && !!onPlayAgain;
 
   if (isGate && step === "plaque") {

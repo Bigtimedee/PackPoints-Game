@@ -639,11 +639,8 @@ export default function Game() {
       }
       return;
     }
-    if (anonGate.prompt === "soft" && !hasSeenSignupPrompt && !showSignupModal) {
-      setGateOpenOn("plaque");
-      const timer = setTimeout(() => setShowSignupModal(true), 500);
-      return () => clearTimeout(timer);
-    }
+    // Soft prompt no longer auto-opens on Game Complete: it covered the points strip.
+    // The strip carries "Sign up to keep these points." and the hard wall (#178) still opens above.
   }, [isGameOver, isAuthenticated, anonGate, hasSeenSignupPrompt, showSignupModal]);
 
   // Refresh daily progress tracker when game completes (regardless of score)

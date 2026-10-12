@@ -53,15 +53,15 @@ export type PublicAnonGate = AnonGateDecision & {
 
 /** Locked Design / Marketing strings. Do not paraphrase. */
 export const ANON_GATE_COPY = {
-  softTitle: "Keep your PackPTS",
-  softBody: "Create a free account to save streak and resume where you left off.",
+  softTitle: "Keep your points",
+  softBody: "Save your points. They'll work toward rebates on real cards. Coming soon.",
   softCta: "Create free account",
   softSecondary: "Continue once more",
   hardTitle: "Register to keep playing",
-  hardBody: "You've played two games as a guest. Create a free PackPTS account to continue Daily 5 and sets.",
+  hardBody: "Save your points and use them toward rebates on real cards.",
   hardCta: "Create free account",
   signInCta: "Sign in",
-  escrowLabel: "PackPTS held",
+  escrowLabel: "Points held",
 } as const;
 
 export function emptyAnonSnapshot(): AnonPlayerSnapshot {
