@@ -269,6 +269,15 @@ app.use((req, res, next) => {
     console.log('[PackageGuardrails] Seed failed:', error instanceof Error ? error.message : 'Unknown');
   }
   
+  // Flag internal QA / e2e accounts (users.is_test_account)
+  try {
+    const { seedTestAccounts } = await import("./services/testAccounts");
+    const n = await seedTestAccounts();
+    console.log(`[TestAccounts] flagged ${n} new test account(s)`);
+  } catch (error) {
+    console.log('[TestAccounts] Seed failed:', error instanceof Error ? error.message : 'Unknown');
+  }
+
   // Seed reward policy for gameplay
   try {
     await seedRewardPolicy();

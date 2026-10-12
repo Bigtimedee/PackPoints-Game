@@ -337,7 +337,7 @@ SELECT
   ) AS referral_purpose
 FROM users u
 LEFT JOIN user_attribution ua ON ua.user_id = u.id
-WHERE u.id <> '${QA_TEST_USER_ID}'
+WHERE u.id <> '${QA_TEST_USER_ID}' AND u.is_test_account = false
 `.trim();
 
 const PURPOSES = new Set<ReferralPurpose>(["INVITE", "DAILY5_CHALLENGE", "SCORE_SHARE"]);
