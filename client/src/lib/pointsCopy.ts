@@ -135,9 +135,10 @@ export function holdLine(value: PointsValue | undefined): string | null {
   return `Rebates are held ${value.holdDays} days, then you can cash out from ${value.payoutMinimum.display}. Payouts are reviewed before they're sent.`;
 }
 
-/** Listing badge. Null (badge hidden) unless the capped credit is above zero. */
+/** Listing badge. Null (badge hidden) unless the capped credit is at least 25 cents. */
+export const UP_TO_BACK_MIN_CENTS = 25;
 export function upToBackLabel(maxCreditCents: number | null | undefined): string | null {
-  if (typeof maxCreditCents !== "number" || !Number.isFinite(maxCreditCents) || maxCreditCents <= 0) return null;
+  if (typeof maxCreditCents !== "number" || !Number.isFinite(maxCreditCents) || maxCreditCents < UP_TO_BACK_MIN_CENTS) return null;
   return `Up to ${formatUsd(maxCreditCents)} back`;
 }
 
