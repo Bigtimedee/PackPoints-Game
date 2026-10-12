@@ -6,12 +6,13 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePointsValue } from "@/hooks/use-points-value";
-import { WALLET } from "@/lib/pointsCopy";
+import { WALLET, holdLine } from "@/lib/pointsCopy";
 import { setWalletSheetOpen } from "@/lib/walletSheetOpen";
 import { trackPoints } from "@/lib/pointsEvents";
 
 function WalletBody({ balance, onClose }: { balance: number; onClose: () => void }) {
-  const { rebateLive, usdFor } = usePointsValue();
+  const { rebateLive, usdFor, value } = usePointsValue();
+  const hold = holdLine(value);
   const usd = rebateLive ? usdFor(balance) : null;
   const { data } = useQuery<{ expiringNext30Days?: number }>({ queryKey: ["/api/wallet/expirations"], retry: 1 });
   const expiring = Math.floor(data?.expiringNext30Days ?? 0);
@@ -20,6 +21,7 @@ function WalletBody({ balance, onClose }: { balance: number; onClose: () => void
       <h2 className="text-lg font-semibold">{WALLET.title}</h2>
       <p className="text-2xl font-bold font-mono" data-testid="text-wallet-balance">{WALLET.balance(balance)}</p>
       <p className="text-sm text-muted-foreground" data-testid="text-wallet-value">{usd ? WALLET.live(usd) : WALLET.soon}</p>
+      {hold && <p className="text-sm text-muted-foreground" data-testid="text-wallet-hold">{hold}</p>}
       {expiring > 0 && <p className="text-sm" data-testid="text-wallet-expiring">{WALLET.expiring(expiring)}</p>}
       <div className="flex flex-col gap-3 pt-1">
         <Link href="/points" onClick={() => { trackPoints("points_cta_click", { surface: "wallet_sheet", cta: "how_points_work" }); onClose(); }}>

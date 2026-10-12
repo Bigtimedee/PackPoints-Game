@@ -21,7 +21,7 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
         <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
         <div className="text-xs text-muted-foreground space-y-1">
           <p>
-            Prices and availability are sourced from third-party marketplaces (eBay, Goldin Auctions).
+            Prices and availability are sourced from third-party marketplaces (eBay).
             PackPTS is not responsible for listing accuracy.
           </p>
           <p>
@@ -30,7 +30,7 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
           </p>
           <p>
             Applying PackPTS reserves or spends points in your PackPTS wallet. It does not change
-            the price eBay or Goldin charges.
+            the price eBay charges.
           </p>
         </div>
       </CardContent>
