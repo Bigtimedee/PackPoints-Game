@@ -9830,6 +9830,32 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/stripe/webhook - Stripe webhook. Signature-verified; idempotent per event id and
+  // per session+price ledger key, so replays and the success-page poll never double credit.
+  app.post("/api/stripe/webhook", async (req: any, res) => {
+    const signature = req.headers["stripe-signature"];
+    if (!signature || typeof signature !== "string") {
+      return res.status(400).json({ error: "Missing stripe-signature header" });
+    }
+    if (!req.rawBody) {
+      return res.status(400).json({ error: "Missing raw body" });
+    }
+    const { stripePurchaseService } = await import("./services/stripePurchaseService");
+    let event;
+    try {
+      event = await stripePurchaseService.verifyAndParseWebhook(req.rawBody, signature, req.get("host"));
+    } catch (err) {
+      console.error("[Stripe] Webhook signature verification failed:", (err as Error).message);
+      return res.status(400).json({ error: "Invalid signature" });
+    }
+    const result = await stripePurchaseService.processWebhookEvent(event);
+    if (result.status === "failed") {
+      console.error(`[Stripe] Webhook ${event.id} (${event.type}) failed: ${result.error}`);
+    }
+    // 200 once recorded: failed events are retried by the webhook retry worker.
+    res.json({ received: true, status: result.status });
+  });
+
   // GET /api/store/checkout/status/:sessionId - Check checkout session status
   app.get("/api/store/checkout/status/:sessionId", isAuthenticated, async (req: any, res) => {
     try {
