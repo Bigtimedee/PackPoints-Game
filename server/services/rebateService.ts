@@ -16,6 +16,13 @@ import {
 import { treasuryService } from "./treasuryService";
 import { walletService } from "./walletService";
 import { recordRebateAudit } from "./rebateAuditService";
+import {
+  PAYOUT_MIN_CENTS,
+  PAYOUT_HOLD_DAYS,
+  computeWithdrawableCents,
+  normalizePayoutDestination,
+  payoutReviewFlags,
+} from "./guardrailPolicy";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 
@@ -621,9 +628,16 @@ class RebateService {
     amountCents: number,
     method: string,
     destination: string,
-    note?: string
-  ): Promise<{ success: boolean; requestId?: string; message: string }> {
+    note?: string,
+    ctx: { ipHash?: string | null; deviceFingerprint?: string | null } = {}
+  ): Promise<{ success: boolean; requestId?: string; message: string; reviewFlags?: string[] }> {
     if (amountCents <= 0) throw new Error("Amount must be positive");
+    if (amountCents < PAYOUT_MIN_CENTS) {
+      throw new Error(`Minimum payout is $${(PAYOUT_MIN_CENTS / 100).toFixed(2)}`);
+    }
+    const destinationNormalized = normalizePayoutDestination(destination);
+    const ipHash = ctx.ipHash || null;
+    const deviceFingerprint = ctx.deviceFingerprint || null;
 
     return db.transaction(async (tx) => {
       const [wallet] = await tx
@@ -635,6 +649,46 @@ class RebateService {
       if ((wallet.rebateBalanceCents ?? 0) < amountCents) {
         throw new Error("Insufficient cashback balance");
       }
+
+      // 30-day hold: fresh credit can't be withdrawn until it outlasts the return window.
+      const recent = await tx
+        .select({ amountCents: rebateLedger.amountCents, type: rebateLedger.type, createdAt: rebateLedger.createdAt })
+        .from(rebateLedger)
+        .where(and(
+          eq(rebateLedger.userId, userId),
+          sql`${rebateLedger.amountCents} > 0`,
+          sql`${rebateLedger.createdAt} > NOW() - make_interval(days => ${PAYOUT_HOLD_DAYS})`,
+        ));
+      const { withdrawableCents, heldCents } = computeWithdrawableCents(wallet.rebateBalanceCents ?? 0, recent);
+      if (amountCents > withdrawableCents) {
+        throw new Error(
+          `Only $${(withdrawableCents / 100).toFixed(2)} is available to withdraw; $${(heldCents / 100).toFixed(2)} is on a ${PAYOUT_HOLD_DAYS}-day hold`
+        );
+      }
+
+      // Multi-account signals: other users sharing device, IP or payout destination.
+      const [deviceRow] = deviceFingerprint
+        ? await tx.select({ n: sql<number>`count(*)::int` }).from(users)
+            .where(and(eq(users.deviceFingerprint, deviceFingerprint), sql`${users.id} <> ${userId}`))
+        : [{ n: 0 }];
+      const [devicePayoutRow] = deviceFingerprint
+        ? await tx.select({ n: sql<number>`count(DISTINCT ${rebatePayoutRequests.userId})::int` }).from(rebatePayoutRequests)
+            .where(and(eq(rebatePayoutRequests.deviceFingerprint, deviceFingerprint), sql`${rebatePayoutRequests.userId} <> ${userId}`))
+        : [{ n: 0 }];
+      const [ipRow] = ipHash
+        ? await tx.select({ n: sql<number>`count(DISTINCT ${rebatePayoutRequests.userId})::int` }).from(rebatePayoutRequests)
+            .where(and(eq(rebatePayoutRequests.ipHash, ipHash), sql`${rebatePayoutRequests.userId} <> ${userId}`))
+        : [{ n: 0 }];
+      const [destRow] = await tx.select({ n: sql<number>`count(DISTINCT ${rebatePayoutRequests.userId})::int` }).from(rebatePayoutRequests)
+        .where(and(
+          sql`(${rebatePayoutRequests.destinationNormalized} = ${destinationNormalized} OR lower(trim(${rebatePayoutRequests.destination})) = ${destinationNormalized})`,
+          sql`${rebatePayoutRequests.userId} <> ${userId}`,
+        ));
+      const reviewFlags = payoutReviewFlags({
+        device: Number(deviceRow?.n ?? 0) + Number(devicePayoutRow?.n ?? 0),
+        ip: Number(ipRow?.n ?? 0),
+        destination: Number(destRow?.n ?? 0),
+      });
 
       const newBalance = wallet.rebateBalanceCents - amountCents;
       await tx
@@ -651,6 +705,10 @@ class RebateService {
           destination,
           note: note || null,
           status: "REQUESTED",
+          ipHash,
+          deviceFingerprint,
+          destinationNormalized,
+          reviewFlags,
         })
         .returning();
 
@@ -668,12 +726,13 @@ class RebateService {
         actor: `user:${userId}`,
         userId,
         amountCents,
-        details: { payoutRequestId: request.id, method, rebateBalanceAfterCents: newBalance },
+        details: { payoutRequestId: request.id, method, rebateBalanceAfterCents: newBalance, reviewFlags },
       });
 
       return {
         success: true,
         requestId: request.id,
+        reviewFlags,
         message: `Payout of $${(amountCents / 100).toFixed(2)} requested. We'll send it via ${method} and email when it's marked paid.`,
       };
     });

@@ -8577,16 +8577,23 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
+      const { hashIp } = await import("./services/marketplace/outbound");
+      const ip = (req.ip || req.socket?.remoteAddress || "") as string;
+      const [payer] = await db.select({ deviceFingerprint: users.deviceFingerprint }).from(users).where(eq(users.id, userId)).limit(1);
       const result = await rebateService.requestPayout(
         userId,
         parsed.data.amountCents,
         parsed.data.method,
         parsed.data.destination,
-        parsed.data.note
+        parsed.data.note,
+        { ipHash: ip ? hashIp(ip) : null, deviceFingerprint: payer?.deviceFingerprint || null }
       );
       res.json(result);
     } catch (error: any) {
       console.error("Error requesting rebate payout:", error);
+      if (/Minimum payout|available to withdraw|Insufficient cashback/.test(error?.message || "")) {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: error.message || "Failed to request payout" });
     }
   });

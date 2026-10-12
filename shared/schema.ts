@@ -2712,10 +2712,18 @@ export const rebatePayoutRequests = pgTable("rebate_payout_requests", {
   adminNote: text("admin_note"),
   reviewedBy: varchar("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
+  // Multi-account review signals (Oct 2026). ipHash is an HMAC, never the raw IP.
+  ipHash: varchar("ip_hash", { length: 64 }),
+  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+  destinationNormalized: text("destination_normalized"),
+  reviewFlags: jsonb("review_flags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_rebate_payout_user").on(table.userId),
+  index("idx_rebate_payout_ip_hash").on(table.ipHash),
+  index("idx_rebate_payout_device").on(table.deviceFingerprint),
+  index("idx_rebate_payout_dest_norm").on(table.destinationNormalized),
   index("idx_rebate_payout_status").on(table.status),
 ]);
 

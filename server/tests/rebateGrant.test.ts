@@ -333,9 +333,20 @@ describe("marketplace cashback grant", () => {
   });
 
   it("payout request debits rebate balance; deny returns it", async () => {
+    // Fresh credit is on a 30-day hold and payouts start at $10: age this user's
+    // credit past the hold and top up to the minimum with a backdated adjustment.
+    const w0 = await walletService.getWallet(userId);
+    expect(w0?.rebateBalanceCents).toBeGreaterThan(0);
+    const old = new Date(Date.now() - 31 * 86_400_000);
+    await db.update(rebateLedger).set({ createdAt: old }).where(eq(rebateLedger.userId, userId));
+    const topUp = Math.max(0, 1500 - w0!.rebateBalanceCents);
+    if (topUp > 0) {
+      await db.update(wallets).set({ rebateBalanceCents: w0!.rebateBalanceCents + topUp }).where(eq(wallets.userId, userId));
+      await db.insert(rebateLedger).values({ userId, amountCents: topUp, balanceAfterCents: w0!.rebateBalanceCents + topUp, type: "ADJUSTMENT", idempotencyKey: `test-topup-${suffix}`, createdAt: old });
+    }
+    await expect(rebateService.requestPayout(userId, 999, "paypal", "buyer@example.com")).rejects.toThrow(/Minimum payout/);
     const wallet = await walletService.getWallet(userId);
-    expect(wallet?.rebateBalanceCents).toBeGreaterThan(0);
-    const take = Math.min(100, wallet!.rebateBalanceCents);
+    const take = 1000;
     const req = await rebateService.requestPayout(userId, take, "paypal", "buyer@example.com");
     expect(req.success).toBe(true);
     const mid = (await walletService.getWallet(userId))!.rebateBalanceCents;
