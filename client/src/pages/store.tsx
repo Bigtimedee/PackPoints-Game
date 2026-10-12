@@ -57,15 +57,16 @@ function BundleCard({
   onPurchase: (sku: string) => void;
   isPurchasing: boolean;
 }) {
+  // Tier by price, not grant: grants follow the package guardrail.
   const getPackImage = () => {
-    if (bundle.packptsGrant >= 15000) return packLegendImg;
-    if (bundle.packptsGrant >= 6000) return packProImg;
+    if (bundle.priceUsd >= 2499) return packLegendImg;
+    if (bundle.priceUsd >= 1499) return packProImg;
     return packStarterImg;
   };
 
   const getTierLabel = () => {
-    if (bundle.packptsGrant >= 15000) return "Legend";
-    if (bundle.packptsGrant >= 6000) return "Pro";
+    if (bundle.priceUsd >= 2499) return "Legend";
+    if (bundle.priceUsd >= 1499) return "Pro";
     return "Starter";
   };
 
@@ -350,7 +351,7 @@ export default function Store() {
             Get points
           </h1>
           <p className="text-muted-foreground max-w-xl mx-auto">
-            Points let you keep playing. They'll also work toward rebates on real cards.
+            Points let you keep playing and work toward rebates on real cards.
           </p>
         </div>
 
