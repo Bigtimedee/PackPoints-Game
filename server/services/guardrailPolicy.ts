@@ -103,3 +103,51 @@ export function mergeProfitPolicyUpdate(
 export function syncedValuePerPtMicrousd(storedMicrousd: number, treasuryMicrousd: number | null): number {
   return treasuryMicrousd !== null && treasuryMicrousd > 0 ? treasuryMicrousd : storedMicrousd;
 }
+
+/** Smallest cash-back payout a user can request ($10). */
+export const PAYOUT_MIN_CENTS = 1000;
+/** Rebate credit is held this long before it can be withdrawn (outlasts eBay's 30-day return window). */
+export const PAYOUT_HOLD_DAYS = 30;
+
+/**
+ * Withdrawable = balance minus positive GRANT/ADJUSTMENT credit younger than the
+ * hold. PAYOUT_REFUND (a denied payout returned) is not re-held.
+ */
+export function computeWithdrawableCents(
+  balanceCents: number,
+  ledger: { amountCents: number; type: string; createdAt: Date | string | null }[],
+  now: Date = new Date(),
+  holdDays: number = PAYOUT_HOLD_DAYS,
+): { withdrawableCents: number; heldCents: number } {
+  const cutoff = now.getTime() - holdDays * 86_400_000;
+  let held = 0;
+  for (const e of ledger) {
+    if (e.amountCents <= 0) continue;
+    if (e.type !== "GRANT" && e.type !== "ADJUSTMENT") continue;
+    const t = e.createdAt ? new Date(e.createdAt).getTime() : now.getTime();
+    if (t > cutoff) held += e.amountCents;
+  }
+  const heldCents = Math.min(Math.max(0, balanceCents), held);
+  return { withdrawableCents: Math.max(0, balanceCents - heldCents), heldCents };
+}
+
+/** Lowercase, trim; for emails strip +tags and gmail dots so aliases collide. */
+export function normalizePayoutDestination(dest: string): string {
+  const d = (dest || "").trim().toLowerCase();
+  const m = d.match(/^([^@\s]+)@([^@\s]+)$/);
+  if (!m) return d.replace(/\s+/g, "");
+  let [, local, domain] = m;
+  local = local.split("+")[0];
+  if (domain === "gmail.com" || domain === "googlemail.com") { local = local.replace(/\./g, ""); domain = "gmail.com"; }
+  return `${local}@${domain}`;
+}
+
+export type PayoutReviewFlag = "SHARED_DEVICE" | "SHARED_IP" | "SHARED_DESTINATION";
+
+export function payoutReviewFlags(counts: { device: number; ip: number; destination: number }): PayoutReviewFlag[] {
+  const f: PayoutReviewFlag[] = [];
+  if (counts.device > 0) f.push("SHARED_DEVICE");
+  if (counts.ip > 0) f.push("SHARED_IP");
+  if (counts.destination > 0) f.push("SHARED_DESTINATION");
+  return f;
+}
