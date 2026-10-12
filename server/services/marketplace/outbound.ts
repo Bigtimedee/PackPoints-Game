@@ -136,18 +136,21 @@ export function buildEpnEbayUrl(opts: {
   mkcid?: string;
   mksid?: string;
 }): string {
+  // Modern EPN smart link (rover is retired). Without mkevt=1 + mkcid=1 +
+  // mkrid eBay does not log the click, so EPN shows 0 clicks and no sale can
+  // be attributed. Drop any tracking params the source URL already carries.
   const urlObj = new URL(opts.baseEbayUrl);
+  for (const k of [...urlObj.searchParams.keys()]) {
+    if (/^(mk[a-z]+|campid|customid|toolid|siteid|ssspo|sssrc|ssuid|var|widget_ver|_trkparms|_trksid|amdata|epid|hash)$/i.test(k)) urlObj.searchParams.delete(k);
+  }
+  urlObj.searchParams.set("mkcid", opts.mkcid || "1");
+  urlObj.searchParams.set("mkrid", "711-53200-19255-0");
+  urlObj.searchParams.set("siteid", "0");
   urlObj.searchParams.set("campid", opts.campid);
-  urlObj.searchParams.set("toolid", "10001");
   urlObj.searchParams.set("customid", opts.customid);
-  
-  if (opts.mkcid) {
-    urlObj.searchParams.set("mkcid", opts.mkcid);
-  }
-  if (opts.mksid) {
-    urlObj.searchParams.set("mksid", opts.mksid);
-  }
-  
+  urlObj.searchParams.set("toolid", "10001");
+  urlObj.searchParams.set("mkevt", "1");
+  if (opts.mksid) urlObj.searchParams.set("mksid", opts.mksid);
   return urlObj.toString();
 }
 

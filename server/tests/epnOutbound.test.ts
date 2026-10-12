@@ -30,3 +30,20 @@ describe("EPN click tracking", () => {
     expect(mocks.values).toHaveBeenCalledWith(expect.objectContaining({customId:undefined}));
   });
 });
+
+import { buildEpnEbayUrl as __build } from "../services/marketplace/outbound";
+describe("EPN smart link format", () => {
+  it("carries mkevt=1, mkcid=1, mkrid, campid, customid, toolid and drops stale tracking", () => {
+    const u = new URL(__build({ baseEbayUrl: "https://www.ebay.com/itm/407243534695?_skw=x&hash=item1&amdata=enc%3A1&mkevt=0&campid=999", campid: "5339140766", customid: "packpts:u_a:i_407243534695:t_1" }));
+    expect(u.pathname).toBe("/itm/407243534695");
+    expect(u.searchParams.get("mkevt")).toBe("1");
+    expect(u.searchParams.get("mkcid")).toBe("1");
+    expect(u.searchParams.get("mkrid")).toBe("711-53200-19255-0");
+    expect(u.searchParams.get("siteid")).toBe("0");
+    expect(u.searchParams.get("campid")).toBe("5339140766");
+    expect(u.searchParams.get("toolid")).toBe("10001");
+    expect(u.searchParams.get("customid")).toBe("packpts:u_a:i_407243534695:t_1");
+    expect(u.searchParams.has("hash")).toBe(false);
+    expect(u.searchParams.has("amdata")).toBe(false);
+  });
+});

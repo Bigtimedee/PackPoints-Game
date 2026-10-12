@@ -49,6 +49,10 @@ export async function syncEpnReport(days = 7): Promise<{ rows: number; sales: nu
   if (!res.ok) throw new Error(`EPN report HTTP ${res.status}`);
   const body: any = await res.json();
   const rows: TdrRow[] = Array.isArray(body) ? body : Array.isArray(body?.Records) ? body.Records : Array.isArray(body?.records) ? body.records : [];
+  if (rows.length === 0) {
+    // Shape check without data: top-level keys only, so an unexpected envelope is visible.
+    console.log("[EPN report] empty; response keys:", Array.isArray(body) ? "array" : Object.keys(body ?? {}).slice(0, 12).join(","));
+  }
   let sales = 0, reversals = 0, errors = 0;
   for (const r of rows) {
     const a = tdrRowAction(r);
