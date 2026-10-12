@@ -1,3 +1,4 @@
+import { useCompleteScreen } from "@/lib/playChrome";
 import { PointsStrip } from "@/components/points-strip";
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useSearch, useLocation } from "wouter";
@@ -619,6 +620,8 @@ export default function Game() {
   // No longer auto-start - user selects card count first
 
   const isGameOver = session?.status === "completed" || session?.status === "expired";
+  // Wallet chip returns on Game Complete only (never during play).
+  useCompleteScreen(isGameOver && !!session);
   useEffect(() => {
     const live = Boolean(session && !isGameOver);
     setStaleBuildActivity({

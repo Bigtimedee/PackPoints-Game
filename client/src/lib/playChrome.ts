@@ -45,3 +45,27 @@ export function usePlayChrome(active: boolean): void {
     return acquirePlayChrome();
   }, [active]);
 }
+
+/**
+ * Game Complete screens that live on play routes (solo /game/:id) mark
+ * themselves so the header wallet chip returns there, matching /daily.
+ * Never set during play.
+ */
+let activeComplete = 0;
+export function completeScreenActive(): boolean {
+  return activeComplete > 0;
+}
+export function useCompleteScreenActive(): boolean {
+  return useSyncExternalStore(subscribe, completeScreenActive, () => false);
+}
+export function useCompleteScreen(active: boolean): void {
+  useEffect(() => {
+    if (!active) return;
+    activeComplete += 1;
+    emit();
+    return () => {
+      activeComplete = Math.max(0, activeComplete - 1);
+      emit();
+    };
+  }, [active]);
+}
