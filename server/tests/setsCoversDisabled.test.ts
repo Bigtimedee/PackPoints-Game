@@ -22,6 +22,10 @@ import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover, readyMaskedCoverUrls } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
+import { setCoverEtag as __setCoverEtag } from "../services/setCovers";
+const etagFor = (u: string, id: string) => { const m = u.match(/\/api\/sets\/([^/]+)\/covers\/(\d+)/)!; return __setCoverEtag(m[1], Number(m[2]), id); };
+
+
 const COVER_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
 const stamp = randomUUID().slice(0, 8);
 const setId = randomUUID();
@@ -161,7 +165,7 @@ describe("GET /api/sets covers switch", () => {
     const image = await fetch(`${base}/api/sets/${setId}/covers/0`);
     expect(image.status).toBe(200);
     expect(image.headers.get("cache-control")).toBe(COVER_CACHE);
-    expect(image.headers.get("x-card-id")).toBe(readyId);
+    expect(image.headers.get("x-card-id")).toBeNull(); expect(image.headers.get("etag")).toBe(etagFor(image.url, readyId));
     expect(image.headers.get("x-mask-version")).toBeTruthy();
     expect(image.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await image.arrayBuffer())).toEqual(jpeg);

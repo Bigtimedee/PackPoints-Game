@@ -20,8 +20,12 @@ import { warmMaskPlanFilename } from "../masking/maskPlanStore";
 import { registerCoverQaRoutes } from "../routes/coverQa";
 import { releaseSetsForTests } from "../config/heldSets";
 import { setPinnedCoversForTests } from "../config/pinnedCovers";
-import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
+import { clearReadyCoverIndexForTests, handlePublicSetCover, handlePublicSetCoverPlaque } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
+
+import { setCoverEtag as __setCoverEtag } from "../services/setCovers";
+const etagFor = (u: string, id: string) => { const m = u.match(/\/api\/sets\/([^/]+)\/covers\/(\d+)/)!; return __setCoverEtag(m[1], Number(m[2]), id); };
+
 
 const TOKEN = "design-qa-token";
 const setId = `aea515e2-${randomUUID().slice(9)}`;
@@ -61,6 +65,9 @@ describe("coverQaHeaderMatches", () => {
 
 describe("cover QA routes", () => {
   const app = express();
+  app.get("/api/sets/:setId/covers/:slot/plaque", (req, res) => {
+    void handlePublicSetCoverPlaque(req, res);
+  });
   app.get("/api/sets/:setId/covers/:slot", (req, res) => {
     void handlePublicSetCover(req, res);
   });
@@ -240,14 +247,9 @@ describe("cover QA routes", () => {
     for (let slot = 0; slot < 8; slot += 1) {
       const pub = await fetch(`${base}/api/sets/${setId}/covers/${slot}`);
       expect(pub.status).toBe(200);
-      expect(pub.headers.get("x-card-id")).toBe(spareIds[slot]);
+      expect(pub.headers.get("x-card-id")).toBeNull(); expect(pub.headers.get("etag")).toBe(etagFor(pub.url, spareIds[slot]));
       expect(pub.headers.get("x-mask-version")).toBe(CURRENT_MASK_VERSION);
-      if (slot === 0) {
-      const plan = JSON.parse(pub.headers.get("x-mask-plan") || "null");
-      expect(plan).toMatchObject({ layoutClass: "BOTTOM_PLAQUE", maskVersion: CURRENT_MASK_VERSION });
-      expect(plan.regions.length).toBeGreaterThan(0);
-      expect(plan).not.toHaveProperty("player");
-      }
+      expect(pub.headers.get("x-mask-plan")).toBeNull();
       if (slot === 0) {
         const qa = await fetch(`${base}${body.candidates[0].imagePath}`, { headers: { "X-QA-Token": TOKEN } });
         expect(qa.status).toBe(200);
@@ -266,15 +268,22 @@ describe("cover QA routes", () => {
       }
     }
 
-    const preview = await fetch(`${base}/api/sets/${setId}/covers/0?plaque=1`);
-    const options = JSON.parse(preview.headers.get("x-card-options") || "null");
+    const legacy = await fetch(`${base}/api/sets/${setId}/covers/0?plaque=1`);
+    expect(legacy.headers.get("x-card-options")).toBeNull();
+    expect(legacy.headers.get("x-mask-plan")).toBeNull();
+    await legacy.arrayBuffer();
+    const preview = await fetch(`${base}/api/sets/${setId}/covers/0/plaque`);
+    const pbody = await preview.json();
+    expect(pbody).not.toHaveProperty("cardId");
+    expect(pbody.maskPlan).toMatchObject({ layoutClass: "BOTTOM_PLAQUE", maskVersion: CURRENT_MASK_VERSION });
+    expect(pbody.maskPlan).not.toHaveProperty("player");
+    const options = pbody.options;
     expect(options).toHaveLength(4);
     expect(new Set(options).size).toBe(4);
     expect(options).toContain(spareNames[0]);
     expect(options.every((name: unknown) => typeof name === "string")).toBe(true);
     expect(preview.headers.get("x-correct-answer")).toBeNull();
     expect(preview.headers.get("x-answer-index")).toBeNull();
-    await preview.arrayBuffer();
 
     const blocked = await fetch(`${base}/api/qa/cover-image/${blockedId}`, { headers: { "X-QA-Token": TOKEN } });
     expect(blocked.status).toBe(404);

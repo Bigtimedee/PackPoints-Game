@@ -6,10 +6,12 @@ const covers = readFileSync(new URL("../../../../server/services/setCovers.ts", 
 describe("home reuses gameplay and explains redemption", () => {
   it("uses GameCard and the scan-specific bake plan without a raw image fallback", () => {
     expect(home).toContain('<GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan}');
-    expect(home).toContain('response.headers.get("X-Mask-Plan")');
+    expect(home).toContain('/plaque?retry=');
+    expect(home).not.toContain('X-Mask-Plan');
     expect(home).toContain('if (!maskPlan) throw');
     expect(home).not.toContain('<img');
-    expect(covers).toContain('res.setHeader("X-Mask-Plan", JSON.stringify(maskPlan))');
+    expect(covers).not.toContain('X-Mask-Plan"');
+    expect(covers).toContain('res.json({ maskPlan, options })');
     expect(covers).toContain('toPublicMaskPlan(JSON.parse(readFileSync(planFile');
   });
   it("puts eligible real-card cashback in the hero, before Play Now", () => {
@@ -20,7 +22,7 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(home).not.toContain('Pay the normal marketplace price');
     expect(home).toContain('Who is on this 1987 Topps card?');
     expect(home).toContain('<AnswerButton');
-    expect(home).toContain('response.headers.get("X-Card-Options")');
+    expect(home).not.toContain('X-Card-Options');
     expect(home).toContain('do not change the price eBay charges');
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Public set covers walk Design picks, then alternates, and keep the first valid cards.
  * Never bakes. The public list never returns a raw photo URL, a player name, or a card id.
- * A served JPEG sets X-Card-Id and X-Mask-Version.
+ * A served JPEG sets X-Mask-Version only. Never a card id, plan or name in headers.
  * QA lists the pins and the old auto picker so Design can compare them.
  */
 import { toPublicMaskPlan } from "@shared/maskPlan";
@@ -508,7 +508,6 @@ function setCoverHeaders(res: Response, etag: string, cardId: string): void {
   res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
   res.setHeader("ETag", etag);
   res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
-  res.setHeader("X-Card-Id", cardId);
   res.setHeader("X-Mask-Cache", "hit");
   res.setHeader("Content-Security-Policy", "default-src 'none'");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -536,7 +535,7 @@ function coverHidden(req: Request, res: Response): void {
   res.end(body);
 }
 
-/** Serves a baked masked JPEG. Does not bake. Sets X-Card-Id when the file is sent. */
+/** Serves a baked masked JPEG. Does not bake. Never sets a card id header. */
 // ---------------------------------------------------------------------------
 // Hot-path caches for GET /api/sets/:setId/covers/:slot.
 // Masks are baked ahead of time into the warm sidecar dir (never rendered on
@@ -639,6 +638,41 @@ export function startSetCoverWarmer(intervalMs = 50_000): void {
   setInterval(run, intervalMs).unref();
 }
 
+/**
+ * JSON for the home hero: the scan-specific public mask plan and four names,
+ * exactly like pre-answer gameplay. No card id, no answer index. Moved out of
+ * image response headers (Design QA cheat-leak RED, Oct 14).
+ */
+export async function handlePublicSetCoverPlaque(req: Request, res: Response): Promise<void> {
+  applyNoStoreHeaders(res);
+  await (coverCacheEnabled() ? ensureHeldSetsFresh() : ensureHeldSets());
+  const setId = req.params.setId;
+  const slot = Number(req.params.slot);
+  if (isHeldSet(setId) || setsCoversDisabled() || !isMaskSetUuid(setId) || !Number.isInteger(slot) || slot < 0 || slot >= SET_COVER_SLOT_COUNT) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  try {
+    const cardId = (await cachedCoverCardIds(setId))[slot];
+    if (!cardId) { res.status(404).json({ error: "Not found" }); return; }
+    const planFile = path.join(maskReadySidecarDir(), warmMaskPlanFilename(cardId));
+    let maskPlan = null;
+    try { maskPlan = toPublicMaskPlan(JSON.parse(readFileSync(planFile, "utf8"))); } catch { /* fails closed below */ }
+    if (!maskPlan) { res.status(404).json({ error: "Not found" }); return; }
+    const [card] = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
+    const pool = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.gameSetId, setId)).limit(2000);
+    const names = [...new Set(pool.map(row => row.player?.trim()).filter((name): name is string => !!name && name !== card?.player?.trim()))];
+    for (let i = names.length - 1; i > 0; i--) { const j = randomInt(i + 1); [names[i], names[j]] = [names[j], names[i]]; }
+    const options = card?.player?.trim() && names.length >= 3 ? [card.player.trim(), ...names.slice(0, 3)] : [];
+    for (let i = options.length - 1; i > 0; i--) { const j = randomInt(i + 1); [options[i], options[j]] = [options[j], options[i]]; }
+    if (options.length !== 4) { res.status(404).json({ error: "Not found" }); return; }
+    res.json({ maskPlan, options });
+  } catch {
+    console.error(`[Sets] plaque error set=${setId} slot=${slot}`);
+    if (!res.headersSent) res.status(500).json({ error: "Failed to load" });
+  }
+}
+
 export async function handlePublicSetCover(req: Request, res: Response): Promise<void> {
   if (coverCacheEnabled()) await ensureHeldSetsFresh();
   else await ensureHeldSets();
@@ -665,24 +699,9 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
       return;
     }
 
-    // The hero uses GameCard with this exact scan-specific plan, not a set fallback.
-    const planFile = path.join(maskReadySidecarDir(), warmMaskPlanFilename(cardId));
-    let maskPlan = null;
-    try { maskPlan = toPublicMaskPlan(JSON.parse(readFileSync(planFile, "utf8"))); } catch { /* Missing plan: hero fails closed; existing cover shelves still work. */ }
-    if (maskPlan) res.setHeader("X-Mask-Plan", JSON.stringify(maskPlan));
-    if (req.query.plaque === "1" && maskPlan) {
-      const [card] = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
-      const pool = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.gameSetId, setId)).limit(2000);
-      const names = [...new Set(pool.map(row => row.player?.trim()).filter((name): name is string => !!name && name !== card?.player?.trim()))];
-      for (let i = names.length - 1; i > 0; i--) { const j = randomInt(i + 1); [names[i], names[j]] = [names[j], names[i]]; }
-      const options = card?.player?.trim() && names.length >= 3 ? [card.player.trim(), ...names.slice(0, 3)] : [];
-      for (let i = options.length - 1; i > 0; i--) { const j = randomInt(i + 1); [options[i], options[j]] = [options[j], options[i]]; }
-      // Four names only, exactly like pre-answer gameplay. Never an answer index.
-      if (options.length === 4) res.setHeader("X-Card-Options", JSON.stringify(options));
-    }
 
     const etag = setCoverEtag(setId, slot, cardId);
-    if (req.query.plaque !== "1" && req.headers["if-none-match"] === etag) {
+    if (req.headers["if-none-match"] === etag) {
       setCoverHeaders(res, etag, cardId);
       res.status(304).end();
       return;

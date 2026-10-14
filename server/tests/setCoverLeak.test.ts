@@ -23,6 +23,10 @@ import { setPinnedCoversForTests } from "../config/pinnedCovers";
 import { clearReadyCoverIndexForTests, handlePublicSetCover } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
+import { setCoverEtag as __setCoverEtag } from "../services/setCovers";
+const etagFor = (u: string, id: string) => { const m = u.match(/\/api\/sets\/([^/]+)\/covers\/(\d+)/)!; return __setCoverEtag(m[1], Number(m[2]), id); };
+
+
 const stamp = randomUUID().slice(0, 8);
 const setId = randomUUID();
 const setName = `1987 Topps Football ${stamp}`;
@@ -191,14 +195,14 @@ describe("GET /api/sets cover leak", () => {
     expect(first.status).toBe(200);
     expect(first.headers.get("content-type")).toContain("image/jpeg");
     expect(first.headers.get("x-mask-version")).toBe(CURRENT_MASK_VERSION);
-    expect(first.headers.get("x-card-id")).toBe(montanaId);
+    expect(first.headers.get("x-card-id")).toBeNull(); expect(first.headers.get("etag")).toBe(etagFor(first.url, montanaId));
     expect(Buffer.from(await first.arrayBuffer())).toEqual(montanaBytes);
     expect(first.url).not.toContain(montanaId);
 
     const second = await fetch(`${base}/api/sets/${setId}/covers/1`);
     expect(second.status).toBe(200);
     expect(Buffer.from(await second.arrayBuffer())).toEqual(cunninghamBytes);
-    expect(second.headers.get("x-card-id")).toBe(cunninghamId);
+    expect(second.headers.get("x-card-id")).toBeNull(); expect(second.headers.get("etag")).toBe(etagFor(second.url, cunninghamId));
 
     const missing = await fetch(`${base}/api/sets/${setId}/covers/2`);
     expect(missing.status).toBe(404);

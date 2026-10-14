@@ -1,3 +1,4 @@
+import { noCardLeakHeaders } from "./middleware/noCardLeakHeaders";
 import { registerVerifiedEpnPostback } from "./routes/epnPostback";
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
@@ -167,6 +168,7 @@ app.use((req, res, next) => {
 });
 
 app.use(requestIdMiddleware);
+app.use(noCardLeakHeaders);
 app.use(structuredRequestLogger);
 
 // Serve static files from public folder (card images)
