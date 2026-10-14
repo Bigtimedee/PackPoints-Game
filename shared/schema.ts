@@ -5034,3 +5034,35 @@ export const adminSetPreparationJobs = pgTable("admin_set_preparation_jobs", {
  * Matched on username_normalized / lower(username). Adding a name here flags it on next boot.
  */
 export const TEST_ACCOUNT_SEED_USERNAMES = ["designqa", "claude_e2e_test", "qa_design_test"] as const;
+
+// ============================================
+// GTM FUNNEL EVENTS (server-side visit, first answer, game complete, Beat-me share)
+// ============================================
+/**
+ * One row per funnel step. `visit` is logged server-side when the SPA HTML is
+ * served (landing loads only, with UTM). `first_answer` is written once per
+ * visitor (pp_vid cookie) or user. `game_complete` carries mode and set.
+ * Read by /api/qa/funnel. is_test rows (test, QA and staff accounts, bots)
+ * are kept but excluded from every metric.
+ */
+export const funnelEvents = pgTable("funnel_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: varchar("event_type", { length: 24 }).notNull(),
+  visitorId: varchar("visitor_id", { length: 64 }),
+  userId: varchar("user_id"),
+  mode: varchar("mode", { length: 20 }),
+  gameSetId: varchar("game_set_id"),
+  path: varchar("path", { length: 300 }),
+  utmSource: varchar("utm_source", { length: 100 }),
+  utmMedium: varchar("utm_medium", { length: 100 }),
+  utmCampaign: varchar("utm_campaign", { length: 100 }),
+  utmContent: varchar("utm_content", { length: 100 }),
+  referrerHost: varchar("referrer_host", { length: 255 }),
+  isTest: boolean("is_test").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_funnel_events_type_time").on(table.eventType, table.createdAt),
+  index("idx_funnel_events_visitor").on(table.visitorId),
+  index("idx_funnel_events_user").on(table.userId),
+]);
+export type FunnelEvent = typeof funnelEvents.$inferSelect;
