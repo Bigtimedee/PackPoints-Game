@@ -278,6 +278,11 @@ describe("cover QA routes", () => {
     expect(pbody.maskPlan).toMatchObject({ layoutClass: "BOTTOM_PLAQUE", maskVersion: CURRENT_MASK_VERSION });
     expect(pbody.maskPlan).not.toHaveProperty("player");
     const options = pbody.options;
+    // Design QA RED Oct 14: wrong names must not re-roll between calls.
+    for (let i = 0; i < 10; i += 1) {
+      const again = await (await fetch(`${base}/api/sets/${setId}/covers/0/plaque`)).json();
+      expect(again.options).toEqual(options);
+    }
     expect(options).toHaveLength(4);
     expect(new Set(options).size).toBe(4);
     expect(options).toContain(spareNames[0]);

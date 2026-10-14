@@ -5,7 +5,8 @@
  * QA lists the pins and the old auto picker so Design can compare them.
  */
 import { toPublicMaskPlan } from "@shared/maskPlan";
-import { createHash, randomInt } from "crypto";
+import { createHash, createHmac, randomBytes, randomInt } from "crypto";
+import { getPackptsDayKey } from "@shared/packptsDay";
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { readFile } from "fs/promises";
 import path from "path";
@@ -515,6 +516,11 @@ function setCoverHeaders(res: Response, etag: string, cardId: string): void {
 
 function coverNotReady(res: Response): void {
   res.setHeader("Cache-Control", "private, no-store");
+  if (coverCacheEnabled() && !coverWarmReady) {
+    res.setHeader("Retry-After", "2");
+    res.status(503).json({ error: "Starting up" });
+    return;
+  }
   res.removeHeader("X-Card-Id");
   res.status(404).json({ error: "Cover not ready" });
 }
@@ -544,6 +550,10 @@ function coverHidden(req: Request, res: Response): void {
 // fail with 500/502.
 // ---------------------------------------------------------------------------
 const COVER_IDS_TTL_MS = 60_000;
+const COVER_IDS_SHORT_TTL_MS = 5_000;
+/** Until the first full warm pass finishes, a not-ready cover is 503 + Retry-After, never 404. */
+let coverWarmReady = false;
+export function setCoverWarmReadyForTests(v: boolean): void { coverWarmReady = v; }
 const COVER_BYTES_MAX = 600;
 const COVER_RESOLVE_CONCURRENCY = 4;
 const coverIdsCache = new Map<string, { at: number; ids: Promise<string[]> }>();
@@ -573,11 +583,19 @@ function coverCacheEnabled(): boolean {
 /** Cached, de-duplicated, concurrency-capped cover id lookup for one set. */
 export function cachedCoverCardIds(setId: string): Promise<string[]> {
   if (!coverCacheEnabled()) return readyCoverCardIds([setId]).then((m) => m.get(setId) ?? []);
+  if (!coverWarmReady) readyIndex = null; // startup: never trust a ready index built before the backfill
   const hit = coverIdsCache.get(setId);
   if (hit && Date.now() - hit.at < COVER_IDS_TTL_MS) return hit.ids;
   const ids = withResolveSlot(async () => (await readyCoverCardIds([setId])).get(setId) ?? []);
   coverIdsCache.set(setId, { at: Date.now(), ids });
-  ids.catch(() => { if (coverIdsCache.get(setId)?.ids === ids) coverIdsCache.delete(setId); });
+  ids.then((list) => {
+    // Never pin an empty or partial list: at boot the mask sidecar can still be
+    // warming, and a cached empty list 404'd 1990 Hoops covers for a minute.
+    if (list.length < SET_COVER_SLOT_COUNT && coverIdsCache.get(setId)?.ids === ids) {
+      coverIdsCache.set(setId, { at: Date.now() - COVER_IDS_TTL_MS + COVER_IDS_SHORT_TTL_MS, ids });
+    }
+    if (list.length === 0 && coverIdsCache.get(setId)?.ids === ids) coverIdsCache.delete(setId);
+  }, () => { if (coverIdsCache.get(setId)?.ids === ids) coverIdsCache.delete(setId); });
   return ids;
 }
 
@@ -613,22 +631,36 @@ export async function warmSetCoverCache(): Promise<{ sets: number; files: number
     .from(gameSets)
     .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
   const setIds = rows.map((row) => row.id).filter((id) => isMaskSetUuid(id));
+  readyIndex = null; // re-read the sidecar dir each pass
   const resolved = await readyCoverCardIds(setIds);
   let files = 0;
   const now = Date.now();
   for (const setId of setIds) {
     const ids = resolved.get(setId) ?? [];
-    coverIdsCache.set(setId, { at: now, ids: Promise.resolve(ids) });
+    if (ids.length >= SET_COVER_SLOT_COUNT) coverIdsCache.set(setId, { at: now, ids: Promise.resolve(ids) });
+    else coverIdsCache.delete(setId);
     for (const cardId of ids) {
       const file = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
       if (!file) continue;
       try { await coverFileBytes(file); files++; } catch { /* served from disk on demand */ }
     }
   }
+  coverWarmReady = true;
   return { sets: setIds.length, files };
 }
 
 export function startSetCoverWarmer(intervalMs = 50_000): void {
+  void (async () => {
+    // Wait for the boot sidecar backfill so the first pass sees every ready mask.
+    const { warmSidecarReady } = await import("../startup/warmSidecarBackfill");
+    if (warmSidecarReady) {
+      await Promise.race([warmSidecarReady, new Promise((r) => setTimeout(r, 180_000).unref())]);
+    }
+    startSetCoverWarmLoop(intervalMs);
+  })();
+}
+
+function startSetCoverWarmLoop(intervalMs: number): void {
   const run = () => {
     void warmSetCoverCache()
       .then(({ sets, files }) => console.log(`[SetCovers] warm cache sets=${sets} files=${files}`))
@@ -636,6 +668,42 @@ export function startSetCoverWarmer(intervalMs = 50_000): void {
   };
   run();
   setInterval(run, intervalMs).unref();
+}
+
+const PLAQUE_FALLBACK_SECRET = randomBytes(32).toString("hex");
+function plaqueSecret(): string {
+  return process.env.SESSION_SECRET || process.env.JWT_SECRET || PLAQUE_FALLBACK_SECRET;
+}
+const plaqueCache = new Map<string, string[]>();
+
+/** Rank key: HMAC of the day seed and a label. Same inputs, same order, every call. */
+function plaqueRank(seed: string, label: string): string {
+  return createHmac("sha256", seed).update(label).digest("hex");
+}
+
+/**
+ * Four names for a cover slot, fixed per set, slot, card and CT day. The wrong
+ * names never re-roll between calls (Design QA RED Oct 14: the name that
+ * repeated across calls was the answer). Seeded by an HMAC with a server
+ * secret so the order cannot be precomputed.
+ */
+export async function plaqueOptions(setId: string, slot: number, cardId: string, day = getPackptsDayKey()): Promise<string[]> {
+  const key = `${setId}|${slot}|${day}|${cardId}`;
+  const hit = plaqueCache.get(key);
+  if (hit) return hit;
+  const [card] = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
+  const rows = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.gameSetId, setId)).orderBy(asc(playableCards.id)).limit(2000);
+  const answer = card?.player?.trim();
+  if (!answer) return [];
+  const seed = createHmac("sha256", plaqueSecret()).update(key).digest("hex");
+  const names = [...new Set(rows.map((row) => row.player?.trim()).filter((name): name is string => !!name && name !== answer))]
+    .sort((a, b) => plaqueRank(seed, `w|${a}`).localeCompare(plaqueRank(seed, `w|${b}`)));
+  if (names.length < 3) return [];
+  const options = [answer, ...names.slice(0, 3)]
+    .sort((a, b) => plaqueRank(seed, `o|${a}`).localeCompare(plaqueRank(seed, `o|${b}`)));
+  if (plaqueCache.size > 500) plaqueCache.clear();
+  plaqueCache.set(key, options);
+  return options;
 }
 
 /**
@@ -659,12 +727,7 @@ export async function handlePublicSetCoverPlaque(req: Request, res: Response): P
     let maskPlan = null;
     try { maskPlan = toPublicMaskPlan(JSON.parse(readFileSync(planFile, "utf8"))); } catch { /* fails closed below */ }
     if (!maskPlan) { res.status(404).json({ error: "Not found" }); return; }
-    const [card] = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.id, cardId)).limit(1);
-    const pool = await db.select({ player: playableCards.player }).from(playableCards).where(eq(playableCards.gameSetId, setId)).limit(2000);
-    const names = [...new Set(pool.map(row => row.player?.trim()).filter((name): name is string => !!name && name !== card?.player?.trim()))];
-    for (let i = names.length - 1; i > 0; i--) { const j = randomInt(i + 1); [names[i], names[j]] = [names[j], names[i]]; }
-    const options = card?.player?.trim() && names.length >= 3 ? [card.player.trim(), ...names.slice(0, 3)] : [];
-    for (let i = options.length - 1; i > 0; i--) { const j = randomInt(i + 1); [options[i], options[j]] = [options[j], options[i]]; }
+    const options = await plaqueOptions(setId, slot, cardId);
     if (options.length !== 4) { res.status(404).json({ error: "Not found" }); return; }
     res.json({ maskPlan, options });
   } catch {

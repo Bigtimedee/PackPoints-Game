@@ -243,16 +243,25 @@ export async function runWarmSidecarBackfill(opts?: {
 }
 
 /** After routes are ready. Low priority, one batch of files per tick. */
+let resolveSidecarReady: () => void = () => {};
+/** Resolves once the boot sidecar backfill (ready markers) has run. Null when it never started. */
+export let warmSidecarReady: Promise<void> | null = null;
+
 export function startWarmSidecarBackfill(): void {
   if (backfillStarted) return;
   backfillStarted = true;
   backfillStop = false;
+  warmSidecarReady = new Promise<void>((resolve) => { resolveSidecarReady = resolve; });
   addShutdownHook(() => {
     backfillStop = true;
   });
   void (async () => {
     try {
-      await runWarmSidecarBackfill();
+      try {
+        await runWarmSidecarBackfill();
+      } finally {
+        resolveSidecarReady();
+      }
       await runNameVisibilityBackfill();
       const { logAndBakeUnverifiedSubsets } = await import("../masking/subsetQuarantine");
       await logAndBakeUnverifiedSubsets();
