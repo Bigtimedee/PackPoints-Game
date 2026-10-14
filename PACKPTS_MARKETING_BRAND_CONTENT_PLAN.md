@@ -1,3 +1,5 @@
+> **SUPERSEDED (October 14, 2026) by [docs/GTM.md](docs/GTM.md).** Goals, ICP, KPIs, north star and economics below are out of date. Keep for tactics only.
+
 # PackPTS Marketing, Branding & Content Plan — July 2026
 
 This is the umbrella plan that ties together the existing tactical documents — `PACKPTS_GROWTH_STRATEGY.md` (channel tactics, growth agents), `SOCIAL_MEDIA_CAMPAIGN.md` (30-day playbook), `MONETIZATION_PLAN.md`, and `REDDIT_STRATEGY.md` — into a single brand and acquisition-oriented narrative. Those documents remain the tactical source of truth; this one defines the strategy layer above them.

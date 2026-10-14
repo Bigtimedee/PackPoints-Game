@@ -150,7 +150,7 @@ export default function Home() {
           <CardContent className="p-4 text-sm text-muted-foreground">
           <h2 className="font-semibold text-foreground">How to play</h2>
           <p className="mt-3 leading-relaxed">Look at the card with the name hidden. Choose the player from four options. Correct answers earn PackPTS.</p>
-          <p className="mt-2 leading-relaxed">Browse live eBay listings in Marketplace. PackPTS do not change the price eBay charges. We may earn an affiliate commission.</p>
+          <p className="mt-2 leading-relaxed">Browse live eBay listings in Marketplace. PackPTS do not change the price eBay charges. PackPTS earns a commission on eBay purchases through our links.</p>
           </CardContent>
         </Card>
       </section>
@@ -159,6 +159,7 @@ export default function Home() {
           <Link href="/terms-of-service" className="hover:text-foreground">Terms of Service</Link>
           <Link href="/privacy-policy" className="hover:text-foreground">Privacy Policy</Link>
           <Link href="/points" className="hover:text-foreground" data-testid="link-footer-how-points-work">How points work</Link>
+          <Link href="/dmca" className="hover:text-foreground" data-testid="link-footer-dmca">Copyright and takedowns</Link>
           <a href="mailto:support@packpts.com" className="hover:text-foreground">Contact</a>
           {import.meta.env.VITE_DISCORD_INVITE_URL && <a href={import.meta.env.VITE_DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-foreground"><MessageCircle className="h-3.5 w-3.5" /> Discord</a>}
         </div>

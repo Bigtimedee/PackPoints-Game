@@ -508,6 +508,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
               <ExternalLink className="h-3 w-3" />
             </a>
           </Button>
+          <AffiliateDisclosure className="mt-1" />
         </CardContent>
       </Card>
 
@@ -516,7 +517,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <DialogHeader>
             <DialogTitle>Reserve PackPTS for cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. After you buy via our tracked link, PackPTS pays you back the cashback shown below. We may earn an affiliate commission.
+              {platformName} checkout stays full price. After you buy via our tracked link, PackPTS pays you back the cashback shown below. PackPTS earns a commission on eBay purchases through our links.
             </DialogDescription>
           </DialogHeader>
           
@@ -610,6 +611,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                 <ExternalLink className="h-3 w-3 ml-2" />
               </a>
             </Button>
+            <AffiliateDisclosure />
             {appliedIntentId && (
               <Button variant="secondary" asChild data-testid="button-claim-rebate-cta">
                 <Link href={`/redemptions/${appliedIntentId}`}>
@@ -1026,7 +1028,7 @@ export default function Marketplace() {
                   <div>
                     <h3 className="font-semibold text-lg">Search for Cards</h3>
                     <p className="text-muted-foreground">
-                      Find live listings from eBay. PackPTS you apply stay in your wallet and do not change the price eBay charges. We may earn an affiliate commission.
+                      Find live listings from eBay. PackPTS you apply stay in your wallet and do not change the price eBay charges. PackPTS earns a commission on eBay purchases through our links.
                     </p>
                   </div>
                 </CardContent>

@@ -1,3 +1,5 @@
+> **SUPERSEDED (October 14, 2026) by [docs/GTM.md](GTM.md).** Goals, ICP, KPIs, north star and economics below are out of date. Keep for tactics only.
+
 # PackPTS Content Marketing — 30-Day Launch Strategy
 
 **Objective:** Drive 500+ new registrations and 200+ DAU within 30 days through organic content

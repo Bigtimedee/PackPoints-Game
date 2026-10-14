@@ -1,3 +1,5 @@
+> **SUPERSEDED (October 14, 2026) by [docs/GTM.md](docs/GTM.md).** Goals, ICP, KPIs, north star and economics below are out of date. Keep for tactics only.
+
 # PackPTS Product Vision
 
 **Last updated:** 2026-07-16

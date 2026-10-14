@@ -1,3 +1,5 @@
+> **SUPERSEDED (October 14, 2026) by [docs/GTM.md](docs/GTM.md).** Goals, ICP, KPIs, north star and economics below are out of date. Keep for tactics only.
+
 # PackPTS Execution Plan — Audit, Fixes, and Organic Marketing Roadmap
 
 > Generated 2026-06-14 from a direct inspection of the live `PackPoints-Game` repository (HEAD `4e516a8b`, branch `main`), the canonical `PACKPTS_PROJECT_CONTEXT.md`, and the acquisition thesis memo. Every claim below was verified against the actual code, not the documentation. Where I could not verify something, I say so and assign a confidence level.

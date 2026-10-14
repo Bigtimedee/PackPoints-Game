@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link } from "wouter";
 import { trackPoints } from "@/lib/pointsEvents";
 import { Button } from "@/components/ui/button";
+import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
 import { usePointsValue } from "@/hooks/use-points-value";
 import { PRIMARY, addingAnswer, cashOutAnswer, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
 
@@ -61,6 +62,7 @@ export default function PointsPage() {
           )}
         </div>
       </div>
+      <AffiliateDisclosure className="pt-2" />
     </div>
   );
 }

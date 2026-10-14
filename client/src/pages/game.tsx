@@ -3,6 +3,7 @@ import { PointsStrip } from "@/components/points-strip";
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useSearch, useLocation } from "wouter";
 import { soloDeepLinkSetId } from "@/lib/soloDeepLink";
+import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
 import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -1455,6 +1456,7 @@ export default function Game() {
                             </a>
                           ))}
                         </div>
+                        <AffiliateDisclosure className="text-left" />
                       </div>
                     )}
 
