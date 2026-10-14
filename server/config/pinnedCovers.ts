@@ -60,6 +60,12 @@ export const PINNED_SET_COVERS: Readonly<Record<string, PinnedCoverList>> = {
     picks: ["33c3e9cb-bf3c-4bf0-924a-5bcd2e20d340", "8c36cd83-cca8-4ea4-970b-1e4cdae68d8f", "0407e40b-196c-48dc-a5b7-64e7592d0d45", "ad168080-40f0-43b4-9b74-28c7a5c4eb69", "2d6e0646-a203-481a-9017-ab870988b941", "cfae942e-6edf-4e33-bcba-aac43bb1b650", "8ab70f4a-1f83-42a8-a1d1-0c9037094767", "488147bc-934e-4d60-89eb-6246c9a83a88"],
     alternates: ["c4e1a127-93a9-46e7-b3fd-87089553756c", "3fb7ce44-6922-4058-b5e0-f92927479321", "f14f1934-2778-437a-bf4c-5634f0a63bf7", "86f77f38-faee-4ed0-ba35-082f08e248bd"],
   },
+  // Design picks 2026-10-13 (masked covers only).
+  "affd57b8-2b1d-4ea3-9f51-1530d8088e5c": {
+    set: "1988 Topps Baseball",
+    picks: ["84535c37-a1d4-425b-a824-61a7f5a2526a", "3857b7a5-2d9c-474a-ab42-7d21af66be83", "b838aa63-5b36-4919-a9f6-8777e6dabf93", "68564cfc-11df-4271-80cc-c7e8d2bf53d9", "b1dddeae-ff5c-40f3-a91b-a27a6ab4b37e"],
+    alternates: ["d53c2196-5916-4761-8fab-ef94832b6254"],
+  },
   "d226801a-da94-47f6-a09a-3735def60b2d": {
     set: "1990 Hoops Basketball",
     picks: ["a49bc8e8-9222-4195-809d-d16253619eb9", "9dc6289a-982e-4ce5-a6c0-99bbe7195052", "0389540c-52e1-4e7d-af11-b1ec92c4eb6d", "b7a024cd-6b4a-4afb-85c6-425e26616aad", "d13c5632-2ec0-4dac-86bb-627e44ab46d9", "5325ca93-ce71-415a-bb1b-e226ef9e0fb7", "f20ab3ef-c8a2-4e5a-bbbd-9320a8498a2c", "cecb5369-3e9b-45ed-bcbc-7285b8fc268f"],
