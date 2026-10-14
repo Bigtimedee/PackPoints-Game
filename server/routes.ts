@@ -118,6 +118,8 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { registerFunnelQaRoutes } from "./routes/funnelQa";
+import { recordFunnelEvent } from "./services/funnel";
 import { registerPointsValueRoute } from "./routes/pointsValue";
 import { registerPointsEventsRoute } from "./routes/pointsEvents";
 import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
@@ -530,6 +532,7 @@ export async function registerRoutes(
   registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
+  registerFunnelQaRoutes(app);
   registerPointsValueRoute(app);
   registerPointsEventsRoute(app);
   registerQaSessionRoute(app);
@@ -1125,6 +1128,11 @@ export async function registerRoutes(
             payload: { mode: freshSession.mode, pointValue: freshCurrentQuestion.pointValue },
           });
         } catch { /* never break gameplay for analytics */ }
+        recordFunnelEvent(req, "first_answer", {
+          userId: freshSession.userId || req.session?.localUserId || null,
+          mode: freshSession.mode,
+          gameSetId: (freshCurrentQuestion.card as any)?.gameSetId || null,
+        });
 
         await commitSoloAnswer({
           sessionId,
@@ -1258,6 +1266,10 @@ export async function registerRoutes(
       if (session.currentQuestionIndex >= effectiveQuestionCount - 1) {
         session.status = "completed";
         session.completedAt = new Date().toISOString();
+        if (!wasCompleted) {
+          const firstCard = (session.questions?.[0] as any)?.card;
+          recordFunnelEvent(req, "game_complete", { userId: nextUserId || null, mode: session.mode, gameSetId: firstCard?.gameSetId || null });
+        }
         
         const effectiveTotal = session.totalQuestions - (session.skippedQuestions ?? 0);
         
@@ -1478,6 +1490,7 @@ export async function registerRoutes(
         }
         const { challengeId, position, selectedAnswer } = parsed.data;
         const result = await answerAnonDaily5(req, res, challengeId, position, selectedAnswer);
+        recordFunnelEvent(req, "first_answer", { userId: null, mode: "daily5" });
         return res.json(result);
       }
       
@@ -1488,6 +1501,7 @@ export async function registerRoutes(
       
       const { challengeId, position, selectedAnswer } = parsed.data;
       const result = await daily5Service.submitAnswer(userId, challengeId, position, selectedAnswer);
+      recordFunnelEvent(req, "first_answer", { userId, mode: "daily5" });
       const entryId = await registeredDailyEntryId(userId, challengeId);
       const revealUrl = entryId
         ? await mintDailyRevealUrl({ scope: "d5", sessionId: entryId, challengeId, position })
@@ -1512,10 +1526,12 @@ export async function registerRoutes(
 
       if (!userId) {
         const result = await finishAnonDaily5(req, res, parsed.data.challengeId);
+        recordFunnelEvent(req, "game_complete", { userId: null, mode: "daily5" });
         return res.json(result);
       }
       
       const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
+      recordFunnelEvent(req, "game_complete", { userId, mode: "daily5" });
 
       let shareImageUrl: string | undefined;
       try {
@@ -1558,6 +1574,7 @@ export async function registerRoutes(
       const userId = req.user?.claims?.sub || req.session?.localUserId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const created = await createBeatMeFromSession(userId);
+      recordFunnelEvent(req, "beatme_share", { userId, mode: "daily5" });
       let shareImageUrl: string | undefined;
       try {
         const { generateChallengeShare } = await import("./contentFactory/generateScoreCard");
