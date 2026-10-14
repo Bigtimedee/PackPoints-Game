@@ -1,3 +1,4 @@
+import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "../services/cards/imageQuality";
 import { Router, Response } from "express";
 import { z } from "zod";
 import { db } from "../db";
@@ -216,7 +217,8 @@ router.post("/api/collab/:id/publish", isAuthenticated, requireAdmin, async (req
       imageUrl: card.imageUrl ?? null,
       // category must match the set's sport or getRandomCardsFromSet filters the card out
       category: newSet.sport,
-      isPlayable: true,
+      isPlayable: !isThirdPartyPhotoHost(card.imageUrl),
+      blockedReason: isThirdPartyPhotoHost(card.imageUrl) ? THIRD_PARTY_PHOTO_REASON : null,
     }));
     await db.insert(playableCards).values(cardRows);
 

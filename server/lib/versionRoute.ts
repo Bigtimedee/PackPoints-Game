@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { getServedBuildId } from "./servedBuildId";
 import { sendNoStoreBody } from "./noStoreResponse";
 
+// Real deploy metadata (GTM audit W9): when this process started and which commit it runs.
+const STARTED_AT = new Date().toISOString();
+
 export function versionPayload(): {
   buildId: string;
   v: number;
@@ -13,8 +16,8 @@ export function versionPayload(): {
     buildId: getServedBuildId(),
     v: 34,
     sha: process.env.BUILD_COMMIT_SHA || "dev",
-    deployed: "2026-06-15",
-    build: "prompt-26-auto-risk-scoring",
+    deployed: process.env.RAILWAY_DEPLOYMENT_CREATED_AT || STARTED_AT,
+    build: process.env.RAILWAY_DEPLOYMENT_ID || process.env.BUILD_COMMIT_SHA || "dev",
   };
 }
 

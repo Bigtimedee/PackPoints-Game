@@ -1,3 +1,4 @@
+import { isThirdPartyPhotoHost } from "./cards/imageQuality";
 import { db } from "../db";
 import { playableCards } from "@shared/schema";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
@@ -398,6 +399,10 @@ export async function restorePlayableIfMaskAllows(
 ): Promise<boolean> {
   if (isBlockedCardIdRow(card)) {
     console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: blocked card id`);
+    return false;
+  }
+  if (isThirdPartyPhotoHost(imageUrl)) {
+    console.log(`[CardPoolRefresh] Leaving card ${card.id} non-playable: third-party photo host`);
     return false;
   }
   if (card.blockedReason === STOCK_PLACEHOLDER_REASON || isStockPlaceholderImage(imageUrl)) {

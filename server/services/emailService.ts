@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { withUtm } from "@shared/utm";
 
 /** User-visible brand on every outbound email. */
 export const BRAND_NAME = "PackPTS";
@@ -139,7 +140,7 @@ export async function sendStreakReminderEmail(
             You're on a <strong>${streakDays}-day streak</strong>. That's seriously impressive. Play today's card challenge to keep it alive and earn your daily streak bonus.
           </p>
           <div style="text-align: center; margin: 32px 0;">
-            <a href="${siteUrl}" style="display: inline-block; background-color: #FFD700; color: #18181b; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
+            <a href="${withUtm(siteUrl, { source: "email", medium: "email", campaign: "streak_reminder" })}" style="display: inline-block; background-color: #FFD700; color: #18181b; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
               Play Now &rarr;
             </a>
           </div>
@@ -202,7 +203,7 @@ export async function sendReEngagementEmail(
             New cards hit the market every week. Jump back in and see what you've been missing.
           </p>
           <div style="text-align: center; margin: 32px 0;">
-            <a href="${siteUrl}" style="display: inline-block; background-color: #18181b; color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
+            <a href="${withUtm(siteUrl, { source: "email", medium: "email", campaign: "reengagement" })}" style="display: inline-block; background-color: #18181b; color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 16px;">
               Play Today &rarr;
             </a>
           </div>
@@ -325,7 +326,7 @@ export async function sendMakerDigestEmail(
           Your set <strong>${setName}</strong> was played
           <strong>${playCount} time${playCount !== 1 ? "s" : ""}</strong> today on PackPTS.
         </p>
-        <a href="${siteUrl}" style="display: inline-block; background: #6366f1; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 8px;">
+        <a href="${withUtm(siteUrl, { source: "email", medium: "email", campaign: "maker_digest" })}" style="display: inline-block; background: #6366f1; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin-top: 8px;">
           See your sets
         </a>
         <p style="color: #999; font-size: 12px; margin-top: 24px;">

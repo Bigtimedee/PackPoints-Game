@@ -576,6 +576,12 @@ app.use((req, res, next) => {
   try {
     const { startRiskScanWorker } = await import("./services/riskScanWorker");
     startRiskScanWorker();
+    try {
+      const { startDaily5XWatch } = await import("./services/daily5XWatch");
+      startDaily5XWatch();
+    } catch (err) {
+      console.error("[D5XWatch] failed to start:", err);
+    }
   } catch (err) {
     console.error("[RiskScan] Failed to start:", err);
   }

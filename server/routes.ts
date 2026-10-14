@@ -118,6 +118,8 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { registerImageHostsQaRoute } from "./routes/imageHostsQa";
+import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "./services/cards/imageQuality";
 import { registerPointsValueRoute } from "./routes/pointsValue";
 import { registerPointsEventsRoute } from "./routes/pointsEvents";
 import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
@@ -530,6 +532,7 @@ export async function registerRoutes(
   registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
+  registerImageHostsQaRoute(app);
   registerPointsValueRoute(app);
   registerPointsEventsRoute(app);
   registerQaSessionRoute(app);
@@ -6116,8 +6119,8 @@ export async function registerRoutes(
                 imageUrl,
                 category: card.category,
                 rookie: card.rookie,
-                isPlayable,
-                blockedReason,
+                isPlayable: isPlayable && !isThirdPartyPhotoHost(imageUrl),
+                blockedReason: isThirdPartyPhotoHost(imageUrl) ? THIRD_PARTY_PHOTO_REASON : blockedReason,
               })
             .onConflictDoUpdate({
               target: playableCards.cardhedgeCardId,
@@ -6475,8 +6478,8 @@ export async function registerRoutes(
               imageUrl: card.imageUrl,
               category: card.category,
               rookie: card.rookie,
-              isPlayable: card.isPlayable,
-              blockedReason: card.blockedReason,
+              isPlayable: card.isPlayable && !isThirdPartyPhotoHost(card.imageUrl),
+              blockedReason: isThirdPartyPhotoHost(card.imageUrl) ? THIRD_PARTY_PHOTO_REASON : card.blockedReason,
               contentVerified: null, // New imports pending verification (NULL passes playable check)
               imageFailureCount: 0,
             })

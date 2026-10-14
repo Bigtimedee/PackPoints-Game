@@ -16,6 +16,7 @@
  * set already has, and the per-set player denylist (1987 Donruss: Cal Ripken,
  * facsimile signature on the wristband; Roberto Clemente, not in the set).
  */
+import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "./cards/imageQuality";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { cardhedgeImportRuns, gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
@@ -437,8 +438,8 @@ export async function fillMissingCards(setId: string, opts: FillMissingOptions):
       imageUrl: cand.imageUrl,
       category: card.category,
       rookie: card.rookie,
-      isPlayable: true,
-      blockedReason: null,
+      isPlayable: !isThirdPartyPhotoHost(cand.imageUrl),
+      blockedReason: isThirdPartyPhotoHost(cand.imageUrl) ? THIRD_PARTY_PHOTO_REASON : null,
     }).onConflictDoNothing({ target: playableCards.cardhedgeCardId })
       .returning({ id: playableCards.id, cardhedgeCardId: playableCards.cardhedgeCardId });
     if (rows[0]) {
