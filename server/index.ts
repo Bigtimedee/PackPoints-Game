@@ -32,7 +32,7 @@ import { logHeldSets } from "./config/heldSets";
 import { logMaskCachePurge, rebuildMaskCacheOnProfileChange } from "./masking/maskCachePurge";
 import { invalidateRegisteredHoopsMaskCache } from "./masking/maskingService";
 import { releaseTrustedBandRefusals } from "./masking/trustedBandRelease";
-import { logPinnedCoversAtBoot } from "./services/setCovers";
+import { logPinnedCoversAtBoot, startSetCoverWarmer } from "./services/setCovers";
 import { addShutdownHook } from "./startup/shutdownHooks";
 import { stopAllJobs } from "./jobs/pgJobQueue";
 
@@ -528,6 +528,7 @@ app.use((req, res, next) => {
   void logPinnedCoversAtBoot().catch(() => {
     console.error("[PinnedCovers] boot log failed");
   });
+  if (process.env.NODE_ENV !== "test") startSetCoverWarmer();
 
   try {
     const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");

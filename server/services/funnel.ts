@@ -136,9 +136,25 @@ async function isExcludedUser(userId: string | null): Promise<boolean> {
 }
 
 /** Server-side landing visit (SPA HTML load). Sets pp_vid. Fire-and-forget. */
+/**
+ * Only real page navigations count as visits. Scanners and probes that hit
+ * unknown paths (/wp-login.php, /.env) fall through to the SPA and used to
+ * inflate "direct" visitors.
+ */
+export function isPageNavigation(req: Request): boolean {
+  if (/\.[a-z0-9]{1,6}$/i.test(req.path) && !/\.html$/i.test(req.path)) return false;
+  const accept = req.get("accept") || "";
+  if (!accept.includes("text/html")) return false;
+  const mode = req.get("sec-fetch-mode");
+  if (mode && mode !== "navigate") return false;
+  if (!req.get("accept-language")) return false;
+  return true;
+}
+
 export function recordVisit(req: Request, res: Response): void {
   try {
     if (req.method !== "GET") return;
+    if (!isPageNavigation(req)) return;
     const vid = ensureVisitorCookie(req, res);
     const bot = isBotRequest(req);
     const q = req.query as Record<string, unknown>;

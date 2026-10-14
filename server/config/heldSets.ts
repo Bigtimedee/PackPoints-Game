@@ -155,6 +155,23 @@ export async function ensureHeldSets(): Promise<void> {
   await refreshHeldSets();
 }
 
+let freshAt = 0;
+let freshInFlight: Promise<void> | null = null;
+/**
+ * Hot-path variant for public image routes (/sets loads ~80 covers at once).
+ * Shares one in-flight refresh and reuses a result younger than maxAgeMs, so a
+ * page load costs at most one refresh instead of one per image.
+ */
+export async function ensureHeldSetsFresh(maxAgeMs = 30_000): Promise<void> {
+  if (Date.now() - freshAt < maxAgeMs) return;
+  if (!freshInFlight) {
+    freshInFlight = refreshHeldSets()
+      .then(() => { freshAt = Date.now(); })
+      .finally(() => { freshInFlight = null; });
+  }
+  await freshInFlight;
+}
+
 /**
  * Marks fixture set ids as Design-cleared for this process.
  * The returned function puts CLEARED_SET_IDS_EXTRA back.

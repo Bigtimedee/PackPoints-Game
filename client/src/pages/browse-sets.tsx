@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2 } from "lucide-react";
 import { SetCover } from "@/components/SetCover";
+import { LazyMount } from "@/components/LazyMount";
 import { usePlayMakerSet } from "@/hooks/use-play-maker-set";
 import {
   SETS_PAGE_CLEARANCE_CLASS,
@@ -68,7 +69,7 @@ function PlayButton({
   );
 }
 
-function SetRow({ set, coversDisabled }: { set: BrowseSet; coversDisabled: boolean }) {
+function SetRow({ set, coversDisabled, eagerCover = false }: { set: BrowseSet; coversDisabled: boolean; eagerCover?: boolean }) {
   const title = formatIndexSetTitle({ id: set.id, setName: set.setName, brand: set.brand });
   const yearLabel = displaySetYearLabel(set.id, set.year);
   const coverUrls = sanitizeCoverCardUrls(set.coverCardUrls);
@@ -79,7 +80,11 @@ function SetRow({ set, coversDisabled }: { set: BrowseSet; coversDisabled: boole
       data-testid={`card-set-${set.id}`}
     >
       <Link href={`/sets/${set.id}`} className="block space-y-3">
-        {showCovers ? <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} /> : null}
+        {showCovers ? (
+          <LazyMount minHeight={220} eager={eagerCover}>
+            <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} />
+          </LazyMount>
+        ) : null}
         <div className="space-y-1">
           <h2 className="text-lg font-semibold leading-tight" style={{ color: SETS_POLISH.ink }} data-testid="text-set-title">
             {title}
@@ -162,8 +167,8 @@ export function BrowseSetsShelf({
           </div>
         ) : (
           <div className="space-y-10">
-            {sets.map((set) => (
-              <SetRow key={set.id} set={set} coversDisabled={coversDisabled} />
+            {sets.map((set, index) => (
+              <SetRow key={set.id} set={set} coversDisabled={coversDisabled} eagerCover={index < 2} />
             ))}
           </div>
         )}

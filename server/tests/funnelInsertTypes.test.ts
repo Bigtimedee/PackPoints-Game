@@ -13,3 +13,16 @@ describe("funnel first_answer insert", () => {
     expect(src).toContain("f.event_type = $1::varchar");
   });
 });
+
+describe("visit logging filter", async () => {
+  const { isPageNavigation } = await import("../services/funnel");
+  const req = (path: string, h: Record<string, string>) => ({ path, get: (k: string) => h[k.toLowerCase()] }) as any;
+  const browser = { accept: "text/html,application/xhtml+xml", "accept-language": "en-US", "sec-fetch-mode": "navigate" };
+  it("counts browser navigations only", () => {
+    expect(isPageNavigation(req("/sets", browser))).toBe(true);
+    expect(isPageNavigation(req("/wp-login.php", browser))).toBe(false);
+    expect(isPageNavigation(req("/", { accept: "*/*" }))).toBe(false);
+    expect(isPageNavigation(req("/", { ...browser, "accept-language": "" }))).toBe(false);
+    expect(isPageNavigation(req("/", { ...browser, "sec-fetch-mode": "cors" }))).toBe(false);
+  });
+});
