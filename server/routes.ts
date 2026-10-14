@@ -111,7 +111,7 @@ import collabRouter from "./routes/collab";
 import { userSetCardCountSql, userSetPlayCountSql } from "./routes/userSetCounts";
 import { eligibleCountsForSetIds, dedupeSetsByNameYearSport, PUBLIC_SET_MIN_ELIGIBLE_CARDS } from "./services/playableSetEligibility";
 import { handlePublicSetDetail, handlePublicSetsIndex } from "./services/publicSets";
-import { handlePublicSetCover } from "./services/setCovers";
+import { handlePublicSetCover, handlePublicSetCoverPlaque } from "./services/setCovers";
 import { registerCoverQaRoutes } from "./routes/coverQa";
 import { registerDealableQaRoutes } from "./routes/dealableQa";
 import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
@@ -521,7 +521,10 @@ export async function registerRoutes(
     await sendMakerDigestEmail(maker.email, maker.username || "Maker", set.setName, playsToday);
   }
 
-  // Baked masked JPEG for a cover slot. X-Card-Id and X-Mask-Version when a file is served. No cold bake.
+  // Baked masked JPEG for a cover slot. X-Mask-Version only; never card id, plan or names. No cold bake.
+  app.get("/api/sets/:setId/covers/:slot/plaque", (req, res) => {
+    void handlePublicSetCoverPlaque(req, res);
+  });
   app.get("/api/sets/:setId/covers/:slot", (req, res) => {
     void handlePublicSetCover(req, res);
   });

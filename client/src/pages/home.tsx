@@ -41,11 +41,15 @@ function FeaturedCard() {
       try {
         // Read the exact bake plan and image in one response. A set's generic
         // mask is not necessarily this scan's name band. Never use a raw scan.
-        const response = await fetch(`${TOPPS_1987_COVER}?plaque=1&retry=${attempt}`, { signal: controller.signal });
-        if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error("Cover unavailable");
-        const maskPlan = toPublicMaskPlan(JSON.parse(response.headers.get("X-Mask-Plan") || "null"));
+        const [meta, response] = await Promise.all([
+          fetch(`${TOPPS_1987_COVER}/plaque?retry=${attempt}`, { signal: controller.signal }),
+          fetch(`${TOPPS_1987_COVER}?retry=${attempt}`, { signal: controller.signal }),
+        ]);
+        if (!meta.ok || !response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error("Cover unavailable");
+        const body: { maskPlan?: unknown; options?: unknown } = await meta.json();
+        const maskPlan = toPublicMaskPlan(body.maskPlan as any);
         if (!maskPlan) throw new Error("Cover plan unavailable");
-        const options: unknown = JSON.parse(response.headers.get("X-Card-Options") || "null");
+        const options: unknown = body.options;
         if (!Array.isArray(options) || options.length !== 4 || options.some(o => typeof o !== "string" || !o.trim()) || new Set(options).size !== 4) throw new Error("Choices unavailable");
         const image = await response.blob();
         if (controller.signal.aborted) return;

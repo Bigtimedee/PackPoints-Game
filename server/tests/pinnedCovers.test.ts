@@ -29,6 +29,10 @@ import {
 } from "../services/setCovers";
 import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 
+import { setCoverEtag as __setCoverEtag } from "../services/setCovers";
+const etagFor = (u: string, id: string) => { const m = u.match(/\/api\/sets\/([^/]+)\/covers\/(\d+)/)!; return __setCoverEtag(m[1], Number(m[2]), id); };
+
+
 const stamp = randomUUID().slice(0, 8);
 const setId = randomUUID();
 const otherSetId = randomUUID();
@@ -231,12 +235,12 @@ describe("pinned set covers", () => {
 
     const first = await fetch(`${base}/api/sets/${setId}/covers/0`);
     expect(first.status).toBe(200);
-    expect(first.headers.get("x-card-id")).toBe(bravoId);
+    expect(first.headers.get("x-card-id")).toBeNull(); expect(first.headers.get("etag")).toBe(etagFor(first.url, bravoId));
     expect(first.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await first.arrayBuffer()).equals(jpeg)).toBe(true);
 
     const second = await fetch(`${base}/api/sets/${setId}/covers/1`);
-    expect(second.headers.get("x-card-id")).toBe(alphaId);
+    expect(second.headers.get("x-card-id")).toBeNull(); expect(second.headers.get("etag")).toBe(etagFor(second.url, alphaId));
     const gap = await fetch(`${base}/api/sets/${setId}/covers/2`);
     expect(gap.status).toBe(404);
 
@@ -318,7 +322,7 @@ describe("pinned set covers", () => {
       expect(await eligibleCoverFile(ineligibleId)).toBeNull();
       const slot = await fetch(`${base}/api/sets/${setId}/covers/0`);
       expect(slot.status).toBe(200);
-      expect(slot.headers.get("x-card-id")).toBe(alphaId);
+      expect(slot.headers.get("x-card-id")).toBeNull(); expect(slot.headers.get("etag")).toBe(etagFor(slot.url, alphaId));
       const qa = await listCoverCandidates(setId, 8);
       expect(qa.pins.find((pin) => pin.cardId === ineligibleId)).toMatchObject({
         role: "pick",

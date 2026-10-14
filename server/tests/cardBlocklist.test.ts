@@ -25,6 +25,10 @@ import { warmOkMarkerFilename } from "../startup/warmMaskGate";
 import { BASKETBALL_2024_H_INSERT_NUMBER, TOPPS_1987_SCHMIDT_CARD_ID, cardBlocklistWhereBody, cardNotBlockedSql, isBlockedCard, leakBlocklistLogLines, logCardBlocklist, multiPlayerBlocklistLogLines, replaceBlockedDaily5Cards, sweepBlockedDaily5Deals } from "../lib/cardBlocklist";
 import { eligibleDealFilter } from "../services/playableSetEligibility";
 
+import { setCoverEtag as __setCoverEtag } from "../services/setCovers";
+const etagFor = (u: string, id: string) => { const m = u.match(/\/api\/sets\/([^/]+)\/covers\/(\d+)/)!; return __setCoverEtag(m[1], Number(m[2]), id); };
+
+
 const stamp = randomUUID().slice(0, 8);
 const prefix = `blocklist:${stamp}:`;
 const basketballSetId = "229f0379-1111-4111-8111-111111111111";
@@ -694,13 +698,13 @@ describe("blocked cards stay out of deals, covers, and replacements", () => {
     const slot0 = await fetch(`${base}/api/sets/${footballSetId}/covers/0`);
     expect(slot0.status).toBe(200);
     expect(Buffer.from(await slot0.arrayBuffer())).toEqual(artBytes);
-    expect(slot0.headers.get("x-card-id")).toBe(footballCards[2].id);
+    expect(slot0.headers.get("x-card-id")).toBeNull(); expect(slot0.headers.get("etag")).toBe(etagFor(slot0.url, footballCards[2].id));
 
     const slot7 = await fetch(`${base}/api/sets/${footballSetId}/covers/7`);
     expect(slot7.status).toBe(200);
     expect(Buffer.from(await slot7.arrayBuffer())).toEqual(lastBytes);
     expect(donnieId.length).toBeGreaterThan(0);
-    expect(slot7.headers.get("x-card-id")).not.toBe(donnieId);
+    expect(slot7.headers.get("x-card-id")).toBeNull(); expect(slot7.headers.get("etag")).not.toBe(etagFor(slot7.url, donnieId));
     setPinnedCoversForTests(footballSetId, null);
   });
 
