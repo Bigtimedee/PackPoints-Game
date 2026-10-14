@@ -1,6 +1,6 @@
 /**
- * Daily 5 X post watchdog (GTM audit S5/W9). The Daily 5 post is made at
- * about 8 AM CT. From 9:15 AM CT, once per CT day, check that @PlayPackPTS has
+ * Daily 5 X post watchdog (GTM audit S5/W9). The Daily 5 post is made by the app
+ * (daily5XPost.ts) from 8 AM CT. From 9:15 AM CT, once per CT day, check that @PlayPackPTS has
  * posted a Daily 5 today; if not, log at error level and email ops so a person
  * can post by hand. Read-only against X. Never posts.
  */
@@ -48,7 +48,7 @@ export async function checkDaily5Posted(now = new Date()): Promise<string> {
       return "ok";
     }
     await opsAlert("d5_x_missing", `No Daily 5 post on X by 9:15 AM CT (${ct.day})`,
-      `@PlayPackPTS has no Daily 5 post today (${ct.day}). Post it by hand or rerun /workspace/packpts-d5-daily/run.sh.`);
+      `@PlayPackPTS has no Daily 5 post today (${ct.day}). The app posts it from 8 AM CT (DAILY5_X_POST_ENABLED); check /api/qa/daily5/x-post for the error, then post by hand.`);
     return "missing";
   } catch (err: any) {
     await opsAlert("d5_x_check_failed", `Could not verify the Daily 5 X post (${ct.day})`, String(err?.message || err));

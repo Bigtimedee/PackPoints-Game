@@ -135,6 +135,57 @@ export function registerDealableQaRoutes(app: Express): void {
     });
   });
 
+  /** Daily 5 X post ledger for a CT day (default today). */
+  app.get("/api/qa/daily5/x-post", (req, res) => {
+    if (!authorized(req, res)) return;
+    const date = typeof req.query.date === "string" && isPackptsDayKey(req.query.date) ? req.query.date : getPackptsDayKey();
+    void (async () => {
+      const { d5XPostStatus, daily5XPostEnabled, postWindowMinutes } = await import("../services/daily5XPost");
+      qaJson(req, res, 200, { date, enabled: daily5XPostEnabled(), postAtMinutesCt: postWindowMinutes(), row: await d5XPostStatus(date) });
+    })().catch(() => { if (!res.headersSent) qaNotFound(req, res); });
+  });
+
+  /** Builds today's post (set, caption, approved image) without claiming the day or touching X. */
+  app.get("/api/qa/daily5/x-post/dry-run", (req, res) => {
+    if (!authorized(req, res)) return;
+    void (async () => {
+      const { runDaily5XPost, d5XAccountCheck } = await import("../services/daily5XPost");
+      const post = await runDaily5XPost({ dryRun: true });
+      const account = req.query.checkAccount === "1" ? await d5XAccountCheck() : undefined;
+      qaJson(req, res, 200, { ...post, ...(account ? { account } : {}) });
+    })().catch((err) => { if (!res.headersSent) qaJson(req, res, 500, { error: String(err?.message || err) }); });
+  });
+
+  /**
+   * Box fallback poster claims the day here first. 200 {claimed:true} only when
+   * no other poster (the app or an earlier box run) owns today.
+   */
+  app.post("/api/qa/daily5/x-post/claim", (req, res) => {
+    if (!authorized(req, res)) return;
+    void (async () => {
+      const { claimD5Day } = await import("../services/daily5XPost");
+      const date = getPackptsDayKey();
+      qaJson(req, res, 200, { date, claimed: await claimD5Day(date, "box") });
+    })().catch(() => { if (!res.headersSent) qaNotFound(req, res); });
+  });
+
+  /** Box fallback poster reports its outcome so the ledger stays the single record. */
+  app.post("/api/qa/daily5/x-post/result", (req, res) => {
+    if (!authorized(req, res)) return;
+    const body = (req.body ?? {}) as { ok?: unknown; tweetId?: unknown; error?: unknown };
+    void (async () => {
+      const date = getPackptsDayKey();
+      const { pool } = await import("../db");
+      const ok = body.ok === true;
+      await pool.query(
+        `UPDATE daily5_x_posts SET status = $2::varchar, tweet_id = COALESCE($3::varchar, tweet_id), error = $4::text, updated_at = now()
+          WHERE date = $1::varchar AND source = 'box' AND status = 'claimed'`,
+        [date, ok ? "posted" : "failed", typeof body.tweetId === "string" ? body.tweetId.slice(0, 64) : null, ok ? null : String(body.error ?? "box_failed").slice(0, 300)],
+      );
+      qaJson(req, res, 200, { date, recorded: true });
+    })().catch(() => { if (!res.headersSent) qaNotFound(req, res); });
+  });
+
   app.get("/api/qa/sets", (req, res) => {
     if (!authorized(req, res)) return;
     void listActiveDealableSets()
