@@ -2,6 +2,7 @@ import { useCompleteScreen } from "@/lib/playChrome";
 import { PointsStrip } from "@/components/points-strip";
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useSearch, useLocation } from "wouter";
+import { soloDeepLinkSetId } from "@/lib/soloDeepLink";
 import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -144,7 +145,7 @@ export default function Game() {
   const playAgainBoot = playAgainBootRef.current;
   const [selectedCardCount, setSelectedCardCount] = useState(playAgainBoot ? String(playAgainBoot.cardCount) : "10");
   const [hasStartedGame, setHasStartedGame] = useState(!!incomingSession || !!playAgainBoot);
-  const [selectedSetId, setSelectedSetId] = useState<string | null>(playAgainBoot?.setId ?? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("set"));
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(soloDeepLinkSetId(search) ?? playAgainBoot?.setId ?? null);
 
   const { data: loadedSession, isLoading: sessionLoading, error: sessionError, isFetching: sessionFetching, refetch: refetchSession } = useQuery<ClientGameSession>({
     queryKey: sessionQueryKey,

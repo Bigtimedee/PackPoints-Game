@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { setPageView } from "@/lib/soloDeepLink";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -302,13 +303,14 @@ export default function SetPage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
 
-  const { data: set, isLoading, error } = useQuery<SetDetail>({
+  const { data: set, isLoading, isFetching, error, refetch } = useQuery<SetDetail>({
     queryKey: [`/api/sets/${id}`],
     enabled: !!id,
-    retry: false,
+    retry: (count, err) => (err as { status?: number } | null)?.status !== 404 && count < 3,
   });
+  const view = setPageView({ isLoading, isFetching, error, hasData: !!set });
 
-  if (isLoading) {
+  if (view === "loading") {
     return (
       <div className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full p-4`} style={{ backgroundColor: SETS_POLISH.canvas }}>
         <div className="max-w-lg mx-auto pt-8 space-y-4">
@@ -321,7 +323,28 @@ export default function SetPage() {
     );
   }
 
-  if (error || !set) {
+  if (view === "error") {
+    return (
+      <div
+        className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full flex items-center justify-center p-4`}
+        style={{ backgroundColor: SETS_POLISH.canvas, color: SETS_POLISH.ink }}
+      >
+        <div className="text-center space-y-3">
+          <p className="text-lg font-semibold">Couldn't load this set</p>
+          <button
+            type="button"
+            className="rounded-md px-4 py-2 text-sm"
+            style={{ border: `1px solid ${SETS_POLISH.panelBorder}` }}
+            onClick={() => void refetch()}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "notFound" || !set) {
     return (
       <div
         className={`${SETS_PAGE_CLEARANCE_CLASS} min-h-full flex items-center justify-center p-4`}
