@@ -5,6 +5,7 @@
  * Integrates with the existing emailService.ts for delivery.
  */
 import { pool } from '../db';
+import { withUtm } from "@shared/utm";
 
 interface NewsletterData {
   topPlayers: Array<{ username: string; points: number; rank: number }>;
@@ -89,7 +90,7 @@ function buildNewsletterHtml(data: NewsletterData, unsubscribeToken: string, app
   </div>
 
   <div style="text-align: center; margin-bottom: 24px;">
-    <a href="${appUrl}" style="background: #7c3aed; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block;">
+    <a href="${withUtm(appUrl, { source: "email", medium: "email", campaign: "newsletter" })}" style="background: #7c3aed; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block;">
       Play PackPTS Now
     </a>
   </div>

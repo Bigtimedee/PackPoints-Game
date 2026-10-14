@@ -107,10 +107,10 @@ async function insertEvent(row: {
     // first_answer: skip when this visitor or this user already has one.
     await pool.query(
       `INSERT INTO funnel_events (event_type, visitor_id, user_id, mode, game_set_id, path, utm_source, utm_medium, utm_campaign, utm_content, referrer_host, is_test)
-       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
+       SELECT $1::varchar,$2::varchar,$3::varchar,$4::varchar,$5::varchar,$6::varchar,$7::varchar,$8::varchar,$9::varchar,$10::varchar,$11::varchar,$12::boolean
        WHERE NOT EXISTS (
-         SELECT 1 FROM funnel_events f WHERE f.event_type = $1
-           AND (($2::varchar IS NOT NULL AND f.visitor_id = $2) OR ($3::varchar IS NOT NULL AND f.user_id = $3)))`,
+         SELECT 1 FROM funnel_events f WHERE f.event_type = $1::varchar
+           AND (($2::varchar IS NOT NULL AND f.visitor_id = $2::varchar) OR ($3::varchar IS NOT NULL AND f.user_id = $3::varchar)))`,
       params,
     );
     return;

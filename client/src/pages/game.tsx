@@ -57,6 +57,7 @@ import { postGameAnswer } from "@/lib/transientLoad";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 import { notifyLeavingResults } from "@/lib/staleBuildClient";
 import { SOLO_PLAY_CARD_FIT_CLASS } from "@/lib/playCardFit";
+import { withUtm } from "@shared/utm";
 
 export function AnswerButton({
   option,
@@ -1175,7 +1176,7 @@ export default function Game() {
                 matchId={session.id}
                 initialImageUrl={shareImageUrl}
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
-                shareUrl="https://packpts.com"
+                shareUrl={withUtm("https://packpts.com", { source: "share", medium: "share_card", campaign: "solo_score" })}
                 shareText={shareText}
                 maskedCardUrls={(session.questions ?? []).filter((q) => q.answered).map((q) => q.card?.imageUrl)}
               />

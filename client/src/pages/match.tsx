@@ -19,6 +19,7 @@ import { gameCardMountKey } from "@/lib/gameCardImageState";
 import { setStaleBuildActivity } from "@/lib/staleBuildActivity";
 import { shouldHoldOneVOne } from "@/lib/oneVOneHold";
 import { MATCH_PLAY_CARD_FIT_CLASS } from "@/lib/playCardFit";
+import { withUtm } from "@shared/utm";
 
 function getMatchSecret(): string | null {
   return localStorage.getItem("packpoints_match_secret");
@@ -934,7 +935,7 @@ export default function Match() {
       const shareData = {
         title: 'PackPTS Score',
         text: `${scoreText} 🏆 Test your sports card knowledge at packpts.com`,
-        url: 'https://packpts.com',
+        url: withUtm('https://packpts.com', { source: 'share', medium: 'native_share', campaign: 'match_score' }),
       };
       try {
         if (navigator.share) {

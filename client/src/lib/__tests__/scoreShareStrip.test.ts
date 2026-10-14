@@ -291,7 +291,7 @@ describe("score share strip paint", () => {
 describe("share card wiring", () => {
   it("passes masked image URLs only and leaves mode chrome on the server PNG", () => {
     expect(gameSrc).toContain("maskedCardUrls={(session.questions ?? []).filter((q) => q.answered).map((q) => q.card?.imageUrl)}");
-    expect(gameSrc).toContain('shareUrl="https://packpts.com"');
+    expect(gameSrc).toContain('shareUrl={withUtm("https://packpts.com"');
     expect(gameSrc).not.toContain("packpts.com/daily");
     const soloShare = gameSrc.slice(gameSrc.indexOf("<ShareAssetCard"), gameSrc.indexOf("/>", gameSrc.indexOf("<ShareAssetCard")) + 2);
     expect(soloShare).not.toContain("revealUrl");
@@ -303,7 +303,7 @@ describe("share card wiring", () => {
     expect(dailyShare).not.toContain("revealUrl");
 
     expect(shareSrc).toContain("composeScoreSharePng");
-    expect(shareSrc).toContain('kind === "maker" ? "https://packpts.com/sets" : "https://packpts.com"');
+    expect(shareSrc).toContain('kind === "maker" ? withUtm("https://packpts.com/sets"');
     expect(shareSrc).not.toContain("packpts.com/daily");
     expect(shareSrc).toContain("const tileKey = !isMaker ? sessionShareTileSources");
   });

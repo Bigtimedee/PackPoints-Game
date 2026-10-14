@@ -27,6 +27,7 @@ import {
 } from "./guardrailPolicy";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
+import { withUtm } from "@shared/utm";
 
 // Only a verified eBay affiliate postback credits cashback. Older rows may carry
 // USER_CONFIRM or ADMIN_GRANT in grant_method; no new rows are written with them.
@@ -100,7 +101,7 @@ function assembleReceipt(
 }
 
 function receiptPath(intentId: string): string {
-  return `${SITE_URL()}/redemptions/${intentId}`;
+  return withUtm(`${SITE_URL()}/redemptions/${intentId}`, { source: "email", medium: "email", campaign: "rebate_receipt" });
 }
 
 class RebateService {

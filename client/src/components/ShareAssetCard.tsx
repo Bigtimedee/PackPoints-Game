@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Download, Copy, Share2, Loader2 } from "lucide-react";
 import { isUsableImageUrl } from "@/lib/shareAssetUrl";
 import { composeScoreSharePng, sessionShareTileSources } from "@/lib/scoreShareStrip";
+import { withUtm } from "@shared/utm";
 
 interface ContentAsset {
   id: string;
@@ -119,7 +120,7 @@ export function ShareAssetCard({
   kind = "score",
   initialImageUrl,
   downloadFilename = kind === "maker" ? "packpts-set.png" : "packpts-score.png",
-  shareUrl = kind === "maker" ? "https://packpts.com/sets" : "https://packpts.com",
+  shareUrl = kind === "maker" ? withUtm("https://packpts.com/sets", { source: "share", medium: "share_card", campaign: "maker" }) : withUtm("https://packpts.com", { source: "share", medium: "share_card", campaign: "score" }),
   shareText = kind === "maker"
     ? "I MADE THIS SET on PackPTS"
     : "I just played PackPTS! Check it out at packpts.com",

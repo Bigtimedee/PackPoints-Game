@@ -35,13 +35,28 @@ const ALLOWED_IMAGE_HOSTS = [
   "d1",
   "d2",
   "d3",
-  "psacard.com",
-  "beckett.com",
-  "ebayimg.com",
-  "i.ebayimg.com",
   "images.collector-cdn.com",
   "cdn.bubble.io",
 ];
+
+/**
+ * Third-party photo hosts (GTM audit T2/R2). PSA, Beckett and eBay listing
+ * photos are someone else's photographs. New imports from these hosts land
+ * non-playable with this reason; existing cards are left alone until the
+ * per-card audit decides (see GET /api/qa/image-hosts).
+ */
+export const THIRD_PARTY_PHOTO_HOSTS = ["psacard.com", "beckett.com", "ebayimg.com"] as const;
+export const THIRD_PARTY_PHOTO_REASON = "third_party_photo_host";
+
+export function isThirdPartyPhotoHost(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(normalizeImageUrl(url) || "").hostname.toLowerCase();
+    return THIRD_PARTY_PHOTO_HOSTS.some((h) => host === h || host.endsWith("." + h));
+  } catch {
+    return false;
+  }
+}
 
 export function normalizeImageUrl(url: string | null | undefined): string | null {
   if (!url || typeof url !== "string" || url.trim() === "") {

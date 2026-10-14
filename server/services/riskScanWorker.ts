@@ -10,6 +10,7 @@
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { riskEngine } from "./riskEngine";
+import { opsAlert } from "./opsAlert";
 
 const SCAN_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const MAX_USERS_PER_SCAN = 500;
@@ -37,12 +38,20 @@ export async function scanActiveUsers(): Promise<void> {
     // be farming. Bounded so one scan can't run unbounded.
     const rows = await db.execute(activeUsersQuery(MAX_USERS_PER_SCAN));
     const userIds = (rows.rows as any[]).map(r => r.user_id).filter(Boolean);
-    if (userIds.length === 0) return;
+    if (userIds.length === 0) {
+      console.log("[RiskScan] scanned 0 active users, 0 auto-frozen");
+      return;
+    }
     const results = await riskEngine.runPeriodicScan(userIds);
-    const frozen = Array.from(results.values()).filter(a => (a as any).shouldFreeze).length;
-    console.log(`[RiskScan] scanned ${userIds.length} active users, ${frozen} auto-frozen`);
-  } catch (err) {
+    const frozenIds = Array.from(results.entries()).filter(([, a]) => (a as any).shouldFreeze).map(([id]) => String(id));
+    console.log(`[RiskScan] scanned ${userIds.length} active users, ${frozenIds.length} auto-frozen`);
+    if (frozenIds.length > 0) {
+      void opsAlert("riskscan_freeze", `RiskScan auto-froze ${frozenIds.length} user(s)`,
+        `RiskScan scanned ${userIds.length} active users and auto-froze ${frozenIds.length}: ${frozenIds.map((id) => id.slice(0, 8)).join(", ")}. Review in admin.`);
+    }
+  } catch (err: any) {
     console.error("[RiskScan] scan failed:", err);
+    void opsAlert("riskscan_failed", "RiskScan scan failed", String(err?.message || err));
   }
 }
 
