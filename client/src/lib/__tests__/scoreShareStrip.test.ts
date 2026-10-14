@@ -303,7 +303,7 @@ describe("share card wiring", () => {
     expect(dailyShare).not.toContain("revealUrl");
 
     expect(shareSrc).toContain("composeScoreSharePng");
-    expect(shareSrc).toContain('kind === "maker" ? "https://packpts.com/sets" : "https://packpts.com"');
+    expect(shareSrc).toContain('kind === "maker" ? withUtm("https://packpts.com/sets"');
     expect(shareSrc).not.toContain("packpts.com/daily");
     expect(shareSrc).toContain("const tileKey = !isMaker ? sessionShareTileSources");
   });
