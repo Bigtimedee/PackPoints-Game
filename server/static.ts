@@ -8,6 +8,13 @@ import { isViteHashedAsset } from "./lib/viteHashedAsset";
 import { isSchemaReady } from "./startup/schemaGate";
 import { schemaWindowHolds } from "./startup/schemaWindow";
 
+type VisitLogger = (req: Request, res: Response) => void;
+let visitLogger: VisitLogger | null = null;
+void import("./services/funnel").then((m) => { visitLogger = m.recordVisit; }).catch(() => { visitLogger = null; });
+function logVisit(req: Request, res: Response): void {
+  try { visitLogger?.(req, res); } catch { /* never break a page load */ }
+}
+
 async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
   const raw = await fs.promises.readFile(htmlPath, "utf8");
   return decorateSpaIndexHtml(raw, url);
@@ -15,6 +22,8 @@ async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
 
 function sendSpaHtml(req: Request, res: Response, next: NextFunction, htmlPath: string): void {
   stripConditionalValidators(req);
+  // GTM funnel: server-side landing visit with UTM (sets the pp_vid cookie). Never throws.
+  if (isSchemaReady() && req.method === "GET") logVisit(req, res);
   readSpaHtml(htmlPath, req.originalUrl)
     .then((html) => {
       if (res.headersSent) return;

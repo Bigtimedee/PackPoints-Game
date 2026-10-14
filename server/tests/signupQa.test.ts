@@ -278,6 +278,7 @@ describe("GET /api/qa/signups", () => {
     expect(JSON.stringify(body)).not.toContain("token");
     expect(body.exclusionRule).toContain("is_admin");
     expect(body.exclusionRule).toContain("test and qa are null");
+    expect(body.exclusionRule).toContain("users.is_test_account");
   });
 
   it("returns 500 without a database error payload when the loader fails", async () => {
