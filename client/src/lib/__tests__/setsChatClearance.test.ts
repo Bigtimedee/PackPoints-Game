@@ -78,7 +78,7 @@ describe("public sets chat clearance", () => {
     const detail = read("../../pages/set-page.tsx");
     const app = read("../../App.tsx");
     expect(browse).toContain("SETS_PAGE_CLEARANCE_CLASS");
-    expect(detail.match(/SETS_PAGE_CLEARANCE_CLASS/g)?.length).toBe(4);
+    expect(detail.match(/SETS_PAGE_CLEARANCE_CLASS/g)?.length).toBe(5);
     expect(app).toContain("setsMainClassName");
     expect(app).toContain("setsShellClassName");
   });
