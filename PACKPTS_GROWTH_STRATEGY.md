@@ -1,3 +1,5 @@
+> **SUPERSEDED (October 14, 2026) by [docs/GTM.md](docs/GTM.md).** Goals, ICP, KPIs, north star and economics below are out of date. Keep for tactics only.
+
 # PackPTS Growth Strategy — Consolidated Briefing
 
 > **This file is the single source of truth for all PackPTS growth, marketing, monetization, and competitive strategy.** Hand this to any agent, team member, or AI assistant working on growth. It consolidates: CONTENT_MARKETING_30_DAY.md, REDDIT_STRATEGY.md, MONETIZATION_PLAN.md, COMPETITOR_ANALYSIS.md, GROWTH_AGENT.md, and the growth sections of PACKPTS_PROJECT_CONTEXT.md.

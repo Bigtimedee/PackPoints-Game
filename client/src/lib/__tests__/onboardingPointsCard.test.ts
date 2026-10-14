@@ -10,7 +10,10 @@ describe("first-run points card", () => {
     expect(ONBOARDING.title).toBe("Name the player. Earn points.");
     expect(card).toContain('"pp_onboard_points_v1"');
     expect(card).toContain("const visible = show && !playActive;");
-    expect(card).toContain("bottom-[calc(4rem+env(safe-area-inset-bottom))]");
+    // Inline, never a fixed sheet over the home card's answer buttons (390px bug).
+    expect(card).not.toMatch(/className="[^"]*\bfixed\b/);
+    expect(card).not.toContain("bottom-[calc(4rem");
+    expect(home.indexOf("<FeaturedCard />")).toBeLessThan(home.indexOf("<OnboardingPointsCard />"));
     expect(card).toContain("setOnboardingCardOpen(visible)");
     expect(card).toContain('data-testid="card-onboarding-points"');
     expect(card).toContain('data-testid="button-onboarding-skip"');

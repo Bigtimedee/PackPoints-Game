@@ -1,4 +1,7 @@
 import { Info } from "lucide-react";
+
+/** FTC / EPN affiliate disclosure, shown next to every eBay link and on /points. */
+export const AFFILIATE_DISCLOSURE = "PackPTS earns a commission on eBay purchases through our links.";
 import { Card, CardContent } from "@/components/ui/card";
 
 interface AffiliateDisclosureProps {
@@ -10,7 +13,7 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
   if (variant === "compact") {
     return (
       <p className={`text-xs text-muted-foreground text-center ${className}`} data-testid="text-affiliate-disclosure">
-        Prices sourced from third-party marketplaces. Links may include affiliate tracking.
+        {AFFILIATE_DISCLOSURE}
       </p>
     );
   }
@@ -25,8 +28,7 @@ export function AffiliateDisclosure({ variant = "compact", className = "" }: Aff
             PackPTS is not responsible for listing accuracy.
           </p>
           <p>
-            Some links may include affiliate tracking. PackPTS may earn a commission on purchases
-            made through these links at no additional cost to you.
+            {AFFILIATE_DISCLOSURE} It costs you nothing extra.
           </p>
           <p>
             Applying PackPTS reserves or spends points in your PackPTS wallet. It does not change

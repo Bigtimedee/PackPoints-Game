@@ -493,7 +493,7 @@ export default function Store() {
                 <div className="flex-1 text-center md:text-left">
                   <h3 className="font-semibold text-lg mb-1">Browse Live Listings</h3>
                   <p className="text-sm text-muted-foreground">
-                    Search real-time eBay listings. We may earn an affiliate commission. Applied PackPTS do not change the eBay price.
+                    Search real-time eBay listings. PackPTS earns a commission on eBay purchases through our links. Applied PackPTS do not change the eBay price.
                   </p>
                 </div>
                 <Link href="/marketplace">

@@ -31,14 +31,13 @@ export function OnboardingPointsCard() {
   };
   return (
     <>
-    {/* Mobile: pinned just above the bottom nav (4rem + safe area) so both buttons are on screen at first load. Spacer keeps page content scrollable past it. */}
-    <div className="h-60 md:hidden" aria-hidden="true" />
+    {/* Inline under the hero at every width: never pinned over the answer buttons (GTM audit W7, 390px). */}
     <section
-      className="fixed inset-x-0 z-40 px-3 bottom-[calc(4rem+env(safe-area-inset-bottom))] md:static md:z-auto md:mx-auto md:max-w-5xl md:px-6 md:pt-4"
+      className="mx-auto max-w-5xl px-5 pt-4 md:px-6"
       aria-labelledby="onboarding-points-title"
       data-testid="section-onboarding-points"
     >
-      <div className="rounded-lg border bg-card p-4 sm:p-6 space-y-3 shadow-lg md:shadow-none" data-testid="card-onboarding-points">
+      <div className="rounded-lg border bg-card p-4 sm:p-6 space-y-3 shadow-none" data-testid="card-onboarding-points">
         <h2 id="onboarding-points-title" className="text-lg font-semibold">{ONBOARDING.title}</h2>
         <div className="grid grid-cols-3 gap-3">
           {stripSteps(rebateLive).map((s, i) => (

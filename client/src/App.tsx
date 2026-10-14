@@ -48,6 +48,7 @@ const ForgotPassword = lazy(() => import("@/pages/forgot-password"));
 const ResetPassword = lazy(() => import("@/pages/reset-password"));
 const PrivacyPolicy = lazy(() => import("@/pages/privacy-policy"));
 const TermsOfService = lazy(() => import("@/pages/terms-of-service"));
+const DmcaPage = lazy(() => import("@/pages/dmca"));
 const Partners = lazy(() => import("@/pages/partners"));
 const AdminLogin = lazy(() => import("@/pages/admin/login"));
 const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
@@ -363,6 +364,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/privacy-policy" component={PrivacyPolicy} />
       <Route path="/terms-of-service" component={TermsOfService} />
+      <Route path="/dmca" component={DmcaPage} />
       <Route path="/creators" component={Creators} />
       <Route path="/partners" component={Partners} />
       <Route path="/roadmap" component={Roadmap} />
