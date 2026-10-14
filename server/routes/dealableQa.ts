@@ -149,8 +149,10 @@ export function registerDealableQaRoutes(app: Express): void {
   app.get("/api/qa/daily5/x-post/dry-run", (req, res) => {
     if (!authorized(req, res)) return;
     void (async () => {
-      const { runDaily5XPost } = await import("../services/daily5XPost");
-      qaJson(req, res, 200, await runDaily5XPost({ dryRun: true }));
+      const { runDaily5XPost, d5XAccountCheck } = await import("../services/daily5XPost");
+      const post = await runDaily5XPost({ dryRun: true });
+      const account = req.query.checkAccount === "1" ? await d5XAccountCheck() : undefined;
+      qaJson(req, res, 200, { ...post, ...(account ? { account } : {}) });
     })().catch((err) => { if (!res.headersSent) qaJson(req, res, 500, { error: String(err?.message || err) }); });
   });
 

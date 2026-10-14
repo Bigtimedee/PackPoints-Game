@@ -208,6 +208,16 @@ export async function runDaily5XPost(opts: { now?: Date; dryRun?: boolean; force
   }
 }
 
+/** Read-only: which X account the server credentials belong to. Never returns secrets. */
+export async function d5XAccountCheck(): Promise<{ ok: boolean; username?: string; error?: string }> {
+  try {
+    const username = await (await clientFactory()).username();
+    return { ok: username === D5_X_ACCOUNT, username };
+  } catch (err: any) {
+    return { ok: false, error: String(err?.message || err).slice(0, 200) };
+  }
+}
+
 export async function d5XPostStatus(dayKey: string): Promise<Record<string, unknown> | null> {
   const r = await pool.query(`SELECT date, status, source, set_id, tweet_id, attempts, error, claimed_at, updated_at FROM daily5_x_posts WHERE date = $1::varchar`, [dayKey]);
   return r.rows[0] ?? null;
