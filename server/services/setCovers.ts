@@ -6,7 +6,8 @@
  */
 import { toPublicMaskPlan } from "@shared/maskPlan";
 import { createHash, randomInt } from "crypto";
-import { createReadStream, existsSync, readFileSync, readdirSync } from "fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from "fs";
+import { readFile } from "fs/promises";
 import path from "path";
 import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -22,7 +23,7 @@ import {
   type CoverListRole,
   type ListedCover,
 } from "../config/pinnedCovers";
-import { ensureHeldSets, isHeldSet } from "../config/heldSets";
+import { ensureHeldSets, ensureHeldSetsFresh, isHeldSet } from "../config/heldSets";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
 import { isBlockedCard } from "../lib/cardBlocklist";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
@@ -536,8 +537,111 @@ function coverHidden(req: Request, res: Response): void {
 }
 
 /** Serves a baked masked JPEG. Does not bake. Sets X-Card-Id when the file is sent. */
+// ---------------------------------------------------------------------------
+// Hot-path caches for GET /api/sets/:setId/covers/:slot.
+// Masks are baked ahead of time into the warm sidecar dir (never rendered on
+// the request path). These caches remove the per-request DB work and disk
+// reads that made a cold /sets load (about 80 parallel covers) take 9s and
+// fail with 500/502.
+// ---------------------------------------------------------------------------
+const COVER_IDS_TTL_MS = 60_000;
+const COVER_BYTES_MAX = 600;
+const COVER_RESOLVE_CONCURRENCY = 4;
+const coverIdsCache = new Map<string, { at: number; ids: Promise<string[]> }>();
+const coverBytes = new Map<string, { mtimeMs: number; buf: Buffer }>();
+let resolveActive = 0;
+const resolveQueue: Array<() => void> = [];
+
+async function withResolveSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (resolveActive >= COVER_RESOLVE_CONCURRENCY) {
+    await new Promise<void>((resolve) => resolveQueue.push(resolve));
+  }
+  resolveActive++;
+  try {
+    return await fn();
+  } finally {
+    resolveActive--;
+    resolveQueue.shift()?.();
+  }
+}
+
+function coverCacheEnabled(): boolean {
+  if (process.env.SET_COVER_CACHE === "1") return true;
+  if (process.env.SET_COVER_CACHE === "0") return false;
+  return process.env.NODE_ENV !== "test";
+}
+
+/** Cached, de-duplicated, concurrency-capped cover id lookup for one set. */
+export function cachedCoverCardIds(setId: string): Promise<string[]> {
+  if (!coverCacheEnabled()) return readyCoverCardIds([setId]).then((m) => m.get(setId) ?? []);
+  const hit = coverIdsCache.get(setId);
+  if (hit && Date.now() - hit.at < COVER_IDS_TTL_MS) return hit.ids;
+  const ids = withResolveSlot(async () => (await readyCoverCardIds([setId])).get(setId) ?? []);
+  coverIdsCache.set(setId, { at: Date.now(), ids });
+  ids.catch(() => { if (coverIdsCache.get(setId)?.ids === ids) coverIdsCache.delete(setId); });
+  return ids;
+}
+
+/** In-memory cover bytes keyed by file path, revalidated by mtime. LRU by insertion. */
+async function coverFileBytes(file: string): Promise<Buffer> {
+  if (!coverCacheEnabled()) return readFile(file);
+  const mtimeMs = statSync(file).mtimeMs;
+  const hit = coverBytes.get(file);
+  if (hit && hit.mtimeMs === mtimeMs) {
+    coverBytes.delete(file);
+    coverBytes.set(file, hit);
+    return hit.buf;
+  }
+  const buf = await readFile(file);
+  coverBytes.set(file, { mtimeMs, buf });
+  while (coverBytes.size > COVER_BYTES_MAX) {
+    const oldest = coverBytes.keys().next().value;
+    if (oldest === undefined) break;
+    coverBytes.delete(oldest);
+  }
+  return buf;
+}
+
+export function clearSetCoverCaches(): void {
+  coverIdsCache.clear();
+  coverBytes.clear();
+}
+
+/** Boot + periodic warm: resolve every public set's covers in one batch and preload bytes. */
+export async function warmSetCoverCache(): Promise<{ sets: number; files: number }> {
+  const rows = await db
+    .select({ id: gameSets.id })
+    .from(gameSets)
+    .where(and(eq(gameSets.isActive, true), eq(gameSets.isUserCreated, false)));
+  const setIds = rows.map((row) => row.id).filter((id) => isMaskSetUuid(id));
+  const resolved = await readyCoverCardIds(setIds);
+  let files = 0;
+  const now = Date.now();
+  for (const setId of setIds) {
+    const ids = resolved.get(setId) ?? [];
+    coverIdsCache.set(setId, { at: now, ids: Promise.resolve(ids) });
+    for (const cardId of ids) {
+      const file = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
+      if (!file) continue;
+      try { await coverFileBytes(file); files++; } catch { /* served from disk on demand */ }
+    }
+  }
+  return { sets: setIds.length, files };
+}
+
+export function startSetCoverWarmer(intervalMs = 50_000): void {
+  const run = () => {
+    void warmSetCoverCache()
+      .then(({ sets, files }) => console.log(`[SetCovers] warm cache sets=${sets} files=${files}`))
+      .catch(() => console.error("[SetCovers] warm cache failed"));
+  };
+  run();
+  setInterval(run, intervalMs).unref();
+}
+
 export async function handlePublicSetCover(req: Request, res: Response): Promise<void> {
-  await ensureHeldSets();
+  if (coverCacheEnabled()) await ensureHeldSetsFresh();
+  else await ensureHeldSets();
   if (isHeldSet(req.params.setId)) {
     coverHidden(req, res);
     return;
@@ -554,7 +658,7 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
   }
 
   try {
-    const cardId = (await readyCoverCardIds([setId])).get(setId)?.[slot];
+    const cardId = (await cachedCoverCardIds(setId))[slot];
     const file = cardId ? resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId) : null;
     if (!file || !cardId) {
       coverNotReady(res);
@@ -590,6 +694,13 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
       return;
     }
 
+    let buf: Buffer | null = null;
+    try { buf = await coverFileBytes(file); } catch { buf = null; }
+    if (buf) {
+      res.setHeader("Content-Length", String(buf.length));
+      res.end(buf);
+      return;
+    }
     const stream = createReadStream(file);
     stream.on("error", () => {
       if (!res.headersSent) coverNotReady(res);
