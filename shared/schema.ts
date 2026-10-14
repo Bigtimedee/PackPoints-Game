@@ -5066,3 +5066,18 @@ export const funnelEvents = pgTable("funnel_events", {
   index("idx_funnel_events_user").on(table.userId),
 ]);
 export type FunnelEvent = typeof funnelEvents.$inferSelect;
+
+// Daily 5 X post ledger. One row per CT day (YYYY-MM-DD). The unique date is
+// the dedupe lock: only one poster (server instance or box script) can claim a day.
+export const daily5XPosts = pgTable("daily5_x_posts", {
+  date: varchar("date", { length: 10 }).primaryKey(),
+  status: varchar("status", { length: 24 }).notNull(), // claimed | posted | failed | skipped_existing
+  source: varchar("source", { length: 16 }).notNull().default("server"),
+  setId: varchar("set_id", { length: 64 }),
+  tweetId: varchar("tweet_id", { length: 64 }),
+  attempts: integer("attempts").notNull().default(1),
+  error: text("error"),
+  claimedAt: timestamp("claimed_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export type Daily5XPost = typeof daily5XPosts.$inferSelect;

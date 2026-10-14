@@ -580,6 +580,8 @@ app.use((req, res, next) => {
     try {
       const { startDaily5XWatch } = await import("./services/daily5XWatch");
       startDaily5XWatch();
+      const { startDaily5XPoster } = await import("./services/daily5XPost");
+      startDaily5XPoster();
     } catch (err) {
       console.error("[D5XWatch] failed to start:", err);
     }
