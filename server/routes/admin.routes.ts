@@ -47,8 +47,10 @@ export function registerAdminRoutes(app: Express): void {
     try {
       const { pool } = await import("../db");
       const r = await pool.query(
-        `SELECT invited_user_id, inviter_user_id, status, reason, created_at FROM referral_rewards
-          WHERE status = 'review' ORDER BY created_at DESC LIMIT 200`);
+        `SELECT 'first_game' AS kind, invited_user_id, inviter_user_id, status, reason, created_at FROM referral_rewards WHERE status = 'review'
+         UNION ALL
+         SELECT 'welcome' AS kind, invited_user_id, inviter_user_id, status, reason, created_at FROM referral_welcome_rewards WHERE status = 'review'
+         ORDER BY created_at DESC LIMIT 200`);
       res.json({ items: r.rows });
     } catch (err: any) {
       res.status(500).json({ message: "Failed to load referral review queue" });
@@ -57,8 +59,9 @@ export function registerAdminRoutes(app: Express): void {
   app.post("/api/admin/referrals/:invitedUserId/decide", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const approve = req.body?.approve === true;
-      const { decideReferralReview } = await import("../services/referralProgram");
-      res.json(await decideReferralReview(String(req.params.invitedUserId), approve));
+      const { decideReferralReview, decideWelcomeReview } = await import("../services/referralProgram");
+      const id = String(req.params.invitedUserId);
+      res.json(req.body?.kind === "welcome" ? await decideWelcomeReview(id, approve) : await decideReferralReview(id, approve));
     } catch (err: any) {
       res.status(500).json({ message: "Failed to decide referral" });
     }

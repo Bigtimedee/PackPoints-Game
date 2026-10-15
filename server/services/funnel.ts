@@ -175,6 +175,16 @@ export function recordVisit(req: Request, res: Response): void {
         referrerHost: referrerHost(req.get("referer")),
         isTest,
       });
+      // Beat-me links carry the sharer's INVITE code as ref (no /r/ hop), so
+      // count the invite click here. /r/ redirects are counted in /r/:code.
+      const ref = clip(q.ref, 20);
+      if (ref && String(q.utm_medium || "").toLowerCase() === "beatme") {
+        const r = await pool.query(
+          `UPDATE referral_links SET click_count = click_count + 1 WHERE code = $1 AND purpose = 'INVITE' AND is_active RETURNING id`, [ref]);
+        if (r.rows.length > 0) {
+          await insertEvent({ eventType: "invite_click", visitorId: vid, userId, path: `/r/${ref}`, utmSource: "invite", utmMedium: "share", utmContent: "daily5", isTest });
+        }
+      }
     })().catch(() => { /* never break a page load */ });
   } catch { /* ignore */ }
 }

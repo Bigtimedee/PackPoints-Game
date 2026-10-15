@@ -321,3 +321,11 @@ describe("Beat-me challenge share PNG", () => {
     expect(await regionHasColor(result.imagePath, 90, 710, 280, 770, isGold)).toBe(true);
   });
 });
+
+describe("Beat-me challenge PNG invite footer", () => {
+  it("shows packpts.com/r/CODE when the sharer has an invite code, else packpts.com/daily", () => {
+    expect(buildChallengeShareSvg({ correctCount: 3, date: "2026-10-14", inviteCode: "94Xlucg" })).toContain("packpts.com/r/94Xlucg");
+    expect(buildChallengeShareSvg({ correctCount: 3, date: "2026-10-14" })).toContain("packpts.com/daily");
+    expect(buildChallengeShareSvg({ correctCount: 3, date: "2026-10-14", inviteCode: "<bad>" })).not.toContain("<bad>");
+  });
+});

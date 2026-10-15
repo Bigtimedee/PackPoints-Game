@@ -31,7 +31,7 @@ import { loginLimiter } from "../middleware/rateLimiter";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
-  applySignupAttribution,
+  applySignupAttribution, riskCtxFrom,
   clearAttributionCookie,
   mergeAttribution,
   readAttributionCookie,
@@ -280,7 +280,7 @@ export function registerIosRoutes(app: Express) {
         `[Apple Auth] Created new user ${packpointsUser.id} for apple_user_id ${appleUserId}`
       );
 
-      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth");
+      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth", await riskCtxFrom(req));
     }
 
     if (packpointsUser.status === "BANNED") {
