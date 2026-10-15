@@ -70,7 +70,7 @@ router.post("/api/referrals/create", async (req: Request, res: Response) => {
   }
 });
 
-const INVITE_SURFACES = new Set(["game_complete", "wallet", "share_card", "friends", "faq", "points"]);
+const INVITE_SURFACES = new Set(["game_complete", "wallet", "share_card", "friends", "faq", "points", "daily5"]);
 /** Where the invite link was shared from. Unknown values collapse to "link". */
 export function inviteSurface(raw: unknown): string {
   return typeof raw === "string" && INVITE_SURFACES.has(raw) ? raw : "link";
@@ -195,6 +195,15 @@ router.post("/api/referrals/attribute", async (req: Request, res: Response) => {
       return res.json({ attributed: false, reason: "Cannot self-refer" });
     }
 
+    // A SIGNUP attribution only makes sense for a brand new account; an old
+    // account claiming one later would just be farming the welcome bonus.
+    if (eventType === "SIGNUP") {
+      const [u] = await db.select({ createdAt: users.createdAt }).from(users).where(eq(users.id, userId)).limit(1);
+      if (!u?.createdAt || Date.now() - new Date(u.createdAt).getTime() > 24 * 60 * 60 * 1000) {
+        return res.json({ attributed: false, reason: "Account is not new" });
+      }
+    }
+
     try {
       await db.insert(referralAttributions).values({
         referralLinkId: link.id,
@@ -203,11 +212,10 @@ router.post("/api/referrals/attribute", async (req: Request, res: Response) => {
       });
 
       if (eventType === "SIGNUP") {
-        import("../services/referralRewards").then(({ grantReferralWelcomeBonus }) => {
-          grantReferralWelcomeBonus(userId, link.id).catch(err =>
-            console.error("[Referral] Welcome bonus grant error:", err?.message)
-          );
-        }).catch(() => {});
+        // Same fraud rules, hold and clawback as the first-game reward.
+        const { evaluateWelcomeBonus } = await import("../services/referralProgram");
+        const { riskCtxFrom } = await import("../lib/signupAttribution");
+        await evaluateWelcomeBonus(userId, link.id, await riskCtxFrom(req));
       }
 
       return res.json({ attributed: true });

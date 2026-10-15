@@ -5104,3 +5104,27 @@ export const referralRewards = pgTable("referral_rewards", {
   index("idx_referral_rewards_status").on(table.status),
 ]);
 export type ReferralReward = typeof referralRewards.$inferSelect;
+
+/**
+ * Invitee welcome bonus decisions (100 pts on signup via a referral link).
+ * Same fraud rules, 60-day hold and clawback as referral_rewards.
+ */
+export const referralWelcomeRewards = pgTable("referral_welcome_rewards", {
+  invitedUserId: varchar("invited_user_id").primaryKey(),
+  inviterUserId: varchar("inviter_user_id").notNull(),
+  referralLinkId: varchar("referral_link_id").notNull(),
+  status: varchar("status", { length: 20 }).notNull(), // granted | blocked | review | clawed_back
+  reason: varchar("reason", { length: 60 }),
+  points: integer("points").notNull().default(0),
+  ipHash: varchar("ip_hash", { length: 64 }),
+  deviceId: varchar("device_id", { length: 128 }),
+  holdUntil: timestamp("hold_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  decidedAt: timestamp("decided_at"),
+}, (table) => [
+  index("idx_referral_welcome_inviter").on(table.inviterUserId, table.createdAt),
+  index("idx_referral_welcome_ip").on(table.ipHash, table.createdAt),
+  index("idx_referral_welcome_device").on(table.deviceId),
+  index("idx_referral_welcome_status").on(table.status),
+]);
+export type ReferralWelcomeReward = typeof referralWelcomeRewards.$inferSelect;

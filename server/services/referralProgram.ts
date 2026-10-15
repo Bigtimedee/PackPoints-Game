@@ -16,7 +16,7 @@
  */
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db, pool } from "../db";
-import { referralAttributions, referralLinks, referralRewards, users } from "@shared/schema";
+import { referralAttributions, referralLinks, referralRewards, referralWelcomeRewards, users } from "@shared/schema";
 import { PAYOUT_HOLD_DAYS, normalizePayoutDestination } from "./guardrailPolicy";
 
 export const REFERRAL_WEEKLY_CAP = 10;
@@ -103,6 +103,80 @@ async function defaultGranter(invitedUserId: string) {
   return { ...r, inviterPoints: Number(row.inviter ?? 0), invitedPoints: Number(row.invited ?? 0) };
 }
 
+type RewardTable = "referral_rewards" | "referral_welcome_rewards";
+
+/**
+ * The shared fraud rules. Returns a blocked/review decision, or null when clean.
+ * table picks which reward history the IP, device and weekly caps count against.
+ */
+async function runFraudChecks(table: RewardTable, inviterId: string, invitedUserId: string, ctx: Ctx):
+  Promise<{ decision: (ReferralDecision & { status: "blocked" | "review" }) | null; device: string | null }> {
+  const [a, b] = await Promise.all([userSignals(inviterId), userSignals(invitedUserId)]);
+  const device = ctx.deviceId || b.device || null;
+  const self = selfReferralReason(inviterId, invitedUserId, a, b, ctx);
+  if (self) return { decision: { status: "blocked", reason: self }, device };
+  if (a.isTest || b.isTest) return { decision: { status: "blocked", reason: "test_account" }, device };
+  if (ctx.ipHash) {
+    const r = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE ip_hash = $1 AND invited_user_id <> $2 AND status IN ('granted','review') AND created_at > now() - interval '24 hours'`, [ctx.ipHash, invitedUserId]);
+    if (Number((r.rows as any[])[0]?.n) >= REFERRAL_IP_CAP_24H) return { decision: { status: "review", reason: "ip_cap_24h" }, device };
+  }
+  if (device) {
+    const r = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE device_id = $1 AND invited_user_id <> $2 AND status IN ('granted','review')`, [device, invitedUserId]);
+    if (Number((r.rows as any[])[0]?.n) >= REFERRAL_DEVICE_CAP) return { decision: { status: "review", reason: "device_cap" }, device };
+  }
+  const w = await pool.query(`SELECT count(*)::int AS n FROM ${table} WHERE inviter_user_id = $1 AND status = 'granted' AND created_at > now() - interval '7 days'`, [inviterId]);
+  if (Number((w.rows as any[])[0]?.n) >= REFERRAL_WEEKLY_CAP) return { decision: { status: "blocked", reason: "weekly_cap" }, device };
+  const [ra, rb] = await Promise.all([riskState(inviterId), riskState(invitedUserId)]);
+  if (ra || rb) return { decision: { status: "review", reason: ra === "frozen" || rb === "frozen" ? "risk_frozen" : "risk_high" }, device };
+  return { decision: null, device };
+}
+
+type WelcomeGranter = (invitedUserId: string, linkId: string) => Promise<{ granted: boolean; reason?: string; points?: number }>;
+let welcomeGranterOverride: WelcomeGranter | null = null;
+export function setWelcomeGranterForTests(g: WelcomeGranter | null): void { welcomeGranterOverride = g; }
+async function defaultWelcomeGranter(invitedUserId: string, linkId: string) {
+  const { grantReferralWelcomeBonus, getReferralBonusValues } = await import("./referralRewards");
+  const r = await grantReferralWelcomeBonus(invitedUserId, linkId);
+  return { ...r, points: r.granted ? (await getReferralBonusValues()).welcomeBonus : 0 };
+}
+
+/**
+ * Invitee welcome bonus at signup, through the same fraud rules as the
+ * first-game reward. Granted bonuses get the same hold and clawback. Idempotent.
+ */
+export async function evaluateWelcomeBonus(invitedUserId: string, linkId: string, ctx: Ctx = {}): Promise<ReferralDecision> {
+  try {
+    const [existing] = await db.select({ status: referralWelcomeRewards.status }).from(referralWelcomeRewards).where(eq(referralWelcomeRewards.invitedUserId, invitedUserId)).limit(1);
+    if (existing) return { status: "skipped", reason: `already_${existing.status}` };
+    const [link] = await db.select({ id: referralLinks.id, inviter: referralLinks.createdByUserId }).from(referralLinks).where(eq(referralLinks.id, linkId)).limit(1);
+    if (!link?.inviter) return { status: "skipped", reason: "no_link" };
+    const { decision: flagged, device } = await runFraudChecks("referral_welcome_rewards", link.inviter, invitedUserId, ctx);
+    let decision: ReferralDecision;
+    let points = 0;
+    if (flagged) decision = flagged;
+    else {
+      const g = await (welcomeGranterOverride ?? defaultWelcomeGranter)(invitedUserId, link.id);
+      points = g.granted ? (g.points ?? 0) : 0;
+      decision = g.granted ? { status: "granted", inviterPoints: 0, invitedPoints: points } : { status: "blocked", reason: g.reason || "grant_failed" };
+    }
+    await db.insert(referralWelcomeRewards).values({
+      invitedUserId, inviterUserId: link.inviter, referralLinkId: link.id, status: decision.status as string,
+      reason: decision.status === "granted" ? null : (decision as any).reason, points,
+      ipHash: ctx.ipHash ?? null, deviceId: device,
+      holdUntil: decision.status === "granted" ? new Date(Date.now() + PAYOUT_HOLD_DAYS * 86_400_000) : null, decidedAt: new Date(),
+    }).onConflictDoNothing();
+    if (decision.status !== "granted") {
+      const { recordFunnelEventRaw } = await import("./funnel");
+      void recordFunnelEventRaw("invite_reward_blocked", { userId: invitedUserId, mode: `w_${(decision as any).reason}`.slice(0, 20) });
+      if (decision.status === "review") console.warn(`[Referral] welcome manual review: invited=${invitedUserId} reason=${(decision as any).reason}`);
+    }
+    return decision;
+  } catch (err: any) {
+    console.error(`[Referral] welcome bonus failed: ${String(err?.message || err)}`);
+    return { status: "skipped", reason: "error" };
+  }
+}
+
 /** Decide and (when clean) grant the FIRST_MATCH referral reward for one invitee. Idempotent. */
 export async function evaluateReferralReward(invitedUserId: string, ctx: Ctx = {}): Promise<ReferralDecision> {
   const [existing] = await db.select({ status: referralRewards.status }).from(referralRewards).where(eq(referralRewards.invitedUserId, invitedUserId)).limit(1);
@@ -114,39 +188,15 @@ export async function evaluateReferralReward(invitedUserId: string, ctx: Ctx = {
   if (!link?.inviter) return { status: "skipped", reason: "no_link" };
   const inviterId = link.inviter;
 
-  const [a, b] = await Promise.all([userSignals(inviterId), userSignals(invitedUserId)]);
-  let decision: ReferralDecision | null = null;
-  const self = selfReferralReason(inviterId, invitedUserId, a, b, ctx);
-  if (self) decision = { status: "blocked", reason: self };
-  else if (a.isTest || b.isTest) decision = { status: "blocked", reason: "test_account" };
-
-  if (!decision && ctx.ipHash) {
-    const r = await pool.query(`SELECT count(*)::int AS n FROM referral_rewards WHERE ip_hash = $1 AND status IN ('granted','review') AND created_at > now() - interval '24 hours'`, [ctx.ipHash]);
-    if (Number((r.rows as any[])[0]?.n) >= REFERRAL_IP_CAP_24H) decision = { status: "review", reason: "ip_cap_24h" };
-  }
-  if (!decision) {
-    const dev = ctx.deviceId || b.device;
-    if (dev) {
-      const r = await pool.query(`SELECT count(*)::int AS n FROM referral_rewards WHERE device_id = $1 AND status IN ('granted','review')`, [dev]);
-      if (Number((r.rows as any[])[0]?.n) >= REFERRAL_DEVICE_CAP) decision = { status: "review", reason: "device_cap" };
-    }
-  }
-  if (!decision) {
-    const [w] = await db.select({ n: sql<number>`count(*)::int` }).from(referralRewards)
-      .where(and(eq(referralRewards.inviterUserId, inviterId), eq(referralRewards.status, "granted"), gte(referralRewards.createdAt, new Date(Date.now() - 7 * 86_400_000))));
-    if (Number(w?.n ?? 0) >= REFERRAL_WEEKLY_CAP) decision = { status: "blocked", reason: "weekly_cap" };
-  }
-  if (!decision) {
-    const [ra, rb] = await Promise.all([riskState(inviterId), riskState(invitedUserId)]);
-    if (ra || rb) decision = { status: "review", reason: ra === "frozen" || rb === "frozen" ? "risk_frozen" : "risk_high" };
-  }
+  const { decision: blocked, device } = await runFraudChecks("referral_rewards", inviterId, invitedUserId, ctx);
+  let decision: ReferralDecision | null = blocked;
   if (!decision) {
     const g = await (granterOverride ?? defaultGranter)(invitedUserId);
     decision = g.granted
       ? { status: "granted", inviterPoints: g.inviterPoints ?? 0, invitedPoints: g.invitedPoints ?? 0 }
       : { status: "blocked", reason: g.reason || "grant_failed" };
   }
-  await record(invitedUserId, inviterId, link.id, decision, { ipHash: ctx.ipHash ?? null, deviceId: ctx.deviceId || b.device || null });
+  await record(invitedUserId, inviterId, link.id, decision, { ipHash: ctx.ipHash ?? null, deviceId: device });
   const { recordFunnelEventRaw } = await import("./funnel");
   void recordFunnelEventRaw(decision.status === "granted" ? "invite_reward" : "invite_reward_blocked", { userId: invitedUserId, mode: decision.status === "granted" ? "granted" : decision.reason });
   if (decision.status === "review") console.warn(`[Referral] manual review: invited=${invitedUserId} reason=${decision.reason}`);
@@ -185,9 +235,28 @@ export async function sweepReferralClawbacks(): Promise<number> {
             OR EXISTS (SELECT 1 FROM user_risk_state s WHERE s.user_id = u.id AND s.status = 'FROZEN')
             OR EXISTS (SELECT 1 FROM wallets w WHERE w.user_id = u.id AND w.status <> 'active')))`,
   ).catch(() => ({ rows: [] as any[] }))).rows as any[];
-  if (rows.length === 0) return 0;
+  const welcome = (await pool.query(
+    `SELECT r.invited_user_id, r.points FROM referral_welcome_rewards r
+      WHERE r.status = 'granted' AND r.hold_until > now()
+        AND EXISTS (
+          SELECT 1 FROM users u WHERE u.id IN (r.invited_user_id, r.inviter_user_id) AND (u.is_test_account
+            OR EXISTS (SELECT 1 FROM user_risk_state s WHERE s.user_id = u.id AND s.status = 'FROZEN')
+            OR EXISTS (SELECT 1 FROM wallets w WHERE w.user_id = u.id AND w.status <> 'active')))`,
+  ).catch(() => ({ rows: [] as any[] }))).rows as any[];
+  if (rows.length === 0 && welcome.length === 0) return 0;
   const { walletService } = await import("./walletService");
   let n = 0;
+  for (const r of welcome) {
+    const w = await walletService.getWallet(r.invited_user_id).catch(() => null);
+    const take = Math.min(Number(r.points), Math.max(0, w?.balance ?? 0));
+    if (take > 0) {
+      await walletService.adjust(r.invited_user_id, -take, "Referral welcome bonus reversed during hold", `referral_clawback:welcome:${r.invited_user_id}`,
+        { invitedUserId: r.invited_user_id }, { source: "referral", eventType: "referral_clawback", refType: "referral", refId: r.invited_user_id } as any);
+    }
+    await db.update(referralWelcomeRewards).set({ status: "clawed_back", reason: "flagged_in_hold", decidedAt: new Date() }).where(eq(referralWelcomeRewards.invitedUserId, r.invited_user_id));
+    console.warn(`[Referral] welcome clawed back invited=${r.invited_user_id}`);
+    n++;
+  }
   for (const r of rows) {
     for (const [uid, pts, who] of [[r.inviter_user_id, r.inviter_points, "inviter"], [r.invited_user_id, r.invited_points, "invited"]] as const) {
       if (!pts) continue;
@@ -239,4 +308,21 @@ export async function referralOfferFor(userId: string | null) {
   );
   const row = (r.rows as any[])[0] ?? {};
   return { ...base, signedIn: true as const, pending: Number(row.pending ?? 0), earned: Number(row.earned ?? 0) };
+}
+
+/** Admin decision on a welcome bonus review row. */
+export async function decideWelcomeReview(invitedUserId: string, approve: boolean): Promise<ReferralDecision | { status: "not_found" }> {
+  const [row] = await db.select().from(referralWelcomeRewards).where(eq(referralWelcomeRewards.invitedUserId, invitedUserId)).limit(1);
+  if (!row || row.status !== "review") return { status: "not_found" };
+  if (!approve) {
+    await db.update(referralWelcomeRewards).set({ status: "blocked", reason: `review_rejected:${row.reason}`.slice(0, 60), decidedAt: new Date() }).where(eq(referralWelcomeRewards.invitedUserId, invitedUserId));
+    return { status: "blocked", reason: "review_rejected" };
+  }
+  const g = await (welcomeGranterOverride ?? defaultWelcomeGranter)(invitedUserId, row.referralLinkId);
+  await db.update(referralWelcomeRewards).set({
+    status: g.granted ? "granted" : "blocked", reason: g.granted ? `approved:${row.reason}`.slice(0, 60) : (g.reason || "grant_failed"),
+    points: g.granted ? (g.points ?? 0) : 0,
+    holdUntil: g.granted ? new Date(Date.now() + PAYOUT_HOLD_DAYS * 86_400_000) : null, decidedAt: new Date(),
+  }).where(eq(referralWelcomeRewards.invitedUserId, invitedUserId));
+  return g.granted ? { status: "granted", inviterPoints: 0, invitedPoints: g.points ?? 0 } : { status: "blocked", reason: g.reason || "grant_failed" };
 }

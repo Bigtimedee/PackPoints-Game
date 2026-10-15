@@ -398,6 +398,8 @@ export interface ChallengeShareInput {
   correctCount: number;
   date: string;
   streak?: number;
+  /** Sharer's invite code. Footer shows packpts.com/r/CODE instead of packpts.com/daily. */
+  inviteCode?: string | null;
 }
 
 /**
@@ -418,6 +420,9 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
   const { ink, muted, gold, canvas } = SCORE_CARD_COLORS;
   const surface = "#161B24";
   const border = "#2A303C";
+  const footerUrl = input.inviteCode && /^[A-Za-z0-9_-]{1,20}$/.test(input.inviteCode)
+    ? `packpts.com/r/${input.inviteCode}`
+    : "packpts.com/daily";
 
   const scoreNum = String(correct);
   const scoreDen = "/5";
@@ -452,7 +457,7 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
     textToPath(fonts.bold, scoreNum, plaqueScoreX, 810, plaqueScoreSize, ink),
     textToPath(fonts.bold, scoreDen, plaqueScoreX + plaqueNumW, 810, plaqueScoreSize, muted),
     textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
-    textToPath(fonts.semibold, "packpts.com/daily", 1000, 978, 26, ink, { anchor: "end" }),
+    textToPath(fonts.semibold, footerUrl, 1000, 978, 26, ink, { anchor: "end" }),
   ].filter(Boolean).join("\n  ");
 
   const desc = [
@@ -465,7 +470,7 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
     streakLabel,
     "TODAY",
     "PackPTS",
-    "packpts.com/daily",
+    footerUrl,
   ].filter(Boolean).join(" | ");
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">

@@ -4,6 +4,7 @@ import { pool } from "../db";
 import {
   evaluateReferralReward, onRegisteredGameComplete, selfReferralReason, setReferralGranterForTests,
   sweepReferralClawbacks, decideReferralReview, REFERRAL_WEEKLY_CAP,
+  evaluateWelcomeBonus, setWelcomeGranterForTests, decideWelcomeReview,
 } from "../services/referralProgram";
 import { inviteSurface } from "../routes/referrals";
 
@@ -31,11 +32,14 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  setWelcomeGranterForTests(async () => ({ granted: true, points: 100 }));
   setReferralGranterForTests(async () => { grants++; return { granted: true, inviterPoints: 500, invitedPoints: 250 }; });
 });
 
 afterAll(async () => {
   setReferralGranterForTests(null);
+  setWelcomeGranterForTests(null);
+  await pool.query(`DELETE FROM referral_welcome_rewards WHERE inviter_user_id = $1`, [inviter]);
   await pool.query(`DELETE FROM referral_rewards WHERE inviter_user_id = $1`, [inviter]);
   await pool.query(`DELETE FROM funnel_events WHERE user_id = ANY($1)`, [created]);
   await pool.query(`DELETE FROM referral_attributions WHERE referral_link_id = $1`, [linkId]);
@@ -137,5 +141,48 @@ describe("referral program", () => {
   it("invite surfaces are whitelisted", () => {
     expect(inviteSurface("wallet")).toBe("wallet");
     expect(inviteSurface("<x>")).toBe("link");
+  });
+
+  const wstatus = async (id: string) => (await pool.query(`SELECT status, reason, points, hold_until > now() + interval '59 days' AS held FROM referral_welcome_rewards WHERE invited_user_id = $1`, [id])).rows[0];
+
+  it("welcome bonus: clean invitee granted with 60-day hold, once", async () => {
+    const id = await newInvitee();
+    expect((await evaluateWelcomeBonus(id, linkId, { ipHash: `wip-${id}`, deviceId: `wdev-${id}` })).status).toBe("granted");
+    expect(await wstatus(id)).toMatchObject({ status: "granted", points: 100, held: true });
+    expect((await evaluateWelcomeBonus(id, linkId, {})).status).toBe("skipped");
+  });
+
+  it("welcome bonus: self referral, test account blocked", async () => {
+    const a = await newInvitee({ email: `inviter.${tag}+w@gmail.com` });
+    await evaluateWelcomeBonus(a, linkId, { ipHash: `wx-${a}` });
+    expect(await wstatus(a)).toMatchObject({ status: "blocked", reason: "self_same_email", points: 0 });
+    const b = await newInvitee();
+    await evaluateWelcomeBonus(b, linkId, { ipHash: `ip-inviter-${tag}` });
+    expect((await wstatus(b)).reason).toBe("self_shared_ip");
+    const c = await newInvitee({ test: true });
+    await evaluateWelcomeBonus(c, linkId, { ipHash: `wt-${c}` });
+    expect((await wstatus(c)).reason).toBe("test_account");
+  });
+
+  it("welcome bonus: IP and device caps go to review; approve grants", async () => {
+    const ip = `w-shared-ip-${tag}`;
+    const ids = [];
+    for (let i = 0; i < 4; i++) ids.push(await newInvitee());
+    for (const id of ids) await evaluateWelcomeBonus(id, linkId, { ipHash: ip, deviceId: `wd-${id}` });
+    expect(await wstatus(ids[3])).toMatchObject({ status: "review", reason: "ip_cap_24h", points: 0 });
+    const dev = `w-dev-${tag}`;
+    const d1 = await newInvitee(); const d2 = await newInvitee();
+    await evaluateWelcomeBonus(d1, linkId, { ipHash: `wa-${d1}`, deviceId: dev });
+    await evaluateWelcomeBonus(d2, linkId, { ipHash: `wb-${d2}`, deviceId: dev });
+    expect(await wstatus(d2)).toMatchObject({ status: "review", reason: "device_cap" });
+    expect((await decideWelcomeReview(d2, true)).status).toBe("granted");
+  });
+
+  it("welcome bonus: clawed back when the invitee is frozen in the hold", async () => {
+    const id = await newInvitee();
+    await evaluateWelcomeBonus(id, linkId, { ipHash: `wc-${id}`, deviceId: `wcd-${id}` });
+    await pool.query(`INSERT INTO user_risk_state (user_id, status) VALUES ($1, 'FROZEN')`, [id]);
+    await sweepReferralClawbacks();
+    expect((await wstatus(id)).status).toBe("clawed_back");
   });
 });

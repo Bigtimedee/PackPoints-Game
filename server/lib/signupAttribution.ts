@@ -253,7 +253,7 @@ export type AttributionStore = {
   insertUserAttribution(userId: string, a: SignupAttribution): Promise<void>;
   findActiveReferralLink(code: string): Promise<ReferralLinkLite | null>;
   insertReferralSignup(linkId: string, userId: string): Promise<void>;
-  grantReferralWelcomeBonus(userId: string, linkId: string): Promise<void>;
+  grantReferralWelcomeBonus(userId: string, linkId: string, ctx?: RiskCtx): Promise<void>;
 };
 
 async function defaultStore(): Promise<AttributionStore> {
@@ -296,9 +296,10 @@ async function defaultStore(): Promise<AttributionStore> {
         }
       } catch { /* analytics only */ }
     },
-    async grantReferralWelcomeBonus(userId, linkId) {
-      const { grantReferralWelcomeBonus } = await import("../services/referralRewards");
-      await grantReferralWelcomeBonus(userId, linkId);
+    async grantReferralWelcomeBonus(userId, linkId, ctx) {
+      // Same fraud rules, hold and clawback as the first-game reward.
+      const { evaluateWelcomeBonus } = await import("../services/referralProgram");
+      await evaluateWelcomeBonus(userId, linkId, ctx ?? {});
     },
   };
 }
@@ -307,6 +308,8 @@ let storeOverride: AttributionStore | null = null;
 export function setAttributionStoreForTests(store: AttributionStore | null): void {
   storeOverride = store;
 }
+
+export type RiskCtx = { ipHash?: string | null; deviceId?: string | null };
 
 export type ApplyResult = { attributionWritten: boolean; referralSignup: boolean };
 
@@ -318,6 +321,7 @@ export async function applySignupAttribution(
   userId: string,
   attribution: SignupAttribution | null,
   logTag = "Attribution",
+  ctx?: RiskCtx,
 ): Promise<ApplyResult> {
   const result: ApplyResult = { attributionWritten: false, referralSignup: false };
   if (!userId || !hasAnyAttribution(attribution)) return result;
@@ -341,7 +345,7 @@ export async function applySignupAttribution(
       if (link && !expired && link.createdByUserId !== userId) {
         await store.insertReferralSignup(link.id, userId);
         result.referralSignup = true;
-        await store.grantReferralWelcomeBonus(userId, link.id);
+        await store.grantReferralWelcomeBonus(userId, link.id, ctx);
       }
     } catch (err) {
       console.error(`[${logTag}] referral SIGNUP attribution failed (non-fatal):`, (err as Error)?.message);
@@ -376,5 +380,16 @@ export async function attributeNewUserFromRequest(
 ): Promise<ApplyResult> {
   const attribution = mergeAttribution(sanitizeAttribution(bodyInput), readAttributionCookie(req));
   clearAttributionCookie(res);
-  return applySignupAttribution(userId, attribution, logTag);
+  return applySignupAttribution(userId, attribution, logTag, await riskCtxFrom(req));
+}
+
+/** Hashed IP and device id for the referral fraud checks. Never throws. */
+export async function riskCtxFrom(req: unknown): Promise<RiskCtx> {
+  try {
+    const { getRiskContext } = await import("../services/risk/events");
+    const c = getRiskContext(req as any);
+    return { ipHash: c.ipHash ?? null, deviceId: c.deviceId ?? null };
+  } catch {
+    return {};
+  }
 }

@@ -17,6 +17,7 @@ import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
 import { InviteCard } from "@/components/invite-card";
+import { INVITE_SHARE_LINE } from "@/lib/invite";
 import { statTileValueFontPx } from "@/lib/statTileValue";
 import {
   BEAT_ME_COPY,
@@ -191,7 +192,9 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
   const [sessionImageUrl, setSessionImageUrl] = useState<string | undefined>(shareImageUrl);
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const shareCaption = formatBeatMeShareCaption(correctCount);
+  // Signed in, the Beat-me link also carries the invite code, so the text says so.
+  const baseCaption = formatBeatMeShareCaption(correctCount);
+  const shareCaption = `${baseCaption} ${INVITE_SHARE_LINE}`;
   const sessionFilename = `packpts-daily5-${dateStr}.png`;
 
   const logShareEvent = async (shareType: string, target: string) => {
@@ -262,7 +265,7 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
 
   const handleShareCard = async () => {
     const file = sessionImageUrl ? await pngFileFromUrl(sessionImageUrl, sessionFilename) : null;
-    const text = beatMeUrl ? `${shareCaption}\n${beatMeUrl}` : shareCaption;
+    const text = beatMeUrl ? `${shareCaption}\n${beatMeUrl}` : baseCaption;
     try {
       if (navigator.share) {
         if (file && navigator.canShare?.({ files: [file] })) {
@@ -275,7 +278,7 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
           logShareEvent("SCORE_CARD", "NATIVE_SHARE");
           return;
         }
-        await navigator.share({ title: "PackPTS Daily 5", text: shareCaption });
+        await navigator.share({ title: "PackPTS Daily 5", text: baseCaption });
         logShareEvent("SCORE_CARD", "NATIVE_SHARE");
         return;
       }

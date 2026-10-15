@@ -1599,13 +1599,26 @@ export async function registerRoutes(
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const created = await createBeatMeFromSession(userId);
       recordFunnelEvent(req, "beatme_share", { userId, mode: "daily5" });
+      let inviteCode: string | null = null;
+      // One link does both jobs: the signed challenge plus the sharer's invite
+      // code, so a friend who signs up from it is the sharer's invitee.
+      try {
+        const { getOrCreateInviteCode } = await import("./routes/referrals");
+        inviteCode = await getOrCreateInviteCode(userId);
+        const code = inviteCode;
+        const ref = `&ref=${encodeURIComponent(code)}`;
+        created.url += ref;
+        created.path += ref;
+      } catch (refErr: any) {
+        console.error("[Daily5] Beat-me invite code error:", refErr?.message);
+      }
       let shareImageUrl: string | undefined;
       try {
         const { generateChallengeShare } = await import("./contentFactory/generateScoreCard");
         const safeUser = String(userId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48);
         const card = await generateChallengeShare(
-          { correctCount: created.correctCount, date: created.puzzleDay },
-          `beatme-${safeUser}-${created.puzzleDay}`,
+          { correctCount: created.correctCount, date: created.puzzleDay, inviteCode },
+          `beatme-${safeUser}-${created.puzzleDay}${inviteCode ? "-i" : ""}`,
         );
         shareImageUrl = card.imageUrl;
       } catch (artErr) {

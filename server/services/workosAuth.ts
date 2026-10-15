@@ -5,7 +5,7 @@ import { storage } from "../storage";
 import { identityService } from "./identityService";
 import type { IdentityProvider } from "@shared/schema";
 import {
-  applySignupAttribution,
+  applySignupAttribution, riskCtxFrom,
   clearAttributionCookie,
   isSameOriginRequest,
   readAttributionCookie,
@@ -338,7 +338,7 @@ export function registerWorkosRoutes(app: Express): void {
       (req.session as any).workosUserId = workosUser.id;
       (req.session as any).localUserId = newUser.id;
 
-      await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS");
+      await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS", await riskCtxFrom(req));
 
       try {
         const { claimAnonForUser } = await import("./anonIdentity");
