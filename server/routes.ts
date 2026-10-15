@@ -1275,6 +1275,16 @@ export async function registerRoutes(
         if (!wasCompleted) {
           const firstCard = (session.questions?.[0] as any)?.card;
           recordFunnelEvent(req, "game_complete", { userId: nextUserId || null, mode: session.mode, gameSetId: firstCard?.gameSetId || null });
+          if (nextUserId) {
+            // Referral: an invitee's first real game pays the inviter (server side only).
+            const answered = session.totalQuestions - (session.skippedQuestions ?? 0);
+            void (async () => {
+              const [{ onRegisteredGameComplete }, { getRiskContext }] = await Promise.all([
+                import("./services/referralProgram"), import("./services/risk/events"),
+              ]);
+              await onRegisteredGameComplete(nextUserId, answered, getRiskContext(req));
+            })().catch(() => {});
+          }
         }
         
         const effectiveTotal = session.totalQuestions - (session.skippedQuestions ?? 0);
@@ -1538,6 +1548,14 @@ export async function registerRoutes(
       
       const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
       recordFunnelEvent(req, "game_complete", { userId, mode: "daily5" });
+      if (!result.flagged) {
+        void (async () => {
+          const [{ onRegisteredGameComplete }, { getRiskContext }] = await Promise.all([
+            import("./services/referralProgram"), import("./services/risk/events"),
+          ]);
+          await onRegisteredGameComplete(userId, result.answeredCount ?? 0, getRiskContext(req));
+        })().catch(() => {});
+      }
 
       let shareImageUrl: string | undefined;
       try {

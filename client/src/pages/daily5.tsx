@@ -16,6 +16,7 @@ import { GuestHardWall } from "@/components/guest-hard-wall";
 import { DAILY_PROGRESS_QUERY_KEY } from "@/hooks/use-daily-progress";
 import { GameCard } from "@/components/GameCard";
 import { ShareAssetCard } from "@/components/ShareAssetCard";
+import { InviteCard } from "@/components/invite-card";
 import { statTileValueFontPx } from "@/lib/statTileValue";
 import {
   BEAT_ME_COPY,
@@ -933,6 +934,7 @@ export default function Daily5Page() {
                 {DAILY5_NEXT_PLAY.secondary.label}
               </Button>
             </Link>
+            {!isAuthenticated && (guestGate ?? status?.anonGate)?.phase === "hard" ? null : <InviteCard isGuest={!isAuthenticated} />}
           </div>
           {!isAuthenticated && (
             <SignupModal

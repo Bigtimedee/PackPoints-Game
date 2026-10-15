@@ -56,7 +56,15 @@ export async function scanActiveUsers(): Promise<void> {
 }
 
 export function startRiskScanWorker(): void {
-  const timer = setInterval(() => void scanActiveUsers(), SCAN_INTERVAL_MS);
+  const timer = setInterval(() => {
+    void scanActiveUsers().then(async () => {
+      // Referral rewards still inside the 60-day hold are reversed when either
+      // side has since been frozen, banned or marked as a test account.
+      const { sweepReferralClawbacks } = await import("./referralProgram");
+      const n = await sweepReferralClawbacks();
+      if (n > 0) console.warn(`[RiskScan] referral clawbacks: ${n}`);
+    }).catch(() => {});
+  }, SCAN_INTERVAL_MS);
   timer.unref();
   console.log("[RiskScan] worker started (hourly)");
 }

@@ -70,6 +70,52 @@ router.post("/api/referrals/create", async (req: Request, res: Response) => {
   }
 });
 
+const INVITE_SURFACES = new Set(["game_complete", "wallet", "share_card", "friends", "faq", "points"]);
+/** Where the invite link was shared from. Unknown values collapse to "link". */
+export function inviteSurface(raw: unknown): string {
+  return typeof raw === "string" && INVITE_SURFACES.has(raw) ? raw : "link";
+}
+
+/** Canonical public origin for links we hand out. */
+function publicBase(req: Request): string {
+  const host = req.get("host") || "packpts.com";
+  if (/(^|\.)packpts\.com$/i.test(host)) return "https://packpts.com";
+  return `${(req as any).protocol}://${host}`;
+}
+
+/** The user's stable INVITE link (one per user, reused). */
+export async function getOrCreateInviteCode(userId: string): Promise<string> {
+  const [existing] = await db.select({ code: referralLinks.code }).from(referralLinks)
+    .where(and(eq(referralLinks.createdByUserId, userId), eq(referralLinks.purpose, "INVITE"), eq(referralLinks.isActive, true)))
+    .orderBy(desc(referralLinks.createdAt)).limit(1);
+  if (existing) return existing.code;
+  let code = generateShortCode();
+  for (let i = 0; i < 5; i++) {
+    const clash = await db.select({ id: referralLinks.id }).from(referralLinks).where(eq(referralLinks.code, code)).limit(1);
+    if (clash.length === 0) break;
+    code = generateShortCode();
+  }
+  await db.insert(referralLinks).values({ code, createdByUserId: userId, purpose: "INVITE", destinationPath: "/", isActive: true });
+  return code;
+}
+
+export const INVITE_SHARE_LINE = "Name the player on the cards you grew up with. Play free with my link:";
+
+router.get("/api/referrals/offer", async (req: Request, res: Response) => {
+  try {
+    const { referralOfferFor } = await import("../services/referralProgram");
+    const userId = isAuthenticated(req) ? getUserId(req) : null;
+    const offer = await referralOfferFor(userId);
+    if (!userId) return res.json(offer);
+    const code = await getOrCreateInviteCode(userId);
+    const base = publicBase(req);
+    return res.json({ ...offer, code, url: `${base}/r/${code}`, shareLine: INVITE_SHARE_LINE });
+  } catch (err: any) {
+    console.error("[Referral] offer error:", err?.message);
+    return res.status(500).json({ message: "Failed to load invite offer" });
+  }
+});
+
 router.get("/r/:code", async (req: Request, res: Response) => {
   try {
     const { code } = req.params;
@@ -97,9 +143,15 @@ router.get("/r/:code", async (req: Request, res: Response) => {
       ? rawPath
       : "/";
     const refParam = encodeURIComponent(link.code);
-    const destination = safePath.includes("?")
+    let destination = safePath.includes("?")
       ? `${safePath}&ref=${refParam}`
       : `${safePath}?ref=${refParam}`;
+    if (link.purpose === "INVITE") {
+      const surface = inviteSurface(req.query.s);
+      destination += `&utm_source=invite&utm_medium=share&utm_content=${surface}`;
+      const { recordInviteClick } = await import("../services/funnel");
+      recordInviteClick(req, res, link.code, surface);
+    }
 
     return res.redirect(destination);
   } catch (err: any) {
@@ -124,6 +176,11 @@ router.post("/api/referrals/attribute", async (req: Request, res: Response) => {
     if (!validEvents.includes(eventType)) {
       return res.status(400).json({ message: "Invalid event type" });
     }
+    // FIRST_MATCH pays the inviter, so only the server may record it, when it
+    // sees a real completed game (referralProgram.onRegisteredGameComplete).
+    if (eventType === "FIRST_MATCH") {
+      return res.status(403).json({ attributed: false, reason: "First game is detected by the server" });
+    }
 
     const [link] = await db.select()
       .from(referralLinks)
@@ -144,14 +201,6 @@ router.post("/api/referrals/attribute", async (req: Request, res: Response) => {
         invitedUserId: userId,
         eventType: eventType as any,
       });
-
-      if (eventType === "FIRST_MATCH") {
-        import("../services/referralRewards").then(({ grantReferralBonus }) => {
-          grantReferralBonus(userId, "FIRST_MATCH").catch(err =>
-            console.error("[Referral] Bonus grant error:", err?.message)
-          );
-        }).catch(() => {});
-      }
 
       if (eventType === "SIGNUP") {
         import("../services/referralRewards").then(({ grantReferralWelcomeBonus }) => {
@@ -400,52 +449,14 @@ router.post("/api/share/generate", async (req: Request, res: Response) => {
     const userId = getUserId(req)!;
     const { purpose = "INVITE", context } = req.body || {};
 
-    // Re-use existing INVITE link if one was created recently (24h window)
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [existing] = await db
-      .select()
-      .from(referralLinks)
-      .where(
-        and(
-          eq(referralLinks.createdByUserId, userId),
-          eq(referralLinks.purpose, "INVITE"),
-          eq(referralLinks.isActive, true),
-          gte(referralLinks.createdAt, oneDayAgo)
-        )
-      )
-      .orderBy(desc(referralLinks.createdAt))
-      .limit(1);
+    const code = await getOrCreateInviteCode(userId);
 
-    let code: string;
-    if (existing) {
-      code = existing.code;
-    } else {
-      code = generateShortCode();
-      let attempts = 0;
-      while (attempts < 5) {
-        const clash = await db.select({ id: referralLinks.id }).from(referralLinks).where(eq(referralLinks.code, code)).limit(1);
-        if (clash.length === 0) break;
-        code = generateShortCode();
-        attempts++;
-      }
-      await db.insert(referralLinks).values({
-        code,
-        createdByUserId: userId,
-        purpose: "INVITE",
-        destinationPath: "/",
-        isActive: true,
-      });
-    }
+    const surface = inviteSurface(typeof context === "string" ? context : "friends");
+    const referralUrl = `${publicBase(req)}/r/${code}?s=${surface}`;
 
-    const baseUrl = (req as any).protocol + "://" + req.get("host");
-    const referralUrl = `${baseUrl}/r/${code}`;
-
-    // Compose share text variants
-    const shareText = {
-      twitter: `I'm playing PackPTS. Guess the baseball card player and earn PackPTS! Use my link to join: ${referralUrl} #PackPTS #BaseballCards`,
-      general: `Join me on PackPTS! Guess baseball card players and earn rewards. Sign up with my link: ${referralUrl}`,
-      sms: `Play PackPTS with me. Guess the card! ${referralUrl}`,
-    };
+    // One line everywhere (REFERRAL_SPEC.md). No dollar figures.
+    const line = `${INVITE_SHARE_LINE} ${referralUrl}`;
+    const shareText = { twitter: line, general: line, sms: line };
 
     return res.json({
       code,

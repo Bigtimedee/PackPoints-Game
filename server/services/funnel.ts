@@ -19,7 +19,9 @@ const VISITOR_MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
 const BOT_UA = /(bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|quora link|whatsapp|telegram|discord|curl|wget|python-requests|httpclient|headless|lighthouse|pingdom|uptime|monitor)/i;
 const VID_RE = /^[a-f0-9]{32}$/;
 
-export type FunnelEventType = "visit" | "first_answer" | "game_complete" | "beatme_share";
+export type FunnelEventType =
+  | "visit" | "first_answer" | "game_complete" | "beatme_share"
+  | "invite_click" | "invite_signup" | "invite_first_game" | "invite_reward" | "invite_reward_blocked";
 
 function readCookie(req: Request, name: string): string | null {
   const raw = req.headers.cookie;
@@ -202,6 +204,32 @@ export function recordFunnelEvent(
   } catch { /* ignore */ }
 }
 
+/**
+ * Server-only events without a request (referral decisions). mode carries the
+ * outcome or block reason; utmContent carries the invite surface.
+ */
+export function recordFunnelEventRaw(
+  eventType: Exclude<FunnelEventType, "visit">,
+  opts: { userId?: string | null; visitorId?: string | null; mode?: string | null; utmContent?: string | null; path?: string | null; isBot?: boolean } = {},
+): Promise<void> {
+  const userId = opts.userId ?? null;
+  return (async () => {
+    const isTest = !!opts.isBot || (await isExcludedUser(userId));
+    await insertEvent({
+      eventType, visitorId: opts.visitorId ?? null, userId, mode: clip(opts.mode, 20),
+      path: clip(opts.path, 300), utmSource: "invite", utmMedium: "share", utmContent: clip(opts.utmContent, 100), isTest,
+    });
+  })().catch(() => { /* never break callers */ });
+}
+
+/** invite_click from /r/:code for INVITE links. Fire-and-forget. */
+export function recordInviteClick(req: Request, res: Response, code: string, surface: string | null): void {
+  try {
+    const vid = ensureVisitorCookie(req, res);
+    void recordFunnelEventRaw("invite_click", { visitorId: vid, userId: sessionUserId(req), path: `/r/${code}`.slice(0, 300), utmContent: surface, isBot: isBotRequest(req) });
+  } catch { /* ignore */ }
+}
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
@@ -250,6 +278,7 @@ export interface FunnelReport {
   guestToRegistered: { guestPlayers: number; claimed: number; rate: number | null; registeredSignups: number };
   beatMe: { shares: number; linkClicks: number; opens: number; openVisitorsWhoPlayed: number; signups: number };
   signupsBySource: Record<string, number> | null;
+  invites: { clicks: number; signups: number; firstGames: number; rewards: number; rewardsBlocked: number; blockedByReason: { reason: string; count: number }[]; clicksBySurface: { surface: string; count: number }[] };
 }
 
 export interface Rate { numerator: number; denominator: number; rate: number | null }
@@ -335,6 +364,15 @@ export async function buildFunnelReport(windowDays: number, q: FunnelQuery = (t,
          WHERE ra.event_type = 'SIGNUP' AND rl.purpose = 'DAILY5_CHALLENGE' AND ra.created_at >= ${since}
            AND ra.invited_user_id NOT IN (SELECT id FROM excluded))::int AS signups`)).rows;
 
+  const inv = (await q(`SELECT event_type, coalesce(mode, '') AS mode, coalesce(utm_content, '') AS surface, count(*)::int AS n FROM funnel_events
+    WHERE event_type LIKE 'invite\\_%' AND NOT is_test AND created_at >= ${since} GROUP BY 1, 2, 3`)).rows;
+  const invCount = (t: string) => inv.filter((r) => r.event_type === t).reduce((a, r) => a + num(r.n), 0);
+  const groupBy = (t: string, k: "mode" | "surface") => {
+    const m = new Map<string, number>();
+    for (const r of inv) if (r.event_type === t) m.set(r[k] || "unknown", (m.get(r[k] || "unknown") ?? 0) + num(r.n));
+    return [...m.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
+  };
+
   const dau7 = Math.round(num(agg?.dau7) * 10) / 10;
   return {
     generatedAt: new Date().toISOString(),
@@ -347,6 +385,7 @@ export async function buildFunnelReport(windowDays: number, q: FunnelQuery = (t,
       visitToFirstAnswer: "Distinct pp_vid visitors with a server-side visit in the window who have a first_answer. Only counts since visit logging started (loggingSince).",
       gameComplete: "byMode and bySet from funnel_events (since logging started). historicalByMode from completed game_sessions in the window.",
       guestToRegistered: "Denominator: anon players created in the window who started or finished a game. Numerator: those claimed by a real account.",
+      invites: "INVITE link funnel from funnel_events: invite_click (/r/CODE on an INVITE link), invite_signup (SIGNUP attribution), invite_first_game (server detected real first game), invite_reward and invite_reward_blocked (mode = reason).",
       beatMe: "shares: Beat-me links created. linkClicks: referral link click_count. opens: visitors landing with utm_medium=beatme. openVisitorsWhoPlayed: opens with a first_answer or game_complete. signups: SIGNUP attributions on Beat-me links.",
     },
     activity: {
@@ -378,5 +417,14 @@ export async function buildFunnelReport(windowDays: number, q: FunnelQuery = (t,
     },
     beatMe: { shares: num(bm?.shares), linkClicks: num(bm?.clicks), opens: num(bm?.opens), openVisitorsWhoPlayed: num(bm?.played), signups: num(bm?.signups) },
     signupsBySource,
+    invites: {
+      clicks: invCount("invite_click"),
+      signups: invCount("invite_signup"),
+      firstGames: invCount("invite_first_game"),
+      rewards: invCount("invite_reward"),
+      rewardsBlocked: invCount("invite_reward_blocked"),
+      blockedByReason: groupBy("invite_reward_blocked", "mode").map((r) => ({ reason: r.key, count: r.count })),
+      clicksBySurface: groupBy("invite_click", "surface").map((r) => ({ surface: r.key, count: r.count })),
+    },
   };
 }
