@@ -288,6 +288,13 @@ async function defaultStore(): Promise<AttributionStore> {
         .insert(schema.referralAttributions)
         .values({ referralLinkId: linkId, invitedUserId: userId, eventType: "SIGNUP" })
         .onConflictDoNothing();
+      try {
+        const r = await pool.query(`SELECT purpose::text AS purpose FROM referral_links WHERE id = $1`, [linkId]);
+        if ((r.rows as any[])[0]?.purpose === "INVITE") {
+          const { recordFunnelEventRaw } = await import("../services/funnel");
+          await recordFunnelEventRaw("invite_signup", { userId });
+        }
+      } catch { /* analytics only */ }
     },
     async grantReferralWelcomeBonus(userId, linkId) {
       const { grantReferralWelcomeBonus } = await import("../services/referralRewards");

@@ -1,5 +1,7 @@
 import { useCompleteScreen } from "@/lib/playChrome";
 import { PointsStrip } from "@/components/points-strip";
+import { InviteCard } from "@/components/invite-card";
+import { INVITE_SHARE_LINE, inviteLink, useInviteOffer } from "@/lib/invite";
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useSearch, useLocation } from "wouter";
 import { soloDeepLinkSetId } from "@/lib/soloDeepLink";
@@ -116,6 +118,7 @@ export default function Game() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { data: inviteOffer } = useInviteOffer();
 
   const sessionId = incomingSession;
   const sessionQueryKey = ["/api/game/session", sessionId, user?.id ?? "guest"] as const;
@@ -1010,8 +1013,10 @@ export default function Game() {
     const skipNote = (session.skippedQuestions ?? 0) > 0
       ? ` (${session.skippedQuestions} skipped)`
       : "";
-    const shareText = `I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} on PackPTS with ${accuracy}% accuracy.`;
-    const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const inviteUrl = inviteOffer?.url ? inviteLink(inviteOffer.url, "share_card") : null;
+    const scoreLine = `I identified ${session.correctAnswers}/${effectiveTotal} ${setName} cards${skipNote} on PackPTS with ${accuracy}% accuracy.`;
+    const shareText = inviteUrl ? `${scoreLine} ${INVITE_SHARE_LINE}` : scoreLine;
+    const shareUrl = inviteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
     
     const logShareEvent = async (shareType: string, target: string, contentAssetId?: string) => {
       try {
@@ -1162,6 +1167,8 @@ export default function Game() {
               )}
             />
 
+            {!showGuestWall && <InviteCard isGuest={!isAuthenticated} />}
+
             <div className="flex flex-col gap-3">
               <Link href="/">
                 <Button variant="outline" className={PLAY_AGAIN_BUTTON_CLASS} data-testid="button-back-home">
@@ -1176,7 +1183,7 @@ export default function Game() {
                 matchId={session.id}
                 initialImageUrl={shareImageUrl}
                 downloadFilename={`packpts-score-${session.id.slice(0, 8)}.png`}
-                shareUrl={withUtm("https://packpts.com", { source: "share", medium: "share_card", campaign: "solo_score" })}
+                shareUrl={inviteUrl ?? withUtm("https://packpts.com", { source: "share", medium: "share_card", campaign: "solo_score" })}
                 shareText={shareText}
                 maskedCardUrls={(session.questions ?? []).filter((q) => q.answered).map((q) => q.card?.imageUrl)}
               />

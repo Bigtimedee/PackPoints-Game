@@ -615,6 +615,7 @@ export class Daily5Service {
     flagged: boolean;
     correctAnswers: { position: number; correctAnswer: string }[];
     pointsCredited: number;
+    answeredCount: number;
   }> {
     const [entry] = await db
       .select()
@@ -706,6 +707,7 @@ export class Daily5Service {
       totalTime: totalTimeMs,
       rank,
       flagged: isFlagged,
+      answeredCount: Array.isArray(entry.answers) ? entry.answers.length : 0,
       correctAnswers: cards.map(c => ({ position: c.position, correctAnswer: c.correctAnswer })),
       pointsCredited,
     };

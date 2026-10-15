@@ -42,6 +42,27 @@ const requireAdmin = async (req: Request, res: Response, next: NextFunction) => 
 };
 
 export function registerAdminRoutes(app: Express): void {
+  // Referral manual review queue (flagged invites: IP or device caps, RiskScan).
+  app.get("/api/admin/referrals/review", isAuthenticated, requireAdmin, async (_req, res) => {
+    try {
+      const { pool } = await import("../db");
+      const r = await pool.query(
+        `SELECT invited_user_id, inviter_user_id, status, reason, created_at FROM referral_rewards
+          WHERE status = 'review' ORDER BY created_at DESC LIMIT 200`);
+      res.json({ items: r.rows });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to load referral review queue" });
+    }
+  });
+  app.post("/api/admin/referrals/:invitedUserId/decide", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const approve = req.body?.approve === true;
+      const { decideReferralReview } = await import("../services/referralProgram");
+      res.json(await decideReferralReview(String(req.params.invitedUserId), approve));
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to decide referral" });
+    }
+  });
   registerAdminCardInspectionRoutes(app, isAuthenticated, requireAdmin);
   registerHeldMaskPreparationRoutes(app);
   registerAdminSetLifecycleRoutes(app);

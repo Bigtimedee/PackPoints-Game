@@ -9,6 +9,7 @@ import { usePointsValue } from "@/hooks/use-points-value";
 import { WALLET, holdLine } from "@/lib/pointsCopy";
 import { setWalletSheetOpen } from "@/lib/walletSheetOpen";
 import { trackPoints } from "@/lib/pointsEvents";
+import { INVITE, inviteLink, shareInvite, useInviteOffer } from "@/lib/invite";
 
 function WalletBody({ balance, onClose }: { balance: number; onClose: () => void }) {
   const { rebateLive, usdFor, value } = usePointsValue();
@@ -16,6 +17,8 @@ function WalletBody({ balance, onClose }: { balance: number; onClose: () => void
   const usd = rebateLive ? usdFor(balance) : null;
   const { data } = useQuery<{ expiringNext30Days?: number }>({ queryKey: ["/api/wallet/expirations"], retry: 1 });
   const expiring = Math.floor(data?.expiringNext30Days ?? 0);
+  const { data: offer } = useInviteOffer();
+  const [inviteNote, setInviteNote] = useState<string | null>(null);
   return (
     <div className="space-y-3" data-testid="sheet-wallet">
       <h2 className="text-lg font-semibold">{WALLET.title}</h2>
@@ -23,6 +26,18 @@ function WalletBody({ balance, onClose }: { balance: number; onClose: () => void
       <p className="text-sm text-muted-foreground" data-testid="text-wallet-value">{usd ? WALLET.live(usd) : WALLET.soon}</p>
       {hold && <p className="text-sm text-muted-foreground" data-testid="text-wallet-hold">{hold}</p>}
       {expiring > 0 && <p className="text-sm" data-testid="text-wallet-expiring">{WALLET.expiring(expiring)}</p>}
+      {offer?.url && (
+        <button
+          type="button"
+          className="w-full min-h-11 rounded-md border px-3 py-2 text-left text-sm font-medium hover-elevate"
+          onClick={async () => { const r = await shareInvite(inviteLink(offer.url!, "wallet")); if (r === "copied") setInviteNote(INVITE.copied); }}
+          data-testid="button-wallet-invite"
+        >
+          {INVITE.walletRow(offer.inviterBonus)}
+          <span className="block text-xs text-muted-foreground font-normal">{INVITE.codeLabel}: <span className="font-mono" data-testid="text-wallet-invite-code">{offer.code}</span></span>
+        </button>
+      )}
+      {inviteNote && <p className="text-xs text-muted-foreground" role="status">{inviteNote}</p>}
       <div className="flex flex-col gap-3 pt-1">
         <Link href="/points" onClick={() => { trackPoints("points_cta_click", { surface: "wallet_sheet", cta: "how_points_work" }); onClose(); }}>
           <Button variant="outline" className="w-full min-h-11" data-testid="link-how-points-work">{WALLET.link}</Button>

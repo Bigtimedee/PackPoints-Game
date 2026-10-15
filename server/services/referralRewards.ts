@@ -109,6 +109,12 @@ async function getReferralBonusConfig(): Promise<{ referrerBonus: number; referr
   };
 }
 
+/** Live offer values for the UI (same config the grant uses). */
+export async function getReferralBonusValues(): Promise<{ inviterBonus: number; invitedBonus: number; welcomeBonus: number }> {
+  const { referrerBonus, referredBonus } = await getReferralBonusConfig();
+  return { inviterBonus: referrerBonus, invitedBonus: referredBonus, welcomeBonus: REFERRAL_WELCOME_BONUS_POINTS };
+}
+
 export async function grantReferralBonus(invitedUserId: string, eventType: "FIRST_MATCH"): Promise<{ granted: boolean; reason?: string }> {
   try {
     const [attribution] = await db.select()

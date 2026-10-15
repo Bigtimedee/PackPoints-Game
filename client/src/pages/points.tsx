@@ -4,6 +4,7 @@ import { trackPoints } from "@/lib/pointsEvents";
 import { Button } from "@/components/ui/button";
 import { AffiliateDisclosure } from "@/components/affiliate-disclosure";
 import { usePointsValue } from "@/hooks/use-points-value";
+import { INVITE, useInviteOffer } from "@/lib/invite";
 import { PRIMARY, addingAnswer, cashOutAnswer, checkoutAnswer, expiryAnswer, pageSteps } from "@/lib/pointsCopy";
 
 export default function PointsPage() {
@@ -14,6 +15,7 @@ export default function PointsPage() {
   const example = 1000;
   const exampleUsd = rebateLive ? usdFor(example) : null;
   const cashOut = loaded ? cashOutAnswer(value) : null;
+  const { data: invite } = useInviteOffer();
   return (
     <div className="mx-auto max-w-2xl px-4 sm:px-6 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] space-y-3" data-testid="page-points">
       <h1 className="text-3xl font-bold">How points work</h1>
@@ -51,6 +53,13 @@ export default function PointsPage() {
           <div className="border-t pt-3" data-testid="faq-cashout">
             <h3 className="font-semibold">When can I cash out?</h3>
             <p className="text-sm text-muted-foreground">{cashOut}</p>
+          </div>
+        )}
+        {invite && (
+          <div className="border-t pt-3" data-testid="faq-invites">
+            <h3 className="font-semibold">{INVITE.faqQ}</h3>
+            <p className="text-sm text-muted-foreground">{INVITE.faqA(invite)}</p>
+            {invite.code && <p className="text-sm pt-1">{INVITE.codeLabel}: <span className="font-mono font-semibold" data-testid="text-faq-invite-code">{invite.code}</span></p>}
           </div>
         )}
         <div className="flex flex-col gap-3 pt-2">
