@@ -37,7 +37,7 @@ describe("/sets cover variants", () => {
     expect(main).toContain(`srcset="${setCoverSrcSet(base, "abcdef012345")}"`);
     expect(main).toContain('alt="Masked 1986 Topps Baseball card"');
     expect(html.match(/rel="preload" as="image"[^>]*crossorigin="anonymous"/)).toBeTruthy();
-    expect(html).toContain('href="/api/sets?limit=50"');
+    expect(html).not.toContain('href="/api/sets?limit=50"'); // list is inlined as JSON instead
     expect(firstRowCoverPreloads([{ ...sets[0], coverUrls: ["https://x.bubble.io/a.jpg"] }])).toEqual([]);
   });
 });

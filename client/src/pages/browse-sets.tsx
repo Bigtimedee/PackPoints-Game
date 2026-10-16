@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -200,9 +201,30 @@ export function BrowseSetsShelf({
   );
 }
 
+type SetsPayload = { sets: BrowseSet[]; coversDisabled?: boolean };
+
+/** The server inlines /api/sets?limit=50 into /sets HTML; read it once so the first render needs no fetch. */
+let inlineSets: SetsPayload | undefined | null = null;
+function takeInlineSets(): SetsPayload | undefined {
+  if (inlineSets !== null) return inlineSets;
+  inlineSets = undefined;
+  if (typeof document === "undefined") return undefined;
+  const el = document.getElementById("pp-sets-data");
+  if (!el) return undefined;
+  try {
+    const parsed = JSON.parse(el.textContent || "");
+    if (parsed && Array.isArray(parsed.sets)) inlineSets = parsed as SetsPayload;
+  } catch { inlineSets = undefined; }
+  el.remove();
+  return inlineSets;
+}
+
 export default function BrowseSets() {
-  const { data, isLoading } = useQuery<{ sets: BrowseSet[]; coversDisabled?: boolean }>({
+  const [initial] = useState(takeInlineSets);
+  const { data, isLoading } = useQuery<SetsPayload>({
     queryKey: ["/api/sets"],
+    initialData: initial,
+    initialDataUpdatedAt: initial ? Date.now() : undefined,
     queryFn: async () => {
       const res = await fetch("/api/sets?limit=50");
       return res.json();
