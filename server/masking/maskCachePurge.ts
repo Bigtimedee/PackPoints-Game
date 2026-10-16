@@ -1,3 +1,4 @@
+import { maskSourceOverrideDigest } from "./maskSourceOverrides";
 import { TOPPS_1988_SET_ID, TOPPS_1988_REVIEWED_SOURCES } from "./topps1988Geometry";
 /**
  * Drop masked-image files and card_image_mask_cache rows whose card or game
@@ -198,7 +199,7 @@ function profileRebuildMarker(dir: string, setId: string): string {
 
 export function profileRebuildSignature(setId: string): string {
   const profile = getMaskProfile(null, setId);
-  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1, ...(setId === TOPPS_1988_SET_ID ? { reviewedSources: TOPPS_1988_REVIEWED_SOURCES } : {}), ...(setId === MASK_LAYOUT_SET_IDS.upperDeckBasketball1995 ? { baseSourceSize: getMaskProfile(null, setId).baseSourceSize, rotatedOcr: 1 } : {}), ...(setId === MASK_LAYOUT_SET_IDS.toppsBaseball1986 ? { sourceAspectGate: getMaskProfile(null, setId).sourceAspectGate, rotatedOcr: 1 } : {}) });
+  return JSON.stringify({ profile: profile.id, regions: profile.regions, version: CURRENT_MASK_VERSION, fixedBandRevision: 1, ...(setId === TOPPS_1988_SET_ID ? { reviewedSources: TOPPS_1988_REVIEWED_SOURCES } : {}), ...(setId === MASK_LAYOUT_SET_IDS.upperDeckBasketball1995 ? { baseSourceSize: getMaskProfile(null, setId).baseSourceSize, rotatedOcr: 1 } : {}), ...(setId === MASK_LAYOUT_SET_IDS.toppsBaseball1986 ? { sourceAspectGate: getMaskProfile(null, setId).sourceAspectGate, rotatedOcr: 1 } : {}), ...(maskSourceOverrideDigest(setId) ? { sourceOverrides: maskSourceOverrideDigest(setId) } : {}) });
 }
 
 /** One boot line per rebuilt set. Returns the set ids that were rebuilt. */
