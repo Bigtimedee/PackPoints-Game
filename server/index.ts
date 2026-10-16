@@ -1,3 +1,4 @@
+import { restoreTopps1988PreparedInBackground } from "./startup/topps1988RestorePrepared";
 import { noCardLeakHeaders } from "./middleware/noCardLeakHeaders";
 import { registerVerifiedEpnPostback } from "./routes/epnPostback";
 import express, { type Express, type Request, Response, NextFunction } from "express";
@@ -104,6 +105,7 @@ export async function bootAfterListen(
   } catch (error) {
     console.error("[MaskProfile] profile rebuild failed", error);
   }
+  restoreTopps1988PreparedInBackground();
   try {
     await invalidateRegisteredHoopsMaskCache();
   } catch (error) {
