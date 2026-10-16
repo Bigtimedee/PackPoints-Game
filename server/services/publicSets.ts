@@ -22,7 +22,7 @@ import {
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
 import { applySetDisplayTitle, applySetYear } from "@shared/setDisplayOverride";
-import { readyMaskedCoverUrls } from "./setCovers";
+import { readyMaskedCoverUrls, readyMaskedCovers } from "./setCovers";
 
 export interface PublicSetListRow {
   id: string;
@@ -38,6 +38,8 @@ export interface PublicSetListRow {
   playCount: number;
   shareImageUrl?: string;
   coverCardUrls: string[];
+  /** Per-slot cache versions for coverCardUrls (hash prefixes). */
+  coverVersions?: string[];
 }
 
 export function parseSetsListQuery(query: { limit?: unknown; offset?: unknown }): { limit: number; offset: number } {
@@ -96,10 +98,11 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
 
   const ids = page.map((row) => row.id);
   const covers = new Map<string, string[]>();
+  const coverVersions = new Map<string, string[]>();
   const shares = new Map<string, string | undefined>();
   if (!setsCoversDisabled()) {
     const [coverMap, shareRows] = await Promise.all([
-      readyMaskedCoverUrls(ids),
+      readyMaskedCovers(ids),
       db
         .select({
           sourceEventId: contentAssets.sourceEventId,
@@ -111,7 +114,7 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
           inArray(contentAssets.sourceEventId, ids.map((id) => `maker_set_${id}`)),
         )),
     ]);
-    for (const [setId, urls] of coverMap) covers.set(setId, urls);
+    for (const [setId, c] of coverMap) { covers.set(setId, c.urls); coverVersions.set(setId, c.versions); }
     for (const asset of shareRows) {
       if (!asset.sourceEventId) continue;
       const setId = asset.sourceEventId.replace(/^maker_set_/, "");
@@ -137,6 +140,7 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
       playCount: row.playCount,
       ...(shareImageUrl ? { shareImageUrl } : {}),
       coverCardUrls,
+      ...(coverCardUrls.length > 0 && (coverVersions.get(row.id)?.length ?? 0) === coverCardUrls.length ? { coverVersions: coverVersions.get(row.id) } : {}),
     };
   });
 }

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { MaskedCardImage } from "@/components/MaskedCardImage";
-import { isMaskedSetCoverUrl } from "@shared/setCoverUrl";
+import { isMaskedSetCoverUrl, setCoverSrcSet, setCoverVariantUrl, SET_COVER_SIZES } from "@shared/setCoverUrl";
 import {
   SET_INDEX_COVER_HEIGHT,
   SETS_POLISH,
@@ -10,20 +10,29 @@ import {
   type SetCoverSource,
 } from "@/lib/setsPolish";
 
+type CoverLoad = { version?: string; loading?: "eager" | "lazy"; priority?: boolean };
+
 function StackCard({
   src,
   className,
   style,
+  version,
+  loading,
+  priority,
 }: {
   src: string;
   className?: string;
   style?: CSSProperties;
-}) {
+} & CoverLoad) {
   return (
     <div className={className} style={style}>
       <div className="overflow-hidden rounded-[3px] shadow-md" style={{ aspectRatio: "2.5 / 3.5" }}>
         <MaskedCardImage
-          src={src}
+          src={isMaskedSetCoverUrl(src) ? setCoverVariantUrl(src, 240, version) : src}
+          srcSet={isMaskedSetCoverUrl(src) ? setCoverSrcSet(src, version) : undefined}
+          sizes={isMaskedSetCoverUrl(src) ? SET_COVER_SIZES : undefined}
+          loading={loading}
+          priority={priority}
           alt=""
           className="h-full w-full"
           maskColor="#000000"
@@ -37,11 +46,18 @@ function StackCard({
 export function MaskedCardStack({
   urls,
   compact = false,
+  versions,
+  loading,
+  priority,
 }: {
   urls: string[];
   compact?: boolean;
+  versions?: string[];
+  loading?: "eager" | "lazy";
+  priority?: boolean;
 }) {
   const cards = sanitizeCoverCardUrls(urls);
+  const aligned = versions && versions.length === urls.length && cards.length === urls.length ? versions : undefined;
   if (cards.length === 0) return null;
   const placements = fanCoverPlacements(cards.length, compact);
 
@@ -58,6 +74,9 @@ export function MaskedCardStack({
           <StackCard
             key={`${src}-${i}`}
             src={src}
+            version={aligned?.[i]}
+            loading={loading}
+            priority={priority}
             className="absolute"
             style={{
               width: `${place.widthPct}%`,
@@ -77,11 +96,14 @@ export function SetCover({
   shareImageUrl,
   cardUrls,
   caption,
+  versions,
+  loading,
+  priority,
 }: {
   shareImageUrl?: string | null;
   cardUrls?: string[];
   caption?: boolean;
-}) {
+} & { versions?: string[]; loading?: "eager" | "lazy"; priority?: boolean }) {
   const cover: SetCoverSource = resolveSetCover(shareImageUrl, cardUrls ?? []);
 
   if (cover.kind === "surfaceA") {
@@ -109,7 +131,7 @@ export function SetCover({
   }
 
   if (cover.urls.length === 0) return null;
-  return <MaskedCardStack urls={cover.urls} compact />;
+  return <MaskedCardStack urls={cover.urls} compact versions={cover.urls.length === (cardUrls ?? []).length ? versions : undefined} loading={loading} priority={priority} />;
 }
 
 export function TheStack({
