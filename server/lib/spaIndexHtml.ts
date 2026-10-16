@@ -31,8 +31,26 @@ function toSeoSet(r: any, setShareSlug: (n: string, id: string) => string, apply
  */
 let setsPayloadCache: { at: number; payload: { sets: any[]; coversDisabled?: boolean } } | null = null;
 const SETS_PAYLOAD_TTL_MS = 30_000;
+let setsPayloadInflight: Promise<{ sets: any[]; coversDisabled?: boolean }> | null = null;
+/** Stale-while-revalidate: a cached payload is served at once and refreshed in the background. */
 async function setsIndexPayload(): Promise<{ sets: any[]; coversDisabled?: boolean }> {
-  if (setsPayloadCache && Date.now() - setsPayloadCache.at < SETS_PAYLOAD_TTL_MS) return setsPayloadCache.payload;
+  if (setsPayloadCache) {
+    if (Date.now() - setsPayloadCache.at >= SETS_PAYLOAD_TTL_MS && !setsPayloadInflight) {
+      setsPayloadInflight = loadSetsIndexPayload().finally(() => { setsPayloadInflight = null; });
+      setsPayloadInflight.catch(() => {});
+    }
+    return setsPayloadCache.payload;
+  }
+  if (!setsPayloadInflight) setsPayloadInflight = loadSetsIndexPayload().finally(() => { setsPayloadInflight = null; });
+  return setsPayloadInflight;
+}
+
+/** Warm the /sets payload after boot so the first visitor is not the one who pays for it. */
+export function warmSetsIndexPayload(): void {
+  void setsIndexPayload().catch(() => {});
+}
+
+async function loadSetsIndexPayload(): Promise<{ sets: any[]; coversDisabled?: boolean }> {
   const [{ listIntegratedPublicSets }, { setsCoversDisabled }] = await Promise.all([
     import("../services/publicSets"), import("./setsCoversDisabled"),
   ]);
@@ -72,7 +90,7 @@ export async function decorateSpaIndexPage(html: string, url: string): Promise<{
         // Never hold the page: at boot the list can wait for the mask pass.
         const payload = await Promise.race([
           setsIndexPayload(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sets payload slow")), 1500).unref?.()),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("sets payload slow")), 400).unref?.()),
         ]);
         const [{ setShareSlug }, { applySetDisplayTitle }] = await Promise.all([
           import("../contentFactory/makerShareSlug"), import("@shared/setDisplayOverride"),

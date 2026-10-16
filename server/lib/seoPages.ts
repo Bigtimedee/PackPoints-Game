@@ -26,7 +26,7 @@ export function firstRowCoverStrip(sets: SeoSet[]): string {
   const alt = `Masked ${esc(first.setName)} card`;
   const imgs = urls.map((u, i) => {
     const v = versions?.[i];
-    return `<img src="${setCoverVariantUrl(u, 240, v)}" srcset="${setCoverSrcSet(u, v)}" sizes="${SET_COVER_SIZES}" width="250" height="350" alt="${alt}" crossorigin="anonymous" referrerpolicy="no-referrer" decoding="async"${i === 0 ? ' fetchpriority="high"' : ""} style="width:32%;max-width:160px;height:auto;margin-right:-12%;border-radius:3px" />`;
+    return `<img src="${setCoverVariantUrl(u, 240, v)}" srcset="${setCoverSrcSet(u, v)}" sizes="${SET_COVER_SIZES}" width="250" height="350" alt="${alt}" crossorigin="anonymous" referrerpolicy="no-referrer" decoding="async"${i === 0 ? ' fetchpriority="high"' : ""} style="flex:0 0 32%;width:32%;max-width:160px;height:auto;margin-right:-12%;border-radius:3px" />`;
   }).join("");
   return `<div aria-hidden="true" style="display:flex;overflow:hidden;padding:8px 0">${imgs}</div>`;
 }
@@ -86,6 +86,8 @@ export interface SeoPage {
   body?: string;
   /** Full <main> inner HTML from the kit (h1 included). Wins over h1/body. */
   main?: string;
+  /** Hide the boot spinner so the server content (and its LCP image) paints above the fold. */
+  hideLoader?: boolean;
   /** <link rel="preload"> tags for the LCP images. */
   preload?: string[];
   /** JSON-LD @graph replacing the shell's JSON-LD. */
@@ -254,7 +256,10 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
       // The list itself is inlined as JSON (spaIndexHtml), so only the covers are preloaded.
       page.preload = firstRowCoverPreloads(sets);
       const strip = firstRowCoverStrip(sets);
-      if (strip && page.main) page.main = page.main.replace(/(<\/h1>)/, `$1${strip}`);
+      if (strip && page.main) {
+        page.main = page.main.replace(/(<\/h1>)/, `$1${strip}`);
+        page.hideLoader = true;
+      }
     }
     return page;
   }
@@ -311,6 +316,7 @@ export function renderSeoHtml(html: string, page: SeoPage): string {
   }
   if (page.noindex) next = setHeadTag(next, /<meta\s+name="robots"\s+content="[^"]*"\s*\/?>/i, `<meta name="robots" content="noindex" />`);
   if (page.jsonld) next = replaceJsonLd(next, page.jsonld);
+  if (page.hideLoader) next = next.replace(/<\/head>/i, `    <style>#initial-loader{display:none!important}</style>\n  </head>`);
   if (page.preload?.length) next = next.replace(/<\/head>/i, `    ${page.preload.join("\n    ")}\n  </head>`);
   if (page.h1 || page.main) {
     const inner = page.main ?? `<h1>${esc(page.h1 ?? "")}</h1>${page.body ?? ""}`;
