@@ -36,12 +36,12 @@ export const defaultSeoDeps: SeoDeps = {
 let depsOverride: SeoDeps | null = null;
 export function setSeoDepsForTests(d: SeoDeps | null): void { depsOverride = d; }
 
-export async function decorateSpaIndexPage(html: string, url: string): Promise<{ html: string; status: number }> {
+export async function decorateSpaIndexPage(html: string, url: string): Promise<{ html: string; status: number; location?: string }> {
   const withSets = isPlaySetsHtmlPath(url) ? await injectPlaySetsOgHtml(html, url) : html;
   const withRoute = injectSpaRouteMeta(withSets, url);
   try {
     const page = await resolveSeoPage(url, depsOverride ?? defaultSeoDeps);
-    return { html: renderSeoHtml(withRoute, page), status: page.status };
+    return { html: renderSeoHtml(withRoute, page), status: page.status, ...(page.location ? { location: page.location } : {}) };
   } catch (err) {
     console.error("[SEO] page render skipped:", (err as Error)?.message);
     return { html: withRoute, status: 200 };

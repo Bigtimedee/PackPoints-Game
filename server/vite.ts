@@ -50,7 +50,8 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      const { html, status } = await decorateSpaIndexPage(page, url);
+      const { html, status, location } = await decorateSpaIndexPage(page, url);
+      if (location) { res.redirect(status, location); return; }
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);

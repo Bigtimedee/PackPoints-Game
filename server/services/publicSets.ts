@@ -21,6 +21,7 @@ import {
 } from "./playableSetEligibility";
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "../config/heldSets";
 import { setsCoversDisabled } from "../lib/setsCoversDisabled";
+import { applySetDisplayTitle, applySetYear } from "@shared/setDisplayOverride";
 import { readyMaskedCoverUrls } from "./setCovers";
 
 export interface PublicSetListRow {
@@ -124,10 +125,10 @@ export async function listIntegratedPublicSets(opts: { limit: number; offset: nu
     const shareImageUrl = coverCardUrls.length > 0 ? shares.get(row.id) : undefined;
     return {
       id: row.id,
-      setName: row.setName,
+      setName: applySetDisplayTitle(row.id, row.setName),
       sport: row.sport,
       brand: row.brand,
-      year: row.year,
+      year: applySetYear(row.id, row.year) as typeof row.year,
       makerNote: row.makerNote,
       createdAt: createdAtToIso(row.createdAt),
       makerUsername: row.makerUsername ?? null,

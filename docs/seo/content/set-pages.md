@@ -478,7 +478,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 ---
 
-# /sets/1989-topps-352b33d1
+# /sets/1989-topps-baseball-352b33d1
 
 - Title: 1989 Topps Baseball Card Game: Guess the Player | PackPTS (57 chars)
 - Description: Play 1989 Topps Baseball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play. (140 chars)
@@ -526,7 +526,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 ---
 
-# /sets/1987-topps-37fd025d
+# /sets/1987-topps-baseball-37fd025d
 
 - Title: 1987 Topps Baseball Card Game: Guess the Player | PackPTS (57 chars)
 - Description: Play 1987 Topps Baseball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play. (140 chars)

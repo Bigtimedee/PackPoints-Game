@@ -15,7 +15,7 @@ function logVisit(req: Request, res: Response): void {
   try { visitLogger?.(req, res); } catch { /* never break a page load */ }
 }
 
-async function readSpaHtml(htmlPath: string, url: string): Promise<{ html: string; status: number }> {
+async function readSpaHtml(htmlPath: string, url: string): Promise<{ html: string; status: number; location?: string }> {
   const raw = await fs.promises.readFile(htmlPath, "utf8");
   return decorateSpaIndexPage(raw, url);
 }
@@ -25,8 +25,14 @@ function sendSpaHtml(req: Request, res: Response, next: NextFunction, htmlPath: 
   // GTM funnel: server-side landing visit with UTM (sets the pp_vid cookie). Never throws.
   if (isSchemaReady() && req.method === "GET") logVisit(req, res);
   readSpaHtml(htmlPath, req.originalUrl)
-    .then(({ html, status }) => {
+    .then(({ html, status, location }) => {
       if (res.headersSent) return;
+      if (location && (status === 301 || status === 308)) {
+        // Renamed set slugs and /daily5: permanent redirect to the canonical URL.
+        res.setHeader("Cache-Control", "public, max-age=3600");
+        res.redirect(status, location);
+        return;
+      }
       // Unknown routes and unknown set ids: real 404, same SPA (its not-found UI renders).
       sendNoStoreBody(req, res, html, "text/html; charset=utf-8", status);
     })

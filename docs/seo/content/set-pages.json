@@ -1941,7 +1941,7 @@
       "wordCount": 135
     },
     {
-      "path": "/sets/1989-topps-352b33d1",
+      "path": "/sets/1989-topps-baseball-352b33d1",
       "setId": "352b33d1-c110-4e09-b641-8e3c02a94442",
       "title": "1989 Topps Baseball Card Game: Guess the Player | PackPTS",
       "description": "Play 1989 Topps Baseball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play.",
@@ -2007,7 +2007,7 @@
         ],
         [
           "1989 Topps Baseball",
-          "/sets/1989-topps-352b33d1"
+          "/sets/1989-topps-baseball-352b33d1"
         ]
       ],
       "coverImages": [
@@ -2066,7 +2066,7 @@
                 "@type": "ListItem",
                 "position": 3,
                 "name": "1989 Topps Baseball",
-                "item": "https://packpts.com/sets/1989-topps-352b33d1"
+                "item": "https://packpts.com/sets/1989-topps-baseball-352b33d1"
               }
             ]
           },
@@ -2117,7 +2117,7 @@
           },
           {
             "@type": "WebPage",
-            "url": "https://packpts.com/sets/1989-topps-352b33d1",
+            "url": "https://packpts.com/sets/1989-topps-baseball-352b33d1",
             "name": "1989 Topps Baseball Card Game: Guess the Player | PackPTS",
             "isPartOf": {
               "@id": "https://packpts.com/#website"
@@ -2137,7 +2137,7 @@
       "wordCount": 138
     },
     {
-      "path": "/sets/1987-topps-37fd025d",
+      "path": "/sets/1987-topps-baseball-37fd025d",
       "setId": "37fd025d-2ae1-4c92-b8ad-133375d0c722",
       "title": "1987 Topps Baseball Card Game: Guess the Player | PackPTS",
       "description": "Play 1987 Topps Baseball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play.",
@@ -2203,7 +2203,7 @@
         ],
         [
           "1987 Topps Baseball",
-          "/sets/1987-topps-37fd025d"
+          "/sets/1987-topps-baseball-37fd025d"
         ]
       ],
       "coverImages": [
@@ -2262,7 +2262,7 @@
                 "@type": "ListItem",
                 "position": 3,
                 "name": "1987 Topps Baseball",
-                "item": "https://packpts.com/sets/1987-topps-37fd025d"
+                "item": "https://packpts.com/sets/1987-topps-baseball-37fd025d"
               }
             ]
           },
@@ -2313,7 +2313,7 @@
           },
           {
             "@type": "WebPage",
-            "url": "https://packpts.com/sets/1987-topps-37fd025d",
+            "url": "https://packpts.com/sets/1987-topps-baseball-37fd025d",
             "name": "1987 Topps Baseball Card Game: Guess the Player | PackPTS",
             "isPartOf": {
               "@id": "https://packpts.com/#website"
