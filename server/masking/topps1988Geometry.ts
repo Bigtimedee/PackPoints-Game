@@ -65,7 +65,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Glenn Davis",
     "number": "430",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739940195702x261354154220323040/crop_image",
-    "sha256": "134c347af89183a389671cabe5edbe2d4cba6863072cd2a94c0e209c7d03b19f"
+    "sha256": "a40fd1e406a6669acfd55b651dd51777365ebdf8b20d230827030ea5f2201942"
   },
   {
     "cardId": "0383d01c-fe53-4b8d-a1a4-c007c0dab3ad",
@@ -100,7 +100,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Darrell Miller",
     "number": "679",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1743554102645x910656757130772600/crop_image",
-    "sha256": "d3cab6d862b83c0a5026362a0a5199cc904bd3ced998318de107e3217bb35ff8"
+    "sha256": "486973cd7411455c6923d81cc4f25702800f503d8500a7f551f49d07e39e2f3d"
   },
   {
     "cardId": "051e4805-8cab-4c1e-896d-9073e452f12c",
@@ -359,7 +359,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Dave Righetti",
     "number": "790",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1751904674935x761375916774935400/crop_image",
-    "sha256": "4c0be138b5aead0d4f972f557b78dce718dd2b6cbdbd47d91542204c30b8b4f8"
+    "sha256": "bcffe1960809b87e5aa178196dd69003e449c6114512c2192702f13ead592adf"
   },
   {
     "cardId": "193195a4-4222-4192-8c35-7b2365a5acc7",
@@ -373,14 +373,14 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Mike Moore",
     "number": "432",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752280390401x597978508614199900/crop_image",
-    "sha256": "87f4d7093a36aa1bb2d141b78b3ad770ea7e8253c484d2bc263983c2ce25ca1d"
+    "sha256": "e11a56da57424bc93712f92dc52fc7b1ebd8397774eef17c32e309c499838ee3"
   },
   {
     "cardId": "1a03d9e3-28e5-43b6-adae-8321aa2ff482",
     "player": "Eric Nolte",
     "number": "694",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752281892604x719294917364450000/crop_image",
-    "sha256": "0a7156cf64d484da0811b5c8040a561f95b187aee27d085e899581e95ed2f8d3"
+    "sha256": "c49d9f51cf3967403a5c3875fa62be4c9c12d7bb051042be7e13b659a39dd4c0"
   },
   {
     "cardId": "1a730e41-93bd-47fc-96e1-65f7e180f1fc",
@@ -436,7 +436,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Carney Lansford",
     "number": "292",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1751637320139x576326761203036900/crop_image",
-    "sha256": "e4056784c697439b6a744882f9fb386660a3de608489445f7040c0c35dc807c1"
+    "sha256": "d693e8186d7467f59645774077b2ec5badb65419485f3bd636209461ceb27742"
   },
   {
     "cardId": "1cb399bc-932f-408e-8d3f-82c22eb8cec7",
@@ -457,7 +457,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Les Straker",
     "number": "264",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752279183934x580781486268201700/crop_image",
-    "sha256": "5db90c6964da84955b0d750d111d51c36fbd5614054f9090dabeeb1b68b2e155"
+    "sha256": "0d1121d92cf7ffb9e359e3f89fea528edd9d4ad2b97fc43757d4c6e339cb85fa"
   },
   {
     "cardId": "1fec50de-25f4-4c11-b816-6d801cf13763",
@@ -772,7 +772,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Lloyd McClendon",
     "number": "172",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1751292249185x294511022843315900/crop_image",
-    "sha256": "218342a27c84dc158bf3548006d2efa50269d58d3a123776cb08df907218ee63"
+    "sha256": "9fdbd4a15d81043e86ec510a83298a4259bbbefd29fba7c6eab235612cdd11b8"
   },
   {
     "cardId": "328cecc3-ced4-4c0b-9bb8-26978002c2fc",
@@ -849,7 +849,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Mike Dunne",
     "number": "619",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1721062378631x353896592968870660/crop_image",
-    "sha256": "af20826f9de65858bf4c3ae7858454a4d86f1901a52d79b827ce1d8e8caa4a6f"
+    "sha256": "9f4c51ddb4e4b0ecb555f8ab7e661a6f6b907059b13ef86aaff01fbdd9090635"
   },
   {
     "cardId": "3857b7a5-2d9c-474a-ab42-7d21af66be83",
@@ -1003,7 +1003,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Ed Vandeberg",
     "number": "421",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752280392544x706605190455020300/crop_image",
-    "sha256": "06e5a4b3be7a0e1ec29b44fa223ebe1598f0b7291b215e1159d93074ae379fcc"
+    "sha256": "6d6ab6002ee4a0ee3d2f8909f263fb3f429dffebc80b179c0d5330e1c386636f"
   },
   {
     "cardId": "441d0914-6a03-4a42-908a-00c102bb54f1",
@@ -1115,7 +1115,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Barry Jones",
     "number": "168",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752278833318x705633857147660500/crop_image",
-    "sha256": "1fdd10770d7e3efd6a0ef6ba7211e3691d939e67dfe42a3046b2a7f5c7839f6b"
+    "sha256": "bc6e0586365178c44e6107617192c1fb4e1a14a1cb8e19f7b5de8a3bb17e199c"
   },
   {
     "cardId": "49887ddc-0b92-47b3-ba65-b8b53f5b7d87",
@@ -1283,7 +1283,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Kevin Elster",
     "number": "8",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1751890268345x635498016223272600/crop_image",
-    "sha256": "79589a05ee31002781b132e4a1cec98277d869eadf89efa72f6585856942da0c"
+    "sha256": "9df25ceb228a8838a4572041961758034540d7ddf538a9e3ff40e9e601eed7c8"
   },
   {
     "cardId": "56a97019-ec39-46a3-b1d6-1ef5fec91739",
@@ -1381,7 +1381,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Darrel Akerfelds",
     "number": "82",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752589663124x343959862720012860/crop_image",
-    "sha256": "3ea6a4e3b99967a6958ad99cde7ac164264267dd7e18f204a2487a0327d97b38"
+    "sha256": "a063ea82e97c786925df4720770b1c91fb1c27bcb868cd43da871c3ca2635e8c"
   },
   {
     "cardId": "5b82c94e-d1b7-4972-b063-b55155233b57",
@@ -1409,7 +1409,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Dave Smith",
     "number": "520",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752280940251x310159486685601200/crop_image",
-    "sha256": "371c408cc3ec7617afb84d87d2f2e484fabf2dcaffc2ea71d6c630e5d1f5bb21"
+    "sha256": "360d4ada55d7156a74350f7bf042f90b3a33ca6cf0541726829c870a05996280"
   },
   {
     "cardId": "5cefe655-1f3c-4864-ad43-a811219cde3a",
@@ -1444,21 +1444,21 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Lenn Sakata",
     "number": "716",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1733952532230x669482450608629400/crop_image",
-    "sha256": "b2aa7fcbfe06f520f12eb8b1f90411fc2703658e2d6f01b9850b9b76148ae4cb"
+    "sha256": "1f10d39454709d1204e757851838020ee7b33d44f59839f2da587aa12b7149fe"
   },
   {
     "cardId": "5f99c965-36f2-4373-a5d9-38fc43a0bdd4",
     "player": "Jerry Hairston",
     "number": "281",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1747849479054x169357973128367870/crop_image",
-    "sha256": "490655a67d0203d468a940fde1e06da84704f9d205e0fed568cbb25f104d92fd"
+    "sha256": "c8f049ccc4b2d8afe88de3037a78707b388d995e6d260d7c27005fd42f75cfdb"
   },
   {
     "cardId": "60400f52-32da-4190-b939-52f140a10a8b",
     "player": "Jesse Barfield",
     "number": "140",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1744495505581x967676019691678900/crop_image",
-    "sha256": "1fe46dbe36c4c4f355d48b5dd78f6cd9afed62bcafb76023317120e2dd9dd11f"
+    "sha256": "13a7bf5501a7474badcf6eda9d74912263a0a145a3118fc77db78f6e43ebfed4"
   },
   {
     "cardId": "6044a0df-8c6b-4cca-a0aa-39a73b904860",
@@ -1514,7 +1514,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Rob Deer",
     "number": "33",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739939828618x754655153783488500/crop_image",
-    "sha256": "98ac130bea4313d79d8fd3cdecd701d0c61f2037fcbdda034babd4decf591389"
+    "sha256": "4ec830b6894cdb62f557ee0d3cf2649c33b33e5a51c64e585ff0c36e8cfed2c1"
   },
   {
     "cardId": "62d2bec2-ded8-4282-a3f3-9218ba3d5256",
@@ -1759,7 +1759,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Greg Walker",
     "number": "764",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1762144933597x842462868171566800/crop_image",
-    "sha256": "581f2c68dc617f05abce7bb8084d98a0d1ea9cf0bd6d354b4344fb34b157c6f9"
+    "sha256": "1ab21577662ecd9334e3fdbdd67803e1c912932d6aae74498afb0405e4edbc5d"
   },
   {
     "cardId": "70ae5fb6-df45-417a-90aa-b8d6351eef93",
@@ -1808,7 +1808,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Shawn Hillegas",
     "number": "455",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739940447333x587882038718371000/crop_image",
-    "sha256": "8b19000201074b684e79fdaaca3d248ed074511331c789e60d6e5a0d3d0bef9f"
+    "sha256": "e52fe2d35d7387244254d4eea354ea3456677ea849751c3810b7d74570d1c4b0"
   },
   {
     "cardId": "758bb07b-e91e-4524-a7e6-0ea6264f06d0",
@@ -1962,7 +1962,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Carlton Fisk",
     "number": "385",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1737300397486x865709311533220200/crop_image",
-    "sha256": "42c233d56add77a2086a28dd71307f2c0d91a49e792c85cbfe70d76d377fbab1"
+    "sha256": "71cf7ce15825aa6aace80910b6d8bf89f65227ecf66f45918bf09e43d6cd0c8d"
   },
   {
     "cardId": "7f7ba2f3-33a9-4d35-b666-ee1495f59062",
@@ -1983,7 +1983,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Greg Harris",
     "number": "369",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1746643433835x308832644884586800/crop_image",
-    "sha256": "19e7938861db9dc31d751233a6e056d9ad0a51f9d2e4df0f550920b3f4b7b453"
+    "sha256": "daae33a97b48e636d70b5f2b8fc2ff928467d13d68af83dbed491708678ce252"
   },
   {
     "cardId": "82c1364a-0c25-4d87-87d2-a86a218affb7",
@@ -2074,7 +2074,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "John Cangelosi",
     "number": "506",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739940905400x716311608711643000/crop_image",
-    "sha256": "762c8b33749824ec95990689d8eceb68bcdb1d560d170a09f2969ceaf4b80ff6"
+    "sha256": "34707e407cdca79c1d60c0e6d6cd251cbec7c467d9509a343f45a2a4f2713a50"
   },
   {
     "cardId": "8870c6fc-b38b-4836-b2ba-91b3ac39d5bb",
@@ -2144,7 +2144,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Eddie Murray",
     "number": "495",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1724876952647x409335166139060100/crop_image",
-    "sha256": "2878fc3941ea76932d5609595e0e6b49c770f3f0b1e5d0f455f28e913735a0ba"
+    "sha256": "2912d30fdaa042c873ae8a989073093db3a60dca603172a9ea7f2ce7173bc897"
   },
   {
     "cardId": "8e339865-b08f-40df-b35e-1064609a6fd0",
@@ -2221,7 +2221,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Greg Swindell",
     "number": "22",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739938978711x860470787347720400/crop_image",
-    "sha256": "ac7009a343fee042329895abd22f99ece93f726c4895dc687ee4b5d66ef45dc4"
+    "sha256": "3f9748d4eeae63c2bb200e0b327835cb9f138102afb629b40deacd9ded18f537"
   },
   {
     "cardId": "92f618d1-26f1-4468-abdf-fbc5e603a1e2",
@@ -2235,7 +2235,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Donell Nixon",
     "number": "146",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752278572617x660920983201898100/crop_image",
-    "sha256": "47e4fbffd91a89c7a7925d6164127807f396bfb882596f9117b04e646d56fe64"
+    "sha256": "a4578d1af4b975923deb336c151defff15d0888546423a327e5c10256938822c"
   },
   {
     "cardId": "93fedd2f-4f91-4e2b-9dc0-e6f73f3c4aa3",
@@ -2389,7 +2389,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Andy McGaffigan",
     "number": "488",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1747169289201x138407974844599870/crop_image",
-    "sha256": "371e83c36e196a8ae8e3ef8c6d009e139713c45ffd0fcd8d2e0bb400b4136acb"
+    "sha256": "7afd9e9fd50b5b5ea8b1fe65203254da1cf22f05a6c175a05cbf6133191104b8"
   },
   {
     "cardId": "9db68972-288a-493d-99fa-5f234879da54",
@@ -2424,7 +2424,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Carmelo Martinez",
     "number": "148",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752278637117x330768401032486280/crop_image",
-    "sha256": "04198196e51e6a6d9f270aabf7d798399f4110d4bd0dedded64f4698a5d26142"
+    "sha256": "669146d1d06caee91130b69a251f882de31f57ae0ddb88df57a70536cd0ad3f4"
   },
   {
     "cardId": "9e4fd114-8e4e-4bca-b5ae-15d6e0764965",
@@ -2452,7 +2452,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Randy Bush",
     "number": "73",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1738377312909x977596128441307800/crop_image",
-    "sha256": "fd487c17629c5b949324c405a0815c0abeb003c3734a34459e0fcdbc61ab13a1"
+    "sha256": "ebd13924412bddb120f73587bb7051c0dc9a0d795caee3b4e6b5d3c6a44bf660"
   },
   {
     "cardId": "a094f411-abf9-496b-a458-19a49772bd47",
@@ -2494,7 +2494,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Tom Nieto",
     "number": "317",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752279547431x720032833606880900/crop_image",
-    "sha256": "e05acc67cde6fee896494194ac6e8fdccb446251cd1dad61caed79ebad9128fe"
+    "sha256": "c7556756a065c7d94f9ca539f98d9ac6a6c5bab2e53a3f38bf088a969edff2ec"
   },
   {
     "cardId": "a2ce239d-9189-48a5-a1d4-e32f9aa84556",
@@ -2606,7 +2606,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Guy Hoffman",
     "number": "496",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1742060117732x839325451563562200/crop_image",
-    "sha256": "971193db4e2eab6e4edccacd92a5a18bcd82a341bc8493206a412294d843203b"
+    "sha256": "4abdf2719c895c1794f97dad92dbe281fee04fb340ac4800944a8444455383ec"
   },
   {
     "cardId": "abb81a9f-ded2-4361-8141-06a66f92c11d",
@@ -2683,7 +2683,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Henry Cotto",
     "number": "766",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1741534986371x483828573098870100/crop_image",
-    "sha256": "d9737aa2f021ce629aa282ce9ab87cdacd1f727d7dc14755875c452d79b66189"
+    "sha256": "9e2a936cde1937bbcc5399f238fa2c0c9b03c9572c6cbf41869f41163a1560c9"
   },
   {
     "cardId": "af9d5546-74cb-46fc-8d24-9b47925396f7",
@@ -2732,7 +2732,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Bruce Ruffin",
     "number": "268",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1746710141039x767433452945215000/crop_image",
-    "sha256": "2701a10aa6622abdb36dce860542d2445a6122ca950237ecc62c507388d15955"
+    "sha256": "7b7bcfd7707c68ec24777fefd2375755e46529d702192034b09a53f47c6a0d22"
   },
   {
     "cardId": "b1dddeae-ff5c-40f3-a91b-a27a6ab4b37e",
@@ -2760,7 +2760,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Bob Walk",
     "number": "349",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1750258875436x443112704926762500/crop_image",
-    "sha256": "ee85e639035b6be0060af773879cff6173d7a4c68705f088186ba5abab78f092"
+    "sha256": "533e5e08b3bb6a800a73d271483cb20e1b52872119a4062b9660bd1ce0ec779c"
   },
   {
     "cardId": "b42247ed-299b-4176-84d8-297c2aefe134",
@@ -2809,7 +2809,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Don Sutton",
     "number": "575",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739941372508x969322151065311000/crop_image",
-    "sha256": "24c05495ca8fddd7e03f35fa9194d22ba68a51ed76b0c075f990401d1be8c9d3"
+    "sha256": "76790f47379027df32ad77d91a764e654e8092eac084107c2766fee434be2fa7"
   },
   {
     "cardId": "b7faeda4-e13d-4381-b6f3-daaf164d2995",
@@ -2858,7 +2858,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Chris Bosio",
     "number": "137",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752278386419x541626234923240800/crop_image",
-    "sha256": "7d7a5054102ad2a0b975b4bb170bfcef11438ff2a43d3ea6c225c87867cda42e"
+    "sha256": "06e64d70df56b23ff7b0e4bcd82f60f733f6d261ebcb6bd71602ffeb1b7ad5cb"
   },
   {
     "cardId": "bbbe8ed7-bbbf-4017-93b7-ae3affb864fe",
@@ -2977,7 +2977,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Pete Incaviglia",
     "number": "280",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1739939352569x779150018364645000/crop_image",
-    "sha256": "9c7169f8a89690bc44e4d9bffa8c98b83f37a34484e67b02195b96c668d33a70"
+    "sha256": "d94cfc97955bdd38d9764d7b66462336bfac89f4b3aa56ebc1f84d57c5f571f1"
   },
   {
     "cardId": "c0cd71db-3b90-46df-aa24-f25af08cdfdf",
@@ -3054,14 +3054,14 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "John Moses",
     "number": "712",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752718242935x691671959374714500/crop_image",
-    "sha256": "73eda1428d1eb462812f44889cecf1a25ab343f0fbf239f779c16fc0dcb70aab"
+    "sha256": "3584ca36e23f38393af43fa87c989af5eddb97968a739b78e3e8fc66f7d53f3b"
   },
   {
     "cardId": "c439b5a5-a513-4e6f-a6af-915af04addc3",
     "player": "Jamie Moyer",
     "number": "36",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752277919571x202717858249576320/crop_image",
-    "sha256": "29510d3f82f46586ae1e12c083c5bcd1d96450044cdc009ef7dde998f11046ad"
+    "sha256": "4af74afa8d3a18ea886543b7a1c6649c6261948a7701ac9dcb6ca498994ef8bc"
   },
   {
     "cardId": "c4816dc6-eee7-4e9a-a9e7-6976ccece1a3",
@@ -3131,7 +3131,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Zane Smith",
     "number": "297",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752279307977x490508730921478400/crop_image",
-    "sha256": "b11c06ebb7cf882e00f4568ce9c11443c8ceb3853108cb225273280934bbd412"
+    "sha256": "89d6e259cd05e6859ede38d9ee09dea85446ce96169ce26d6d67453af51b44b3"
   },
   {
     "cardId": "c8ecca6d-a849-4384-8891-871e2f1c92e2",
@@ -3187,7 +3187,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Wes Gardner",
     "number": "189",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1729864127730x371427387579281100/crop_image",
-    "sha256": "da947079d8ad93d9c3db35917b6bb048e18381c42eefdbd610b9cd9a2abe10f1"
+    "sha256": "22884f049466588766aad49cba8a189e81179e9175b4064e1187224e16b2ed70"
   },
   {
     "cardId": "ccc6d1db-d6c9-4196-a465-ac31f8551ecf",
@@ -3201,7 +3201,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Benny Santiago",
     "number": "693",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752167791716x631156863361372200/crop_image",
-    "sha256": "aa2d66f8ddf505c1a0403f119ed7127dd09897cbb0377318771b499d93c950c8"
+    "sha256": "e7ab58af8387b58b8609b619d66fcaffaeaf696501137bfbbf8badb239f24178"
   },
   {
     "cardId": "cd00618a-96fa-4619-a04b-dffe7647ffee",
@@ -3215,7 +3215,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Dave Meads",
     "number": "199",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1737578092224x640110653076491800/crop_image",
-    "sha256": "96b16b64752bd701d75498f2f9f224cf3bb05d3b040e4de3d8a6f320be6941ab"
+    "sha256": "88a11036783b875aad18abc8b4f3c48126ac0964038fc8d8bc9e7d402c791ddb"
   },
   {
     "cardId": "ce0180a7-3511-4a55-8f61-45ac1e4dc3e6",
@@ -3264,7 +3264,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Will Clark",
     "number": "350",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1725389594669x813928184547572700/crop_image",
-    "sha256": "aefe56a7b7792019f071ba6951befe73fb0c2fb88f53dc80ed96bdfd87387d6a"
+    "sha256": "39215e093c8523e42d07c675029ba4512f66abb79703628c09851faa9480015d"
   },
   {
     "cardId": "d049c512-232c-45a7-aecd-1e7269b0ff7a",
@@ -3397,7 +3397,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Cal Ripken Jr.",
     "number": "650",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1737674044106x292022720577779900/crop_image",
-    "sha256": "89d815793e793a9c736b0552b024f3748da2da26bfc902554e82fa9a907630ec"
+    "sha256": "925abbe118772ca050a68400579ae63b9c0e082dd138372470301786ca12a435"
   },
   {
     "cardId": "d74dd8b8-297e-4053-8d42-d4aebbbb4c15",
@@ -3488,7 +3488,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Charlie Leibrandt",
     "number": "569",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752281242775x520598935814412100/crop_image",
-    "sha256": "e8c8bcf1cf2bdea90544f67aa341c1694073644e0a6ddc711cd98b86417479bd"
+    "sha256": "c8c5c43e377f05b7d9aae5d9ecd590b2acc31bf27d7ef1f04bf88845c49156a2"
   },
   {
     "cardId": "dc640cb9-4b00-4853-93ca-61e6ec90f0e1",
@@ -3551,7 +3551,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Dave Concepcion",
     "number": "422",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1747532707089x673102321901892700/crop_image",
-    "sha256": "160726dd1f5cbe26eef7743d24cc54a69aa6843b0a5f22b25c507880c05a8694"
+    "sha256": "c434595a45c936746e6c03b56743f5e485e0fd6b411d9e31db8d519879d29e8f"
   },
   {
     "cardId": "e065bc47-d234-4537-90c3-510de06b8599",
@@ -3635,7 +3635,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Jose DeLeon",
     "number": "634",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752281537774x136424062747921860/crop_image",
-    "sha256": "6914a927c8d4a2fd0453e637aaa76791332697c715f2a0ad54ba7135344fe33e"
+    "sha256": "198b20beda97d9576f50f33aa276f935f3023b642aa697559b6bc9246b8e581a"
   },
   {
     "cardId": "e7b6692d-c403-4868-9dc8-b589039aa213",
@@ -3824,7 +3824,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Mike Birkbeck",
     "number": "692",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1752281895775x937561176033635700/crop_image",
-    "sha256": "954927bea012aad9bbe9887a549e9ce37bbac57309755d0b5dbb8f5ce62c4250"
+    "sha256": "8248312bc31a455d1d44c74c4b3881569420dff14b0ccdbcc992d556ebc852de"
   },
   {
     "cardId": "f4cd9517-012c-4002-9691-e1caac2a1909",
@@ -3852,7 +3852,7 @@ export const TOPPS_1988_REVIEWED_SOURCES: readonly ReviewedToppsSource[] = [
     "player": "Phil Garner",
     "number": "174",
     "imageUrl": "https://942284f33c575895b4be9de571ca6e40.cdn.bubble.io/d112/f1749761357695x524890344710309950/crop_image",
-    "sha256": "7e8247f61545e0b3139e70b5137cfc62d736777ccc35fb230b01f9b5fc9c39cc"
+    "sha256": "79a029ea694ce176e4d82fc4ad1816ae43bde59cb5f1e940dd3723521217e065"
   },
   {
     "cardId": "f6c9a996-f71a-4418-bdbf-11ef1afc72f6",

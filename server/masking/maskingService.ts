@@ -163,6 +163,8 @@ async function ensureDirectory(): Promise<void> {
   }
 }
 
+import { applyMaskSourceOverride } from "./maskSourceOverrides";
+
 export async function downloadMaskSource(url: string, cardId: string): Promise<Buffer | null> {
   const started = Date.now();
   try {
@@ -180,7 +182,7 @@ export async function downloadMaskSource(url: string, cardId: string): Promise<B
       }
 
       const arrayBuffer = await response.arrayBuffer();
-      return Buffer.from(arrayBuffer);
+      return applyMaskSourceOverride(cardId, Buffer.from(arrayBuffer));
     }, bakeTimings.fetchMs);
   } catch (error) {
     if (isSourceFetchTimeout(error)) {

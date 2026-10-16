@@ -1,0 +1,2356 @@
+{
+ "005012bc-5673-4443-a05a-e069b754e096": {
+  "inputSha256": "2f2956f79ed184c9c08c4a20a422af0202012e749a83bbc874cf4ba55779519c",
+  "number": "236",
+  "player": "Frank Eufemia",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "009d8ae1-906c-47f5-8bb0-895ed95c6ea2": {
+  "inputSha256": "176784eccea3550ce9aa4a86343964e7b701b5b0bd1b823c42b9d340cb9bd6c8",
+  "number": "452",
+  "player": "Bob Clark",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "02733163-0f24-48a1-a3c8-d3eaac7b9af8": {
+  "extract": {
+   "height": 1046,
+   "left": 22,
+   "top": 18,
+   "width": 752
+  },
+  "inputSha256": "134c347af89183a389671cabe5edbe2d4cba6863072cd2a94c0e209c7d03b19f",
+  "number": "430",
+  "player": "Glenn Davis",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "0370490d-a2e8-4760-b947-39737993cf0b": {
+  "inputSha256": "a68ee644ebb878d4808b74f4adab9c4d0d0c447953073497ae8b0409455e4104",
+  "number": "371",
+  "player": "Bill Stein",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "0400cbcd-dd41-455b-b661-944744783491": {
+  "inputSha256": "898fd4f3de2dadeedfa85ec0577cd49122ecdd6025d64ef893c16dbbb1b4ae3d",
+  "number": "345",
+  "player": "Donnie Moore",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "04a0305f-b253-427d-9f44-b59b970281b5": {
+  "extract": {
+   "height": 1048,
+   "left": 19,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "d3cab6d862b83c0a5026362a0a5199cc904bd3ced998318de107e3217bb35ff8",
+  "number": "679",
+  "player": "Darrell Miller",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "05e48d35-1071-4a6b-b36f-4f9ced626974": {
+  "inputSha256": "69c69723ce20d2bbe6c7e3b8a4f507a029d3026c735b573f4e2eaf2c7a9e68e9",
+  "number": "451",
+  "player": "Mark Brown",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "067cc6e9-5f3c-46b3-be79-622328972340": {
+  "inputSha256": "2cfb7a173343db1d5f9a2058f767a3b0a8f8db9b35c29349146993fd018b9ade",
+  "number": "308",
+  "player": "Ray Fontenot",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "0b36a399-5d23-4ed4-b194-aa58fd25cf89": {
+  "extract": {
+   "height": 1005,
+   "left": 19,
+   "top": 21,
+   "width": 756
+  },
+  "inputSha256": "a149fac14f7998a21087281b531a6ebff992147017bc39cde64b895fd90bdc0f",
+  "number": "525",
+  "player": "Marvell Wynne",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "0b826df2-d37d-4fd6-903b-7cbe4c018431": {
+  "inputSha256": "265a94f1960612607c46d6953c12cfd0d8527aaa9461732eaf1d72a9debb5bc6",
+  "number": "277",
+  "player": "Jaime Cocanower",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "0c7d1587-c954-463c-aaa9-f43be05470fc": {
+  "inputSha256": "8953132aa76d440b3940d2fdf649d30769359f61a500a860adfd3220686a376f",
+  "number": "407",
+  "player": "Sal Butera",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "0cda83b7-7edd-45b5-8a84-aa05739dfead": {
+  "inputSha256": "ece40c0cbf18081542419e8b7d16eb1183e05393bbc7b3709b5e16948b604e1c",
+  "number": "617",
+  "player": "Lonnie Smith",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "115d5258-08f3-46cd-a91b-5dc5619baf9c": {
+  "inputSha256": "ae5380c954a8d91838e192dd600f62f7600b00d4a60527ab57070e8017185094",
+  "number": "309",
+  "player": "John Shelby",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1260aac9-8dc9-4449-9dcf-31995e3bcc7b": {
+  "inputSha256": "d64fe2d253af890ad03b8152f984cd817c0c222e66274b0564688f5ac82c49cd",
+  "number": "424",
+  "player": "Rick Miller",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "12ca094d-50aa-419b-b14c-1ff51ea80615": {
+  "extract": {
+   "height": 1034,
+   "left": 0,
+   "top": 0,
+   "width": 740
+  },
+  "inputSha256": "dde593ea29f8c0f60d841030980778f446ade35f15ab865233ae036febe876c2",
+  "number": "755",
+  "player": "Harold Baines",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "133b91eb-b2a2-4061-a4ba-055ef5dd620c": {
+  "inputSha256": "d24153f41bde1ba3580d0b93dc0531d46e6d0c8c60342d8d9e89ed2ff0e7cd9b",
+  "number": "553",
+  "player": "Jim Morrison",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1423ab19-3680-456a-b624-0e43274dd981": {
+  "inputSha256": "8637d7878a598c31907d9dd73f4fd8845c698dca7623b993021d658fa4a480d8",
+  "number": "454",
+  "player": "Burt Hooton",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1649e141-5e2a-42ca-902e-db74d4842140": {
+  "inputSha256": "c281a74b6eea5b0b37c6f3a1eb15b2fc7e1116d2d8dcdcad2f032137d8eeef75",
+  "number": "157",
+  "player": "Ron Hassey",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "185f669e-f4f6-495c-a131-264948ae2807": {
+  "extract": {
+   "height": 1052,
+   "left": 21,
+   "top": 18,
+   "width": 748
+  },
+  "inputSha256": "4c0be138b5aead0d4f972f557b78dce718dd2b6cbdbd47d91542204c30b8b4f8",
+  "number": "790",
+  "player": "Dave Righetti",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "19c24aec-3836-48a5-8794-9310ec8cccc5": {
+  "extract": {
+   "height": 1046,
+   "left": 20,
+   "top": 20,
+   "width": 749
+  },
+  "inputSha256": "87f4d7093a36aa1bb2d141b78b3ad770ea7e8253c484d2bc263983c2ce25ca1d",
+  "number": "432",
+  "player": "Mike Moore",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "1a03d9e3-28e5-43b6-adae-8321aa2ff482": {
+  "extract": {
+   "height": 1045,
+   "left": 19,
+   "top": 19,
+   "width": 748
+  },
+  "inputSha256": "0a7156cf64d484da0811b5c8040a561f95b187aee27d085e899581e95ed2f8d3",
+  "number": "694",
+  "player": "Eric Nolte",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "1ca6fe85-23a9-46bd-8a01-f1464798212e": {
+  "extract": {
+   "height": 1055,
+   "left": 18,
+   "top": 17,
+   "width": 751
+  },
+  "inputSha256": "e4056784c697439b6a744882f9fb386660a3de608489445f7040c0c35dc807c1",
+  "number": "292",
+  "player": "Carney Lansford",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "1cf53402-61f8-4fac-9aae-4fb7b9cf112e": {
+  "inputSha256": "52bb422e63e0e200e10d3cf5cf284050f0e6cdbf283dcdefb6ac1a4179dd2fb5",
+  "number": "499",
+  "player": "Bob Gibson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1d2dad66-dc2a-421d-8e19-1d710b1cb5d1": {
+  "inputSha256": "3571830750d5b58736eda3cd73df7a0e579b1a145cf551d96bb4470f9e4d0ed2",
+  "number": "181",
+  "player": "Al Nipper",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1d861391-b230-4935-a739-0e72e003de55": {
+  "inputSha256": "1f8a1dd9e730e33ee5d0d43dd403eda3cfe2b3abb00dccfd7e050fad6444b0da",
+  "number": "609",
+  "player": "Barbaro Garbey",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1f4175ce-08c7-4476-becb-d4e9f0a30557": {
+  "inputSha256": "55da468cc5493a0d0bcbe4f7e795c7e008774168cf05a1d1b2f0b33888501990",
+  "number": "729",
+  "player": "Jim Beattie",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1f7f9fa4-f9b7-407e-9825-60800fed5c7c": {
+  "extract": {
+   "height": 1045,
+   "left": 20,
+   "top": 18,
+   "width": 747
+  },
+  "inputSha256": "5db90c6964da84955b0d750d111d51c36fbd5614054f9090dabeeb1b68b2e155",
+  "number": "264",
+  "player": "Les Straker",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "1fc4b7a9-1e46-4033-ab9d-964a137e5ab2": {
+  "inputSha256": "3f5d9fdf9e295cab42c8b22468dfa372ed317e5e9cf9cd376da87b0b380c6377",
+  "number": "40",
+  "player": "Ken Griffey Sr.",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "1fdb9986-7519-4431-9158-f0cceac6b5b3": {
+  "inputSha256": "63c8341543756be1870902d109a1b2beed16bdf6b2c5e5d9e2ac59a40c928414",
+  "number": "165",
+  "player": "Mike Davis",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "23369334-522a-480b-b74d-256337ba8353": {
+  "inputSha256": "702f5b9e27cfa3dc879bb26a917c95fb4d88a387b6764a846029ca46f52a07e0",
+  "number": "217",
+  "player": "Bill Scherrer",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "249c8535-5c6f-4699-bed8-5aa5b342a90f": {
+  "extract": {
+   "height": 1026,
+   "left": 10,
+   "top": 0,
+   "width": 761
+  },
+  "inputSha256": "e628f844cf5f36b8ee08a06e819f5e2ee173aa0dc32fc6c31d321a6856b1e7ac",
+  "number": "780",
+  "player": "Robin Yount",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "24b27ed3-9716-42b3-8b72-b635c4c537bf": {
+  "inputSha256": "36ec463cf1329ec49b2b61e7636c9bbce7b633d1364a111f3e231852337c5667",
+  "number": "427",
+  "player": "Joe Cowley",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "24e8b943-e4c6-4eb1-86d6-af4ff1b9dec9": {
+  "inputSha256": "553d0adab667704640108ee8d35cfc85a094ac21ed07e7b441509325db5c6e41",
+  "number": "604",
+  "player": "Gary Pettis",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "2579d8b5-f5af-4d00-bac1-ee965fb1814f": {
+  "inputSha256": "0aa1f78f6e95ea1f8a688565b2e679e0edda1c8ea1037489ab11152dd7a12298",
+  "number": "551",
+  "player": "Dave LaPoint",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "266d32ed-7c28-4ad6-bdb6-db78500b7f6a": {
+  "inputSha256": "0795ffc8a409f4b79185cf6cc9381baf99337533d979b1e08f0a1ab40f99465d",
+  "number": "508",
+  "player": "Alan Wiggins",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "26976bd7-fd43-435b-ac28-7d7232a4f9d8": {
+  "inputSha256": "10dd2a7329ba73774c2fb293d0a7ccfde1cf9e748ec823831fde7ce8c111d177",
+  "number": "16",
+  "player": "Rick Schu",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "2c882376-d741-4fbb-ad65-a30e65db4d40": {
+  "extract": {
+   "height": 969,
+   "left": 33,
+   "top": 11,
+   "width": 688
+  },
+  "inputSha256": "52f9be9e4c8c2f3664af6f36402a382dd738a5f5e918500606094e31eff4611a",
+  "number": "53",
+  "player": "Lenny Dykstra",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "2d1e873b-fced-4794-866f-895ff8bb4125": {
+  "extract": {
+   "height": 495,
+   "left": 0,
+   "top": 0,
+   "width": 361
+  },
+  "inputSha256": "2543631e2d3cbc7d1a00477a5d3652164ce7882467b152e6f272225954fa1b5a",
+  "number": "584",
+  "player": "Brian Fisher",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "2d3ce77f-d4c4-4bf3-a8e0-f900f2ed6580": {
+  "inputSha256": "2f93b0b134df45388f8137b1cad5d3b8ee983565bf22e7bec13844a807430924",
+  "number": "624",
+  "player": "Steve McCatty",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "2db6d654-4b81-403a-b7bc-1bf700abf820": {
+  "inputSha256": "2548e647dfb6ab92662295a946d4234db6c7e84c524b244448a97e2cffe95b49",
+  "number": "419",
+  "player": "Frank Wills",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "2e1c435c-792c-4c32-b147-f47954a16dbd": {
+  "inputSha256": "00a783d3a71b2931632a198b5edee21b35e1140b3dc1df9139cdf6af8d801126",
+  "number": "363",
+  "player": "Terry Forster",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "30b7fdd6-ae7f-43b5-9f31-deb003172355": {
+  "inputSha256": "a912ba5b22dc113b4a019b4c24fbf625abd210f18fde535a3728ff80f777a29d",
+  "number": "393",
+  "player": "Chris Pittaro",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "31ea8b51-2a71-4dad-a3c5-553bc918c670": {
+  "extract": {
+   "height": 1046,
+   "left": 19,
+   "top": 21,
+   "width": 752
+  },
+  "inputSha256": "218342a27c84dc158bf3548006d2efa50269d58d3a123776cb08df907218ee63",
+  "number": "172",
+  "player": "Lloyd McClendon",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "32d9b0a0-5e00-4d32-9352-c42f5770336b": {
+  "extract": {
+   "height": 976,
+   "left": 31,
+   "top": 0,
+   "width": 680
+  },
+  "inputSha256": "d8af223b3d692458427db2d616a882ae724d45b3ce1650536e8527e87f32e1ae",
+  "number": "447",
+  "player": "Jerry Don Gleaton",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "349e05e9-b76f-4241-9677-6174c231ac18": {
+  "inputSha256": "38c93ce927f4cb0519aaa2e52e17ffbfcf4deb168cbc71aa0525e073ff77afb0",
+  "number": "284",
+  "player": "Brian Dayett",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "35340a36-c6c8-4594-8620-471381a33a7f": {
+  "extract": {
+   "height": 1035,
+   "left": 0,
+   "top": 0,
+   "width": 744
+  },
+  "inputSha256": "b57350981e16a7133a50fd1b5a969ba828d813a1b943f09c56671c03c44d439c",
+  "number": "414",
+  "player": "Tom Gorman",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "36d0d716-de9f-467f-8056-5a391b15eb68": {
+  "extract": {
+   "height": 1028,
+   "left": 0,
+   "top": 0,
+   "width": 744
+  },
+  "inputSha256": "59a64cb68aa69016862fdd1a5a0e5d07e4d23f2a697a80c7279fd67cc78b9502",
+  "number": "333",
+  "player": "Tom Henke",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "3798a764-63d6-4530-afa3-c7164fe72229": {
+  "extract": {
+   "height": 1050,
+   "left": 20,
+   "top": 20,
+   "width": 753
+  },
+  "inputSha256": "af20826f9de65858bf4c3ae7858454a4d86f1901a52d79b827ce1d8e8caa4a6f",
+  "number": "619",
+  "player": "Mike Dunne",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "37e3926c-3b21-429a-9c30-327d909d8884": {
+  "inputSha256": "3a2d495728c7e09894ab1d1e60e83c737095184e0458451670ae8a7ef853d48f",
+  "number": "668",
+  "player": "Cecilio Guante",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "37f47a50-83fc-44ef-9968-28172bd27c46": {
+  "inputSha256": "35c7fa1c3f0927a3ac16946eaeeda36a4278606dfd5a0b980464e32adc66fe2f",
+  "number": "321",
+  "player": "Earl Weaver",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "38aaa2a7-8c9a-4ef1-a75f-7cb184e07cb6": {
+  "extract": {
+   "height": 1128,
+   "left": 8,
+   "top": 0,
+   "width": 852
+  },
+  "inputSha256": "82e6394f4d78dfe7223a706c6d5ffa42d6936b4535cdb02507475fa5b6c61962",
+  "number": "257",
+  "player": "Doug DeCinces",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "3d7a6ec5-8848-4e03-a35f-011ddec8426e": {
+  "inputSha256": "79b2f0391141cde0db4b08b67ffb32ad891d842dc49fd22c591cce66776a4012",
+  "number": "74",
+  "player": "Rance Mulliniks",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "3f89b4d9-2e82-49a5-86d0-71a1ac143fee": {
+  "inputSha256": "2bb6886676017214154b7108b22adb3676e625f9bb8395786e16932ffba7d4b8",
+  "number": "474",
+  "player": "John Tudor",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "4010c3f9-2d62-4961-ae36-7d0ec9d40e0d": {
+  "extract": {
+   "height": 1058,
+   "left": 18,
+   "top": 6,
+   "width": 759
+  },
+  "inputSha256": "f095bfa6b4afe72d3b6cb9059ca569a5ac1c4962b0db62c5d79d08d8e32a808c",
+  "number": "377",
+  "player": "Joe Carter",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "40759437-66c2-4cb0-aab9-622d2ecfafec": {
+  "inputSha256": "3fe1af8b804686dd4dd1b0f6e2727c21a1fecaa1d6d12132a9cfa365f60da6f4",
+  "number": "656",
+  "player": "Brian Harper",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "418d6130-9cde-4f62-ac17-8d498e9c81e7": {
+  "inputSha256": "7e465f3e7371e5e4c178a293b3ec93465f3fa4ceaf7b4ae0184db46368442789",
+  "number": "559",
+  "player": "Tommy Dunbar",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "44138c0d-87ab-4646-90b9-ad35df8eb4d9": {
+  "extract": {
+   "height": 1045,
+   "left": 21,
+   "top": 18,
+   "width": 749
+  },
+  "inputSha256": "06e5a4b3be7a0e1ec29b44fa223ebe1598f0b7291b215e1159d93074ae379fcc",
+  "number": "421",
+  "player": "Ed Vandeberg",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "446d0512-4d60-4acb-8b6b-637d98bf3a4c": {
+  "inputSha256": "a0a9e8961f4040d018a4c2c069ece0ab0b90cc6be2d566d5f461356c5b792506",
+  "number": "579",
+  "player": "Jim Slaton",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "44c7f023-7a59-4a08-8786-308a24b3642c": {
+  "inputSha256": "059f879d972b3001c3895d3f623216d5346617bffa91278b290988155027dd9b",
+  "number": "37",
+  "player": "Mark Thurmond",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "452c6456-40ad-4cc7-b55c-a0f1b7d29ecb": {
+  "inputSha256": "79d10034517d171e8d272d7868d41f9801baea28dbfb689d057c1036a4dd6614",
+  "number": "436",
+  "player": "Doug Flynn",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "48fc46e4-855a-4a40-9728-99e9a46dacac": {
+  "inputSha256": "1c259364706491cfc9d69be689156554709161582459a60eb7949b1a3937a7c6",
+  "number": "313",
+  "player": "Joe DeSa",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "496cbe9b-6ed5-4c58-8662-aa1eea2b4c3a": {
+  "extract": {
+   "height": 1044,
+   "left": 20,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "1fdd10770d7e3efd6a0ef6ba7211e3691d939e67dfe42a3046b2a7f5c7839f6b",
+  "number": "168",
+  "player": "Barry Jones",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "4a3a3f8e-8fbf-4379-acb4-830d6fb2d212": {
+  "inputSha256": "45425fb29a3208f8cf51cf40283a82b3f910ff3aba4e5d28607e253be47e42b4",
+  "number": "675",
+  "player": "Claudell Washington",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "4d65366c-ae31-447d-97c8-e9b93b56b4af": {
+  "inputSha256": "c5397d423da7cf0a8d44e74773a3d71a4dcee58466516adaaccae92ace8f9e7b",
+  "number": "364",
+  "player": "Reid Nichols",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "4f337315-c664-4fd5-8161-5a314ca80c41": {
+  "inputSha256": "b3cbd84e117ac8fa05fada271d21c586ef2f9cdb1a214fe655be84a909c4b351",
+  "number": "665",
+  "player": "Alejandro Pena",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "50ca77ca-dde9-4df9-8415-2176b9812bb2": {
+  "inputSha256": "18787fbc74edb3f2c07f5176ad96041e056dde5f42e6c8bd76d5d08d1500664c",
+  "number": "13",
+  "player": "Bob Kearney",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "5482de31-6f80-41a8-8b65-c57ea4d3a2a0": {
+  "inputSha256": "2e0bb61ec963d54c81a45978f2fd7e87ac1c5dc34471f723277388f4938fc319",
+  "number": "358",
+  "player": "Rick Dempsey",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "54bc619c-2589-4028-8e45-ade2b9899eb9": {
+  "inputSha256": "1d02d30b4c736d09529a2e38a3383a732b7d41e8550f33d5f0b75c957868236b",
+  "number": "369",
+  "player": "Al Holland",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "55b8efb5-92f1-4b7f-baf7-bdd803f01a1e": {
+  "inputSha256": "8aa7531e8b7fdc27dfda60579d193eedd2d71b2207b26ef30d4120ee70f56e5f",
+  "number": "14",
+  "player": "Julio Cruz",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "561b9ec2-f28e-4ca1-86ba-a3b6c7ac396b": {
+  "inputSha256": "7950cca9d98a8f9b517361eb5b03391a0f4e10ed0f0293580411011f855b924f",
+  "number": "187",
+  "player": "Scott Fletcher",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "5669d2c9-4eac-4ea2-8e28-e7fee0f948fd": {
+  "extract": {
+   "height": 1049,
+   "left": 20,
+   "top": 20,
+   "width": 751
+  },
+  "inputSha256": "79589a05ee31002781b132e4a1cec98277d869eadf89efa72f6585856942da0c",
+  "number": "8",
+  "player": "Kevin Elster",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "59ae7bf9-e08c-42e1-848f-5459e4f44a01": {
+  "inputSha256": "5dd059ac316e1a90e7607d1c29ab5eed1ba43d3d61470f37eb667186aba9eb0d",
+  "number": "514",
+  "player": "Mike Jones",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "59be0a26-1b98-4d2c-8914-ee5c863eb0f4": {
+  "inputSha256": "7bd01ca6fac956dadf93258786bd4b5f9103b6472adb0863d5d21fb725f50c6e",
+  "number": "458",
+  "player": "Kevin Bass",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "5b24e1e8-05e7-449e-aa54-460aa17e1a2d": {
+  "extract": {
+   "height": 1057,
+   "left": 16,
+   "top": 17,
+   "width": 748
+  },
+  "inputSha256": "3ea6a4e3b99967a6958ad99cde7ac164264267dd7e18f204a2487a0327d97b38",
+  "number": "82",
+  "player": "Darrel Akerfelds",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "5ccdbc52-bf7b-408d-ba66-bddf51796fb8": {
+  "extract": {
+   "height": 1046,
+   "left": 21,
+   "top": 21,
+   "width": 746
+  },
+  "inputSha256": "371c408cc3ec7617afb84d87d2f2e484fabf2dcaffc2ea71d6c630e5d1f5bb21",
+  "number": "520",
+  "player": "Dave Smith",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "5cf2e396-4536-4d78-acab-c48f63d30dc1": {
+  "inputSha256": "9f1f620877ed589ea220831d9438b20ef898bd85577c31f8cfbee0c3ae66c794",
+  "number": "694",
+  "player": "Garth Iorg",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "5e12fea0-3031-486c-8028-58fb6d3b9800": {
+  "inputSha256": "822211185e814340248c3a835d110781de31f5fc3de3a9c8cc0b50cfb9e305ca",
+  "number": "536",
+  "player": "Jose Rijo",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "5f75cab2-adb8-4a47-b47b-e47e3eed1957": {
+  "extract": {
+   "height": 1051,
+   "left": 30,
+   "top": 19,
+   "width": 751
+  },
+  "inputSha256": "a719b34583ddd244fbceb79cf4b457c4501df31bd8db233d3bc67e0d0469875f",
+  "number": "716",
+  "player": "Lenn Sakata",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "5f99c965-36f2-4373-a5d9-38fc43a0bdd4": {
+  "extract": {
+   "height": 1054,
+   "left": 20,
+   "top": 19,
+   "width": 750
+  },
+  "inputSha256": "490655a67d0203d468a940fde1e06da84704f9d205e0fed568cbb25f104d92fd",
+  "number": "281",
+  "player": "Jerry Hairston",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "60400f52-32da-4190-b939-52f140a10a8b": {
+  "extract": {
+   "height": 1122,
+   "left": 34,
+   "top": 34,
+   "width": 796
+  },
+  "inputSha256": "1fe46dbe36c4c4f355d48b5dd78f6cd9afed62bcafb76023317120e2dd9dd11f",
+  "number": "140",
+  "player": "Jesse Barfield",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "626d0c7d-5ae2-45c1-87f0-4e44ddead8e4": {
+  "extract": {
+   "height": 1045,
+   "left": 20,
+   "top": 18,
+   "width": 752
+  },
+  "inputSha256": "98ac130bea4313d79d8fd3cdecd701d0c61f2037fcbdda034babd4decf591389",
+  "number": "33",
+  "player": "Rob Deer",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "64e2978b-10fe-442b-8dc8-674c1c1bd2fc": {
+  "inputSha256": "18179b9e8860548db3c0c5f38f36c29125d2412205634b18ebe6db638c2fdefc",
+  "number": "555",
+  "player": "Hubie Brooks",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "69eef686-1ada-47bd-827b-3f5b7a6ce68d": {
+  "inputSha256": "e36ca229deaee0ab93afed2044793166e747840a6ecf98fe98020571ca427485",
+  "number": "773",
+  "player": "Greg Pryor",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "6d2fc394-6588-495b-8470-d5fcb39dd35c": {
+  "inputSha256": "e2c8ef32baa17ee9811cee1fd0be32a7047cf30da8331657bac13566cb0cb3c7",
+  "number": "691",
+  "player": "Mike Madden",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "709bb1ef-b6cb-4e52-a35a-629c672c5f0b": {
+  "extract": {
+   "height": 1046,
+   "left": 20,
+   "top": 21,
+   "width": 748
+  },
+  "inputSha256": "581f2c68dc617f05abce7bb8084d98a0d1ea9cf0bd6d354b4344fb34b157c6f9",
+  "number": "764",
+  "player": "Greg Walker",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "70cc7a29-b80b-4d52-9d29-463e651bb13e": {
+  "inputSha256": "906317d2f4d850c67ca4dc64bf4575ca1b05b925713778c8f15fa51aadb8b16c",
+  "number": "591",
+  "player": "Jackie Moore",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "70d94da7-9a35-49db-a2a4-613935676414": {
+  "inputSha256": "26e6dc49c4fbd180aea04231179b167e35c945b37d5694dbdd47a9d5c3911fc3",
+  "number": "761",
+  "player": "Don Slaught",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "7564843c-7185-461c-be92-ec201da75913": {
+  "extract": {
+   "height": 1046,
+   "left": 20,
+   "top": 20,
+   "width": 750
+  },
+  "inputSha256": "008ff28cc76c6d7e5fc0cd86556bb59115f09a0c13ef48accdd620365dbb0aca",
+  "number": "455",
+  "player": "Shawn Hillegas",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "7662081e-14d0-4bda-bdf9-7df06dc919dc": {
+  "inputSha256": "73a6c1ab3ce1b0111fa00689b0d2674024e4711edb1622d2d62eb768cb5e971b",
+  "number": "781",
+  "player": "Joe Nolan",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "76f1757f-53a0-4509-a1d4-a65e1ad2adea": {
+  "extract": {
+   "height": 1051,
+   "left": 20,
+   "top": 21,
+   "width": 753
+  },
+  "inputSha256": "a0b9ba21236088eef9d6764798a3a555ad23ad01119f0f859943b6a71ba23761",
+  "number": "607",
+  "player": "Ken Dayley",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "793dabe2-d6bc-4415-9c9a-c5fe3e67761c": {
+  "inputSha256": "e33330f876742ab14bf44c0cb22a35efc0eac1fd852295fe74474b84fd879d8a",
+  "number": "635",
+  "player": "Jason Thompson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "7959314e-5331-45e0-8381-026e1075bbf3": {
+  "inputSha256": "3bf7d975af42c687c5c0f1c1e21af4d53b7fdc1268ddbbdce97f78511271ed73",
+  "number": "151",
+  "player": "Dave Stapleton",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "798e8b02-16ef-4943-8e20-b949c01cbb77": {
+  "inputSha256": "7eab96c961ed5261bfba0515a067b96cc5b6c12f4112786d36f60c7d417b7c1a",
+  "number": "359",
+  "player": "Mike LaCoss",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "79e47952-4c0c-43a1-9337-c6abe5d978ba": {
+  "inputSha256": "33d651bf9cd01c5661586ce2c9c017f1e47e42b22e018c64b1cd762f2b54a032",
+  "number": "539",
+  "player": "Glenn Hubbard",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "7ab6fdb4-3a58-493c-903c-f1c4cca81506": {
+  "inputSha256": "a03e634e18f568647242949630257e5376df5476507a14920b5797b9eddafb75",
+  "number": "541",
+  "player": "Jorge Orta",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "7d5811c0-3b47-44c5-98bf-745bc0352018": {
+  "extract": {
+   "height": 1051,
+   "left": 23,
+   "top": 20,
+   "width": 752
+  },
+  "inputSha256": "4de6f06314e7bd95a69039a475937f4e81c922bb3fb799bc530a398b43cbf3d0",
+  "number": "385",
+  "player": "Carlton Fisk",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "7e922ddb-10a2-4b15-81f9-9b3528264d7a": {
+  "inputSha256": "a1e815eec59d8fae5c34daa87039809e0e8f7a61eaee6b728ded2ee7676e8b24",
+  "number": "428",
+  "player": "Max Venable",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "8195eb46-bdf0-4115-b4de-540a72a2d04c": {
+  "inputSha256": "d68c4f5d90e56f30bb3b6c444f1cd79cf5a9add50fd3202a131767fb0745d14f",
+  "number": "537",
+  "player": "Mark Salas",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "828ce509-dc12-43db-aba2-f2ba797bcd6e": {
+  "extract": {
+   "height": 1051,
+   "left": 20,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "19e7938861db9dc31d751233a6e056d9ad0a51f9d2e4df0f550920b3f4b7b453",
+  "number": "369",
+  "player": "Greg Harris",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "8324b7d3-01a0-4d7d-8b59-a1eacddbef1f": {
+  "inputSha256": "f9ba1d94f4db8d5e9e21c5e872a9bcdadf1a2eef5ed1542f162aab93b3565e7e",
+  "number": "662",
+  "player": "Bill Schroeder",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "855c2ca6-64fb-4ffd-a62b-edc6a4f70e98": {
+  "extract": {
+   "height": 924,
+   "left": 31,
+   "top": 0,
+   "width": 678
+  },
+  "inputSha256": "651741f4c01bfc82c05421af37fe0e78b57f83dd31219308e18c14a507d4df88",
+  "number": "70",
+  "player": "Dave Winfield",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "861f6154-4d18-4a63-9673-0f8881132fec": {
+  "inputSha256": "c34cfc425eb491cd3a46990ea165f1aeef68d47b90d6a8ee84a7dad24a1314d9",
+  "number": "193",
+  "player": "Daryl Sconiers",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "868ee4f7-3794-4026-b5d6-c561ec057582": {
+  "inputSha256": "a8fd6f32f3de77f0e675b46c14464a28dc615d2a3423be99d2c42ea4b5fb317c",
+  "number": "507",
+  "player": "Steve Ontiveros",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "886e519f-054d-4df0-9587-83b8e023c86c": {
+  "extract": {
+   "height": 1045,
+   "left": 20,
+   "top": 20,
+   "width": 751
+  },
+  "inputSha256": "762c8b33749824ec95990689d8eceb68bcdb1d560d170a09f2969ceaf4b80ff6",
+  "number": "506",
+  "player": "John Cangelosi",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "88a0c3b1-6c5c-43ce-bdb1-e4f96a49cbce": {
+  "extract": {
+   "height": 1106,
+   "left": 32,
+   "top": 0,
+   "width": 783
+  },
+  "inputSha256": "3d1a615ced7c513c28582772982fa9d45d26f61db919648a1d38c574d23fa051",
+  "number": "35",
+  "player": "Jeff Reardon",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "8a1612fc-aedd-4e93-b39a-87541af356e1": {
+  "inputSha256": "68a8db09b559b41a33c1626961672f252589b6aa4a173725051f5a84aefd47f9",
+  "number": "495",
+  "player": "Mark Langston",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "8aa079c4-dac0-4249-8130-3e1ddace516c": {
+  "inputSha256": "c5f204f5bf6cc8fcf23cc877997f7fccd4cfb8944eab6a08f7c7cc55d27ac45f",
+  "number": "759",
+  "player": "Moose Haas",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "8b2e6559-ceb4-4397-a2d5-7e85688f8acd": {
+  "extract": {
+   "height": 995,
+   "left": 20,
+   "top": 27,
+   "width": 756
+  },
+  "inputSha256": "00fb64d6e3671eb88b6c2175e926a7e61612aba3d3ed8aafffe3abf573475ebd",
+  "number": "545",
+  "player": "Jimmy Key",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "8d0fc5e2-41ea-4428-a662-e9a059350599": {
+  "extract": {
+   "height": 1054,
+   "left": 21,
+   "top": 64,
+   "width": 789
+  },
+  "inputSha256": "2878fc3941ea76932d5609595e0e6b49c770f3f0b1e5d0f455f28e913735a0ba",
+  "number": "495",
+  "player": "Eddie Murray",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "8eadc2e2-0efc-472d-b8f0-cd00b8bbcda2": {
+  "inputSha256": "38ba504b5c08069c022f3b2111cf519df22b303220229d227f5aa340a5d383db",
+  "number": "491",
+  "player": "Pascual Perez",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "9017d52c-0959-4ce5-8bf1-c1283e6436ae": {
+  "inputSha256": "fcb2016f896c30f2fc5a9d36a46ba612450d74d474baaa83d088cbc2f957ea29",
+  "number": "614",
+  "player": "Rick Waits",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "92d1b8e4-5c1a-46e9-afca-decfccd312c4": {
+  "extract": {
+   "height": 1047,
+   "left": 23,
+   "top": 18,
+   "width": 750
+  },
+  "inputSha256": "ac7009a343fee042329895abd22f99ece93f726c4895dc687ee4b5d66ef45dc4",
+  "number": "22",
+  "player": "Greg Swindell",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "9338ee9e-c8f0-4f05-a93e-84acac068615": {
+  "extract": {
+   "height": 1045,
+   "left": 18,
+   "top": 23,
+   "width": 748
+  },
+  "inputSha256": "47e4fbffd91a89c7a7925d6164127807f396bfb882596f9117b04e646d56fe64",
+  "number": "146",
+  "player": "Donell Nixon",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "93a3e9e6-3b14-41f0-a31f-9b3c3d192b85": {
+  "inputSha256": "7d704c4efcd8e7dcfd533476a08cc804b872ecb081e64ca8aaed985bd9c7d1a2",
+  "number": "328",
+  "player": "Pete O'Brien",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "93b8f9d9-61f9-41a8-89a0-8da76bafde34": {
+  "inputSha256": "57243661fd5d8a1a8df0f085f96cada72c2ae987b304dd6fd46c7f5bdb89a8d0",
+  "number": "779",
+  "player": "Rick Reuschel",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "976a594a-07bc-4d2b-8b51-04b8239591cf": {
+  "inputSha256": "3f4f7938e58c32c605b4113d675bde42185e706c8ad23cd7b8d2f2cf92ad3deb",
+  "number": "25",
+  "player": "Willie Wilson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "98313ede-8b34-431d-8b22-2797fe7f20a7": {
+  "inputSha256": "a2a290a0a0170d85c097ee6174effc965253ab57150ddf6fd64bdd700212a8c5",
+  "number": "747",
+  "player": "Rick Cerone",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "9cf9165e-ad8c-4b00-8da9-4794efa02e86": {
+  "inputSha256": "9bc0a94091b30f2ca4cc9f21021c338ab822a2ab0f691ebb0d7c592c292874ba",
+  "number": "776",
+  "player": "Gene Garber",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "9d561f34-227a-43f4-98da-88eee47cb3c3": {
+  "extract": {
+   "height": 1051,
+   "left": 20,
+   "top": 17,
+   "width": 751
+  },
+  "inputSha256": "371e83c36e196a8ae8e3ef8c6d009e139713c45ffd0fcd8d2e0bb400b4136acb",
+  "number": "488",
+  "player": "Andy McGaffigan",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "9e07aa67-90e1-421f-9544-5d2a9224ff6e": {
+  "inputSha256": "b86dd82054c80cb4214b7682ee0136204ab7e165d0d67de1b2bdad2f08542c20",
+  "number": "209",
+  "player": "Randy Ready",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "9e2a26f3-5b7d-4158-a06d-70d5b6a503a5": {
+  "extract": {
+   "height": 1047,
+   "left": 20,
+   "top": 18,
+   "width": 748
+  },
+  "inputSha256": "04198196e51e6a6d9f270aabf7d798399f4110d4bd0dedded64f4698a5d26142",
+  "number": "148",
+  "player": "Carmelo Martinez",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "9e8d8a33-8b36-48c6-a000-e1d8268c9ae9": {
+  "extract": {
+   "height": 929,
+   "left": 33,
+   "top": 0,
+   "width": 679
+  },
+  "inputSha256": "c31b537c41fd4270b68bb031ffea10736a7059fcf49748cc57fc98e944e1cded",
+  "number": "31",
+  "player": "Jamie Easterly",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "9f8a2281-042c-447e-b220-40ebc41d945f": {
+  "inputSha256": "ea0959dcb18b5cebf89842b87cf54df55e07f678cec0a97180a50a50946ca04f",
+  "number": "731",
+  "player": "Don Robinson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a0700f3a-efb2-4b0d-89ec-7b7dea8e6e62": {
+  "extract": {
+   "height": 1120,
+   "left": 36,
+   "top": 34,
+   "width": 798
+  },
+  "inputSha256": "fd487c17629c5b949324c405a0815c0abeb003c3734a34459e0fcdbc61ab13a1",
+  "number": "73",
+  "player": "Randy Bush",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "a29889f7-c769-4881-8198-f4506f6707bf": {
+  "extract": {
+   "height": 1047,
+   "left": 20,
+   "top": 20,
+   "width": 749
+  },
+  "inputSha256": "e05acc67cde6fee896494194ac6e8fdccb446251cd1dad61caed79ebad9128fe",
+  "number": "317",
+  "player": "Tom Nieto",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "a2d516ea-933c-4bc2-8208-d41aeba4e9c8": {
+  "inputSha256": "85ddac7c07a0f055aefb7768a65040f98dc6f969d448d6be25e116de37f3482a",
+  "number": "344",
+  "player": "Jim Wohlford",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a3f47029-5487-4cf2-ab4c-89cc3023959e": {
+  "inputSha256": "31766802414f299ef587ae8bfd7c126ab7e47799c63a4f9c53300867fe81cb71",
+  "number": "788",
+  "player": "Marty Castillo",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a46438a8-4d51-4e5c-9e66-610580f46fe5": {
+  "inputSha256": "28027830fca1ff484c6520ba1b551358fc48e6f161408a0a885bc23d3620f618",
+  "number": "437",
+  "player": "Rick Mahler",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a4651bd1-9ce5-4437-ba7f-64d91afce9b6": {
+  "inputSha256": "f9e5307c95f63af4666f9067b318eaf90c1bb24b82c869fbc95954ff389a2264",
+  "number": "301",
+  "player": "Dennis Rasmussen",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a53dcac0-a250-45e7-942e-24bf08c06f63": {
+  "inputSha256": "9944af77d19fe15df287549395da9c7fa491656b95cf73baf7f88dc5dad2d35a",
+  "number": "398",
+  "player": "Earnie Riles",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a5552e47-dab9-4b9b-b737-5f0a7fb94d00": {
+  "inputSha256": "270a1ad0ef61c6619b462a2a961f6873c438237c70bdfe3883c58e4a57ba29cd",
+  "number": "463",
+  "player": "Jim Gott",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a752a563-649e-4e77-b69c-f9d885901ea5": {
+  "inputSha256": "f96a89757bb4d882528d92cf2ca8ed5c39af487ea627d43ee9b12f8236393190",
+  "number": "281",
+  "player": "Steve Mura",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "a78a4ee0-21a4-4543-bb52-e62aeacc3b85": {
+  "extract": {
+   "height": 951,
+   "left": 43,
+   "top": 0,
+   "width": 676
+  },
+  "inputSha256": "c94e30b119701b6b18bcbe7d081ce4baee7b17cc9b78b7e8d0ad5e2b2d5d775e",
+  "number": "468",
+  "player": "Mike Scioscia",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "a7af8759-17f8-4b1a-8f97-e075fe0a9e05": {
+  "extract": {
+   "height": 1009,
+   "left": 20,
+   "top": 0,
+   "width": 763
+  },
+  "inputSha256": "e5a21680dd8b161383960e1af4ac864fc75ece6bad97dc29e57d1213b90cc921",
+  "number": "600",
+  "player": "Dale Murphy",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "a915447b-40bd-4d70-9f12-abcd328da95a": {
+  "inputSha256": "0ee79a2c576a9be31036e537fac32689ed957f01d1a0d38790066ca450d99ed8",
+  "number": "303",
+  "player": "Curt Wardle",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "ab7c98c1-d0e7-4964-88fe-8e9e4f9d336a": {
+  "extract": {
+   "height": 1059,
+   "left": 19,
+   "top": 16,
+   "width": 750
+  },
+  "inputSha256": "b50ca0ff6441dc740bce5f3da3a74e8c7f87f54930f3b772adfb8e6789beb293",
+  "number": "496",
+  "player": "Guy Hoffman",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "ac72168d-b0db-4473-b73d-1fe571cce6ea": {
+  "extract": {
+   "height": 927,
+   "left": 31,
+   "top": 26,
+   "width": 690
+  },
+  "inputSha256": "c50342de1a8791a60570339170974cda0fd113d28331f12c32dee116f7d76983",
+  "number": "30",
+  "player": "Eddie Murray",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "acc54ecb-7a13-42a9-8289-06837da5283e": {
+  "inputSha256": "a025a3771627e64df2d6bc846d72d71ebef083b15dcf825b1ea9154ec20c308e",
+  "number": "64",
+  "player": "Floyd Bannister",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "af6d6fb4-a91a-4a74-8de6-e7d2b95565f5": {
+  "inputSha256": "676d4d4b420e8b161847f5219067f6a0a12fcebcfe0a4ae7ef6a9326706c1953",
+  "number": "745",
+  "player": "Willie Upshaw",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "af832ecd-c731-411a-9e3c-e70c97a193e3": {
+  "extract": {
+   "height": 1046,
+   "left": 17,
+   "top": 16,
+   "width": 733
+  },
+  "inputSha256": "d9737aa2f021ce629aa282ce9ab87cdacd1f727d7dc14755875c452d79b66189",
+  "number": "766",
+  "player": "Henry Cotto",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "b085582a-1e95-420a-af97-053f3d8c885a": {
+  "extract": {
+   "height": 1015,
+   "left": 16,
+   "top": 22,
+   "width": 756
+  },
+  "inputSha256": "0524e1c24fd317b4d3b5b2716d7bcc240e711cd2067fc9b30eb5e66cbe750a54",
+  "number": "296",
+  "player": "Geno Petralli",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "b0fa74c1-fc85-4268-98bc-2e58ed9a379d": {
+  "extract": {
+   "height": 1120,
+   "left": 36,
+   "top": 34,
+   "width": 797
+  },
+  "inputSha256": "2701a10aa6622abdb36dce860542d2445a6122ca950237ecc62c507388d15955",
+  "number": "268",
+  "player": "Bruce Ruffin",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "b24abe50-5127-4590-b11e-0590ce624a9b": {
+  "inputSha256": "49ea00fc812b96800435422585699b61db84b78a118eaf7f13109c326a2e7083",
+  "number": "733",
+  "player": "Ron Romanick",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "b2b417d0-4756-44a0-b6f2-332eb97150d9": {
+  "inputSha256": "2913b9247b17ac3ceb0e98a137eed819b6bc44cbbe0b464ce49a6386044e5805",
+  "number": "180",
+  "player": "Don Mattingly",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "b3e8a243-cd03-4eb0-b40e-ac4e82d43ab9": {
+  "extract": {
+   "height": 1052,
+   "left": 19,
+   "top": 20,
+   "width": 750
+  },
+  "inputSha256": "f00d8df996d8c5884ed6b12acdfef37cf380662561940b18785b225db8b14b95",
+  "number": "349",
+  "player": "Bob Walk",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "b6ac789a-3b9a-4f49-9ab9-d1890ec8c7c3": {
+  "inputSha256": "3e29a9929beeb3e51675c670893046e0de22b6cf0a566aab5f557669e21a3e58",
+  "number": "189",
+  "player": "Mike Mason",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "b765f3c8-2b16-49b9-9d51-71258597a268": {
+  "extract": {
+   "height": 1046,
+   "left": 21,
+   "top": 19,
+   "width": 750
+  },
+  "inputSha256": "24c05495ca8fddd7e03f35fa9194d22ba68a51ed76b0c075f990401d1be8c9d3",
+  "number": "575",
+  "player": "Don Sutton",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "b7e96d77-d1d6-4996-ad22-3ae57dc4df96": {
+  "inputSha256": "be707ede83d9553f8354bca23d938780f089d44fe791e0cafec8d7da8716c7c4",
+  "number": "111",
+  "player": "Roger Craig",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "b8014f85-f29c-458c-82e3-ca0a319b5dbe": {
+  "inputSha256": "574e84eeebd151d2c7759c3d2672819df3b79ab9ccf4334d87e6d6db2d5be891",
+  "number": "15",
+  "player": "Ed Whitson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "b8eb1143-e487-4e8e-9c9b-a5b94a714bb4": {
+  "inputSha256": "bbb221879ff3130e8b8dfcb325926055110e8182412d274ac0e0ea3ce6d558b7",
+  "number": "173",
+  "player": "Wayne Gross",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "b97547ac-34d1-474e-97b4-cc01d5162a75": {
+  "inputSha256": "a3f0b434c9c497a7cb057a6bdca8f5006f93ceedce3dcbbf1550cd8339fd7efc",
+  "number": "490",
+  "player": "Jeff Leonard",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "ba8db2f7-c485-4563-9714-71c6a810423f": {
+  "inputSha256": "dd446112ed593d86f743244f74cb6ad7e5e63b34b17140a05473daa3c82af2a1",
+  "number": "724",
+  "player": "Tim Hulett",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "bb90083d-50ab-44ca-b9f5-ad1271506eeb": {
+  "extract": {
+   "height": 1046,
+   "left": 20,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "7d7a5054102ad2a0b975b4bb170bfcef11438ff2a43d3ea6c225c87867cda42e",
+  "number": "137",
+  "player": "Chris Bosio",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "c07d2521-a9cc-481a-b1da-942848914bec": {
+  "extract": {
+   "height": 1050,
+   "left": 20,
+   "top": 21,
+   "width": 752
+  },
+  "inputSha256": "9c7169f8a89690bc44e4d9bffa8c98b83f37a34484e67b02195b96c668d33a70",
+  "number": "280",
+  "player": "Pete Incaviglia",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "c0ec6573-571f-40a1-9e8a-422a19b32af8": {
+  "inputSha256": "24bce23ae218583c236a0f52e1c459f2299403042bd6c283abcd439ad35c7580",
+  "number": "582",
+  "player": "Jim Gantner",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "c3bb82a4-028a-4260-b3e2-76866963e0e5": {
+  "inputSha256": "862ee53a385e3d45a3e7fc45457fce3cb0a418e6ebe78de846ed1ff050a4e4ad",
+  "number": "117",
+  "player": "Bruce Kison",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "c3c341ec-98ed-420f-9b55-8227cc3acb74": {
+  "inputSha256": "5f8eb12eb08559f91fa732a4621b4551395b6bdd3b4a9195759ea0f724fa8135",
+  "number": "194",
+  "player": "Craig McMurtry",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "c421606d-06ef-4d85-a715-43b4c939203a": {
+  "extract": {
+   "height": 1057,
+   "left": 18,
+   "top": 17,
+   "width": 749
+  },
+  "inputSha256": "73eda1428d1eb462812f44889cecf1a25ab343f0fbf239f779c16fc0dcb70aab",
+  "number": "712",
+  "player": "John Moses",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "c439b5a5-a513-4e6f-a6af-915af04addc3": {
+  "extract": {
+   "height": 1046,
+   "left": 21,
+   "top": 19,
+   "width": 750
+  },
+  "inputSha256": "29510d3f82f46586ae1e12c083c5bcd1d96450044cdc009ef7dde998f11046ad",
+  "number": "36",
+  "player": "Jamie Moyer",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "c533e858-0d40-4717-90ff-89b29ce106fe": {
+  "inputSha256": "1c7841f477bc02a55f02507d5fefa17802cc760bf65e85d86a892c9abc94c26d",
+  "number": "288",
+  "player": "Don Aase",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "c88946d0-2bed-4aa0-8660-3eeb0b18987e": {
+  "extract": {
+   "height": 1047,
+   "left": 21,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "b11c06ebb7cf882e00f4568ce9c11443c8ceb3853108cb225273280934bbd412",
+  "number": "297",
+  "player": "Zane Smith",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "caa1aa7d-4a0a-4d59-8087-417a2cd48037": {
+  "extract": {
+   "height": 1000,
+   "left": 20,
+   "top": 19,
+   "width": 752
+  },
+  "inputSha256": "0c7760530853df82359f05425e5efa3265b77ee88740ab9ab966274752856a33",
+  "number": "575",
+  "player": "Mike Boddicker",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "cb4c5b1c-8c35-4b72-9969-77b52ad15432": {
+  "extract": {
+   "height": 1050,
+   "left": 33,
+   "top": 23,
+   "width": 751
+  },
+  "inputSha256": "da947079d8ad93d9c3db35917b6bb048e18381c42eefdbd610b9cd9a2abe10f1",
+  "number": "189",
+  "player": "Wes Gardner",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "cc3127d3-94de-4955-a5ae-3afeaf24c6ad": {
+  "inputSha256": "764ca5898928e401b80c2fa092041f8ca8a6c28fa7286754c3974db6e4a657cc",
+  "number": "381",
+  "player": "Ray Miller",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "cce4bf67-75a8-4112-b9be-1440f115ffea": {
+  "extract": {
+   "height": 1053,
+   "left": 20,
+   "top": 20,
+   "width": 750
+  },
+  "inputSha256": "aa2d66f8ddf505c1a0403f119ed7127dd09897cbb0377318771b499d93c950c8",
+  "number": "693",
+  "player": "Benny Santiago",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "cd39c62c-e253-4c88-9027-87325686027b": {
+  "inputSha256": "fcd9c4f46e9e00769a20aaf33a2f4c403a3b281521da192d1ce0bd3fffaf1436",
+  "number": "106",
+  "player": "Ray Burris",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "cd88397e-6ce9-43b3-b669-f77f5ba1c7e5": {
+  "extract": {
+   "height": 1120,
+   "left": 36,
+   "top": 34,
+   "width": 804
+  },
+  "inputSha256": "96b16b64752bd701d75498f2f9f224cf3bb05d3b040e4de3d8a6f320be6941ab",
+  "number": "199",
+  "player": "Dave Meads",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "cf42d7ed-f2c3-4570-a22f-5a5e0d7079f2": {
+  "inputSha256": "be36eb53fd5a4acae4afd707898bc90f646e8fe5865437372c772a11072c4b9c",
+  "number": "297",
+  "player": "Tim Lollar",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "d021b068-0569-4ef0-9730-5542db03a182": {
+  "extract": {
+   "height": 1046,
+   "left": 1,
+   "top": 43,
+   "width": 738
+  },
+  "inputSha256": "aefe56a7b7792019f071ba6951befe73fb0c2fb88f53dc80ed96bdfd87387d6a",
+  "number": "350",
+  "player": "Will Clark",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "d2c35942-24cb-4c1e-9a57-901f16474a0e": {
+  "extract": {
+   "height": 1090,
+   "left": 27,
+   "top": 0,
+   "width": 646
+  },
+  "inputSha256": "64636ef3ce0152a37407018f02942509680a3253d923acf6c33647168445c4c2",
+  "number": "613",
+  "player": "Roy Smalley",
+  "resize": {
+   "height": 905,
+   "width": 646
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge, unstretch to 2.5x3.5"
+ },
+ "d37f7373-1c23-405b-8b3d-209694c62f51": {
+  "inputSha256": "a899331e12b19acc4a77c9287c3be8eee2696f363bcc947e47f2362ab9bd1996",
+  "number": "311",
+  "player": "Dick Schofield",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "d38ab45d-2b0e-4031-9863-46fe402cd425": {
+  "inputSha256": "1372af7d7a511848c244870f723f942ff531fd58164e5c0a7fcdc3c5e6b7b11c",
+  "number": "123",
+  "player": "Greg Walker",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "d5b2823a-9d3e-473d-8383-a9548ffa5bed": {
+  "extract": {
+   "height": 1053,
+   "left": 21,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "7e3ed8e3ee5f5c0f33198267afae609db2586a7f11ebc1c215e497fdbff526c6",
+  "number": "650",
+  "player": "Cal Ripken Jr.",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "d71445a5-a03c-4cfe-8a21-176ca967b7d6": {
+  "inputSha256": "12b078769b542282cfb08cebaea8b5aa4c1d7f5b0f359cdb87c07c22aceb698a",
+  "number": "95",
+  "player": "Ozzie Virgil",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "d8cdc4c3-5b24-421d-b852-57e02525786d": {
+  "inputSha256": "8758ec357fb57a6c17f9b4c66e0eeb2b49cebeb88a9ff18e0146244d0fa1a85e",
+  "number": "634",
+  "player": "Roy Lee Jackson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "dacf3aa2-d03f-4693-97c7-c67e051f8d0c": {
+  "extract": {
+   "height": 1022,
+   "left": 13,
+   "top": 0,
+   "width": 758
+  },
+  "inputSha256": "4c8f4424fdb92a47e067232aa2635172c75df98de7449bc9f7c2cc7473380347",
+  "number": "382",
+  "player": "Ivan Calderon",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "db30bfd1-39c7-4592-a0fd-ff2ad9d94250": {
+  "inputSha256": "eca73563afacbdf29b6a074993f949f25b6fdddf8b639a0af3f8bdf1d48a7a27",
+  "number": "534",
+  "player": "Jeff Calhoun",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "db63d5e6-160e-4cf0-9af0-e8120094df3a": {
+  "inputSha256": "a7cf3be05f24923bfb5b757295a7588af19e1b2fc9f7901d3452e53f3f3b1687",
+  "number": "753",
+  "player": "Dan Ford",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "db725ec9-4026-4aff-9197-91a0ced5b930": {
+  "extract": {
+   "height": 1044,
+   "left": 21,
+   "top": 20,
+   "width": 749
+  },
+  "inputSha256": "e8c8bcf1cf2bdea90544f67aa341c1694073644e0a6ddc711cd98b86417479bd",
+  "number": "569",
+  "player": "Charlie Leibrandt",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "de26b1cd-33b0-4786-b243-1af4da07eb1d": {
+  "extract": {
+   "height": 1052,
+   "left": 21,
+   "top": 19,
+   "width": 751
+  },
+  "inputSha256": "160726dd1f5cbe26eef7743d24cc54a69aa6843b0a5f22b25c507880c05a8694",
+  "number": "422",
+  "player": "Dave Concepcion",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "df273964-0f51-454c-b883-9d4849eae1a8": {
+  "inputSha256": "d3a6d25f6772e60f1f86875c93aa3b753695e269796baf0f75906a767cb4ce2b",
+  "number": "677",
+  "player": "Nick Esasky",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "e5e812bc-6b09-4b7f-94ad-34edfb668d6d": {
+  "extract": {
+   "height": 1054,
+   "left": 18,
+   "top": 0,
+   "width": 753
+  },
+  "inputSha256": "b6b21c3a156da3ca4b94a2f4635da5fab4ad670ef8b6f93eae14b128b4b0a862",
+  "number": "619",
+  "player": "Danny Heep",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "e705318f-3038-4163-b740-1785d2046a69": {
+  "extract": {
+   "height": 1046,
+   "left": 21,
+   "top": 20,
+   "width": 749
+  },
+  "inputSha256": "6914a927c8d4a2fd0453e637aaa76791332697c715f2a0ad54ba7135344fe33e",
+  "number": "634",
+  "player": "Jose DeLeon",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "e7eb6dbd-6e98-419e-9435-301dca62ce13": {
+  "inputSha256": "cd07163652249c5fe078844a186fb23e46336fecedaff6b560c6967ac07a69e3",
+  "number": "742",
+  "player": "Frank Viola",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "ea68fdee-b59b-4738-891a-4ff792e534ae": {
+  "inputSha256": "69d6da22a1300e6440503aa3c1c3b7266edbb73735ad52c5d95c8d1c9552b751",
+  "number": "98",
+  "player": "Dick Ruthven",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "ea8799a4-3974-4588-8ea2-d7a24b7e9c98": {
+  "inputSha256": "224d249ffe6d976040e009cffe9d99489b0338358adbf021027f05b99e0a594a",
+  "number": "752",
+  "player": "Mike Krukow",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "ec64680a-1c30-462b-8fed-bdc5eec0feea": {
+  "inputSha256": "726777876a5bad180ca154dbf734a62bf962240de99974b769362242765c181e",
+  "number": "42",
+  "player": "Geoff Zahn",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "ed05ddde-862d-4b74-a7bc-01bec2f7f7c5": {
+  "extract": {
+   "height": 1060,
+   "left": 3,
+   "top": 25,
+   "width": 786
+  },
+  "inputSha256": "4261f6bf37ffe2dabbdd9f63a1a37a2112bb7a51a777818608af87ae3a935836",
+  "number": "132",
+  "player": "Razor Shines",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "f20263a5-9f0a-43c8-91ab-10d521641602": {
+  "inputSha256": "14cc2da2e137f7ecb50f5bc360bbed1c0f3f41817468eb31e2294bb9469cb424",
+  "number": "678",
+  "player": "Dan Gladden",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "f29cf4dc-3a12-4b61-92c4-a09fed6e23a7": {
+  "inputSha256": "2086d18d184be41ea1aa480c7d506acfa836798b15e130e0e08cf92993a16e07",
+  "number": "314",
+  "player": "Frank Pastore",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "f49074cc-aafd-4f0c-8179-c5c9247ab869": {
+  "inputSha256": "9da692212e584995280e1a0473e39dec196bc02c00dadcebb7bd1eb7cb5c918b",
+  "number": "125",
+  "player": "Davey Lopes",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "f4b8f6b9-e88e-4bac-bc97-79f66e688f97": {
+  "extract": {
+   "height": 1046,
+   "left": 20,
+   "top": 20,
+   "width": 748
+  },
+  "inputSha256": "954927bea012aad9bbe9887a549e9ce37bbac57309755d0b5dbb8f5ce62c4250",
+  "number": "692",
+  "player": "Mike Birkbeck",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "f4de8573-d855-4966-9d11-164bc5bb9854": {
+  "inputSha256": "2475446a7da29768b15298ccb58e371439e9bf569458e01d01e5a16a077527ed",
+  "number": "334",
+  "player": "Ken Oberkfell",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "f55f6330-8ca6-44d1-ae4d-0a541d7abbd0": {
+  "extract": {
+   "height": 815,
+   "left": 15,
+   "top": 41,
+   "width": 601
+  },
+  "inputSha256": "a079b8789b5fcc9f885f52448d6a245aa5f819743e6f2a3050141a8f907c56a8",
+  "number": "147",
+  "player": "Larry Sheets",
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "crop to card edge"
+ },
+ "f59f9760-eda5-413a-8bb6-b4bb06ed1c52": {
+  "inputSha256": "3dbb24a90368f5c9ed16941d45c2f6b81622531faf308ecaf0854d58fb0b4dd4",
+  "number": "653",
+  "player": "Jim Dwyer",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "f650f498-1ee4-4500-89cd-38619dacf0a5": {
+  "extract": {
+   "height": 1053,
+   "left": 18,
+   "top": 17,
+   "width": 753
+  },
+  "inputSha256": "7e8247f61545e0b3139e70b5137cfc62d736777ccc35fb230b01f9b5fc9c39cc",
+  "number": "174",
+  "player": "Phil Garner",
+  "setId": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "why": "crop to card edge (scanner frame)"
+ },
+ "f9b07bc3-bbbf-4cc2-8549-c9449d570fef": {
+  "inputSha256": "80de129ce7b6ed42e144585e8724cfc4e4c1b5b2489e40a884e0021d1d727205",
+  "number": "739",
+  "player": "Dave Rozema",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "fa81b563-b94d-4fb9-b6ff-31bf56518192": {
+  "inputSha256": "17d178508b9682a1e141d9e050cd235a46d46e783e8f4180e7ea4eaf6ad2d870",
+  "number": "68",
+  "player": "Ed Lynch",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "fe02646e-b3f3-4af6-bcfa-69088dda171b": {
+  "inputSha256": "8946a12203d728d4b5c7d5178b53b8cea9cbfa869ae3c04c63643e2898af6c4c",
+  "number": "623",
+  "player": "Floyd Rayford",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ },
+ "fe5b4b17-622c-494b-a894-6c170ca07ba6": {
+  "inputSha256": "c9448c6cdc3b8bf66e5d9b88b7bc7def51f54e86eed1b311aaea88bcbde5aa5b",
+  "number": "736",
+  "player": "Glenn Wilson",
+  "resize": {
+   "height": 987,
+   "width": 705
+  },
+  "setId": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "why": "unstretch 705x1200 to 2.5x3.5"
+ }
+}
