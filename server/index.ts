@@ -533,6 +533,13 @@ app.use((req, res, next) => {
     console.error("[PinnedCovers] boot log failed");
   });
   if (process.env.NODE_ENV !== "test") startSetCoverWarmer();
+  if (process.env.NODE_ENV !== "test") {
+    // Keep the inlined /sets payload warm so /sets HTML never waits on the list query.
+    void import("./lib/spaIndexHtml").then(({ warmSetsIndexPayload }) => {
+      setTimeout(warmSetsIndexPayload, 5_000).unref();
+      setInterval(warmSetsIndexPayload, 25_000).unref();
+    }).catch(() => {});
+  }
 
   try {
     const { backfillProgressForFinishedMatches } = await import("./services/progress/dailyProgress");

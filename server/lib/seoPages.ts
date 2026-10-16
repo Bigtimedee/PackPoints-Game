@@ -26,7 +26,7 @@ export function firstRowCoverStrip(sets: SeoSet[]): string {
   const alt = `Masked ${esc(first.setName)} card`;
   const imgs = urls.map((u, i) => {
     const v = versions?.[i];
-    return `<img src="${setCoverVariantUrl(u, 240, v)}" srcset="${setCoverSrcSet(u, v)}" sizes="${SET_COVER_SIZES}" width="250" height="350" alt="${alt}" crossorigin="anonymous" referrerpolicy="no-referrer" decoding="async"${i === 0 ? ' fetchpriority="high"' : ""} style="width:32%;max-width:160px;height:auto;margin-right:-12%;border-radius:3px" />`;
+    return `<img src="${setCoverVariantUrl(u, 240, v)}" srcset="${setCoverSrcSet(u, v)}" sizes="${SET_COVER_SIZES}" width="250" height="350" alt="${alt}" crossorigin="anonymous" referrerpolicy="no-referrer" decoding="async"${i === 0 ? ' fetchpriority="high"' : ""} style="flex:0 0 32%;width:32%;max-width:160px;height:auto;margin-right:-12%;border-radius:3px" />`;
   }).join("");
   return `<div aria-hidden="true" style="display:flex;overflow:hidden;padding:8px 0">${imgs}</div>`;
 }
