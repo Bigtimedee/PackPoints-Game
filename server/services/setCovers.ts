@@ -496,9 +496,17 @@ export async function readyMaskedCovers(setIds: string[]): Promise<Map<string, {
     for (const setId of setIds) out.set(setId, { urls: [], versions: [] });
     return out;
   }
+  // Boot: the mask-readiness pass has not finished, so an empty list here is
+  // "not known yet", not "no covers" (1990 Hoops listed 0 covers for a minute
+  // after deploys). Wait for the first warm pass, bounded.
+  if (coverCacheEnabled() && !coverWarmReady) {
+    await Promise.race([coverWarmReadyPromise, new Promise((r) => setTimeout(r, LIST_WARM_WAIT_MS).unref?.())]);
+  }
   const cards = await readyCoverCardIds(setIds);
   for (const setId of setIds) {
-    const ids = cards.get(setId) ?? [];
+    let ids = cards.get(setId) ?? [];
+    if (ids.length >= SET_COVER_SLOT_COUNT) lastGoodCovers.set(setId, ids);
+    else if (lastGoodCovers.has(setId) && !isHeldSet(setId) && (ids.length === 0 || !coverWarmReady)) ids = lastGoodCovers.get(setId)!;
     out.set(setId, {
       urls: ids.map((_, slot) => maskedSetCoverUrl(setId, slot)),
       versions: ids.map((cardId, slot) => setCoverVersionFromEtag(setCoverEtag(setId, slot, cardId))),
@@ -509,17 +517,9 @@ export async function readyMaskedCovers(setIds: string[]): Promise<Map<string, {
 
 /** Masked cover paths for sets that already have baked sidecars. Empty means the cream placeholder. */
 export async function readyMaskedCoverUrls(setIds: string[]): Promise<Map<string, string[]>> {
-  if (setsCoversDisabled()) {
-    const hidden = new Map<string, string[]>();
-    for (const setId of setIds) hidden.set(setId, []);
-    return hidden;
-  }
-  const cards = await readyCoverCardIds(setIds);
+  const covers = await readyMaskedCovers(setIds);
   const urls = new Map<string, string[]>();
-  for (const setId of setIds) {
-    const ids = cards.get(setId) ?? [];
-    urls.set(setId, ids.map((_, slot) => maskedSetCoverUrl(setId, slot)));
-  }
+  for (const [setId, c] of covers) urls.set(setId, c.urls);
   return urls;
 }
 
@@ -576,7 +576,14 @@ const COVER_IDS_TTL_MS = 60_000;
 const COVER_IDS_SHORT_TTL_MS = 5_000;
 /** Until the first full warm pass finishes, a not-ready cover is 503 + Retry-After, never 404. */
 let coverWarmReady = false;
-export function setCoverWarmReadyForTests(v: boolean): void { coverWarmReady = v; }
+let resolveWarmReady: () => void = () => {};
+const coverWarmReadyPromise = new Promise<void>((r) => { resolveWarmReady = r; });
+export function setCoverWarmReadyForTests(v: boolean): void { coverWarmReady = v; if (v) resolveWarmReady(); }
+/** Max time the set list waits at boot for the first warm pass. */
+const LIST_WARM_WAIT_MS = 20_000;
+/** Last non-empty cover list per set. The set list never drops to empty while one exists. */
+const lastGoodCovers = new Map<string, string[]>();
+export function clearLastGoodCoversForTests(): void { lastGoodCovers.clear(); }
 const COVER_BYTES_MAX = 600;
 const COVER_RESOLVE_CONCURRENCY = 4;
 const coverIdsCache = new Map<string, { at: number; ids: Promise<string[]> }>();
@@ -695,6 +702,7 @@ export async function warmSetCoverCache(): Promise<{ sets: number; files: number
     }
   }
   coverWarmReady = true;
+  resolveWarmReady();
   return { sets: setIds.length, files };
 }
 
