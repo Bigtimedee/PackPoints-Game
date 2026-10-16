@@ -164,4 +164,11 @@ describe("SEO pages", () => {
     const about = renderSeoHtml(indexHtml, await resolveSeoPage("/about", deps));
     expect(about).toContain('<link rel="canonical" href="https://packpts.com/about" />');
   });
+  it("a renamed kit set canonicalizes to its live slug, matching the sitemap", async () => {
+    const kit = JSON.parse(fs.readFileSync(path.join(root, "docs/seo/content/set-pages.json"), "utf8")).sets[0];
+    const base = SETS.find((s) => s.id === kit.setId)!;
+    const renamed: SeoSet = { ...base, setName: "Renamed Set", slug: setShareSlug("Renamed Set", base.id) };
+    const page = await resolveSeoPage(`/sets/${renamed.slug}`, { listSets: async () => SETS, resolveSet: async () => renamed });
+    expect(page.canonical).toBe(`https://packpts.com/sets/${renamed.slug}`);
+  });
 });
