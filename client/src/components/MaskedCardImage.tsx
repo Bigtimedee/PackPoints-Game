@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { DEFAULT_MASK_REGIONS } from "@shared/schema";
@@ -46,6 +46,13 @@ export function MaskedCardImage({
   priority = false,
 }: MaskedCardImageProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // Bytes already in the cache (server first row, preload): show on the first
+  // paint. No spinner frame, no fade, so the app reuses the server-painted cover.
+  useLayoutEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) setImageLoaded(true);
+  }, [src]);
   const [imageError, setImageError] = useState(false);
 
   const { data: maskConfig } = useQuery<MaskConfig>({
@@ -124,6 +131,7 @@ export function MaskedCardImage({
       )}
 
       <img
+        ref={imgRef}
         src={src}
         srcSet={srcSet}
         sizes={sizes}
