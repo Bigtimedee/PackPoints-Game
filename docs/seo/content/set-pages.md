@@ -430,44 +430,44 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 ---
 
-# /sets/2024-basketball-229f0379
+# /sets/2024-25-topps-chrome-basketball-229f0379
 
-- Title: 2024 Basketball Card Game: Guess the Player | PackPTS (53 chars)
-- Description: Play 2024 Basketball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play. (136 chars)
-- H1: 2024 Basketball: Name the Player Game
+- Title: 2024-25 Topps Chrome Basketball: Guess the Player | PackPTS (59 chars)
+- Description: Play 2024-25 Topps Chrome Basketball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play. (152 chars)
+- H1: 2024-25 Topps Chrome Basketball: Name the Player Game
 
-**Opening:** Play 2024 Basketball on PackPTS: we deal a real 2024 Basketball card with the name masked, and you pick the player from four choices. Free, no download.
+**Opening:** Play 2024-25 Topps Chrome Basketball on PackPTS: we deal a real 2024-25 Topps Chrome Basketball card with the name masked, and you pick the player from four choices. Free, no download.
 
-Pull up a chair, collector. 2024 Basketball is dealt and waiting.
+Pull up a chair, collector. 2024-25 Topps Chrome Basketball is dealt and waiting.
 
-A modern Topps basketball release with sharp, current era photography. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
+Topps Chrome's signature chromium finish with a bright, glossy shine and sharp modern photography. If you opened packs back then, you will know this design in a heartbeat. If you are new to it, this is a fun way to meet a set the hobby still talks about.
 
-Every round deals one real card from our pool of 690 2024 Basketball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
+Every round deals one real card from our pool of 690 2024-25 Topps Chrome Basketball cards. The name is masked, and you choose the player from four options. Read the uniform, the photo and the team colors, and trust what you know. Right answers earn points, and points are redeemable for eBay rebates now.
 
 Every card is scanned and checked by our team, and every mask is reviewed by hand. Players never create cards.
 
 ## Set facts
-- year: 2025
+- year: 2024-25
 - brand: Topps
 - sport: basketball
 - playableCards: 690
 - era: The modern era
-- designNotes: A modern Topps basketball release with sharp, current era photography.
+- designNotes: Topps Chrome's signature chromium finish with a bright, glossy shine and sharp modern photography.
 
 ## FAQ
-**What is the 2024 Basketball game?**
-It is a free PackPTS game that deals real 2024 Basketball cards with the player's name masked. You pick the player from four choices.
+**What is the 2024-25 Topps Chrome Basketball game?**
+It is a free PackPTS game that deals real 2024-25 Topps Chrome Basketball cards with the player's name masked. You pick the player from four choices.
 
-**How many 2024 Basketball cards can I play?**
-The PackPTS pool for 2024 Basketball has 690 playable cards, each scanned and checked by our team.
+**How many 2024-25 Topps Chrome Basketball cards can I play?**
+The PackPTS pool for 2024-25 Topps Chrome Basketball has 690 playable cards, each scanned and checked by our team.
 
-**What year is 2024 Basketball?**
-The set is listed as 2025, from the modern era.
+**What year is 2024-25 Topps Chrome Basketball?**
+It is from the 2024-25 season, the modern era.
 
-**Who made 2024 Basketball?**
+**Who made 2024-25 Topps Chrome Basketball?**
 Topps produced this set.
 
-**Where can I find a full 2024 Basketball checklist?**
+**Where can I find a full 2024-25 Topps Chrome Basketball checklist?**
 We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists.
 
 ## Links
@@ -478,7 +478,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 ---
 
-# /sets/1989-topps-352b33d1
+# /sets/1989-topps-baseball-352b33d1
 
 - Title: 1989 Topps Baseball Card Game: Guess the Player | PackPTS (57 chars)
 - Description: Play 1989 Topps Baseball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play. (140 chars)
@@ -526,7 +526,7 @@ We keep the game fair by not publishing a card by card checklist for sets in pla
 
 ---
 
-# /sets/1987-topps-37fd025d
+# /sets/1987-topps-baseball-37fd025d
 
 - Title: 1987 Topps Baseball Card Game: Guess the Player | PackPTS (57 chars)
 - Description: Play 1987 Topps Baseball on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play. (140 chars)

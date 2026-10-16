@@ -74,6 +74,9 @@ jobs:
           fi
           mkdir -p "$RUNNER_TEMP/seo-pool"
           python3 scripts/seo-name-leak-check --kit docs/seo/content --pool-dir "$RUNNER_TEMP/seo-pool"
+          # The rendered server HTML for every sitemap page (+ 404), not just the kit files.
+          npx tsx scripts/render-seo-pages.ts "$RUNNER_TEMP/seo-html"
+          python3 scripts/seo-name-leak-check --kit "$RUNNER_TEMP/seo-html" --pool-dir "$RUNNER_TEMP/seo-pool"
 
   e2e-stub:
     name: E2E (Playwright) — pending wiring

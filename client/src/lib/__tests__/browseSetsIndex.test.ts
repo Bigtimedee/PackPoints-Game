@@ -164,7 +164,7 @@ describe("browse sets index", () => {
         coverCardUrls: [raw, masked, "/api/images/card/579e675f-b5c1-4cd1-89c2-d052005ab2f8"],
       }),
     ]);
-    expect(html).toContain(`src="${masked}"`);
+    expect(html).toContain(`src="${masked}?w=240&amp;f=webp"`);
     expect(html).not.toContain("bubble.io");
     expect(html).not.toContain("JOE_MONTANA");
     expect(html).not.toContain("/api/images/card");
@@ -183,7 +183,7 @@ describe("browse sets index", () => {
         }),
       ),
     );
-    expect(stack).toContain(`src="${masked}"`);
+    expect(stack).toContain(`src="${masked}?w=240&amp;f=webp"`);
     expect(stack).not.toContain("bubble.io");
     expect(stack).not.toContain("/api/images/card");
   });

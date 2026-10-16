@@ -13,7 +13,8 @@ import path from "path";
 import type { Request, Response } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { CURRENT_MASK_VERSION, isMaskSetUuid } from "@shared/maskGeometry";
-import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT } from "@shared/setCoverUrl";
+import { maskedSetCoverUrl, SET_COVER_SLOT_COUNT, SET_COVER_WIDTHS, setCoverVersionFromEtag } from "@shared/setCoverUrl";
+import sharp from "sharp";
 import { gameSets, playableCards } from "@shared/schema";
 import { db } from "../db";
 import {
@@ -488,6 +489,24 @@ export async function eligibleCoverFile(cardId: string): Promise<string | null> 
   return resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
 }
 
+/** Masked cover paths plus per-slot cache versions (hash prefixes, never card ids). */
+export async function readyMaskedCovers(setIds: string[]): Promise<Map<string, { urls: string[]; versions: string[] }>> {
+  const out = new Map<string, { urls: string[]; versions: string[] }>();
+  if (setsCoversDisabled()) {
+    for (const setId of setIds) out.set(setId, { urls: [], versions: [] });
+    return out;
+  }
+  const cards = await readyCoverCardIds(setIds);
+  for (const setId of setIds) {
+    const ids = cards.get(setId) ?? [];
+    out.set(setId, {
+      urls: ids.map((_, slot) => maskedSetCoverUrl(setId, slot)),
+      versions: ids.map((cardId, slot) => setCoverVersionFromEtag(setCoverEtag(setId, slot, cardId))),
+    });
+  }
+  return out;
+}
+
 /** Masked cover paths for sets that already have baked sidecars. Empty means the cream placeholder. */
 export async function readyMaskedCoverUrls(setIds: string[]): Promise<Map<string, string[]>> {
   if (setsCoversDisabled()) {
@@ -504,9 +523,13 @@ export async function readyMaskedCoverUrls(setIds: string[]): Promise<Map<string
   return urls;
 }
 
-function setCoverHeaders(res: Response, etag: string, cardId: string): void {
-  res.setHeader("Content-Type", "image/jpeg");
-  res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+const COVER_LONG_CACHE = "public, max-age=31536000, immutable";
+const COVER_SHORT_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
+
+function setCoverHeaders(res: Response, etag: string, cardId: string, opts: { webp?: boolean; versioned?: boolean } = {}): void {
+  res.setHeader("Content-Type", opts.webp ? "image/webp" : "image/jpeg");
+  // A ?v= that matches the slot's current card makes the URL content-addressed, so it can be cached for a year.
+  res.setHeader("Cache-Control", opts.versioned ? COVER_LONG_CACHE : COVER_SHORT_CACHE);
   res.setHeader("ETag", etag);
   res.setHeader("X-Mask-Version", CURRENT_MASK_VERSION);
   res.setHeader("X-Mask-Cache", "hit");
@@ -619,7 +642,33 @@ async function coverFileBytes(file: string): Promise<Buffer> {
   return buf;
 }
 
+// Resized webp variants of the baked masked JPEG. Downscale only, never a crop,
+// so the mask band stays exactly where the bake put it.
+const COVER_VARIANT_MAX = 2000;
+const coverVariants = new Map<string, Promise<Buffer>>();
+export function coverVariantBytes(file: string, mtimeMs: number, width: number, source: () => Promise<Buffer>): Promise<Buffer> {
+  const key = `${file}|${mtimeMs}|${width}`;
+  const hit = coverVariants.get(key);
+  if (hit) {
+    coverVariants.delete(key);
+    coverVariants.set(key, hit);
+    return hit;
+  }
+  const made = source().then((buf) =>
+    sharp(buf).resize({ width, withoutEnlargement: true }).webp({ quality: 74, effort: 4 }).toBuffer(),
+  );
+  coverVariants.set(key, made);
+  made.catch(() => coverVariants.delete(key));
+  while (coverVariants.size > COVER_VARIANT_MAX) {
+    const oldest = coverVariants.keys().next().value;
+    if (oldest === undefined) break;
+    coverVariants.delete(oldest);
+  }
+  return made;
+}
+
 export function clearSetCoverCaches(): void {
+  coverVariants.clear();
   coverIdsCache.clear();
   coverBytes.clear();
 }
@@ -763,17 +812,36 @@ export async function handlePublicSetCover(req: Request, res: Response): Promise
     }
 
 
-    const etag = setCoverEtag(setId, slot, cardId);
+    const baseEtag = setCoverEtag(setId, slot, cardId);
+    const wRaw = Number(req.query.w);
+    const width = (SET_COVER_WIDTHS as readonly number[]).includes(wRaw) ? wRaw : null;
+    const webp = width !== null;
+    const versioned = typeof req.query.v === "string" && req.query.v === setCoverVersionFromEtag(baseEtag);
+    const etag = webp ? `"${baseEtag.replace(/"/g, "")}-w${width}"` : baseEtag;
     if (req.headers["if-none-match"] === etag) {
-      setCoverHeaders(res, etag, cardId);
+      setCoverHeaders(res, etag, cardId, { webp, versioned });
       res.status(304).end();
       return;
     }
 
-    setCoverHeaders(res, etag, cardId);
+    setCoverHeaders(res, etag, cardId, { webp, versioned });
     if (req.method === "HEAD") {
       res.status(200).end();
       return;
+    }
+
+    if (webp) {
+      let out: Buffer | null = null;
+      try {
+        out = await coverVariantBytes(file, statSync(file).mtimeMs, width!, () => coverFileBytes(file));
+      } catch { out = null; }
+      if (out) {
+        res.setHeader("Content-Length", String(out.length));
+        res.end(out);
+        return;
+      }
+      // Resize failed: fall back to the full masked JPEG.
+      setCoverHeaders(res, baseEtag, cardId, { versioned: false });
     }
 
     let buf: Buffer | null = null;

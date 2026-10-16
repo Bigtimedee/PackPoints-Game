@@ -14,6 +14,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Calendar, Users, Shuffle, Compass, Trophy, MessageCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import seoCoreKit from "../../../docs/seo/content/core-pages.json";
+
+/** Same H1 as the server-rendered homepage (SEO content kit). */
+const HOME_H1 = ((seoCoreKit as unknown as { core: { path: string; h1: string }[] }).core.find((p) => p.path === "/")?.h1) ?? "Name the Player on Classic Sports Cards";
 import { shouldShowHomePlayVanity } from "@shared/homePlayVanity";
 
 // Public covers serve only approved, deal-eligible, already-baked masks.
@@ -102,7 +106,7 @@ export default function Home() {
         <div className="relative mx-auto grid max-w-5xl items-center gap-3 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
           <FeaturedCard />
           <div className="mx-auto max-w-md text-center md:self-start md:pt-40 md:text-left">
-            <h1 id="home-title" className="sr-only" data-testid="text-hero-title">Know the player?</h1>
+            <h1 id="home-title" className="sr-only" data-testid="text-hero-title">{HOME_H1}</h1>
             <p className="text-sm text-muted-foreground md:text-lg" data-testid="text-hero-description">
               {heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}
             </p>
