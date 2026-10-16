@@ -13,6 +13,24 @@
 import { isKnownSpaRoute } from "@shared/spaRoutes";
 import { isMaskedSetCoverUrl, setCoverSrcSet, setCoverVariantUrl, SET_COVER_SIZES } from "@shared/setCoverUrl";
 
+/**
+ * The first /sets row's masked covers as server HTML, so the LCP image paints
+ * before the app boots. Same URLs, srcset and CORS mode as the app's <img>, so
+ * the browser reuses the bytes. Integrated set names only (never user text).
+ */
+export function firstRowCoverStrip(sets: SeoSet[]): string {
+  const first = sets[0];
+  const urls = first?.coverUrls ?? [];
+  if (!urls.length || !urls.every(isMaskedSetCoverUrl)) return "";
+  const versions = first.coverVersions && first.coverVersions.length === urls.length ? first.coverVersions : undefined;
+  const alt = `Masked ${esc(first.setName)} card`;
+  const imgs = urls.map((u, i) => {
+    const v = versions?.[i];
+    return `<img src="${setCoverVariantUrl(u, 240, v)}" srcset="${setCoverSrcSet(u, v)}" sizes="${SET_COVER_SIZES}" width="250" height="350" alt="${alt}" crossorigin="anonymous" referrerpolicy="no-referrer" decoding="async"${i === 0 ? ' fetchpriority="high"' : ""} style="width:22%;max-width:140px;height:auto;margin-right:-8%;border-radius:3px" />`;
+  }).join("");
+  return `<div aria-hidden="true" style="display:flex;overflow:hidden;padding:8px 0">${imgs}</div>`;
+}
+
 /** Preload the first /sets row's masked covers with the same srcset/sizes the <img> uses. */
 export function firstRowCoverPreloads(sets: SeoSet[]): string[] {
   const first = sets[0];
@@ -21,7 +39,7 @@ export function firstRowCoverPreloads(sets: SeoSet[]): string[] {
   const versions = first.coverVersions && first.coverVersions.length === urls.length ? first.coverVersions : undefined;
   return urls.map((u, i) => {
     const v = versions?.[i];
-    return `<link rel="preload" as="image" href="${setCoverVariantUrl(u, 240, v)}" imagesrcset="${setCoverSrcSet(u, v)}" imagesizes="${SET_COVER_SIZES}" fetchpriority="high" />`;
+    return `<link rel="preload" as="image" href="${setCoverVariantUrl(u, 240, v)}" imagesrcset="${setCoverSrcSet(u, v)}" imagesizes="${SET_COVER_SIZES}" fetchpriority="high" crossorigin="anonymous" />`;
   });
 }
 import { SPA_ROUTE_META } from "./routeOg";
@@ -234,6 +252,8 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
     if (corePath === "/sets") {
       // The index data the page fetches on mount, then the first row's covers.
       page.preload = [`<link rel="preload" as="fetch" href="/api/sets?limit=50" crossorigin="anonymous" />`, ...firstRowCoverPreloads(sets)];
+      const strip = firstRowCoverStrip(sets);
+      if (strip && page.main) page.main = page.main.replace(/(<\/h1>)/, `$1${strip}`);
     }
     return page;
   }

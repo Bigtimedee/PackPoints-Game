@@ -32,6 +32,11 @@ describe("/sets cover variants", () => {
     const html = renderSeoHtml("<html><head><title>x</title></head><body><div id=\"root\"><!--seo-content--></div></body></html>",
       await resolveSeoPage("/sets", { listSets: async () => sets, resolveSet: async () => null }));
     expect(html).toContain('fetchpriority="high"');
+    // Server-rendered first row: same srcset and CORS mode as the app <img> and the preload.
+    const main = /<main id="seo-content"[^>]*>([\s\S]*?)<\/main>/.exec(html)![1];
+    expect(main).toContain(`srcset="${setCoverSrcSet(base, "abcdef012345")}"`);
+    expect(main).toContain('alt="Masked 1986 Topps Baseball card"');
+    expect(html.match(/rel="preload" as="image"[^>]*crossorigin="anonymous"/)).toBeTruthy();
     expect(html).toContain('href="/api/sets?limit=50"');
     expect(firstRowCoverPreloads([{ ...sets[0], coverUrls: ["https://x.bubble.io/a.jpg"] }])).toEqual([]);
   });
