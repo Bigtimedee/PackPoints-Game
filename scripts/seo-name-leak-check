@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Fails (exit 1) if any player surname from the dealable pool appears in the SEO kit.
+Pool sources: (1) live /api/qa/sets/:id/dealable-cards when PACKPTS_QA_TOKEN is set (Eng/CI);
+(2) every "player"/"playerName" in pool snapshots under --pool-dir (Design QA dumps; a superset incl. blocked cards).
+Also fails on em/en dashes, 'coming soon', and $ or % in Points copy."""
+import json, os, re, sys, glob, argparse, urllib.request
+ap=argparse.ArgumentParser(); ap.add_argument("--kit",default=os.path.join(os.path.dirname(__file__),"..","content"))
+ap.add_argument("--pool-dir",default="/workspace/packpts-design"); ap.add_argument("--base",default="https://packpts.com")
+a=ap.parse_args()
+SUFFIX={"jr","jr.","sr","sr.","ii","iii","iv"}
+names=set()
+def collect(x):
+    if isinstance(x,dict):
+        for k in ("player","playerName","player_name"):
+            if isinstance(x.get(k),str): names.add(x[k])
+        for v in x.values(): collect(v)
+    elif isinstance(x,list):
+        for v in x: collect(v)
+tok=os.environ.get("PACKPTS_QA_TOKEN"); live=0
+if tok:
+    sets=json.load(urllib.request.urlopen(a.base+"/api/sets"))["sets"]
+    for s in sets:
+        try:
+            r=urllib.request.Request(f"{a.base}/api/qa/sets/{s['id']}/dealable-cards?limit=2000",headers={"X-QA-Token":tok})
+            collect(json.load(urllib.request.urlopen(r))); live+=1
+        except Exception as e: print("warn live",s["setName"],e)
+for f in glob.glob(os.path.join(a.pool_dir,"**/*.json"),recursive=True):
+    if os.path.abspath(f).startswith(os.path.abspath(a.kit)): continue
+    try: collect(json.load(open(f)))
+    except Exception: pass
+sur=set()
+for n in names:
+    parts=[p for p in re.split(r"[\s/,&]+",n.strip()) if p and p.lower() not in SUFFIX]
+    if parts and len(parts[-1])>=3: sur.add(parts[-1].strip(".").lower())
+if len(sur)<200: print(f"FAIL: pool too small ({len(sur)} surnames)"); sys.exit(1)
+fails=[]
+for f in sorted(glob.glob(os.path.join(a.kit,"**/*"),recursive=True)):
+    if not f.endswith((".json",".md")) or "_live_sets_snapshot" in f: continue
+    t=open(f,encoding="utf-8").read(); low=t.lower()
+    if f.endswith(".json"):  # scan values only; schema.org keys like "price" are not copy
+        vals=[]; 
+        def v(x):
+            if isinstance(x,dict): [v(y) for y in x.values()]
+            elif isinstance(x,list): [v(y) for y in x]
+            elif isinstance(x,str): vals.append(x)
+        v(json.loads(t)); low=" ".join(vals).lower()
+    for w in set(re.findall(r"[a-z][a-z'.-]+",low)):
+        if w.strip(".'-") in sur: fails.append(f"{os.path.basename(f)}: surname '{w}'")
+    if re.search("[\u2013\u2014]",t): fails.append(f"{os.path.basename(f)}: em/en dash")
+    if "coming soon" in low: fails.append(f"{os.path.basename(f)}: coming soon")
+if os.path.exists(os.path.join(a.kit,"core-pages.json")):
+    for p in json.load(open(os.path.join(a.kit,"core-pages.json")))["core"]:
+        if p["path"]=="/points" and re.search(r"[$%]|\bpercent\b|\bdollars?\b",json.dumps(p)): fails.append("/points: money amount")
+print(f"pool: {len(names)} names, {len(sur)} surnames (live sets fetched: {live})")
+if fails: print("FAIL\n"+"\n".join(sorted(set(fails)))); sys.exit(1)
+print("PASS: no pool surnames, dashes, 'coming soon' or Points money figures in kit")
