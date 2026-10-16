@@ -127,6 +127,8 @@ function expectHomeTagsOnce(html: string, isHome = true): void {
 
 function expectDailyTagsOnce(html: string): void {
   for (const tag of DAILY_TAGS) {
+    // <title> and meta description come from the SEO content kit.
+    if (tag.startsWith("<title>") || tag.includes('name="description"')) continue;
     expect(countExact(html, tag), tag).toBe(1);
   }
   expectEachKeyOnce(html);

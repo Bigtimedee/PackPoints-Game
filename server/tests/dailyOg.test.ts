@@ -26,9 +26,9 @@ const PAGE_URL = "https://packpts.com/daily";
 const IMAGE = "https://packpts.com/og/daily-1200x630.png?v=2";
 const ALT = "Five masked sports cards. Daily 5 on PackPTS.";
 
+// <title> and meta description come from the SEO content kit (docs/seo/content);
+// the share tags below keep Design's approved Daily 5 card copy.
 const DAILY_TAGS = [
-  `<title>${TITLE}</title>`,
-  `<meta name="description" content="${DESCRIPTION}" />`,
   `<meta property="og:title" content="${TITLE}" />`,
   `<meta property="og:description" content="${DESCRIPTION}" />`,
   `<meta property="og:url" content="${PAGE_URL}" />`,

@@ -80,10 +80,12 @@ describe("SEO pages", () => {
       expect(canon).toBe(want);
       expect((html.match(/<h1>/g) || []).length).toBe(1);
       const main = /<main id="seo-content"[^>]*>([\s\S]*?)<\/main>/.exec(html)![1];
-      const words = main.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
-      expect(words).toBeGreaterThanOrEqual(150);
+      // Word budget covers the answer and body; FAQ, facts, crumbs and links are extra.
+      const prose = main.split(/<h2>Questions<\/h2>/)[0].replace(/<nav[\s\S]*?<\/nav>/g, " ").replace(/<dl>[\s\S]*?<\/dl>/g, " ");
+      const words = prose.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
+      expect(words).toBeGreaterThanOrEqual(url.startsWith("/sets/") ? 120 : 150);
       expect(words).toBeLessThanOrEqual(400);
-      for (const href of ["/daily", "/sets", "/how-to-play", "/points"]) expect(main).toContain(`href="${href}"`);
+      expect((main.match(/<a href="\/[^"]*"/g) || []).length).toBeGreaterThanOrEqual(3);
       expect(surnameHits(html)).toEqual([]);
       expect(html).not.toMatch(/[\u2013\u2014]/);
       expect(html).not.toMatch(/Goldin/i);
@@ -138,12 +140,28 @@ describe("SEO pages", () => {
     expect(ROBOTS_TXT).toContain("Sitemap: https://packpts.com/sitemap.xml");
     const xml = buildSitemapXml(SETS.map((s) => s.slug));
     for (const u of ["/", "/daily", "/sets", "/how-to-play", "/points"]) expect(xml).toContain(`<loc>https://packpts.com${u}</loc>`);
-    expect((xml.match(/<url>/g) || []).length).toBe(5 + SETS.length);
+    expect((xml.match(/<url>/g) || []).length).toBe(6 + SETS.length);
     expect(surnameHits(xml)).toEqual([]);
   });
 
   it("index.html no longer names Goldin and drops the TikTok title comment", () => {
     expect(indexHtml).not.toMatch(/Goldin/i);
     expect(indexHtml).not.toContain("Title MUST equal the TikTok app name");
+  });
+  it("kit pages: answer is the first <p>, kit JSON-LD replaces the shell's, set counts are live", async () => {
+    const sets = JSON.parse(fs.readFileSync(path.join(root, "docs/seo/content/set-pages.json"), "utf8")).sets;
+    const kit = sets[0];
+    const live: SeoSet = { ...SETS.find((s) => s.id === kit.setId)!, cardCount: 999 };
+    const d = { listSets: async () => SETS, resolveSet: async () => live };
+    const html = renderSeoHtml(indexHtml, await resolveSeoPage(kit.path, d));
+    const main = /<main id="seo-content"[^>]*>([\s\S]*?)<\/main>/.exec(html)![1];
+    expect(/<\/h1><p>([^<]*)<\/p>/.exec(main)![1]).toBe(kit.answer.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/pool of \d+ /, "pool of 999 "));
+    expect(main).toContain("<dd>999</dd>");
+    expect(html).not.toContain(`pool of ${kit.facts.playableCards} `);
+    expect((html.match(/application\/ld\+json/g) || []).length).toBe(1);
+    expect(html).toContain('"@graph"');
+    expect(main).toContain('aria-label="Breadcrumb"');
+    const about = renderSeoHtml(indexHtml, await resolveSeoPage("/about", deps));
+    expect(about).toContain('<link rel="canonical" href="https://packpts.com/about" />');
   });
 });

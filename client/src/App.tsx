@@ -23,6 +23,7 @@ import Home from "@/pages/home";
 import Auth from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 import HowToPlayPage from "@/pages/how-to-play";
+import AboutPage from "@/pages/about";
 import AuthError from "@/pages/auth-error";
 import AuthSuccess from "@/pages/auth-success";
 import LinkRequired from "@/pages/link-required";
@@ -371,6 +372,7 @@ function Router() {
       <Route path="/roadmap" component={Roadmap} />
       <Route path="/points" component={PointsPage} />
       <Route path="/how-to-play" component={HowToPlayPage} />
+      <Route path="/about" component={AboutPage} />
       <Route path="/make" component={MakeRoute} />
       <Route path="/sets" component={BrowseSets} />
       <Route path="/sets/:id" component={SetPage} />

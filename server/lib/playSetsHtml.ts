@@ -89,3 +89,77 @@ export function injectPlaySetsOgTags(html: string, meta: PlaySetsOgMeta): string
 export function defaultPlaySetsOgImageFallback(): string {
   return `${PACKPTS_ORIGIN}/assets/play-sets/integrated-shelf.png`;
 }
+
+// ---------------------------------------------------------------------------
+// SEO content kit pages (docs/seo/content, Design + Marketing, PR #272).
+// Server HTML for core and set landing pages: h1, answer as the first <p>,
+// body, facts, faq, links, crumbs, masked covers, and the page's JSON-LD.
+// Copy comes only from the kit (CI name-leak checked) plus live card counts.
+// ---------------------------------------------------------------------------
+
+export interface SeoKitPage {
+  path: string;
+  title: string;
+  description: string;
+  h1: string;
+  answer: string;
+  body: string;
+  faq: [string, string][];
+  links: [string, string][];
+  crumbs: [string, string][];
+  jsonld: Record<string, unknown>;
+  setId?: string;
+  facts?: { year?: number; brand?: string; sport?: string; playableCards?: number; era?: string; designNotes?: string };
+  coverImages?: { src: string; alt: string }[];
+}
+
+const escHtml = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** The <main> block for one kit page. cardCount overrides the snapshot count. */
+export function renderSeoKitMain(page: SeoKitPage, opts: { cardCount?: number } = {}): string {
+  const out: string[] = [];
+  if (page.crumbs?.length > 1) {
+    out.push(`<nav aria-label="Breadcrumb"><ol style="display:flex;gap:8px;list-style:none;padding:0;flex-wrap:wrap">${page.crumbs
+      .map(([t, href], i) => `<li>${i < page.crumbs.length - 1 ? `<a href="${escHtml(href)}">${escHtml(t)}</a> /` : escHtml(t)}</li>`).join("")}</ol></nav>`);
+  }
+  out.push(`<h1>${escHtml(page.h1)}</h1>`);
+  out.push(`<p>${escHtml(page.answer)}</p>`);
+  if (page.facts) {
+    const f = page.facts;
+    const count = typeof opts.cardCount === "number" ? opts.cardCount : f.playableCards;
+    const rows: [string, string | number | undefined][] = [
+      ["Year", f.year], ["Brand", f.brand], ["Sport", f.sport], ["Cards in play", count], ["Era", f.era], ["Design", f.designNotes],
+    ];
+    out.push(`<h2>Set facts</h2><dl>${rows.filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(([k, v]) => `<dt>${escHtml(k)}</dt><dd>${escHtml(String(v))}</dd>`).join("")}</dl>`);
+  }
+  for (const para of String(page.body || "").split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean)) out.push(`<p>${escHtml(para)}</p>`);
+  if (page.coverImages?.length) {
+    out.push(`<div>${page.coverImages.slice(0, 4).map((c) => `<img src="${escHtml(c.src)}" alt="${escHtml(c.alt)}" width="120" height="168" loading="lazy" decoding="async" />`).join("")}</div>`);
+  }
+  if (page.faq?.length) {
+    out.push(`<h2>Questions</h2>${page.faq.map(([q, a]) => `<h3>${escHtml(q)}</h3><p>${escHtml(a)}</p>`).join("")}`);
+  }
+  if (page.links?.length) out.push(`<nav aria-label="PackPTS"><ul>${page.links.map(([t, href]) => `<li><a href="${escHtml(href)}">${escHtml(t)}</a></li>`).join("")}</ul></nav>`);
+  return out.join("");
+}
+
+/** Replace every JSON-LD block in the shell with this page's @graph. */
+export function replaceJsonLd(html: string, jsonld: Record<string, unknown>): string {
+  const safe = JSON.stringify(jsonld).replace(/</g, "\\u003c");
+  const tag = `<script type="application/ld+json">${safe}</script>`;
+  const stripped = html.replace(/[ \t]*<script type="application\/ld\+json">[\s\S]*?<\/script>[ \t]*\r?\n?/gi, "");
+  return stripped.replace(/<\/head>/i, `    ${tag}\n  </head>`);
+}
+
+/** Swap the kit's snapshot card count for the live one everywhere it appears (copy, facts, JSON-LD). */
+export function applyLiveCardCount(page: SeoKitPage, live: number | undefined): SeoKitPage {
+  const snap = page.facts?.playableCards;
+  if (typeof snap !== "number" || typeof live !== "number" || live <= 0 || snap === live) return page;
+  const json = JSON.stringify(page)
+    .replace(new RegExp(`pool of ${snap} `, "g"), `pool of ${live} `)
+    .replace(new RegExp(`has ${snap} playable cards`, "g"), `has ${live} playable cards`);
+  const next = JSON.parse(json) as SeoKitPage;
+  next.facts = { ...next.facts, playableCards: live };
+  return next;
+}

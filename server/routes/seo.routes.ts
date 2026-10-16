@@ -14,7 +14,7 @@ export const ROBOTS_TXT = [
   "",
 ].join("\n");
 
-export const CORE_SITEMAP_PATHS = ["/", "/daily", "/sets", "/how-to-play", "/points"];
+export const CORE_SITEMAP_PATHS = ["/", "/daily", "/sets", "/how-to-play", "/points", "/about"];
 
 export function buildSitemapXml(setSlugs: string[], lastmod = new Date().toISOString().slice(0, 10)): string {
   const urls = [...CORE_SITEMAP_PATHS, ...setSlugs.map((s) => `/sets/${s}`)];

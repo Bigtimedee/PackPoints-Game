@@ -4,7 +4,7 @@
  * server/tests/seoPages.test.ts fails if App.tsx gains a route missing here.
  */
 export const SPA_ROUTE_PATTERNS: readonly string[] = [
-  "/", "/daily", "/daily5", "/how-to-play", "/points", "/sets", "/sets/:id",
+  "/", "/daily", "/daily5", "/how-to-play", "/about", "/points", "/sets", "/sets/:id",
   "/admin", "/admin/access", "/admin/analytics", "/admin/audit-log", "/admin/card-reports", "/admin/card-search",
   "/admin/card-sets", "/admin/card-telemetry", "/admin/cardhedge-card", "/admin/daily5", "/admin/dashboard",
   "/admin/geo", "/admin/growth", "/admin/metrics", "/admin/package-guardrails", "/admin/playable-sets",

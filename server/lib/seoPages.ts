@@ -12,11 +12,28 @@
  */
 import { isKnownSpaRoute } from "@shared/spaRoutes";
 import { SPA_ROUTE_META } from "./routeOg";
+import { renderSeoKitMain, replaceJsonLd, applyLiveCardCount, type SeoKitPage } from "./playSetsHtml";
+import coreKit from "../../docs/seo/content/core-pages.json";
+import setKit from "../../docs/seo/content/set-pages.json";
+
+/** Design's content kit (PR #272). Copy is name-leak checked in CI. */
+export const KIT_CORE: SeoKitPage[] = (coreKit as unknown as { core: SeoKitPage[] }).core;
+export const KIT_SETS: SeoKitPage[] = (setKit as unknown as { sets: SeoKitPage[] }).sets;
+const KIT_CORE_BY_PATH = new Map(KIT_CORE.map((k) => [k.path, k]));
+const KIT_SET_BY_ID = new Map(KIT_SETS.filter((k) => k.setId).map((k) => [String(k.setId), k]));
+
+function kitPage(k: SeoKitPage, cardCount?: number): SeoPage {
+  const page = typeof cardCount === "number" ? applyLiveCardCount(k, cardCount) : k;
+  return {
+    status: 200, title: page.title, description: page.description, canonical: `${ORIGIN}${page.path === "/" ? "/" : page.path}`,
+    noindex: false, h1: page.h1, main: renderSeoKitMain(page), jsonld: page.jsonld,
+  };
+}
 
 export const ORIGIN = "https://packpts.com";
 export const HOME_TITLE = "PackPTS: Name the Player Sports Card Game | Earn Points";
 export const HOME_DESCRIPTION =
-  "PackPTS is a free sports card game: name the player on a real card with the name masked. Play the Daily 5, browse classic sets and earn points for eBay rebates.";
+  "Name the player on real sports cards with the name masked. Play the free Daily 5, explore classic sets, and earn points for eBay rebates.";
 
 export interface SeoSet { id: string; setName: string; year: number | null; brand: string | null; sport: string | null; cardCount: number; slug: string }
 export interface SeoDeps {
@@ -32,6 +49,10 @@ export interface SeoPage {
   noindex: boolean;
   h1?: string;
   body?: string;
+  /** Full <main> inner HTML from the kit (h1 included). Wins over h1/body. */
+  main?: string;
+  /** JSON-LD @graph replacing the shell's JSON-LD. */
+  jsonld?: Record<string, unknown>;
 }
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -184,6 +205,9 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
   const path = pathOf(url);
   if (!isKnownSpaRoute(path)) return NOT_FOUND_PAGE;
   const sets = await deps.listSets().catch(() => [] as SeoSet[]);
+  const corePath = path === "/daily5" ? "/daily" : path;
+  const core = KIT_CORE_BY_PATH.get(corePath);
+  if (core) return kitPage(core);
   if (path === "/") return homePage(sets);
   if (path === "/daily" || path === "/daily5") return dailyPage(sets);
   if (path === "/how-to-play") return howToPlayPage(sets);
@@ -201,7 +225,9 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
     if (set === "custom") {
       return { status: 200, title: "Custom card set | PackPTS", description: "A custom name the player card set on PackPTS.", canonical: `${ORIGIN}${path}`, noindex: true };
     }
-    return set ? setPage(set, sets) : NOT_FOUND_PAGE;
+    if (!set) return NOT_FOUND_PAGE;
+    const kit = KIT_SET_BY_ID.get(String(set.id));
+    return kit ? kitPage(kit, set.cardCount) : setPage(set, sets);
   }
   const meta = STATIC_META[path];
   const noindex = NOINDEX_PREFIXES.some((pre) => path === pre || path.startsWith(pre.endsWith("/") ? pre : `${pre}/`) || path === pre.replace(/\/$/, ""));
@@ -230,8 +256,10 @@ export function renderSeoHtml(html: string, page: SeoPage): string {
     next = next.replace(/[ \t]*<link\s+rel="canonical"\s+href="[^"]*"\s*\/?>[ \t]*\r?\n?/i, "");
   }
   if (page.noindex) next = setHeadTag(next, /<meta\s+name="robots"\s+content="[^"]*"\s*\/?>/i, `<meta name="robots" content="noindex" />`);
-  if (page.h1) {
-    const block = `<main id="seo-content" style="max-width:720px;margin:0 auto;padding:24px 16px;font-family:system-ui,sans-serif;color:hsl(220 10% 75%);line-height:1.5"><h1>${esc(page.h1)}</h1>${page.body ?? ""}</main>`;
+  if (page.jsonld) next = replaceJsonLd(next, page.jsonld);
+  if (page.h1 || page.main) {
+    const inner = page.main ?? `<h1>${esc(page.h1 ?? "")}</h1>${page.body ?? ""}`;
+    const block = `<main id="seo-content" style="max-width:720px;margin:0 auto;padding:24px 16px;font-family:system-ui,sans-serif;color:hsl(220 10% 75%);line-height:1.5">${inner}</main>`;
     // After the spinner, still inside #root, so React replaces it on mount.
     next = next.includes("<!--seo-content-->")
       ? next.replace("<!--seo-content-->", block)
