@@ -132,6 +132,7 @@ import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
 import { registerHealthRoutes } from "./routes/health.routes";
 import { registerWalletRoutes } from "./routes/wallet.routes";
+import { registerSeoRoutes } from "./routes/seo.routes";
 import { registerAdminRoutes } from "./routes/admin.routes";
 import { registerIosRoutes } from "./routes/ios.routes";
 import { registerGrowthRoutes } from "./routes/growth.routes";
@@ -208,6 +209,7 @@ export async function registerRoutes(
   // Modular route registrations
   registerHealthRoutes(app);
   registerWalletRoutes(app);
+  registerSeoRoutes(app);
   registerAdminRoutes(app);
   registerIosRoutes(app);
   registerGrowthRoutes(app);

@@ -27,11 +27,11 @@ export function stripConditionalValidators(req: Request): void {
   delete req.headers["if-modified-since"];
 }
 
-/** Full 200 body. Does not go through res.json / res.sendFile, which emit ETags. */
-export function sendNoStoreBody(req: Request, res: Response, body: string, contentType: string): void {
+/** Full body (200 unless status is given). Does not go through res.json / res.sendFile, which emit ETags. */
+export function sendNoStoreBody(req: Request, res: Response, body: string, contentType: string, status = 200): void {
   stripConditionalValidators(req);
   applyNoStoreHeaders(res);
-  res.status(200);
+  res.status(status);
   res.setHeader("Content-Type", contentType);
   res.setHeader("Content-Length", Buffer.byteLength(body));
   if (req.method === "HEAD") {

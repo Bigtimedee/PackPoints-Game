@@ -60,6 +60,21 @@ jobs:
       - name: Build
         run: npm run build
 
+      # SEO kit name-leak check against the live dealable pool. The token is a
+      # GitHub Actions secret (never in this public repo). Without it the step
+      # skips with a warning; server/tests/seoPages.test.ts (offline hashed
+      # surname fixture) stays the hard gate.
+      - name: SEO kit name-leak check (live pool)
+        env:
+          PACKPTS_QA_TOKEN: ${{ secrets.PACKPTS_QA_TOKEN }}
+        run: |
+          if [ -z "$PACKPTS_QA_TOKEN" ]; then
+            echo "::warning::PACKPTS_QA_TOKEN secret is not available; skipping the live-pool SEO name-leak check. The offline surname fixture test still ran."
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/seo-pool"
+          python3 scripts/seo-name-leak-check --kit docs/seo/content --pool-dir "$RUNNER_TEMP/seo-pool"
+
   e2e-stub:
     name: E2E (Playwright) — pending wiring
     runs-on: ubuntu-latest

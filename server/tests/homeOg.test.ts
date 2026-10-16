@@ -112,11 +112,14 @@ function expectEachKeyOnce(html: string): void {
   }
 }
 
-function expectHomeTagsOnce(html: string): void {
+/** Home preview tags. Other routes keep them but carry their own <title> and og:url (seoPages.ts). */
+function expectHomeTagsOnce(html: string, isHome = true): void {
   for (const tag of HOME_TAGS) {
+    if (!isHome && tag.includes('og:url"')) continue;
     expect(countExact(html, tag), tag).toBe(1);
   }
-  expect(countExact(html, "<title>PackPTS</title>")).toBe(1);
+  if (isHome) expect(countExact(html, "<title>PackPTS: Name the Player Sports Card Game | Earn Points</title>")).toBe(1);
+  else expect((html.match(/<title>/g) || []).length).toBe(1);
   expectEachKeyOnce(html);
   expect(html).not.toContain('content="https://packpts.com/og-image.png"');
   expect(html).not.toContain("daily-1200x630.png");
@@ -124,6 +127,8 @@ function expectHomeTagsOnce(html: string): void {
 
 function expectDailyTagsOnce(html: string): void {
   for (const tag of DAILY_TAGS) {
+    // <title> and meta description come from the SEO content kit.
+    if (tag.startsWith("<title>") || tag.includes('name="description"')) continue;
     expect(countExact(html, tag), tag).toBe(1);
   }
   expectEachKeyOnce(html);
@@ -241,7 +246,7 @@ describe("served HTML and homepage preview image", () => {
       const root = await read("/", ua);
       expect(root.res.status).toBe(200);
       expect(root.res.headers.get("content-type")).toContain("text/html");
-      expect(root.text).toBe(home);
+      expect(root.text).toContain("<h1>");
       expectHomeTagsOnce(root.text);
     }
   });
@@ -250,7 +255,7 @@ describe("served HTML and homepage preview image", () => {
     for (const route of ["/leaderboard", "/game/solo", "/?s=2"]) {
       const page = await read(route, "facebookexternalhit/1.1");
       expect(page.res.status).toBe(200);
-      expectHomeTagsOnce(page.text);
+      expectHomeTagsOnce(page.text, route.startsWith("/?"));
     }
   });
 

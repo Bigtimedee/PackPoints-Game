@@ -26,9 +26,9 @@ const PAGE_URL = "https://packpts.com/daily";
 const IMAGE = "https://packpts.com/og/daily-1200x630.png?v=2";
 const ALT = "Five masked sports cards. Daily 5 on PackPTS.";
 
+// <title> and meta description come from the SEO content kit (docs/seo/content);
+// the share tags below keep Design's approved Daily 5 card copy.
 const DAILY_TAGS = [
-  `<title>${TITLE}</title>`,
-  `<meta name="description" content="${DESCRIPTION}" />`,
   `<meta property="og:title" content="${TITLE}" />`,
   `<meta property="og:description" content="${DESCRIPTION}" />`,
   `<meta property="og:url" content="${PAGE_URL}" />`,
@@ -118,9 +118,9 @@ describe("daily route meta map", () => {
   it("rewrites index.html in production static serving and after the Vite dev transform", () => {
     const staticSrc = fs.readFileSync(path.join(ROOT, "server/static.ts"), "utf8");
     const viteSrc = fs.readFileSync(path.join(ROOT, "server/vite.ts"), "utf8");
-    expect(staticSrc).toContain("decorateSpaIndexHtml(raw, url)");
+    expect(staticSrc).toContain("decorateSpaIndexPage(raw, url)");
     const transformAt = viteSrc.indexOf("vite.transformIndexHtml");
-    const decorateAt = viteSrc.indexOf("decorateSpaIndexHtml(page, url)");
+    const decorateAt = viteSrc.indexOf("decorateSpaIndexPage(page, url)");
     expect(transformAt).toBeGreaterThan(-1);
     expect(decorateAt).toBeGreaterThan(transformAt);
   });
@@ -162,7 +162,7 @@ describe("daily route meta map", () => {
     expectDailyTagsOnce(html);
     expect(html).toContain('<meta name="packpts-build-id" content="abc123" />');
     expect(html).not.toContain("zz-beat-token");
-    expect(await decorateSpaIndexHtml(home, "/")).toBe(home);
+    expect(await decorateSpaIndexHtml(home, "/")).toContain('og:url" content="https://packpts.com/"');
   });
 });
 
@@ -202,8 +202,9 @@ describe("served /daily HTML and preview image", () => {
     const root = await read("/");
     expect(root.res.status).toBe(200);
     expect(root.res.headers.get("content-type")).toContain("text/html");
-    expect(root.text).toBe(home);
+    // SEO layer (seoPages.ts) adds the H1 and copy; the home preview tags are unchanged.
     expect(root.text).toContain('og:url" content="https://packpts.com/"');
+    expect(root.text).toContain('<h1>');
     expect(root.text).toContain("https://packpts.com/og-image.png");
     expect(root.text).not.toContain(IMAGE);
 
@@ -213,9 +214,10 @@ describe("served /daily HTML and preview image", () => {
     expectDailyTagsOnce(daily.text);
 
     const solo = await read("/game/solo");
-    expect(solo.text).toBe(home);
+    expect(solo.text).toContain('<meta name="robots" content="noindex" />');
+    expect(solo.text).toContain("https://packpts.com/og-image.png");
     const daily5 = await read("/daily5");
-    expect(daily5.text).toBe(home);
+    expect(daily5.text).toContain('<link rel="canonical" href="https://packpts.com/daily" />');
   });
 
   it("keeps /daily tags for a trailing slash and for query strings", async () => {

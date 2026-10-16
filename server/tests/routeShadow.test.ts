@@ -72,7 +72,7 @@ describe("server routes are not shadowed by the SPA", () => {
   const routes = listNonApiServerRoutes();
   const dir = mkdtempSync(path.join(tmpdir(), "packpts-shadow-"));
   const sentinel = "PACKPTS_INDEX_SENTINEL";
-  writeFileSync(path.join(dir, "index.html"), `<!doctype html><title>${sentinel}</title>`);
+  writeFileSync(path.join(dir, "index.html"), `<!doctype html><title>PackPTS</title><body>${sentinel}</body>`);
 
   const app = express();
   registerVersionRoute(app);

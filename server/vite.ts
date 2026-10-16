@@ -5,7 +5,7 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
-import { decorateSpaIndexHtml } from "./lib/spaIndexHtml";
+import { decorateSpaIndexPage } from "./lib/spaIndexHtml";
 
 const viteLogger = createLogger();
 
@@ -50,8 +50,8 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      const html = await decorateSpaIndexHtml(page, url);
-      res.status(200).set({ "Content-Type": "text/html" }).end(html);
+      const { html, status } = await decorateSpaIndexPage(page, url);
+      res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);

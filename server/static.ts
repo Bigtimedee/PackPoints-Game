@@ -1,7 +1,7 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import fs from "fs";
 import path from "path";
-import { decorateSpaIndexHtml } from "./lib/spaIndexHtml";
+import { decorateSpaIndexPage } from "./lib/spaIndexHtml";
 import { ASSET_CACHE_CONTROL, sendNoStoreBody, stripConditionalValidators } from "./lib/noStoreResponse";
 import { assetNotFoundLine, isAssetNotFound } from "./lib/httpErrorLog";
 import { isViteHashedAsset } from "./lib/viteHashedAsset";
@@ -15,9 +15,9 @@ function logVisit(req: Request, res: Response): void {
   try { visitLogger?.(req, res); } catch { /* never break a page load */ }
 }
 
-async function readSpaHtml(htmlPath: string, url: string): Promise<string> {
+async function readSpaHtml(htmlPath: string, url: string): Promise<{ html: string; status: number }> {
   const raw = await fs.promises.readFile(htmlPath, "utf8");
-  return decorateSpaIndexHtml(raw, url);
+  return decorateSpaIndexPage(raw, url);
 }
 
 function sendSpaHtml(req: Request, res: Response, next: NextFunction, htmlPath: string): void {
@@ -25,9 +25,10 @@ function sendSpaHtml(req: Request, res: Response, next: NextFunction, htmlPath: 
   // GTM funnel: server-side landing visit with UTM (sets the pp_vid cookie). Never throws.
   if (isSchemaReady() && req.method === "GET") logVisit(req, res);
   readSpaHtml(htmlPath, req.originalUrl)
-    .then((html) => {
+    .then(({ html, status }) => {
       if (res.headersSent) return;
-      sendNoStoreBody(req, res, html, "text/html; charset=utf-8");
+      // Unknown routes and unknown set ids: real 404, same SPA (its not-found UI renders).
+      sendNoStoreBody(req, res, html, "text/html; charset=utf-8", status);
     })
     .catch(next);
 }
