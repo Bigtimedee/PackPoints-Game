@@ -11,6 +11,19 @@
  * renders every page and fails on any live-pool or blocked-pool surname.
  */
 import { isKnownSpaRoute } from "@shared/spaRoutes";
+import { isMaskedSetCoverUrl, setCoverSrcSet, setCoverVariantUrl, SET_COVER_SIZES } from "@shared/setCoverUrl";
+
+/** Preload the first /sets row's masked covers with the same srcset/sizes the <img> uses. */
+export function firstRowCoverPreloads(sets: SeoSet[]): string[] {
+  const first = sets[0];
+  const urls = first?.coverUrls ?? [];
+  if (!urls.length || !urls.every(isMaskedSetCoverUrl)) return [];
+  const versions = first.coverVersions && first.coverVersions.length === urls.length ? first.coverVersions : undefined;
+  return urls.map((u, i) => {
+    const v = versions?.[i];
+    return `<link rel="preload" as="image" href="${setCoverVariantUrl(u, 240, v)}" imagesrcset="${setCoverSrcSet(u, v)}" imagesizes="${SET_COVER_SIZES}" fetchpriority="high" />`;
+  });
+}
 import { SPA_ROUTE_META } from "./routeOg";
 import { renderSeoKitMain, replaceJsonLd, applyLiveCardCount, type SeoKitPage } from "./playSetsHtml";
 import coreKit from "../../docs/seo/content/core-pages.json";
@@ -37,7 +50,7 @@ export const HOME_TITLE = "PackPTS: Name the Player Sports Card Game | Earn Poin
 export const HOME_DESCRIPTION =
   "Name the player on real sports cards with the name masked. Play the free Daily 5, explore classic sets, and earn points for eBay rebates.";
 
-export interface SeoSet { id: string; setName: string; year: number | null; brand: string | null; sport: string | null; cardCount: number; slug: string }
+export interface SeoSet { id: string; setName: string; year: number | null; brand: string | null; sport: string | null; cardCount: number; slug: string; coverUrls?: string[]; coverVersions?: string[] }
 export interface SeoDeps {
   listSets: () => Promise<SeoSet[]>;
   /** null when the id or slug is not a live public set. "custom" for a live user-made set (never rendered: its name is user text). */
@@ -55,6 +68,8 @@ export interface SeoPage {
   body?: string;
   /** Full <main> inner HTML from the kit (h1 included). Wins over h1/body. */
   main?: string;
+  /** <link rel="preload"> tags for the LCP images. */
+  preload?: string[];
   /** JSON-LD @graph replacing the shell's JSON-LD. */
   jsonld?: Record<string, unknown>;
 }
@@ -214,7 +229,14 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
   if (path === "/daily5") return redirect("/daily");
   const corePath = path;
   const core = KIT_CORE_BY_PATH.get(corePath);
-  if (core) return kitPage(core);
+  if (core) {
+    const page = kitPage(core);
+    if (corePath === "/sets") {
+      // The index data the page fetches on mount, then the first row's covers.
+      page.preload = [`<link rel="preload" as="fetch" href="/api/sets?limit=50" crossorigin="anonymous" />`, ...firstRowCoverPreloads(sets)];
+    }
+    return page;
+  }
   if (path === "/") return homePage(sets);
   if (path === "/daily" || path === "/daily5") return dailyPage(sets);
   if (path === "/how-to-play") return howToPlayPage(sets);
@@ -268,6 +290,7 @@ export function renderSeoHtml(html: string, page: SeoPage): string {
   }
   if (page.noindex) next = setHeadTag(next, /<meta\s+name="robots"\s+content="[^"]*"\s*\/?>/i, `<meta name="robots" content="noindex" />`);
   if (page.jsonld) next = replaceJsonLd(next, page.jsonld);
+  if (page.preload?.length) next = next.replace(/<\/head>/i, `    ${page.preload.join("\n    ")}\n  </head>`);
   if (page.h1 || page.main) {
     const inner = page.main ?? `<h1>${esc(page.h1 ?? "")}</h1>${page.body ?? ""}`;
     const block = `<main id="seo-content" style="max-width:720px;margin:0 auto;padding:24px 16px;font-family:system-ui,sans-serif;color:hsl(220 10% 75%);line-height:1.5">${inner}</main>`;

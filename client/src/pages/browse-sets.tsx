@@ -26,6 +26,7 @@ export interface BrowseSet {
   createdAt: string | null;
   shareImageUrl?: string | null;
   coverCardUrls?: string[];
+  coverVersions?: string[];
 }
 
 function MaskedPMark({ size = 22 }: { size?: number }) {
@@ -69,10 +70,11 @@ function PlayButton({
   );
 }
 
-function SetRow({ set, coversDisabled, eagerCover = false }: { set: BrowseSet; coversDisabled: boolean; eagerCover?: boolean }) {
+function SetRow({ set, coversDisabled, eagerCover = false, priorityCover = false }: { set: BrowseSet; coversDisabled: boolean; eagerCover?: boolean; priorityCover?: boolean }) {
   const title = formatIndexSetTitle({ id: set.id, setName: set.setName, brand: set.brand });
   const yearLabel = displaySetYearLabel(set.id, set.year);
   const coverUrls = sanitizeCoverCardUrls(set.coverCardUrls);
+  const coverVersions = Array.isArray(set.coverVersions) && set.coverVersions.length === coverUrls.length && coverUrls.length === (set.coverCardUrls?.length ?? 0) ? set.coverVersions : undefined;
   const showCovers = !coversDisabled && coverUrls.length > 0;
   return (
     <article
@@ -82,7 +84,7 @@ function SetRow({ set, coversDisabled, eagerCover = false }: { set: BrowseSet; c
       <Link href={`/sets/${set.id}`} className="block space-y-3">
         {showCovers ? (
           <LazyMount minHeight={220} eager={eagerCover}>
-            <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} />
+            <SetCover shareImageUrl={set.shareImageUrl} cardUrls={coverUrls} versions={coverVersions} loading={eagerCover ? "eager" : "lazy"} priority={priorityCover} />
           </LazyMount>
         ) : null}
         <div className="space-y-1">
@@ -168,7 +170,7 @@ export function BrowseSetsShelf({
         ) : (
           <div className="space-y-10">
             {sets.map((set, index) => (
-              <SetRow key={set.id} set={set} coversDisabled={coversDisabled} eagerCover={index < 2} />
+              <SetRow key={set.id} set={set} coversDisabled={coversDisabled} eagerCover={index < 2} priorityCover={index === 0} />
             ))}
           </div>
         )}

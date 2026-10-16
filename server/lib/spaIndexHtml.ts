@@ -16,7 +16,7 @@ async function listSeoSets(): Promise<SeoSet[]> {
   const rows = await listIntegratedPublicSets({ limit: 200, offset: 0 });
   const sets = rows.map((r: any) => {
     const setName = applySetDisplayTitle(r.id, r.setName);
-    return { id: r.id, setName, year: r.year ?? null, brand: r.brand ?? null, sport: r.sport ?? null, cardCount: Number(r.cardCount) || 0, slug: setShareSlug(setName, r.id) };
+    return { id: r.id, setName, year: r.year ?? null, brand: r.brand ?? null, sport: r.sport ?? null, cardCount: Number(r.cardCount) || 0, slug: setShareSlug(setName, r.id), coverUrls: r.coverCardUrls ?? [], coverVersions: r.coverVersions };
   });
   setsCache = { at: Date.now(), sets };
   return sets;

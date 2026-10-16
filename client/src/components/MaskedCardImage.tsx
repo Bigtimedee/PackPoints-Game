@@ -24,6 +24,11 @@ interface MaskedCardImageProps {
   maskColor?: string;
   /** Fanned thumbs pass `bar` so the plaque is a solid seam and no label. */
   plaqueChrome?: PlaqueChrome;
+  srcSet?: string;
+  sizes?: string;
+  loading?: "eager" | "lazy";
+  /** LCP image: fetchpriority="high". */
+  priority?: boolean;
 }
 
 export function MaskedCardImage({
@@ -35,6 +40,10 @@ export function MaskedCardImage({
   onImageLoad,
   onImageError,
   plaqueChrome = "full",
+  srcSet,
+  sizes,
+  loading,
+  priority = false,
 }: MaskedCardImageProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -116,6 +125,13 @@ export function MaskedCardImage({
 
       <img
         src={src}
+        srcSet={srcSet}
+        sizes={sizes}
+        loading={loading}
+        decoding="async"
+        {...(priority ? { fetchpriority: "high" } : {})}
+        width={250}
+        height={350}
         alt={alt}
         className="w-full h-full object-contain pointer-events-none"
         style={{
