@@ -5,16 +5,31 @@
 export interface SetDisplayOverride {
   title: string;
   yearLabel: string;
+  /** Numeric year for APIs and JSON-LD (season start year). */
+  year?: number;
 }
 
 export const CHROME_BASKETBALL_2024_SET_ID = "229f0379-aa56-40a8-abe3-1af217a397e8";
+
+export const TOPPS_BASEBALL_1989_SET_ID = "352b33d1-c110-4e09-b641-8e3c02a94442";
+export const TOPPS_BASEBALL_1987_SET_ID = "37fd025d-2ae1-4c92-b8ad-133375d0c722";
 
 export const SET_DISPLAY_OVERRIDES: Readonly<Record<string, SetDisplayOverride>> = {
   [CHROME_BASKETBALL_2024_SET_ID]: {
     title: "2024-25 Topps Chrome Basketball",
     yearLabel: "2024-25",
+    year: 2024,
   },
+  // Sport in the name and slug (Design SEO QA Oct 15). Old slugs 301 to the new ones.
+  [TOPPS_BASEBALL_1989_SET_ID]: { title: "1989 Topps Baseball", yearLabel: "1989", year: 1989 },
+  [TOPPS_BASEBALL_1987_SET_ID]: { title: "1987 Topps Baseball", yearLabel: "1987", year: 1987 },
 };
+
+/** Numeric year: override wins, else the stored year. */
+export function applySetYear(setId: string | null | undefined, year: number | null | undefined): number | null | undefined {
+  const override = setDisplayOverride(setId);
+  return override?.year ?? year;
+}
 
 export function setDisplayOverride(setId: string | null | undefined): SetDisplayOverride | null {
   if (!setId) return null;

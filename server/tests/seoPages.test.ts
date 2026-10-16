@@ -14,7 +14,7 @@ const setRows = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/seoSet
 const SETS: SeoSet[] = setRows.map((s) => ({ ...s, slug: setShareSlug(s.setName, s.id) }));
 const deps = {
   listSets: async () => SETS,
-  resolveSet: async (ref: string) => SETS.find((s) => s.slug === ref || s.id === ref) ?? null,
+  resolveSet: async (ref: string) => SETS.find((s) => s.slug === ref || s.id === ref || ref.endsWith("-" + s.id.slice(0, 8))) ?? null,
 };
 
 const SALT = "packpts-seo-v1:";
@@ -56,7 +56,7 @@ function surnameHits(html: string): string[] {
   return [...hits];
 }
 
-const SEO_URLS = ["/", "/daily", "/daily5", "/sets", "/how-to-play", "/points", ...SETS.map((s) => `/sets/${s.slug}`)];
+const SEO_URLS = ["/", "/daily", "/sets", "/how-to-play", "/points", ...SETS.map((s) => `/sets/${s.slug}`)];
 
 describe("SEO pages", () => {
   it("fixtures are real snapshots", () => {
@@ -170,5 +170,21 @@ describe("SEO pages", () => {
     const renamed: SeoSet = { ...base, setName: "Renamed Set", slug: setShareSlug("Renamed Set", base.id) };
     const page = await resolveSeoPage(`/sets/${renamed.slug}`, { listSets: async () => SETS, resolveSet: async () => renamed });
     expect(page.canonical).toBe(`https://packpts.com/sets/${renamed.slug}`);
+  });
+  it("/daily5 and renamed set slugs 301 to the canonical URL, keeping the query", async () => {
+    expect(await resolveSeoPage("/daily5?ref=abc", deps)).toMatchObject({ status: 301, location: "/daily?ref=abc" });
+    const old = await resolveSeoPage("/sets/1989-topps-352b33d1", deps);
+    expect(old).toMatchObject({ status: 301, location: "/sets/1989-topps-baseball-352b33d1" });
+    expect(await resolveSeoPage("/sets/1987-topps-37fd025d", deps)).toMatchObject({ status: 301, location: "/sets/1987-topps-baseball-37fd025d" });
+    expect((await resolveSeoPage("/sets/1989-topps-baseball-352b33d1", deps)).status).toBe(200);
+    expect((await resolveSeoPage("/sets/352b33d1-c110-4e09-b641-8e3c02a94442", deps)).status).toBe(200);
+  });
+
+  it("kit set paths match the live slugs", () => {
+    const kit = JSON.parse(fs.readFileSync(path.join(root, "docs/seo/content/set-pages.json"), "utf8")).sets;
+    for (const k of kit) {
+      const s = SETS.find((x) => x.id === k.setId);
+      if (s) expect(k.path).toBe(`/sets/${s.slug}`);
+    }
   });
 });

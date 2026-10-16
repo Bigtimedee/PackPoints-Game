@@ -44,7 +44,9 @@ export interface SeoDeps {
   resolveSet: (idOrSlug: string) => Promise<SeoSet | "custom" | null>;
 }
 export interface SeoPage {
-  status: 200 | 404;
+  status: 200 | 301 | 404;
+  /** Redirect target (path plus query) when status is 301. */
+  location?: string;
   title: string;
   description: string;
   canonical: string | null;
@@ -207,7 +209,10 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
   const path = pathOf(url);
   if (!isKnownSpaRoute(path)) return NOT_FOUND_PAGE;
   const sets = await deps.listSets().catch(() => [] as SeoSet[]);
-  const corePath = path === "/daily5" ? "/daily" : path;
+  const query = (url || "").includes("?") ? `?${(url.split("?")[1] || "").split("#")[0]}` : "";
+  const redirect = (to: string): SeoPage => ({ ...NOT_FOUND_PAGE, status: 301, noindex: true, location: `${to}${query === "?" ? "" : query}` });
+  if (path === "/daily5") return redirect("/daily");
+  const corePath = path;
   const core = KIT_CORE_BY_PATH.get(corePath);
   if (core) return kitPage(core);
   if (path === "/") return homePage(sets);
@@ -228,6 +233,10 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
       return { status: 200, title: "Custom card set | PackPTS", description: "A custom name the player card set on PackPTS.", canonical: `${ORIGIN}${path}`, noindex: true };
     }
     if (!set) return NOT_FOUND_PAGE;
+    // A renamed set's old slug (shared on X) 301s to the live slug. Bare ids stay 200 (in-app links).
+    const ref = decodeURIComponent(m[1]).toLowerCase();
+    const isId = /^[0-9a-f]{8}(-?[0-9a-f]{4}){3}-?[0-9a-f]{12}$/.test(ref);
+    if (!isId && ref !== set.slug) return redirect(`/sets/${set.slug}`);
     const kit = KIT_SET_BY_ID.get(String(set.id));
     return kit ? kitPage(kit, set.cardCount, `/sets/${set.slug}`) : setPage(set, sets);
   }
