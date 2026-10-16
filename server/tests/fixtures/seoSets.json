@@ -1,0 +1,98 @@
+[
+ {
+  "id": "2b77043a-6583-4d79-b59d-d2ab20291a17",
+  "setName": "1986 Topps Baseball",
+  "year": 1986,
+  "brand": "Topps",
+  "sport": "baseball",
+  "cardCount": 407
+ },
+ {
+  "id": "3235b4fd-858a-424b-b9df-6f0f2d070d1b",
+  "setName": "1995 Upper Deck Basketball",
+  "year": 1995,
+  "brand": "Upper Deck",
+  "sport": "basketball",
+  "cardCount": 70
+ },
+ {
+  "id": "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
+  "setName": "1988 Topps Baseball",
+  "year": 1988,
+  "brand": "Topps",
+  "sport": "baseball",
+  "cardCount": 490
+ },
+ {
+  "id": "3ff8de8d-d6f3-4e3a-bd46-1eadb0c787e4",
+  "setName": "1987 Donruss Baseball",
+  "year": 1987,
+  "brand": "Donruss",
+  "sport": "baseball",
+  "cardCount": 261
+ },
+ {
+  "id": "d226801a-da94-47f6-a09a-3735def60b2d",
+  "setName": "1990 Hoops Basketball",
+  "year": 1990,
+  "brand": "Hoops",
+  "sport": "basketball",
+  "cardCount": 113
+ },
+ {
+  "id": "74885a41-2043-4b7c-ab58-f9e16c05e2e3",
+  "setName": "2022 Panini Chronicles Football",
+  "year": 2022,
+  "brand": "Panini",
+  "sport": "football",
+  "cardCount": 397
+ },
+ {
+  "id": "91cfdf3f-a620-4e73-adc8-22b8df221716",
+  "setName": "1987 Topps Football",
+  "year": 1987,
+  "brand": "Topps",
+  "sport": "football",
+  "cardCount": 39
+ },
+ {
+  "id": "aea515e2-24bc-42bd-a602-1514b89e8cd1",
+  "setName": "1989 Fleer Basketball",
+  "year": 1989,
+  "brand": "Fleer",
+  "sport": "basketball",
+  "cardCount": 58
+ },
+ {
+  "id": "a09b2fe7-728e-431b-9df8-bbf2652aa3b2",
+  "setName": "1994 Topps Football",
+  "year": 1994,
+  "brand": "Topps",
+  "sport": "football",
+  "cardCount": 306
+ },
+ {
+  "id": "229f0379-aa56-40a8-abe3-1af217a397e8",
+  "setName": "2024 Basketball",
+  "year": 2025,
+  "brand": "Topps",
+  "sport": "basketball",
+  "cardCount": 690
+ },
+ {
+  "id": "352b33d1-c110-4e09-b641-8e3c02a94442",
+  "setName": "1989 Topps",
+  "year": 1989,
+  "brand": "Topps",
+  "sport": "baseball",
+  "cardCount": 297
+ },
+ {
+  "id": "37fd025d-2ae1-4c92-b8ad-133375d0c722",
+  "setName": "1987 Topps",
+  "year": 1987,
+  "brand": "Topps",
+  "sport": "baseball",
+  "cardCount": 502
+ }
+]
