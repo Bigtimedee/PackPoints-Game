@@ -1,0 +1,259 @@
+# /
+
+- Title: PackPTS: Name the Player Sports Card Game | Earn Points (55 chars)
+- Description: Name the player on real sports cards with the name masked. Play the free Daily 5, explore classic sets, and earn points for eBay rebates. (137 chars)
+- H1: Name the Player on Classic Sports Cards
+
+**Opening:** PackPTS is a free sports card game where you see a real trading card with the name masked and pick the player from four choices.
+
+Remember sorting a fresh rack pack on the living room floor, calling out every face before you flipped the card over? PackPTS is that feeling, any time you want it.
+
+Each round deals a real card from a set collectors love, from the wood grain borders of the late eighties to sharp modern chrome. The name is covered. The photo, the uniform, the pose and the design are all yours to read. Pick the right player from four choices and you earn points.
+
+Start with the Daily 5: the same five cards for everyone, new every day, so you can compare scores with your friends and the rest of the hobby. Want more? Open a set and play as much as you like, from 1986 Topps Baseball to 1990 Hoops to 2022 Panini Chronicles Football.
+
+Your points do real work. They are redeemable for eBay rebates now, so the time you spend sharpening your eye can help you add the next card to your own collection.
+
+Every card in PackPTS comes from a real, licensed set, scanned and checked by our team. Players never create cards, and every mask is reviewed by hand so the game stays fair for everyone.
+
+Free to play in your browser, no download needed. Deal yourself in.
+
+## FAQ
+**How does PackPTS work?**
+We deal a real trading card with the player's name masked. You pick the player from four choices, and every right answer earns points.
+
+**Is PackPTS free?**
+Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download.
+
+**What is the Daily 5?**
+The Daily 5 is five cards, the same for every player, refreshed once a day. It is the quickest way to play and compare scores.
+
+**What can I do with points?**
+Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate equals the commission eBay confirms on that sale.
+
+**Where do the cards come from?**
+Every card is a real, licensed trading card from a classic or modern set that our team scans, checks and masks by hand. Players never create cards.
+
+## Links
+- [Play the Daily 5](/daily)
+- [Browse all sets](/sets)
+- [How to play](/how-to-play)
+- [How points work](/points)
+- [About PackPTS](/about)
+
+---
+
+# /daily
+
+- Title: Daily 5: A Daily Sports Card Guessing Game | PackPTS (52 chars)
+- Description: Five real sports cards, names masked, the same for everyone and new every day. Name the players, keep your streak, and earn points. Free. (137 chars)
+- H1: Daily 5: Five Cards. Name Them.
+
+**Opening:** The Daily 5 is a free daily sports card game: five real cards with the names masked, the same five for everyone, and a new hand every day.
+
+If you love a daily puzzle, you will feel right at home here, only our letters are cardboard.
+
+Every day we deal one hand of five real trading cards. The names are masked, and you pick each player from four choices. Everyone in the hobby gets the same five, so when you share your score, your friends are playing the exact hand you played.
+
+The cards come from sets collectors grew up with: Topps, Donruss, Fleer, Upper Deck, Hoops and Panini, across baseball, basketball and football. One day might lean on the junk wax era, the next on a modern football set. Reading the clues is half the fun. Look at the uniform, the border, the photo style and the stance, and trust your gut.
+
+Each right answer earns points, and points are redeemable for eBay rebates now. Come back tomorrow and keep your streak alive.
+
+Finished your hand and want more? Every set in PackPTS is open for free play, as many rounds as you like.
+
+## FAQ
+**When does the Daily 5 change?**
+A new hand is dealt once a day. Everyone plays the same five cards that day.
+
+**Is the Daily 5 like Wordle?**
+It has the same daily rhythm and shared puzzle, but with real sports cards: you name the masked player on each card from four choices.
+
+**Do I need an account?**
+You can start playing right away. Signing in saves your points and streak.
+
+**What can I do with points?**
+Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate equals the commission eBay confirms on that sale.
+
+**Is PackPTS free?**
+Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download.
+
+## Links
+- [Play more sets](/sets)
+- [How to play](/how-to-play)
+- [How points work](/points)
+- [Home](/)
+
+---
+
+# /sets
+
+- Title: Sports Card Sets to Play: Baseball, Basketball, Football (56 chars)
+- Description: Play classic and modern card sets on PackPTS: 1986 Topps, 1988 Topps, 1987 Donruss, 1990 Hoops, 1995 Upper Deck and more. Free to play. (135 chars)
+- H1: Play Your Favorite Card Sets
+
+**Opening:** PackPTS lets you play full trading card sets one card at a time: pick a set, see a real card with the name masked, and name the player.
+
+Every collector has a set that takes them straight back. Maybe it is the wood grain of 1987 Topps, the dark ebony borders of 1987 Donruss, or the full bleed photos of 1995 Upper Deck. Here you can play the set you remember, card by card.
+
+Each set page deals real cards from that release with the name masked. Pick the player from four choices and earn points as you go. Play one round over coffee or work through a few hundred cards on a slow Sunday.
+
+We cover baseball, basketball and football, from the overproduced and much loved junk wax era to modern releases. Every set is scanned and reviewed by our team, and every mask is checked by hand before a set goes live. Players never create cards.
+
+New sets join the shelf as they pass review, so check back often and see which old favorite has been added to the rotation.
+
+## FAQ
+**Which sets can I play?**
+All public sets are listed on this page, across baseball, basketball and football, from the mid eighties to modern releases.
+
+**How many cards are in each set?**
+Each set page lists how many cards are in its playable pool. Some sets have a few dozen, others several hundred.
+
+**What is the junk wax era?**
+The junk wax era is the late eighties and early nineties, when card makers printed huge runs. Those sets are cheap to collect and full of nostalgia.
+
+**Where do the cards come from?**
+Every card is a real, licensed trading card from a classic or modern set that our team scans, checks and masks by hand. Players never create cards.
+
+**Is PackPTS free?**
+Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download.
+
+## Links
+- [Play the Daily 5](/daily)
+- [How to play](/how-to-play)
+- [How points work](/points)
+
+---
+
+# /points
+
+- Title: How PackPTS Points and eBay Rebates Work (40 chars)
+- Description: Earn points for every player you name on PackPTS. Points are redeemable for eBay rebates now. Here is how earning, holds and rebates work. (138 chars)
+- H1: How Points and eBay Rebates Work
+
+**Opening:** You earn PackPTS points by naming players correctly, and points are redeemable for eBay rebates now when you buy cards on eBay through PackPTS.
+
+We built PackPTS for people who love cards, so it felt right that playing should help you find your next one.
+
+Earning points. Every right answer in the Daily 5 or a set game earns points. They collect in your wallet, which visible at the top of the app after a game ends.
+
+Using points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate equals the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.
+
+The hold. Rebates are held for 60 days, which covers eBay's return window. If eBay marks a sale final sooner, the rebate can release earlier. If an item is returned, the held rebate is removed.
+
+Limits. Daily and weekly limits per player keep the program fair for everyone.
+
+Listings display an estimate of what you could get back. The final rebate is always what eBay confirms. We never promise a set amount, and we will always tell you exactly what was credited.
+
+## FAQ
+**What can I do with points?**
+Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate equals the commission eBay confirms on that sale.
+
+**How do I earn points?**
+Name the masked player correctly in the Daily 5 or any set game. Each right answer adds points to your wallet.
+
+**Why is there a hold on rebates?**
+eBay purchases can be returned, so rebates are held for 60 days, or released sooner when eBay marks a sale final.
+
+**What happens if I return an item?**
+The rebate held for that sale is removed.
+
+**Do points expire?**
+Check your wallet for current details. We will always tell you before anything about your points changes.
+
+## Links
+- [Play the Daily 5](/daily)
+- [Browse sets](/sets)
+- [How to play](/how-to-play)
+
+---
+
+# /how-to-play
+
+- Title: How to Play PackPTS: Guess the Player on Sports Cards (53 chars)
+- Description: How PackPTS works: see a real sports card with the name masked, pick the player from four choices, earn points. Rules, tips and FAQ. (132 chars)
+- H1: How to Play PackPTS
+
+**Opening:** To play PackPTS, look at a real sports card with the player's name masked, then choose the right player from four options to earn points.
+
+It takes ten seconds to learn and a lifetime of flipping through binders to master.
+
+1. Pick a game. Play the Daily 5, the same five cards for everyone each day, or open any set and play freely.
+
+2. Read the card. The name is masked, but everything else is real: the photo, the uniform, the team colors, the border and the design. Card collectors read these clues without thinking.
+
+3. Choose from four. Tap the player you think it is. Right answers earn points.
+
+4. See the reveal. After you answer, the card is revealed so you learn something every round.
+
+Tips from the hobby. Start with the team. Uniforms and logos narrow it fast. Then think about the era: the set design tells you the year, and the year tells you who was on the roster. Position helps too. A catcher's gear or a quarterback's stance is a giveaway.
+
+Fair play. Every mask is checked by hand, and the answer choices for a card stay the same however many times you load it. Players never create cards; every card comes from a real set reviewed by our team.
+
+Like Wordle, but with cardboard: one shared daily puzzle, plus all the free play you want.
+
+## FAQ
+**How does PackPTS work?**
+We deal a real trading card with the player's name masked. You pick the player from four choices, and every right answer earns points.
+
+**How many choices do I get?**
+Each card has four choices and one of them is right.
+
+**Is it like Wordle for sports?**
+Yes in spirit. The Daily 5 is one shared puzzle each day, and you can play full sets any time.
+
+**What sports are included?**
+Baseball, basketball and football, across classic and modern sets.
+
+**Is PackPTS free?**
+Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download.
+
+**Where do the cards come from?**
+Every card is a real, licensed trading card from a classic or modern set that our team scans, checks and masks by hand. Players never create cards.
+
+## Links
+- [Play the Daily 5](/daily)
+- [Browse sets](/sets)
+- [How points work](/points)
+- [About PackPTS](/about)
+
+---
+
+# /about
+
+- Title: About PackPTS: A Sports Card Game Built by Collectors (53 chars)
+- Description: PackPTS is a free sports card guessing game built by collectors. Learn who we are, how we pick and mask cards, and how to reach us. (131 chars)
+- H1: About PackPTS
+
+**Opening:** PackPTS is a free, web based sports card game built by collectors, where you name the player on real trading cards and earn points for eBay rebates.
+
+PackPTS started at a kitchen table covered in cards. Founder Dave Maloney grew up opening wax packs and sorting commons into shoeboxes, and he wanted a way to bring that feeling back: the instant recognition of a face, a uniform, a set design you have not seen in years.
+
+So we built a game around it. We deal real cards from sets collectors love, mask the name, and let you prove what you know. Every right answer earns points, and points are redeemable for eBay rebates now, so the game feeds the hobby instead of pulling you away from it.
+
+How we handle cards. Every set is scanned and reviewed by our team before it goes live. Every name mask is checked by hand, and we hold back any card that does not meet the bar, whether it is a stamped promo, a framed scan or a mismatched photo. Players never create cards.
+
+Fair play matters to us. Answer choices stay fixed for each card, and nothing in our pages gives away a card in play.
+
+Questions, ideas or a set you want to see? Email us at support@packpts.com. We read every message.
+
+## FAQ
+**Who makes PackPTS?**
+PackPTS is built by a small team of collectors led by founder Dave Maloney.
+
+**Where do the cards come from?**
+Every card is a real, licensed trading card from a classic or modern set that our team scans, checks and masks by hand. Players never create cards.
+
+**How do you keep the game fair?**
+Every mask is reviewed by hand, answer choices stay fixed for each card, and our pages never reveal cards in play.
+
+**How can I contact you?**
+Email support@packpts.com.
+
+**Is PackPTS free?**
+Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download.
+
+## Links
+- [Play the Daily 5](/daily)
+- [Browse sets](/sets)
+- [How to play](/how-to-play)
+- [How points work](/points)
