@@ -136,20 +136,23 @@ NOTES={
 "1987 Topps Football":("Clean bright borders with team colors, from the classic Topps football run of the eighties.","The mid eighties"),
 "1989 Fleer Basketball":("Bright borders with colorful striping, a favorite of late eighties hoops collectors.","The junk wax era"),
 "1994 Topps Football":("Glossy nineties photography with a modern feel, from the era when football cards went premium.","The nineties"),
-"2024 Basketball":("A modern Topps basketball release with sharp, current era photography.","The modern era"),
+"2024-25 Topps Chrome Basketball":("Topps Chrome's signature chromium finish with a bright, glossy shine and sharp modern photography.","The modern era"),
 "1989 Topps":("Bright borders with a curved color ribbon along the bottom, one of the most familiar baseball designs ever printed.","The heart of the junk wax era"),
 "1987 Topps":("The famous wood grain borders, a nod to the classic 1962 design and an all time collector favorite.","The early junk wax era"),
 }
+# live names that differ from /api/sets (id -> fields); 229f0379 renamed live Oct 15, 2026
+OVERRIDES={"229f0379-aa56-40a8-abe3-1af217a397e8":{"setName":"2024-25 Topps Chrome Basketball","brand":"Topps","year":"2024-25"}}
 def slug(n): return n.lower().replace(" ","-")
 sets=json.load(open(OUT+"/_live_sets_snapshot.json"))["sets"]
 setpages=[]
 for s in sets:
     if s.get("isUserCreated"): continue
+    ov=OVERRIDES.get(s["id"],{}); s={**s,**ov}
     n=s["setName"]; sport=s["sport"]; disp=n if sport in n.lower() else f"{n} {sport.title()}"
     design,era=NOTES[n]; path=f"/sets/{slug(n)}-{s['id'][:8]}"; cnt=s["cardCount"]
     qs=[(f"What is the {disp} game?",f"It is a free PackPTS game that deals real {disp} cards with the player's name masked. You pick the player from four choices."),
         (f"How many {disp} cards can I play?",f"The PackPTS pool for {disp} has {cnt} playable cards, each scanned and checked by our team."),
-        (f"What year is {disp}?",f"The set is listed as {s['year']}, from {era.lower()}."),
+        (f"What year is {disp}?",(f"It is from the {s['year']} season, {era.lower()}." if "-" in str(s['year']) else f"The set is listed as {s['year']}, from {era.lower()}.")),
         (f"Who made {disp}?",f"{s['brand']} produced this set."),
         (f"Where can I find a full {disp} checklist?","We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists.")]
     p=dict(path=path,setId=s["id"],

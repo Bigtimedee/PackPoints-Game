@@ -35,9 +35,23 @@ for n in names:
 if len(sur)<200: print(f"FAIL: pool too small ({len(sur)} surnames)"); sys.exit(1)
 fails=[]
 for f in sorted(glob.glob(os.path.join(a.kit,"**/*"),recursive=True)):
-    if not f.endswith((".json",".md")) or "_live_sets_snapshot" in f: continue
+    if not f.endswith((".json",".md",".html")) or "_live_sets_snapshot" in f: continue
     t=open(f,encoding="utf-8").read(); low=t.lower()
-    if f.endswith(".json"):  # scan values only; schema.org keys like "price" are not copy
+    if f.endswith(".html"):  # visible text + meta content + JSON-LD; skip JS/CSS
+        import html as _h
+        _v=[]
+        def _w(x):
+            if isinstance(x,dict): [_w(y) for y in x.values()]
+            elif isinstance(x,list): [_w(y) for y in x]
+            elif isinstance(x,str): _v.append(x)
+        for blk in re.findall(r'<script type="application/ld\+json"[^>]*>(.*?)</script>',t,re.S):
+            try: _w(json.loads(blk))
+            except Exception: _v.append(blk)
+        ld=" ".join(_v)
+        meta=" ".join(re.findall(r'content="([^"]*)"',t))+" "+" ".join(re.findall(r'alt="([^"]*)"',t))
+        body=re.sub(r"<script.*?</script>|<style.*?</style>|<!--.*?-->","",t,flags=re.S)
+        low=_h.unescape(re.sub("<[^>]+>"," ",body)+" "+meta+" "+ld).lower(); t=low
+    elif f.endswith(".json"):  # scan values only; schema.org keys like "price" are not copy
         vals=[]; 
         def v(x):
             if isinstance(x,dict): [v(y) for y in x.values()]
