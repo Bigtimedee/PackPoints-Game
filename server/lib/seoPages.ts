@@ -22,10 +22,12 @@ export const KIT_SETS: SeoKitPage[] = (setKit as unknown as { sets: SeoKitPage[]
 const KIT_CORE_BY_PATH = new Map(KIT_CORE.map((k) => [k.path, k]));
 const KIT_SET_BY_ID = new Map(KIT_SETS.filter((k) => k.setId).map((k) => [String(k.setId), k]));
 
-function kitPage(k: SeoKitPage, cardCount?: number): SeoPage {
+function kitPage(k: SeoKitPage, cardCount?: number, livePath?: string): SeoPage {
   const page = typeof cardCount === "number" ? applyLiveCardCount(k, cardCount) : k;
+  // Set pages canonicalize to the live slug (the one in sitemap.xml), even if the set was renamed after the kit snapshot.
+  const canonPath = livePath ?? page.path;
   return {
-    status: 200, title: page.title, description: page.description, canonical: `${ORIGIN}${page.path === "/" ? "/" : page.path}`,
+    status: 200, title: page.title, description: page.description, canonical: `${ORIGIN}${canonPath === "/" ? "/" : canonPath}`,
     noindex: false, h1: page.h1, main: renderSeoKitMain(page), jsonld: page.jsonld,
   };
 }
@@ -227,7 +229,7 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
     }
     if (!set) return NOT_FOUND_PAGE;
     const kit = KIT_SET_BY_ID.get(String(set.id));
-    return kit ? kitPage(kit, set.cardCount) : setPage(set, sets);
+    return kit ? kitPage(kit, set.cardCount, `/sets/${set.slug}`) : setPage(set, sets);
   }
   const meta = STATIC_META[path];
   const noindex = NOINDEX_PREFIXES.some((pre) => path === pre || path.startsWith(pre.endsWith("/") ? pre : `${pre}/`) || path === pre.replace(/\/$/, ""));
