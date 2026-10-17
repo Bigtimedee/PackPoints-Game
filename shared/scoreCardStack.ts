@@ -1,12 +1,13 @@
 /**
  * Vertical rhythm for the Game Complete share card.
  * The thumb strip, score, pts line, pips, and tagline are one block,
- * centered between the SOLO/date row and the footer mark.
+ * centered between the SOLO/date row and the footer mark on a 1080x1350 (4:5) canvas.
  * The strip keeps at least 36px of air above the score digits.
  */
 
 export const SHARE_STRIP = {
   canvas: 1080,
+  canvasHeight: 1350,
   tileW: 64,
   tileH: 90,
   gap: 16,
@@ -15,10 +16,10 @@ export const SHARE_STRIP = {
   narrowTileW: 56,
 } as const;
 
-/** Ink bottom of the SOLO / date row (baseline 108). */
-export const SCORE_CARD_HEADER_BOTTOM = 108;
+/** Ink bottom of the SOLO / date row (baseline 165 on the 1080x1350 card). */
+export const SCORE_CARD_HEADER_BOTTOM = 165;
 /** First visible footer ink: the masked P, just under the canvas-colored mark tile. */
-export const SCORE_CARD_FOOTER_TOP = 950;
+export const SCORE_CARD_FOOTER_TOP = 1155;
 export const SCORE_CARD_STRIP_TO_DIGITS = 36;
 /**
  * Inter Bold at 200px: the "/" reaches 152.34px above the baseline.

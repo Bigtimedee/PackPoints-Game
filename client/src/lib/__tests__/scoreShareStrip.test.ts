@@ -232,7 +232,7 @@ describe("score share strip paint", () => {
       drawImage() {},
       createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) {
         expect(x0).toBe(1080 * 0.85);
-        expect(y0).toBeCloseTo(1080 * 0.12);
+        expect(y0).toBeCloseTo(1350 * 0.12);
         expect(r0).toBe(0);
         expect(x1).toBe(x0);
         expect(y1).toBe(y0);
@@ -260,15 +260,17 @@ describe("score share strip paint", () => {
   });
 
   it("composites only the tiles that loaded onto the score PNG", async () => {
+    expect(SCORE_SHARE_STRIP.canvasWidth).toBe(1080);
+    expect(SCORE_SHARE_STRIP.canvasHeight).toBe(1350);
     const draws: unknown[] = [];
     const base = new Blob(["png"], { type: "image/png" });
     const out = await composeScoreSharePng(base, [MASKED[0], "/api/play/r/solo/s/0/1/rev", MASKED[1]], {
-      loadBase: async () => ({ width: 1080, height: 1080 }),
+      loadBase: async () => ({ width: 1080, height: 1350 }),
       loadTile: async (src) => (src === MASKED[1] ? null : { width: 8, height: 12, src }),
       taints: () => false,
-      createCanvas: () => ({
-        width: 1080,
-        height: 1080,
+      createCanvas: (w: number, h: number) => ({
+        width: w,
+        height: h,
         getContext: () => recordingPainter().ctx,
         toBlob(callback) {
           draws.push("blob");

@@ -20,7 +20,9 @@ import {
   PIP_SIZE,
   PIP_GAP,
   PIP_Y,
-  SCORE_CARD_SIZE,
+  SCORE_CARD_WIDTH,
+  SCORE_CARD_HEIGHT,
+  SCORE_CARD_SAFE_MARGIN,
   SCORE_CARD_COLORS,
 } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
@@ -167,7 +169,7 @@ describe("buildPipsSvg()", () => {
   });
 });
 
-describe("Beat-me 1080 palette + streak overlay", () => {
+describe("Beat-me 1080x1350 palette + streak overlay", () => {
   it("locks Design Sync colors and never invents a streak", () => {
     expect(SCORE_CARD_COLORS).toEqual({
       canvas: "#0b0f16",
@@ -182,7 +184,7 @@ describe("Beat-me 1080 palette + streak overlay", () => {
     expect(buildStreakOverlayLabel(4)).toBe("4-day streak");
   });
 
-  it("overlays a real streak on the 1080 card and keeps packpts.com/daily as visual CTA", () => {
+  it("overlays a real streak on the 1080x1350 card and keeps packpts.com/daily as visual CTA", () => {
     const svg = buildScoreCardSvg({
       username: "dave",
       score: 400,
@@ -193,7 +195,11 @@ describe("Beat-me 1080 palette + streak overlay", () => {
       date: TODAY,
     });
     expect(svg).toContain('width="1080"');
-    expect(svg).toContain('height="1080"');
+    expect(svg).toContain('height="1350"');
+    expect(SCORE_CARD_WIDTH).toBe(1080);
+    expect(SCORE_CARD_HEIGHT).toBe(1350);
+    expect(SCORE_CARD_WIDTH / SCORE_CARD_HEIGHT).toBeCloseTo(4 / 5);
+    expect(SCORE_CARD_SAFE_MARGIN).toBeGreaterThanOrEqual(64);
     expect(svg).toContain("4/5");
     expect(svg).toContain("4-day streak");
     expect(svg).toContain("TODAY'S FIVE");
@@ -227,7 +233,8 @@ describe("score card PNG contract", () => {
       date: "2026-09-08",
     };
     const svg = buildScoreCardSvg(input);
-    expect(svg).toContain(`width="${SCORE_CARD_SIZE}"`);
+    expect(svg).toContain(`width="${SCORE_CARD_WIDTH}"`);
+    expect(svg).toContain(`height="${SCORE_CARD_HEIGHT}"`);
     expect(svg).toContain("DAILY 5");
     expect(svg).toContain("TODAY'S FIVE");
     expect(svg).toContain("SEP 8");
@@ -251,14 +258,14 @@ describe("score card PNG contract", () => {
     created.push(result.imagePath);
     const meta = await sharp(result.imagePath).metadata();
     expect(meta.width).toBe(1080);
-    expect(meta.height).toBe(1080);
+    expect(meta.height).toBe(1350);
 
     const startX = pipStartX(5);
     const frame = scoreCardStackForCount(5);
     expect(await regionHasColor(result.imagePath, 360, frame.scoreInkTop + 8, 720, frame.scoreBaseline - 8, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 200, frame.headlineBaseline - 20, 880, frame.headlineBaseline - 4, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 150, 1155, 340, 1215, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 720, 1155, 1020, 1215, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, startX, PIP_Y, startX + PIP_SIZE, PIP_Y + PIP_SIZE, isGreen)).toBe(true);
     expect(await regionHasColor(
       result.imagePath,
@@ -287,7 +294,11 @@ describe("Beat-me challenge share PNG", () => {
     const svg = buildChallengeShareSvg({ correctCount: 3, date: "2026-09-23" });
     const desc = svg.match(/<desc>([\s\S]*?)<\/desc>/)?.[1] ?? "";
     expect(svg).toContain('width="1080"');
-    expect(svg).toContain('height="1080"');
+    expect(svg).toContain('height="1350"');
+    expect(SCORE_CARD_WIDTH).toBe(1080);
+    expect(SCORE_CARD_HEIGHT).toBe(1350);
+    expect(SCORE_CARD_WIDTH / SCORE_CARD_HEIGHT).toBeCloseTo(4 / 5);
+    expect(SCORE_CARD_SAFE_MARGIN).toBeGreaterThanOrEqual(64);
     expect(desc).toContain("SEP 23 · TODAY'S FIVE");
     expect(desc).toContain("3/5");
     expect(desc).not.toContain("4/5");
@@ -316,9 +327,9 @@ describe("Beat-me challenge share PNG", () => {
     expect(result.imageUrl).toContain("/generated/share/2026-09-23/");
     const meta = await sharp(result.imagePath).metadata();
     expect(meta.width).toBe(1080);
-    expect(meta.height).toBe(1080);
-    expect(await regionHasColor(result.imagePath, 82, 138, 108, 156, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 90, 710, 280, 770, isGold)).toBe(true);
+    expect(meta.height).toBe(1350);
+    expect(await regionHasColor(result.imagePath, 82, 178, 108, 196, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 90, 845, 280, 905, isGold)).toBe(true);
   });
 });
 
