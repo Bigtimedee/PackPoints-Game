@@ -346,7 +346,7 @@ export function ShareAssetCard({
     <Card className="overflow-hidden">
       <CardContent className="p-0">
         <div className="flex justify-center" style={{ backgroundColor: "#0b0f16" }}>
-          <div className="relative w-full max-w-sm aspect-square overflow-hidden flex items-center justify-center">
+          <div className="relative w-full max-w-sm aspect-[4/5] overflow-hidden flex items-center justify-center">
             {waitingForImage && (
               <div className="flex flex-col items-center gap-2 text-white/60 text-sm p-4 text-center">
                 <Loader2 className="h-6 w-6 animate-spin" />

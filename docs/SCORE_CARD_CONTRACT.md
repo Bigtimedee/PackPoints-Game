@@ -1,11 +1,12 @@
-# Score card contract (1080)
+# Score card contract (1080x1350)
 
 Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 
 ## 1. Canvas
-- Size: **1080 × 1080** PNG
+- Size: **1080 x 1350** PNG (4:5 portrait, Instagram feed optimal)
 - Background: `#0b0f16` with a soft blue radial glow from the top-right
-- No 9:16 story crop. Square only.
+- All critical content inside 80px safe margins on every side (more than 5 percent). Instagram displays 4:5 at full frame, so nothing is cropped on upload. A forced 1:1 centre crop still keeps the score, thumbs, pips and headline.
+- No 9:16 story crop. For Stories, place the 4:5 card fitted (letterboxed), not filled.
 
 ## 2. Content (actual session values — never fake)
 - Eyebrow, top-left, all-caps: `DAILY 5`
@@ -20,7 +21,7 @@ Locked Design spec for the PackPTS Daily 5 / Game Complete share card.
 
 ## Other modes (solo / 1v1)
 
-Same 1080 canvas, pips, and PackPTS mark. Branding follows **`mode === "daily5"`**, never `total === 5`:
+Same 1080x1350 canvas, pips, and PackPTS mark. Branding follows **`mode === "daily5"`**, never `total === 5`:
 
 - Eyebrow: `SOLO` or `1V1 MATCH` — never `DAILY 5` for a 5-card solo
 - No `TODAY'S FIVE`. The server SVG has no decorative mini strip (that strip is Daily 5 only).
@@ -40,7 +41,7 @@ Quiet header identity for the session's PackPTS day — never "now", never a dif
 - `TODAY'S FIVE` only when `mode === "daily5"`. Other modes show the session date alone.
 - YYYY-MM-DD session dates format as that calendar day (do not UTC-shift).
 - **Optional mini masked-strip** under `DAILY 5`: five cream (`#F0F2F5`) tiles, each crossed by a gold (`#F5C518`) redaction bar (same strip language as `daily5-masked-1080-v2.png`).
-- **Client thumbs (2026-09-25):** `ShareAssetCard` paints one masked `/api/play/m/` thumb per scored question over that band before show, download, and native share (solo and Daily 5). About 64×90px at 1080, equal gaps, centered. Ten and twelve solo cards stay on one 64×90 row (the gap tightens before the thumb shrinks). Fifteen uses one row of 56×79, the same card ratio. Twenty is two 64×90 rows, not cropped. The thumb strip, score, pts line, pips, and tagline are one block, centered between the SOLO/date row and the footer mark (`shared/scoreCardStack.ts`). At least 36px sits between the bottom of the strip and the top of the score digits (the "/" is the tallest glyph), including 15-card and 20-card layouts. The glow band moves with the strip and stops above the score. A wrong answer is included. A skip is not (`answered` only). A replacement is the answered card's URL, one thumb. The loader retries a miss once; a second failure or a tainted bitmap drops that tile. Never `/api/images/card` or `/api/play/r/`. Mode label, date, scored denominator, and footer stay on the server PNG (`packpts.com/daily` only for Daily 5). The client does not hardcode that footer. The band under the thumbs is the same `#0b0f16` canvas plus the top-right radial glow (`#1e3a5f` at 55% opacity, center 85%/12%, radius 55%), not a flat dark rectangle.
+- **Client thumbs (2026-09-25):** `ShareAssetCard` paints one masked `/api/play/m/` thumb per scored question over that band before show, download, and native share (solo and Daily 5). About 64x90px at 1080 wide, equal gaps, centered. Ten and twelve solo cards stay on one 64×90 row (the gap tightens before the thumb shrinks). Fifteen uses one row of 56×79, the same card ratio. Twenty is two 64×90 rows, not cropped. The thumb strip, score, pts line, pips, and tagline are one block, centered between the SOLO/date row and the footer mark (`shared/scoreCardStack.ts`). At least 36px sits between the bottom of the strip and the top of the score digits (the "/" is the tallest glyph), including 15-card and 20-card layouts. The glow band moves with the strip and stops above the score. A wrong answer is included. A skip is not (`answered` only). A replacement is the answered card's URL, one thumb. The loader retries a miss once; a second failure or a tainted bitmap drops that tile. Never `/api/images/card` or `/api/play/r/`. Mode label, date, scored denominator, and footer stay on the server PNG (`packpts.com/daily` only for Daily 5). The client does not hardcode that footer. The band under the thumbs is the same `#0b0f16` canvas plus the top-right radial glow (`#1e3a5f` at 55% opacity, center 85%/12%, radius 55%), not a flat dark rectangle.
 - Honesty: session `X/5` only. A 3/5 finish stays 3/5.
 
 ## Brand
