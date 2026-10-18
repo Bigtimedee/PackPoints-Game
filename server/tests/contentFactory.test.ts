@@ -20,7 +20,7 @@ import path from "path";
 import { db } from "../db";
 import { contentAssets, users, gameSets, playableCards, cardPhotos } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, pipStartX, PIP_SIZE, PIP_GAP, PIP_Y, SCORE_CARD_SIZE, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
+import { generateScoreCard, generateStreakBadge, getShareOutputBase, buildScoreCardHeadline, buildScoreCardSvg, buildPipsSvg, pipStartX, PIP_SIZE, PIP_GAP, PIP_Y, SCORE_CARD_WIDTH, SCORE_CARD_HEIGHT, SCORE_CARD_COLORS } from "../contentFactory/generateScoreCard";
 import { FONT_FILES, resolveFontsDir } from "../contentFactory/fonts";
 import { scoreCardStackForCount } from "@shared/scoreCardStack";
 import sharp from "sharp";
@@ -143,7 +143,7 @@ describe("generateScoreCard()", () => {
     createdImagePaths.push(result.imagePath);
   });
 
-  it("renders a 1080×1080 Daily 5 contract card with the real 3/5 session", async () => {
+  it("renders a 1080x1350 Daily 5 contract card with the real 3/5 session", async () => {
     const assetId = `test-contract-${randomUUID()}`;
     const input = {
       username: "Charter",
@@ -154,8 +154,8 @@ describe("generateScoreCard()", () => {
       date: TODAY,
     };
     const svg = buildScoreCardSvg(input);
-    expect(svg).toContain(`width="${SCORE_CARD_SIZE}"`);
-    expect(svg).toContain(`height="${SCORE_CARD_SIZE}"`);
+    expect(svg).toContain(`width="${SCORE_CARD_WIDTH}"`);
+    expect(svg).toContain(`height="${SCORE_CARD_HEIGHT}"`);
     expect(svg).toContain("#0b0f16");
     expect(svg).toContain("#22C55E");
     expect(svg).toContain("#F5C518");
@@ -179,15 +179,15 @@ describe("generateScoreCard()", () => {
     const result = await generateScoreCard(input, assetId);
     const meta = await sharp(result.imagePath).metadata();
     expect(meta.width).toBe(1080);
-    expect(meta.height).toBe(1080);
+    expect(meta.height).toBe(1350);
 
     const startX = pipStartX(5);
     const frame = scoreCardStackForCount(5);
     // Outlined type must paint (missing fonts = blank navy / tofu).
     expect(await regionHasColor(result.imagePath, 360, frame.scoreInkTop + 8, 720, frame.scoreBaseline - 8, isNearWhite)).toBe(true);
     expect(await regionHasColor(result.imagePath, 200, frame.headlineBaseline - 20, 880, frame.headlineBaseline - 4, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 150, 950, 340, 1000, isNearWhite)).toBe(true);
-    expect(await regionHasColor(result.imagePath, 720, 950, 1020, 1000, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 150, 1155, 340, 1215, isNearWhite)).toBe(true);
+    expect(await regionHasColor(result.imagePath, 720, 1155, 1020, 1215, isNearWhite)).toBe(true);
 
     // First three pips filled #22C55E; fourth outline only.
     expect(await regionHasColor(result.imagePath, startX, PIP_Y, startX + PIP_SIZE, PIP_Y + PIP_SIZE, isGreen)).toBe(true);

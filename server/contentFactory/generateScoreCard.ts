@@ -13,8 +13,9 @@
  * Public URL served by Express (same prefix in every environment):
  *   /generated/share/{YYYY-MM-DD}/{assetId}.png
  *
- * Score card contract (docs/SCORE_CARD_CONTRACT.md): 1080 × 1080 px square.
- * Streak badges remain 1080 × 1920.
+ * Score card contract (docs/SCORE_CARD_CONTRACT.md): 1080 x 1350 px (4:5 portrait).
+ * Instagram feed portrait displays 4:5 without cropping; a square was zoom-cropped.
+ * Streak badges remain 1080 x 1920.
  * Compression: PNG quality 90.
  */
 import sharp from "sharp";
@@ -79,7 +80,15 @@ export interface ScoreCardOutput {
   imageUrl: string;
 }
 
-export const SCORE_CARD_SIZE = 1080;
+export const SCORE_CARD_WIDTH = 1080;
+export const SCORE_CARD_HEIGHT = 1350;
+/** Width alias kept for older callers. Height is SCORE_CARD_HEIGHT (1350). */
+export const SCORE_CARD_SIZE = SCORE_CARD_WIDTH;
+/** Safe margin: no critical content inside this many px from any edge (>=64, >5%). */
+export const SCORE_CARD_SAFE_MARGIN = 80;
+export const SCORE_CARD_HEADER_Y = 165;
+export const SCORE_CARD_FOOTER_TEXT_Y = SCORE_CARD_HEIGHT - 157;
+export const SCORE_CARD_FOOTER_MARK_Y = SCORE_CARD_HEIGHT - 195;
 
 /** Design Sync palette — Beat-me / Daily 5 1080 card (SCORE_CARD_CONTRACT). */
 export const SCORE_CARD_COLORS = {
@@ -110,7 +119,7 @@ const STRIP_Y = 136;
 export function pipStartX(count: number): number {
   const n = Math.max(1, count);
   const totalW = n * PIP_SIZE + Math.max(0, n - 1) * PIP_GAP;
-  return Math.round((SCORE_CARD_SIZE - totalW) / 2);
+  return Math.round((SCORE_CARD_WIDTH - totalW) / 2);
 }
 
 /** Calendar-date formatter. PackPTS day keys (YYYY-MM-DD CT) never UTC-shift. */
@@ -259,8 +268,8 @@ export function scoreCardFooterCta(mode: string | undefined): string {
 }
 
 export function buildScoreCardSvg(input: ScoreCardInput): string {
-  const W = SCORE_CARD_SIZE;
-  const H = SCORE_CARD_SIZE;
+  const W = SCORE_CARD_WIDTH;
+  const H = SCORE_CARD_HEIGHT;
   const cx = W / 2;
   const correct = asCount(input.correctCount);
   const total = asCount(input.totalQuestions);
@@ -286,9 +295,9 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
   const frame = scoreCardStackForCount(Math.max(1, total));
 
   const outlined = [
-    textToPath(fonts.bold, eyebrow, 80, 108, 22, muted, { letterSpacing: 4 }),
+    textToPath(fonts.bold, eyebrow, 80, SCORE_CARD_HEADER_Y, 22, muted, { letterSpacing: 4 }),
     identity
-      ? textToPath(fonts.bold, identity, 1000, 108, 22, muted, { anchor: "end", letterSpacing: 2 })
+      ? textToPath(fonts.bold, identity, 1000, SCORE_CARD_HEADER_Y, 22, muted, { anchor: "end", letterSpacing: 2 })
       : "",
     textToPath(fonts.bold, scoreNum, scoreX, frame.scoreBaseline, scoreSize, ink),
     textToPath(fonts.bold, scoreDen, scoreX + numWidth, frame.scoreBaseline, scoreSize, muted),
@@ -297,8 +306,8 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
       ? textToPath(fonts.semibold, statusLine, cx, frame.statusBaseline, 28, muted, { anchor: "middle" })
       : "",
     textToPath(fonts.bold, headline, cx, frame.headlineBaseline, 48, ink, { anchor: "middle" }),
-    textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
-    textToPath(fonts.semibold, footerCta, 1000, 978, 26, ink, { anchor: "end" }),
+    textToPath(fonts.bold, "PackPTS", 152, SCORE_CARD_FOOTER_TEXT_Y, 32, ink),
+    textToPath(fonts.semibold, footerCta, 1000, SCORE_CARD_FOOTER_TEXT_Y, 26, ink, { anchor: "end" }),
   ].filter(Boolean).join("\n  ");
 
   const strip = isDaily5Mode ? buildMaskedStripSvg(STRIP_X, frame.stripY) : "";
@@ -333,7 +342,7 @@ export function buildScoreCardSvg(input: ScoreCardInput): string {
 
   ${buildPipsSvg(correct, total, skipped)}
 
-  <g transform="translate(80, 940)">
+  <g transform="translate(80, ${SCORE_CARD_FOOTER_MARK_Y})">
     <g transform="scale(0.0546875)">
       <!-- Locked masked-P mark: white P + gold bar on dark (not yellow-P-on-white) -->
       <rect width="1024" height="1024" fill="${canvas}"/>
@@ -408,9 +417,9 @@ export interface ChallengeShareInput {
  */
 export function buildChallengeShareSvg(input: ChallengeShareInput): string {
   const correct = asCount(input.correctCount);
-  if (correct > 5) throw new Error("Challenge share score must be a real 0–5 count");
-  const W = SCORE_CARD_SIZE;
-  const H = SCORE_CARD_SIZE;
+  if (correct > 5) throw new Error("Challenge share score must be a real 0-5 count");
+  const W = SCORE_CARD_WIDTH;
+  const H = SCORE_CARD_HEIGHT;
   const cx = W / 2;
   const identity = formatSessionDayIdentity(input.date, true);
   const went = `I went ${correct}/5.`;
@@ -432,7 +441,7 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
   const scoreX = cx - (numWidth + denWidth) / 2;
 
   const plaqueX = 760;
-  const plaqueY = 690;
+  const plaqueY = 825;
   const plaqueW = 240;
   const plaqueCx = plaqueX + plaqueW / 2;
   const plaqueScoreSize = 48;
@@ -441,23 +450,23 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
   const plaqueScoreX = plaqueCx - (plaqueNumW + plaqueDenW) / 2;
 
   const outlined = [
-    textToPath(fonts.bold, "DAILY 5", 80, 108, 22, muted, { letterSpacing: 4 }),
+    textToPath(fonts.bold, "DAILY 5", 80, SCORE_CARD_HEADER_Y, 22, muted, { letterSpacing: 4 }),
     identity
-      ? textToPath(fonts.bold, identity, 1000, 108, 22, muted, { anchor: "end", letterSpacing: 2 })
+      ? textToPath(fonts.bold, identity, 1000, SCORE_CARD_HEADER_Y, 22, muted, { anchor: "end", letterSpacing: 2 })
       : "",
-    textToPath(fonts.bold, scoreNum, scoreX, 360, scoreSize, ink),
-    textToPath(fonts.bold, scoreDen, scoreX + numWidth, 360, scoreSize, muted),
-    textToPath(fonts.bold, "Beat me.", 80, 760, 64, gold),
-    textToPath(fonts.semibold, went, 80, 820, 36, ink),
-    textToPath(fonts.semibold, playLine, 80, 868, 26, muted),
+    textToPath(fonts.bold, scoreNum, scoreX, 495, scoreSize, ink),
+    textToPath(fonts.bold, scoreDen, scoreX + numWidth, 495, scoreSize, muted),
+    textToPath(fonts.bold, "Beat me.", 80, 895, 64, gold),
+    textToPath(fonts.semibold, went, 80, 955, 36, ink),
+    textToPath(fonts.semibold, playLine, 80, 1003, 26, muted),
     streakLabel
-      ? textToPath(fonts.semibold, streakLabel, 80, 912, 24, muted)
+      ? textToPath(fonts.semibold, streakLabel, 80, 1047, 24, muted)
       : "",
-    textToPath(fonts.bold, "TODAY", plaqueCx, 748, 18, muted, { anchor: "middle", letterSpacing: 2 }),
-    textToPath(fonts.bold, scoreNum, plaqueScoreX, 810, plaqueScoreSize, ink),
-    textToPath(fonts.bold, scoreDen, plaqueScoreX + plaqueNumW, 810, plaqueScoreSize, muted),
-    textToPath(fonts.bold, "PackPTS", 152, 978, 32, ink),
-    textToPath(fonts.semibold, footerUrl, 1000, 978, 26, ink, { anchor: "end" }),
+    textToPath(fonts.bold, "TODAY", plaqueCx, 883, 18, muted, { anchor: "middle", letterSpacing: 2 }),
+    textToPath(fonts.bold, scoreNum, plaqueScoreX, 945, plaqueScoreSize, ink),
+    textToPath(fonts.bold, scoreDen, plaqueScoreX + plaqueNumW, 945, plaqueScoreSize, muted),
+    textToPath(fonts.bold, "PackPTS", 152, SCORE_CARD_FOOTER_TEXT_Y, 32, ink),
+    textToPath(fonts.semibold, footerUrl, 1000, SCORE_CARD_FOOTER_TEXT_Y, 26, ink, { anchor: "end" }),
   ].filter(Boolean).join("\n  ");
 
   const desc = [
@@ -489,11 +498,11 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
 
   ${outlined}
 
-  ${buildMaskedStripSvg()}
+  ${buildMaskedStripSvg(STRIP_X, 176)}
 
   ${buildPipsSvg(correct, 5)}
 
-  <g transform="translate(80, 940)">
+  <g transform="translate(80, ${SCORE_CARD_FOOTER_MARK_Y})">
     <g transform="scale(0.0546875)">
       <rect width="1024" height="1024" fill="${canvas}"/>
       <path fill="#ffffff" fill-rule="evenodd" d="M292 196 H560 C720 196 820 280 820 420 C820 560 720 644 560 644 H452 V828 H292 Z M452 340 V500 H548 C620 500 668 470 668 420 C668 370 620 340 548 340 Z"/>

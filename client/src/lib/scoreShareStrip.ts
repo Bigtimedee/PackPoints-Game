@@ -11,6 +11,8 @@ const FIVE_CARD_FRAME = scoreCardFrame(5);
 
 export const SCORE_SHARE_STRIP = {
   canvasSize: 1080,
+  canvasWidth: 1080,
+  canvasHeight: 1350,
   /** ~64px wide at 1080. Height keeps the 30×42 card ratio (64 × 42/30). */
   tileW: 64,
   tileH: 90,
@@ -153,20 +155,21 @@ export function restoreScoreCardBand(
   },
 ): void {
   const size = SCORE_SHARE_STRIP.canvasSize;
+  const height = SCORE_SHARE_STRIP.canvasHeight;
   ctx.save();
   ctx.beginPath();
   ctx.rect(band.x, band.y, band.w, band.h);
   ctx.clip();
   ctx.fillStyle = SCORE_SHARE_STRIP.canvas;
-  ctx.fillRect(0, 0, size, size);
+  ctx.fillRect(0, 0, size, height);
   const cx = size * SCORE_SHARE_STRIP.glowCx;
-  const cy = size * SCORE_SHARE_STRIP.glowCy;
+  const cy = height * SCORE_SHARE_STRIP.glowCy;
   const radius = size * SCORE_SHARE_STRIP.glowR;
   const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
   glow.addColorStop(0, SCORE_SHARE_STRIP.glowInner);
   glow.addColorStop(1, SCORE_SHARE_STRIP.glowOuter);
   ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, size, size);
+  ctx.fillRect(0, 0, size, height);
   ctx.restore();
 }
 
@@ -398,10 +401,10 @@ export async function composeScoreSharePng(
   const baseImage = await (deps?.loadBase ?? blobToImage)(base);
   if (!baseImage) return base;
 
-  const canvas = createCanvas(SCORE_SHARE_STRIP.canvasSize, SCORE_SHARE_STRIP.canvasSize);
+  const canvas = createCanvas(SCORE_SHARE_STRIP.canvasWidth, SCORE_SHARE_STRIP.canvasHeight);
   const ctx = canvas.getContext("2d");
   if (!ctx) return base;
-  ctx.drawImage(baseImage, 0, 0, SCORE_SHARE_STRIP.canvasSize, SCORE_SHARE_STRIP.canvasSize);
+  ctx.drawImage(baseImage, 0, 0, SCORE_SHARE_STRIP.canvasWidth, SCORE_SHARE_STRIP.canvasHeight);
   paintScoreShareStrip(ctx, images);
   const blob = await canvasToBlob(canvas);
   return blob ?? base;
