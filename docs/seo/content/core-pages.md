@@ -2,7 +2,7 @@
 
 - Title: PackPTS: Name the Player Sports Card Game | Earn Points (55 chars)
 - Description: Name the player on real sports cards with the name masked. Play the free Daily 5, explore classic sets, and earn points for eBay rebates. (137 chars)
-- H1: Name the Player on Classic Sports Cards
+- H1: Name the player. Earn real cashback.
 
 **Opening:** PackPTS is a free sports card game where you see a real trading card with the name masked and pick the player from four choices.
 

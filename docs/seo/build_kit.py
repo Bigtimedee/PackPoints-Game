@@ -17,7 +17,7 @@ core={}
 core["/"]=dict(
  title="PackPTS: Name the Player Sports Card Game | Earn Points",
  description="Name the player on real sports cards with the name masked. Play the free Daily 5, explore classic sets, and earn points for eBay rebates.",
- h1="Name the Player on Classic Sports Cards",
+ h1="Name the player. Earn real cashback.",
  answer="PackPTS is a free sports card game where you see a real trading card with the name masked and pick the player from four choices.",
  body="""Remember sorting a fresh rack pack on the living room floor, calling out every face before you flipped the card over? PackPTS is that feeling, any time you want it.
 

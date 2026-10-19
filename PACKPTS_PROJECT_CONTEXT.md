@@ -1709,6 +1709,8 @@ TikTok App Review rejects the app unless the **app name matches everything else 
 7. **X/Twitter handle** in raw HTML (`<meta name="twitter:site">` and `twitter:creator` in `client/index.html`) = `@PlayPackPTS`. This is the PackPTS X account only — the product/app name stays `PackPTS`. Do not use `@packptsapp` or `@packpoints`. PR #54 pointed `twitter:site` at `@packptsapp`; that was wrong.
 8. **URL-prefix verification** (PULL_FROM_URL): keep `client/public/tiktokpiy5SPhPPkFUI7E2p74deskh9egj0WbS.txt` so `https://packpts.com/tiktokpiy5SPhPPkFUI7E2p74deskh9egj0WbS.txt` stays publicly reachable. Do not delete.
 
+The home page visible `<h1>` is the SEO kit H1 for `/` (`docs/seo/build_kit.py`, `docs/seo/content/core-pages.json`, `docs/seo/content/core-pages.md`): `Name the player. Earn real cashback.` `client/src/pages/home.tsx` reads that same string as `HOME_H1` and renders it in `h1#home-title` (`data-testid="text-hero-title"`), so the kit H1 and the client H1 stay identical. This H1 is not the document `<title>` (`PackPTS`).
+
 ### TikTok App Review sandbox demo (2026-09-05)
 
 Review-only PackPTS shell for Design to screen-record Login Kit + Content Posting. Not marketed in nav.
