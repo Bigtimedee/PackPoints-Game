@@ -1,5 +1,5 @@
 import { usePointsValue } from "@/hooks/use-points-value";
-import { HOME_HERO } from "@/lib/pointsCopy";
+import { HOME_HERO, HOME_HERO_TYPE, heroHeadline } from "@/lib/pointsCopy";
 import { OnboardingPointsCard } from "@/components/onboarding-points-card";
 import { AnswerButton } from "@/pages/game";
 import { useLocation } from "wouter";
@@ -17,7 +17,7 @@ import { useAuth } from "@/hooks/use-auth";
 import seoCoreKit from "../../../docs/seo/content/core-pages.json";
 
 /** Same H1 as the server-rendered homepage (SEO content kit). */
-const HOME_H1 = ((seoCoreKit as unknown as { core: { path: string; h1: string }[] }).core.find((p) => p.path === "/")?.h1) ?? "Name the Player on Classic Sports Cards";
+const HOME_H1 = ((seoCoreKit as unknown as { core: { path: string; h1: string }[] }).core.find((p) => p.path === "/")?.h1) ?? "Name the player. Earn real cashback.";
 import { shouldShowHomePlayVanity } from "@shared/homePlayVanity";
 
 // Public covers serve only approved, deal-eligible, already-baked masks.
@@ -103,17 +103,33 @@ export default function Home() {
       {/* Card first, including on a first visit: no automatic onboarding dialog. */}
       <section className="relative overflow-hidden border-b" aria-labelledby="home-title">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-secondary/10" />
-        <div className="relative mx-auto grid max-w-5xl items-center gap-3 px-5 pb-8 pt-6 md:grid-cols-2 md:gap-12 md:py-14 lg:py-16">
-          <FeaturedCard />
-          <div className="mx-auto max-w-md text-center md:self-start md:pt-40 md:text-left">
-            <h1 id="home-title" className="sr-only" data-testid="text-hero-title">{HOME_H1}</h1>
-            <p className="text-sm text-muted-foreground md:text-lg" data-testid="text-hero-description">
-              {heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}
+        <div className="relative mx-auto grid max-w-6xl items-start gap-x-12 gap-y-6 px-5 pb-10 pt-7 md:grid-cols-2 md:py-12 lg:gap-x-16 xl:py-20">
+          {/* Mobile order: headline, card, steps. Desktop: card left, all copy right. */}
+          <div className="text-center md:col-start-2 md:row-start-1 md:self-end md:text-left">
+            <h1 id="home-title" className="text-[2.6rem] font-black leading-[0.95] tracking-[-0.035em] text-foreground min-[400px]:text-5xl md:text-5xl lg:text-6xl xl:text-7xl" data-testid="text-hero-title">
+              {heroHeadline(HOME_H1).map((line, i) => (
+                <span key={i} className={i === 1 ? "block text-amber-700 dark:text-secondary" : "block"}>{i > 0 ? " " : ""}{line}</span>
+              ))}
+            </h1>
+            <p className="mx-auto mt-4 max-w-md text-lg font-semibold leading-snug text-foreground md:mx-0 md:text-xl" data-testid="text-hero-subhead">
+              {HOME_HERO_TYPE.subhead}
             </p>
-            <Button asChild size="lg" className="mt-5 min-h-12 w-full gap-2 text-base md:mt-7 md:w-auto md:min-w-56" data-testid="button-play-now">
+          </div>
+          <div className="md:col-start-1 md:row-span-2 md:row-start-1"><FeaturedCard /></div>
+          <div className="mx-auto w-full max-w-md md:col-start-2 md:row-start-2 md:mx-0 md:self-start">
+            <ol className="space-y-3 text-left" data-testid="list-hero-steps">
+              {HOME_HERO_TYPE.steps.map((step, i) => (
+                <li key={step.key} className="flex items-center gap-3 text-base leading-snug text-foreground md:text-lg">
+                  <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary font-mono text-sm font-bold text-black">{i + 1}</span>
+                  <span><strong className="font-extrabold text-amber-700 dark:text-secondary">{step.key}</strong> {step.rest}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="sr-only" data-testid="text-hero-description">{heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}</p>
+            <Button asChild size="lg" className="mt-7 min-h-14 w-full gap-2 rounded-lg text-lg font-bold shadow-lg shadow-primary/25 md:min-w-64 md:w-auto" data-testid="button-play-now">
               <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
             </Button>
-            <p className="mt-3 text-xs text-muted-foreground">Free to play.</p>
+            <p className="mt-3 text-center text-sm text-muted-foreground md:text-left" data-testid="text-hero-trust">{HOME_HERO_TYPE.trust}</p>
           </div>
         </div>
       </section>

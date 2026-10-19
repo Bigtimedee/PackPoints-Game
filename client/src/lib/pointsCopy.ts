@@ -158,3 +158,20 @@ export const HOME_HERO = {
   live: "Earn PackPTS for cashback on eligible real cards from eBay.",
   soon: "Earn PackPTS for cashback on eligible real cards from eBay.",
 };
+
+/** Home hero type. No money amounts, no point values. */
+export const HOME_HERO_TYPE = {
+  subhead: "Classic sports cards with the name hidden. Four choices. Pick the right one.",
+  steps: [
+    { key: "Name", rest: "the player on the card." },
+    { key: "Earn PackPTS", rest: "for every right answer." },
+    { key: "Use them", rest: "for cashback on eligible real cards from eBay." },
+  ],
+  trust: "Free to play. Try a round without an account.",
+};
+
+/** Splits the kit H1 into its two sentences so the second can take the accent. */
+export function heroHeadline(h1: string): string[] {
+  const parts = h1.split(/(?<=\.)\s+/).filter(Boolean);
+  return parts.length === 2 ? parts : [h1];
+}
