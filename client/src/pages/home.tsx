@@ -1,6 +1,5 @@
 import { usePointsValue } from "@/hooks/use-points-value";
 import { HOME_HERO, HOME_HERO_TYPE, heroHeadline } from "@/lib/pointsCopy";
-import { OnboardingPointsCard } from "@/components/onboarding-points-card";
 import { AnswerButton } from "@/pages/game";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
@@ -133,8 +132,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      <OnboardingPointsCard />
 
       <section className="mx-auto max-w-5xl px-5 py-8 md:py-12" aria-labelledby="modes-title">
         <div className="mb-5 flex items-center justify-between gap-4">

@@ -1711,6 +1711,8 @@ TikTok App Review rejects the app unless the **app name matches everything else 
 
 The home page visible `<h1>` is the SEO kit H1 for `/` (`docs/seo/build_kit.py`, `docs/seo/content/core-pages.json`, `docs/seo/content/core-pages.md`): `Name the player. Earn real cashback.` `client/src/pages/home.tsx` reads that same string as `HOME_H1` and renders it in `h1#home-title` (`data-testid="text-hero-title"`), so the kit H1 and the client H1 stay identical. This H1 is not the document `<title>` (`PackPTS`).
 
+The home page does not render `OnboardingPointsCard` (the old three-step box titled `Name the player. Earn points.`). The hero steps already cover that copy.
+
 ### TikTok App Review sandbox demo (2026-09-05)
 
 Review-only PackPTS shell for Design to screen-record Login Kit + Content Posting. Not marketed in nav.
