@@ -13,11 +13,11 @@ describe("first-run points card", () => {
     // Inline, never a fixed sheet over the home card's answer buttons (390px bug).
     expect(card).not.toMatch(/className="[^"]*\bfixed\b/);
     expect(card).not.toContain("bottom-[calc(4rem");
-    expect(home.indexOf("<FeaturedCard />")).toBeLessThan(home.indexOf("<OnboardingPointsCard />"));
     expect(card).toContain("setOnboardingCardOpen(visible)");
     expect(card).toContain('data-testid="card-onboarding-points"');
     expect(card).toContain('data-testid="button-onboarding-skip"');
-    expect(home).toContain("<OnboardingPointsCard />");
+    expect(home).not.toContain("<OnboardingPointsCard />");
+    expect(home).not.toContain("Earn points.");
   });
   it("tour step 2 switches on rebateLive", () => {
     expect(tourEarnStep(false)).toBe(tourEarnStep(true));
