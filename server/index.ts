@@ -528,6 +528,8 @@ app.use((req, res, next) => {
     startWarmSidecarBackfill();
     startMaskBandGuardScan();
     startMaskWarmup();
+    const { scheduleRecropReviewBake } = await import("./masking/recropReviewBake");
+    scheduleRecropReviewBake();
   }
   void logPinnedCoversAtBoot().catch(() => {
     console.error("[PinnedCovers] boot log failed");

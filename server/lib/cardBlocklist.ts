@@ -15,6 +15,7 @@ import { currentHeldSetIds, isHeldSet } from "../config/heldSets";
 import { isMaskBandExcluded } from "../masking/maskBandLimit";
 import { refusedAtCurrentMask } from "../masking/maskDealRefusal";
 import { cardAwaitingReviewClause } from "./cardReviewGuard";
+import { RECROP_BLOCKED_CARDS, TOPPS_1986_SET_ID } from "../masking/toppsRecropReview";
 
 type CardAlias = "pc" | "playable_cards";
 
@@ -589,6 +590,16 @@ export const BLOCKED_CARD_ID_RULES: readonly BlockedCardIdRule[] = [
   { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "0953eafb-6ba9-47b9-aba7-2d061a8f4c6f", number: "161", surname: "tunnell", variant: "base", reason: "REDISCOVER TOPPS stamp (Design)", idOnly: true },
   { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "215027a4-38f2-4dc7-9130-a0f31cfa61b9", number: "233", surname: "lyons", variant: "base", reason: "REDISCOVER TOPPS stamp (Design)", idOnly: true },
   { gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX, id: "8eba0b0f-9c3b-454b-8e3c-2bdcd0b709c3", number: "270", surname: "morris", variant: "base", reason: "All-Star subset, not base layout (Design)", idOnly: true },
+  // Design recrop review 2026-10-20. These 22 stay blocked. The other 128 recrops are approved.
+  ...RECROP_BLOCKED_CARDS.filter((card) => card.setId === TOPPS_1986_SET_ID).map((card) => ({
+    gameSetId: TOPPS_1986_BASEBALL_SET_PREFIX,
+    id: card.id,
+    number: card.number,
+    surname: card.surname,
+    variant: "base" as const,
+    reason: card.reason,
+    idOnly: true as const,
+  })),
 
   // Design t88 pool pass 2026-10-13 (62 blocked).
   { gameSetId: TOPPS_1988_BASEBALL_SET_PREFIX, id: "5669d2c9-4eac-4ea2-8e28-e7fee0f948fd", number: "8", surname: "elster", variant: "base", reason: "bad scan: extra margin (black scanner-bed frame around card) (Design)", idOnly: true },

@@ -111,6 +111,11 @@ export async function bootCardReviewGuard(opts?: { attempts?: number; exit?: (co
         return;
       }
       const result = await ensureCardReviewSeed();
+      if (process.env.NODE_ENV !== "test") {
+        const { ensureRecropReviewApprovals } = await import("./recropReviewApprovals");
+        const inserted = await ensureRecropReviewApprovals();
+        console.log(`[CardReview] recrop_1986_approved_inserted=${inserted}`);
+      }
       setCardReviewGuardEnabled(true);
       const awaiting = await countAwaitingReview().catch(() => null);
       console.log(
