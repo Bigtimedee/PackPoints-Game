@@ -21,8 +21,13 @@ import { gameSets } from "@shared/schema";
 import { db } from "../db";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
+import sharp from "sharp";
 import { heldSetReason, isDesignApprovedSetId, refreshHeldSets } from "../config/heldSets";
 import { FILL_MISSING_SETS } from "../services/setFillMissing";
+import { maskReadySidecarDir } from "../masking/maskReadySidecar";
+import { recropReviewPage } from "../masking/recropReviewStatus";
+import { isRecropReviewSet, recropBlockedCard } from "../masking/toppsRecropReview";
+import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_SOURCE_BYTES = 15 * 1024 * 1024;
@@ -86,7 +91,17 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
 
   app.get("/api/qa/sets/:setId/cards", (req, res) => {
     const setId = req.params.setId;
-    if (!tokenOk(req) || !isHeldForQa(setId)) return notFound(req, res);
+    if (!tokenOk(req)) return notFound(req, res);
+    // These two sets are Design-approved, so the held-set list 404s.
+    // Serve the 84 blocked recrops (manifest only, no raw scan) so Design can review the re-bake.
+    if (isRecropReviewSet(setId) && !isHeldForQa(setId)) {
+      const offset = pageInt(req.query.offset, 0, 100000);
+      const limit = Math.max(1, pageInt(req.query.limit, 500, 1000));
+      const page = recropReviewPage(setId, offset, limit);
+      if (!page) return notFound(req, res);
+      return json(req, res, 200, page);
+    }
+    if (!isHeldForQa(setId)) return notFound(req, res);
     const offset = pageInt(req.query.offset, 0, 100000);
     const limit = Math.max(1, pageInt(req.query.limit, 500, 1000));
     void (async () => {
@@ -113,6 +128,25 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
           maskedPath: `/api/qa/cover-image/${r.id}`,
         })),
       });
+    })().catch(() => { if (!res.headersSent) notFound(req, res); });
+  });
+
+  /** Masked PNG for one blocked recrop card. A missing bake is 404. Raw scans are not served. */
+  app.get("/api/qa/sets/:setId/recrop-review/:cardId", (req, res) => {
+    const { setId, cardId } = req.params;
+    if (!tokenOk(req) || !recropBlockedCard(setId, cardId)) return notFound(req, res);
+    void (async () => {
+      const file = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
+      if (!file) return notFound(req, res);
+      const png = await sharp(file).png().toBuffer();
+      headers(req, res);
+      res.status(200);
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Length", png.length);
+      res.setHeader("X-Card-Id", cardId);
+      res.setHeader("Content-Security-Policy", "default-src 'none'");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.end(png);
     })().catch(() => { if (!res.headersSent) notFound(req, res); });
   });
 
