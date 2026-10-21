@@ -478,10 +478,10 @@ export async function invalidateRegisteredHoopsMaskCache(): Promise<{ sets: numb
 
 export async function getMaskedImagePath(
   cardId: string,
-  opts?: { priority?: "live" | "warm" },
+  opts?: { priority?: "live" | "warm"; ignoreCache?: boolean },
 ): Promise<string | null> {
   const failReason = readMaskFailureReason(cardId);
-  if (failReason) {
+  if (failReason && !opts?.ignoreCache) {
     coverageRefusals.set(cardId, failReason);
     return null;
   }
@@ -490,15 +490,17 @@ export async function getMaskedImagePath(
 
   await discardStaleHoopsBottomBake(cardId);
 
-  const warm = peekWarmMaskedFilename(cardId);
-  if (warm && await acceptWarmMaskedFile(cardId, warm)) {
-    return warm;
+  if (!opts?.ignoreCache) {
+    const warm = peekWarmMaskedFilename(cardId);
+    if (warm && await acceptWarmMaskedFile(cardId, warm)) {
+      return warm;
+    }
   }
 
   const priority = opts?.priority ?? "live";
   if (priority === "live") liveMaskRequests++;
   try {
-    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority), {
+    return await enqueueMaskBake(cardId, () => generateMaskedImage(cardId, priority, opts?.ignoreCache === true), {
       promote: priority === "live",
     });
   } finally {
@@ -506,7 +508,7 @@ export async function getMaskedImagePath(
   }
 }
 
-async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "live"): Promise<string | null> {
+async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "live", ignoreCache = false): Promise<string | null> {
   await ensureDirectory();
 
   let imageUrl: string | null = null;
@@ -582,7 +584,7 @@ async function generateMaskedImage(cardId: string, priority: "live" | "warm" = "
     return null;
   }
 
-  const [cached] = await db
+  const [cached] = ignoreCache ? [] : await db
     .select()
     .from(cardImageMaskCache)
     .where(eq(cardImageMaskCache.cardId, cardId))
