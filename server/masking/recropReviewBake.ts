@@ -4,15 +4,15 @@
  * Approved 1986 cards are baked once when they have no ready file, or when a fail sidecar is still in the way.
  * A marker on the mask volume stops the same card from being forced on every boot.
  */
-import { appendFileSync, mkdirSync, readFileSync, unlinkSync } from "fs";
+import { appendFileSync, mkdirSync, readFileSync } from "fs";
 import path from "path";
 import { MASKED_CARDS_DIR } from "./maskPlanStore";
-import { clearMaskFailureSidecar, invalidateMaskReadySidecar, maskReadySidecarDir, readMaskFailureReason } from "./maskReadySidecar";
-import { getMaskedImagePath, warmMaskedFilename } from "./maskingService";
+import { clearMaskFailureSidecar, maskReadySidecarDir, readMaskFailureReason } from "./maskReadySidecar";
+import { getMaskedImagePath } from "./maskingService";
 import { RECROP_APPROVED_1986_IDS, RECROP_BLOCKED_CARDS } from "./toppsRecropReview";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 
-const BLOCKED_MARKER = "recrop-review-blocked-v1.ids";
+const BLOCKED_MARKER = "recrop-review-blocked-v2.ids";
 const APPROVED_MARKER = "recrop-review-approved-v1.ids";
 
 function markerPath(name: string): string {
@@ -33,26 +33,14 @@ function markDone(name: string, cardId: string): void {
   appendFileSync(markerPath(name), `${cardId}\n`);
 }
 
-function dropWarm(cardId: string): void {
-  clearMaskFailureSidecar(cardId);
-  invalidateMaskReadySidecar(cardId);
-  for (const deg of [0, 90, 180, 270] as const) {
-    try {
-      unlinkSync(path.join(MASKED_CARDS_DIR, warmMaskedFilename(cardId, deg)));
-    } catch {
-      // already gone
-    }
-  }
-}
-
 async function bakeCard(cardId: string, force: boolean): Promise<"baked" | "refused" | "skipped" | "error"> {
   const ready = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
   const failed = readMaskFailureReason(cardId);
   if (!force && ready && !failed) return "skipped";
-  if (force) dropWarm(cardId);
-  else if (failed) clearMaskFailureSidecar(cardId);
+  // Clear a refusal so the bake can run. Leave the warm JPEG in place until a new bake overwrites it.
+  if (force || failed) clearMaskFailureSidecar(cardId);
   try {
-    const file = await getMaskedImagePath(cardId, { priority: "warm" });
+    const file = await getMaskedImagePath(cardId, { priority: "warm", ignoreCache: force });
     if (file) return "baked";
     return readMaskFailureReason(cardId) ? "refused" : "error";
   } catch (error) {
@@ -72,7 +60,7 @@ export async function runRecropReviewBake(): Promise<void> {
     }
     const result = await bakeCard(card.id, true);
     counts[result] += 1;
-    if (result !== "error") {
+    if (result === "baked") {
       markDone(BLOCKED_MARKER, card.id);
       blockedDone.add(card.id);
     }

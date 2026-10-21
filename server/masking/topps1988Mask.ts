@@ -6,6 +6,7 @@ import { assertOpaqueIdentityCover } from "./maskCoverage";
 import { recognizeNameWords, type OcrWordResult } from "./ocrRuntime";
 import { surnameRunOutsideBand } from "./trustedProfileBand";
 import { TOPPS_1988_REGIONS, TOPPS_1988_REVIEWED_SOURCES } from "./topps1988Geometry";
+import { recropHeldSkipsSourceHash } from "./toppsRecropReview";
 
 export async function maskReviewedTopps1988(
   raw: Buffer,
@@ -18,7 +19,7 @@ export async function maskReviewedTopps1988(
   const reviewed = TOPPS_1988_REVIEWED_SOURCES.find((s) => s.cardId === opts.cardId);
   let reason: string | null = null;
   if (!reviewed || reviewed.player !== player) reason = "topps1988_source_not_reviewed";
-  else if (createHash("sha256").update(raw).digest("hex") !== reviewed.sha256) reason = "topps1988_source_changed";
+  else if (!recropHeldSkipsSourceHash(opts.cardId) && createHash("sha256").update(raw).digest("hex") !== reviewed.sha256) reason = "topps1988_source_changed";
   else if ((opts.imageRotation ?? 0) !== 0 || opts.cardOrientation === "landscape" || !width || height <= width) reason = "topps1988_orientation_unverified";
   else if (opts.skipOcr) reason = "topps1988_ocr_required";
   // Even a refusal's diagnostic JPEG hides the known diagonal; it is never served.

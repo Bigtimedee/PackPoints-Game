@@ -1,10 +1,12 @@
-/** Design recrop review: 128 approved 1986 cards, 84 blocked cards, QA manifest. */
+/** Design recrop review: 129 approved 1986 cards, 43 approved 1988 cards, 40 blocked cards. */
 import { createServer } from "http";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isBlockedCard, leakBlocklistLogLines } from "../lib/cardBlocklist";
+import { TOPPS_1988_REVIEWED_SOURCES } from "../masking/topps1988Geometry";
 import {
   RECROP_APPROVED_1986_IDS,
+  RECROP_APPROVED_1988_IDS,
   RECROP_BLOCKED_CARDS,
   TOPPS_1986_SET_ID,
   TOPPS_1988_SET_ID,
@@ -17,35 +19,44 @@ const previous = process.env.COVER_QA_TOKEN;
 process.env.COVER_QA_TOKEN = TOKEN;
 
 describe("Topps recrop review lists", () => {
-  it("approves 128 unique 1986 cards and blocks 22 plus 62", () => {
-    expect(new Set(RECROP_APPROVED_1986_IDS).size).toBe(128);
-    expect(recropBlockedForSet(TOPPS_1986_SET_ID)).toHaveLength(22);
-    expect(recropBlockedForSet(TOPPS_1988_SET_ID)).toHaveLength(62);
-    expect(RECROP_BLOCKED_CARDS).toHaveLength(84);
+  it("approves 129 unique 1986 cards, 43 unique 1988 cards, and blocks 21 plus 19", () => {
+    expect(new Set(RECROP_APPROVED_1986_IDS).size).toBe(129);
+    expect(new Set(RECROP_APPROVED_1988_IDS).size).toBe(43);
+    expect(recropBlockedForSet(TOPPS_1986_SET_ID)).toHaveLength(21);
+    expect(recropBlockedForSet(TOPPS_1988_SET_ID)).toHaveLength(19);
+    expect(RECROP_BLOCKED_CARDS).toHaveLength(40);
     const blocked = new Set(RECROP_BLOCKED_CARDS.map((card) => card.id));
     for (const id of RECROP_APPROVED_1986_IDS) expect(blocked.has(id)).toBe(false);
+    for (const id of RECROP_APPROVED_1988_IDS) expect(blocked.has(id)).toBe(false);
+    const reviewed = new Set(TOPPS_1988_REVIEWED_SOURCES.map((source) => source.cardId));
+    for (const id of RECROP_APPROVED_1988_IDS) expect(reviewed.has(id)).toBe(true);
   });
 
-  it("keeps the 22 off deals and leaves the 128 unblocked", () => {
-    for (const card of recropBlockedForSet(TOPPS_1986_SET_ID)) {
+  it("keeps the held cards off deals and leaves the approved recrops unblocked", () => {
+    for (const card of RECROP_BLOCKED_CARDS) {
       expect(isBlockedCard("not-a-set", "Roster", { id: card.id, number: card.number, variant: "base" })).toBe(true);
     }
-    for (const id of RECROP_APPROVED_1986_IDS) {
+    for (const id of [...RECROP_APPROVED_1986_IDS, ...RECROP_APPROVED_1988_IDS]) {
       expect(isBlockedCard("not-a-set", "Roster", { id, number: "1", variant: "base" })).toBe(false);
     }
     expect(leakBlocklistLogLines().find((line) => line.startsWith("[blocklist] set=2b77043a"))).toBe(
-      "[blocklist] set=2b77043a blockedIds=36 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=2b77043a blockedIds=35 blockedNumbers=0 blockedPatterns=0",
+    );
+    expect(leakBlocklistLogLines().find((line) => line.startsWith("[blocklist] set=affd57b8"))).toBe(
+      "[blocklist] set=affd57b8 blockedIds=22 blockedNumbers=0 blockedPatterns=0",
     );
   });
 
-  it("flags the signature, the wrong photo, DISCOVER stamps, and margins", () => {
+  it("flags the signature, DISCOVER stamps, and margins, and holds 656 for stretch", () => {
     const flagged = (flag: string) => RECROP_BLOCKED_CARDS.filter((card) => card.flags.includes(flag as "signature"));
     expect(flagged("signature").map((card) => card.id)).toEqual(["93a3e9e6-3b14-41f0-a31f-9b3c3d192b85"]);
-    expect(flagged("wrong_photo").map((card) => card.id)).toEqual(["f48b9dc3-b4aa-4415-b006-f7b61f01ca24"]);
+    expect(flagged("wrong_photo")).toHaveLength(0);
+    const guetterman = RECROP_BLOCKED_CARDS.find((card) => card.id === "f48b9dc3-b4aa-4415-b006-f7b61f01ca24");
+    expect(guetterman?.reason).toMatch(/stretched/);
     expect(flagged("discover_stamp")).toHaveLength(9);
     expect(flagged("discover_stamp").every((card) => card.setId === TOPPS_1988_SET_ID)).toBe(true);
-    expect(flagged("margin").filter((card) => card.setId === TOPPS_1986_SET_ID)).toHaveLength(5);
-    expect(flagged("margin").filter((card) => card.setId === TOPPS_1988_SET_ID)).toHaveLength(52);
+    expect(flagged("margin").filter((card) => card.setId === TOPPS_1986_SET_ID)).toHaveLength(4);
+    expect(flagged("margin").filter((card) => card.setId === TOPPS_1988_SET_ID)).toHaveLength(9);
     for (const card of RECROP_BLOCKED_CARDS) {
       expect(card.reason).not.toMatch(/[\u2013\u2014]/);
     }
@@ -76,7 +87,7 @@ describe("held-set QA serves the blocked recrop export", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as { recropReview: boolean; total: number; cards: Array<{ id: string; number: string; flags: string[]; maskedPath: string; refusalReason: string }> };
     expect(body.recropReview).toBe(true);
-    expect(body.total).toBe(22);
+    expect(body.total).toBe(21);
     const obrien = body.cards.find((card) => card.id === "93a3e9e6-3b14-41f0-a31f-9b3c3d192b85");
     expect(obrien?.number).toBe("328");
     expect(obrien?.flags).toContain("signature");
@@ -89,9 +100,9 @@ describe("held-set QA serves the blocked recrop export", () => {
     const res = await fetch(`${base}/api/qa/sets/${TOPPS_1988_SET_ID}/cards`, { headers: { "X-QA-Token": TOKEN } });
     expect(res.status).toBe(200);
     const body = await res.json() as { total: number; cards: Array<{ id: string; flags: string[] }> };
-    expect(body.total).toBe(62);
-    const wrong = body.cards.find((card) => card.id === "f48b9dc3-b4aa-4415-b006-f7b61f01ca24");
-    expect(wrong?.flags).toContain("wrong_photo");
+    expect(body.total).toBe(19);
+    const guetterman = body.cards.find((card) => card.id === "f48b9dc3-b4aa-4415-b006-f7b61f01ca24");
+    expect(guetterman?.flags).toEqual([]);
     const approved = RECROP_APPROVED_1986_IDS[0];
     const png = await fetch(`${base}/api/qa/sets/${TOPPS_1986_SET_ID}/recrop-review/${approved}`, { headers: { "X-QA-Token": TOKEN } });
     expect(png.status).toBe(404);
