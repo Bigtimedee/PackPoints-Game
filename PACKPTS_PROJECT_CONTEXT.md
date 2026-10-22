@@ -9,7 +9,7 @@
 
 ## Signup funnel events (2026-10-22)
 
-`funnel_events.event_type` is `varchar(40)` so `first_daily5_complete_registered` fits. `POST /api/funnel/event` is same-origin and rate limited. It records `signup_view` (path = surface, mode = variant), `signup_started` (mode = email, workos, google, or apple), `signup_error` (mode = reason), and `share_view` (Daily 5 share card, mode = registered or guest). `signup_complete` and `first_daily5_complete_registered` are server-only. A new email account, a new WorkOS account, and a new Apple account write `signup_complete`. The first non-flagged registered Daily 5 finish writes `first_daily5_complete_registered` once per user. `GET /api/qa/funnel` adds `signup`: counts by surface, method, and reason, a daily chain (visit, first answer, game complete, signup view, signup started, registered users, first registered Daily 5), and the same chain by `utm_source`. Staff, test, QA, and bot rows stay excluded. An invite ref on `signup_complete` is the second token of `path` (`surface code`).
+`funnel_events.event_type` is `varchar(40)` so `first_daily5_complete_registered` fits. `POST /api/funnel/event` is same-origin and rate limited. It records `signup_view` (path = surface, mode = variant), `signup_started` (mode = email, workos, google, or apple), `signup_error` (mode = reason), and `share_view` (Daily 5 share card, mode = registered or guest). `signup_complete` and `first_daily5_complete_registered` are server-only. A new email account writes `signup_complete` with method `email`. A new WorkOS account writes `google`, `apple`, or `workos` from the IdP authentication method (the button the user pressed is the fallback). A new native Apple account writes `apple`. The first non-flagged registered Daily 5 finish writes `first_daily5_complete_registered` once per user. `GET /api/qa/funnel` adds `signup`: counts by surface, method, and reason, a daily chain (visit, first answer, game complete, signup view, signup started, registered users, first registered Daily 5), and the same chain by `utm_source`. Staff, test, QA, and bot rows stay excluded. An invite ref on `signup_complete` is the second token of `path` (`surface code`).
 
 ---
 
@@ -46,7 +46,7 @@ Trading cards are one of the most emotionally resonant collectible categories in
 ### Account Creation
 1. User visits packpts.com or receives a Founders Pass / invite link.
 2. Signup requires username, email, password. Invite code may be required if the founders cap is active.
-3. WorkOS SSO (Google, etc.) is an alternative auth path.
+3. Continue with Google and Continue with Apple are the primary buttons on `/auth` and the signup modal. Both start `GET /api/auth/workos/start` with `provider=GoogleOAuth` or `provider=AppleOAuth`. There is no consumer-facing WorkOS label. An embedded in-app browser navigates the top frame in place. Apple uses WorkOS's shared Sign in with Apple client. Email signup is still username, email, password, and confirm password.
 4. After signup, the user lands on the home page and can immediately play a solo game. Home does not show Total Games Played / Cards Guessed until `totalGames ≥ 500` (or staff flag `home.show_play_vanity`). Founders FOMO is not on home. The first home visit opens `OnboardingModal` once (`packpts_onboarded`). That tour does not advertise a signup bonus. Home itself does not advertise the 250 welcome credit either; `POST /api/auth/register` still credits it.
 
 ### First Game
@@ -656,7 +656,7 @@ Full funnel instrumented: card_view → outbound_click → affiliate postback �
 **WorkOS OAuth (SSO) — wired, package installed:**
 - `WORKOS_API_KEY` + `WORKOS_CLIENT_ID` configure OIDC flow (`@workos-inc/node`)
 - Routes: `GET /api/auth/workos/start`, `GET /api/auth/workos/callback`, `POST /api/auth/workos/logout`
-- Client trigger: `client/src/pages/auth.tsx` "Continue with WorkOS" button posts to `/api/auth/workos/start`
+- Client trigger: `SocialAuthButtons` on `/auth` and the signup modal. "Continue with Google" and "Continue with Apple" call `startWorkosAuth` with `provider=GoogleOAuth` or `provider=AppleOAuth`. Unknown providers fall back to AuthKit. The account-link screen says Google, Apple, or sign-in, never WorkOS. Privacy policy still names WorkOS as a processor.
 - Maps to `userIdentities` table (provider: "workos", providerUserId, email); enum allowlist in `shared/schema.ts:identityProviders` = `["local", "workos"]`
 - Email collision handling via `pendingLinkChallenges` (magic link verification)
 - Sets `req.session.workosUserId`

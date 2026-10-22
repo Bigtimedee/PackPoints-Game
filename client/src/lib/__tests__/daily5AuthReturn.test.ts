@@ -76,6 +76,36 @@ describe("Daily5 auth return", () => {
     expect(location.href).toBe("/api/auth/workos/start");
     expect(consumeDaily5AuthReturn()).toBe("/daily5?challenge=test-token");
   });
+  it("navigates the top frame when the page is embedded", async () => {
+    const selfLocation = { pathname: "/daily", search: "", host: "packpts.com", href: "" };
+    const topLocation = { href: "" };
+    const self = { location: selfLocation };
+    const top = { location: topLocation };
+    vi.stubGlobal("window", {
+      location: selfLocation,
+      sessionStorage: new MemoryStore(),
+      localStorage: new MemoryStore(),
+      self,
+      top,
+    });
+    await startWorkosAuth("/api/auth/workos/start?provider=AppleOAuth");
+    expect(topLocation.href).toBe("/api/auth/workos/start?provider=AppleOAuth");
+    expect(selfLocation.href).toBe("");
+  });
+  it("stays in this frame when the parent frame blocks access", async () => {
+    const selfLocation = { pathname: "/", search: "", host: "packpts.com", href: "" };
+    const top = {};
+    Object.defineProperty(top, "location", { get() { throw new Error("cross-origin"); } });
+    vi.stubGlobal("window", {
+      location: selfLocation,
+      sessionStorage: new MemoryStore(),
+      localStorage: new MemoryStore(),
+      self: { location: selfLocation },
+      top,
+    });
+    await startWorkosAuth("/api/auth/workos/start?provider=GoogleOAuth");
+    expect(selfLocation.href).toBe("/api/auth/workos/start?provider=GoogleOAuth");
+  });
   it("wires consumption inside the authenticated navigation timer; retains auth error path", () => {
     const src = readFileSync(new URL("../../pages/auth-success.tsx", import.meta.url), "utf8");
     expect(src).toMatch(/if \(user\)\s*\{[\s\S]*?setTimeout\(\(\) => \{\s*setLocation\(consumeDaily5AuthReturn\(\)\);\s*\}, 1500\)/);

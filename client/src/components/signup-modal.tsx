@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getStoredUtmParams } from "@/lib/queryClient";
-import { startWorkosAuth } from "@/lib/attribution";
 import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Loader2, Trophy, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -266,6 +266,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
         
         <EscrowHeldChip points={pendingPoints} />
 
+        <SocialAuthButtons surface="modal" disabled={isPending} />
+
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "signup" | "login")}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="signup" data-testid="modal-tab-signup" disabled={isPending}>
@@ -434,19 +436,6 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                       Skip for Now
                     </Button>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full min-h-11"
-                    onClick={() => {
-                      trackSignupStarted("workos", "modal");
-                      void startWorkosAuth("/api/auth/workos/start?signupSurface=modal");
-                    }}
-                    disabled={isPending}
-                    data-testid="button-modal-workos-signup"
-                  >
-                    Continue with WorkOS
-                  </Button>
                 </div>
               </form>
             </Form>
@@ -554,19 +543,6 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                       Skip for Now
                     </Button>
                   ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full min-h-11"
-                    onClick={() => {
-                      trackSignupStarted("workos", "modal");
-                      void startWorkosAuth("/api/auth/workos/start?signupSurface=modal");
-                    }}
-                    disabled={isPending}
-                    data-testid="button-modal-workos"
-                  >
-                    Continue with WorkOS
-                  </Button>
                 </div>
               </form>
             </Form>

@@ -191,7 +191,7 @@ export default function LinkRequiredPage() {
     );
   }
 
-  const providerName = provider === "workos" ? "WorkOS" : provider;
+  const providerName = provider === "google" ? "Google" : provider === "apple" ? "Apple" : "sign-in";
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">

@@ -14,6 +14,7 @@ import {
 } from "../lib/signupAttribution";
 import { recordFunnelEvent } from "./funnel";
 import { funnelToken, signupFunnelPath } from "./signupFunnel";
+import { signupMethodFromAuth, workosAuthorizeProvider } from "./oauthProvider";
 
 let workos: WorkOS | null = null;
 
@@ -38,6 +39,7 @@ interface WorkosSession {
   linkIntent?: boolean;
   pendingLinkChallengeId?: string;
   signupSurface?: string;
+  signupMethod?: string;
 }
 
 declare module "express-session" {
@@ -95,8 +97,10 @@ export function registerWorkosRoutes(app: Express): void {
       }
 
       const state = crypto.randomBytes(32).toString("hex");
+      const authorizeProvider = workosAuthorizeProvider(req.query.provider);
       (req.session as any).workosState = state;
       (req.session as any).signupSurface = funnelToken(req.query.signupSurface) || "workos";
+      (req.session as any).signupMethod = signupMethodFromAuth(authorizeProvider);
 
       if (req.query.linkIntent === "true" && req.session?.localUserId) {
         (req.session as any).linkIntent = true;
@@ -112,7 +116,7 @@ export function registerWorkosRoutes(app: Express): void {
         clientId,
         redirectUri,
         state,
-        provider: "authkit",
+        provider: authorizeProvider,
       });
 
       // Persist CSRF state before leaving this origin for WorkOS.
@@ -144,7 +148,11 @@ export function registerWorkosRoutes(app: Express): void {
     const stashedAttribution = readAttributionCookie(req);
     clearAttributionCookie(res);
     const signupSurface = funnelToken((req.session as any)?.signupSurface) || "workos";
+    const sessionMethod = typeof (req.session as any)?.signupMethod === "string"
+      ? (req.session as any).signupMethod as string
+      : undefined;
     delete (req.session as any).signupSurface;
+    delete (req.session as any).signupMethod;
 
     const noteSignupError = (reason: string) => {
       recordFunnelEvent(req, "signup_error", {
@@ -191,11 +199,12 @@ export function registerWorkosRoutes(app: Express): void {
       const isLinkIntent = (req.session as any).linkIntent === true;
       delete (req.session as any).linkIntent;
 
-      const { user: workosUser } = await workosInstance.userManagement.authenticateWithCode({
+      const { user: workosUser, authenticationMethod } = await workosInstance.userManagement.authenticateWithCode({
         clientId,
         code,
         codeVerifier: undefined,
       });
+      const signupMethod = signupMethodFromAuth(authenticationMethod, sessionMethod);
 
       const providerUserId = workosUser.id;
       const providerEmail = workosUser.email || null;
@@ -317,7 +326,7 @@ export function registerWorkosRoutes(app: Express): void {
               return res.redirect("/auth-error?reason=session_error");
             }
             const maskedEmail = identityService.maskEmail(providerEmail);
-            res.redirect(`/auth/link-required?provider=workos&email=${encodeURIComponent(maskedEmail)}`);
+            res.redirect(`/auth/link-required?provider=${signupMethod}&email=${encodeURIComponent(maskedEmail)}`);
           });
           return;
         }
@@ -368,7 +377,7 @@ export function registerWorkosRoutes(app: Express): void {
       await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS", await riskCtxFrom(req));
       recordFunnelEvent(req, "signup_complete", {
         userId: newUser.id,
-        mode: "workos",
+        mode: signupMethod,
         path: signupFunnelPath(signupSurface, stashedAttribution?.refCode),
         utmSource: stashedAttribution?.utmSource,
         utmMedium: stashedAttribution?.utmMedium,
