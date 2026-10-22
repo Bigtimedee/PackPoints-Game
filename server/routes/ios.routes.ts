@@ -37,6 +37,8 @@ import {
   readAttributionCookie,
   sanitizeAttribution,
 } from "../lib/signupAttribution";
+import { recordFunnelEvent } from "../services/funnel";
+import { funnelToken, signupFunnelPath } from "../services/signupFunnel";
 
 // Apple public keys endpoint for identity-token verification
 const APPLE_JWKS = createRemoteJWKSet(
@@ -281,6 +283,16 @@ export function registerIosRoutes(app: Express) {
       );
 
       await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth", await riskCtxFrom(req));
+      recordFunnelEvent(req, "signup_complete", {
+        userId: packpointsUser.id,
+        mode: "apple",
+        path: signupFunnelPath(funnelToken(req.body?.signupSurface) || "apple", signupAttribution?.refCode),
+        utmSource: signupAttribution?.utmSource,
+        utmMedium: signupAttribution?.utmMedium,
+        utmCampaign: signupAttribution?.utmCampaign,
+        utmContent: signupAttribution?.utmContent,
+        referrerHost: signupAttribution?.referrerHost,
+      });
     }
 
     if (packpointsUser.status === "BANNED") {

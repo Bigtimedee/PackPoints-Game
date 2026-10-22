@@ -2,9 +2,11 @@
  * GTM funnel instrumentation (GTM audit, section 8).
  *
  * Writes: `visit` (server-side, on SPA HTML loads, with UTM), `first_answer`
- * (once per visitor or user), `game_complete` (mode + set) and
- * `beatme_share`, all into funnel_events. Every write is fire-and-forget and
- * can never break a page load or a game.
+ * (once per visitor or user), `game_complete` (mode + set), `beatme_share`,
+ * and the signup-growth events (signup_view, signup_started, signup_error,
+ * signup_complete, first_daily5_complete_registered, share_view), all into
+ * funnel_events. Every write is fire-and-forget and can never break a page
+ * load, a signup, or a game.
  *
  * Reads: buildFunnelReport() for GET /api/qa/funnel. Test, QA, staff (admin)
  * and bot accounts are excluded everywhere.
@@ -13,6 +15,7 @@ import crypto from "crypto";
 import type { Request, Response } from "express";
 import { pool } from "../db";
 import { QA_TEST_USER_ID } from "@shared/qaTestAccount";
+import { buildSignupFunnelSection, type SignupFunnelSection } from "./signupFunnel";
 
 export const VISITOR_COOKIE = "pp_vid";
 const VISITOR_MAX_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
@@ -21,7 +24,9 @@ const VID_RE = /^[a-f0-9]{32}$/;
 
 export type FunnelEventType =
   | "visit" | "first_answer" | "game_complete" | "beatme_share"
-  | "invite_click" | "invite_signup" | "invite_first_game" | "invite_reward" | "invite_reward_blocked";
+  | "invite_click" | "invite_signup" | "invite_first_game" | "invite_reward" | "invite_reward_blocked"
+  | "signup_view" | "signup_started" | "signup_error" | "signup_complete"
+  | "first_daily5_complete_registered" | "share_view";
 
 function readCookie(req: Request, name: string): string | null {
   const raw = req.headers.cookie;
@@ -98,7 +103,8 @@ async function insertEvent(row: {
   utmContent?: string | null;
   referrerHost?: string | null;
   isTest: boolean;
-  onlyOnce?: boolean;
+  /** true: once per visitor or user (first_answer). "user": once per user id. */
+  onlyOnce?: boolean | "user";
 }): Promise<void> {
   const params = [
     row.eventType, row.visitorId, row.userId, row.mode ?? null, row.gameSetId ?? null, row.path ?? null,
@@ -107,12 +113,16 @@ async function insertEvent(row: {
   ];
   if (row.onlyOnce) {
     // first_answer: skip when this visitor or this user already has one.
+    // "user": skip only when this user id already has the event.
+    const actor = row.onlyOnce === "user"
+      ? `$3::varchar IS NOT NULL AND f.user_id = $3::varchar`
+      : `($2::varchar IS NOT NULL AND f.visitor_id = $2::varchar) OR ($3::varchar IS NOT NULL AND f.user_id = $3::varchar)`;
     await pool.query(
       `INSERT INTO funnel_events (event_type, visitor_id, user_id, mode, game_set_id, path, utm_source, utm_medium, utm_campaign, utm_content, referrer_host, is_test)
        SELECT $1::varchar,$2::varchar,$3::varchar,$4::varchar,$5::varchar,$6::varchar,$7::varchar,$8::varchar,$9::varchar,$10::varchar,$11::varchar,$12::boolean
        WHERE NOT EXISTS (
          SELECT 1 FROM funnel_events f WHERE f.event_type = $1::varchar
-           AND (($2::varchar IS NOT NULL AND f.visitor_id = $2::varchar) OR ($3::varchar IS NOT NULL AND f.user_id = $3::varchar)))`,
+           AND (${actor}))`,
       params,
     );
     return;
@@ -189,16 +199,28 @@ export function recordVisit(req: Request, res: Response): void {
   } catch { /* ignore */ }
 }
 
-/** first_answer / game_complete / beatme_share. Fire-and-forget. */
+/** Gameplay and signup funnel events. Fire-and-forget. */
 export function recordFunnelEvent(
   req: Request,
   eventType: Exclude<FunnelEventType, "visit">,
-  opts: { userId?: string | null; mode?: string | null; gameSetId?: string | null } = {},
+  opts: {
+    userId?: string | null;
+    mode?: string | null;
+    gameSetId?: string | null;
+    path?: string | null;
+    utmSource?: string | null;
+    utmMedium?: string | null;
+    utmCampaign?: string | null;
+    utmContent?: string | null;
+    referrerHost?: string | null;
+    onlyOnce?: boolean | "user";
+  } = {},
 ): void {
   try {
     const vid = visitorIdFrom(req) ?? (req as any)._ppVid ?? null;
     const userId = opts.userId ?? sessionUserId(req);
     const bot = isBotRequest(req);
+    const onlyOnce = opts.onlyOnce ?? (eventType === "first_answer" ? true : undefined);
     void (async () => {
       const isTest = bot || (await isExcludedUser(userId));
       await insertEvent({
@@ -207,11 +229,48 @@ export function recordFunnelEvent(
         userId,
         mode: clip(opts.mode, 20),
         gameSetId: clip(opts.gameSetId, 64),
+        path: clip(opts.path, 300),
+        utmSource: clip(opts.utmSource, 100),
+        utmMedium: clip(opts.utmMedium, 100),
+        utmCampaign: clip(opts.utmCampaign, 100),
+        utmContent: clip(opts.utmContent, 100),
+        referrerHost: clip(opts.referrerHost, 255),
         isTest,
-        onlyOnce: eventType === "first_answer",
+        onlyOnce,
       });
-    })().catch(() => { /* never break gameplay */ });
+    })().catch(() => { /* never break gameplay or signup */ });
   } catch { /* ignore */ }
+}
+
+/**
+ * First non-flagged Daily 5 finish for this registered user. Skipped when an
+ * earlier non-flagged completion already exists, and inserted once per user.
+ */
+export function recordFirstRegisteredDaily5(req: Request, userId: string): void {
+  if (!userId) return;
+  void (async () => {
+    const prior = await pool.query(
+      `SELECT count(*)::int AS n FROM daily_challenge_entries
+       WHERE user_id = $1 AND completed_at IS NOT NULL AND COALESCE(flagged, false) = false`,
+      [userId],
+    );
+    if (Number(prior.rows[0]?.n ?? 0) > 1) return;
+    let utmSource: string | null = null;
+    try {
+      const attr = await pool.query(
+        `SELECT utm_source FROM user_attribution WHERE user_id = $1 LIMIT 1`,
+        [userId],
+      );
+      utmSource = typeof attr.rows[0]?.utm_source === "string" ? attr.rows[0].utm_source : null;
+    } catch { /* attribution is optional */ }
+    recordFunnelEvent(req, "first_daily5_complete_registered", {
+      userId,
+      mode: "daily5",
+      path: "daily5",
+      utmSource,
+      onlyOnce: "user",
+    });
+  })().catch(() => { /* never break Daily 5 finish */ });
 }
 
 /**
@@ -289,6 +348,7 @@ export interface FunnelReport {
   beatMe: { shares: number; linkClicks: number; opens: number; openVisitorsWhoPlayed: number; signups: number };
   signupsBySource: Record<string, number> | null;
   invites: { clicks: number; signups: number; firstGames: number; rewards: number; rewardsBlocked: number; blockedByReason: { reason: string; count: number }[]; clicksBySurface: { surface: string; count: number }[] };
+  signup: SignupFunnelSection;
 }
 
 export interface Rate { numerator: number; denominator: number; rate: number | null }
@@ -383,6 +443,46 @@ export async function buildFunnelReport(windowDays: number, q: FunnelQuery = (t,
     return [...m.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count);
   };
 
+  const signupEvents = (await q(`SELECT event_type, coalesce(mode, '') AS mode,
+      split_part(coalesce(path, ''), ' ', 1) AS surface,
+      coalesce(nullif(lower(utm_source), ''), 'direct') AS source,
+      count(*)::int AS n
+    FROM funnel_events
+    WHERE NOT is_test AND created_at >= ${since}
+      AND event_type IN ('visit', 'first_answer', 'game_complete', 'signup_view', 'signup_started', 'signup_error', 'signup_complete', 'first_daily5_complete_registered', 'share_view')
+    GROUP BY 1, 2, 3, 4`)).rows;
+  const signupDaily = (await q(`SELECT (created_at AT TIME ZONE 'America/Chicago')::date::text AS date,
+      count(*) FILTER (WHERE event_type = 'visit')::int AS visits,
+      count(*) FILTER (WHERE event_type = 'first_answer')::int AS first_answers,
+      count(*) FILTER (WHERE event_type = 'game_complete')::int AS game_completes,
+      count(*) FILTER (WHERE event_type = 'signup_view')::int AS signup_views,
+      count(*) FILTER (WHERE event_type = 'signup_started')::int AS signup_started,
+      count(*) FILTER (WHERE event_type = 'signup_complete')::int AS signup_completes,
+      count(*) FILTER (WHERE event_type = 'first_daily5_complete_registered')::int AS first_daily5
+    FROM funnel_events
+    WHERE NOT is_test AND created_at >= ${since}
+      AND event_type IN ('visit', 'first_answer', 'game_complete', 'signup_view', 'signup_started', 'signup_complete', 'first_daily5_complete_registered')
+    GROUP BY 1 ORDER BY 1`)).rows;
+  const registeredDaily = (await q(`WITH excluded AS (${EXCLUDED_USERS_SQL})
+    SELECT (u.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Chicago')::date::text AS date, count(*)::int AS n
+    FROM users u
+    WHERE u.created_at IS NOT NULL AND u.created_at >= ${since}
+      AND u.id NOT IN (SELECT id FROM excluded)
+    GROUP BY 1`)).rows;
+  const registeredBySource = (await q(`WITH excluded AS (${EXCLUDED_USERS_SQL})
+    SELECT coalesce(nullif(lower(a.utm_source), ''), 'direct') AS source, count(*)::int AS n
+    FROM users u
+    LEFT JOIN user_attribution a ON a.user_id = u.id
+    WHERE u.created_at IS NOT NULL AND u.created_at >= ${since}
+      AND u.id NOT IN (SELECT id FROM excluded)
+    GROUP BY 1`)).rows;
+  const signup = buildSignupFunnelSection({
+    events: signupEvents,
+    dailyEvents: signupDaily,
+    registeredDaily,
+    registeredBySource,
+  });
+
   const dau7 = Math.round(num(agg?.dau7) * 10) / 10;
   return {
     generatedAt: new Date().toISOString(),
@@ -396,6 +496,7 @@ export async function buildFunnelReport(windowDays: number, q: FunnelQuery = (t,
       gameComplete: "byMode and bySet from funnel_events (since logging started). historicalByMode from completed game_sessions in the window.",
       guestToRegistered: "Denominator: anon players created in the window who started or finished a game. Numerator: those claimed by a real account.",
       invites: "INVITE link funnel from funnel_events: invite_click (/r/CODE on an INVITE link), invite_signup (SIGNUP attribution), invite_first_game (server detected real first game), invite_reward and invite_reward_blocked (mode = reason).",
+      signup: "Signup growth events. signup_view path is the surface (plaque, modal, auth) and mode is the variant. signup_started mode is the method (email, workos, google, apple). signup_error mode is the reason. signup_complete is server-only on a new email, WorkOS, or Apple account (path is surface plus optional invite ref). registered on the daily chain is new users rows, staff test QA and bots excluded, not the event count. firstDaily5Registered is the first non-flagged registered Daily 5 finish, once per user. share_view is the Daily 5 share card shown (mode registered or guest). byUtmSource uses the event utm_source, with registered joined from user_attribution.",
       beatMe: "shares: Beat-me links created. linkClicks: referral link click_count. opens: visitors landing with utm_medium=beatme. openVisitorsWhoPlayed: opens with a first_answer or game_complete. signups: SIGNUP attributions on Beat-me links.",
     },
     activity: {
@@ -436,5 +537,6 @@ export async function buildFunnelReport(windowDays: number, q: FunnelQuery = (t,
       blockedByReason: groupBy("invite_reward_blocked", "mode").map((r) => ({ reason: r.key, count: r.count })),
       clicksBySurface: groupBy("invite_click", "surface").map((r) => ({ surface: r.key, count: r.count })),
     },
+    signup,
   };
 }

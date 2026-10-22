@@ -121,12 +121,14 @@ import { registerSignupQaRoutes } from "./routes/signupQa";
 import { registerImageHostsQaRoute } from "./routes/imageHostsQa";
 import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "./services/cards/imageQuality";
 import { registerFunnelQaRoutes } from "./routes/funnelQa";
-import { recordFunnelEvent } from "./services/funnel";
+import { registerFunnelEventRoutes } from "./routes/funnelEvents";
+import { recordFunnelEvent, recordFirstRegisteredDaily5 } from "./services/funnel";
 import { registerPointsValueRoute } from "./routes/pointsValue";
 import { registerPointsEventsRoute } from "./routes/pointsEvents";
 import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
 import { isQaTestUser } from "@shared/qaTestAccount";
-import { attributeNewUserFromRequest } from "./lib/signupAttribution";
+import { attributeNewUserFromRequest, sanitizeAttribution } from "./lib/signupAttribution";
+import { funnelToken, signupFunnelPath } from "./services/signupFunnel";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
@@ -541,6 +543,7 @@ export async function registerRoutes(
   registerSignupQaRoutes(app);
   registerImageHostsQaRoute(app);
   registerFunnelQaRoutes(app);
+  registerFunnelEventRoutes(app);
   registerPointsValueRoute(app);
   registerPointsEventsRoute(app);
   registerQaSessionRoute(app);
@@ -1551,6 +1554,7 @@ export async function registerRoutes(
       const result = await daily5Service.finishChallenge(userId, parsed.data.challengeId);
       recordFunnelEvent(req, "game_complete", { userId, mode: "daily5" });
       if (!result.flagged) {
+        recordFirstRegisteredDaily5(req, userId);
         void (async () => {
           const [{ onRegisteredGameComplete }, { getRiskContext }] = await Promise.all([
             import("./services/referralProgram"), import("./services/risk/events"),
@@ -1790,7 +1794,9 @@ export async function registerRoutes(
   app.post("/api/auth/register", registrationLimiter, async (req: any, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
+      const registerSurface = funnelToken(req.body?.signupSurface) || "register";
       if (!parsed.success) {
+        recordFunnelEvent(req, "signup_error", { userId: null, mode: "invalid", path: registerSurface });
         return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
@@ -1799,11 +1805,13 @@ export async function registerRoutes(
       
       const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
+        recordFunnelEvent(req, "signup_error", { userId: null, mode: "username_taken", path: registerSurface });
         return res.status(409).json({ error: "Username already taken" });
       }
       
       const existingEmail = await storage.getUserByEmail(email);
       if (existingEmail) {
+        recordFunnelEvent(req, "signup_error", { userId: null, mode: "email_taken", path: registerSurface });
         return res.status(409).json({ error: "Email already registered" });
       }
       
@@ -1870,6 +1878,17 @@ export async function registerRoutes(
       // Insert-only for this new user; also records a referral SIGNUP for a
       // valid ref code. Never fails registration.
       await attributeNewUserFromRequest(req, res, user.id, req.body, "Register");
+      const registeredAttribution = sanitizeAttribution(req.body);
+      recordFunnelEvent(req, "signup_complete", {
+        userId: user.id,
+        mode: "email",
+        path: signupFunnelPath(registerSurface, registeredAttribution?.refCode),
+        utmSource: registeredAttribution?.utmSource,
+        utmMedium: registeredAttribution?.utmMedium,
+        utmCampaign: registeredAttribution?.utmCampaign,
+        utmContent: registeredAttribution?.utmContent,
+        referrerHost: registeredAttribution?.referrerHost,
+      });
 
       // Explicitly save session to ensure it's persisted before response
       req.session.save((err: any) => {
@@ -1892,6 +1911,11 @@ export async function registerRoutes(
         });
       });
     } catch (error: any) {
+      recordFunnelEvent(req, "signup_error", {
+        userId: null,
+        mode: "register_failed",
+        path: funnelToken(req.body?.signupSurface) || "register",
+      });
       console.error("Error registering user:", error);
       console.error("Error details:", {
         message: error?.message,
