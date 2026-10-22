@@ -11,12 +11,12 @@ export function InviteCard({ isGuest }: { isGuest: boolean }) {
   if (!offer) return null;
   const url = offer.url ? inviteLink(offer.url, "game_complete") : null;
   return (
-    <section className="rounded-lg border bg-card p-4 text-left space-y-3" data-testid="invite-card">
+    <section className="rounded-lg border bg-card p-4 text-left space-y-3" data-testid="invite-card" data-guest={isGuest ? "true" : "false"}>
       <div className="flex items-start gap-3">
         <Gift className="h-5 w-5 shrink-0 text-primary mt-0.5" />
         <p className="text-sm font-medium" data-testid="text-invite-headline">{INVITE.headline}</p>
       </div>
-      {!isGuest && offer.code && url ? (
+      {offer.code && url ? (
         <>
           <p className="text-sm text-muted-foreground">
             {INVITE.codeLabel}: <span className="font-mono font-semibold text-foreground" data-testid="text-invite-code">{offer.code}</span>
