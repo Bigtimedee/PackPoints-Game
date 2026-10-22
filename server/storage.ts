@@ -420,7 +420,8 @@ export class DatabaseStorage implements IStorage {
       email,
       emailNormalized: normalizeEmail(email),
       firstName: username,
-      status: "PENDING",
+      status: "ACTIVE",
+      activatedAt: new Date(),
     }).returning();
     
     // Provide explicit ID in case database doesn't have UUID generation capability
@@ -445,7 +446,8 @@ export class DatabaseStorage implements IStorage {
       profileImageUrl: data.profileImageUrl,
       workosUserId: data.workosUserId,
       oauthProvider: data.oauthProvider,
-      status: "PENDING",
+      status: "ACTIVE",
+      activatedAt: new Date(),
     }).returning();
     
     return user;

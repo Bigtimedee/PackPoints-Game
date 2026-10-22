@@ -2,6 +2,7 @@ import { WorkOS } from "@workos-inc/node";
 import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
+import * as accessService from "./accessService";
 import { identityService } from "./identityService";
 import type { IdentityProvider } from "@shared/schema";
 import {
@@ -264,6 +265,14 @@ export function registerWorkosRoutes(app: Express): void {
         (req.session as any).workosUserId = workosUser.id;
         (req.session as any).localUserId = localUser.id;
 
+        if (localUser.status === "PENDING" || localUser.status === "WAITLISTED") {
+          try {
+            await accessService.tryActivateUser(localUser.id, clientInfo);
+          } catch (activateErr) {
+            console.error("[WorkOS] Activation failed (non-fatal):", activateErr);
+          }
+        }
+
         if (!localUser.oauthProvider) {
           try {
             await storage.setOauthProviderIfEmpty(localUser.id, signupMethod);
@@ -362,6 +371,14 @@ export function registerWorkosRoutes(app: Express): void {
         console.error("[WorkOS] Failed to create local user");
         noteSignupError("user_creation_failed");
         return res.redirect("/auth-error?reason=user_creation_failed");
+      }
+
+      if (newUser.status === "PENDING" || newUser.status === "WAITLISTED") {
+        try {
+          await accessService.tryActivateUser(newUser.id, clientInfo);
+        } catch (activateErr) {
+          console.error("[WorkOS] Activation failed (non-fatal):", activateErr);
+        }
       }
 
       await identityService.createIdentity(

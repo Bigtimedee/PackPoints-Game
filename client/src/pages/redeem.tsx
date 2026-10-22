@@ -107,20 +107,20 @@ export default function RedeemPage() {
               {passError === "invalid" && "This pass link is invalid or has already been used."}
               {passError === "consumed" && "This Founders Pass has already been redeemed by someone else."}
               {passError === "expired" && "This Founders Pass has expired."}
-              {passError === "deactivated" && "All Founders Passes have been deactivated - the 500 Founder spots are filled!"}
+              {passError === "deactivated" && "This Founders Pass is no longer active."}
               {!["invalid", "consumed", "expired", "deactivated"].includes(passError) && "Unable to process this pass."}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4">
             <p className="text-sm text-muted-foreground text-center">
-              You can still join the waitlist for future access.
+              You can still create a free account.
             </p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setLocation("/auth")} data-testid="button-login">
                 Sign In
               </Button>
               <Button onClick={() => setLocation("/auth?tab=signup")} data-testid="button-signup">
-                Join Waitlist
+                Create Account
               </Button>
             </div>
           </CardContent>
@@ -180,7 +180,7 @@ export default function RedeemPage() {
               <ul className="text-sm space-y-2">
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  <span>Skip the waitlist entirely</span>
+                  <span>Signup is open</span>
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
@@ -230,10 +230,10 @@ export default function RedeemPage() {
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4">
             <p className="text-sm text-muted-foreground text-center">
-              You can still join the waitlist for future access.
+              You can still create a free account.
             </p>
             <Button onClick={() => setLocation("/auth?tab=signup")} data-testid="button-join-waitlist">
-              Join Waitlist
+              Create Account
             </Button>
           </CardContent>
         </Card>
@@ -255,14 +255,14 @@ export default function RedeemPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground text-center">
-            No pass link? You can still join the waitlist or sign in.
+            No pass link? Create an account or sign in.
           </p>
           <div className="flex gap-2 justify-center">
             <Button variant="outline" onClick={() => setLocation("/auth")} data-testid="button-sign-in">
               Sign In
             </Button>
             <Button onClick={() => setLocation("/auth?tab=signup")} data-testid="button-join-waitlist-default">
-              Join Waitlist
+              Create Account
             </Button>
           </div>
         </CardContent>

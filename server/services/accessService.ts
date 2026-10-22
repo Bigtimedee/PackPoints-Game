@@ -6,8 +6,6 @@ import {
   inviteCodes, 
   accessAuditLog,
   activeUserCounter,
-  foundersPass,
-  foundersPassEvents,
   FOUNDERS_CAP_DEFAULT,
   type UserStatus,
   type WaitlistStatus,
@@ -17,7 +15,6 @@ import {
 } from "@shared/schema";
 import { eq, sql, and, gt } from "drizzle-orm";
 import crypto from "crypto";
-import * as foundersPassService from "./foundersPassService";
 
 // Types for config values
 interface FoundersCapConfig {
@@ -176,235 +173,54 @@ export async function getAccessSummary(): Promise<{
   };
 }
 
-// Atomic user activation with PostgreSQL row-level locking
+// Signup is open. The founders counter is not a gate.
 export async function tryActivateUser(
   userId: string,
   context: ActivationContext = {}
 ): Promise<ActivationResult> {
-  const config = await getFoundersCapConfig();
-  
-  // If cap is disabled, always activate
-  if (!config.enabled) {
+  const [user] = await db.select().from(users).where(eq(users.id, userId));
+  if (!user) {
+    throw new Error("Account was not created.");
+  }
+  if (user.status === "BANNED") {
+    return { activated: false, reason: "BANNED" };
+  }
+  if (user.status !== "ACTIVE") {
     await db.update(users).set({
       status: "ACTIVE" as UserStatus,
       activatedAt: new Date(),
       lastSignupIp: context.ipAddress,
       deviceFingerprint: context.deviceFingerprint,
     }).where(eq(users.id, userId));
-    
-    await logAccessAudit("ACTIVATION_SUCCESS", {
-      userId,
-      ipAddress: context.ipAddress,
-      userAgent: context.userAgent,
-      deviceFingerprint: context.deviceFingerprint,
-      metadata: { reason: "cap_disabled" },
-    });
-    
-    return { activated: true, reason: "SUCCESS" };
   }
-  
-  // Check if user already has a status
-  const [user] = await db.select().from(users).where(eq(users.id, userId));
-  if (!user) {
-    return { activated: false, reason: "CAP_REACHED" };
-  }
-  
-  if (user.status === "ACTIVE") {
-    return { activated: true, reason: "ALREADY_ACTIVE" };
-  }
-  
-  if (user.status === "BANNED") {
-    return { activated: false, reason: "BANNED" };
-  }
-  
-  // Check for invite code bypass
-  let useReservedSeat = false;
-  if (context.inviteCode && config.inviteBypass) {
-    const inviteResult = await validateInviteCode(context.inviteCode);
-    if (inviteResult.valid && inviteResult.invite) {
-      useReservedSeat = inviteResult.invite.reservedSeat;
-    }
-  }
-  
-  // Check for founders pass approval
-  let hasFoundersPass = false;
-  if (context.foundersPassApproved && context.foundersPassTokenHash) {
-    const passValidation = await foundersPassService.validatePassToken(context.foundersPassTokenHash);
-    hasFoundersPass = passValidation.valid;
-  }
-  
-  // Atomic activation using SELECT FOR UPDATE on the counter row
-  return await db.transaction(async (tx) => {
-    // Lock the counter row to prevent race conditions
-    const [counter] = await tx
-      .select()
-      .from(activeUserCounter)
-      .where(eq(activeUserCounter.id, 1))
-      .for("update");
-    
-    if (!counter) {
-      throw new Error("Active user counter not found");
-    }
-    
-    const currentActive = counter.count;
-    const currentReservedUsed = counter.reservedSeatsUsed;
-    
-    // Check if we can activate
-    let canActivate = false;
-    let shouldUseReservedSeat = false;
-    let usedFoundersPass = false;
-    
-    if (currentActive < config.maxActiveUsers) {
-      // Under cap, can activate normally
-      canActivate = true;
-    } else if (useReservedSeat && config.inviteBypass) {
-      // Cap reached but have invite code with reserved seat
-      if (currentReservedUsed < config.reservedSeatsForInvites) {
-        canActivate = true;
-        shouldUseReservedSeat = true;
-      }
-    }
-    
-    // Founders pass bypass: if user has approved pass, they can activate even if cap is reached
-    // as long as the pass is still valid (consume it atomically)
-    if (!canActivate && hasFoundersPass && context.foundersPassTokenHash) {
-      const [pass] = await tx
-        .select()
-        .from(foundersPass)
-        .where(eq(foundersPass.tokenHash, context.foundersPassTokenHash))
-        .for("update");
-      
-      if (pass && pass.status === "ACTIVE") {
-        canActivate = true;
-        usedFoundersPass = true;
-        
-        // Consume the pass atomically
-        await tx.update(foundersPass).set({
-          status: "CONSUMED",
-          consumedAt: new Date(),
-          consumedByUserId: userId,
-          consumedByIp: context.ipAddress || null,
-          consumedByDeviceFingerprint: context.deviceFingerprint || null,
-        }).where(eq(foundersPass.id, pass.id));
-        
-        await tx.insert(foundersPassEvents).values({
-          passId: pass.id,
-          eventType: "REDEEM_SUCCESS",
-          ip: context.ipAddress || null,
-          deviceFingerprint: context.deviceFingerprint || null,
-          metadata: { consumedByUserId: userId },
+  if (context.inviteCode) {
+    try {
+      const invite = await validateInviteCode(context.inviteCode);
+      if (invite.valid) {
+        await db.transaction(async (tx) => {
+          await consumeInviteCodeInternal(tx, context.inviteCode as string);
         });
       }
+    } catch (err) {
+      console.error("[Activate] Invite consume failed (non-fatal):", err instanceof Error ? err.message : err);
     }
-    
-    if (!canActivate) {
-      // If had a pass but it failed, log the failure
-      if (hasFoundersPass && context.foundersPassTokenHash) {
-        const [pass] = await tx
-          .select()
-          .from(foundersPass)
-          .where(eq(foundersPass.tokenHash, context.foundersPassTokenHash));
-        
-        if (pass) {
-          await tx.insert(foundersPassEvents).values({
-            passId: pass.id,
-            eventType: "REDEEM_FAIL",
-            ip: context.ipAddress || null,
-            deviceFingerprint: context.deviceFingerprint || null,
-            metadata: { reason: "cap_reached_or_pass_invalid" },
-          });
-        }
-      }
-      
-      // Cap reached, add to waitlist
-      const maxPosition = await tx
-        .select({ maxPos: sql<number>`COALESCE(MAX(position), 0)::int` })
-        .from(waitlistEntries);
-      
-      const position = (maxPosition[0]?.maxPos || 0) + 1;
-      
-      // Update user status to waitlisted
-      await tx.update(users).set({
-        status: "WAITLISTED" as UserStatus,
-        waitlistJoinedAt: new Date(),
-        lastSignupIp: context.ipAddress,
-        deviceFingerprint: context.deviceFingerprint,
-      }).where(eq(users.id, userId));
-      
-      await logAccessAudit("ACTIVATION_WAITLISTED", {
-        userId,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-        deviceFingerprint: context.deviceFingerprint,
-        metadata: { position, activeCount: currentActive, cap: config.maxActiveUsers },
-      });
-      
-      return { activated: false, reason: "CAP_REACHED" as const, waitlistPosition: position };
-    }
-    
-    // Activate the user
-    await tx.update(users).set({
-      status: "ACTIVE" as UserStatus,
-      activatedAt: new Date(),
-      lastSignupIp: context.ipAddress,
-      deviceFingerprint: context.deviceFingerprint,
-    }).where(eq(users.id, userId));
-    
-    // Increment the counter
-    await tx
-      .update(activeUserCounter)
-      .set({
-        count: sql`${activeUserCounter.count} + 1`,
-        reservedSeatsUsed: shouldUseReservedSeat 
-          ? sql`${activeUserCounter.reservedSeatsUsed} + 1`
-          : activeUserCounter.reservedSeatsUsed,
-        updatedAt: new Date(),
-      })
-      .where(eq(activeUserCounter.id, 1));
-    
-    // Check if this was the last activation (cap reached) - deactivate all remaining passes
-    const newActiveCount = currentActive + 1;
-    if (newActiveCount >= config.maxActiveUsers) {
-      const activePasses = await tx
-        .select({ id: foundersPass.id })
-        .from(foundersPass)
-        .where(eq(foundersPass.status, "ACTIVE"));
-      
-      if (activePasses.length > 0) {
-        await tx.update(foundersPass).set({
-          status: "DEACTIVATED",
-          deactivatedAt: new Date(),
-        }).where(eq(foundersPass.status, "ACTIVE"));
-        
-        for (const pass of activePasses) {
-          await tx.insert(foundersPassEvents).values({
-            passId: pass.id,
-            eventType: "DEACTIVATED_GLOBAL",
-            metadata: { reason: "cap_reached", activeCount: newActiveCount },
-          });
-        }
-      }
-    }
-    
-    // Consume invite code if used
-    if (context.inviteCode) {
-      await consumeInviteCodeInternal(tx, context.inviteCode);
-    }
-    
+  }
+  try {
     await logAccessAudit("ACTIVATION_SUCCESS", {
       userId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
       deviceFingerprint: context.deviceFingerprint,
-      metadata: { 
-        usedReservedSeat: shouldUseReservedSeat,
-        usedFoundersPass: usedFoundersPass,
-        inviteCode: context.inviteCode,
-      },
+      metadata: { reason: "signup_open", inviteCode: context.inviteCode ?? null },
     });
-    
-    return { activated: true, reason: "SUCCESS" as const };
-  });
+  } catch (err) {
+    console.error("[Activate] Audit log failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
+  return {
+    activated: true,
+    reason: user.status === "ACTIVE" ? "ALREADY_ACTIVE" : "SUCCESS",
+  };
+
 }
 
 // Validate an invite code

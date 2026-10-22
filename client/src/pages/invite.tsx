@@ -139,7 +139,7 @@ export default function InvitePage() {
           </div>
           <CardTitle className="text-2xl">Enter Invite Code</CardTitle>
           <CardDescription>
-            Skip the waitlist with an invite code from a friend or the PackPTS team.
+            Use an invite code from a friend or the PackPTS team.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -281,10 +281,10 @@ export default function InvitePage() {
             <Button
               variant="ghost"
               className="p-0 h-auto text-primary hover:text-primary/80"
-              onClick={() => setLocation("/waitlist")}
+              onClick={() => setLocation("/auth?tab=signup")}
               data-testid="link-join-waitlist"
             >
-              Join the Waitlist
+              Create Account
             </Button>
           </div>
         </CardContent>

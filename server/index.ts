@@ -237,6 +237,12 @@ app.use((req, res, next) => {
 
   installBootSchemaShutdownHook();
   addShutdownHook(() => stopAllJobs());
+  try {
+    const { ensureOauthProviderColumn } = await import("./startup/ensureOauthProviderColumn");
+    await ensureOauthProviderColumn();
+  } catch (err) {
+    console.error("[Startup] oauth_provider column ensure failed:", err instanceof Error ? err.message : err);
+  }
   if (process.env.NODE_ENV === "production" && process.env.PACKPTS_SKIP_BOOT_SCHEMA !== "1") {
     await runProductionSchemaBoot();
   }
