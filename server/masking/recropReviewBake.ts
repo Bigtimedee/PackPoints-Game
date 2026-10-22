@@ -12,7 +12,7 @@ import { getMaskedImagePath } from "./maskingService";
 import { RECROP_APPROVED_1986_IDS, RECROP_BLOCKED_CARDS } from "./toppsRecropReview";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 
-const BLOCKED_MARKER = "recrop-review-blocked-v4.ids";
+const BLOCKED_MARKER = "recrop-review-blocked-v5.ids";
 const APPROVED_MARKER = "recrop-review-approved-v1.ids";
 
 function markerPath(name: string): string {

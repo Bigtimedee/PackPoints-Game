@@ -5,6 +5,29 @@ import { applyMaskSourceOverride, maskSourceOverrideDigest, maskSourceOverrides,
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
+async function bandedJpeg(
+  w: number,
+  h: number,
+  topBand: number,
+  bottomBand: number,
+  edge: number[],
+  mid: number[],
+  sideBand = 0,
+): Promise<Buffer> {
+  const raw = Buffer.alloc(w * h * 3);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const onEdge = y < topBand || y >= h - bottomBand || x < sideBand || x >= w - sideBand;
+      const color = onEdge ? edge : mid;
+      const i = (y * w + x) * 3;
+      raw[i] = color[0];
+      raw[i + 1] = color[1];
+      raw[i + 2] = color[2];
+    }
+  }
+  return sharp(raw, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+}
+
 describe("mask source overrides", () => {
   afterEach(() => setMaskSourceOverridesForTests(null));
 
@@ -25,24 +48,42 @@ describe("mask source overrides", () => {
     expect(await applyMaskSourceOverride("c1", Buffer.concat([raw, Buffer.from([0])]))).toBeNull();
   });
 
-  it("unstretches a held 1986 scan, trims a dark frame, and crops a stamp off the margin", async () => {
-    const stretched = await sharp({ create: { width: 800, height: 1400, channels: 3, background: { r: 180, g: 40, b: 40 } } }).jpeg().toBuffer();
+  it("crops a held 1986 scan to the card ratio, trims a dark frame, and crops a stamp off the margin", async () => {
+    const stretched = await bandedJpeg(800, 1400, 80, 80, [220, 20, 20], [20, 180, 40]);
     const gibson = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", stretched);
     const gibsonMeta = await sharp(gibson!).metadata();
     expect(gibsonMeta.width).toBe(800);
     expect(gibsonMeta.height).toBe(Math.round(800 * 3.5 / 2.5));
     expect(gibsonMeta.width! / gibsonMeta.height!).toBeGreaterThan(0.68);
     expect(gibsonMeta.width! / gibsonMeta.height!).toBeLessThan(0.76);
+    const top = await sharp(gibson!).extract({ left: 20, top: 4, width: 8, height: 8 }).raw().toBuffer();
+    expect(top[0]).toBeLessThan(80);
+    expect(top[1]).toBeGreaterThan(140);
+
+    const wide = await bandedJpeg(1000, 1000, 0, 0, [220, 20, 20], [20, 180, 40], 80);
+    const wideOut = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", wide);
+    const wideMeta = await sharp(wideOut!).metadata();
+    expect(wideMeta.height).toBe(1000);
+    expect(wideMeta.width).toBe(Math.round(1000 * 2.5 / 3.5));
+    const left = await sharp(wideOut!).extract({ left: 4, top: 20, width: 8, height: 8 }).raw().toBuffer();
+    expect(left[0]).toBeLessThan(80);
+    expect(left[1]).toBeGreaterThan(140);
+
+    const narrow = await sharp({ create: { width: 300, height: 700, channels: 3, background: { r: 20, g: 180, b: 40 } } }).jpeg().toBuffer();
+    const scaled = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", narrow);
+    const scaledMeta = await sharp(scaled!).metadata();
+    expect(scaledMeta.width).toBe(360);
+    expect(Math.abs(scaledMeta.width! / scaledMeta.height! - 2.5 / 3.5)).toBeLessThan(0.01);
 
     const barelyTall = await sharp({ create: { width: 670, height: 1000, channels: 3, background: { r: 180, g: 40, b: 40 } } }).jpeg().toBuffer();
     const barely = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", barelyTall);
     const barelyMeta = await sharp(barely!).metadata();
     expect(barelyMeta.width).toBe(670);
     expect(barelyMeta.height).toBe(Math.round(670 * 3.5 / 2.5));
-    const autograph = await applyMaskSourceOverride("93a3e9e6-3b14-41f0-a31f-9b3c3d192b85", barelyTall);
+    const autograph = await applyMaskSourceOverride("93a3e9e6-3b14-41f0-a31f-9b3c3d192b85", stretched);
     const autographMeta = await sharp(autograph!).metadata();
-    expect(autographMeta.width).toBe(670);
-    expect(autographMeta.height).toBe(1000);
+    expect(autographMeta.width).toBe(800);
+    expect(autographMeta.height).toBe(1400);
 
     const framed = await sharp({ create: { width: 800, height: 1100, channels: 3, background: { r: 8, g: 8, b: 8 } } }).jpeg().toBuffer();
     const card = await sharp({ create: { width: 760, height: 1060, channels: 3, background: { r: 210, g: 190, b: 150 } } }).png().toBuffer();

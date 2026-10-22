@@ -13,7 +13,7 @@ import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import path from "path";
 import sharp from "sharp";
-import { RECROP_BLOCKED_CARDS, RECROP_STAMP_IDS, RECROP_STRETCH_IDS, TOPPS_1986_SET_ID } from "./toppsRecropReview";
+import { RECROP_BLOCKED_CARDS, RECROP_STAMP_IDS } from "./toppsRecropReview";
 
 export interface MaskSourceOverride {
   setId: string;
@@ -61,8 +61,7 @@ export function hasMaskSourceOverride(cardId: string): boolean {
  */
 const HELD_BY_ID = new Map(RECROP_BLOCKED_CARDS.map((card) => [card.id, card]));
 const STAMP_IDS = new Set(RECROP_STAMP_IDS);
-const STRETCH_IDS = new Set(RECROP_STRETCH_IDS);
-const CARD_ASPECT = 3.5 / 2.5;
+const CARD_RATIO = 2.5 / 3.5;
 
 export async function applyMaskSourceOverride(cardId: string, raw: Buffer): Promise<Buffer | null> {
   if (HELD_BY_ID.has(cardId)) return fixHeldRecropSource(cardId, raw);
@@ -97,16 +96,16 @@ const GIBSON_1986_ID = "1cf53402-61f8-4fac-9aae-4fb7b9cf112e";
 
 /**
  * Held recrop scans are corrected from the current bytes.
- * 1986 #499 is resized to the card aspect when it misses the 0.68-0.76 gate.
+ * 1986 #499 is cropped to 2.5 by 3.5 when it misses the 0.68-0.76 gate.
+ * The excess is cut off. A narrow result is scaled with the ratio kept.
  * A dark scanner frame is trimmed. #495 and #574 lose a flat frame of any color.
  * A DISCOVER TOPPS stamp column is cropped past its letters.
- * Nothing is painted over the team name. #328 is not corrected.
+ * Nothing is painted over the team name. #328 is not stretched.
  */
 async function fixHeldRecropSource(cardId: string, raw: Buffer): Promise<Buffer> {
   const meta = await sharp(raw).metadata();
   const width = meta.width ?? 0;
   const height = meta.height ?? 0;
-  const held = HELD_BY_ID.get(cardId);
   let source = raw;
   if (cardId === GIBSON_1986_ID) {
     const orient = meta.orientation ?? 1;
@@ -117,14 +116,9 @@ async function fixHeldRecropSource(cardId: string, raw: Buffer): Promise<Buffer>
   const useW = sized.width ?? width;
   const useH = sized.height ?? height;
   const ratio = useW > 0 && useH > 0 ? useW / useH : 1;
-  const tooTall = ratio < 0.66;
-  const gibsonOffGate = cardId === GIBSON_1986_ID && (ratio < 0.68 || ratio > 0.76 || useW < 360);
-  const unstretch = (tooTall && (STRETCH_IDS.has(cardId) || held?.setId === TOPPS_1986_SET_ID)) || gibsonOffGate;
   let buf = source;
-  if (unstretch) {
-    const targetW = Math.max(useW, 360);
-    const targetH = Math.round(targetW * CARD_ASPECT);
-    buf = await sharp(source).rotate(0).resize(targetW, targetH, { fit: "fill", kernel: "lanczos3" }).toBuffer();
+  if (cardId === GIBSON_1986_ID && (ratio < 0.68 || ratio > 0.76 || useW < 360)) {
+    buf = await cropToCardRatio(source);
   } else {
     const declared = maskSourceOverrides()[cardId];
     if (!SKIP_HELD_EXTRACT.has(cardId) && declared?.extract && extractFits(width, height, declared.extract)) {
@@ -135,6 +129,33 @@ async function fixHeldRecropSource(cardId: string, raw: Buffer): Promise<Buffer>
   if (STAMP_IDS.has(cardId)) buf = await cropDiscoverStamp(buf);
   if (buf === raw) return raw;
   return sharp(buf).jpeg({ quality: 95 }).toBuffer();
+}
+
+/** Cut the longer side so width/height is 2.5/3.5. Scale up only when the crop is under 360 wide, and keep the ratio. */
+async function cropToCardRatio(buf: Buffer): Promise<Buffer> {
+  const meta = await sharp(buf).metadata();
+  const w = meta.width ?? 0;
+  const h = meta.height ?? 0;
+  if (w < 2 || h < 2) return buf;
+  const ratio = w / h;
+  let left = 0;
+  let top = 0;
+  let cropW = w;
+  let cropH = h;
+  if (ratio < CARD_RATIO) {
+    cropH = Math.max(1, Math.min(h, Math.round(w / CARD_RATIO)));
+    top = Math.floor((h - cropH) / 2);
+  } else if (ratio > CARD_RATIO) {
+    cropW = Math.max(1, Math.min(w, Math.round(h * CARD_RATIO)));
+    left = Math.floor((w - cropW) / 2);
+  }
+  const moved = left > 0 || top > 0 || cropW !== w || cropH !== h;
+  const narrow = cropW < 360;
+  if (!moved && !narrow) return buf;
+  let img = sharp(buf).rotate(0);
+  if (moved) img = img.extract({ left, top, width: cropW, height: cropH });
+  if (narrow) img = img.resize({ width: 360, kernel: "lanczos3" });
+  return img.toBuffer();
 }
 
 function extractFits(width: number, height: number, box: { left: number; top: number; width: number; height: number }): boolean {
