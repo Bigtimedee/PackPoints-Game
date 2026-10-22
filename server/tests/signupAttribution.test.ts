@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   getUserByUsername: vi.fn(),
   createWorkosUser: vi.fn(),
+  setOauthProviderIfEmpty: vi.fn(),
   jwtVerify: vi.fn(),
   appleSelect: vi.fn(),
   userInsert: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("../storage", () => ({
     getUser: mocks.getUser,
     getUserByUsername: mocks.getUserByUsername,
     createWorkosUser: mocks.createWorkosUser,
+    setOauthProviderIfEmpty: mocks.setOauthProviderIfEmpty,
   },
 }));
 
@@ -474,6 +476,27 @@ describe("WorkOS: stash cookie round trip", () => {
       },
     ]);
     expect(referralSignups).toEqual([{ linkId: "link-w", userId: "user-new-workos" }]);
+    expect(mocks.createWorkosUser).toHaveBeenCalledWith(expect.objectContaining({
+      workosUserId: "wos_new",
+      oauthProvider: "workos",
+    }));
+  });
+
+  it("stores GoogleOAuth as google on a new WorkOS user", async () => {
+    mocks.authenticateWithCode.mockResolvedValue({
+      user: { id: "wos_google", email: "g@example.com", emailVerified: true },
+      authenticationMethod: "GoogleOAuth",
+    });
+    mocks.findIdentity.mockResolvedValue(null);
+    mocks.findUsersByEmail.mockResolvedValue([]);
+    mocks.getUserByUsername.mockResolvedValue(undefined);
+    mocks.createWorkosUser.mockResolvedValue({ id: "user-google" });
+    const res = await callback(null);
+    expect(res.status).toBe(302);
+    expect(mocks.createWorkosUser).toHaveBeenCalledWith(expect.objectContaining({
+      workosUserId: "wos_google",
+      oauthProvider: "google",
+    }));
   });
 
   it("does not write for an existing WorkOS user logging in, and still clears the cookie", async () => {
@@ -490,6 +513,31 @@ describe("WorkOS: stash cookie round trip", () => {
     expect(written).toEqual([]);
     expect(referralSignups).toEqual([]);
     expect(mocks.createWorkosUser).not.toHaveBeenCalled();
+    expect(mocks.setOauthProviderIfEmpty).toHaveBeenCalledWith("user-existing", "workos");
+  });
+
+  it("stores the WorkOS provider on an existing login when the column is empty", async () => {
+    mocks.authenticateWithCode.mockResolvedValue({
+      user: { id: "wos_old", email: "old@example.com", emailVerified: true },
+      authenticationMethod: "GoogleOAuth",
+    });
+    mocks.findIdentity.mockResolvedValue({ userId: "user-existing" });
+    mocks.getUser.mockResolvedValue({ id: "user-existing" });
+    const res = await callback(null);
+    expect(res.status).toBe(302);
+    expect(mocks.setOauthProviderIfEmpty).toHaveBeenCalledWith("user-existing", "google");
+  });
+
+  it("does not overwrite a stored provider on a later login", async () => {
+    mocks.authenticateWithCode.mockResolvedValue({
+      user: { id: "wos_old", email: "old@example.com", emailVerified: true },
+      authenticationMethod: "AppleOAuth",
+    });
+    mocks.findIdentity.mockResolvedValue({ userId: "user-existing" });
+    mocks.getUser.mockResolvedValue({ id: "user-existing", oauthProvider: "google" });
+    const res = await callback(null);
+    expect(res.status).toBe(302);
+    expect(mocks.setOauthProviderIfEmpty).not.toHaveBeenCalled();
   });
 
   it("does not write on an email collision (existing account, link required)", async () => {
@@ -664,6 +712,8 @@ describe("signup report buckets for new rows", () => {
     hasWorkos: true,
     hasApple: false,
     hasEmail: false,
+    oauthProvider: null,
+    guestConverted: false,
     hasAttributionRow: true,
     utmSource: null,
     utmMedium: null,

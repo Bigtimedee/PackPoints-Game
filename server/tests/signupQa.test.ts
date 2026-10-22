@@ -38,6 +38,8 @@ function row(partial: Partial<SignupSourceRow> & Pick<SignupSourceRow, "createdA
     hasWorkos: false,
     hasApple: false,
     hasEmail: true,
+    oauthProvider: null,
+    guestConverted: false,
     hasAttributionRow: false,
     utmSource: null,
     utmMedium: null,
@@ -98,14 +100,14 @@ describe("signup report reconciliation and CT days", () => {
   it("reconciles buckets to totals and keeps staff, admin, and bots in excluded", () => {
     const report = buildSignupReport([
       row({ createdAt: new Date("2026-09-27T04:00:00.000Z") }),
-      row({ createdAt: new Date("2026-09-26T18:00:00.000Z"), utmSource: "reddit", hasAttributionRow: true, hasEmail: true }),
+      row({ createdAt: new Date("2026-09-26T18:00:00.000Z"), utmSource: "reddit", hasAttributionRow: true, hasEmail: true, guestConverted: true }),
       row({ createdAt: new Date("2026-09-25T16:00:00.000Z"), utmSource: "share", utmMedium: "beatme", hasAttributionRow: true }),
       row({ createdAt: new Date("2026-09-22T12:00:00.000Z"), referralPurpose: "INVITE", hasWorkos: true, hasEmail: false }),
       row({ createdAt: new Date("2026-09-10T12:00:00.000Z"), utmSource: "share", utmMedium: "play_sets", hasAttributionRow: true, hasApple: true, hasEmail: false }),
       row({ createdAt: new Date("2026-08-01T12:00:00.000Z"), hasAttributionRow: true, referrer: "https://x.com/packpts", hasEmail: false }),
       row({ createdAt: new Date("2026-09-26T20:00:00.000Z"), isAdmin: true, isBot: true, hasEmail: true }),
       row({ createdAt: new Date("2026-09-21T12:00:00.000Z"), isBot: true, hasEmail: false }),
-      row({ createdAt: null, hasEmail: true }),
+      row({ createdAt: null, hasEmail: false, hasWorkos: true, oauthProvider: "google" }),
     ], now);
 
     expect(report.timezone).toBe("America/Chicago");
@@ -136,19 +138,29 @@ describe("signup report reconciliation and CT days", () => {
     expect(sumAuthProviders(report.authProviders.last7d)).toBe(report.totals.last7d);
     expect(report.authProviders.allTime.apple).toBe(1);
     expect(report.authProviders.allTime.workos).toBe(1);
-    expect(report.authProviders.allTime).not.toHaveProperty("google");
+    expect(report.authProviders.allTime.google).toBe(1);
+    expect(report.authProviders.allTime.email).toBe(3);
+    expect(report.authProviders.allTime.guestConverted).toBe(1);
+    expect(report.authProviders.allTime.none).toBe(1);
+    expect(report.authProviders.last24h.email).toBe(2);
+    expect(report.authProviders.last24h.guestConverted).toBe(1);
+    expect(report.authProviders.last24h.google).toBe(0);
 
     expect(report.daily).toHaveLength(SIGNUP_DAILY_DAYS);
     expect(report.daily[0].day).toBe(addPackptsDays("2026-09-26", -(SIGNUP_DAILY_DAYS - 1)));
     expect(report.daily[report.daily.length - 1].day).toBe("2026-09-26");
     for (const day of report.daily) {
       expect(sumCounts(day.bySource)).toBe(day.signups);
+      expect(sumAuthProviders(day.byMethod)).toBe(day.signups);
       if (day.signups === 0) expect(day.topSource).toBeNull();
     }
     const today = report.daily.find((day) => day.day === "2026-09-26");
     expect(today?.signups).toBe(2);
     expect(today?.bySource.unattributed).toBe(1);
     expect(today?.bySource.reddit).toBe(1);
+    expect(today?.byMethod.email).toBe(2);
+    expect(today?.byMethod.guestConverted).toBe(1);
+    expect(today?.byMethod.google).toBe(0);
     expect(JSON.stringify(report)).not.toContain("example.com");
     expect(JSON.stringify(report)).not.toContain("@");
   });
@@ -186,6 +198,9 @@ describe("signup source SQL", () => {
     expect(sql).toContain("referral_attributions");
     expect(sql).toContain("apple_users");
     expect(sql).toContain("local_credentials");
+    expect(sql).toContain("oauth_provider");
+    expect(sql).toContain("anon_players");
+    expect(sql).toContain("guest_converted");
   });
 
   it("maps database flags without copying a raw referrer into a bucket name", () => {
@@ -196,6 +211,8 @@ describe("signup source SQL", () => {
       has_workos: true,
       has_apple: false,
       has_email: false,
+      oauth_provider: "GoogleOAuth",
+      guest_converted: "t",
       has_attribution: true,
       utm_source: "  Google  ",
       utm_medium: null,
@@ -204,6 +221,8 @@ describe("signup source SQL", () => {
       referral_purpose: "INVITE",
     });
     expect(mapped.hasWorkos).toBe(true);
+    expect(mapped.oauthProvider).toBe("google");
+    expect(mapped.guestConverted).toBe(true);
     expect(mapped.utmSource).toBe("Google");
     expect(signupSourceBucket(mapped)).toBe("referral");
     expect(mapped.createdAt?.toISOString()).toBe("2026-09-26T18:00:00.000Z");

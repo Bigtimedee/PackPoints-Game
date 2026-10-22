@@ -44,6 +44,9 @@ export const users = pgTable("users", {
   // Internal QA / e2e accounts: left out of leaderboards, analytics and signup reports.
   isTestAccount: boolean("is_test_account").notNull().default(false),
   workosUserId: varchar("workos_user_id").unique(),
+  // WorkOS IdP, normalized: google, apple, or workos. Null on email accounts
+  // and on WorkOS rows created before this column was stored.
+  oauthProvider: varchar("oauth_provider", { length: 20 }),
   status: varchar("status", { length: 20 }).notNull().default("ACTIVE"),
   activatedAt: timestamp("activated_at"),
   waitlistJoinedAt: timestamp("waitlist_joined_at"),

@@ -71,8 +71,9 @@ export interface IStorage {
   updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined>;
   
   createLocalUser(username: string, email: string, password: string): Promise<User>;
-  createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string }): Promise<User>;
+  createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }): Promise<User>;
   linkWorkosUser(userId: string, workosUserId: string): Promise<void>;
+  setOauthProviderIfEmpty(userId: string, oauthProvider: "google" | "apple" | "workos"): Promise<void>;
   validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
   updateUserPassword(userId: string, newPassword: string): Promise<void>;
   
@@ -432,7 +433,7 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string }): Promise<User> {
+  async createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }): Promise<User> {
     const { normalizeEmail } = await import("./services/accessService");
     
     const [user] = await db.insert(users).values({
@@ -443,6 +444,7 @@ export class DatabaseStorage implements IStorage {
       lastName: data.lastName,
       profileImageUrl: data.profileImageUrl,
       workosUserId: data.workosUserId,
+      oauthProvider: data.oauthProvider,
       status: "PENDING",
     }).returning();
     
@@ -453,6 +455,12 @@ export class DatabaseStorage implements IStorage {
     await db.update(users)
       .set({ workosUserId })
       .where(eq(users.id, userId));
+  }
+
+  async setOauthProviderIfEmpty(userId: string, oauthProvider: "google" | "apple" | "workos"): Promise<void> {
+    await db.update(users)
+      .set({ oauthProvider })
+      .where(and(eq(users.id, userId), isNull(users.oauthProvider)));
   }
 
   async validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null> {
