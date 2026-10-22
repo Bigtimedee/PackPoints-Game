@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getStoredUtmParams } from "@/lib/queryClient";
+import { ApiError, apiRequest, getStoredUtmParams } from "@/lib/queryClient";
 import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Loader2, Trophy, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
@@ -19,13 +19,8 @@ import { AnonGatePlaque, EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { useGuestWallChrome } from "@/lib/guestWallChrome";
 
 const signupModalSchema = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
   email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters").max(100),
-  confirmPassword: z.string(),
-}).refine(data => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
+  password: z.string().min(8, "Password must be at least 8 characters").max(100),
 });
 
 const loginModalSchema = z.object({
@@ -53,6 +48,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   const [step, setStep] = useState<"plaque" | "form">("plaque");
+  const [emailTaken, setEmailTaken] = useState(false);
   const isGate = variant === "soft" || variant === "hard";
   const seenViews = useRef(new Set<string>());
   const startedEmail = useRef(false);
@@ -104,10 +100,8 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   const signupForm = useForm<SignupModalFormData>({
     resolver: zodResolver(signupModalSchema),
     defaultValues: {
-      username: "",
       email: "",
       password: "",
-      confirmPassword: "",
     },
   });
 
@@ -123,7 +117,6 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
     mutationFn: async (data: SignupModalFormData) => {
       try {
         const res = await apiRequest("POST", "/api/auth/register", {
-          username: data.username,
           email: data.email,
           password: data.password,
           signupSurface: "modal",
@@ -135,11 +128,14 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
           trackSignupError("network", "modal");
           throw new Error("Network error. Please check your connection and try again.");
         }
-        if (error.message.startsWith("409:")) {
+        if (error instanceof ApiError && error.code === "email_taken") {
+          throw error;
+        }
+        if (error.message.startsWith("409:") || error.status === 409) {
           throw new Error("Username or email already taken");
         }
-        if (error.message.startsWith("400:")) {
-          throw new Error("Invalid username, email, or password format");
+        if (error.message.startsWith("400:") || error.status === 400) {
+          throw new Error("Invalid email or password format");
         }
         throw error;
       }
@@ -156,7 +152,11 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       if (onSuccess) onSuccess();
     },
     onError: (err: Error) => {
-      signupForm.setError("root", { message: err.message });
+      const taken = err instanceof ApiError && err.code === "email_taken";
+      setEmailTaken(taken);
+      signupForm.setError("root", {
+        message: taken ? "This email already has an account." : err.message,
+      });
     },
   });
 
@@ -192,6 +192,7 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   });
 
   const onSignupSubmit = (data: SignupModalFormData) => {
+    setEmailTaken(false);
     if (!startedEmail.current) {
       startedEmail.current = true;
       trackSignupStarted("email", "modal");
@@ -291,29 +292,6 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
               >
                 <FormField
                   control={signupForm.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Username</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Choose a username"
-                            className="pl-10"
-                            {...field}
-                            disabled={registerMutation.isPending}
-                            data-testid="input-modal-signup-username"
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={signupForm.control}
                   name="email"
                   render={({ field }) => (
                     <FormItem>
@@ -360,34 +338,24 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                   )}
                 />
 
-                <FormField
-                  control={signupForm.control}
-                  name="confirmPassword"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Confirm Password</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            type="password"
-                            placeholder="Confirm your password"
-                            className="pl-10"
-                            {...field}
-                            disabled={registerMutation.isPending}
-                            data-testid="input-modal-signup-confirm-password"
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
                 {signupForm.formState.errors.root && (
                   <p className="text-sm text-destructive" data-testid="text-modal-signup-error">
                     {signupForm.formState.errors.root.message}
                   </p>
+                )}
+                {emailTaken && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full min-h-11"
+                    data-testid="button-modal-signup-email-login"
+                    onClick={() => {
+                      loginForm.setValue("usernameOrEmail", signupForm.getValues("email"));
+                      setActiveTab("login");
+                    }}
+                  >
+                    Log in
+                  </Button>
                 )}
 
                 <div className="flex flex-col gap-2">

@@ -224,6 +224,16 @@ describe("register and OAuth call sites", () => {
     expect(buttons).toContain("Continue with Apple");
   });
 
+  it("email signup asks for email and password and offers login when the email exists", async () => {
+    for (const file of ["src/pages/auth.tsx", "src/components/signup-modal.tsx"]) {
+      const src = await read(file);
+      expect(src, file).not.toContain("confirmPassword");
+      expect(src, file).not.toContain("Choose a username");
+      expect(src, file).toContain('code === "email_taken"');
+      expect(src, file).toContain("Log in");
+    }
+  });
+
   it("App captures first touch on load", async () => {
     const app = await read("src/App.tsx");
     expect(app).toContain("captureUtmParams()");

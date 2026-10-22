@@ -13,19 +13,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
+import { ApiError, apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
 import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 
 const signupSchema = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or less").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters").max(100),
-  confirmPassword: z.string(),
-}).refine(data => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
 });
 
 const loginSchema = z.object({
@@ -42,6 +37,7 @@ export default function AuthPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("login");
   const [inviteCode, setInviteCode] = useState("");
+  const [emailTaken, setEmailTaken] = useState(false);
   const startedEmail = useRef(false);
   const sawSignupView = useRef(false);
 
@@ -72,10 +68,8 @@ export default function AuthPage() {
   const signupForm = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
     defaultValues: {
-      username: "",
       email: "",
       password: "",
-      confirmPassword: "",
     },
   });
 
@@ -91,7 +85,6 @@ export default function AuthPage() {
     mutationFn: async (data: SignupFormData) => {
       const utmParams = getStoredUtmParams();
       const response = await apiRequest("POST", "/api/auth/register", {
-        username: data.username,
         email: data.email,
         password: data.password,
         inviteCode: inviteCode || undefined,
@@ -127,6 +120,9 @@ export default function AuthPage() {
       if (error?.name === "TypeError" || /failed to fetch|load failed|network/i.test(error?.message || "")) {
         trackSignupError("network", "auth");
       }
+      const taken = error instanceof ApiError && error.code === "email_taken";
+      setEmailTaken(taken);
+      if (taken) return;
       const message = error?.message || "Failed to create account";
       toast({
         title: "Signup failed",
@@ -167,6 +163,7 @@ export default function AuthPage() {
   });
 
   const onSignup = (data: SignupFormData) => {
+    setEmailTaken(false);
     if (!startedEmail.current) {
       startedEmail.current = true;
       trackSignupStarted("email", "auth");
@@ -326,27 +323,6 @@ export default function AuthPage() {
                 >
                   <FormField
                     control={signupForm.control}
-                    name="username"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Username</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                              placeholder="Choose a username" 
-                              className="pl-10"
-                              data-testid="input-signup-username"
-                              {...field} 
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={signupForm.control}
                     name="email"
                     render={({ field }) => (
                       <FormItem>
@@ -389,28 +365,23 @@ export default function AuthPage() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={signupForm.control}
-                    name="confirmPassword"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Confirm Password</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                              type="password" 
-                              placeholder="Confirm your password" 
-                              className="pl-10"
-                              data-testid="input-signup-confirm-password"
-                              {...field} 
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {emailTaken && (
+                    <div className="space-y-2" data-testid="signup-email-taken">
+                      <p className="text-sm text-destructive">This email already has an account.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full min-h-11"
+                        data-testid="button-signup-email-login"
+                        onClick={() => {
+                          loginForm.setValue("usernameOrEmail", signupForm.getValues("email"));
+                          setActiveTab("login");
+                        }}
+                      >
+                        Log in
+                      </Button>
+                    </div>
+                  )}
                   <Button 
                     type="submit" 
                     className="w-full" 
