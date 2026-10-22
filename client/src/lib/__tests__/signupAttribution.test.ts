@@ -213,7 +213,7 @@ describe("register and OAuth call sites", () => {
     for (const file of ["src/pages/auth.tsx", "src/components/signup-modal.tsx"]) {
       const src = await read(file);
       expect(src, file).not.toMatch(/window\.location\.href\s*=\s*["']\/api\/auth\/workos\/start/);
-      expect(src, file).toContain("startWorkosAuth()");
+      expect(src, file).toContain("startWorkosAuth(");
     }
   });
 

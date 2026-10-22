@@ -5042,12 +5042,15 @@ export const TEST_ACCOUNT_SEED_USERNAMES = ["designqa", "claude_e2e_test", "qa_d
  * One row per funnel step. `visit` is logged server-side when the SPA HTML is
  * served (landing loads only, with UTM). `first_answer` is written once per
  * visitor (pp_vid cookie) or user. `game_complete` carries mode and set.
+ * Signup growth adds signup_view, signup_started, signup_error,
+ * signup_complete, first_daily5_complete_registered, and share_view.
+ * event_type is varchar(40) so first_daily5_complete_registered fits.
  * Read by /api/qa/funnel. is_test rows (test, QA and staff accounts, bots)
  * are kept but excluded from every metric.
  */
 export const funnelEvents = pgTable("funnel_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  eventType: varchar("event_type", { length: 24 }).notNull(),
+  eventType: varchar("event_type", { length: 40 }).notNull(),
   visitorId: varchar("visitor_id", { length: 64 }),
   userId: varchar("user_id"),
   mode: varchar("mode", { length: 20 }),

@@ -124,6 +124,14 @@ export const gameStartLimiter = rateLimit({
   message: "Too many game start requests. Please slow down.",
 });
 
+export const funnelEventLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  keyPrefix: "funnel_event",
+  keySource: "ip",
+  message: "Too many analytics events. Please slow down.",
+});
+
 export const registrationLimiter = rateLimit({
   windowMs: 300_000,
   max: 5,

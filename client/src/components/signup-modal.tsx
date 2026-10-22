@@ -1,6 +1,6 @@
 import { usePointsValue } from "@/hooks/use-points-value";
 import { SIGNUP_BODY_LIVE } from "@/lib/pointsCopy";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getStoredUtmParams } from "@/lib/queryClient";
 import { startWorkosAuth } from "@/lib/attribution";
+import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
 import { Loader2, Trophy, User, Mail, Lock, LogIn, RefreshCw } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -53,8 +54,24 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   const [step, setStep] = useState<"plaque" | "form">("plaque");
   const isGate = variant === "soft" || variant === "hard";
+  const seenViews = useRef(new Set<string>());
+  const startedEmail = useRef(false);
   // Hard wall dialog: hide the chat bubble and static footer while it is open.
   useGuestWallChrome(open && variant === "hard");
+
+  useEffect(() => {
+    if (!open) {
+      seenViews.current.clear();
+      startedEmail.current = false;
+      return;
+    }
+    const showingPlaque = isGate && step === "plaque" && openOn !== "signup" && openOn !== "login";
+    const surface = showingPlaque ? "plaque" : "modal";
+    const key = `${surface}:${variant}`;
+    if (seenViews.current.has(key)) return;
+    seenViews.current.add(key);
+    trackSignupView(surface, variant);
+  }, [open, step, variant, isGate, openOn]);
 
   useEffect(() => {
     if (!open) return;
@@ -109,11 +126,13 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
           username: data.username,
           email: data.email,
           password: data.password,
+          signupSurface: "modal",
           ...getStoredUtmParams(),
         });
         return res.json();
       } catch (error: any) {
-        if (error.message === "Load failed" || error.message === "Failed to fetch") {
+        if (error.message === "Load failed" || error.message === "Failed to fetch" || error?.name === "TypeError") {
+          trackSignupError("network", "modal");
           throw new Error("Network error. Please check your connection and try again.");
         }
         if (error.message.startsWith("409:")) {
@@ -173,6 +192,10 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
   });
 
   const onSignupSubmit = (data: SignupModalFormData) => {
+    if (!startedEmail.current) {
+      startedEmail.current = true;
+      trackSignupStarted("email", "modal");
+    }
     registerMutation.mutate(data);
   };
 
@@ -255,7 +278,15 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
 
           <TabsContent value="signup" className="mt-3 sm:mt-4">
             <Form {...signupForm}>
-              <form onSubmit={signupForm.handleSubmit(onSignupSubmit)} className="space-y-3 sm:space-y-4">
+              <form
+                onSubmit={signupForm.handleSubmit(onSignupSubmit, () => trackSignupError("validation", "modal"))}
+                onFocus={() => {
+                  if (startedEmail.current) return;
+                  startedEmail.current = true;
+                  trackSignupStarted("email", "modal");
+                }}
+                className="space-y-3 sm:space-y-4"
+              >
                 <FormField
                   control={signupForm.control}
                   name="username"
@@ -407,7 +438,10 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     type="button"
                     variant="outline"
                     className="w-full min-h-11"
-                    onClick={() => { void startWorkosAuth(); }}
+                    onClick={() => {
+                      trackSignupStarted("workos", "modal");
+                      void startWorkosAuth("/api/auth/workos/start?signupSurface=modal");
+                    }}
                     disabled={isPending}
                     data-testid="button-modal-workos-signup"
                   >
@@ -524,7 +558,10 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
                     type="button"
                     variant="outline"
                     className="w-full min-h-11"
-                    onClick={() => { void startWorkosAuth(); }}
+                    onClick={() => {
+                      trackSignupStarted("workos", "modal");
+                      void startWorkosAuth("/api/auth/workos/start?signupSurface=modal");
+                    }}
                     disabled={isPending}
                     data-testid="button-modal-workos"
                   >

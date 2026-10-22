@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
 import { startWorkosAuth } from "@/lib/attribution";
+import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 
 const signupSchema = z.object({
@@ -42,6 +43,8 @@ export default function AuthPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("login");
   const [inviteCode, setInviteCode] = useState("");
+  const startedEmail = useRef(false);
+  const sawSignupView = useRef(false);
 
   const urlParams = new URLSearchParams(searchString);
   const tabFromUrl = urlParams.get("tab");
@@ -50,6 +53,12 @@ export default function AuthPage() {
     if (tabFromUrl === "signup") {
       setActiveTab("signup");
     }
+  }, [tabFromUrl]);
+
+  useEffect(() => {
+    if (sawSignupView.current) return;
+    sawSignupView.current = true;
+    trackSignupView("auth", tabFromUrl === "signup" ? "signup" : "login");
   }, [tabFromUrl]);
 
   const { data: capStatus } = useQuery<CapStatus>({
@@ -87,6 +96,7 @@ export default function AuthPage() {
         email: data.email,
         password: data.password,
         inviteCode: inviteCode || undefined,
+        signupSurface: "auth",
         ...utmParams,
       });
       return response.json();
@@ -115,6 +125,9 @@ export default function AuthPage() {
       }
     },
     onError: (error: Error) => {
+      if (error?.name === "TypeError" || /failed to fetch|load failed|network/i.test(error?.message || "")) {
+        trackSignupError("network", "auth");
+      }
       const message = error?.message || "Failed to create account";
       toast({
         title: "Signup failed",
@@ -155,7 +168,9 @@ export default function AuthPage() {
   });
 
   const handleWorkOSLogin = () => {
+    trackSignupStarted("workos", "auth");
     if (window.self !== window.top) {
+      trackSignupError("in_app_frame", "auth");
       toast({
         title: "Open in new tab",
         description: "WorkOS login requires opening the app in a new browser tab.",
@@ -163,10 +178,14 @@ export default function AuthPage() {
       });
       return;
     }
-    void startWorkosAuth();
+    void startWorkosAuth("/api/auth/workos/start?signupSurface=auth");
   };
 
   const onSignup = (data: SignupFormData) => {
+    if (!startedEmail.current) {
+      startedEmail.current = true;
+      trackSignupStarted("email", "auth");
+    }
     signupMutation.mutate(data);
   };
 
@@ -307,7 +326,15 @@ export default function AuthPage() {
               )}
 
               <Form {...signupForm}>
-                <form onSubmit={signupForm.handleSubmit(onSignup)} className="space-y-4">
+                <form
+                  onSubmit={signupForm.handleSubmit(onSignup, () => trackSignupError("validation", "auth"))}
+                  onFocus={() => {
+                    if (startedEmail.current) return;
+                    startedEmail.current = true;
+                    trackSignupStarted("email", "auth");
+                  }}
+                  className="space-y-4"
+                >
                   <FormField
                     control={signupForm.control}
                     name="username"

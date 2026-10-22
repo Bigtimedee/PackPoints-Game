@@ -12,6 +12,8 @@ import {
   sanitizeAttribution,
   setAttributionCookie,
 } from "../lib/signupAttribution";
+import { recordFunnelEvent } from "./funnel";
+import { funnelToken, signupFunnelPath } from "./signupFunnel";
 
 let workos: WorkOS | null = null;
 
@@ -35,6 +37,7 @@ interface WorkosSession {
   localUserId?: string;
   linkIntent?: boolean;
   pendingLinkChallengeId?: string;
+  signupSurface?: string;
 }
 
 declare module "express-session" {
@@ -76,6 +79,10 @@ export function registerWorkosRoutes(app: Express): void {
       const clientId = getClientId();
       
       if (!workosInstance || !clientId) {
+        recordFunnelEvent(req, "signup_error", {
+          mode: "workos_unconfigured",
+          path: funnelToken(req.query.signupSurface) || "workos",
+        });
         return res.status(503).json({ error: "WorkOS is not configured" });
       }
 
@@ -89,6 +96,7 @@ export function registerWorkosRoutes(app: Express): void {
 
       const state = crypto.randomBytes(32).toString("hex");
       (req.session as any).workosState = state;
+      (req.session as any).signupSurface = funnelToken(req.query.signupSurface) || "workos";
 
       if (req.query.linkIntent === "true" && req.session?.localUserId) {
         (req.session as any).linkIntent = true;
@@ -117,6 +125,10 @@ export function registerWorkosRoutes(app: Express): void {
       });
     } catch (error) {
       console.error("[WorkOS] Error starting auth flow:", error);
+      recordFunnelEvent(req, "signup_error", {
+        mode: "workos_start_failed",
+        path: funnelToken(req.query.signupSurface) || "workos",
+      });
       res.redirect("/auth-error?reason=workos_start_failed");
     }
   });
@@ -131,6 +143,15 @@ export function registerWorkosRoutes(app: Express): void {
     // Read once and always clear: only a user created below may use it.
     const stashedAttribution = readAttributionCookie(req);
     clearAttributionCookie(res);
+    const signupSurface = funnelToken((req.session as any)?.signupSurface) || "workos";
+    delete (req.session as any).signupSurface;
+
+    const noteSignupError = (reason: string) => {
+      recordFunnelEvent(req, "signup_error", {
+        mode: funnelToken(reason) || "workos_error",
+        path: signupSurface,
+      });
+    };
 
     try {
       const workosInstance = getWorkOS();
@@ -138,6 +159,7 @@ export function registerWorkosRoutes(app: Express): void {
       
       if (!workosInstance || !clientId) {
         cleanupState();
+        noteSignupError("workos_unconfigured");
         return res.redirect("/auth-error?reason=workos_not_configured");
       }
 
@@ -146,12 +168,14 @@ export function registerWorkosRoutes(app: Express): void {
       if (error) {
         console.error("[WorkOS] Auth error from provider:", error);
         cleanupState();
+        noteSignupError(typeof error === "string" ? error : "workos_error");
         return res.redirect(`/auth-error?reason=${error}`);
       }
 
       if (!code || typeof code !== "string") {
         console.error("[WorkOS] No authorization code received");
         cleanupState();
+        noteSignupError("no_code");
         return res.redirect("/auth-error?reason=no_code");
       }
 
@@ -159,6 +183,7 @@ export function registerWorkosRoutes(app: Express): void {
       if (!expectedState || state !== expectedState) {
         console.error("[WorkOS] State mismatch - potential CSRF");
         cleanupState();
+        noteSignupError("state_mismatch");
         return res.redirect("/auth-error?reason=state_mismatch");
       }
 
@@ -285,6 +310,7 @@ export function registerWorkosRoutes(app: Express): void {
             { ...clientInfo, targetUserId: targetUser.id, metadata: { email: providerEmail } }
           );
 
+          noteSignupError("email_collision");
           req.session.save((err) => {
             if (err) {
               console.error("[WorkOS] Session save error:", err);
@@ -316,6 +342,7 @@ export function registerWorkosRoutes(app: Express): void {
 
       if (!newUser) {
         console.error("[WorkOS] Failed to create local user");
+        noteSignupError("user_creation_failed");
         return res.redirect("/auth-error?reason=user_creation_failed");
       }
 
@@ -339,6 +366,16 @@ export function registerWorkosRoutes(app: Express): void {
       (req.session as any).localUserId = newUser.id;
 
       await applySignupAttribution(newUser.id, stashedAttribution, "WorkOS", await riskCtxFrom(req));
+      recordFunnelEvent(req, "signup_complete", {
+        userId: newUser.id,
+        mode: "workos",
+        path: signupFunnelPath(signupSurface, stashedAttribution?.refCode),
+        utmSource: stashedAttribution?.utmSource,
+        utmMedium: stashedAttribution?.utmMedium,
+        utmCampaign: stashedAttribution?.utmCampaign,
+        utmContent: stashedAttribution?.utmContent,
+        referrerHost: stashedAttribution?.referrerHost,
+      });
 
       try {
         const { claimAnonForUser } = await import("./anonIdentity");
@@ -357,6 +394,7 @@ export function registerWorkosRoutes(app: Express): void {
 
     } catch (error) {
       console.error("[WorkOS] Callback error:", error);
+      noteSignupError("callback_failed");
       res.redirect("/auth-error?reason=callback_failed");
     }
   });

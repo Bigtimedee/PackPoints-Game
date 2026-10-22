@@ -7,6 +7,10 @@
 **Live URL:** https://packpts.com
 **Deployment:** Railway (project `marvelous-freedom`), auto-deploy on `git push main`
 
+## Signup funnel events (2026-10-22)
+
+`funnel_events.event_type` is `varchar(40)` so `first_daily5_complete_registered` fits. `POST /api/funnel/event` is same-origin and rate limited. It records `signup_view` (path = surface, mode = variant), `signup_started` (mode = email, workos, google, or apple), `signup_error` (mode = reason), and `share_view` (Daily 5 share card, mode = registered or guest). `signup_complete` and `first_daily5_complete_registered` are server-only. A new email account, a new WorkOS account, and a new Apple account write `signup_complete`. The first non-flagged registered Daily 5 finish writes `first_daily5_complete_registered` once per user. `GET /api/qa/funnel` adds `signup`: counts by surface, method, and reason, a daily chain (visit, first answer, game complete, signup view, signup started, registered users, first registered Daily 5), and the same chain by `utm_source`. Staff, test, QA, and bot rows stay excluded. An invite ref on `signup_complete` is the second token of `path` (`surface code`).
+
 ---
 
 ## 1. Executive Summary

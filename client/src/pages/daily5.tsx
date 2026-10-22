@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { trackShareView } from "@/lib/signupFunnel";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
 import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
@@ -190,6 +191,11 @@ function ShareResultCard({ correctCount, date, challengeId, shareImageUrl, maske
   const [beatMeUrl, setBeatMeUrl] = useState<string | null>(null);
   const [challengeImageUrl, setChallengeImageUrl] = useState<string | null>(null);
   const [sessionImageUrl, setSessionImageUrl] = useState<string | undefined>(shareImageUrl);
+
+  useEffect(() => {
+    if (!isAuthenticated || !challengeId) return;
+    trackShareView("daily5", "registered");
+  }, [isAuthenticated, challengeId]);
 
   const dateStr = date || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
   // Signed in, the Beat-me link also carries the invite code, so the text says so.
