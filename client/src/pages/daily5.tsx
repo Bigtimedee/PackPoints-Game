@@ -8,6 +8,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { trackShareView } from "@/lib/signupFunnel";
+import { guestInviteBanner } from "@shared/guestInvite";
 import { useAuth } from "@/hooks/use-auth";
 import { SignupModal } from "@/components/signup-modal";
 import { ANON_GATE_CODE, type PublicAnonGate } from "@shared/anonGate";
@@ -118,6 +119,20 @@ function formatTime(ms: number): string {
   const seconds = totalSeconds % 60;
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function GuestInviteBanner({ line }: { line: string | null }) {
+  if (!line) return null;
+  return (
+    <div
+      className="mb-4 rounded-lg border px-4 py-3"
+      style={{ backgroundColor: "#161B24", borderColor: "#2A303C", borderLeftWidth: 3, borderLeftColor: "#F5C518" }}
+      data-testid="text-d5-guest-invite"
+      role="status"
+    >
+      <p className="text-sm font-medium" style={{ color: "#F0F2F5" }}>{line}</p>
+    </div>
+  );
 }
 
 function BeatMeBanner({
@@ -438,6 +453,7 @@ export default function Daily5Page() {
   const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("signup");
   const searchString = useSearch();
   const [beatMe, setBeatMe] = useState<DailyBeatMeChallenge | null>(null);
+  const [guestInviteLine, setGuestInviteLine] = useState<string | null>(null);
   const [bannerHidden, setBannerHidden] = useState(false);
   const [gameState, setGameState] = useState<"loading" | "preview" | "playing" | "results">("loading");
   const [cards, setCards] = useState<Daily5Card[]>([]);
@@ -581,6 +597,25 @@ export default function Daily5Page() {
       toast({ title: "Error", description: err.message || "Failed to finish", variant: "destructive" });
     },
   });
+
+  useEffect(() => {
+    const ref = new URLSearchParams(searchString.startsWith("?") ? searchString.slice(1) : searchString).get("ref");
+    if (!ref || !/^[A-Za-z0-9_-]{4,20}$/.test(ref)) {
+      setGuestInviteLine(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/referrals/preview?code=${encodeURIComponent(ref)}`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const count = Number(data?.correctCount);
+        const line = Number.isFinite(count) ? guestInviteBanner(typeof data?.name === "string" ? data.name : null, count) : null;
+        setGuestInviteLine(line);
+      })
+      .catch(() => { if (!cancelled) setGuestInviteLine(null); });
+    return () => { cancelled = true; };
+  }, [searchString]);
 
   useEffect(() => {
     const token = parseBeatMeToken(searchString) ?? readPersistedBeatMeChallenge()?.token;
@@ -1056,6 +1091,7 @@ export default function Daily5Page() {
           />
         )}
 
+        {!beatMe && <GuestInviteBanner line={guestInviteLine} />}
         {beatMe && !bannerHidden && (
           <BeatMeBanner challenge={beatMe} onDismiss={beatMe.status === "active" ? hideBeatMeBanner : undefined} />
         )}

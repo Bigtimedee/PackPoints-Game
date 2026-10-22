@@ -452,6 +452,13 @@ export async function claimAnonForUser(req: GateRequest, res: Response, userId: 
         }
       }
       await copyDailyRunsToUser(player.id, userId);
+      try {
+        const { migrateGuestInvites } = await import("./guestInvites");
+        const { riskCtxFrom } = await import("../lib/signupAttribution");
+        await migrateGuestInvites(player.id, userId, await riskCtxFrom(req));
+      } catch (migrateErr) {
+        console.error("[GuestInvite] migrate failed (non-fatal):", migrateErr);
+      }
       clearLegacy(req);
       return { credited: idempotentPlan.creditPoints };
     } catch (err) {

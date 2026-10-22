@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db";
 import { referralLinks, referralAttributions, shareEvents, users, contentAssets, type ContentAsset } from "@shared/schema";
+import { anonPlayerIdFromCookie } from "../services/anonIdentity";
+import { getOrCreateGuestInvite, guestInvitePreview, redeemGuestInvite } from "../services/guestInvites";
 import { eq, and, sql, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -101,12 +103,34 @@ export async function getOrCreateInviteCode(userId: string): Promise<string> {
 
 export const INVITE_SHARE_LINE = "Name the player on the cards you grew up with. Play free with my link:";
 
+router.get("/api/referrals/preview", async (req: Request, res: Response) => {
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  if (!/^[A-Za-z0-9_-]{4,20}$/.test(code)) {
+    return res.status(400).json({ error: "Invalid code" });
+  }
+  try {
+    const preview = await guestInvitePreview(code);
+    if (!preview) return res.status(404).json({ error: "Invite not found" });
+    return res.json(preview);
+  } catch (err: any) {
+    console.error("[Referral] preview error:", err?.message);
+    return res.status(500).json({ error: "Failed to load invite" });
+  }
+});
+
 router.get("/api/referrals/offer", async (req: Request, res: Response) => {
   try {
     const { referralOfferFor } = await import("../services/referralProgram");
     const userId = isAuthenticated(req) ? getUserId(req) : null;
     const offer = await referralOfferFor(userId);
-    if (!userId) return res.json(offer);
+    if (!userId) {
+      const anonId = await anonPlayerIdFromCookie(req);
+      if (!anonId) return res.json(offer);
+      const guest = await getOrCreateGuestInvite(anonId);
+      if (!guest) return res.json(offer);
+      const base = publicBase(req);
+      return res.json({ ...offer, code: guest.code, url: `${base}/r/${guest.code}`, shareLine: INVITE_SHARE_LINE });
+    }
     const code = await getOrCreateInviteCode(userId);
     const base = publicBase(req);
     return res.json({ ...offer, code, url: `${base}/r/${code}`, shareLine: INVITE_SHARE_LINE });
@@ -126,7 +150,11 @@ router.get("/r/:code", async (req: Request, res: Response) => {
       .limit(1);
 
     if (!link) {
-      return res.redirect("/");
+      const preview = await guestInvitePreview(code);
+      if (!preview) return res.redirect("/");
+      const refParam = encodeURIComponent(code);
+      const surface = inviteSurface(req.query.s);
+      return res.redirect(`/daily5?ref=${refParam}&utm_source=invite&utm_medium=share&utm_content=${surface}`);
     }
 
     if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
@@ -188,6 +216,9 @@ router.post("/api/referrals/attribute", async (req: Request, res: Response) => {
       .limit(1);
 
     if (!link) {
+      const { riskCtxFrom } = await import("../lib/signupAttribution");
+      const pending = await redeemGuestInvite(refCode, userId, await riskCtxFrom(req));
+      if (pending === "pending") return res.json({ attributed: true, pending: true });
       return res.json({ attributed: false, reason: "Link not found" });
     }
 

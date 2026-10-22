@@ -4385,6 +4385,32 @@ export const referralLinks = pgTable("referral_links", {
   index("idx_referral_links_code").on(table.code),
 ]);
 
+/** A guest's invite code. Migrates onto referral_links when they register. */
+export const guestInviteCodes = pgTable("guest_invite_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  anonPlayerId: varchar("anon_player_id").notNull().references(() => anonPlayers.id, { onDelete: "cascade" }),
+  code: varchar("code", { length: 20 }).notNull().unique(),
+  correctCount: integer("correct_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  migratedUserId: varchar("migrated_user_id").references(() => users.id),
+  migratedAt: timestamp("migrated_at"),
+}, (table) => [
+  index("idx_guest_invite_codes_anon").on(table.anonPlayerId),
+]);
+
+/** Friend signed up on a guest code before the inviter had an account. */
+export const guestInviteRedemptions = pgTable("guest_invite_redemptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  guestInviteCodeId: varchar("guest_invite_code_id").notNull().references(() => guestInviteCodes.id, { onDelete: "cascade" }),
+  invitedUserId: varchar("invited_user_id").notNull().references(() => users.id),
+  ipHash: varchar("ip_hash", { length: 128 }),
+  deviceId: varchar("device_id", { length: 128 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  unique("uq_guest_invite_redemption_user").on(table.invitedUserId),
+]);
+
 export const insertReferralLinkSchema = createInsertSchema(referralLinks).omit({
   id: true,
   clickCount: true,
