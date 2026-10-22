@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { startWorkosAuth } from "@/lib/attribution";
 import { trackSignupStarted } from "@/lib/signupFunnel";
 
-type Surface = "auth" | "modal";
+type Surface = "auth" | "modal" | "plaque";
 
 /**
  * Primary Google and Apple sign-in. Both go through WorkOS. The word WorkOS

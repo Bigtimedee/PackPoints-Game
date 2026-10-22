@@ -435,7 +435,7 @@ export default function Daily5Page() {
   const { user, isAuthenticated } = useAuth();
   const [guestGate, setGuestGate] = useState<PublicAnonGate | null>(null);
   const [showGuestGate, setShowGuestGate] = useState(false);
-  const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("plaque");
+  const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("signup");
   const searchString = useSearch();
   const [beatMe, setBeatMe] = useState<DailyBeatMeChallenge | null>(null);
   const [bannerHidden, setBannerHidden] = useState(false);
@@ -551,7 +551,7 @@ export default function Daily5Page() {
     && (guestGate ?? statusQuery.data?.anonGate)?.phase === "hard";
   useEffect(() => {
     if (!resultsHardGate || showGuestGate) return;
-    setGateOpenOn("plaque");
+    setGateOpenOn("signup");
     setShowGuestGate(true);
   }, [resultsHardGate, showGuestGate]);
 
@@ -563,7 +563,7 @@ export default function Daily5Page() {
       if (data.anonGate?.anonymous) {
         setGuestGate(data.anonGate);
         if (data.anonGate.prompt === "soft") {
-          setGateOpenOn("plaque");
+          setGateOpenOn("signup");
           setShowGuestGate(true);
         }
         queryClient.invalidateQueries({ queryKey: ["/api/anon/status"] });
@@ -951,7 +951,7 @@ export default function Daily5Page() {
               onOpenChange={setShowGuestGate}
               variant={(guestGate ?? status?.anonGate)?.phase === "hard" ? "hard" : "soft"}
               gateReason={(guestGate ?? status?.anonGate)?.reason}
-              openOn={(guestGate ?? status?.anonGate)?.phase === "hard" ? gateOpenOn : "plaque"}
+              openOn={(guestGate ?? status?.anonGate)?.phase === "hard" ? gateOpenOn : "signup"}
               pendingPoints={(guestGate ?? status?.anonGate)?.escrowPoints ?? 0}
             />
           )}

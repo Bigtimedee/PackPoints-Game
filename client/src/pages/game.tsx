@@ -140,7 +140,7 @@ export default function Game() {
   const [isRevealed, setIsRevealed] = useState(false);
   const [revealedCorrectAnswer, setRevealedCorrectAnswer] = useState<string | null>(null);
   const [showSignupModal, setShowSignupModal] = useState(false);
-  const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("plaque");
+  const [gateOpenOn, setGateOpenOn] = useState<"plaque" | "signup" | "login">("signup");
   const [hasSeenSignupPrompt, setHasSeenSignupPrompt] = useState(false);
   const [anonGate, setAnonGate] = useState<PublicAnonGate | null>(null);
   const [pointsUpdatedForSession, setPointsUpdatedForSession] = useState<{ id: string; score: number } | null>(null);
@@ -643,7 +643,7 @@ export default function Game() {
     if (anonGate.phase === "hard") {
       // Game Complete at the hard wall: block with the hard SignupModal (not dismissable).
       if (!showSignupModal) {
-        setGateOpenOn("plaque");
+        setGateOpenOn("signup");
         setShowSignupModal(true);
       }
       return;
@@ -1278,7 +1278,7 @@ export default function Game() {
           }}
           variant={anonGate?.phase === "hard" ? "hard" : anonGate?.prompt === "soft" ? "soft" : "optional"}
           gateReason={anonGate?.reason}
-          openOn={anonGate?.phase === "hard" ? gateOpenOn : "plaque"}
+          openOn={anonGate?.phase === "hard" ? gateOpenOn : "signup"}
           pendingPoints={anonGate?.escrowPoints ?? 0}
           onPlayAgain={handlePlayAgain}
           onSuccess={() => {
