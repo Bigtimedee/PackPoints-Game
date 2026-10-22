@@ -17,6 +17,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { ANON_GATE_COPY, type AnonGateReason } from "@shared/anonGate";
 import { EscrowHeldChip } from "@/components/anon-gate-plaque";
 import { useGuestWallChrome } from "@/lib/guestWallChrome";
+import { useToast } from "@/hooks/use-toast";
+import { readSignupSavedLine } from "@/lib/signupSaved";
 
 const signupModalSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -46,6 +48,7 @@ interface SignupModalProps {
 
 export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPlayAgain, variant = "optional", gateReason: _gateReason, openOn = "signup" }: SignupModalProps) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"signup" | "login">("signup");
   const [emailTaken, setEmailTaken] = useState(false);
   const isGate = variant === "soft" || variant === "hard";
@@ -139,6 +142,10 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
       queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
       onOpenChange(false);
       signupForm.reset();
+      toast({
+        title: "Account created!",
+        description: await readSignupSavedLine(Number(data.user?.points ?? 0)),
+      });
       await new Promise(resolve => setTimeout(resolve, 150));
       if (onSuccess) onSuccess();
     },

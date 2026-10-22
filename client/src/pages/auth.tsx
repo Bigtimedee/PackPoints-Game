@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ApiError, apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
 import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
+import { readSignupSavedLine } from "@/lib/signupSaved";
 import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
 
 const signupSchema = z.object({
@@ -110,10 +111,10 @@ export default function AuthPage() {
       } else {
         toast({
           title: "Account created!",
-          description: "Welcome to PackPTS. Start playing to earn PackPTS!",
+          description: await readSignupSavedLine(Number(data.user?.points ?? 0)),
         });
         await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-        setLocation("/");
+        setLocation("/daily5");
       }
     },
     onError: (error: Error) => {

@@ -465,7 +465,7 @@ describe("WorkOS: stash cookie round trip", () => {
 
     const res = await callback(cookie);
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/auth/success");
+    expect(res.headers.get("location")).toBe("/auth/success?welcome=1");
     expect(clearsAttrCookie(res)).toBe(true);
     expect(written).toEqual([
       {

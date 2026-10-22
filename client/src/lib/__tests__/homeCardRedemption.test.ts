@@ -20,6 +20,7 @@ describe("home reuses gameplay and explains redemption", () => {
     expect(home).toContain('{heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}');
     expect(home.indexOf('HOME_HERO.live : HOME_HERO.soon')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
     expect(home.indexOf('HOME_HERO_TYPE.steps')).toBeLessThan(home.indexOf('data-testid="button-play-now"'));
+    expect(home).toMatch(/data-testid="button-play-now"[\s\S]{0,160}href="\/daily5"/);
     expect(home).not.toContain('Pay the normal marketplace price');
     expect(home).toContain('Who is on this 1987 Topps card?');
     expect(home).toContain('<AnswerButton');
