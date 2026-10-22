@@ -20,6 +20,8 @@ import {
   socialPosts,
   postAnalytics,
   abTests,
+  growthSignals,
+  growthCreativeMetrics,
 } from "@shared/schema";
 import { eq, desc, and, sum, sql, asc, avg, count, max } from "drizzle-orm";
 // Lazy-import heavy services that depend on native binaries (sharp, ffmpeg-static).
@@ -529,4 +531,129 @@ export function registerGrowthRoutes(app: Express): void {
       }
     },
   );
+  // GET /api/admin/growth/signals — ranked, non-expired listen-layer signals
+  app.get(
+    "/api/admin/growth/signals",
+    isAuthenticated,
+    requireAdmin,
+    async (_req: Request, res: Response) => {
+      try {
+        const now = new Date();
+        const rows = await db
+          .select()
+          .from(growthSignals)
+          .where(sql`${growthSignals.expiresAt} is null or ${growthSignals.expiresAt} >= ${now}`)
+          .orderBy(desc(growthSignals.score), desc(growthSignals.observedAt))
+          .limit(100);
+        res.json(rows);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // POST /api/admin/growth/signals/external — approved external trend/editorial input
+  app.post(
+    "/api/admin/growth/signals/external",
+    isAuthenticated,
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const schema = z.object({
+        signalType: z.enum([
+          "TREND",
+          "ANNIVERSARY",
+          "COLLECTOR_DEBATE",
+          "EDITORIAL",
+          "DAILY5_MOMENT",
+          "SHAREABLE_ASSET",
+          "STREAK_MILESTONE",
+          "LEADERBOARD_MOMENT",
+        ]),
+        title: z.string().min(3).max(500),
+        score: z.number().min(0).max(100).optional(),
+        payload: z.record(z.unknown()).optional(),
+        assetPath: z.string().max(1000).nullable().optional(),
+        expiresAt: z.string().datetime().nullable().optional(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid growth signal", issues: parsed.error.issues });
+      }
+
+      try {
+        const { addExternalGrowthSignal } = await import("../services/growthAgent/listen");
+        await addExternalGrowthSignal({
+          signalType: parsed.data.signalType,
+          title: parsed.data.title,
+          score: parsed.data.score,
+          payload: parsed.data.payload,
+          assetPath: parsed.data.assetPath,
+          expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
+        });
+        res.json({ ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // POST /api/admin/growth/mandate/run — run Listen/Create/Distribute/Learn now
+  app.post(
+    "/api/admin/growth/mandate/run",
+    isAuthenticated,
+    requireAdmin,
+    async (_req: Request, res: Response) => {
+      try {
+        const { runGrowthMandateCycle } = await import("../services/growthAgent/mandate");
+        const result = await runGrowthMandateCycle(new Date());
+        res.status(result.status === "FAILED" ? 500 : 200).json(result);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // GET /api/admin/growth/creative-performance — persisted learn-layer ranking
+  app.get(
+    "/api/admin/growth/creative-performance",
+    isAuthenticated,
+    requireAdmin,
+    async (_req: Request, res: Response) => {
+      try {
+        const rows = await db
+          .select()
+          .from(growthCreativeMetrics)
+          .orderBy(
+            desc(growthCreativeMetrics.qdauPerThousand),
+            desc(growthCreativeMetrics.activations),
+          )
+          .limit(100);
+        res.json(rows);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
+  // POST /api/admin/growth/creative-performance/compute — refresh Learn metrics
+  app.post(
+    "/api/admin/growth/creative-performance/compute",
+    isAuthenticated,
+    requireAdmin,
+    async (_req: Request, res: Response) => {
+      try {
+        const { computeCreativePerformance } = await import("../services/growthAgent/learn");
+        const rows = await computeCreativePerformance(new Date());
+        res.json(rows);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        res.status(500).json({ message: msg });
+      }
+    },
+  );
+
 }
