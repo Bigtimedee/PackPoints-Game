@@ -129,6 +129,7 @@ import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
 import { isQaTestUser } from "@shared/qaTestAccount";
 import { attributeNewUserFromRequest, sanitizeAttribution } from "./lib/signupAttribution";
 import { funnelToken, signupFunnelPath } from "./services/signupFunnel";
+import { allocateLocalUsername, isUsernameConflict } from "./services/localUsername";
 import cardhedgeRouter from "./routes/cardhedge.routes";
 import referralsRouter from "./routes/referrals";
 import playSetsShareRouter from "./routes/playSetsShare";
@@ -1800,22 +1801,42 @@ export async function registerRoutes(
         return res.status(400).json({ error: formatZodError(parsed.error), details: parsed.error.errors });
       }
       
-      const { username, email, password } = parsed.data;
+      const { email, password } = parsed.data;
+      const suppliedUsername = parsed.data.username;
       const { deviceFingerprint, inviteCode } = req.body;
-      
-      const existingUser = await storage.getUserByUsername(username);
-      if (existingUser) {
-        recordFunnelEvent(req, "signup_error", { userId: null, mode: "username_taken", path: registerSurface });
-        return res.status(409).json({ error: "Username already taken" });
-      }
-      
+
       const existingEmail = await storage.getUserByEmail(email);
       if (existingEmail) {
         recordFunnelEvent(req, "signup_error", { userId: null, mode: "email_taken", path: registerSurface });
-        return res.status(409).json({ error: "Email already registered" });
+        return res.status(409).json({
+          error: "This email already has an account.",
+          code: "email_taken",
+        });
       }
-      
-      const user = await storage.createLocalUser(username, email, password);
+
+      const taken = async (name: string) => Boolean(await storage.getUserByUsername(name));
+      let username = suppliedUsername || await allocateLocalUsername(email, taken);
+      if (suppliedUsername) {
+        const existingUser = await storage.getUserByUsername(suppliedUsername);
+        if (existingUser) {
+          recordFunnelEvent(req, "signup_error", { userId: null, mode: "username_taken", path: registerSurface });
+          return res.status(409).json({ error: "Username already taken", code: "username_taken" });
+        }
+      }
+
+      let user;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          user = await storage.createLocalUser(username, email, password);
+          break;
+        } catch (createErr) {
+          if (suppliedUsername || attempt === 1 || !isUsernameConflict(createErr)) throw createErr;
+          username = await allocateLocalUsername(email, taken);
+        }
+      }
+      if (!user) {
+        throw new Error("Failed to create user");
+      }
       
       // Try to activate the user (Founders Cap check)
       const activationResult = await accessService.tryActivateUser(user.id, {

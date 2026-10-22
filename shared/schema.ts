@@ -342,7 +342,7 @@ export const startGameSchema = z.object({
 export type StartGameRequest = z.infer<typeof startGameSchema>;
 
 export const registerSchema = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or fewer").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores"),
+  username: z.string().min(3, "Username must be at least 3 characters").max(20, "Username must be 20 characters or fewer").regex(/^[a-zA-Z0-9_]+$/, "Username can only contain letters, numbers, and underscores").optional(),
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters").max(100, "Password is too long"),
 });
