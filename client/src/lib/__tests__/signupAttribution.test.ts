@@ -212,9 +212,16 @@ describe("register and OAuth call sites", () => {
   it("every WorkOS start stashes attribution first", async () => {
     for (const file of ["src/pages/auth.tsx", "src/components/signup-modal.tsx"]) {
       const src = await read(file);
+      expect(src, file).toContain("<SocialAuthButtons");
       expect(src, file).not.toMatch(/window\.location\.href\s*=\s*["']\/api\/auth\/workos\/start/);
-      expect(src, file).toContain("startWorkosAuth(");
+      expect(src, file).not.toContain("startWorkosAuth(");
+      expect(src, file).not.toContain("Continue with WorkOS");
     }
+    const buttons = await read("src/components/social-auth-buttons.tsx");
+    expect(buttons).toContain("startWorkosAuth(");
+    expect(buttons).not.toMatch(/window\.location\.href\s*=\s*["']\/api\/auth\/workos\/start/);
+    expect(buttons).toContain("Continue with Google");
+    expect(buttons).toContain("Continue with Apple");
   });
 
   it("App captures first touch on load", async () => {

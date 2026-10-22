@@ -266,9 +266,26 @@ export async function stashAttributionForOAuth(
   }
 }
 
+/**
+ * Leave for the WorkOS start route. In-app browsers often embed the page in a
+ * frame where a toast telling the user to open a new tab never works, so
+ * navigate the top frame in place. A cross-origin parent falls back to this frame.
+ */
+function assignAuthLocation(path: string): void {
+  try {
+    if (window.top && window.top !== window.self) {
+      window.top.location.href = path;
+      return;
+    }
+  } catch {
+    /* cross-origin frame */
+  }
+  window.location.href = path;
+}
+
 /** Stash attribution, then navigate to the WorkOS start route. */
 export async function startWorkosAuth(path = "/api/auth/workos/start"): Promise<void> {
   rememberDaily5AuthReturn(window.location.pathname, window.location.search);
   await stashAttributionForOAuth();
-  window.location.href = path;
+  assignAuthLocation(path);
 }
