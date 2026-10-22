@@ -264,6 +264,14 @@ export function registerWorkosRoutes(app: Express): void {
         (req.session as any).workosUserId = workosUser.id;
         (req.session as any).localUserId = localUser.id;
 
+        if (!localUser.oauthProvider) {
+          try {
+            await storage.setOauthProviderIfEmpty(localUser.id, signupMethod);
+          } catch (providerErr) {
+            console.error("[WorkOS] Provider store failed (non-fatal):", providerErr);
+          }
+        }
+
         try {
           const { claimAnonForUser } = await import("./anonIdentity");
           await claimAnonForUser(req, res, localUser.id);
@@ -347,6 +355,7 @@ export function registerWorkosRoutes(app: Express): void {
         lastName: workosUser.lastName || undefined,
         profileImageUrl: workosUser.profilePictureUrl || undefined,
         username: uniqueUsername,
+        oauthProvider: signupMethod,
       });
 
       if (!newUser) {

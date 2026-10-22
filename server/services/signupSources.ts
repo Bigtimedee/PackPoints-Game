@@ -20,7 +20,7 @@ export const SIGNUP_SOURCE_RULE =
   "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_medium, no utm_campaign, and no referrer → direct (a landing page alone is still direct); otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
 
 export const SIGNUP_AUTH_PROVIDER_RULE =
-  "Counted on the same included users as totals. One method each, so the four counts sum to the window total: apple when an apple_users row exists, else workos when users.workos_user_id is set, else email when a local_credentials row exists, else none. Google is not stored. WorkOS AuthKit may include Google and is still workos.";
+  "Counted on the same included users as totals. One auth method each, so google + apple + email + workos + none equals the window total and each day's signups. google when users.oauth_provider is google. Else apple when users.oauth_provider is apple or an apple_users row exists. Else email when a local_credentials row exists. Else workos when users.workos_user_id is set or oauth_provider is workos (a WorkOS account whose IdP was not stored as google or apple, including AuthKit, SSO, and Password). Else none. guestConverted counts those users again when an anon_players row was claimed by that user within 24 hours after users.created_at. Do not add guestConverted into the sum. Daily byMethod uses the same keys. WorkOS GoogleOAuth is stored as google and is not counted as workos. A null oauth_provider is not guessed.";
 
 export const SIGNUP_WINDOWS = {
   last24h: "created_at in the 24 hours ending at generatedAt, inclusive of the start instant",
@@ -36,7 +36,7 @@ export const SIGNUP_SOURCE_GAPS = [
   "Web Sign in with Apple that returns by a cross-site form POST does not carry the SameSite=Lax pp_attr cookie, so it is attributed only when the client sends the attribution body object.",
   "user_attribution.referrer holds the external referrer host only (no path or query). Our own hosts are dropped.",
   "eBay affiliate clicks and X posts are not copied onto the user at signup. There is no eBay or X column on users. A referrer host of ebay.com, x.com, twitter.com, or t.co is used only when a user_attribution row exists and utm_source is empty.",
-  "Google is not a stored sign-in method. user_identities.provider is local or workos, and users.workos_user_id does not record the WorkOS IdP. Google sign-in through AuthKit is counted as workos.",
+  "users.oauth_provider stores the WorkOS IdP as google, apple, or workos. It is written when that account is created, and on a later WorkOS login when the column is still empty. Rows from before that column stay workos until such a login. user_identities.provider stays local or workos. A null oauth_provider is not treated as google.",
   "users has is_admin and is_bot. It has no test or QA flag. Test and QA accounts are not inferred from username or email. Development POST /api/test/login and seedMockUsers can insert users with neither flag and no attribution; those rows stay in the registered totals as unattributed.",
 ] as const;
 
@@ -49,6 +49,8 @@ export type SignupSourceRow = {
   hasWorkos: boolean;
   hasApple: boolean;
   hasEmail: boolean;
+  oauthProvider: "google" | "apple" | "workos" | null;
+  guestConverted: boolean;
   hasAttributionRow: boolean;
   utmSource: string | null;
   utmMedium: string | null;
@@ -65,11 +67,15 @@ export type ExcludedBreakdown = {
 };
 
 export type AuthProviderCounts = {
-  workos: number;
-  email: number;
+  google: number;
   apple: number;
+  email: number;
+  guestConverted: number;
+  workos: number;
   none: number;
 };
+
+export type AuthMethod = "google" | "apple" | "email" | "workos" | "none";
 
 export type SignupCountReport = {
   generatedAt: string;
@@ -98,6 +104,7 @@ export type SignupCountReport = {
     signups: number;
     topSource: string | null;
     bySource: Record<string, number>;
+    byMethod: AuthProviderCounts;
   }>;
   authProviders: {
     allTime: AuthProviderCounts;
@@ -163,10 +170,11 @@ export function signupSourceBucket(row: SignupSourceRow): string {
   return "unknown";
 }
 
-function authProvider(row: SignupSourceRow): keyof AuthProviderCounts {
-  if (row.hasApple) return "apple";
-  if (row.hasWorkos) return "workos";
+function authProvider(row: SignupSourceRow): AuthMethod {
+  if (row.oauthProvider === "google") return "google";
+  if (row.oauthProvider === "apple" || row.hasApple) return "apple";
   if (row.hasEmail) return "email";
+  if (row.hasWorkos || row.oauthProvider === "workos") return "workos";
   return "none";
 }
 
@@ -175,7 +183,12 @@ function emptyExcluded(): ExcludedBreakdown {
 }
 
 function emptyProviders(): AuthProviderCounts {
-  return { workos: 0, email: 0, apple: 0, none: 0 };
+  return { google: 0, apple: 0, email: 0, guestConverted: 0, workos: 0, none: 0 };
+}
+
+function addProvider(target: AuthProviderCounts, row: SignupSourceRow): void {
+  target[authProvider(row)] += 1;
+  if (row.guestConverted) target.guestConverted += 1;
 }
 
 function inRollingWindow(createdAt: Date | null, now: Date, windowMs: number): boolean {
@@ -232,6 +245,7 @@ export function buildSignupReport(rows: SignupSourceRow[], now = new Date()): Si
   }
   const daySet = new Set(dayKeys);
   const dailyMaps = new Map<string, Map<string, number>>(dayKeys.map((day) => [day, new Map()]));
+  const dailyMethods = new Map<string, AuthProviderCounts>(dayKeys.map((day) => [day, emptyProviders()]));
 
   let allTimeTotal = 0;
   let last24hTotal = 0;
@@ -255,24 +269,27 @@ export function buildSignupReport(rows: SignupSourceRow[], now = new Date()): Si
     }
 
     const bucket = signupSourceBucket(row);
-    const provider = authProvider(row);
     allTimeTotal += 1;
     bump(allTime, bucket);
-    providers.allTime[provider] += 1;
+    addProvider(providers.allTime, row);
     if (within24h) {
       last24hTotal += 1;
       bump(last24h, bucket);
-      providers.last24h[provider] += 1;
+      addProvider(providers.last24h, row);
     }
     if (within7d) {
       last7dTotal += 1;
       bump(last7d, bucket);
-      providers.last7d[provider] += 1;
+      addProvider(providers.last7d, row);
     }
     if (createdAt && createdAt.getTime() <= now.getTime()) {
       const day = getPackptsDayKey(createdAt);
       const daily = dailyMaps.get(day);
-      if (daySet.has(day) && daily) bump(daily, bucket);
+      const methods = dailyMethods.get(day);
+      if (daySet.has(day) && daily && methods) {
+        bump(daily, bucket);
+        addProvider(methods, row);
+      }
     }
   }
 
@@ -298,7 +315,7 @@ export function buildSignupReport(rows: SignupSourceRow[], now = new Date()): Si
       const counts = dailyMaps.get(day) ?? new Map<string, number>();
       const bySource = toCountMap(counts, false);
       const signups = Object.values(bySource).reduce((sum, n) => sum + n, 0);
-      return { day, signups, topSource: topSource(counts), bySource };
+      return { day, signups, topSource: topSource(counts), bySource, byMethod: dailyMethods.get(day) ?? emptyProviders() };
     }),
     authProviders: providers,
     gaps: SIGNUP_SOURCE_GAPS,
@@ -310,7 +327,7 @@ export function sumCounts(counts: Record<string, number>): number {
 }
 
 export function sumAuthProviders(counts: AuthProviderCounts): number {
-  return counts.workos + counts.email + counts.apple + counts.none;
+  return counts.google + counts.apple + counts.email + counts.workos + counts.none;
 }
 
 export const SIGNUP_SOURCE_SQL = `
@@ -319,8 +336,17 @@ SELECT
   COALESCE(u.is_admin, false) AS is_admin,
   COALESCE(u.is_bot, false) AS is_bot,
   (u.workos_user_id IS NOT NULL) AS has_workos,
+  lower(u.oauth_provider) AS oauth_provider,
   EXISTS (SELECT 1 FROM apple_users au WHERE au.user_id = u.id) AS has_apple,
   EXISTS (SELECT 1 FROM local_credentials lc WHERE lc.user_id = u.id) AS has_email,
+  EXISTS (
+    SELECT 1 FROM anon_players ap
+    WHERE ap.claimed_by_user_id = u.id
+      AND ap.claimed_at IS NOT NULL
+      AND u.created_at IS NOT NULL
+      AND ap.claimed_at >= u.created_at
+      AND ap.claimed_at <= u.created_at + interval '1 day'
+  ) AS guest_converted,
   (ua.user_id IS NOT NULL) AS has_attribution,
   ua.utm_source,
   ua.utm_medium,
@@ -366,6 +392,14 @@ function asPurpose(value: unknown): ReferralPurpose | null {
   return PURPOSES.has(value as ReferralPurpose) ? (value as ReferralPurpose) : null;
 }
 
+function asOauthProvider(value: unknown): SignupSourceRow["oauthProvider"] {
+  const text = asText(value)?.toLowerCase() ?? "";
+  if (text === "google" || text === "googleoauth") return "google";
+  if (text === "apple" || text === "appleoauth") return "apple";
+  if (text === "workos") return "workos";
+  return null;
+}
+
 export function mapSignupSourceRow(row: Record<string, unknown>): SignupSourceRow {
   return {
     createdAt: asDate(row.created_at),
@@ -374,6 +408,8 @@ export function mapSignupSourceRow(row: Record<string, unknown>): SignupSourceRo
     hasWorkos: asBool(row.has_workos),
     hasApple: asBool(row.has_apple),
     hasEmail: asBool(row.has_email),
+    oauthProvider: asOauthProvider(row.oauth_provider),
+    guestConverted: asBool(row.guest_converted),
     hasAttributionRow: asBool(row.has_attribution),
     utmSource: asText(row.utm_source),
     utmMedium: asText(row.utm_medium),
