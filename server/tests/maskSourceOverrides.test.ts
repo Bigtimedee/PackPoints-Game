@@ -34,6 +34,16 @@ describe("mask source overrides", () => {
     expect(gibsonMeta.width! / gibsonMeta.height!).toBeGreaterThan(0.68);
     expect(gibsonMeta.width! / gibsonMeta.height!).toBeLessThan(0.76);
 
+    const barelyTall = await sharp({ create: { width: 670, height: 1000, channels: 3, background: { r: 180, g: 40, b: 40 } } }).jpeg().toBuffer();
+    const barely = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", barelyTall);
+    const barelyMeta = await sharp(barely!).metadata();
+    expect(barelyMeta.width).toBe(670);
+    expect(barelyMeta.height).toBe(Math.round(670 * 3.5 / 2.5));
+    const autograph = await applyMaskSourceOverride("93a3e9e6-3b14-41f0-a31f-9b3c3d192b85", barelyTall);
+    const autographMeta = await sharp(autograph!).metadata();
+    expect(autographMeta.width).toBe(670);
+    expect(autographMeta.height).toBe(1000);
+
     const framed = await sharp({ create: { width: 800, height: 1100, channels: 3, background: { r: 8, g: 8, b: 8 } } }).jpeg().toBuffer();
     const card = await sharp({ create: { width: 760, height: 1060, channels: 3, background: { r: 210, g: 190, b: 150 } } }).png().toBuffer();
     const withFrame = await sharp(framed).composite([{ input: card, left: 20, top: 20 }]).jpeg().toBuffer();
