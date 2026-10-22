@@ -73,16 +73,18 @@ describe("hard wall placement", () => {
     expect(game).toContain('data-testid="screen-solo-guest-block"');
     expect(game).toContain("pb-[calc(1.5rem+env(safe-area-inset-bottom))]");
     expect(game).not.toContain("AnonGatePlaque");
-    expect(game).toMatch(/anonGate\.phase === "hard"\) \{[\s\S]{0,200}setGateOpenOn\("plaque"\);\s*setShowSignupModal\(true\);/);
+    expect(game).toMatch(/anonGate\.phase === "hard"\) \{[\s\S]{0,200}setGateOpenOn\("signup"\);\s*setShowSignupModal\(true\);/);
   });
 
   it("gives the gate dialog its own scroll and safe-area padding", () => {
     const modal = read("../../components/signup-modal.tsx");
     expect(modal).toContain("max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain");
-    expect(modal).toContain("pb-[env(safe-area-inset-bottom)]");
+    expect(modal).toContain("pb-[calc(1.25rem+env(safe-area-inset-bottom))]");
     expect(modal).not.toContain("max-h-[90vh]");
-    // Both steps keep a 16px side margin at 375 and 390 (Design QA 2026-10-03).
-    expect(modal.match(/w-\[calc\(100%-2rem\)\]/g)?.length).toBe(2);
+    expect(modal).not.toContain("AnonGatePlaque");
+    expect(modal).toContain("<SocialAuthButtons");
+    // One account form, with a 16px side margin at 375 and 390 (Design QA 2026-10-03).
+    expect(modal.match(/w-\[calc\(100%-2rem\)\]/g)?.length).toBe(1);
   });
 
   it("uses the shared wall on Daily 5 and blocks Daily 5 results with the hard modal", () => {

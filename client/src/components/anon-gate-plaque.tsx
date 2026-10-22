@@ -1,6 +1,9 @@
 import { ANON_GATE_COPY } from "@shared/anonGate";
+import { useEffect } from "react";
 import { usePointsValue } from "@/hooks/use-points-value";
 import { SIGNUP_BODY_LIVE } from "@/lib/pointsCopy";
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
+import { trackSignupView } from "@/lib/signupFunnel";
 
 /** B masked-P. Gold bar is the mask, not a second mark. */
 function MaskedPMark() {
@@ -46,6 +49,9 @@ export function AnonGatePlaque({
   const { rebateLive } = usePointsValue();
   // Soft body and live body both read as live copy.
   const softBody = rebateLive ? SIGNUP_BODY_LIVE : ANON_GATE_COPY.softBody;
+  useEffect(() => {
+    trackSignupView("plaque", variant);
+  }, [variant]);
   return (
     <div
       className="w-full max-w-[390px] rounded-2xl border px-6 py-7 text-left"
@@ -61,6 +67,9 @@ export function AnonGatePlaque({
       </p>
       <div className="mt-4">
         <EscrowHeldChip points={escrowPoints} />
+      </div>
+      <div className="mt-5">
+        <SocialAuthButtons surface="plaque" />
       </div>
       <button
         type="button"

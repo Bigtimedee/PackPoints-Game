@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 
 const signupSrc = readFileSync(new URL("../../components/signup-modal.tsx", import.meta.url), "utf8");
+const plaqueSrc = readFileSync(new URL("../../components/anon-gate-plaque.tsx", import.meta.url), "utf8");
 const gameSrc = readFileSync(new URL("../../pages/game.tsx", import.meta.url), "utf8");
 
 /** Claim-FOMO that bled into the shared signup modal after the gate shipped. */
@@ -30,6 +31,11 @@ describe("signup modal register/claim copy", () => {
     expect(signupSrc).toContain("ANON_GATE_COPY.hardCta");
     expect(signupSrc).toContain("ANON_GATE_COPY.signInCta");
     expect(signupSrc).toContain("<EscrowHeldChip points={pendingPoints} />");
+    expect(signupSrc).not.toContain("AnonGatePlaque");
+    expect(plaqueSrc).toContain("ANON_GATE_COPY.softTitle");
+    expect(plaqueSrc).toContain("ANON_GATE_COPY.hardCta");
+    expect(plaqueSrc).toContain("ANON_GATE_COPY.softSecondary");
+    expect(plaqueSrc).toContain("<SocialAuthButtons");
   });
 
   it("does not ship claim FOMO or a green bonus banner", () => {

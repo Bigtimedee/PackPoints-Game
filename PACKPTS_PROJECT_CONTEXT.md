@@ -45,7 +45,7 @@ Trading cards are one of the most emotionally resonant collectible categories in
 
 ### Account Creation
 1. User visits packpts.com or receives a Founders Pass / invite link.
-2. Email signup is email and password. The server assigns a username from the mailbox name. Invite code may be required if the founders cap is active. A duplicate email returns `email_taken` and the form offers Log in.
+2. Email signup is email and password. The server assigns a username from the mailbox name. Invite code may be required if the founders cap is active. A duplicate email returns `email_taken` and the form offers Log in. The first signup prompt opens on Google, Apple, and email. It does not start on a points card the player has to tap through. Locked gate copy in `ANON_GATE_COPY` is unchanged. The on-page hard wall still shows that copy, and Google and Apple are on the card.
 3. Continue with Google and Continue with Apple are the primary buttons on `/auth` and the signup modal. Both start `GET /api/auth/workos/start` with `provider=GoogleOAuth` or `provider=AppleOAuth`. There is no consumer-facing WorkOS label. An embedded in-app browser navigates the top frame in place. Apple uses WorkOS's shared Sign in with Apple client.
 4. After signup, the user lands on the home page and can immediately play a solo game. Home does not show Total Games Played / Cards Guessed until `totalGames ≥ 500` (or staff flag `home.show_play_vanity`). Founders FOMO is not on home. The first home visit opens `OnboardingModal` once (`packpts_onboarded`). That tour does not advertise a signup bonus. Home itself does not advertise the 250 welcome credit either; `POST /api/auth/register` still credits it.
 
