@@ -51,7 +51,7 @@ export function FoundersPassCard() {
       try {
         await navigator.share({
           title: "Join PackPTS as a Founder!",
-          text: "Use my Founders Pass to skip the waitlist and become one of the first 500 PackPTS Founders!",
+          text: "Use my Founders Pass and play PackPTS with me.",
           url: passData.shareUrl,
         });
       } catch (err) {

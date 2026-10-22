@@ -28,6 +28,7 @@ import {
   resetPasswordLimiter,
   cardIdentifyLimiter,
 } from "./middleware/rateLimiter";
+import { registerFailure } from "./auth/registerFailure";
 import { startGameSchema, submitAnswerSchema, createLobbySchema, createLobbyRequestSchema, joinLobbySchema, joinLobbyRequestSchema, registerSchema, loginSchema, users, sessions, wallets, purchaseEvents, spendWalletSchema, earnWalletSchema, adjustWalletSchema, products, gameSets, insertGameSetSchema, updateGameSetSchema, subscriptionProducts, insertSubscriptionProductSchema, updateSubscriptionProductSchema, playableCards, cardImageReports, cardhedgeImportRuns, cardDetailsCache, cardhedgeSearchCache, userRiskState, riskSignals, cardSets, catalogCards, cardSetCards, setImportJobs, setAuditLog, gameSessionsTable, goldinCuratedListings, lobbies, matches, referralLinks, referralAttributions, streakState, STREAK_FREEZE_COST_PACKPTS, RANKED_TIER_THRESHOLDS, updateActiveGameSetsSchema, createCardImageReportSchema, baseballCards, createRewardPolicySchema, rewardPolicy, playerFame, updatePlayerFameSchema, pointsAwards, redemptionQuoteRequestSchema, redemptionApplyRequestSchema, purchaseConfirmRequestSchema, rebatePayoutRequestSchema, evaluatePackageSchema, createStorePackageSchema, updateStorePackageSchema, overridePackageSchema, createCardSetSchema, updateCardSetSchema, cardViews, attributedPurchases, outboundClicks, userOnboarding, pushSubscriptions, userPresence, cardPhotos, contentAssets, type User, type InsertGameSet, type SubscriptionProduct } from "@shared/schema";
 import { walletService } from "./services/walletService";
 import { applyLedgerEntry, getBalance as getLedgerBalance, reconcileBalance as reconcileLedgerBalance, getLedgerHistory } from "./services/packpts/ledgerService";
@@ -1838,7 +1839,7 @@ export async function registerRoutes(
         throw new Error("Failed to create user");
       }
       
-      // Try to activate the user (Founders Cap check)
+      // Activate without the founders cap. A full counter must not block signup.
       const activationResult = await accessService.tryActivateUser(user.id, {
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"] as string,
@@ -1847,6 +1848,11 @@ export async function registerRoutes(
         foundersPassTokenHash: req.session.foundersPassTokenHash,
         foundersPassApproved: req.session.foundersPassApproved,
       });
+
+      if (!activationResult.activated) {
+        recordFunnelEvent(req, "signup_error", { userId: user.id, mode: "banned", path: registerSurface });
+        return res.status(403).json({ error: "This account is suspended.", code: "banned" });
+      }
       
       // Clear used invite code and founders pass from session
       if (req.session.inviteApprovedCode) {
@@ -1857,9 +1863,9 @@ export async function registerRoutes(
         delete req.session.foundersPassApproved;
       }
       
-      // Issue a new pass to the activated founder (if still under cap)
+      // Founders pass is a perk. Failure must not block the new account.
       let foundersPassShareUrl: string | undefined;
-      if (activationResult.activated) {
+      try {
         const gateClosed = await foundersPassService.isFoundersGateClosed();
         if (!gateClosed) {
           const newPass = await foundersPassService.issuePassToUser(user.id);
@@ -1868,6 +1874,8 @@ export async function registerRoutes(
             foundersPassShareUrl = `${baseUrl}/p/${newPass.rawToken}`;
           }
         }
+      } catch (passErr) {
+        console.error("[Register] Founders pass issue failed (non-fatal):", passErr);
       }
       
       req.session.localUserId = user.id;
@@ -1947,14 +1955,8 @@ export async function registerRoutes(
         column: error?.column,
         stack: error?.stack?.split('\n').slice(0, 5).join('\n')
       });
-      // Show specific error only if DEBUG_REGISTRATION is enabled
-      const errorMsg = error?.message || "Unknown error";
-      const errorCode = error?.code || "";
-      const response: any = { error: "Failed to register" };
-      if (process.env.DEBUG_REGISTRATION === "true") {
-        response.debug = `${errorCode}: ${errorMsg}`.slice(0, 200);
-      }
-      res.status(500).json(response);
+      const failure = registerFailure(error);
+      res.status(failure.status).json(failure.body);
     }
   });
 
@@ -2029,6 +2031,18 @@ export async function registerRoutes(
       }
       
       console.log("[Login] Credentials valid for user:", user.id);
+
+      if (user.status !== "ACTIVE" && user.status !== "BANNED") {
+        try {
+          await accessService.tryActivateUser(user.id, {
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"] as string,
+          });
+          user = (await storage.getUser(user.id)) || user;
+        } catch (activateErr) {
+          console.error("[Login] Activation failed (non-fatal):", activateErr);
+        }
+      }
       
       try {
         const { logAuthEvent, logDeviceSeen, getRiskContext } = await import("./services/risk/events");

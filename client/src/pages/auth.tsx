@@ -3,21 +3,18 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation, Link, useSearch } from "wouter";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import type { AuthUser, CapStatus } from "@/types/api";
+import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { ApiError, apiRequest, queryClient, getStoredUtmParams } from "@/lib/queryClient";
 import { trackSignupError, trackSignupStarted, trackSignupView } from "@/lib/signupFunnel";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { readSignupSavedLine } from "@/lib/signupSaved";
-import { Loader2, User, Mail, Lock, Sparkles, Gift, Users } from "lucide-react";
+import { Loader2, User, Mail, Lock, Sparkles } from "lucide-react";
 
 const signupSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -37,7 +34,6 @@ export default function AuthPage() {
   const searchString = useSearch();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("login");
-  const [inviteCode, setInviteCode] = useState("");
   const [emailTaken, setEmailTaken] = useState(false);
   const startedEmail = useRef(false);
   const sawSignupView = useRef(false);
@@ -56,15 +52,6 @@ export default function AuthPage() {
     sawSignupView.current = true;
     trackSignupView("auth", tabFromUrl === "signup" ? "signup" : "login");
   }, [tabFromUrl]);
-
-  const { data: capStatus } = useQuery<CapStatus>({
-    queryKey: ["/api/access/cap"],
-    retry: false,
-  });
-
-  const spotsRemaining = capStatus ? capStatus.maxUsers - capStatus.currentUsers : 0;
-  const percentFull = capStatus ? Math.min(100, (capStatus.currentUsers / capStatus.maxUsers) * 100) : 0;
-  const capReached = spotsRemaining <= 0;
 
   const signupForm = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
@@ -88,7 +75,6 @@ export default function AuthPage() {
       const response = await apiRequest("POST", "/api/auth/register", {
         email: data.email,
         password: data.password,
-        inviteCode: inviteCode || undefined,
         signupSurface: "auth",
         ...utmParams,
       });
@@ -99,23 +85,21 @@ export default function AuthPage() {
         queryClient.setQueryData(["/api/auth/user"], data.user);
       }
       queryClient.invalidateQueries({ queryKey: ["/api/profile/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/access/cap"] });
-      
-      if (!data.activated && data.waitlistPosition) {
+
+      if (data.activated === false) {
         toast({
-          title: "You're on the waitlist!",
-          description: `Position #${data.waitlistPosition}. We'll notify you when a spot opens.`,
+          title: "Signup failed",
+          description: "This account is suspended.",
+          variant: "destructive",
         });
-        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-        setLocation("/waitlist");
-      } else {
-        toast({
-          title: "Account created!",
-          description: await readSignupSavedLine(Number(data.user?.points ?? 0)),
-        });
-        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-        setLocation("/daily5");
+        return;
       }
+      toast({
+        title: "Account created!",
+        description: await readSignupSavedLine(Number(data.user?.points ?? 0)),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      setLocation("/daily5");
     },
     onError: (error: Error) => {
       if (error?.name === "TypeError" || /failed to fetch|load failed|network/i.test(error?.message || "")) {
@@ -264,54 +248,6 @@ export default function AuthPage() {
             </TabsContent>
 
             <TabsContent value="signup" className="space-y-4 mt-4">
-              {capStatus && (
-                <div className="space-y-2 pb-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <Users className="w-3 h-3" />
-                      Founders Cap
-                    </span>
-                    <span className="font-medium">
-                      {capStatus.currentUsers} / {capStatus.maxUsers}
-                    </span>
-                  </div>
-                  <Progress value={percentFull} className="h-1.5" />
-                  <div className="text-center">
-                    {spotsRemaining > 0 ? (
-                      <Badge variant="secondary" className="bg-green-500/10 text-green-600 text-xs">
-                        {spotsRemaining} spots remaining
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 text-xs">
-                        Cap reached - use invite code or join waitlist
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-              
-              {capReached && (
-                <div className="p-3 bg-muted/50 rounded-lg border">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Gift className="w-4 h-4 text-primary" />
-                    <span className="font-medium text-sm">Have an Invite Code?</span>
-                  </div>
-                  <div className="relative">
-                    <Gift className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      value={inviteCode}
-                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                      placeholder="Enter invite code"
-                      className="pl-10 uppercase font-mono"
-                      data-testid="input-invite-code"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Without an invite code, you'll be added to the waitlist.
-                  </p>
-                </div>
-              )}
-
               <Form {...signupForm}>
                 <form
                   onSubmit={signupForm.handleSubmit(onSignup, () => trackSignupError("validation", "auth"))}
@@ -390,7 +326,7 @@ export default function AuthPage() {
                     data-testid="button-signup-submit"
                   >
                     {signupMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {capReached && !inviteCode ? "Join Waitlist" : "Create Account"}
+                    Create Account
                   </Button>
                 </form>
               </Form>

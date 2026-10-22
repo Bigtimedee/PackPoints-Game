@@ -152,9 +152,16 @@ export function SignupModal({ open, onOpenChange, pendingPoints, onSuccess, onPl
     onError: (err: Error) => {
       const taken = err instanceof ApiError && err.code === "email_taken";
       setEmailTaken(taken);
-      signupForm.setError("root", {
-        message: taken ? "This email already has an account." : err.message,
-      });
+      const message = taken ? "This email already has an account." : (err.message || "Could not create the account. Please try again.");
+      signupForm.setError("root", { message });
+      if (!taken) {
+        trackSignupError("register_failed", "modal");
+        toast({
+          title: "Signup failed",
+          description: message,
+          variant: "destructive",
+        });
+      }
     },
   });
 

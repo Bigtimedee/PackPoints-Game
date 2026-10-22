@@ -15,7 +15,7 @@ Gate lives in `shared/homePlayVanity.ts`: `HOME_PLAY_VANITY_MIN_GAMES` + `should
 
 ## 2. Founders FOMO
 
-The home “Limited Founder spots” / depleting progress bar is **hidden**. Cap API (`GET /api/access/cap`) stays real for auth, waitlist, and admin Cap UX. Do not amplify `currentActive / maxActive` as home-hero theater.
+The home “Limited Founder spots” / depleting progress bar is **hidden**. Signup does not show a founders counter or a waitlist gate. `GET /api/access/cap` can stay for admin. Do not amplify `currentActive / maxActive` as home-hero theater.
 
 ## 3. Welcome credit is not home copy
 

@@ -13,6 +13,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 import { db } from "../db";
 import { storage } from "../storage";
+import * as accessService from "../services/accessService";
 import {
   appleUsers,
   apnsTokens,
@@ -297,6 +298,10 @@ export function registerIosRoutes(app: Express) {
 
     if (packpointsUser.status === "BANNED") {
       return res.status(403).json({ error: "Account suspended" });
+    }
+    if (packpointsUser.status === "PENDING" || packpointsUser.status === "WAITLISTED") {
+      await accessService.tryActivateUser(packpointsUser.id);
+      packpointsUser = { ...packpointsUser, status: "ACTIVE" };
     }
 
     const accessToken = await issueAccessToken(packpointsUser);

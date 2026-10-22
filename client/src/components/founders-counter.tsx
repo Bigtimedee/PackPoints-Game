@@ -65,7 +65,7 @@ function getUrgencyTier(spotsRemaining: number): {
   };
 }
 
-/** Cap-status FOMO bar. Do not mount on home (HOME_VANITY_QUARANTINE). Cap API stays for auth / waitlist / admin. */
+/** Cap-status bar. Do not mount on home or signup. Signup is open. */
 export function FoundersCounter() {
   const { data: capStatus, isLoading } = useQuery<CapStatus>({
     queryKey: ["/api/access/cap"],
@@ -89,7 +89,7 @@ export function FoundersCounter() {
           <Sparkles className="w-5 h-5 text-yellow-500" />
         </div>
         <p className="text-sm text-muted-foreground">
-          Join the waitlist to be notified when spots open up.
+          Signup is open. Create a free account to play.
         </p>
       </div>
     );
