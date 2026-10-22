@@ -398,7 +398,7 @@ export function registerWorkosRoutes(app: Express): void {
           console.error("[WorkOS] Session save error:", err);
           return res.redirect("/auth-error?reason=session_error");
         }
-        res.redirect("/auth/success");
+        res.redirect("/auth/success?welcome=1");
       });
 
     } catch (error) {

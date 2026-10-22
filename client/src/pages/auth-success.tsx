@@ -3,6 +3,8 @@ import { consumeDaily5AuthReturn } from "@/lib/daily5AuthReturn";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { readSignupSavedLine } from "@/lib/signupSaved";
 import { Loader2, CheckCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -14,6 +16,7 @@ interface User {
 
 export default function AuthSuccess() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const { data: user, isLoading, error } = useQuery<User>({
     queryKey: ["/api/auth/user"],
@@ -30,6 +33,16 @@ export default function AuthSuccess() {
       return () => clearTimeout(timer);
     }
   }, [user, setLocation]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (new URLSearchParams(window.location.search).get("welcome") !== "1") return;
+    let cancelled = false;
+    void readSignupSavedLine().then((description) => {
+      if (!cancelled) toast({ title: "Account created!", description });
+    });
+    return () => { cancelled = true; };
+  }, [user, toast]);
 
   useEffect(() => {
     if (error) {

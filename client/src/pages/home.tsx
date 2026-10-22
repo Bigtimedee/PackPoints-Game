@@ -126,7 +126,7 @@ export default function Home() {
             </ol>
             <p className="sr-only" data-testid="text-hero-description">{heroRebateLive ? HOME_HERO.live : HOME_HERO.soon}</p>
             <Button asChild size="lg" className="mt-7 min-h-14 w-full gap-2 rounded-lg text-lg font-bold shadow-lg shadow-primary/25 md:min-w-64 md:w-auto" data-testid="button-play-now">
-              <Link href="/game/solo">Play Now <ArrowRight className="h-5 w-5" /></Link>
+              <Link href="/daily5">Play Now <ArrowRight className="h-5 w-5" /></Link>
             </Button>
             <p className="mt-3 text-center text-sm text-muted-foreground md:text-left" data-testid="text-hero-trust">{HOME_HERO_TYPE.trust}</p>
           </div>
