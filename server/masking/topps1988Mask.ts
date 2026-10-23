@@ -1,11 +1,13 @@
 /** Fail-closed exact-source diagonal baker. No slab/special/unknown fallback. */
 import { createHash } from "crypto";
 import sharp from "sharp";
+import type { MaskRegion } from "@shared/schema";
 import type { MaskResult } from "./maskCardImage";
 import { assertOpaqueIdentityCover } from "./maskCoverage";
 import { recognizeNameWords, type OcrWordResult } from "./ocrRuntime";
 import { surnameRunOutsideBand } from "./trustedProfileBand";
 import { TOPPS_1988_REGIONS, TOPPS_1988_REVIEWED_SOURCES } from "./topps1988Geometry";
+import { regionsAfterHeldCrop } from "./maskSourceOverrides";
 import { recropHeldSkipsSourceHash } from "./toppsRecropReview";
 
 export async function maskReviewedTopps1988(
@@ -15,7 +17,7 @@ export async function maskReviewedTopps1988(
 ): Promise<MaskResult> {
   const meta = await sharp(raw).metadata();
   const width = meta.width ?? 0, height = meta.height ?? 0;
-  const regions = TOPPS_1988_REGIONS.map((r) => ({ ...r }));
+  const regions = regionsAfterHeldCrop(TOPPS_1988_REGIONS, raw);
   const reviewed = TOPPS_1988_REVIEWED_SOURCES.find((s) => s.cardId === opts.cardId);
   let reason: string | null = null;
   if (!reviewed || reviewed.player !== player) reason = "topps1988_source_not_reviewed";
@@ -43,7 +45,7 @@ export async function maskReviewedTopps1988(
       // error is represented as empty words by the runtime; do not accept it.
       const ocr = await recognizeNameWords(maskedBuffer, width, { deadlineMs: 6000 });
       ocrMs = ocr.ms; ocrTimedOut = ocr.timedOut;
-      reason = topps1988OcrRefusal(ocr, player, width, height);
+      reason = topps1988OcrRefusal(ocr, player, width, height, regions);
     } catch { reason = "topps1988_mask_unverified"; }
   }
   return {
@@ -57,7 +59,13 @@ export async function maskReviewedTopps1988(
 }
 
 /** Keep silent OCR errors and whole-image surname leaks fail closed. */
-export function topps1988OcrRefusal(ocr: OcrWordResult, player: string, width: number, height: number): string | null {
+export function topps1988OcrRefusal(
+  ocr: OcrWordResult,
+  player: string,
+  width: number,
+  height: number,
+  regions: readonly MaskRegion[] = TOPPS_1988_REGIONS,
+): string | null {
   if (ocr.timedOut || !ocr.words.length) return "topps1988_mask_unverified";
-  return surnameRunOutsideBand({ playerName: player, words: ocr.words, regions: [...TOPPS_1988_REGIONS], imageWidth: width, imageHeight: height }) ? "name_visible_outside_mask" : null;
+  return surnameRunOutsideBand({ playerName: player, words: ocr.words, regions: [...regions], imageWidth: width, imageHeight: height }) ? "name_visible_outside_mask" : null;
 }

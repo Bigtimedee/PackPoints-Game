@@ -375,6 +375,8 @@ export function resolveNameMaskPlan(input: {
   topTextPlate?: NamePlateBox | null;
   /** Letter rows on the bottom edge, independent of the set profile. */
   bottomTextPlate?: NamePlateBox | null;
+  /** Held-crop remap of an authored band. Same card pixels, new percentages. */
+  fixedRegions?: readonly MaskRegion[];
 }): LocalizedNamePlan {
   const profile = getMaskProfile(input.setHint, input.gameSetId);
   const ocr = matchPlayerNameBoxes(input.playerName, input.words || []);
@@ -389,14 +391,16 @@ export function resolveNameMaskPlan(input: {
     // An explicitly authored band is not a detector suggestion. In particular,
     // fitting a smaller bottom plate can expose an autograph above that plate.
     // Keep exact geometry; slab or recognized off-band names still fail closed.
-    const outside = ocr.boxes.some(box => !profile.regions.some(region =>
+    // A held crop passes the same band shifted onto the cropped scan.
+    const authored = input.fixedRegions?.length ? input.fixedRegions : profile.regions;
+    const outside = ocr.boxes.some(box => !authored.some(region =>
       box.x >= input.imageWidth * region.xPct / 100
       && box.y >= input.imageHeight * region.yPct / 100
       && box.x + box.w <= input.imageWidth * (region.xPct + region.wPct) / 100
       && box.y + box.h <= input.imageHeight * (region.yPct + region.hPct) / 100));
     const refused = isSlab || outside;
     return {
-      regions: profile.regions.map(region => ({ ...region })),
+      regions: authored.map(region => ({ ...region })),
       source: "profile",
       matchedTokens: ocr.tokens,
       profileId: profile.id,

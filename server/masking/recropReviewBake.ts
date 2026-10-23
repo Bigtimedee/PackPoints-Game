@@ -1,6 +1,7 @@
 /**
  * One background re-bake of the Design recrop cohort after this release.
  * Blocked cards are forced once so the QA export is the new crop.
+ * The autograph card is left out of that force bake.
  * Approved 1986 cards are baked once when they have no ready file, or when a fail sidecar is still in the way.
  * A marker on the mask volume stops the same card from being forced on every boot.
  */
@@ -12,7 +13,7 @@ import { getMaskedImagePath } from "./maskingService";
 import { RECROP_APPROVED_1986_IDS, RECROP_BLOCKED_CARDS } from "./toppsRecropReview";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 
-const BLOCKED_MARKER = "recrop-review-blocked-v5.ids";
+const BLOCKED_MARKER = "recrop-review-blocked-v6.ids";
 const APPROVED_MARKER = "recrop-review-approved-v1.ids";
 
 function markerPath(name: string): string {
@@ -54,6 +55,10 @@ export async function runRecropReviewBake(): Promise<void> {
   const approvedDone = readMarker(APPROVED_MARKER);
   const counts = { baked: 0, refused: 0, skipped: 0, error: 0 };
   for (const card of RECROP_BLOCKED_CARDS) {
+    if (card.flags.includes("signature")) {
+      counts.skipped += 1;
+      continue;
+    }
     if (blockedDone.has(card.id)) {
       counts.skipped += 1;
       continue;

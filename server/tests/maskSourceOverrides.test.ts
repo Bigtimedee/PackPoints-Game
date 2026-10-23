@@ -1,7 +1,10 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { createHash } from "crypto";
 import sharp from "sharp";
-import { applyMaskSourceOverride, maskSourceOverrideDigest, maskSourceOverrides, setMaskSourceOverridesForTests } from "../masking/maskSourceOverrides";
+import { TOPPS_1988_REGIONS } from "../masking/topps1988Geometry";
+import { getMaskProfile } from "../masking/maskProfiles";
+import { applyMaskSourceOverride, heldCropMeta, maskSourceOverrideDigest, maskSourceOverrides, regionsAfterHeldCrop, setMaskSourceOverridesForTests } from "../masking/maskSourceOverrides";
+import type { MaskRegion } from "@shared/schema";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
@@ -111,9 +114,127 @@ describe("mask source overrides", () => {
     const cropped = await applyMaskSourceOverride("70676922-f57e-4e99-a0d5-f400422c9b0e", stamped);
     const croppedMeta = await sharp(cropped!).metadata();
     expect(croppedMeta.height!).toBeLessThan(1100);
-    const { data, info } = await sharp(cropped!).raw().toBuffer({ resolveWithObject: true });
-    const at = (x: number, y: number) => data[(y * info.width + x) * info.channels];
-    expect(at(10, 4)).toBeLessThan(80);
+    expect(Math.abs(croppedMeta.width! / croppedMeta.height! - 2.5 / 3.5)).toBeLessThan(0.01);
+  });
+
+  it("returns a stamp crop to 2.5 by 3.5 and keeps the mask on the name plate", async () => {
+    const w = 900;
+    const h = 1300;
+    const raw = Buffer.alloc(w * h * 3, 250);
+    const paint = (x0: number, y0: number, x1: number, y1: number, color: number[]) => {
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * w + x) * 3;
+          raw[i] = color[0];
+          raw[i + 1] = color[1];
+          raw[i + 2] = color[2];
+        }
+      }
+    };
+    for (let y = 40; y < 1260; y++) {
+      for (let x = 30; x < 800; x++) {
+        const i = (y * w + x) * 3;
+        const n = ((x * 3 + y * 5) % 23) * 4;
+        raw[i] = 30 + n;
+        raw[i + 1] = 140;
+        raw[i + 2] = 50;
+      }
+    }
+    paint(506, 1144, 531, 1240, [20, 40, 220]);
+    for (let y = 80; y < 1220; y++) {
+      const on = y % 6 < 3;
+      for (let x = 808; x < 880; x++) {
+        const i = (y * w + x) * 3;
+        raw[i] = on ? 210 : 15;
+        raw[i + 1] = on ? 20 : 15;
+        raw[i + 2] = on ? 180 : 15;
+      }
+    }
+    const jpeg = await sharp(raw, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    const out = await applyMaskSourceOverride("70676922-f57e-4e99-a0d5-f400422c9b0e", jpeg);
+    const meta = await sharp(out!).metadata();
+    const ow = meta.width!;
+    const oh = meta.height!;
+    expect(Math.abs(ow / oh - 2.5 / 3.5)).toBeLessThan(0.005);
+    const { data, info } = await sharp(out!).raw().toBuffer({ resolveWithObject: true });
+    const pix = (x: number, y: number) => {
+      const i = (y * info.width + x) * info.channels;
+      return [data[i], data[i + 1], data[i + 2]];
+    };
+    const corner = pix(4, 4);
+    expect(corner[0]).toBeLessThan(230);
+    let stampLeft = 0;
+    for (let y = 8; y < oh - 8; y += 3) {
+      const [r, g, b] = pix(ow - 3, y);
+      if (r > 230 && g > 230 && b > 230) stampLeft += 1;
+      if (r > 150 && b > 120 && g < 80) stampLeft += 1;
+    }
+    expect(stampLeft).toBe(0);
+    const crop = heldCropMeta(out!);
+    expect(crop).not.toBeNull();
+    const regions = regionsAfterHeldCrop(TOPPS_1988_REGIONS, out!);
+    const inside = (x: number, y: number) => regions.some((region) => {
+      const xp = (x / ow) * 100;
+      const yp = (y / oh) * 100;
+      return xp >= region.xPct && xp <= region.xPct + region.wPct && yp >= region.yPct && yp < region.yPct + region.hPct;
+    });
+    const map = (sx: number, sy: number) => [
+      Math.round((sx - crop!.left) * (ow / crop!.width)),
+      Math.round((sy - crop!.top) * (oh / crop!.height)),
+    ] as const;
+    const [bx, by] = map(518, 1190);
+    const name = pix(bx, by);
+    expect(name[2]).toBeGreaterThan(name[0] + 80);
+    expect(inside(bx, by)).toBe(true);
+    const [px, py] = map(120, 700);
+    const photo = pix(px, py);
+    expect(photo[1]).toBeGreaterThan(photo[2] + 40);
+    expect(inside(px, py)).toBe(false);
+  });
+
+  it("keeps the 1986 name band on the bottom plate after a top-only ratio crop", async () => {
+    const w = 800;
+    const h = 1400;
+    const raw = Buffer.alloc(w * h * 3);
+    for (let y = 0; y < h; y++) {
+      const color = y >= Math.round(h * 0.86) ? [20, 40, 220] : [20, 170, 40];
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 3;
+        raw[i] = color[0];
+        raw[i + 1] = color[1];
+        raw[i + 2] = color[2];
+      }
+    }
+    const jpeg = await sharp(raw, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    const out = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", jpeg);
+    const meta = await sharp(out!).metadata();
+    const ow = meta.width!;
+    const oh = meta.height!;
+    expect(ow).toBe(800);
+    expect(oh).toBe(Math.round(800 * 3.5 / 2.5));
+    expect(Math.abs(ow / oh - 2.5 / 3.5)).toBeLessThan(0.005);
+    const { data, info } = await sharp(out!).raw().toBuffer({ resolveWithObject: true });
+    const pix = (x: number, y: number) => {
+      const i = (y * info.width + x) * info.channels;
+      return [data[i], data[i + 1], data[i + 2]];
+    };
+    const bottom = pix(40, oh - 8);
+    expect(bottom[2]).toBeGreaterThan(bottom[0] + 80);
+    expect(bottom[2]).toBeGreaterThan(bottom[1] + 80);
+    const above = pix(40, Math.floor(oh * 0.7));
+    expect(above[1]).toBeGreaterThan(above[2] + 40);
+    const band = getMaskProfile("1986 Topps Baseball", "2b77043a-6583-4d79-b59d-d2ab20291a17").regions;
+    const regions = regionsAfterHeldCrop(band, out!);
+    const inside = (x: number, y: number, list: MaskRegion[]) => list.some((region) => {
+      const xp = (x / ow) * 100;
+      const yp = (y / oh) * 100;
+      return xp >= region.xPct && xp <= region.xPct + region.wPct && yp >= region.yPct && yp < region.yPct + region.hPct;
+    });
+    expect(inside(40, oh - 8, regions)).toBe(true);
+    expect(inside(40, Math.floor(oh * 0.7), regions)).toBe(false);
+    const crop = heldCropMeta(out!);
+    expect(crop?.top).toBeGreaterThan(0);
+    expect(crop?.height).toBe(oh);
   });
 
   it("checked-in manifest: only 1988/1986 Topps, sane boxes, digest per set", () => {

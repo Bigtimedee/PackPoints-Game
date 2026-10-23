@@ -24,6 +24,7 @@ import { verifyFixedBandRotations } from "./fixedBandRotatedCheck";
 import { readOrientNote, writeOrientNote, type QuarterTurn } from "./orientNote";
 import { clampRegion } from "@shared/maskGeometry";
 import type { MaskRegion } from "@shared/schema";
+import { heldCropMeta, regionsAfterHeldCrop } from "./maskSourceOverrides";
 
 export interface MaskResult {
   maskedBuffer: Buffer;
@@ -290,6 +291,14 @@ export async function maskCardImage(
     }
   }
 
+  const rawMeta = await sharp(rawImageBuffer).metadata();
+  const sameGrid = upright.rotation === 0
+    && (rawMeta.width || 0) === originalWidth
+    && (rawMeta.height || 0) === originalHeight;
+  const fixedRegions = sameGrid && profile.fixedNameBand === true && heldCropMeta(rawImageBuffer)
+    ? regionsAfterHeldCrop(profile.regions, rawImageBuffer)
+    : undefined;
+
   let plan = resolveNameMaskPlan({
     playerName,
     setHint: setName,
@@ -301,6 +310,7 @@ export async function maskCardImage(
     plateBox: detectedPlate,
     topTextPlate,
     bottomTextPlate,
+    fixedRegions,
   });
 
   // Fixed top-plate profiles only (trustProfileBand). Every other profile
