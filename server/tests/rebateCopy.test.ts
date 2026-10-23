@@ -29,7 +29,13 @@ describe("rebate split copy", () => {
       expect(text, rel).toContain(SPLIT);
       expect(text, rel).not.toContain("your rebate equals the commission");
     }
-    expect(read("docs/seo/content/core-pages.json").match(/your rebate is 70% of the commission eBay confirms on that sale\./g)?.length).toBe(7);
+    // Home and Daily keep the percent wording (FAQ plus JSON-LD on each). The /points
+    // page cannot contain $, %, "percent", or "dollars", so it says seven tenths.
+    expect(read("docs/seo/content/core-pages.json").match(/your rebate is 70% of the commission eBay confirms on that sale\./g)?.length).toBe(4);
+    const points = JSON.parse(read("docs/seo/content/core-pages.json")).core.find((p: { path: string }) => p.path === "/points");
+    expect(JSON.stringify(points)).not.toMatch(/[$%]|\bpercent\b|\bdollars?\b/);
+    expect(JSON.stringify(points)).toContain("seven tenths of the commission eBay confirms on that sale");
+    expect(JSON.stringify(points)).toContain("seven tenths of what eBay confirms");
   });
 
   it("split copy has no em or en dashes and does not say coming soon or unlimited", () => {

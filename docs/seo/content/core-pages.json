@@ -434,11 +434,11 @@
       "description": "Earn points for every player you name on PackPTS. Points are redeemable for eBay rebates now. Here is how earning, holds and rebates work.",
       "h1": "How Points and eBay Rebates Work",
       "answer": "You earn PackPTS points by naming players correctly, and points are redeemable for eBay rebates now when you buy cards on eBay through PackPTS.",
-      "body": "We built PackPTS for people who love cards, so it felt right that playing should help you find your next one.\n\nEarning points. Every right answer in the Daily 5 or a set game earns points. They collect in your wallet, which visible at the top of the app after a game ends.\n\nUsing points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate is 70% of the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.\n\nThe hold. Rebates are held for 60 days, which covers eBay's return window. If eBay marks a sale final sooner, the rebate can release earlier. If an item is returned, the held rebate is removed.\n\nLimits. Daily and weekly limits per player keep the program fair for everyone.\n\nListings display an estimate of what you could get back. The final rebate is always 70% of what eBay confirms. We never promise a set amount, and we will always tell you exactly what was credited.",
+      "body": "We built PackPTS for people who love cards, so it felt right that playing should help you find your next one.\n\nEarning points. Every right answer in the Daily 5 or a set game earns points. They collect in your wallet, which visible at the top of the app after a game ends.\n\nUsing points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate is seven tenths of the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.\n\nThe hold. Rebates are held for 60 days, which covers eBay's return window. If eBay marks a sale final sooner, the rebate can release earlier. If an item is returned, the held rebate is removed.\n\nLimits. Daily and weekly limits per player keep the program fair for everyone.\n\nListings display an estimate of what you could get back. The final rebate is always seven tenths of what eBay confirms. We never promise a set amount, and we will always tell you exactly what was credited.",
       "faq": [
         [
           "What can I do with points?",
-          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is seven tenths of the commission eBay confirms on that sale."
         ],
         [
           "How do I earn points?",
@@ -510,7 +510,7 @@
                 "name": "What can I do with points?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is seven tenths of the commission eBay confirms on that sale."
                 }
               },
               {
@@ -549,7 +549,7 @@
           }
         ]
       },
-      "wordCount": 185
+      "wordCount": 191
     },
     {
       "title": "How to Play PackPTS: Guess the Player on Sports Cards",
