@@ -1,6 +1,8 @@
 import { Resend } from 'resend';
 import { withUtm } from "@shared/utm";
-import { LEGACY_REBATE_SHARE_BPS, PACKPTS_KEEP_SHARE_LABEL, shareBps, USER_REBATE_SHARE, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
+import { rebateReceiptSplit } from "@shared/rebateEconomics";
+
+export { rebateReceiptSplit };
 
 /** User-visible brand on every outbound email. */
 export const BRAND_NAME = "PackPTS";
@@ -339,15 +341,6 @@ export async function sendMakerDigestEmail(
   `;
   const text = `Hey ${username}, your set "${setName}" was played ${playCount} time${playCount !== 1 ? "s" : ""} today on PackPTS. Visit ${siteUrl} to see your sets.`;
   return sendEmail({ to: email, subject: `Your set "${setName}" got played today`, html, text });
-}
-
-/** Receipt line. New rebates say 70/30. A row stored at 1 says 100%. */
-export function rebateReceiptSplit(shareRate?: number): string {
-  const bps = shareBps(shareRate ?? USER_REBATE_SHARE);
-  if (bps >= LEGACY_REBATE_SHARE_BPS) {
-    return "Your rebate is 100% of the commission confirmed for this purchase.";
-  }
-  return `Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission confirmed for this purchase. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`;
 }
 
 export async function sendRebateReceiptEmail(

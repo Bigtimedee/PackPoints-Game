@@ -83,12 +83,22 @@ export function ReceiptPlaque({
             <p className="mt-1 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-subline">
               {plaque.subline}
             </p>
+            {plaque.splitLine ? (
+              <p className="mt-1 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-split">
+                {plaque.splitLine}
+              </p>
+            ) : null}
           </>
         ) : (
           <>
             <p className="mt-3 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-subline">
               {plaque.subline}
             </p>
+            {plaque.splitLine ? (
+              <p className="mt-1 text-sm" style={{ color: RECEIPT_COLORS.muted }} data-testid="text-receipt-split">
+                {plaque.splitLine}
+              </p>
+            ) : null}
             {plaque.helper && (
               <p className="mt-1 text-sm" style={{ color: helperColor }} data-testid="text-receipt-helper">
                 {plaque.helper}

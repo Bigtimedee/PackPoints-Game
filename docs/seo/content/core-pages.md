@@ -136,17 +136,17 @@ We built PackPTS for people who love cards, so it felt right that playing should
 
 Earning points. Every right answer in the Daily 5 or a set game earns points. They collect in your wallet, which visible at the top of the app after a game ends.
 
-Using points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate is seven tenths of the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.
+Using points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate is 70% of the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.
 
 The hold. Rebates are held for 60 days, which covers eBay's return window. If eBay marks a sale final sooner, the rebate can release earlier. If an item is returned, the held rebate is removed.
 
 Limits. Daily and weekly limits per player keep the program fair for everyone.
 
-Listings display an estimate of what you could get back. The final rebate is always seven tenths of what eBay confirms. We never promise a set amount, and we will always tell you exactly what was credited.
+Listings display an estimate of what you could get back. The final rebate is always the same: your rebate is 70% of the commission eBay confirms on that sale. We never promise a set amount, and we will always tell you exactly what was credited.
 
 ## FAQ
 **What can I do with points?**
-Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is seven tenths of the commission eBay confirms on that sale.
+Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale.
 
 **How do I earn points?**
 Name the masked player correctly in the Daily 5 or any set game. Each right answer adds points to your wallet.

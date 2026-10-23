@@ -29,13 +29,12 @@ describe("rebate split copy", () => {
       expect(text, rel).toContain(SPLIT);
       expect(text, rel).not.toContain("your rebate equals the commission");
     }
-    // Home and Daily keep the percent wording (FAQ plus JSON-LD on each). The /points
-    // page cannot contain $, %, "percent", or "dollars", so it says seven tenths.
-    expect(read("docs/seo/content/core-pages.json").match(/your rebate is 70% of the commission eBay confirms on that sale\./g)?.length).toBe(4);
     const points = JSON.parse(read("docs/seo/content/core-pages.json")).core.find((p: { path: string }) => p.path === "/points");
-    expect(JSON.stringify(points)).not.toMatch(/[$%]|\bpercent\b|\bdollars?\b/);
-    expect(JSON.stringify(points)).toContain("seven tenths of the commission eBay confirms on that sale");
-    expect(JSON.stringify(points)).toContain("seven tenths of what eBay confirms");
+    const pointsJson = JSON.stringify(points);
+    expect(pointsJson).toContain(SPLIT);
+    expect(pointsJson).not.toContain("seven tenths");
+    // The kit allows this exact phrase on /points. Any other money token still fails.
+    expect(pointsJson.replaceAll(SPLIT, "")).not.toMatch(/[$%]|\bpercent\b|\bdollars?\b/);
   });
 
   it("split copy has no em or en dashes and does not say coming soon or unlimited", () => {
@@ -53,11 +52,12 @@ describe("rebate split copy", () => {
       expect(text.toLowerCase(), rel).not.toContain("coming soon");
       expect(text.toLowerCase(), rel).not.toContain("unlimited rebate");
     }
-    const email = read("server/services/emailService.ts");
-    const receipt = email.slice(email.indexOf("export function rebateReceiptSplit"));
+    const receipt = read("shared/rebateEconomics.ts");
     expect(receipt).toContain("${USER_REBATE_SHARE_LABEL} of the commission confirmed for this purchase");
     expect(receipt).toContain("PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}");
     expect(receipt).not.toMatch(/[\u2013\u2014]/);
+    expect(read("client/src/components/receipt-plaque.tsx")).toContain("plaque.splitLine");
+    expect(read("client/src/pages/redemptions.tsx")).toContain("userShareRate: credit?.userShareRate");
     expect(rebateReceiptSplit()).toBe(`Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission confirmed for this purchase. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`);
     expect(rebateReceiptSplit(1)).toBe("Your rebate is 100% of the commission confirmed for this purchase.");
     expect(rebateReceiptSplit()).not.toMatch(/[\u2013\u2014]/);

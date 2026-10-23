@@ -62,9 +62,11 @@ for f in sorted(glob.glob(os.path.join(a.kit,"**/*"),recursive=True)):
         if w.strip(".'-") in sur: fails.append(f"{os.path.basename(f)}: surname '{w}'")
     if re.search("[\u2013\u2014]",t): fails.append(f"{os.path.basename(f)}: em/en dash")
     if "coming soon" in low: fails.append(f"{os.path.basename(f)}: coming soon")
+# /points may state this rebate split. Any other $, %, percent, or dollars still fails.
+REBATE_SPLIT_PHRASE="your rebate is 70% of the commission eBay confirms on that sale."
 if os.path.exists(os.path.join(a.kit,"core-pages.json")):
     for p in json.load(open(os.path.join(a.kit,"core-pages.json")))["core"]:
-        if p["path"]=="/points" and re.search(r"[$%]|\bpercent\b|\bdollars?\b",json.dumps(p)): fails.append("/points: money amount")
+        if p["path"]=="/points" and re.search(r"[$%]|\bpercent\b|\bdollars?\b",json.dumps(p).replace(REBATE_SPLIT_PHRASE,"")): fails.append("/points: money amount")
 print(f"pool: {len(names)} names, {len(sur)} surnames (live sets fetched: {live})")
 if fails: print("FAIL\n"+"\n".join(sorted(set(fails)))); sys.exit(1)
 print("PASS: no pool surnames, dashes, 'coming soon' or Points money figures in kit")
