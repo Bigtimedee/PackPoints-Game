@@ -1,5 +1,5 @@
-# Use official Node 20 image
-FROM node:20.18-alpine
+# Use official Node 22 image
+FROM node:22.23.4-alpine
 
 # Install FFmpeg + su-exec (privilege drop in start.sh after chowning the volume
 # mount) + postgresql 17 client (boot-time pg_dump guard — must match the
@@ -68,3 +68,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 # Start the application
 CMD ["/bin/sh", "/app/start.sh"]
+
