@@ -609,6 +609,14 @@ app.use((req, res, next) => {
   }
 
   try {
+    const { startIgPublisher } = await import("./services/igPublish");
+    startIgPublisher();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "start_failed";
+    console.error("[IgPublish] failed to start:", message);
+  }
+
+  try {
     const { startPriceCaptureWorker } = await import("./services/analytics/priceCaptureWorker");
     startPriceCaptureWorker();
   } catch (err) {

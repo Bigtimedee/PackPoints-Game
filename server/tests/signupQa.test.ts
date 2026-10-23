@@ -10,9 +10,11 @@ import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { addPackptsDays, getPackptsDayKey } from "@shared/packptsDay";
 import {
+  INSTAGRAM_SIGNUP_DAYS,
   SIGNUP_DAILY_DAYS,
   SIGNUP_SOURCE_GAPS,
   SIGNUP_SOURCE_SQL,
+  buildInstagramSignupReport,
   buildSignupReport,
   mapSignupSourceRow,
   sanitizeUtmSource,
@@ -187,6 +189,30 @@ describe("signup report reconciliation and CT days", () => {
   });
 });
 
+describe("instagram signup days", () => {
+  const now = new Date("2026-10-23T16:00:00.000Z");
+
+  it("counts registered users with utm_source instagram for 30 CT days", () => {
+    const report = buildInstagramSignupReport([
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), utmSource: "instagram", hasAttributionRow: true }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), utmSource: "Instagram", hasAttributionRow: true }),
+      row({ createdAt: new Date("2026-10-22T15:00:00.000Z"), utmSource: "instagram", isAdmin: true, hasAttributionRow: true }),
+      row({ createdAt: new Date("2026-10-22T15:00:00.000Z"), utmSource: "instagram", isBot: true, hasAttributionRow: true }),
+      row({ createdAt: new Date("2026-10-22T15:00:00.000Z"), utmSource: "reddit", hasAttributionRow: true }),
+      row({ createdAt: new Date("2026-08-01T15:00:00.000Z"), utmSource: "instagram", hasAttributionRow: true }),
+    ], now);
+    expect(report.utmSource).toBe("instagram");
+    expect(report.timezone).toBe("America/Chicago");
+    expect(report.days).toBe(INSTAGRAM_SIGNUP_DAYS);
+    expect(report.daily).toHaveLength(30);
+    expect(report.daily[0].day).toBe("2026-09-24");
+    expect(report.daily[29].day).toBe("2026-10-23");
+    expect(report.daily.find((day) => day.day === "2026-10-23")?.signups).toBe(2);
+    expect(report.total).toBe(2);
+    expect(JSON.stringify(report)).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
 describe("signup source SQL", () => {
   it("does not select email, username, or user id", () => {
     const sql = SIGNUP_SOURCE_SQL.toLowerCase();
@@ -279,6 +305,29 @@ describe("GET /api/qa/signups", () => {
     setToken(TOKEN);
   });
 
+  it("returns daily instagram signups from the same attribution loader", async () => {
+    const createdAt = new Date();
+    const day = getPackptsDayKey(createdAt);
+    setSignupSourceLoaderForTests(async () => [
+      row({ createdAt, utmSource: "instagram", hasAttributionRow: true }),
+      row({ createdAt, utmSource: "reddit", hasAttributionRow: true }),
+      row({ createdAt, utmSource: "instagram", isAdmin: true, hasAttributionRow: true }),
+    ]);
+    try {
+      const missing = await fetch(`${base}/api/qa/signups/instagram`);
+      expect(missing.status).toBe(401);
+      const res = await fetch(`${base}/api/qa/signups/instagram`, { headers: { "X-QA-Token": TOKEN } });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.utmSource).toBe("instagram");
+      expect(body.daily).toHaveLength(30);
+      expect(body.total).toBe(1);
+      expect(body.daily.find((item: { day: string }) => item.day === day)?.signups).toBe(1);
+    } finally {
+      setSignupSourceLoaderForTests(async () => fixture);
+    }
+  });
+
   it("returns aggregate counts with the header and ignores a query token", async () => {
     const res = await fetch(`${base}/api/qa/signups?token=ignored`, {
       headers: { "X-QA-Token": TOKEN },
@@ -319,6 +368,7 @@ describe("signup route stays out of the client bundle", () => {
     const route = await readFile(new URL("../routes/signupQa.ts", import.meta.url), "utf8");
     expect(routes).toContain("registerSignupQaRoutes");
     expect(route).toContain('"/api/qa/signups"');
+    expect(route).toContain('"/api/qa/signups/instagram"');
     expect(route).toContain("coverQaHeaderMatches");
     expect(route).not.toMatch(/req\.query/);
 

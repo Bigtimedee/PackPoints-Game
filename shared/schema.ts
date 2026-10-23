@@ -5122,6 +5122,33 @@ export const daily5XPosts = pgTable("daily5_x_posts", {
 });
 export type Daily5XPost = typeof daily5XPosts.$inferSelect;
 
+// Instagram publisher queue. drizzle-kit push drops tables that are not in this
+// file, so this definition is the production schema. approval_hash is required:
+// a file with no hash cannot be queued. utm_content is the bio-link tag
+// (feed-d1). published_at picks the most recently published row for /ig.
+export const igPostQueue = pgTable("ig_post_queue", {
+  id: serial("id").primaryKey(),
+  kind: varchar("kind", { length: 8 }).notNull(),
+  mediaPath: varchar("media_path", { length: 255 }).notNull(),
+  caption: text("caption").notNull(),
+  scheduledFor: timestamptz("scheduled_for").notNull(),
+  status: varchar("status", { length: 24 }).notNull().default("queued"),
+  containerId: varchar("container_id", { length: 64 }),
+  igMediaId: varchar("ig_media_id", { length: 64 }),
+  error: text("error"),
+  approvalHash: varchar("approval_hash", { length: 64 }).notNull(),
+  utmContent: varchar("utm_content", { length: 40 }).notNull(),
+  publishedAt: timestamptz("published_at"),
+  createdAt: timestamptz("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_ig_post_queue_status_scheduled").on(table.status, table.scheduledFor),
+  index("idx_ig_post_queue_kind_status").on(table.kind, table.status),
+  index("idx_ig_post_queue_published").on(table.publishedAt),
+  check("ig_post_queue_kind_check", sql`${table.kind} IN ('FEED', 'REEL', 'STORY')`),
+  check("ig_post_queue_status_check", sql`${table.status} IN ('queued', 'container_created', 'published', 'failed', 'skipped')`),
+]);
+export type IgPostQueue = typeof igPostQueue.$inferSelect;
+
 // Referral reward decisions (one row per invited user). Fraud limits, the
 // 60-day hold and clawbacks live here; the points themselves stay in the ledger.
 export const referralRewards = pgTable("referral_rewards", {

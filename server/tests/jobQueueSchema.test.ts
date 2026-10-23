@@ -2,6 +2,7 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import {
   creatorApplications,
+  igPostQueue,
   jobQueue,
   partnerInquiries,
   promotions,
@@ -14,6 +15,15 @@ import {
   staleRedemptionMaxPerRun,
 } from "../services/staleRedemptionGuard";
 
+function sqlText(value: unknown, seen = new Set<unknown>()): string {
+  if (typeof value === "string") return value;
+  if (value == null || typeof value !== "object" || seen.has(value)) return "";
+  seen.add(value);
+  const chunks = (value as { queryChunks?: unknown }).queryChunks;
+  const parts = Array.isArray(chunks) ? chunks : Object.values(value as Record<string, unknown>);
+  return parts.map((part) => sqlText(part, seen)).join(" ");
+}
+
 const REQUIRED_TABLES = [
   ["job_queue", jobQueue],
   ["promotions", promotions],
@@ -21,6 +31,7 @@ const REQUIRED_TABLES = [
   ["creator_applications", creatorApplications],
   ["partner_inquiries", partnerInquiries],
   ["user_feedback", userFeedback],
+  ["ig_post_queue", igPostQueue],
 ] as const;
 
 describe("raw-SQL tables in the Drizzle schema", () => {
@@ -84,6 +95,33 @@ describe("raw-SQL tables in the Drizzle schema", () => {
       "page_url",
       "admin_notes",
     ]));
+  });
+
+  it("keeps ig_post_queue columns so drizzle-kit push does not drop the publisher queue", () => {
+    const config = getTableConfig(igPostQueue);
+    expect(config.name).toBe("ig_post_queue");
+    expect(config.columns.map((column) => column.name)).toEqual([
+      "id",
+      "kind",
+      "media_path",
+      "caption",
+      "scheduled_for",
+      "status",
+      "container_id",
+      "ig_media_id",
+      "error",
+      "approval_hash",
+      "utm_content",
+      "published_at",
+      "created_at",
+    ]);
+    const checks = sqlText(config.checks);
+    expect(checks).toContain("FEED");
+    expect(checks).toContain("REEL");
+    expect(checks).toContain("STORY");
+    expect(checks).toContain("container_created");
+    expect(checks).toContain("published");
+    expect(checks).toContain("skipped");
   });
 
   it("gives user_attribution a unique user_id so signup ON CONFLICT (user_id) works", () => {

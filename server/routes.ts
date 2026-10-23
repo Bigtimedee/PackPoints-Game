@@ -119,6 +119,7 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { registerIgRoutes } from "./routes/igPublish";
 import { registerImageHostsQaRoute } from "./routes/imageHostsQa";
 import { isThirdPartyPhotoHost, THIRD_PARTY_PHOTO_REASON } from "./services/cards/imageQuality";
 import { registerFunnelQaRoutes } from "./routes/funnelQa";
@@ -543,6 +544,7 @@ export async function registerRoutes(
   registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
+  registerIgRoutes(app);
   registerImageHostsQaRoute(app);
   registerFunnelQaRoutes(app);
   registerFunnelEventRoutes(app);
