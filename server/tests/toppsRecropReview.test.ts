@@ -10,6 +10,7 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { setMaskReadySidecarDirForTests } from "../masking/maskReadySidecar";
 import { isBlockedCard, leakBlocklistLogLines } from "../lib/cardBlocklist";
 import { TOPPS_1988_REVIEWED_SOURCES } from "../masking/topps1988Geometry";
+import { topps1988ReviewedRowMatches } from "../masking/topps1988Readiness";
 import {
   RECROP_APPROVED_1986_IDS,
   RECROP_APPROVED_1988_IDS,
@@ -20,6 +21,7 @@ import {
   recropBlockedForSet,
   recropHeldSkipsSourceHash,
   recropPermanentlyExcluded,
+  releasedRecropAction,
 } from "../masking/toppsRecropReview";
 import { registerHeldSetImportQaRoutes } from "../routes/heldSetImportQa";
 
@@ -75,6 +77,22 @@ describe("Topps recrop review lists", () => {
     expect(recropPermanentlyExcluded("a5106b0b-151c-496b-91bc-815174d48bb3")).toBe(false);
     expect(recropPermanentlyExcluded("1cf53402-61f8-4fac-9aae-4fb7b9cf112e")).toBe(true);
     expect(recropHeldSkipsSourceHash("1cf53402-61f8-4fac-9aae-4fb7b9cf112e")).toBe(false);
+    expect(releasedRecropAction(true, true)).toBe("skip");
+    expect(releasedRecropAction(true, false)).toBe("skip");
+    expect(releasedRecropAction(false, true)).toBe("open");
+    expect(releasedRecropAction(false, false)).toBe("bake");
+    const murray = TOPPS_1988_REVIEWED_SOURCES.find((source) => source.cardId === RECROP_RELEASED_1988_IDS[0]);
+    expect(murray?.player).toBe("Eddie Murray");
+    expect(topps1988ReviewedRowMatches(murray!.cardId, {
+      player: murray!.player,
+      imageUrl: murray!.imageUrl,
+      imageRotation: 0,
+    })).toBe(true);
+    expect(topps1988ReviewedRowMatches(murray!.cardId, {
+      player: murray!.player,
+      imageUrl: murray!.imageUrl,
+      imageRotation: 90,
+    })).toBe(false);
     for (const card of RECROP_BLOCKED_CARDS) {
       expect(card.reason).not.toMatch(/[\u2013\u2014]/);
     }

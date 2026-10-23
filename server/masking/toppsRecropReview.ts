@@ -382,3 +382,13 @@ export function recropHeldSkipsSourceHash(cardId: string | null | undefined): bo
   if (!cardId) return false;
   return (RECROP_RELEASED_1988_IDS as readonly string[]).includes(cardId);
 }
+
+/**
+ * The blocked-list marker already recorded the first bake of #495 and #574.
+ * A release boot must not treat that marker as this pass. A prepared 1988
+ * file is opened. A missing file is baked once under a new marker.
+ */
+export function releasedRecropAction(markerHasId: boolean, hasPreparedFile: boolean): "skip" | "open" | "bake" {
+  if (markerHasId) return "skip";
+  return hasPreparedFile ? "open" : "bake";
+}
