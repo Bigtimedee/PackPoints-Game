@@ -1,13 +1,12 @@
-# Use official Node 20 image
-FROM node:20.18-alpine
+# Use official Node 22 image
+FROM node:22.23.4-alpine
 
 # Install FFmpeg + su-exec (privilege drop in start.sh after chowning the volume
 # mount) + postgresql 17 client (boot-time pg_dump guard — must match the
-# Postgres 17.x server; v17 client comes from the alpine 3.21 repo)
+# Postgres 17.x server; the base image's default alpine repo carries it)
 # font-dejavu: SOCIAL_PNG_QA — Alpine has no fonts; leftover <text> tofus without this.
 # Inter TTFs are also vendored and outlined (see server/contentFactory/fonts.ts).
-RUN apk add --no-cache ffmpeg su-exec font-dejavu && \
-    apk add --no-cache postgresql17-client --repository=https://dl-cdn.alpinelinux.org/alpine/v3.21/main
+RUN apk add --no-cache ffmpeg su-exec font-dejavu postgresql17-client
 
 # Set production environment
 ENV NODE_ENV=production
@@ -68,3 +67,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 # Start the application
 CMD ["/bin/sh", "/app/start.sh"]
+
