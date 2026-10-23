@@ -8,6 +8,7 @@ import { getInternalSku, PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, type Internal
 import { analyticsService } from "./analyticsService";
 import { getStripeClient, isStripeConfiguredSync, isStripeConfiguredAsync, getWebhookSecret, getStripeMode } from "../stripeClient";
 import { marginLedgerService } from "./marginLedgerService";
+import { getInvoiceSubscriptionId, getInvoiceSubscriptionMetadata, getInvoiceLinePriceId, getSubscriptionPeriodEnd } from "./stripeCompat";
 
 export function isStripeConfigured(): boolean {
   return isStripeConfiguredSync();
@@ -578,7 +579,7 @@ class StripePurchaseService {
   }> {
     const invoice = event.data.object as Stripe.Invoice;
     
-    const userId = (invoice as any).subscription_details?.metadata?.userId 
+    const userId = getInvoiceSubscriptionMetadata(invoice)?.userId 
       || invoice.metadata?.userId
       || await this.getUserIdFromStripeCustomer(
           typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id
@@ -591,9 +592,7 @@ class StripePurchaseService {
       };
     }
 
-    const subscriptionId = typeof (invoice as any).subscription === "string" 
-      ? (invoice as any).subscription 
-      : (invoice as any).subscription?.id;
+    const subscriptionId = getInvoiceSubscriptionId(invoice);
 
     if (!subscriptionId) {
       return {
@@ -626,7 +625,7 @@ class StripePurchaseService {
       };
     }
 
-    const currentPeriodEnd = new Date((subscription as any).current_period_end * 1000);
+    const currentPeriodEnd = getSubscriptionPeriodEnd(subscription, priceId);
     const gracePeriod = 3 * 24 * 60 * 60 * 1000;
     const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
 
@@ -746,7 +745,7 @@ class StripePurchaseService {
       const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
 
       if (productDef && productDef.type === "SUBSCRIPTION" && "entitlementKey" in productDef) {
-        const currentPeriodEnd = new Date((subscription as any).current_period_end * 1000);
+        const currentPeriodEnd = getSubscriptionPeriodEnd(subscription, priceId);
         const gracePeriod = 3 * 24 * 60 * 60 * 1000;
         const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
 
@@ -823,7 +822,7 @@ class StripePurchaseService {
     try {
       const invoice = event.data.object as Stripe.Invoice;
       const customerId = typeof invoice.customer === "string" ? invoice.customer : (invoice.customer as any)?.id;
-      const userId = (invoice as any).subscription_details?.metadata?.userId
+      const userId = getInvoiceSubscriptionMetadata(invoice)?.userId
         || await this.getUserIdFromStripeCustomer(customerId);
 
       if (!userId) {
@@ -831,9 +830,7 @@ class StripePurchaseService {
       }
 
       const attemptCount = (invoice as any).attempt_count ?? 1;
-      const subscriptionId = typeof (invoice as any).subscription === "string"
-        ? (invoice as any).subscription
-        : null;
+      const subscriptionId = getInvoiceSubscriptionId(invoice);
 
       console.warn(`[Stripe] invoice.payment_failed for userId=${userId}, attempt=${attemptCount}, subscription=${subscriptionId}`);
 
@@ -860,7 +857,7 @@ class StripePurchaseService {
 
       // After 3 failures, revoke entitlement proactively
       if (attemptCount >= 3) {
-        const priceId = (invoice as any).lines?.data?.[0]?.price?.id;
+        const priceId = getInvoiceLinePriceId(invoice);
         const internalSku = priceId ? (getInternalSku(priceId) || this.extractSkuFromPriceId(priceId)) : null;
         const productDef = internalSku ? PRODUCT_DEFINITIONS[internalSku as InternalSku] : null;
 
@@ -1328,7 +1325,7 @@ class StripePurchaseService {
         const hasEntitlement = await storage.hasEntitlement(userId, productDef.entitlementKey);
         
         if (!hasEntitlement) {
-          const currentPeriodEnd = new Date((sub as any).current_period_end * 1000);
+          const currentPeriodEnd = getSubscriptionPeriodEnd(sub, priceId);
           const gracePeriod = 3 * 24 * 60 * 60 * 1000;
           const expiresAt = new Date(currentPeriodEnd.getTime() + gracePeriod);
 
