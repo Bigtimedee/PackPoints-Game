@@ -16,6 +16,7 @@ import {
   wallets,
 } from "@shared/schema";
 import { receiptChip, type ReceiptChipLabel } from "@shared/receiptContract";
+import { USER_REBATE_SHARE } from "@shared/rebateEconomics";
 
 export const DEFAULT_QA_RECEIPT_USERNAME = "designqa";
 export const QA_RECEIPT_LISTING_PREFIX = "qa-receipt-";
@@ -368,6 +369,7 @@ export function createDrizzleReceiptFixtureStore(
         userId: row.userId,
         packptsSpent: row.packptsSpent,
         creditCents: row.creditCents,
+        userShareRate: USER_REBATE_SHARE,
         status: row.status,
         grantMethod: row.grantMethod,
         grantedAt: row.grantedAt,

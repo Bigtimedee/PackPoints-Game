@@ -42,7 +42,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "com.packpoints.packpts15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "1,592 PackPTS",
+      displayName: "567 PackPTS",
       type: "CONSUMABLE",
     },
     "com.packpoints.pro_monthly": {
@@ -74,7 +74,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "packpts_15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "1,592 PackPTS",
+      displayName: "567 PackPTS",
       type: "CONSUMABLE",
     },
     "pro_monthly": {
@@ -96,12 +96,12 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "com.packpoints.packpts_monthly_2000": {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "com.packpoints.packpts_monthly_5000": {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "packpts_monthly_500": {
@@ -111,12 +111,12 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "packpts_monthly_2000": {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "packpts_monthly_5000": {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
 
@@ -138,7 +138,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "price_packpts_15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "1,592 PackPTS",
+      displayName: "567 PackPTS",
       type: "CONSUMABLE",
     },
     "price_pro_monthly": {
@@ -160,12 +160,12 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "price_packpts_monthly_2000": {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "price_packpts_monthly_5000": {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
   };
@@ -218,14 +218,14 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
   if (STRIPE_PRICE_PACKPTS_MONTHLY_2000) {
     map[STRIPE_PRICE_PACKPTS_MONTHLY_2000] = {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     };
   }
   if (STRIPE_PRICE_PACKPTS_MONTHLY_5000) {
     map[STRIPE_PRICE_PACKPTS_MONTHLY_5000] = {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     };
   }
@@ -289,29 +289,30 @@ export function getStoreProductIds(internalSku: string): string[] {
 }
 
 // Internal SKU definitions with PackPTS amounts
-// Grants are the largest that pass the package guardrail (store_package_policy
-// minMarginRate 30%, Stripe web 2.9% + 30c, 0.2c redeemable value per point):
-// redeemable value <= (price - fees) x (1 - margin). SKU ids are legacy names
-// kept so in-flight checkouts and receipts still resolve.
+// Grants are the largest that pass the package guardrail at the 75% floor
+// (shared/rebateEconomics.ts BUNDLE_MIN_MARGIN_RATE). Stripe web 2.9% + 30c,
+// 0.2c redeemable value per point: redeemable value <= (price - fees) x 0.25
+// and <= price x 0.25. SKU ids are legacy names kept so in-flight checkouts
+// and receipts still resolve.
 export const PRODUCT_DEFINITIONS = {
   PACKPTS_15000: {
     name: "Starter Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 1592,
+    packptsGrant: 567,
     priceUsd: 499, // $4.99
     description: "Starter bundle - great for trying out the game",
   },
   PACKPTS_45000: {
     name: "Value Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 4992,
+    packptsGrant: 1782,
     priceUsd: 1499, // $14.99 - Best value
     description: "Most popular - best value for regular players",
   },
   PACKPTS_80000: {
     name: "Premium Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 8387,
+    packptsGrant: 2997,
     priceUsd: 2499, // $24.99
     description: "Power pack - for serious collectors",
   },
@@ -343,18 +344,18 @@ export const PRODUCT_DEFINITIONS = {
   PACKPTS_MONTHLY_2000: {
     name: "Collector Pack",
     type: "SUBSCRIPTION" as const,
-    packptsGrant: 2000,
+    packptsGrant: 1782,
     priceUsd: 1499, // $14.99/month
     billingInterval: "month" as const,
-    description: "2,000 PackPTS credited every month - best value for regular players",
+    description: "1,782 PackPTS credited every month - best value for regular players",
   },
   PACKPTS_MONTHLY_5000: {
     name: "Legend Pack",
     type: "SUBSCRIPTION" as const,
-    packptsGrant: 5000,
+    packptsGrant: 3602,
     priceUsd: 2999, // $29.99/month
     billingInterval: "month" as const,
-    description: "5,000 PackPTS credited every month - for serious collectors",
+    description: "3,602 PackPTS credited every month - for serious collectors",
   },
 } as const;
 

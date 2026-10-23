@@ -24,7 +24,7 @@ Retired north stars: "Sets Made" and "Maker Rate" (PRODUCT_VISION.md). Users do 
 ## Economics facts (do not restate them differently anywhere)
 
 - eBay Partner Network commission on trading cards: 3% (`TRADING_CARD_COMMISSION_RATE` = 0.03). Not 8 to 10%.
-- The user rebate is the commission eBay confirms, capped at the points credit applied, $25 per user per day and $100 per user per week, funded from a reserve.
+- The user rebate is 70% of the commission eBay confirms. PackPTS keeps 30%. It is capped at the points credit applied, $25 per user per day and $100 per user per week, and funded from a reserve. Rebates created before the 70/30 split keep 100% of their commission.
 - Rebates hold 60 days (45 once eBay locks the sale). Payout minimum is $10. Purchased points count toward rebates.
 - Rebates stay live. The EPN Loyalty/Incentive application will be filed after traction (Dave's decision, October 13, 2026).
 - PackPTS earns a commission on eBay purchases through our links, and says so next to every eBay link.

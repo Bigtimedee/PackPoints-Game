@@ -25,6 +25,7 @@ import {
   normalizePayoutDestination,
   payoutReviewFlags,
 } from "./guardrailPolicy";
+import { LEGACY_REBATE_SHARE } from "@shared/rebateEconomics";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 import { withUtm } from "@shared/utm";
@@ -416,6 +417,7 @@ class RebateService {
           userId: intent.userId,
           listingTitle: intent.listingTitle,
           source: intent.source,
+          userShareRate: undefined,
           skipEmail: true,
         };
       }
@@ -434,9 +436,11 @@ class RebateService {
         throw new Error("Cannot grant a reversed redemption");
       }
 
-      // Rebate = 100% of the confirmed EPN commission (Dave, Oct 12 2026), capped
-      // at the credit applied. No commission on the postback means nothing to pay
-      // yet: leave the apply open so a later postback carrying it can grant.
+      // Rebate = the share stored on this row times the confirmed EPN commission,
+      // capped at the credit applied. New rows store 0.70. Rows created before
+      // the split store 1.0 and keep the full commission. No commission on the
+      // postback means nothing to pay yet: leave the apply open so a later
+      // postback carrying it can grant.
       let usedReservationCents: number | undefined;
       if (!verifiedCommissionCents || verifiedCommissionCents <= 0) {
         await recordRebateAudit(tx, {
@@ -451,17 +455,20 @@ class RebateService {
           rebateBalanceCents: 0, creditCents: 0, packptsSpent: credit.packptsSpent,
           receiptUrl: receiptPath(intent.id),
           message: "Waiting for eBay to confirm the commission on this sale.",
-          userId: intent.userId, listingTitle: intent.listingTitle, source: intent.source, skipEmail: true,
+          userId: intent.userId, listingTitle: intent.listingTitle, source: intent.source, userShareRate: undefined, skipEmail: true,
         };
       }
       const centsPerPoint = credit.packptsSpent > 0 ? credit.creditCents / credit.packptsSpent : 0.2;
-      const final = commissionGrant(credit.creditCents, credit.packptsSpent, verifiedCommissionCents, centsPerPoint);
+      const shareRate = typeof credit.userShareRate === "number" && credit.userShareRate > 0
+        ? credit.userShareRate
+        : LEGACY_REBATE_SHARE;
+      const final = commissionGrant(credit.creditCents, credit.packptsSpent, verifiedCommissionCents, centsPerPoint, shareRate);
       if (final.creditCents < credit.creditCents) {
         if (final.refundPackpts > 0) {
           const refund = await walletService.earn(
             intent.userId,
             final.refundPackpts,
-            "Points returned: eBay's confirmed commission was below the rebate applied",
+            "Points returned: your share of eBay's confirmed commission was below the rebate applied",
             `partial-refund:${intent.id}`,
             undefined,
             tx,
@@ -477,7 +484,8 @@ class RebateService {
           packpts: final.refundPackpts,
           amountCents: final.creditCents,
           details: {
-            reason: "credit set to confirmed commission",
+            reason: "credit set to the user share of the confirmed commission",
+            userShareRate: shareRate,
             commissionCents: verifiedCommissionCents,
             reportedTotalCents: verifiedSaleCents,
             creditBeforeCents: credit.creditCents,
@@ -584,6 +592,7 @@ class RebateService {
         userId: intent.userId,
         listingTitle: intent.listingTitle,
         source: intent.source,
+        userShareRate: shareRate,
         skipEmail: false,
       };
     });
@@ -596,10 +605,11 @@ class RebateService {
         creditCents: result.creditCents,
         receiptUrl: result.receiptUrl,
         method: opts.method,
+        userShareRate: result.userShareRate,
       });
     }
 
-    const { userId: _u, listingTitle: _t, source: _s, skipEmail: _e, ...publicResult } = result;
+    const { userId: _u, listingTitle: _t, source: _s, skipEmail: _e, userShareRate: _r, ...publicResult } = result;
     return publicResult;
   }
 
@@ -612,6 +622,7 @@ class RebateService {
       creditCents: number;
       receiptUrl: string;
       method: string;
+      userShareRate?: number;
     }
   ): Promise<void> {
     try {

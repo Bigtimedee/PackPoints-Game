@@ -2610,6 +2610,9 @@ export const redemptionCredit = pgTable("redemption_credit", {
   userId: varchar("user_id").notNull().references(() => users.id),
   packptsSpent: integer("packpts_spent").notNull(),
   creditCents: integer("credit_cents").notNull(),
+  // Fraction of the confirmed EPN commission this rebate pays the user.
+  // Default 1 backfills rows created before the 70/30 split. New inserts set 0.70.
+  userShareRate: real("user_share_rate").notNull().default(1),
   status: redemptionCreditStatusEnum("status").notNull().default("PENDING"),
   grantMethod: text("grant_method"),
   grantedAt: timestamp("granted_at"),
@@ -3087,7 +3090,7 @@ export type StoreFeeProfile = typeof storeFeeProfiles.$inferSelect;
 // Store Package Policy - global policy settings for package validation
 export const storePackagePolicy = pgTable("store_package_policy", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  minMarginRate: real("min_margin_rate").notNull().default(0.30), // 30% minimum gross margin
+  minMarginRate: real("min_margin_rate").notNull().default(0.75), // 75% minimum gross margin
   warnMarginBand: real("warn_margin_band").notNull().default(0.05), // warn if within 5% of min
   maxValuePerPtMicrousd: integer("max_value_per_pt_microusd").notNull().default(2000), // 0.002 USD/pt in micro-USD
   allowOverride: boolean("allow_override").notNull().default(false),

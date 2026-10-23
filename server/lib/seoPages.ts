@@ -187,7 +187,7 @@ function pointsPage(sets: SeoSet[]): SeoPage {
     body: [
       p("You earn PackPTS points by playing. Each correct answer in the Daily 5 or a set game adds points to your wallet. Points are shown when a game ends, not while you play."),
       `<h2>What points are for</h2>`,
-      p("When you buy an eligible card on eBay through PackPTS, you can use points toward a rebate on that purchase. The rebate is based on the commission eBay confirms for the sale. Rebates are held for 60 days before they can be paid out, and payouts are reviewed before they are sent."),
+      p("When you buy an eligible card on eBay through PackPTS, you can use points toward a rebate on that purchase. The rebate is 70% of the commission eBay confirms for the sale. Rebates are held for 60 days before they can be paid out, and payouts are reviewed before they are sent."),
       `<h2>Do points expire?</h2>`,
       p(`Points can expire under the current points policy. Your wallet shows any points that are close to expiring. Full details are on this page after it loads and in the ${a("/terms-of-service", "terms")}.`),
       `<h2>Invite friends</h2>`,

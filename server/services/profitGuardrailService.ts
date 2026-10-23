@@ -15,6 +15,7 @@ import {
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
 import { computeCreditCeilingCents, estimateCommissionCents, mergeProfitPolicyUpdate, REDEMPTION_MIN_PACKPTS } from "./guardrailPolicy";
+import { USER_REBATE_SHARE, userRebateCents } from "@shared/rebateEconomics";
 
 const GOLDIN_NOT_SUPPORTED =
   "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
@@ -149,10 +150,12 @@ class ProfitGuardrailService {
     const txMargin = await treasuryService.computeTransactionMargin(source, priceCents);
     const solvency = await treasuryService.getSolvencyStatus();
 
-    // eBay rebate = 100% of the confirmed EPN commission. The pre-purchase
-    // ceiling is the commission estimate (price x TRADING_CARD_COMMISSION_RATE);
-    // the commission itself funds the credit, so the margin pool is not a cap.
-    const commissionEstimateCents = estimateCommissionCents(priceCents);
+    // eBay rebate = USER_REBATE_SHARE of the confirmed EPN commission. The
+    // pre-purchase ceiling is that share of the commission estimate
+    // (price x TRADING_CARD_COMMISSION_RATE). Daily and weekly caps still bind.
+    // The commission itself funds the credit, so the margin pool is not a cap.
+    const grossCommissionCents = estimateCommissionCents(priceCents);
+    const commissionEstimateCents = userRebateCents(grossCommissionCents, USER_REBATE_SHARE);
     const allowedCapCents = commissionEstimateCents;
     const packptsValueCents = policy.packptsValueVMicrousd / 10000; // micro-USD to cents
 
@@ -478,6 +481,7 @@ class ProfitGuardrailService {
           userId,
           packptsSpent: approvedRedeemPackpts,
           creditCents,
+          userShareRate: USER_REBATE_SHARE,
           status: "PENDING",
           ledgerSpendEntryId: spendResult.ledgerEntry.id,
         })
