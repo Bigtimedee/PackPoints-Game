@@ -203,24 +203,45 @@ export function tokenHasSurnameRun(playerName: string, rawToken: string, run = T
   return false;
 }
 
-/** First token (or adjacent pair) outside every region with a surname run, else null. */
+type SurnameWord = { text: string; x: number; y: number; w: number; h: number };
+
+/**
+ * Two OCR boxes are one split word when they share a line and the gap is small.
+ * Words on opposite sides of the photo are not a pair.
+ */
+function splitSurnameNeighbors(a: SurnameWord, b: SurnameWord, imageWidth: number): boolean {
+  const left = a.x <= b.x ? a : b;
+  const right = left === a ? b : a;
+  const gap = right.x - (left.x + left.w);
+  const line = Math.max(8, a.h, b.h);
+  const overlap = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  const sameLine = overlap >= Math.min(a.h, b.h) * 0.35;
+  const maxGap = Math.max(line * 1.25, imageWidth * 0.025);
+  return sameLine && gap <= maxGap && gap >= -Math.max(4, line * 0.4);
+}
+
+/** First token, or a split word on one line, outside every region with a surname run. Else null. */
 export function surnameRunOutsideBand(input: {
   playerName: string;
-  words: Array<{ text: string; x: number; y: number; w: number; h: number }>;
+  words: SurnameWord[];
   regions: MaskRegion[];
   imageWidth: number;
   imageHeight: number;
 }): string | null {
   const outside = input.words
     .filter((word) => wordSitsOutsideMask(word, input.regions, input.imageWidth, input.imageHeight))
-    .sort((a, b) => (a.y - b.y) || (a.x - b.x));
-  const tokens = outside.map((word) => normalizeNameLetters(word.text)).filter((token) => token.length >= 2);
-  for (const token of tokens) {
-    if (tokenHasSurnameRun(input.playerName, token)) return token;
+    .filter((word) => normalizeNameLetters(word.text).length >= 2);
+  for (const word of outside) {
+    if (tokenHasSurnameRun(input.playerName, word.text)) return normalizeNameLetters(word.text);
   }
-  for (let i = 0; i < tokens.length - 1; i++) {
-    const pair = tokens[i] + tokens[i + 1];
-    if (tokenHasSurnameRun(input.playerName, pair)) return pair;
+  for (let i = 0; i < outside.length; i++) {
+    for (let j = i + 1; j < outside.length; j++) {
+      if (!splitSurnameNeighbors(outside[i], outside[j], input.imageWidth)) continue;
+      const left = outside[i].x <= outside[j].x ? outside[i] : outside[j];
+      const right = left === outside[i] ? outside[j] : outside[i];
+      const pair = normalizeNameLetters(left.text) + normalizeNameLetters(right.text);
+      if (tokenHasSurnameRun(input.playerName, pair)) return pair;
+    }
   }
   return null;
 }

@@ -26,6 +26,7 @@ import { NAME_VISIBLE_OUTSIDE_MASK } from "./nameOutsideMask";
 import { recordMaskBakeRefusal } from "./maskRefusalLog";
 import { scheduleNameVisibilityCheck } from "./nameVisibilityBackfill";
 import { isSourceFetchTimeout, withSourceFetchTimeout } from "../services/images/sourceFetch";
+import { recropPermanentlyExcluded } from "./toppsRecropReview";
 
 export { readWarmMaskPlan };
 
@@ -480,6 +481,7 @@ export async function getMaskedImagePath(
   cardId: string,
   opts?: { priority?: "live" | "warm"; ignoreCache?: boolean },
 ): Promise<string | null> {
+  if (recropPermanentlyExcluded(cardId)) return null;
   const failReason = readMaskFailureReason(cardId);
   if (failReason && !opts?.ignoreCache) {
     coverageRefusals.set(cardId, failReason);
@@ -630,6 +632,7 @@ export async function bakeMaskedCardFromUrl(
   priority: "live" | "warm" = "live",
 ): Promise<string | null> {
   const { cardId, imageUrl } = input;
+  if (recropPermanentlyExcluded(cardId)) return null;
   const alreadyRefused = readMaskFailureReason(cardId);
   if (alreadyRefused) {
     coverageRefusals.set(cardId, alreadyRefused);
