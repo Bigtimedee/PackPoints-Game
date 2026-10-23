@@ -1,7 +1,7 @@
 /**
  * One background re-bake of the Design recrop cohort after this release.
- * The three cards still under review are forced once so the QA export is the new crop.
- * The autograph and the DISCOVER TOPPS stamps are left out of that force bake, and any older masked file is deleted.
+ * Permanently excluded cards are left out of that force bake, and any older masked file is deleted.
+ * Approved cards are not on the blocked list, so this pass does not rebake them.
  * Approved 1986 cards are baked once when they have no ready file, or when a fail sidecar is still in the way.
  * A marker on the mask volume stops the same card from being forced on every boot.
  */

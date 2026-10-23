@@ -1,9 +1,9 @@
 /**
  * Design by-eye recrop review.
- * 148 approved 1986 Topps cards and 52 approved 1988 Topps cards become dealable.
- * 12 cards stay blocked (2 from 1986, 10 from 1988).
- * The autograph and the eight DISCOVER TOPPS stamps are not baked or served.
- * #495, #574, and #499 are re-baked for QA.
+ * 148 approved 1986 Topps cards and 54 approved 1988 Topps cards become dealable.
+ * 10 cards stay blocked: 1986 #328 and #499, plus eight 1988 DISCOVER TOPPS stamps.
+ * Those 10 are not baked, not served, and not dealt.
+ * #495 and #574 were cleared on 2026-10-23 and keep the printed-edge crop.
  * This file is data only. It does not import the blocklist.
  */
 export const TOPPS_1986_SET_ID = "2b77043a-6583-4d79-b59d-d2ab20291a17";
@@ -160,6 +160,12 @@ export const RECROP_APPROVED_1986_IDS: readonly string[] = [
   "70d94da7-9a35-49db-a2a4-613935676414",
 ];
 
+/** Design cleared these two on 2026-10-23. The printed-edge crop stays on the bake. */
+export const RECROP_RELEASED_1988_IDS = [
+  "8d0fc5e2-41ea-4428-a662-e9a059350599",
+  "a5106b0b-151c-496b-91bc-815174d48bb3",
+] as const;
+
 export const RECROP_APPROVED_1988_IDS: readonly string[] = [
   "bb90083d-50ab-44ca-b9f5-ad1271506eeb",
   "60400f52-32da-4190-b939-52f140a10a8b",
@@ -213,6 +219,7 @@ export const RECROP_APPROVED_1988_IDS: readonly string[] = [
   "d5b2823a-9d3e-473d-8383-a9548ffa5bed",
   "f48b9dc3-b4aa-4415-b006-f7b61f01ca24",
   "5f75cab2-adb8-4a47-b47b-e47e3eed1957",
+  ...RECROP_RELEASED_1988_IDS,
 ];
 
 export const RECROP_STAMP_IDS: readonly string[] = [
@@ -259,7 +266,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1986 Topps Baseball",
     number: "499",
     surname: "gibson",
-    reason: "scanner mat around the card. Cropped to the printed card edge on rebake. The bottom name band stays 14 percent (Design 2026-10-23)",
+    reason: "Design RED on the printed-edge rebake. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: [],
   },
   {
@@ -290,15 +297,6 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     flags: ["discover_stamp"],
   },
   {
-    id: "8d0fc5e2-41ea-4428-a662-e9a059350599",
-    setId: "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
-    setName: "1988 Topps Baseball",
-    number: "495",
-    surname: "murray",
-    reason: "scanner mat around the card. Cropped to the printed card edge on rebake. The diagonal name mask is not widened (Design 2026-10-23)",
-    flags: ["margin"],
-  },
-  {
     id: "09896463-19fd-49f2-b8b4-ee83fd3d034a",
     setId: "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
     setName: "1988 Topps Baseball",
@@ -306,15 +304,6 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     surname: "clancy",
     reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
-  },
-  {
-    id: "a5106b0b-151c-496b-91bc-815174d48bb3",
-    setId: "affd57b8-2b1d-4ea3-9f51-1530d8088e5c",
-    setName: "1988 Topps Baseball",
-    number: "574",
-    surname: "nettles",
-    reason: "scanner mat around the card. Cropped to the printed card edge on rebake. The diagonal name mask is not widened (Design 2026-10-23)",
-    flags: ["margin"],
   },
   {
     id: "41369e40-fe82-409c-9115-eaa18883049d",
@@ -357,12 +346,14 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
 const RECROP_SET_IDS = new Set([TOPPS_1986_SET_ID, TOPPS_1988_SET_ID]);
 const BLOCKED_BY_ID = new Map(RECROP_BLOCKED_CARDS.map((card) => [card.id, card]));
 
-/** Autograph and DISCOVER TOPPS stamps. Never baked, served, or dealt. */
+const GIBSON_1986_ID = "1cf53402-61f8-4fac-9aae-4fb7b9cf112e";
+
+/** Autograph, #499, and DISCOVER TOPPS stamps. Never baked, served, or dealt. */
 export function recropPermanentlyExcluded(cardId: string | null | undefined): boolean {
   if (!cardId) return false;
   const card = BLOCKED_BY_ID.get(cardId);
   if (!card) return false;
-  return card.flags.includes("signature") || card.flags.includes("discover_stamp");
+  return card.id === GIBSON_1986_ID || card.flags.includes("signature") || card.flags.includes("discover_stamp");
 }
 
 export function isRecropReviewSet(setId: string): boolean {
@@ -383,9 +374,11 @@ export function recropMaskedPath(setId: string, cardId: string): string {
   return `/api/qa/sets/${setId}/recrop-review/${cardId}`;
 }
 
-/** Held 1988 rebakes may follow a corrected scan. They stay blocked, so a drifted source cannot be dealt. */
+/**
+ * #495 and #574. The reviewed 1988 hash is the uncropped scan, and Design
+ * approved the printed-edge crop, so that crop is not a changed source.
+ */
 export function recropHeldSkipsSourceHash(cardId: string | null | undefined): boolean {
   if (!cardId) return false;
-  const card = BLOCKED_BY_ID.get(cardId);
-  return card?.setId === TOPPS_1988_SET_ID;
+  return (RECROP_RELEASED_1988_IDS as readonly string[]).includes(cardId);
 }
