@@ -15,6 +15,8 @@ import {
 import { walletService } from "./walletService";
 import { treasuryService } from "./treasuryService";
 import { computeCreditCeilingCents, estimateCommissionCents, mergeProfitPolicyUpdate, REDEMPTION_MIN_PACKPTS } from "./guardrailPolicy";
+import { USER_REBATE_SHARE, userRebateCents } from "@shared/rebateEconomics";
+import { previewPurchasedRebate } from "./purchasedRebateCap";
 
 const GOLDIN_NOT_SUPPORTED =
   "PackPTS can't be applied to Goldin listings yet. Goldin gives us no automatic purchase confirmation, so cashback can't be verified.";
@@ -149,10 +151,12 @@ class ProfitGuardrailService {
     const txMargin = await treasuryService.computeTransactionMargin(source, priceCents);
     const solvency = await treasuryService.getSolvencyStatus();
 
-    // eBay rebate = 100% of the confirmed EPN commission. The pre-purchase
-    // ceiling is the commission estimate (price x TRADING_CARD_COMMISSION_RATE);
-    // the commission itself funds the credit, so the margin pool is not a cap.
-    const commissionEstimateCents = estimateCommissionCents(priceCents);
+    // eBay rebate = USER_REBATE_SHARE of the confirmed EPN commission. The
+    // pre-purchase ceiling is that share of the commission estimate
+    // (price x TRADING_CARD_COMMISSION_RATE). Daily and weekly caps still bind.
+    // The commission itself funds the credit, so the margin pool is not a cap.
+    const grossCommissionCents = estimateCommissionCents(priceCents);
+    const commissionEstimateCents = userRebateCents(grossCommissionCents, USER_REBATE_SHARE);
     const allowedCapCents = commissionEstimateCents;
     const packptsValueCents = policy.packptsValueVMicrousd / 10000; // micro-USD to cents
 
@@ -185,13 +189,21 @@ class ProfitGuardrailService {
     // Final ceiling = MIN(commission estimate, per-user daily, per-user weekly);
     // 0 if the reserve floor trips. The formula is kept for reference only.
     const formulaCreditCents = commissionEstimateCents;
-    const marginBackedCreditCentsMax = computeCreditCeilingCents({
+    const commissionCeilingCents = computeCreditCeilingCents({
       reserveHealthy,
       commissionEstimateCents,
       dailyRemainingCents,
       weeklyRemainingCents,
     });
-    let marginBackedRmax = Math.floor(marginBackedCreditCentsMax / packptsValueCents);
+    const quoteWallet = await walletService.getWallet(userId);
+    const purchasedCap = await previewPurchasedRebate({
+      userId,
+      pointsToSpend: quoteWallet?.balance ?? 0,
+      centsPerPoint: packptsValueCents,
+      maxCreditCents: commissionCeilingCents,
+    });
+    let marginBackedCreditCentsMax = Math.min(commissionCeilingCents, purchasedCap.creditCents);
+    let marginBackedRmax = purchasedCap.pointsUsed;
 
     // Minimum per-purchase redemption is 1 whole PackPTS (Dave, Oct 11 2026):
     // small purchases earn. Credit is already floored to whole points above.
@@ -409,8 +421,8 @@ class ProfitGuardrailService {
       };
     }
 
-    const approvedRedeemPackpts = allowed.approvedPackpts;
-    const creditCents = allowed.approvedCreditCents;
+    let approvedRedeemPackpts = allowed.approvedPackpts;
+    let creditCents = allowed.approvedCreditCents;
 
     if (approvedRedeemPackpts <= 0) {
       await db
@@ -436,6 +448,7 @@ class ProfitGuardrailService {
     return await db.transaction(async (tx) => {
       // Idempotency check inside the transaction to close the race window where two
       // concurrent requests could both pass an outer check and double-charge the user.
+      await tx.select({ id: wallets.id }).from(wallets).where(eq(wallets.userId, userId)).for("update");
       const [existingCredit] = await tx
         .select()
         .from(redemptionCredit)
@@ -448,6 +461,31 @@ class ProfitGuardrailService {
           creditCents: existingCredit.creditCents,
           redemptionCreditId: existingCredit.id,
           message: `Already reserved ${existingCredit.packptsSpent.toLocaleString()} PackPTS for $${(existingCredit.creditCents / 100).toFixed(2)} credit`,
+        };
+      }
+
+      const purchasedCap = await previewPurchasedRebate({
+        userId,
+        pointsToSpend: approvedRedeemPackpts,
+        centsPerPoint: policy.packptsValueVMicrousd / 10000,
+        maxCreditCents: creditCents,
+        executor: tx,
+      });
+      approvedRedeemPackpts = purchasedCap.pointsUsed;
+      creditCents = purchasedCap.creditCents;
+      if (approvedRedeemPackpts <= 0 || creditCents <= 0) {
+        await tx.update(externalPurchaseIntent).set({
+          status: "DENIED",
+          requestedRedeemPackpts,
+          approvedRedeemPackpts: 0,
+          updatedAt: new Date(),
+        }).where(eq(externalPurchaseIntent.id, purchaseIntentId));
+        return {
+          success: false,
+          approvedRedeemPackpts: 0,
+          creditCents: 0,
+          redemptionCreditId: "",
+          message: "No redemption allowed for this purchase",
         };
       }
 
@@ -478,6 +516,12 @@ class ProfitGuardrailService {
           userId,
           packptsSpent: approvedRedeemPackpts,
           creditCents,
+          userShareRate: USER_REBATE_SHARE,
+          capUses: {
+            purchaseUseCents: purchasedCap.purchaseUseCents,
+            unlinkedUseCents: purchasedCap.unlinkedUseCents,
+            purchasedRebateCents: purchasedCap.purchasedRebateCents,
+          },
           status: "PENDING",
           ledgerSpendEntryId: spendResult.ledgerEntry.id,
         })

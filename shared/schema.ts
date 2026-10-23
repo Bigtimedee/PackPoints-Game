@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, bigserial, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check, uuid } from "drizzle-orm/pg-core";
 import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "./maskRefusal";
+import type { BundleCapUses } from "./rebateEconomics";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2610,6 +2611,11 @@ export const redemptionCredit = pgTable("redemption_credit", {
   userId: varchar("user_id").notNull().references(() => users.id),
   packptsSpent: integer("packpts_spent").notNull(),
   creditCents: integer("credit_cents").notNull(),
+  // Fraction of the confirmed EPN commission this rebate pays the user.
+  // Default 1 backfills rows created before the 70/30 split. New inserts set 0.70.
+  userShareRate: real("user_share_rate").notNull().default(1),
+  // Null on rebates created before the bundle cap. Those keep their current credit.
+  capUses: jsonb("cap_uses").$type<BundleCapUses>(),
   status: redemptionCreditStatusEnum("status").notNull().default("PENDING"),
   grantMethod: text("grant_method"),
   grantedAt: timestamp("granted_at"),
@@ -3236,6 +3242,8 @@ export const storePurchases = pgTable("store_purchases", {
   status: storePurchaseStatusEnum("status").notNull().default("CREATED"),
   ptsGrant: integer("pts_grant").notNull(),
   priceCents: integer("price_cents").notNull(),
+  // Rebate value the points from this purchase can fund. 25% of priceCents.
+  redeemableCapCents: integer("redeemable_cap_cents").notNull().default(0),
   productSku: text("product_sku"),
   settledAt: timestamp("settled_at"),
   createdAt: timestamp("created_at").defaultNow(),

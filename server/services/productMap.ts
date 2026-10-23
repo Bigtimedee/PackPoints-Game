@@ -42,7 +42,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "com.packpoints.packpts15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "1,592 PackPTS",
+      displayName: "567 PackPTS",
       type: "CONSUMABLE",
     },
     "com.packpoints.pro_monthly": {
@@ -74,7 +74,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "packpts_15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "1,592 PackPTS",
+      displayName: "567 PackPTS",
       type: "CONSUMABLE",
     },
     "pro_monthly": {
@@ -96,12 +96,12 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "com.packpoints.packpts_monthly_2000": {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "com.packpoints.packpts_monthly_5000": {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "packpts_monthly_500": {
@@ -111,12 +111,12 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "packpts_monthly_2000": {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "packpts_monthly_5000": {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
 
@@ -138,7 +138,7 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "price_packpts_15000": {
       internalSku: "PACKPTS_15000",
-      displayName: "1,592 PackPTS",
+      displayName: "567 PackPTS",
       type: "CONSUMABLE",
     },
     "price_pro_monthly": {
@@ -160,12 +160,12 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
     },
     "price_packpts_monthly_2000": {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
     "price_packpts_monthly_5000": {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     },
   };
@@ -218,14 +218,14 @@ function buildStoreProductMap(): Record<string, ProductMapping> {
   if (STRIPE_PRICE_PACKPTS_MONTHLY_2000) {
     map[STRIPE_PRICE_PACKPTS_MONTHLY_2000] = {
       internalSku: "PACKPTS_MONTHLY_2000",
-      displayName: "Collector Pack (2,000 PackPTS/month)",
+      displayName: "Collector Pack (1,782 PackPTS/month)",
       type: "SUBSCRIPTION",
     };
   }
   if (STRIPE_PRICE_PACKPTS_MONTHLY_5000) {
     map[STRIPE_PRICE_PACKPTS_MONTHLY_5000] = {
       internalSku: "PACKPTS_MONTHLY_5000",
-      displayName: "Legend Pack (5,000 PackPTS/month)",
+      displayName: "Legend Pack (3,602 PackPTS/month)",
       type: "SUBSCRIPTION",
     };
   }
@@ -288,11 +288,10 @@ export function getStoreProductIds(internalSku: string): string[] {
     .map(([storeId]) => storeId);
 }
 
-// Internal SKU definitions with PackPTS amounts
-// Grants are the largest that pass the package guardrail (store_package_policy
-// minMarginRate 30%, Stripe web 2.9% + 30c, 0.2c redeemable value per point):
-// redeemable value <= (price - fees) x (1 - margin). SKU ids are legacy names
-// kept so in-flight checkouts and receipts still resolve.
+// Internal SKU definitions with PackPTS amounts.
+// Grants stay at the live counts. The rebate value of each purchase is capped
+// at 25% of the price paid (shared/rebateEconomics.ts), not by shrinking the grant.
+// SKU ids are legacy names kept so in-flight checkouts and receipts still resolve.
 export const PRODUCT_DEFINITIONS = {
   PACKPTS_15000: {
     name: "Starter Pack",

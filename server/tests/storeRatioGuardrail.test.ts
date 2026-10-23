@@ -31,7 +31,8 @@ describe("store ratio: every SKU passes the enforced package guardrail", () => {
     expect(evalSku(1499, 45000).d).toBe("BLOCK");
     expect(evalSku(2499, 80000).d).toBe("BLOCK");
   });
-  it("new grants", () => {
+  it("live grants stay on sale", () => {
     expect([PRODUCT_DEFINITIONS.PACKPTS_15000.packptsGrant, PRODUCT_DEFINITIONS.PACKPTS_45000.packptsGrant, PRODUCT_DEFINITIONS.PACKPTS_80000.packptsGrant]).toEqual([1592, 4992, 8387]);
+    expect([PRODUCT_DEFINITIONS.PACKPTS_MONTHLY_500.packptsGrant, PRODUCT_DEFINITIONS.PACKPTS_MONTHLY_2000.packptsGrant, PRODUCT_DEFINITIONS.PACKPTS_MONTHLY_5000.packptsGrant]).toEqual([500, 2000, 5000]);
   });
 });

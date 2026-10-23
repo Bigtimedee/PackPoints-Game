@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { upToBackLabel } from "@/lib/pointsCopy";
+import { PACKPTS_KEEP_SHARE_LABEL, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -354,6 +355,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
     quoteMutation.mutate();
   };
 
+  // selectedAmount is capped at USER_REBATE_SHARE of the commission estimate, so this dollar is already 70%.
   const creditAmount = quote ? (selectedAmount * (quote.policySummary.packptsValueUsd || 0.002)).toFixed(2) : "0.00";
 
   return (
@@ -517,7 +519,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <DialogHeader>
             <DialogTitle>Reserve PackPTS for cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. After you buy via our tracked link, PackPTS pays you back the cashback shown below. PackPTS earns a commission on eBay purchases through our links.
+              {platformName} checkout stays full price. After you buy via our tracked link, PackPTS pays you back {USER_REBATE_SHARE_LABEL} of the commission eBay confirms, up to the cashback shown below. PackPTS keeps the other {PACKPTS_KEEP_SHARE_LABEL}. PackPTS earns a commission on eBay purchases through our links.
             </DialogDescription>
           </DialogHeader>
           
@@ -554,7 +556,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
                 About ${creditAmount} back
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Not a coupon on {platformName}. You pay full price there. Your rebate equals the commission eBay confirms on the sale.
+                Not a coupon on {platformName}. You pay full price there. Your rebate is {USER_REBATE_SHARE_LABEL} of the commission eBay confirms on the sale, up to the value of the points you applied. PackPTS keeps the other {PACKPTS_KEEP_SHARE_LABEL}.
               </p>
             </div>
             
@@ -596,7 +598,7 @@ function LiveListingCard({ listing, userBalance = 0, isAuthenticated = false, on
           <DialogHeader>
             <DialogTitle>Buy on {platformName} to earn cashback</DialogTitle>
             <DialogDescription>
-              {platformName} checkout stays full price. Your rebate is about ${(appliedCreditCents / 100).toFixed(2)}, the commission eBay confirms on the sale.
+              {platformName} checkout stays full price. Your rebate is about ${(appliedCreditCents / 100).toFixed(2)}. That amount is {USER_REBATE_SHARE_LABEL} of the commission eBay confirms on the sale, up to the points you applied. PackPTS keeps the other {PACKPTS_KEEP_SHARE_LABEL}.
             </DialogDescription>
           </DialogHeader>
           <ol className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground">

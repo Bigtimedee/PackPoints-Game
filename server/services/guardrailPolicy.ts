@@ -2,6 +2,7 @@
  * Pure guardrail helpers (no DB) shared by the profit guardrail, treasury and
  * store services so they can be unit-tested and so the numbers have one home.
  */
+import { userRebateCents, USER_REBATE_SHARE } from "@shared/rebateEconomics";
 
 /**
  * Hard minimum for the reserve floor, in cents. Redemptions pause whenever the
@@ -38,11 +39,12 @@ export interface CreditCeilings {
 }
 
 /**
- * eBay rebate = 100% of the confirmed EPN commission (Dave, Oct 12 2026).
- * Pre-purchase ceiling = MIN(commission estimate, per-user daily, per-user
- * weekly), and 0 when the reserve floor trips. The old affiliate formula,
- * haircut and margin min() no longer apply to eBay sale credits. The final
- * grant is the postback commission_cents, never more than was applied.
+ * eBay rebate = USER_REBATE_SHARE of the confirmed EPN commission (70%).
+ * PackPTS keeps the rest. Pre-purchase ceiling = MIN(that share of the
+ * commission estimate, per-user daily, per-user weekly), and 0 when the
+ * reserve floor trips. The final grant is the postback commission times the
+ * rate stored on the rebate row, never more than was applied. Rows created
+ * before the split store 1 and still pay the full commission.
  */
 export function computeCreditCeilingCents(c: CreditCeilings): number {
   if (!c.reserveHealthy) return 0;
@@ -69,17 +71,19 @@ export function estimateCommissionCents(priceCents: number, rate: number = tradi
 }
 
 /**
- * Final eBay credit from a postback: the confirmed commission, capped at the
- * credit the user applied (points are the currency). Points beyond what the
- * final credit needs are refunded.
+ * Final eBay credit from a postback: the user's share of the confirmed
+ * commission, capped at the credit the user applied. shareRate is the rate
+ * stored on the rebate row (1 for rows created before the split, 0.70 after).
+ * Points beyond what the final credit needs are refunded.
  */
 export function commissionGrant(
   appliedCreditCents: number,
   packptsSpent: number,
   commissionCents: number,
   centsPerPoint: number,
+  shareRate: number = USER_REBATE_SHARE,
 ): { creditCents: number; keptPackpts: number; refundPackpts: number } {
-  const credit = Math.max(0, Math.min(appliedCreditCents, Math.floor(commissionCents)));
+  const credit = Math.max(0, Math.min(appliedCreditCents, userRebateCents(commissionCents, shareRate)));
   if (credit >= appliedCreditCents) return { creditCents: appliedCreditCents, keptPackpts: packptsSpent, refundPackpts: 0 };
   const kept = Math.min(packptsSpent, centsPerPoint > 0 ? Math.ceil(credit / centsPerPoint) : packptsSpent);
   return { creditCents: credit, keptPackpts: kept, refundPackpts: packptsSpent - kept };

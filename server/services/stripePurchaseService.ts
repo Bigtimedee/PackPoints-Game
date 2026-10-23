@@ -8,6 +8,7 @@ import { getInternalSku, PRODUCT_DEFINITIONS, PACKPTS_BUNDLE_SKUS, type Internal
 import { analyticsService } from "./analyticsService";
 import { getStripeClient, isStripeConfiguredSync, isStripeConfiguredAsync, getWebhookSecret, getStripeMode } from "../stripeClient";
 import { marginLedgerService } from "./marginLedgerService";
+import { grantBundlePoints, markBundlePurchasesRefunded } from "./purchasedRebateCap";
 import { getInvoiceSubscriptionId, getInvoiceSubscriptionMetadata, getInvoiceLinePriceId, getSubscriptionPeriodEnd } from "./stripeCompat";
 
 export function isStripeConfigured(): boolean {
@@ -175,23 +176,24 @@ class StripePurchaseService {
           const amount = productDef.packptsGrant * quantity;
           if (amount <= 0) continue;
 
-          const { applyLedgerEntry } = await import("./packpts/ledgerService");
-          const result = await applyLedgerEntry({
+          const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
+          const result = await grantBundlePoints({
             userId,
-            direction: "credit",
-            amountPackpts: amount,
-            source: "purchase",
+            points: amount,
+            priceCents,
+            sku: internalSku,
+            productName: productDef.name,
             eventType: "stripe_checkout_completed",
             refType: "stripe_session",
             refId: stripeSessionId,
             idempotencyKey: `stripe:${stripeSessionId}:${priceId}`,
-            metadata: { stripeSessionId, priceId, quantity, sku: internalSku, productName: productDef.name },
+            stripeSessionId,
+            metadata: { stripeSessionId, priceId, quantity },
           });
 
           if (result.success && !result.idempotent) {
             totalPackPts += amount;
 
-            const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
             if (priceCents > 0) {
               try {
                 await marginLedgerService.recordPackPtsPurchaseMargin({
@@ -464,17 +466,19 @@ class StripePurchaseService {
           console.warn(`Invalid amount ${amount} for product: ${productDef.name}`);
           continue;
         }
-        const { applyLedgerEntry } = await import("./packpts/ledgerService");
-        const result = await applyLedgerEntry({
+        const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
+        const result = await grantBundlePoints({
           userId,
-          direction: "credit",
-          amountPackpts: amount,
-          source: "purchase",
+          points: amount,
+          priceCents,
+          sku: internalSku,
+          productName: productDef.name,
           eventType: "stripe_checkout_completed",
           refType: "stripe_session",
           refId: session.id,
           idempotencyKey: `stripe:${session.id}:${priceId}`,
-          metadata: { stripeEventId: event.id, priceId, quantity, sku: internalSku, productName: productDef.name },
+          stripeSessionId: session.id,
+          metadata: { stripeEventId: event.id, priceId, quantity },
         });
 
         if (!result.success) {
@@ -486,8 +490,7 @@ class StripePurchaseService {
 
         if (!result.idempotent) {
           totalPackPts += amount;
-          
-          const priceCents = "priceUsd" in productDef ? productDef.priceUsd * quantity : 0;
+
           if (priceCents > 0) {
             try {
               await marginLedgerService.recordPackPtsPurchaseMargin({
@@ -635,23 +638,24 @@ class StripePurchaseService {
     // Check if this is a PackPTS subscription (grants points) vs entitlement subscription (grants access)
     if ("packptsGrant" in productDef && productDef.packptsGrant > 0) {
       const idempotencyKey = `stripe:sub:${event.id}:${priceId}`;
-      const { applyLedgerEntry } = await import("./packpts/ledgerService");
-      const result = await applyLedgerEntry({
+      const priceCents = "priceUsd" in productDef ? productDef.priceUsd : 0;
+      const result = await grantBundlePoints({
         userId,
-        direction: "credit",
-        amountPackpts: productDef.packptsGrant,
-        source: "purchase",
+        points: productDef.packptsGrant,
+        priceCents,
+        sku: internalSku || "",
+        productName: productDef.name,
         eventType: "stripe_subscription_paid",
         refType: "stripe_subscription",
         refId: subscriptionId,
         idempotencyKey,
-        metadata: { stripeEventId: event.id, subscriptionId, priceId, sku: internalSku, productName: productDef.name },
+        stripePaymentIntentId: event.id,
+        metadata: { stripeEventId: event.id, subscriptionId, priceId },
       });
 
       if (result.success && !result.idempotent) {
         packptsGranted = productDef.packptsGrant;
-        
-        const priceCents = "priceUsd" in productDef ? productDef.priceUsd : 0;
+
         if (priceCents > 0) {
           try {
             await marginLedgerService.recordPackPtsPurchaseMargin({
@@ -973,6 +977,7 @@ class StripePurchaseService {
 
         if (sessions.data.length > 0) {
           const session = sessions.data[0];
+          await markBundlePurchasesRefunded(session.id);
           const lineItems = await this.getSessionLineItems(session.id);
 
           if (lineItems) {
@@ -1107,6 +1112,7 @@ class StripePurchaseService {
 
         if (sessions.data.length > 0) {
           const session = sessions.data[0];
+          await markBundlePurchasesRefunded(session.id);
           const lineItems = await this.getSessionLineItems(session.id);
 
           if (lineItems) {

@@ -1,5 +1,8 @@
 // Points clarity copy deck (Design, 2026-10-11). Strings are final. No em or en dashes.
 // Every cash-back line is gated on rebateLive from GET /api/points/value.
+import { maxBundleRedeemableCents, PACKPTS_KEEP_SHARE_LABEL, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
+
+const REBATE_SPLIT = `Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission eBay confirms. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`;
 
 export interface PointsExpiry {
   earnedDays: number | null;
@@ -62,8 +65,8 @@ export function pageSteps(live: boolean, holdDays?: number, payoutMin?: string) 
       ? { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." }
       : { title: "Apply on a real card", body: "Pick a live eBay listing in Marketplace and apply your points. Buy at the normal price." },
     live
-      ? { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. It's held ${days} days, then you can cash out from ${min}.` }
-      : { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. It's held ${days} days, then you can cash out from ${min}.` },
+      ? { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. ${REBATE_SPLIT} It's held ${days} days, then you can cash out from ${min}.` }
+      : { title: "Get your rebate", body: `When eBay confirms the sale, your rebate lands in your wallet. ${REBATE_SPLIT} It's held ${days} days, then you can cash out from ${min}.` },
   ];
 }
 
@@ -96,9 +99,9 @@ export function checkoutAnswer(live: boolean): string {
 }
 
 export function addingAnswer(live: boolean, expiry: PointsExpiry | null): string {
-  if (live) return "Your points count toward a rebate on your next card, up to the limit for that purchase.";
+  void live;
   void expiry;
-  return "Your points count toward a rebate on your next card, up to the limit for that purchase.";
+  return `Your points count toward a rebate on your next card. The rebate is ${USER_REBATE_SHARE_LABEL} of the commission eBay confirms, up to the limit for that purchase. Daily and weekly caps still apply.`;
 }
 
 /** Cash-out FAQ. Live only; both values come from /api/points/value. Null hides the question. */
@@ -113,20 +116,26 @@ export function cashOutAnswer(value: PointsValue | undefined): string | null {
 export const WALLET = {
   title: "Your points",
   balance: (points: number) => `${points.toLocaleString("en-US")} points`,
-  live: (usd: string) => `Worth up to ${usd} back on eligible eBay cards.`,
+  live: (usd: string) => `Worth up to ${usd} back on eligible eBay cards. Rebates pay ${USER_REBATE_SHARE_LABEL} of the eBay commission, up to this amount, the daily cap and the weekly cap.`,
   soon: "Use your points for cash back on real cards.",
   expiring: (n: number) => `${n.toLocaleString("en-US")} points expire in the next 30 days.`,
   link: "How points work",
   close: "Close",
 };
 
-/** Store package line. The "never expire" clause only shows when the live policy says so. */
+/** Dollar cap for the points a bundle grants: 25% of the price paid. */
+export function bundleRebateCapUsd(priceCents: number): string {
+  return formatUsd(maxBundleRedeemableCents(priceCents));
+}
+
+/** Store package line. The cap is 25% of the price, not the face value of the points. */
 export function storeLine(usd: string | null, expiry: PointsExpiry | null, loaded: boolean): string {
-  if (usd) return `Adds up to ${usd} to your next rebate.`;
+  const split = `Rebates pay ${USER_REBATE_SHARE_LABEL} of the eBay commission, up to the points you apply, the daily cap and the weekly cap.`;
+  if (usd) return `Points from this purchase can add up to ${usd} toward a rebate. ${split}`;
   const never = loaded && (!expiry || expiry.purchasedDays == null);
   return never
-    ? "Use points for cash back on real cards. Bought points never expire."
-    : "Use points for cash back on real cards.";
+    ? `Use points for cash back on real cards. Bought points never expire. ${split}`
+    : `Use points for cash back on real cards. ${split}`;
 }
 
 /** Hold and payout line. Values come live from /api/points/value. Null until loaded. */
@@ -135,7 +144,11 @@ export function holdLine(value: PointsValue | undefined): string | null {
   return `Rebates are held ${value.holdDays} days, then you can cash out from ${value.payoutMinimum.display}. Payouts are reviewed before they're sent.`;
 }
 
-/** Listing badge: estimated rebate (price x trading card commission rate). Hidden under 25 cents. */
+/**
+ * Listing badge. maxCreditCents is already USER_REBATE_SHARE (70%) of the
+ * commission estimate: the quote ceiling calls userRebateCents before the
+ * daily, weekly and balance caps. Hidden under 25 cents. Do not multiply again.
+ */
 export const UP_TO_BACK_MIN_CENTS = 25;
 export function upToBackLabel(maxCreditCents: number | null | undefined): string | null {
   if (typeof maxCreditCents !== "number" || !Number.isFinite(maxCreditCents) || maxCreditCents < UP_TO_BACK_MIN_CENTS) return null;

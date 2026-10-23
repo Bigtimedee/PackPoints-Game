@@ -14,6 +14,7 @@ import { profitGuardrailService } from "../services/profitGuardrailService";
 import { rebateService } from "../services/rebateService";
 import { applyEpnTracking, generateEpnCustomId, logOutboundClick } from "../services/marketplace/outbound";
 import { registerVerifiedEpnPostback } from "../routes/epnPostback";
+import { userRebateCents } from "@shared/rebateEconomics";
 
 /**
  * End-to-end rebate path through the real code: earned vs bought points, quote with
@@ -110,18 +111,18 @@ describe("rebate path end to end", () => {
     await walletService.earn(userId, 2_000, "e2e play", `e2e-earn-${suffix}`);
     const { q, a } = await quoteAndApply(`earned-${suffix}`, 10_000, 5_000);
     expect(a.success).toBe(true);
-    expect(a.creditCents).toBe(200); // TRADING_CARD_COMMISSION_RATE default 2% of $100, no haircut
-    expect(q.marginBackedCreditCentsMax).toBe(200);
+    expect(a.creditCents).toBe(userRebateCents(200)); // 70% of the 2% estimate on $100
+    expect(q.marginBackedCreditCentsMax).toBe(userRebateCents(200));
   });
 
   it("a $2 purchase earns whole PackPTS credit (no 500-point minimum)", async () => {
     const q = await profitGuardrailService.createQuote(userId, "ebay", `two-${suffix}`, `https://www.ebay.com/itm/two-${suffix}`, 200, "usd", "e2e $2 card");
-    expect(q.marginBackedRmax).toBe(20); // 2% of $2 = 4c -> 20 whole PackPTS at 0.2c
-    expect(q.marginBackedCreditCentsMax).toBe(4);
+    expect(q.marginBackedRmax).toBe(10); // 70% of 2% of $2 = 2c -> 10 whole PackPTS at 0.2c
+    expect(q.marginBackedCreditCentsMax).toBe(2);
     const a = await profitGuardrailService.applyRedemption(userId, q.purchaseIntentId, 20);
     expect(a.success).toBe(true);
-    expect(a.approvedRedeemPackpts).toBe(20);
-    expect(a.creditCents).toBe(4);
+    expect(a.approvedRedeemPackpts).toBe(10);
+    expect(a.creditCents).toBe(2);
   });
 
   it("tracked link carries the customid that is stored, and a signed postback credits the user", async () => {
@@ -135,7 +136,7 @@ describe("rebate path end to end", () => {
     const res = await fetch(`${base}?${qs}`, { headers: { "x-epn-postback-secret": SECRET } });
     expect(res.status).toBe(200);
     const after = (await walletService.getWallet(userId))!.rebateBalanceCents;
-    expect(after).toBe(before + 150); // rebate = confirmed commission
+    expect(after).toBe(before + userRebateCents(150)); // 70% of the confirmed commission, under the applied cap
     // replay of the same transaction never double-credits (query-param secret also accepted)
     expect((await fetch(`${base}?${qs}&secret=${SECRET}`)).status).toBe(200);
     expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(after);

@@ -14,16 +14,18 @@ import {
   PAYOUT_HOLD_DAYS,
   PAYOUT_LOCKED_MIN_HOLD_DAYS,
 } from "../services/guardrailPolicy";
+import { LEGACY_REBATE_SHARE, userRebateCents, USER_REBATE_SHARE } from "@shared/rebateEconomics";
+import { upToBackLabel } from "../../client/src/lib/pointsCopy";
 import { profitGuardrailService } from "../services/profitGuardrailService";
 
 const base = {
   reserveHealthy: true,
-  commissionEstimateCents: 200, // 2% of $100
+  commissionEstimateCents: 200, // caller already applied the user share
   dailyRemainingCents: 2500,
   weeklyRemainingCents: 10000,
 };
 
-describe("eBay rebate = commission (estimate before purchase)", () => {
+describe("eBay rebate share (estimate before purchase)", () => {
   it("ceiling is the commission estimate when caps are generous", () => {
     expect(computeCreditCeilingCents(base)).toBe(200);
   });
@@ -43,10 +45,27 @@ describe("eBay rebate = commission (estimate before purchase)", () => {
     expect(estimateCommissionCents(2500, 0.02)).toBe(50);
     expect(estimateCommissionCents(10000, 0.045)).toBe(450);
   });
-  it("grant = confirmed commission, capped at applied credit, extra points refunded", () => {
-    expect(commissionGrant(100, 500, 100, 0.2)).toEqual({ creditCents: 100, keptPackpts: 500, refundPackpts: 0 });
+  it("grant = 70% of confirmed commission, capped at applied credit, extra points refunded", () => {
+    expect(USER_REBATE_SHARE).toBe(0.7);
+    expect(userRebateCents(100)).toBe(70);
+    expect(userRebateCents(250)).toBe(175);
+    expect(userRebateCents(61)).toBe(42);
+    expect(commissionGrant(100, 500, 100, 0.2)).toEqual({ creditCents: 70, keptPackpts: 350, refundPackpts: 150 });
     expect(commissionGrant(100, 500, 250, 0.2)).toEqual({ creditCents: 100, keptPackpts: 500, refundPackpts: 0 });
-    expect(commissionGrant(100, 500, 61, 0.2)).toEqual({ creditCents: 61, keptPackpts: 305, refundPackpts: 195 });
+    expect(commissionGrant(100, 500, 61, 0.2)).toEqual({ creditCents: 42, keptPackpts: 210, refundPackpts: 290 });
+  });
+  it("the About $X back badge shows 70% of the commission estimate", () => {
+    const gross = estimateCommissionCents(10_000);
+    const shown = userRebateCents(gross);
+    expect(gross).toBe(200);
+    expect(shown).toBe(140);
+    expect(upToBackLabel(shown)).toBe("About $1.40 back");
+  });
+  it("a row stored at 1.0 still pays 100% of the commission", () => {
+    expect(LEGACY_REBATE_SHARE).toBe(1);
+    expect(userRebateCents(100, LEGACY_REBATE_SHARE)).toBe(100);
+    expect(commissionGrant(100, 500, 100, 0.2, LEGACY_REBATE_SHARE)).toEqual({ creditCents: 100, keptPackpts: 500, refundPackpts: 0 });
+    expect(commissionGrant(100, 500, 61, 0.2, LEGACY_REBATE_SHARE)).toEqual({ creditCents: 61, keptPackpts: 305, refundPackpts: 195 });
   });
   it("hold is 60 days; a locked sale releases at 45, never earlier", () => {
     expect(PAYOUT_HOLD_DAYS).toBe(60);

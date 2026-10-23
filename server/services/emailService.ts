@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { withUtm } from "@shared/utm";
+import { LEGACY_REBATE_SHARE_BPS, PACKPTS_KEEP_SHARE_LABEL, shareBps, USER_REBATE_SHARE, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
 
 /** User-visible brand on every outbound email. */
 export const BRAND_NAME = "PackPTS";
@@ -340,6 +341,15 @@ export async function sendMakerDigestEmail(
   return sendEmail({ to: email, subject: `Your set "${setName}" got played today`, html, text });
 }
 
+/** Receipt line. New rebates say 70/30. A row stored at 1 says 100%. */
+export function rebateReceiptSplit(shareRate?: number): string {
+  const bps = shareBps(shareRate ?? USER_REBATE_SHARE);
+  if (bps >= LEGACY_REBATE_SHARE_BPS) {
+    return "Your rebate is 100% of the commission confirmed for this purchase.";
+  }
+  return `Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission confirmed for this purchase. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`;
+}
+
 export async function sendRebateReceiptEmail(
   email: string,
   username: string,
@@ -350,6 +360,7 @@ export async function sendRebateReceiptEmail(
     creditCents: number;
     receiptUrl: string;
     method: string;
+    userShareRate?: number;
   },
 ): Promise<boolean> {
   const dollars = (details.creditCents / 100).toFixed(2);
@@ -373,7 +384,9 @@ export async function sendRebateReceiptEmail(
             Status: GRANTED
           </p>
           <p style="font-size:13px;color:#52525b;">
+            ${rebateReceiptSplit(details.userShareRate)}
             ${sourceName} charged the full listing price. This cashback is paid by PackPTS, not as a ${sourceName} coupon.
+            Rebates are capped per day and per week.
           </p>
           <a href="${details.receiptUrl}" style="display:inline-block;background:#18181b;color:#FFD700;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">
             View receipt
@@ -387,6 +400,7 @@ export async function sendRebateReceiptEmail(
     `PackPTS cashback receipt`,
     `Granted $${dollars} after your ${sourceName} purchase of ${listing}.`,
     `PackPTS spent: ${details.packptsSpent}`,
+    rebateReceiptSplit(details.userShareRate),
     `${sourceName} charged full price. PackPTS paid this cashback.`,
     details.receiptUrl,
   ].join("\n");

@@ -1,4 +1,5 @@
 import { estimateCommissionCents } from "./guardrailPolicy";
+import { USER_REBATE_SHARE, userRebateCents } from "@shared/rebateEconomics";
 import { db } from "../db";
 import {
   marginLedger,
@@ -215,10 +216,10 @@ class TreasuryService {
     // Get transaction margin for this purchase
     const txMargin = await this.computeTransactionMargin(source, priceCents);
 
-    // eBay: the confirmed commission funds the rebate, so the cap is the
-    // commission estimate (price x TRADING_CARD_COMMISSION_RATE), not the pool.
+    // eBay: the user's share of the commission funds the rebate, so the cap is
+    // USER_REBATE_SHARE of the commission estimate, not the pool.
     const allowedCapCents = source === "ebay"
-      ? estimateCommissionCents(priceCents)
+      ? userRebateCents(estimateCommissionCents(priceCents), USER_REBATE_SHARE)
       : treasury.availableMarginPoolCents + txMargin.transactionMarginCents;
 
     // Clamp to user balance first

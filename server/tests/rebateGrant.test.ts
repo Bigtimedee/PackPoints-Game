@@ -287,17 +287,19 @@ describe("marketplace cashback grant", () => {
     expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before + q.applied.creditCents);
   });
 
-  it("commission below the applied credit: credit = confirmed commission, extra PackPTS refunded, full audit trail", async () => {
+  it("commission below the applied credit: credit = 70% of confirmed commission, extra PackPTS refunded, full audit trail", async () => {
     const q = await applyEbay(`chg-${suffix}`, 10_000, 500);
     const w0 = await walletService.getWallet(userId);
     const r = await processEpnPostback({ customid: q.customid, item_id: `chg-${suffix}`, transaction_id: `c-${suffix}`, sale_price: "50.00", commission: "0.50" });
     expect(r.grants).toHaveLength(1);
     expect(r.grants[0].granted).toBe(true);
 
-    const expectedCredit = 50;
+    const { userRebateCents, shareBps, USER_REBATE_SHARE_BPS } = await import("@shared/rebateEconomics");
+    const expectedCredit = userRebateCents(50);
     const [credit] = await db.select().from(redemptionCredit).where(eq(redemptionCredit.purchaseIntentId, q.quote.purchaseIntentId));
+    expect(shareBps(credit.userShareRate)).toBe(USER_REBATE_SHARE_BPS);
     expect(credit.creditCents).toBe(expectedCredit);
-    const kept = Math.ceil(50 / (q.applied.creditCents / q.applied.approvedRedeemPackpts));
+    const kept = Math.ceil(expectedCredit / (q.applied.creditCents / q.applied.approvedRedeemPackpts));
     expect(credit.packptsSpent).toBe(kept);
     const w1 = await walletService.getWallet(userId);
     expect(w1!.rebateBalanceCents).toBe(w0!.rebateBalanceCents + expectedCredit);
@@ -319,6 +321,21 @@ describe("marketplace cashback grant", () => {
     expect(granted.amountCents).toBe(expectedCredit);
     expect((granted.details as any).reportedTotalCents).toBe(5000);
     expect((granted.details as any).appliedPriceCents).toBe(10_000);
+  });
+
+  it("a rebate created at share 1.0 keeps 100% of the commission after the split", async () => {
+    const q = await applyEbay(`legacy-${suffix}`, 10_000, 500);
+    const [created] = await db.select().from(redemptionCredit).where(eq(redemptionCredit.purchaseIntentId, q.quote.purchaseIntentId));
+    await db.update(redemptionCredit).set({ userShareRate: 1 }).where(eq(redemptionCredit.id, created.id));
+    const before = (await walletService.getWallet(userId))!.rebateBalanceCents;
+    const r = await processEpnPostback({
+      customid: q.customid, item_id: `legacy-${suffix}`, transaction_id: `leg-${suffix}`, sale_price: "50.00", commission: "0.50",
+    });
+    expect(r.grants).toHaveLength(1);
+    expect(r.grants[0].granted).toBe(true);
+    const [credit] = await db.select().from(redemptionCredit).where(eq(redemptionCredit.id, created.id));
+    expect(credit.creditCents).toBe(50);
+    expect((await walletService.getWallet(userId))!.rebateBalanceCents).toBe(before + 50);
   });
 
   it("listReceipts includes CREATED intents as PENDING chip receipts", async () => {
