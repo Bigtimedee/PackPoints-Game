@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, pgEnum, bigserial, text, varchar, integer, boolean, timestamp, index, uniqueIndex, unique, jsonb, real, date, primaryKey, customType, serial, numeric, check, uuid } from "drizzle-orm/pg-core";
 import type { MaskPlateBox, MaskRefusalCandidate, MaskRefusalOcrBox } from "./maskRefusal";
+import type { BundleCapUses } from "./rebateEconomics";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2613,6 +2614,8 @@ export const redemptionCredit = pgTable("redemption_credit", {
   // Fraction of the confirmed EPN commission this rebate pays the user.
   // Default 1 backfills rows created before the 70/30 split. New inserts set 0.70.
   userShareRate: real("user_share_rate").notNull().default(1),
+  // Null on rebates created before the bundle cap. Those keep their current credit.
+  capUses: jsonb("cap_uses").$type<BundleCapUses>(),
   status: redemptionCreditStatusEnum("status").notNull().default("PENDING"),
   grantMethod: text("grant_method"),
   grantedAt: timestamp("granted_at"),
@@ -3090,7 +3093,7 @@ export type StoreFeeProfile = typeof storeFeeProfiles.$inferSelect;
 // Store Package Policy - global policy settings for package validation
 export const storePackagePolicy = pgTable("store_package_policy", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  minMarginRate: real("min_margin_rate").notNull().default(0.75), // 75% minimum gross margin
+  minMarginRate: real("min_margin_rate").notNull().default(0.30), // 30% minimum gross margin
   warnMarginBand: real("warn_margin_band").notNull().default(0.05), // warn if within 5% of min
   maxValuePerPtMicrousd: integer("max_value_per_pt_microusd").notNull().default(2000), // 0.002 USD/pt in micro-USD
   allowOverride: boolean("allow_override").notNull().default(false),
@@ -3239,6 +3242,8 @@ export const storePurchases = pgTable("store_purchases", {
   status: storePurchaseStatusEnum("status").notNull().default("CREATED"),
   ptsGrant: integer("pts_grant").notNull(),
   priceCents: integer("price_cents").notNull(),
+  // Rebate value the points from this purchase can fund. 25% of priceCents.
+  redeemableCapCents: integer("redeemable_cap_cents").notNull().default(0),
   productSku: text("product_sku"),
   settledAt: timestamp("settled_at"),
   createdAt: timestamp("created_at").defaultNow(),

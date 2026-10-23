@@ -1,6 +1,6 @@
 // Points clarity copy deck (Design, 2026-10-11). Strings are final. No em or en dashes.
 // Every cash-back line is gated on rebateLive from GET /api/points/value.
-import { PACKPTS_KEEP_SHARE_LABEL, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
+import { maxBundleRedeemableCents, PACKPTS_KEEP_SHARE_LABEL, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
 
 const REBATE_SPLIT = `Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission eBay confirms. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`;
 
@@ -123,10 +123,15 @@ export const WALLET = {
   close: "Close",
 };
 
-/** Store package line. The "never expire" clause only shows when the live policy says so. */
+/** Dollar cap for the points a bundle grants: 25% of the price paid. */
+export function bundleRebateCapUsd(priceCents: number): string {
+  return formatUsd(maxBundleRedeemableCents(priceCents));
+}
+
+/** Store package line. The cap is 25% of the price, not the face value of the points. */
 export function storeLine(usd: string | null, expiry: PointsExpiry | null, loaded: boolean): string {
   const split = `Rebates pay ${USER_REBATE_SHARE_LABEL} of the eBay commission, up to the points you apply, the daily cap and the weekly cap.`;
-  if (usd) return `Adds up to ${usd} to your next rebate. ${split}`;
+  if (usd) return `Points from this purchase can add up to ${usd} toward a rebate. ${split}`;
   const never = loaded && (!expiry || expiry.purchasedDays == null);
   return never
     ? `Use points for cash back on real cards. Bought points never expire. ${split}`

@@ -25,7 +25,7 @@ import {
   normalizePayoutDestination,
   payoutReviewFlags,
 } from "./guardrailPolicy";
-import { LEGACY_REBATE_SHARE } from "@shared/rebateEconomics";
+import { LEGACY_REBATE_SHARE, settleCapUses } from "@shared/rebateEconomics";
 import { sendRebateReceiptEmail } from "./emailService";
 import { buildReceiptPlaqueView, RECEIPT_LIST_STATUSES, type ReceiptPlaqueView } from "@shared/receiptContract";
 import { withUtm } from "@shared/utm";
@@ -494,7 +494,11 @@ class RebateService {
         });
         [credit] = await tx
           .update(redemptionCredit)
-          .set({ creditCents: final.creditCents, packptsSpent: final.keptPackpts })
+          .set({
+            creditCents: final.creditCents,
+            packptsSpent: final.keptPackpts,
+            capUses: settleCapUses(credit.capUses, final.creditCents) ?? undefined,
+          })
           .where(eq(redemptionCredit.id, credit.id))
           .returning();
         usedReservationCents = final.creditCents;

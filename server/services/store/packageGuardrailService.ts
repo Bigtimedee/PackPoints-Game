@@ -11,7 +11,6 @@ import {
   profitPolicy,
 } from "@shared/schema";
 import { syncedValuePerPtMicrousd } from "../guardrailPolicy";
-import { BUNDLE_MIN_MARGIN_RATE, maxBundleRedeemableCents } from "@shared/rebateEconomics";
 import { eq, and, desc, sql } from "drizzle-orm";
 
 export type SalesChannel = "web_stripe" | "ios_iap" | "android_iap";
@@ -84,15 +83,10 @@ class PackageGuardrailService {
     const policy = policies[0] || null;
     if (!policy) return null;
     // Single source of truth for value-per-point: the treasury/profit policy.
-    // The bundle margin floor cannot be configured below BUNDLE_MIN_MARGIN_RATE.
     const treasuryValue = await this.getTreasuryPointValueMicrousd();
-    return {
-      ...policy,
-      minMarginRate: Math.max(policy.minMarginRate, BUNDLE_MIN_MARGIN_RATE),
-      maxValuePerPtMicrousd: treasuryValue !== null
-        ? syncedValuePerPtMicrousd(policy.maxValuePerPtMicrousd, treasuryValue)
-        : policy.maxValuePerPtMicrousd,
-    };
+    return treasuryValue !== null
+      ? { ...policy, maxValuePerPtMicrousd: syncedValuePerPtMicrousd(policy.maxValuePerPtMicrousd, treasuryValue) }
+      : policy;
   }
 
   /** profit_policy.packptsValueVMicrousd of the active policy, or null. */
@@ -191,28 +185,19 @@ class PackageGuardrailService {
   ): { decision: PackageDecision; reasons: string[] } {
     const reasons: string[] = [];
     let decision: PackageDecision = "PASS";
-    const minMarginRate = Math.max(policy.minMarginRate, BUNDLE_MIN_MARGIN_RATE);
 
-    if (computed.grossMarginRate < minMarginRate) {
+    if (computed.grossMarginRate < policy.minMarginRate) {
       decision = "BLOCK";
       reasons.push(
-        `Gross margin ${(computed.grossMarginRate * 100).toFixed(1)}% is below minimum ${(minMarginRate * 100).toFixed(1)}%`
-      );
-    }
-
-    const redeemCapCents = maxBundleRedeemableCents(computed.priceCents);
-    if (computed.totalRedemptionCostCents > redeemCapCents) {
-      decision = "BLOCK";
-      reasons.push(
-        `Redeemable value ${computed.totalRedemptionCostCents}c exceeds ${(BUNDLE_MIN_MARGIN_RATE * 100).toFixed(0)}% margin cap of ${redeemCapCents}c (price x ${(1 - BUNDLE_MIN_MARGIN_RATE).toFixed(2)})`
+        `Gross margin ${(computed.grossMarginRate * 100).toFixed(1)}% is below minimum ${(policy.minMarginRate * 100).toFixed(1)}%`
       );
     }
 
     if (decision !== "BLOCK") {
-      if (computed.grossMarginRate < minMarginRate + policy.warnMarginBand) {
+      if (computed.grossMarginRate < policy.minMarginRate + policy.warnMarginBand) {
         if (decision === "PASS") decision = "WARN";
         reasons.push(
-          `Gross margin ${(computed.grossMarginRate * 100).toFixed(1)}% is within warning band of minimum (${((minMarginRate + policy.warnMarginBand) * 100).toFixed(1)}%)`
+          `Gross margin ${(computed.grossMarginRate * 100).toFixed(1)}% is within warning band of minimum (${((policy.minMarginRate + policy.warnMarginBand) * 100).toFixed(1)}%)`
         );
       }
 
@@ -489,7 +474,7 @@ class PackageGuardrailService {
     const [newPolicy] = await db
       .insert(storePackagePolicy)
       .values({
-        minMarginRate: Math.max(BUNDLE_MIN_MARGIN_RATE, updates.minMarginRate ?? currentPolicy?.minMarginRate ?? BUNDLE_MIN_MARGIN_RATE),
+        minMarginRate: updates.minMarginRate ?? currentPolicy?.minMarginRate ?? 0.30,
         warnMarginBand: updates.warnMarginBand ?? currentPolicy?.warnMarginBand ?? 0.05,
         maxValuePerPtMicrousd: (await this.getTreasuryPointValueMicrousd()) ?? updates.maxValuePerPtMicrousd ?? currentPolicy?.maxValuePerPtMicrousd ?? 2000,
         allowOverride: updates.allowOverride ?? currentPolicy?.allowOverride ?? false,
@@ -881,7 +866,7 @@ export async function seedPackageGuardrailConfig(): Promise<void> {
   if (existingPolicy.length === 0) {
     console.log("[PackageGuardrails] Creating default policy...");
     await db.insert(storePackagePolicy).values({
-      minMarginRate: BUNDLE_MIN_MARGIN_RATE,
+      minMarginRate: 0.30,
       warnMarginBand: 0.05,
       maxValuePerPtMicrousd: 2000,
       allowOverride: false,

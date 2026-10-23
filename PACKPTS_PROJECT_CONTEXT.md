@@ -522,7 +522,7 @@ The PackPTS Marketplace lets users browse live eBay (and curated Goldin) listing
 
 Users receive 70% of each confirmed eBay EPN commission (`USER_REBATE_SHARE` in `shared/rebateEconomics.ts`). PackPTS keeps 30%. The rate is stored on `redemption_credit.user_share_rate`. The column default is 1, so rows created before the deploy backfill at 100% and keep the full commission, including rebates that are still pending. New rows are written at 0.70. The 60-day hold, the $10 payout minimum, and the per-user daily and weekly caps are unchanged. Purchased points still count toward rebates.
 
-Point bundles must keep at least a 75% margin (`BUNDLE_MIN_MARGIN_RATE`). The redeemable value of a bundle's points is at most the bundle price times 0.25. `packageGuardrailService` blocks a sale below that floor even when a stored policy is lower. Grants in `PRODUCT_DEFINITIONS` are the largest that pass.
+Point bundles stay on sale at their current price and point count. The rebate value of the points each purchase grants is capped at 25% of the price paid (`maxBundleRedeemableCents` in `shared/rebateEconomics.ts`). That cap is stored on `store_purchases.redeemable_cap_cents`. Quote, apply, and grant enforce it. Purchased points still count toward rebates, up to the cap. If those points have no per-purchase lineage, the cap is the sum of 25% of the price of each paid bundle. Rebates already pending keep their current credit (`redemption_credit.cap_uses` null).
 
 ### How It Works
 1. User plays games → earns PackPTS → visits `/marketplace`.

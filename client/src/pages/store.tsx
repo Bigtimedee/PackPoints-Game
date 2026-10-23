@@ -1,5 +1,5 @@
 import { usePointsValue } from "@/hooks/use-points-value";
-import { storeLine } from "@/lib/pointsCopy";
+import { bundleRebateCapUsd, storeLine } from "@/lib/pointsCopy";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,7 +111,7 @@ function BundleCard({
             <span className="font-mono">{bundle.valuePerDollar.toLocaleString()} pts/$</span>
           </div>
         </div>
-        <PackageRebateLine id={bundle.sku} points={bundle.packptsGrant} />
+        <PackageRebateLine id={bundle.sku} priceCents={bundle.priceUsd} />
 
         <Button 
           className="w-full gap-2"
@@ -128,11 +128,11 @@ function BundleCard({
   );
 }
 
-function PackageRebateLine({ id, points }: { id: string; points: number }) {
-  const { value, loaded, rebateLive, usdFor } = usePointsValue();
+function PackageRebateLine({ id, priceCents }: { id: string; priceCents: number }) {
+  const { value, loaded, rebateLive } = usePointsValue();
   return (
     <p className="text-center text-xs text-muted-foreground" data-testid={`text-package-rebate-${id}`}>
-      {storeLine(rebateLive ? usdFor(points) : null, value.expiry, loaded)}
+      {storeLine(rebateLive ? bundleRebateCapUsd(priceCents) : null, value.expiry, loaded)}
     </p>
   );
 }
@@ -215,7 +215,7 @@ function SubscriptionCard({
             <span className="font-mono">{subscription.valuePerDollar.toLocaleString()} pts/$</span>
           </div>
         </div>
-        <PackageRebateLine id={subscription.sku} points={subscription.packptsGrant} />
+        <PackageRebateLine id={subscription.sku} priceCents={subscription.priceUsd} />
 
         <Button 
           className="w-full gap-2"

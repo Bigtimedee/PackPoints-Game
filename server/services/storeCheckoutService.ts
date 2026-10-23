@@ -82,8 +82,8 @@ class StoreCheckoutService {
 
   /**
    * Package guardrail, ENFORCED and fail closed: a bundle whose redeemable value
-   * exceeds price x 0.25, or whose margin is under 75%, is neither shown nor sold.
-   * If the guardrail can't be evaluated, nothing is shown.
+   * exceeds (price - fees) x (1 - minMarginRate) is neither shown nor sold. If the
+   * guardrail can't be evaluated, nothing is shown.
    */
   async onlyGuardrailPassing<T extends { sku: string; priceUsd: number; packptsGrant: number }>(list: T[]): Promise<T[]> {
     const { packageGuardrailService } = await import("./store/packageGuardrailService");
@@ -204,7 +204,7 @@ class StoreCheckoutService {
       return { success: false, error: "Invalid product configuration - missing price" };
     }
 
-    // Package guardrail ENFORCED, fail closed (75% margin, redeemable value <= price x 0.25).
+    // Package guardrail ENFORCED, fail closed (redeemable value <= net x (1 - margin)).
     try {
       const { packageGuardrailService } = await import("./store/packageGuardrailService");
       const evaluation = await packageGuardrailService.evaluatePackage(priceUsd, packptsGrant, "web_stripe");

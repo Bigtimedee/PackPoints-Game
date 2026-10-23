@@ -288,31 +288,29 @@ export function getStoreProductIds(internalSku: string): string[] {
     .map(([storeId]) => storeId);
 }
 
-// Internal SKU definitions with PackPTS amounts
-// Grants are the largest that pass the package guardrail at the 75% floor
-// (shared/rebateEconomics.ts BUNDLE_MIN_MARGIN_RATE). Stripe web 2.9% + 30c,
-// 0.2c redeemable value per point: redeemable value <= (price - fees) x 0.25
-// and <= price x 0.25. SKU ids are legacy names kept so in-flight checkouts
-// and receipts still resolve.
+// Internal SKU definitions with PackPTS amounts.
+// Grants stay at the live counts. The rebate value of each purchase is capped
+// at 25% of the price paid (shared/rebateEconomics.ts), not by shrinking the grant.
+// SKU ids are legacy names kept so in-flight checkouts and receipts still resolve.
 export const PRODUCT_DEFINITIONS = {
   PACKPTS_15000: {
     name: "Starter Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 567,
+    packptsGrant: 1592,
     priceUsd: 499, // $4.99
     description: "Starter bundle - great for trying out the game",
   },
   PACKPTS_45000: {
     name: "Value Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 1782,
+    packptsGrant: 4992,
     priceUsd: 1499, // $14.99 - Best value
     description: "Most popular - best value for regular players",
   },
   PACKPTS_80000: {
     name: "Premium Pack",
     type: "CONSUMABLE" as const,
-    packptsGrant: 2997,
+    packptsGrant: 8387,
     priceUsd: 2499, // $24.99
     description: "Power pack - for serious collectors",
   },
@@ -344,18 +342,18 @@ export const PRODUCT_DEFINITIONS = {
   PACKPTS_MONTHLY_2000: {
     name: "Collector Pack",
     type: "SUBSCRIPTION" as const,
-    packptsGrant: 1782,
+    packptsGrant: 2000,
     priceUsd: 1499, // $14.99/month
     billingInterval: "month" as const,
-    description: "1,782 PackPTS credited every month - best value for regular players",
+    description: "2,000 PackPTS credited every month - best value for regular players",
   },
   PACKPTS_MONTHLY_5000: {
     name: "Legend Pack",
     type: "SUBSCRIPTION" as const,
-    packptsGrant: 3602,
+    packptsGrant: 5000,
     priceUsd: 2999, // $29.99/month
     billingInterval: "month" as const,
-    description: "3,602 PackPTS credited every month - for serious collectors",
+    description: "5,000 PackPTS credited every month - for serious collectors",
   },
 } as const;
 

@@ -81,8 +81,14 @@ describe("points copy", () => {
     expect(split).toContain("$10");
     expect(copy.addingAnswer(true, snap.expiry).toLowerCase()).not.toContain("unlimited");
     expect(copy.WALLET.live("$1.00")).toContain("70%");
-    expect(copy.storeLine("$2.00", null, true)).toContain("70%");
-    expect(copy.storeLine("$2.00", null, true).toLowerCase()).not.toContain("coming soon");
+    expect(copy.storeLine("$1.25", null, true)).toContain("Points from this purchase can add up to $1.25 toward a rebate");
+    expect(copy.storeLine("$1.25", null, true)).toContain("70%");
+    expect(copy.storeLine("$1.25", null, true).toLowerCase()).not.toContain("coming soon");
+    expect(copy.storeLine("$1.25", null, true).toLowerCase()).not.toContain("unlimited");
+    expect(copy.bundleRebateCapUsd(499)).toBe("$1.25");
+    expect(copy.bundleRebateCapUsd(1499)).toBe("$3.75");
+    expect(copy.bundleRebateCapUsd(2499)).toBe("$6.25");
+    expect(copy.bundleRebateCapUsd(2999)).toBe("$7.50");
   });
   it("no surface ever carries rebate-off copy (Dave lock, Oct 12)", () => {
     for (const s of [...allStrings(true), ...allStrings(false), copy.WALLET.soon, copy.HOME_HERO.soon, copy.tourEarnStep(false), copy.storeLine(null, null, true)]) {
