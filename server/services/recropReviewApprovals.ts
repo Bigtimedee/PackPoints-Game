@@ -1,13 +1,16 @@
 /**
  * Writes Design-approved recrop cards into card_review_approvals.
- * Blocked recrop ids are never inserted. An existing row is left as-is.
+ * Blocked recrop ids are never inserted. An existing qa row is left as-is.
+ * A seed row is raised to qa, which is what 1988 Topps requires before a deal.
  */
+import { eq, sql } from "drizzle-orm";
 import { cardReviewApprovals } from "@shared/schema";
 import { db } from "../db";
 import {
   RECROP_APPROVED_1986_IDS,
   RECROP_APPROVED_1988_IDS,
   RECROP_BLOCKED_CARDS,
+  RECROP_RELEASED_1988_IDS,
   TOPPS_1986_SET_ID,
   TOPPS_1988_SET_ID,
 } from "../masking/toppsRecropReview";
@@ -43,6 +46,7 @@ const NOTE_2026_10_22 = new Set([
   "f48b9dc3-b4aa-4415-b006-f7b61f01ca24",
   "5f75cab2-adb8-4a47-b47b-e47e3eed1957",
 ]);
+const NOTE_2026_10_23 = new Set<string>(RECROP_RELEASED_1988_IDS);
 
 export async function ensureRecropReviewApprovals(): Promise<number> {
   const values = [
@@ -58,14 +62,27 @@ export async function ensureRecropReviewApprovals(): Promise<number> {
       gameSetId: TOPPS_1988_SET_ID,
       source: "qa" as const,
       approvedBy: "Design",
-      note: NOTE_2026_10_22.has(cardId) ? "Design recrop review 2026-10-22" : "Design recrop review 2026-10-21",
+      note: NOTE_2026_10_23.has(cardId)
+        ? "Design recrop review 2026-10-23"
+        : NOTE_2026_10_22.has(cardId)
+          ? "Design recrop review 2026-10-22"
+          : "Design recrop review 2026-10-21",
     })),
   ];
   if (values.length === 0) return 0;
   const inserted = await db
     .insert(cardReviewApprovals)
     .values(values)
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: cardReviewApprovals.cardId,
+      set: {
+        source: "qa",
+        approvedBy: "Design",
+        note: sql`excluded.note`,
+        approvedAt: new Date(),
+      },
+      setWhere: eq(cardReviewApprovals.source, "seed"),
+    })
     .returning({ id: cardReviewApprovals.cardId });
   return inserted.length;
 }

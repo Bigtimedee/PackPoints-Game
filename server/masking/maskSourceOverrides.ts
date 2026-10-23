@@ -6,16 +6,17 @@
  * source. If the upstream bytes change the override does not apply and the
  * bake gets null (fail closed: no bake, card stays refused).
  *
- * Held #495, #574, and #499 are cropped to the printed card instead. That crop
- * does not register a region shift, so the set mask is not widened. Stamp cards
- * and the autograph are not cropped. An override never approves a card.
+ * Released #495 and #574 are cropped to the printed card instead. That crop
+ * does not register a region shift, so the set mask is not widened. #499, the
+ * stamp cards, and the autograph are not cropped. An override never approves a card.
  */
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import path from "path";
 import sharp from "sharp";
 import type { MaskRegion } from "@shared/schema";
-import { RECROP_BLOCKED_CARDS } from "./toppsRecropReview";
+import { RECROP_BLOCKED_CARDS, RECROP_RELEASED_1988_IDS, recropPermanentlyExcluded } from "./toppsRecropReview";
+import { TOPPS_1988_REVIEWED_SOURCES } from "./topps1988Geometry";
 
 export interface MaskSourceOverride {
   setId: string;
@@ -119,7 +120,7 @@ export function regionsAfterHeldCrop(regions: readonly MaskRegion[], buffer: Buf
 }
 
 export async function applyMaskSourceOverride(cardId: string, raw: Buffer): Promise<Buffer | null> {
-  if (HELD_BY_ID.has(cardId)) return fixHeldRecropSource(cardId, raw);
+  if (EDGE_CROP_IDS.has(cardId) || HELD_BY_ID.has(cardId)) return fixHeldRecropSource(cardId, raw);
   const o = maskSourceOverrides()[cardId];
   if (!o) return raw;
   if (createHash("sha256").update(raw).digest("hex") !== o.inputSha256) {
@@ -136,29 +137,25 @@ async function applyDeclared(raw: Buffer, o: MaskSourceOverride): Promise<Buffer
   return img.jpeg({ quality: 95 }).toBuffer();
 }
 
-const EDGE_CROP_IDS = new Set([
-  "8d0fc5e2-41ea-4428-a662-e9a059350599",
-  "a5106b0b-151c-496b-91bc-815174d48bb3",
-  "1cf53402-61f8-4fac-9aae-4fb7b9cf112e",
-]);
-const GIBSON_1986_ID = "1cf53402-61f8-4fac-9aae-4fb7b9cf112e";
+const EDGE_CROP_IDS = new Set<string>(RECROP_RELEASED_1988_IDS);
 
 /**
- * Stamp cards and the autograph are not cropped.
- * #495, #574, and #499 lose a near-black scanner frame and a near-white mat
+ * Excluded cards are not cropped.
+ * #495 and #574 lose a near-black scanner frame and a near-white mat
  * and keep the printed card. The set mask is not remapped, so it is not widened.
  * A narrow result is scaled with the ratio kept. Nothing is stretched or painted.
  */
-async function fixHeldRecropSource(cardId: string, raw: Buffer): Promise<Buffer> {
-  const card = HELD_BY_ID.get(cardId);
-  if (!card || card.flags.includes("signature") || card.flags.includes("discover_stamp")) return raw;
-  if (!EDGE_CROP_IDS.has(cardId)) return raw;
-  const meta = await sharp(raw).metadata();
-  let buf = raw;
-  if (cardId === GIBSON_1986_ID && (meta.orientation ?? 1) > 1) {
-    buf = await sharp(raw).rotate().toBuffer();
-  }
-  const trimmed = await trimPrintedCardEdge(buf);
+function expectedEdgeRawSha(cardId: string): string | null {
+  return maskSourceOverrides()[cardId]?.inputSha256
+    ?? TOPPS_1988_REVIEWED_SOURCES.find((source) => source.cardId === cardId)?.sha256
+    ?? null;
+}
+
+async function fixHeldRecropSource(cardId: string, raw: Buffer): Promise<Buffer | null> {
+  if (recropPermanentlyExcluded(cardId) || !EDGE_CROP_IDS.has(cardId)) return raw;
+  const expected = expectedEdgeRawSha(cardId);
+  if (expected && createHash("sha256").update(raw).digest("hex") !== expected) return null;
+  const trimmed = await trimPrintedCardEdge(raw);
   let out = trimmed;
   const sized = await sharp(out).metadata();
   const width = sized.width ?? 0;

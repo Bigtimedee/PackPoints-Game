@@ -1,4 +1,4 @@
-/** Design recrop review: 148 approved 1986 cards, 52 approved 1988 cards, 12 blocked cards. */
+/** Design recrop review: 148 approved 1986 cards, 54 approved 1988 cards, 10 excluded cards. */
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import path from "path";
@@ -16,7 +16,9 @@ import {
   RECROP_BLOCKED_CARDS,
   TOPPS_1986_SET_ID,
   TOPPS_1988_SET_ID,
+  RECROP_RELEASED_1988_IDS,
   recropBlockedForSet,
+  recropHeldSkipsSourceHash,
   recropPermanentlyExcluded,
 } from "../masking/toppsRecropReview";
 import { registerHeldSetImportQaRoutes } from "../routes/heldSetImportQa";
@@ -26,12 +28,16 @@ const previous = process.env.COVER_QA_TOKEN;
 process.env.COVER_QA_TOKEN = TOKEN;
 
 describe("Topps recrop review lists", () => {
-  it("approves 148 unique 1986 cards, 52 unique 1988 cards, and blocks 2 plus 10", () => {
+  it("approves 148 unique 1986 cards, 54 unique 1988 cards, and blocks 2 plus 8", () => {
     expect(new Set(RECROP_APPROVED_1986_IDS).size).toBe(148);
-    expect(new Set(RECROP_APPROVED_1988_IDS).size).toBe(52);
+    expect(new Set(RECROP_APPROVED_1988_IDS).size).toBe(54);
     expect(recropBlockedForSet(TOPPS_1986_SET_ID)).toHaveLength(2);
-    expect(recropBlockedForSet(TOPPS_1988_SET_ID)).toHaveLength(10);
-    expect(RECROP_BLOCKED_CARDS).toHaveLength(12);
+    expect(recropBlockedForSet(TOPPS_1988_SET_ID)).toHaveLength(8);
+    expect(RECROP_BLOCKED_CARDS).toHaveLength(10);
+    for (const id of RECROP_RELEASED_1988_IDS) {
+      expect(RECROP_APPROVED_1988_IDS).toContain(id);
+      expect(recropHeldSkipsSourceHash(id)).toBe(true);
+    }
     const blocked = new Set(RECROP_BLOCKED_CARDS.map((card) => card.id));
     for (const id of RECROP_APPROVED_1986_IDS) expect(blocked.has(id)).toBe(false);
     for (const id of RECROP_APPROVED_1988_IDS) expect(blocked.has(id)).toBe(false);
@@ -50,25 +56,25 @@ describe("Topps recrop review lists", () => {
       "[blocklist] set=2b77043a blockedIds=16 blockedNumbers=0 blockedPatterns=0",
     );
     expect(leakBlocklistLogLines().find((line) => line.startsWith("[blocklist] set=affd57b8"))).toBe(
-      "[blocklist] set=affd57b8 blockedIds=13 blockedNumbers=0 blockedPatterns=0",
+      "[blocklist] set=affd57b8 blockedIds=11 blockedNumbers=0 blockedPatterns=0",
     );
   });
 
-  it("flags the signature, DISCOVER stamps, and the two remaining margins", () => {
+  it("permanently excludes the autograph, #499, and the eight DISCOVER stamps", () => {
     const flagged = (flag: string) => RECROP_BLOCKED_CARDS.filter((card) => card.flags.includes(flag as "signature"));
     expect(flagged("signature").map((card) => card.id)).toEqual(["93a3e9e6-3b14-41f0-a31f-9b3c3d192b85"]);
     expect(flagged("wrong_photo")).toHaveLength(0);
+    expect(flagged("margin")).toHaveLength(0);
     expect(RECROP_BLOCKED_CARDS.find((card) => card.id === "f48b9dc3-b4aa-4415-b006-f7b61f01ca24")).toBeUndefined();
     expect(flagged("discover_stamp")).toHaveLength(8);
     expect(flagged("discover_stamp").every((card) => card.setId === TOPPS_1988_SET_ID)).toBe(true);
-    expect(flagged("margin").filter((card) => card.setId === TOPPS_1986_SET_ID)).toHaveLength(0);
-    expect(flagged("margin").filter((card) => card.setId === TOPPS_1988_SET_ID)).toHaveLength(2);
     const excluded = RECROP_BLOCKED_CARDS.filter((card) => recropPermanentlyExcluded(card.id));
-    expect(excluded).toHaveLength(9);
-    expect(excluded.every((card) => card.flags.includes("signature") || card.flags.includes("discover_stamp"))).toBe(true);
+    expect(excluded).toHaveLength(10);
+    expect(excluded.every((card) => card.flags.includes("signature") || card.flags.includes("discover_stamp") || card.number === "499")).toBe(true);
     expect(recropPermanentlyExcluded("8d0fc5e2-41ea-4428-a662-e9a059350599")).toBe(false);
     expect(recropPermanentlyExcluded("a5106b0b-151c-496b-91bc-815174d48bb3")).toBe(false);
-    expect(recropPermanentlyExcluded("1cf53402-61f8-4fac-9aae-4fb7b9cf112e")).toBe(false);
+    expect(recropPermanentlyExcluded("1cf53402-61f8-4fac-9aae-4fb7b9cf112e")).toBe(true);
+    expect(recropHeldSkipsSourceHash("1cf53402-61f8-4fac-9aae-4fb7b9cf112e")).toBe(false);
     for (const card of RECROP_BLOCKED_CARDS) {
       expect(card.reason).not.toMatch(/[\u2013\u2014]/);
     }
@@ -112,7 +118,7 @@ describe("held-set QA serves the blocked recrop export", () => {
     const res = await fetch(`${base}/api/qa/sets/${TOPPS_1988_SET_ID}/cards`, { headers: { "X-QA-Token": TOKEN } });
     expect(res.status).toBe(200);
     const body = await res.json() as { total: number; cards: Array<{ id: string; flags: string[] }> };
-    expect(body.total).toBe(10);
+    expect(body.total).toBe(8);
     const pena = body.cards.find((card) => card.id === "63c44120-3b19-4d97-b1e0-63b372fcfafd");
     expect(pena?.flags).toContain("discover_stamp");
     const approved = RECROP_APPROVED_1986_IDS[0];
@@ -128,17 +134,19 @@ describe("held-set QA serves the blocked recrop export", () => {
     setMaskReadySidecarDirForTests(dir);
     const jpeg = await sharp({ create: { width: 20, height: 28, channels: 3, background: { r: 20, g: 140, b: 40 } } }).jpeg().toBuffer();
     const stamp = "63c44120-3b19-4d97-b1e0-63b372fcfafd";
+    const gibson = "1cf53402-61f8-4fac-9aae-4fb7b9cf112e";
     const murray = "8d0fc5e2-41ea-4428-a662-e9a059350599";
-    for (const id of [stamp, murray]) {
+    for (const id of [stamp, gibson, murray]) {
       writeFileSync(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.jpg`), jpeg);
       writeFileSync(path.join(dir, `${id}_${CURRENT_MASK_VERSION}.ok`), "ok\n");
     }
     try {
       const hidden = await fetch(`${base}/api/qa/sets/${TOPPS_1988_SET_ID}/recrop-review/${stamp}`, { headers: { "X-QA-Token": TOKEN } });
       expect(hidden.status).toBe(404);
-      const shown = await fetch(`${base}/api/qa/sets/${TOPPS_1988_SET_ID}/recrop-review/${murray}`, { headers: { "X-QA-Token": TOKEN } });
-      expect(shown.status).toBe(200);
-      expect(shown.headers.get("content-type")).toBe("image/png");
+      const gibsonHidden = await fetch(`${base}/api/qa/sets/${TOPPS_1986_SET_ID}/recrop-review/${gibson}`, { headers: { "X-QA-Token": TOKEN } });
+      expect(gibsonHidden.status).toBe(404);
+      const released = await fetch(`${base}/api/qa/sets/${TOPPS_1988_SET_ID}/recrop-review/${murray}`, { headers: { "X-QA-Token": TOKEN } });
+      expect(released.status).toBe(404);
     } finally {
       setMaskReadySidecarDirForTests(null);
     }

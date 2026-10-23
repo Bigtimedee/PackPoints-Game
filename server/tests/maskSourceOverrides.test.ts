@@ -53,12 +53,22 @@ describe("mask source overrides", () => {
       }
     }
     const jpeg = await sharp(raw, { raw: { width: fullW, height: fullH, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
-    const gibson = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", jpeg);
-    const gibsonMeta = await sharp(gibson!).metadata();
-    expect(gibsonMeta.width).toBeGreaterThan(cardW - 8);
-    expect(gibsonMeta.width).toBeLessThan(cardW + 8);
-    expect(Math.abs(gibsonMeta.width! / gibsonMeta.height! - 2.5 / 3.5)).toBeLessThan(0.02);
-    const { data, info } = await sharp(gibson!).raw().toBuffer({ resolveWithObject: true });
+    const murrayId = "8d0fc5e2-41ea-4428-a662-e9a059350599";
+    const pin = (buf: Buffer) => {
+      const current = maskSourceOverrides();
+      setMaskSourceOverridesForTests({
+        ...current,
+        [murrayId]: { ...current[murrayId], inputSha256: sha(buf) },
+      });
+    };
+    pin(jpeg);
+    const cropped = await applyMaskSourceOverride(murrayId, jpeg);
+    expect(await applyMaskSourceOverride(murrayId, Buffer.concat([jpeg, Buffer.from([1])]))).toBeNull();
+    const croppedMeta = await sharp(cropped!).metadata();
+    expect(croppedMeta.width).toBeGreaterThan(cardW - 8);
+    expect(croppedMeta.width).toBeLessThan(cardW + 8);
+    expect(Math.abs(croppedMeta.width! / croppedMeta.height! - 2.5 / 3.5)).toBeLessThan(0.02);
+    const { data, info } = await sharp(cropped!).raw().toBuffer({ resolveWithObject: true });
     const pix = (x: number, y: number) => {
       const i = (y * info.width + x) * info.channels;
       return [data[i], data[i + 1], data[i + 2]];
@@ -70,9 +80,9 @@ describe("mask source overrides", () => {
     expect(bottom[2]).toBeGreaterThan(bottom[0] + 80);
     const above = pix(40, Math.floor(info.height * 0.7));
     expect(above[1]).toBeGreaterThan(above[2] + 40);
-    expect(heldCropMeta(gibson!)).toBeNull();
+    expect(heldCropMeta(cropped!)).toBeNull();
     const band = getMaskProfile("1986 Topps Baseball", "2b77043a-6583-4d79-b59d-d2ab20291a17").regions;
-    const regions = regionsAfterHeldCrop(band, gibson!);
+    const regions = regionsAfterHeldCrop(band, cropped!);
     expect(regions[0].hPct).toBe(14);
     expect(regions[0].yPct).toBe(86);
     const inside = (x: number, y: number, list: MaskRegion[]) => list.some((region) => {
@@ -84,14 +94,19 @@ describe("mask source overrides", () => {
     expect(inside(40, Math.floor(info.height * 0.7), regions)).toBe(false);
 
     const narrow = await sharp({ create: { width: 300, height: 700, channels: 3, background: { r: 20, g: 180, b: 40 } } }).jpeg().toBuffer();
-    const scaled = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", narrow);
+    pin(narrow);
+    const scaled = await applyMaskSourceOverride(murrayId, narrow);
     const scaledMeta = await sharp(scaled!).metadata();
     expect(scaledMeta.width).toBe(360);
     expect(Math.abs(scaledMeta.width! / scaledMeta.height! - 300 / 700)).toBeLessThan(0.02);
 
     const solid = await sharp({ create: { width: 670, height: 1000, channels: 3, background: { r: 180, g: 40, b: 40 } } }).jpeg().toBuffer();
-    const solidOut = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", solid);
+    pin(solid);
+    const solidOut = await applyMaskSourceOverride(murrayId, solid);
     expect(solidOut).toBe(solid);
+
+    const gibson = await applyMaskSourceOverride("1cf53402-61f8-4fac-9aae-4fb7b9cf112e", jpeg);
+    expect(gibson).toBe(jpeg);
 
     const autograph = await applyMaskSourceOverride("93a3e9e6-3b14-41f0-a31f-9b3c3d192b85", jpeg);
     expect(autograph).toBe(jpeg);
@@ -100,6 +115,7 @@ describe("mask source overrides", () => {
     const card = await sharp({ create: { width: 720, height: 1000, channels: 3, background: { r: 30, g: 140, b: 50 } } }).png().toBuffer();
     const mat = await sharp({ create: { width: 784, height: 1072, channels: 3, background: { r: 248, g: 248, b: 248 } } }).png().toBuffer();
     const withFrame = await sharp(framed).composite([{ input: mat, left: 8, top: 14 }, { input: card, left: 40, top: 50 }]).jpeg().toBuffer();
+    pin(withFrame);
     const murray = await applyMaskSourceOverride("8d0fc5e2-41ea-4428-a662-e9a059350599", withFrame);
     const murrayMeta = await sharp(murray!).metadata();
     expect(murrayMeta.width!).toBeLessThan(760);
