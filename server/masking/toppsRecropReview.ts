@@ -257,7 +257,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1986 Topps Baseball",
     number: "499",
     surname: "gibson",
-    reason: "stretched scan, excess cropped to the card ratio on rebake (Design recrop review 2026-10-22)",
+    reason: "stretched scan, excess height taken off the top to the card ratio on rebake (Design recrop review 2026-10-22)",
     flags: [],
   },
   {
