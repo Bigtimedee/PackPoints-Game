@@ -5,6 +5,19 @@ import { sql, type SQL } from "drizzle-orm";
 import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { maskReadySidecarDir } from "./maskReadySidecar";
 import { TOPPS_1988_SET_ID, TOPPS_1988_REVIEWED_SOURCES, isTopps1988Plan } from "./topps1988Geometry";
+
+/** Same player, image URL, and upright rotation the deal witness requires. */
+export function topps1988ReviewedRowMatches(
+  cardId: string,
+  row: { player: string | null; imageUrl: string | null; imageRotation: number | null },
+): boolean {
+  const reviewed = TOPPS_1988_REVIEWED_SOURCES.find((source) => source.cardId === cardId);
+  if (!reviewed) return false;
+  return row.player === reviewed.player
+    && row.imageUrl === reviewed.imageUrl
+    && (row.imageRotation ?? 0) === 0;
+}
+
 export function preparedTopps1988MaskFile(cardId: string, dir = maskReadySidecarDir()): string | null {
   if (!TOPPS_1988_REVIEWED_SOURCES.some((s) => s.cardId === cardId)) return null;
   const stem = path.join(dir, `${cardId}_${CURRENT_MASK_VERSION}`);
