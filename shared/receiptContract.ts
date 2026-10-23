@@ -2,6 +2,7 @@
  * PackPTS receipt contract — Design lock 2026-09-20.
  * Hero chip = external_purchase_intent.status. Never invent UNDER_REVIEW.
  */
+import { rebateReceiptSplit } from "./rebateEconomics";
 
 export const RECEIPT_COLORS = {
   canvas: "#0b0f16",
@@ -188,6 +189,8 @@ export interface ReceiptPlaqueInput {
   evidenceReceiptUrl: string | null;
   deniedReason: string | null;
   rebateBalanceCents: number;
+  /** Stored redemption_credit.user_share_rate. Absent when this receipt has no credit row. */
+  userShareRate?: number | null;
 }
 
 export interface ReceiptPlaqueView {
@@ -218,6 +221,8 @@ export interface ReceiptPlaqueView {
   evidenceLabel: string;
   deniedReason: string | null;
   footerCta: string;
+  /** 100% for a row stored at 1. 70/30 for a new row. Empty when no credit rate is stored. */
+  splitLine: string;
 }
 
 function isoOrNull(value: string | Date | null | undefined): string | null {
@@ -274,5 +279,6 @@ export function buildReceiptPlaqueView(input: ReceiptPlaqueInput): ReceiptPlaque
     evidenceLabel: evidenceBits.join(" · "),
     deniedReason: input.deniedReason,
     footerCta: `packpts.com/redemptions/${input.intentId}`,
+    splitLine: typeof input.userShareRate === "number" ? rebateReceiptSplit(input.userShareRate) : "",
   };
 }

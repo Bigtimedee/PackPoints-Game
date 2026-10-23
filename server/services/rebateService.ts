@@ -96,6 +96,7 @@ function assembleReceipt(
       evidenceReceiptUrl: intent.evidenceReceiptUrl ?? null,
       deniedReason: intent.deniedReason ?? null,
       rebateBalanceCents,
+      userShareRate: credit?.userShareRate,
     }),
     honesty: HONESTY,
   };

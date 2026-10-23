@@ -54,6 +54,7 @@ interface Credit {
   status: string;
   grantMethod: string | null;
   grantedAt: string | null;
+  userShareRate?: number | null;
 }
 
 interface ReceiptRow {
@@ -86,6 +87,7 @@ function plaqueFromRow(row: ReceiptRow): ReceiptPlaqueView {
     evidenceReceiptUrl: intent.evidenceReceiptUrl,
     deniedReason: intent.deniedReason,
     rebateBalanceCents: row.rebateBalanceCents,
+    userShareRate: credit?.userShareRate,
   });
 }
 
