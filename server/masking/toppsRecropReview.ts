@@ -1,7 +1,9 @@
 /**
  * Design by-eye recrop review.
  * 148 approved 1986 Topps cards and 52 approved 1988 Topps cards become dealable.
- * 12 cards stay blocked (2 from 1986, 10 from 1988) and are re-baked for QA.
+ * 12 cards stay blocked (2 from 1986, 10 from 1988).
+ * The autograph and the eight DISCOVER TOPPS stamps are not baked or served.
+ * #495, #574, and #499 are re-baked for QA.
  * This file is data only. It does not import the blocklist.
  */
 export const TOPPS_1986_SET_ID = "2b77043a-6583-4d79-b59d-d2ab20291a17";
@@ -248,7 +250,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1986 Topps Baseball",
     number: "328",
     surname: "obrien",
-    reason: "ink autograph across the photo (Design recrop review 2026-10-22)",
+    reason: "ink autograph across the photo. Permanently excluded: not baked, not served, not dealt (Design recrop review 2026-10-22)",
     flags: ["signature"],
   },
   {
@@ -257,7 +259,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1986 Topps Baseball",
     number: "499",
     surname: "gibson",
-    reason: "stretched scan, excess height taken off the top to the card ratio on rebake (Design recrop review 2026-10-22)",
+    reason: "scanner mat around the card. Cropped to the printed card edge on rebake. The bottom name band stays 14 percent (Design 2026-10-23)",
     flags: [],
   },
   {
@@ -266,7 +268,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "245",
     surname: "gedman",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -275,7 +277,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "347",
     surname: "johnson",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -284,7 +286,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "410",
     surname: "pena",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake; white patch over the team name removed (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -293,7 +295,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "495",
     surname: "murray",
-    reason: "bad scan: extra margin (dark frame). Pinned crop removed the name banner and the bake was refused (Design 2026-10-22)",
+    reason: "scanner mat around the card. Cropped to the printed card edge on rebake. The diagonal name mask is not widened (Design 2026-10-23)",
     flags: ["margin"],
   },
   {
@@ -302,7 +304,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "54",
     surname: "clancy",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -311,7 +313,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "574",
     surname: "nettles",
-    reason: "bad scan: extra margin (dark frame). Frame trim shifted the name outside the mask and the bake was refused (Design 2026-10-22)",
+    reason: "scanner mat around the card. Cropped to the printed card edge on rebake. The diagonal name mask is not widened (Design 2026-10-23)",
     flags: ["margin"],
   },
   {
@@ -320,7 +322,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "58",
     surname: "magadan",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -329,7 +331,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "62",
     surname: "hamilton",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -338,7 +340,7 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "65",
     surname: "durham",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake; black frame trimmed (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
   {
@@ -347,13 +349,21 @@ export const RECROP_BLOCKED_CARDS: readonly RecropBlockedCard[] = [
     setName: "1988 Topps Baseball",
     number: "690",
     surname: "howell",
-    reason: "bad scan: DISCOVER TOPPS seller stamp on front, cropped on rebake (Design 2026-10-22)",
+    reason: "bad scan: DISCOVER TOPPS seller stamp on front. Permanently excluded: not baked, not served, not dealt (Design 2026-10-23)",
     flags: ["discover_stamp"],
   },
 ];
 
 const RECROP_SET_IDS = new Set([TOPPS_1986_SET_ID, TOPPS_1988_SET_ID]);
 const BLOCKED_BY_ID = new Map(RECROP_BLOCKED_CARDS.map((card) => [card.id, card]));
+
+/** Autograph and DISCOVER TOPPS stamps. Never baked, served, or dealt. */
+export function recropPermanentlyExcluded(cardId: string | null | undefined): boolean {
+  if (!cardId) return false;
+  const card = BLOCKED_BY_ID.get(cardId);
+  if (!card) return false;
+  return card.flags.includes("signature") || card.flags.includes("discover_stamp");
+}
 
 export function isRecropReviewSet(setId: string): boolean {
   return RECROP_SET_IDS.has(setId);

@@ -46,6 +46,7 @@ import { maskBandFailure, MAX_TOP_BAND_PCT } from "../masking/maskBandLimit";
 import { setOcrJobFactoryForTests, resetOcrRuntimeForTests } from "../masking/ocrRuntime";
 import {
   PROFILE_BAND_UNVERIFIED,
+  surnameRunOutsideBand,
   tokenHasSurnameRun,
   trustedProfileBandCheck,
   verifyTrustedProfileBand,
@@ -193,6 +194,31 @@ describe("surname run rule", () => {
     expect(tokenHasSurnameRun("Manute Bol", "BOL")).toBe(true);
     expect(tokenHasSurnameRun("Manute Bol", "BO")).toBe(false);
     expect(tokenHasSurnameRun("Dennis Rodman", "pistons")).toBe(false);
+  });
+
+  it("joins a split surname on one line and ignores words across the photo", () => {
+    const split = surnameRunOutsideBand({
+      playerName: "Graig Nettles",
+      regions: [],
+      imageWidth: 800,
+      imageHeight: 1100,
+      words: [
+        { text: "NE", x: 420, y: 980, w: 28, h: 28 },
+        { text: "TT", x: 452, y: 982, w: 28, h: 28 },
+      ],
+    });
+    expect(split).toBe("nett");
+    const across = surnameRunOutsideBand({
+      playerName: "Graig Nettles",
+      regions: [],
+      imageWidth: 800,
+      imageHeight: 1100,
+      words: [
+        { text: "EET", x: 40, y: 300, w: 36, h: 20 },
+        { text: "TIG", x: 640, y: 304, w: 36, h: 20 },
+      ],
+    });
+    expect(across).toBeNull();
   });
 });
 

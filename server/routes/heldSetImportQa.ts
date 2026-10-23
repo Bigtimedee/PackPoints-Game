@@ -26,7 +26,7 @@ import { heldSetReason, isDesignApprovedSetId, refreshHeldSets } from "../config
 import { FILL_MISSING_SETS } from "../services/setFillMissing";
 import { maskReadySidecarDir } from "../masking/maskReadySidecar";
 import { recropReviewPage } from "../masking/recropReviewStatus";
-import { isRecropReviewSet, recropBlockedCard } from "../masking/toppsRecropReview";
+import { isRecropReviewSet, recropBlockedCard, recropPermanentlyExcluded } from "../masking/toppsRecropReview";
 import { resolveReadyWarmMaskedFile } from "../startup/warmMaskGate";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -134,7 +134,7 @@ export function registerHeldSetImportQaRoutes(app: Express): void {
   /** Masked PNG for one blocked recrop card. A missing bake is 404. Raw scans are not served. */
   app.get("/api/qa/sets/:setId/recrop-review/:cardId", (req, res) => {
     const { setId, cardId } = req.params;
-    if (!tokenOk(req) || !recropBlockedCard(setId, cardId)) return notFound(req, res);
+    if (!tokenOk(req) || !recropBlockedCard(setId, cardId) || recropPermanentlyExcluded(cardId)) return notFound(req, res);
     void (async () => {
       const file = resolveReadyWarmMaskedFile(maskReadySidecarDir(), cardId);
       if (!file) return notFound(req, res);

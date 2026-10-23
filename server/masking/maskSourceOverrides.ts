@@ -6,15 +6,16 @@
  * source. If the upstream bytes change the override does not apply and the
  * bake gets null (fail closed: no bake, card stays refused).
  *
- * An override never approves a card. Re-baked cards stay held behind the card
- * review guard until Design approves them by eye.
+ * Held #495, #574, and #499 are cropped to the printed card instead. That crop
+ * does not register a region shift, so the set mask is not widened. Stamp cards
+ * and the autograph are not cropped. An override never approves a card.
  */
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import path from "path";
 import sharp from "sharp";
 import type { MaskRegion } from "@shared/schema";
-import { RECROP_BLOCKED_CARDS, RECROP_STAMP_IDS } from "./toppsRecropReview";
+import { RECROP_BLOCKED_CARDS } from "./toppsRecropReview";
 
 export interface MaskSourceOverride {
   setId: string;
@@ -61,8 +62,6 @@ export function hasMaskSourceOverride(cardId: string): boolean {
  * null when an override exists but the upstream bytes no longer match.
  */
 const HELD_BY_ID = new Map(RECROP_BLOCKED_CARDS.map((card) => [card.id, card]));
-const STAMP_IDS = new Set(RECROP_STAMP_IDS);
-const CARD_RATIO = 2.5 / 3.5;
 
 /** Crop of a held scan, in the upright source pixels the set mask was drawn on. */
 export interface HeldCropMeta {
@@ -70,15 +69,6 @@ export interface HeldCropMeta {
   srcH: number;
   left: number;
   top: number;
-  width: number;
-  height: number;
-}
-
-interface CropShift {
-  buffer: Buffer;
-  left: number;
-  top: number;
-  /** Crop window in the parent buffer, before this step's uniform scale. */
   width: number;
   height: number;
 }
@@ -128,38 +118,6 @@ export function regionsAfterHeldCrop(regions: readonly MaskRegion[], buffer: Buf
   return mapped.length ? mapped : regions.map((region) => ({ ...region }));
 }
 
-function identityCrop(buf: Buffer, width: number, height: number): CropShift {
-  return { buffer: buf, left: 0, top: 0, width, height };
-}
-
-/** Child left/top are in the parent buffer. Neither step has been scaled yet. */
-function composeCrop(parent: CropShift, child: CropShift): CropShift {
-  return {
-    buffer: child.buffer,
-    left: parent.left + child.left,
-    top: parent.top + child.top,
-    width: child.width,
-    height: child.height,
-  };
-}
-
-async function finishHeldCrop(shift: CropShift, srcW: number, srcH: number, raw: Buffer): Promise<Buffer> {
-  if (shift.buffer === raw) return raw;
-  const out = await sharp(shift.buffer).jpeg({ quality: 95 }).toBuffer();
-  const cropped = shift.left !== 0 || shift.top !== 0 || shift.width !== srcW || shift.height !== srcH;
-  if (cropped && shift.width >= 2 && shift.height >= 2 && srcW >= 2 && srcH >= 2) {
-    heldCrops.set(out, {
-      srcW,
-      srcH,
-      left: shift.left,
-      top: shift.top,
-      width: shift.width,
-      height: shift.height,
-    });
-  }
-  return out;
-}
-
 export async function applyMaskSourceOverride(cardId: string, raw: Buffer): Promise<Buffer | null> {
   if (HELD_BY_ID.has(cardId)) return fixHeldRecropSource(cardId, raw);
   const o = maskSourceOverrides()[cardId];
@@ -178,482 +136,187 @@ async function applyDeclared(raw: Buffer, o: MaskSourceOverride): Promise<Buffer
   return img.jpeg({ quality: 95 }).toBuffer();
 }
 
-/**
- * 1988 #495's pinned extract cuts off the team-name banner. The masked image
- * then has no OCR words and the bake is refused. Leave that extract off.
- * #495 and #574 are trimmed on flat scanner margins only. The old mean-luminance
- * trim on #574 shifted the surname outside the diagonal mask.
- */
-const SKIP_HELD_EXTRACT = new Set(["8d0fc5e2-41ea-4428-a662-e9a059350599"]);
-const FLAT_FRAME_IDS = new Set([
+const EDGE_CROP_IDS = new Set([
   "8d0fc5e2-41ea-4428-a662-e9a059350599",
   "a5106b0b-151c-496b-91bc-815174d48bb3",
+  "1cf53402-61f8-4fac-9aae-4fb7b9cf112e",
 ]);
 const GIBSON_1986_ID = "1cf53402-61f8-4fac-9aae-4fb7b9cf112e";
 
 /**
- * Held recrop scans are corrected from the current bytes.
- * 1986 #499 is cropped to 2.5 by 3.5 when it misses the 0.68-0.76 gate.
- * Extra height comes off the top so the bottom name stays. Extra width is
- * centered. A narrow result is scaled with the ratio kept. Nothing is stretched.
- * A dark scanner frame is trimmed. #495 and #574 lose a flat frame of any color.
- * A DISCOVER TOPPS stamp column is cropped past its letters, then flat edges
- * and extra height come off so the file is 2.5 by 3.5.
- * Nothing is painted over the team name. #328 is not stretched.
+ * Stamp cards and the autograph are not cropped.
+ * #495, #574, and #499 lose a near-black scanner frame and a near-white mat
+ * and keep the printed card. The set mask is not remapped, so it is not widened.
+ * A narrow result is scaled with the ratio kept. Nothing is stretched or painted.
  */
 async function fixHeldRecropSource(cardId: string, raw: Buffer): Promise<Buffer> {
+  const card = HELD_BY_ID.get(cardId);
+  if (!card || card.flags.includes("signature") || card.flags.includes("discover_stamp")) return raw;
+  if (!EDGE_CROP_IDS.has(cardId)) return raw;
   const meta = await sharp(raw).metadata();
-  const width = meta.width ?? 0;
-  const height = meta.height ?? 0;
-  let srcW = width;
-  let srcH = height;
-  let shift = identityCrop(raw, width, height);
-  if (cardId === GIBSON_1986_ID) {
-    const orient = meta.orientation ?? 1;
-    if (orient > 1) {
-      const rotated = await sharp(raw).rotate().toBuffer();
-      const sized = await sharp(rotated).metadata();
-      srcW = sized.width ?? width;
-      srcH = sized.height ?? height;
-      shift = identityCrop(rotated, srcW, srcH);
-    }
-    shift = composeCrop(shift, await trimFlatEdges(shift.buffer, 0.45));
+  let buf = raw;
+  if (cardId === GIBSON_1986_ID && (meta.orientation ?? 1) > 1) {
+    buf = await sharp(raw).rotate().toBuffer();
   }
-  const useW = shift.width;
-  const useH = shift.height;
-  const ratio = useW > 0 && useH > 0 ? useW / useH : 1;
-  if (cardId === GIBSON_1986_ID && (ratio < 0.68 || ratio > 0.76 || useW < 360)) {
-    shift = composeCrop(shift, await cropToCardRatio(shift.buffer));
-  } else if (cardId !== GIBSON_1986_ID) {
-    const declared = maskSourceOverrides()[cardId];
-    if (!SKIP_HELD_EXTRACT.has(cardId) && declared?.extract && extractFits(width, height, declared.extract)) {
-      const box = declared.extract;
-      const extracted = await sharp(raw).rotate(0).extract(box).toBuffer();
-      shift = { buffer: extracted, left: box.left, top: box.top, width: box.width, height: box.height };
-    }
-    const trimmed = FLAT_FRAME_IDS.has(cardId)
-      ? await trimFlatEdges(shift.buffer)
-      : await trimDarkEdges(shift.buffer);
-    shift = composeCrop(shift, trimmed);
+  const trimmed = await trimPrintedCardEdge(buf);
+  let out = trimmed;
+  const sized = await sharp(out).metadata();
+  const width = sized.width ?? 0;
+  if (width > 0 && width < 360) {
+    out = await sharp(out).resize({ width: 360, kernel: "lanczos3" }).toBuffer();
   }
-  if (STAMP_IDS.has(cardId)) shift = composeCrop(shift, await cropDiscoverStamp(shift.buffer));
-  return finishHeldCrop(shift, srcW, srcH, raw);
+  if (out === raw) return raw;
+  return sharp(out).jpeg({ quality: 95 }).toBuffer();
 }
 
-/**
- * Cut the longer side so width/height is 2.5/3.5.
- * A too-tall scan loses height from the top and keeps the bottom name plate.
- * A too-wide scan is centered. Scale up only when the crop is under 360 wide,
- * and keep the ratio. The returned width and height are the crop before that scale.
- */
-async function cropToCardRatio(buf: Buffer): Promise<CropShift> {
-  const meta = await sharp(buf).metadata();
-  const w = meta.width ?? 0;
-  const h = meta.height ?? 0;
-  if (w < 2 || h < 2) return identityCrop(buf, w, h);
-  const ratio = w / h;
-  let left = 0;
-  let top = 0;
-  let cropW = w;
-  let cropH = h;
-  if (ratio < CARD_RATIO) {
-    cropH = Math.max(1, Math.min(h, Math.round(w / CARD_RATIO)));
-    top = h - cropH;
-  } else if (ratio > CARD_RATIO) {
-    cropW = Math.max(1, Math.min(w, Math.round(h * CARD_RATIO)));
-    left = Math.floor((w - cropW) / 2);
-  }
-  const moved = left > 0 || top > 0 || cropW !== w || cropH !== h;
-  const narrow = cropW < 360;
-  if (!moved && !narrow) return identityCrop(buf, w, h);
-  let img = sharp(buf).rotate(0);
-  if (moved) img = img.extract({ left, top, width: cropW, height: cropH });
-  if (narrow) img = img.resize({ width: 360, kernel: "lanczos3" });
-  return { buffer: await img.toBuffer(), left, top, width: cropW, height: cropH };
+interface LineStat {
+  mean: number;
+  sd: number;
+  white: number;
 }
 
-function extractFits(width: number, height: number, box: { left: number; top: number; width: number; height: number }): boolean {
-  return box.left >= 0 && box.top >= 0 && box.width > 0 && box.height > 0
-    && box.left + box.width <= width && box.top + box.height <= height;
+function luminance(data: Buffer, index: number): number {
+  return 0.3 * data[index] + 0.59 * data[index + 1] + 0.11 * data[index + 2];
 }
 
-async function trimDarkEdges(buf: Buffer): Promise<CropShift> {
-  const { data, info } = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
-  const w = info.width ?? 0;
-  const h = info.height ?? 0;
-  const c = info.channels ?? 3;
-  if (w < 80 || h < 80) return identityCrop(buf, w, h);
-  const meanCol = (x: number) => {
-    let sum = 0;
-    let n = 0;
-    for (let y = 0; y < h; y += 3) {
-      const i = (y * w + x) * c;
-      sum += 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
-      n += 1;
-    }
-    return sum / n;
-  };
-  const meanRow = (y: number) => {
-    let sum = 0;
-    let n = 0;
-    for (let x = 0; x < w; x += 3) {
-      const i = (y * w + x) * c;
-      sum += 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
-      n += 1;
-    }
-    return sum / n;
-  };
-  let left = 0;
-  let right = w - 1;
-  let top = 0;
-  let bottom = h - 1;
-  const maxX = Math.floor(w * 0.12);
-  const maxY = Math.floor(h * 0.12);
-  while (left < maxX && meanCol(left) < 96) left += 1;
-  while (w - 1 - right < maxX && meanCol(right) < 96) right -= 1;
-  while (top < maxY && meanRow(top) < 96) top += 1;
-  while (h - 1 - bottom < maxY && meanRow(bottom) < 96) bottom -= 1;
-  if (left > 0 && meanCol(Math.min(w - 1, left)) < meanCol(0) + 35) left = 0;
-  if (right < w - 1 && meanCol(Math.max(0, right)) < meanCol(w - 1) + 35) right = w - 1;
-  if (top > 0 && meanRow(Math.min(h - 1, top)) < meanRow(0) + 35) top = 0;
-  if (bottom < h - 1 && meanRow(Math.max(0, bottom)) < meanRow(h - 1) + 35) bottom = h - 1;
-  if (left < 8 && top < 8 && w - 1 - right < 8 && h - 1 - bottom < 8) return identityCrop(buf, w, h);
-  const cropW = right - left + 1;
-  const cropH = bottom - top + 1;
-  const aspect = cropW / cropH;
-  if (aspect < 0.66 || aspect > 0.80 || cropW < 360) return identityCrop(buf, w, h);
-  const extracted = await sharp(buf).extract({ left, top, width: cropW, height: cropH }).toBuffer();
-  return { buffer: extracted, left, top, width: cropW, height: cropH };
-}
-
-/** Trim a flat scanner frame of any color. Stops at the first non-flat edge, which is the card border. */
-async function trimFlatEdges(
-  buf: Buffer,
-  aspectMin = 0.66,
-  opts?: { aspectMax?: number; minWidth?: number },
-): Promise<CropShift> {
-  const { data, info } = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
-  const w = info.width ?? 0;
-  const h = info.height ?? 0;
-  const c = info.channels ?? 3;
-  if (w < 80 || h < 80) return identityCrop(buf, w, h);
-  const colSd = columnSpread(data, w, h, c);
-  const rowSd = rowSpread(data, w, h, c);
-  const flat = (sd: number) => sd < 12;
-  const maxX = Math.floor(w * 0.16);
-  const maxY = Math.floor(h * 0.16);
-  let left = 0;
-  let right = 0;
-  let top = 0;
-  let bottom = 0;
-  while (left < maxX && flat(colSd[left])) left += 1;
-  while (right < maxX && flat(colSd[w - 1 - right])) right += 1;
-  while (top < maxY && flat(rowSd[top])) top += 1;
-  while (bottom < maxY && flat(rowSd[h - 1 - bottom])) bottom += 1;
-  if (left > 0 && flat(colSd[Math.min(w - 1, left)])) left = 0;
-  if (right > 0 && flat(colSd[Math.max(0, w - 1 - right)])) right = 0;
-  if (top > 0 && flat(rowSd[Math.min(h - 1, top)])) top = 0;
-  if (bottom > 0 && flat(rowSd[Math.max(0, h - 1 - bottom)])) bottom = 0;
-  if (left < 8 && top < 8 && right < 8 && bottom < 8) return identityCrop(buf, w, h);
-  const cropW = w - left - right;
-  const cropH = h - top - bottom;
-  const aspect = cropW / cropH;
-  const aspectMax = opts?.aspectMax ?? 0.80;
-  const minWidth = opts?.minWidth ?? 360;
-  if (aspect < aspectMin || aspect > aspectMax || cropW < minWidth) return identityCrop(buf, w, h);
-  const extracted = await sharp(buf).extract({ left, top, width: cropW, height: cropH }).toBuffer();
-  return { buffer: extracted, left, top, width: cropW, height: cropH };
-}
-
-function columnSpread(data: Buffer, w: number, h: number, c: number): number[] {
-  const sds: number[] = [];
-  for (let x = 0; x < w; x++) {
-    let sum = 0;
-    let sum2 = 0;
-    let n = 0;
-    for (let y = 0; y < h; y += 2) {
-      const i = (y * w + x) * c;
-      const v = 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
+/** Stats on the middle of the line, so a dark side frame does not hide a white mat. */
+function lineStat(
+  data: Buffer,
+  width: number,
+  channels: number,
+  axis: "row" | "col",
+  index: number,
+  from: number,
+  to: number,
+): LineStat {
+  let sum = 0;
+  let sum2 = 0;
+  let white = 0;
+  let n = 0;
+  if (axis === "row") {
+    for (let x = from; x < to; x += 2) {
+      const v = luminance(data, (index * width + x) * channels);
       sum += v;
       sum2 += v * v;
       n += 1;
+      if (v >= 225) white += 1;
     }
-    const mean = sum / n;
-    sds.push(Math.sqrt(Math.max(0, sum2 / n - mean * mean)));
-  }
-  return sds;
-}
-
-function rowSpread(data: Buffer, w: number, h: number, c: number): number[] {
-  const sds: number[] = [];
-  for (let y = 0; y < h; y++) {
-    let sum = 0;
-    let sum2 = 0;
-    let n = 0;
-    for (let x = 0; x < w; x += 3) {
-      const i = (y * w + x) * c;
-      const v = 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
+  } else {
+    for (let y = from; y < to; y += 2) {
+      const v = luminance(data, (y * width + index) * channels);
       sum += v;
       sum2 += v * v;
       n += 1;
+      if (v >= 225) white += 1;
     }
-    const mean = sum / n;
-    sds.push(Math.sqrt(Math.max(0, sum2 / n - mean * mean)));
   }
-  return sds;
+  const mean = n > 0 ? sum / n : 0;
+  return { mean, sd: Math.sqrt(Math.max(0, sum2 / Math.max(1, n) - mean * mean)), white: n > 0 ? white / n : 0 };
+}
+
+function isScannerDark(stat: LineStat): boolean {
+  return stat.mean < 42 && stat.sd < 18 && stat.white < 0.05;
+}
+
+function isScannerGray(stat: LineStat): boolean {
+  return stat.mean < 78 && stat.sd < 16 && stat.white < 0.05;
+}
+
+function isScannerWhite(stat: LineStat): boolean {
+  return stat.white >= 0.82 && stat.mean >= 205 && stat.sd < 20;
 }
 
 /**
- * How far the vertical DISCOVER TOPPS letters extend in from the right edge.
- * Letters cross a local luminance baseline. The photo behind a smooth border
- * does not. A busy photo is capped so the walk cannot keep going across the card.
+ * How far a near-black frame and the white mat after it extend in from this edge.
+ * Gray between the black frame and the mat is included only when the mat follows.
+ * A colored name plate with no mat after it stays.
  */
-function stampColumnCut(data: Buffer, w: number, h: number, c: number): number {
-  if (w < 80 || h < 80) return 0;
-  const y0 = Math.floor(h * 0.2);
-  const y1 = Math.floor(h * 0.8);
-  const depth = Math.min(Math.floor(w * 0.22), 180);
-  const win = 55;
-  const span = y1 - y0;
-  if (span <= win + 2) return 0;
-  const scores: number[] = [];
-  for (let dx = 0; dx < depth; dx++) {
-    const x = w - 1 - dx;
-    const vals: number[] = [];
-    for (let y = y0; y < y1; y++) {
-      const i = (y * w + x) * c;
-      vals.push(0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2]);
-    }
-    let sum = 0;
-    for (let k = 0; k <= win; k++) sum += vals[k];
-    let crossings = 0;
-    let prev = 0;
-    for (let i = win; i < span; i++) {
-      if (i > win) sum += vals[i] - vals[i - win - 1];
-      const delta = vals[i] - sum / (win + 1);
-      const sign = delta > 20 ? 1 : delta < -20 ? -1 : 0;
-      if (sign !== 0 && sign !== prev) crossings += 1;
-      if (sign !== 0) prev = sign;
-    }
-    scores.push(crossings);
-  }
-  const floor = 22;
-  let best: { start: number; end: number; peak: number } | null = null;
+function matInset(stats: LineStat[]): number {
+  const limit = Math.floor(stats.length * 0.22);
+  if (limit < 8) return 0;
   let i = 0;
-  while (i < scores.length) {
-    if (scores[i] < floor) {
-      i += 1;
+  while (i < limit && isScannerDark(stats[i])) i += 1;
+  if (i >= limit) return 0;
+  const blackEnd = i;
+  let j = i;
+  let lastGray = blackEnd;
+  let grayMisses = 0;
+  const grayLimit = Math.min(limit, blackEnd + 70);
+  while (j < grayLimit) {
+    if (isScannerGray(stats[j]) || isScannerDark(stats[j])) {
+      grayMisses = 0;
+      j += 1;
+      lastGray = j;
       continue;
     }
-    const start = i;
-    let end = i;
-    let peak = scores[i];
-    let gap = 0;
-    i += 1;
-    while (i < scores.length && i < start + 96) {
-      if (scores[i] >= floor) {
-        end = i;
-        if (scores[i] > peak) peak = scores[i];
-        gap = 0;
-      } else {
-        gap += 1;
-        if (gap > 6) break;
-      }
-      i += 1;
-    }
-    if (end - start >= 10 && peak >= 30 && (!best || peak > best.peak)) best = { start, end, peak };
+    grayMisses += 1;
+    if (grayMisses > 3) break;
+    j += 1;
   }
-  if (!best) return 0;
-  const strong = best.peak * 0.42;
-  const limit = Math.min(best.end, best.start + 78);
-  let end = best.start;
-  for (let k = best.start; k <= limit; k++) if (scores[k] >= strong) end = k;
-  return end + 10;
+  const bridgeEnd = lastGray;
+  let k = bridgeEnd;
+  let whiteEnd = -1;
+  while (k < limit) {
+    if (!isScannerWhite(stats[k])) {
+      k += 1;
+      continue;
+    }
+    const start = k;
+    while (k < limit && isScannerWhite(stats[k])) k += 1;
+    if (k - start >= 8 && start - bridgeEnd <= 36) whiteEnd = k;
+    else break;
+  }
+  if (whiteEnd >= 0) return whiteEnd;
+  return blackEnd >= 8 ? blackEnd : 0;
 }
 
 /**
- * Crop a DISCOVER TOPPS stamp off the right edge. A flat scanner margin is
- * removed, then the vertical letter column just inside the card border is
- * cropped past. Flat edges that the stamp column had hidden are trimmed next,
- * and extra height comes off the top so the file is 2.5 by 3.5.
- * The team-name banner is a long content run and stays when it is inside that crop.
- * A solid white rectangle over #410's team name is cleared without painting
- * over the letters.
+ * A one-pixel white line can sit just inside a dark speck of the scanner frame.
+ * Shave through that line when the pixels outside it are not the photo.
  */
-async function cropDiscoverStamp(buf: Buffer): Promise<CropShift> {
-  const { data, info } = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
-  const w = info.width ?? 0;
-  const h = info.height ?? 0;
-  const c = info.channels ?? 3;
-  if (w < 80 || h < 80) return identityCrop(buf, w, h);
-  const rowSd: number[] = [];
-  const colSd: number[] = [];
-  for (let y = 0; y < h; y++) {
-    let sum = 0;
-    let sum2 = 0;
-    let n = 0;
-    for (let x = 0; x < w; x += 3) {
-      const i = (y * w + x) * c;
-      const v = 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
-      sum += v;
-      sum2 += v * v;
-      n += 1;
-    }
-    const mean = sum / n;
-    rowSd.push(Math.sqrt(Math.max(0, sum2 / n - mean * mean)));
+function throughWhiteLine(stats: LineStat[], fromStart: boolean): number {
+  const limit = Math.min(8, stats.length);
+  let lastWhite = -1;
+  for (let i = 0; i < limit; i++) {
+    const stat = stats[fromStart ? i : stats.length - 1 - i];
+    if (stat.white >= 0.45 && stat.mean >= 175) lastWhite = i;
   }
-  for (let x = 0; x < w; x++) {
-    let sum = 0;
-    let sum2 = 0;
-    let n = 0;
-    for (let y = 0; y < h; y += 3) {
-      const i = (y * w + x) * c;
-      const v = 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
-      sum += v;
-      sum2 += v * v;
-      n += 1;
-    }
-    const mean = sum / n;
-    colSd.push(Math.sqrt(Math.max(0, sum2 / n - mean * mean)));
+  if (lastWhite < 0) return 0;
+  for (let i = 0; i < lastWhite; i++) {
+    const stat = stats[fromStart ? i : stats.length - 1 - i];
+    if (stat.white >= 0.2) return 0;
   }
-  const content = (sd: number) => sd > 14;
-  const inset = (sds: number[], forward: boolean): number => {
-    const limit = Math.floor(sds.length * 0.16);
-    const at = (i: number) => sds[forward ? i : sds.length - 1 - i];
-    let i = 0;
-    while (i < limit) {
-      if (!content(at(i))) {
-        i += 1;
-        continue;
-      }
-      let j = i;
-      while (j < limit && content(at(j))) j += 1;
-      let k = j;
-      while (k < limit && !content(at(k))) k += 1;
-      const island = j - i;
-      const gap = k - j;
-      if (island < Math.floor(sds.length * 0.05) && gap >= 4 && k < limit) {
-        i = k;
-        continue;
-      }
-      return i;
-    }
-    return 0;
-  };
-  const top = inset(rowSd, true);
-  const bottomCut = inset(rowSd, false);
-  const left = inset(colSd, true);
-  const marginRight = inset(colSd, false);
-  const stampRight = stampColumnCut(data, w, h, c);
-  const rightCut = Math.max(marginRight, stampRight);
-  const cropH = h - top - bottomCut;
-  let cropped = buf;
-  // Stretched 705x1200 scans sit near 0.59, and a stamp column cut makes them
-  // narrower. The 1988 mask is percentage-based, so keep a crop that stays in range.
-  const fits = (right: number) => {
-    const cropW = w - left - right;
-    const aspect = cropW / cropH;
-    const moved = top >= 8 || bottomCut >= 8 || left >= 8 || right >= 8;
-    return cropW >= 360 && aspect >= 0.40 && aspect <= 0.80 && moved;
-  };
-  const right = fits(rightCut) ? rightCut : marginRight;
-  let originLeft = 0;
-  let originTop = 0;
-  if (fits(right)) {
-    originLeft = left;
-    originTop = top;
-    cropped = await sharp(buf).extract({ left, top, width: w - left - right, height: cropH }).toBuffer();
-  }
-  // The stamp column keeps a white row from looking flat. Trim again after the
-  // cut, including a card that is still taller than 2.5 by 3.5.
-  const trimmed = await trimFlatEdges(cropped, 0, { aspectMax: 4, minWidth: 80 });
-  const ratio = await cropToCardRatio(trimmed.buffer);
-  const patched = await clearBannerWhitePatch(ratio.buffer);
-  return {
-    buffer: patched,
-    left: originLeft + trimmed.left + ratio.left,
-    top: originTop + trimmed.top + ratio.top,
-    width: ratio.width,
-    height: ratio.height,
-  };
+  return lastWhite + 1;
 }
 
-/** Remove a solid white rectangle covering #410's team name. Letter pixels stay. */
-async function clearBannerWhitePatch(buf: Buffer): Promise<Buffer> {
-  const { data, info } = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
+/** Crop a scanner frame and white mat. The printed card, including its name plate, stays. */
+async function trimPrintedCardEdge(buf: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(buf).rotate().raw().toBuffer({ resolveWithObject: true });
   const w = info.width ?? 0;
   const h = info.height ?? 0;
   const c = info.channels ?? 3;
   if (w < 80 || h < 80 || c < 3) return buf;
-  const y1 = Math.floor(h * 0.16);
-  const lumAt = (x: number, y: number) => {
-    const i = (y * w + x) * c;
-    return 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
-  };
-  // Banner letters are the first high-variance rows. A white patch on those
-  // rows is a wide run of near-white pixels.
-  let letterTop = -1;
-  let letterBottom = -1;
-  for (let y = 0; y < y1; y++) {
-    let sum = 0;
-    let sum2 = 0;
-    let n = 0;
-    for (let x = 0; x < w; x += 2) {
-      const v = lumAt(x, y);
-      sum += v;
-      sum2 += v * v;
-      n += 1;
-    }
-    const mean = sum / n;
-    const sd = Math.sqrt(Math.max(0, sum2 / n - mean * mean));
-    if (sd > 28 && mean > 80 && mean < 220) {
-      if (letterTop < 0) letterTop = y;
-      letterBottom = y;
-    }
-  }
-  if (letterTop < 0 || letterBottom - letterTop < 8) return buf;
-  let best: { x0: number; x1: number; y0: number; y1: number } | null = null;
-  for (let y = letterTop; y <= letterBottom; y++) {
-    let x = 0;
-    while (x < w) {
-      if (lumAt(x, y) < 236) {
-        x += 1;
-        continue;
-      }
-      let x2 = x;
-      while (x2 < w && lumAt(x2, y) >= 236) x2 += 1;
-      if (x2 - x >= Math.floor(w * 0.12)) {
-        let y2 = y;
-        while (y2 <= letterBottom) {
-          let white = 0;
-          let n = 0;
-          for (let xx = x; xx < x2; xx += 2) {
-            n += 1;
-            if (lumAt(xx, y2) >= 236) white += 1;
-          }
-          if (n === 0 || white / n < 0.92) break;
-          y2 += 1;
-        }
-        if (y2 - y >= 8 && (!best || (x2 - x) * (y2 - y) > (best.x1 - best.x0) * (best.y1 - best.y0))) {
-          best = { x0: x, x1: x2, y0: y, y1: y2 };
-        }
-      }
-      x = x2 + 1;
-    }
-  }
-  if (!best) return buf;
-  const sampleX = Math.min(w - 1, best.x1 + 2);
-  const sampleY = Math.min(h - 1, Math.floor((best.y0 + best.y1) / 2));
-  const si = (sampleY * w + sampleX) * c;
-  const copy = Buffer.from(data);
-  for (let y = best.y0; y < best.y1; y++) {
-    for (let x = best.x0; x < best.x1; x++) {
-      if (lumAt(x, y) < 236) continue;
-      const i = (y * w + x) * c;
-      copy[i] = data[si];
-      copy[i + 1] = data[si + 1];
-      copy[i + 2] = data[si + 2];
-    }
-  }
-  return sharp(copy, { raw: { width: w, height: h, channels: c } }).jpeg({ quality: 95 }).toBuffer();
+  const x0 = Math.floor(w * 0.28);
+  const x1 = Math.floor(w * 0.72);
+  const y0 = Math.floor(h * 0.22);
+  const y1 = Math.floor(h * 0.72);
+  const rows: LineStat[] = [];
+  const cols: LineStat[] = [];
+  for (let y = 0; y < h; y++) rows.push(lineStat(data, w, c, "row", y, x0, x1));
+  for (let x = 0; x < w; x++) cols.push(lineStat(data, w, c, "col", x, y0, y1));
+  let top = matInset(rows);
+  let bottom = matInset([...rows].reverse());
+  let left = matInset(cols);
+  let right = matInset([...cols].reverse());
+  const keptRows = rows.slice(top, h - bottom);
+  const keptCols = cols.slice(left, w - right);
+  top += throughWhiteLine(keptRows, true);
+  bottom += throughWhiteLine(keptRows, false);
+  left += throughWhiteLine(keptCols, true);
+  right += throughWhiteLine(keptCols, false);
+  if (left === 0 && right === 0 && top === 0 && bottom === 0) return buf;
+  const cropW = w - left - right;
+  const cropH = h - top - bottom;
+  if (cropW < 80 || cropH < 80) return buf;
+  return sharp(buf).rotate().extract({ left, top, width: cropW, height: cropH }).toBuffer();
 }
