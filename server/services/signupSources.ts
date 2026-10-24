@@ -12,6 +12,7 @@ export const SIGNUP_REPORT_TIMEZONE = PACKPTS_DAY_TZ;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 export const SIGNUP_DAILY_DAYS = 14;
+export const INSTAGRAM_SIGNUP_DAYS = 30;
 
 export const SIGNUP_EXCLUSION_RULE =
   "totals, bySource, daily, and authProviders count users where is_admin is false and is_bot is false. totals.excluded reports the rows left out, for the same all-time, rolling 24h, and rolling 7d windows. staffAdmin is users.is_admin (the only staff and admin flag; a row that is also is_bot counts here once). bots is users.is_bot when is_admin is false. test and qa are null here because users.is_test_account rows (QA, e2e and staff accounts) are removed by the query before counting, so they appear in neither the totals nor excluded. anon_players are not users and are not counted.";
@@ -416,5 +417,38 @@ export function mapSignupSourceRow(row: Record<string, unknown>): SignupSourceRo
     utmCampaign: asText(row.utm_campaign),
     referrer: asText(row.referrer),
     referralPurpose: asPurpose(row.referral_purpose),
+  };
+}
+
+export type InstagramSignupReport = {
+  generatedAt: string;
+  timezone: typeof SIGNUP_REPORT_TIMEZONE;
+  utmSource: "instagram";
+  days: number;
+  total: number;
+  daily: Array<{ day: string; signups: number }>;
+};
+
+/** Registered users (not staff, not bots) whose user_attribution.utm_source is instagram. */
+export function buildInstagramSignupReport(rows: SignupSourceRow[], now = new Date()): InstagramSignupReport {
+  const endDay = getPackptsDayKey(now);
+  const startDay = addPackptsDays(endDay, -(INSTAGRAM_SIGNUP_DAYS - 1));
+  const counts = new Map<string, number>();
+  for (let i = 0; i < INSTAGRAM_SIGNUP_DAYS; i++) counts.set(addPackptsDays(startDay, i), 0);
+  for (const row of rows) {
+    if (row.isAdmin || row.isBot || !row.createdAt) continue;
+    if ((row.utmSource ?? "").trim().toLowerCase() !== "instagram") continue;
+    const day = getPackptsDayKey(row.createdAt);
+    if (!counts.has(day)) continue;
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  const daily = [...counts.entries()].map(([day, signups]) => ({ day, signups }));
+  return {
+    generatedAt: now.toISOString(),
+    timezone: SIGNUP_REPORT_TIMEZONE,
+    utmSource: "instagram",
+    days: INSTAGRAM_SIGNUP_DAYS,
+    total: daily.reduce((sum, day) => sum + day.signups, 0),
+    daily,
   };
 }

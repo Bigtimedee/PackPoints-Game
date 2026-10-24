@@ -792,9 +792,23 @@ Startup (`index.ts`):
 - TikTok (`publisher/tiktok.ts`): Photo post via TikTok Content Publishing API, token auto-refresh
 - Discord: **Not implemented** (webhook URL env var defined in docs but no publisher code)
 - Reddit: **Not implemented** (env vars defined in strategy docs but no publisher code)
-- Instagram: **Not implemented** (env var defined but no publisher code)
+- Instagram (`server/services/igPublish.ts`): Graph API v21 publisher for feed, Reel, and Story. Off unless `IG_PUBLISH_ENABLED=true`. See Instagram publisher below.
 
 Weekday / scheduled X publish uses the Social Media Agent publisher path only (`publisher/twitter.ts` via the agent scheduler). The temporary D5-2 token-gated `POST /api/admin/social-agent/one-shot-tweet` route and `ONE_SHOT_PUBLISH_*` env vars were removed (token-header gate was not session-admin; leftover after D5 prove).
+
+**Instagram publisher** (`server/services/igPublish.ts`, `server/routes/igPublish.ts`):
+
+Ships disabled. The in-process cron does nothing unless `IG_PUBLISH_ENABLED=true` and `IG_ACCESS_TOKEN`, `IG_USER_ID`, and `FB_PAGE_ID` are all set. The access token is never logged. Default America/Chicago slots: feed 11:00 (`IG_FEED_AT_CT`), Reel 18:00 (`IG_REEL_AT_CT`), Story 20:00 (`IG_STORY_AT_CT`). One due queued item per kind per CT day. A failed or skipped row is not retried by the cron.
+
+`ig_post_queue` is defined in `shared/schema.ts` (drizzle-kit push drops tables missing from that file). Status: `queued`, `container_created`, `published`, `failed`, `skipped`. `approval_hash` is required. `utm_content` is the bio-link tag (for example `feed-d1`). `published_at` is when the row was published.
+
+Creatives live on disk (`IG_MEDIA_DIR`, default `server/assets/ig/media`). `GET /social/ig/:file` sends those exact bytes. There is no resize, recompress, or fallback image. Before upload, sha256 of those bytes must be in `server/assets/ig/APPROVED.json` (a JSON array of hashes only) and must match the row's `approval_hash`. Otherwise the row is marked `skipped`. If `check-asset.mjs` exports `assertApproved`, that check can reject a listed hash. It cannot approve a hash that is not listed.
+
+Graph API `v21.0`: `POST /{ig-user-id}/media` with `image_url` for a feed JPEG, `video_url` plus `media_type=REELS` for a Reel, or `media_type=STORIES` with `image_url` or `video_url`. Poll `status_code` until `FINISHED`, then `POST /{ig-user-id}/media_publish`. `content_publishing_limit` stops a run at 50 published posts per 24h. A row that already has `ig_media_id` or status `published` is not published again. Transient Graph errors retry with backoff, then the row is marked `failed`.
+
+Captions say `Link in bio` and do not include a raw URL. `GET /ig` redirects to `https://packpts.com/?utm_source=instagram&utm_medium=social&utm_campaign=ig_daily&utm_content=<latest published post>`. `?c=` overrides `utm_content`.
+
+QA routes use the existing `X-QA-Token` / `COVER_QA_TOKEN` gate: `GET` and `POST /api/qa/ig/queue`, `POST /api/qa/ig/dry-run`, `POST /api/qa/ig/publish`. `GET /api/qa/signups/instagram` returns daily registered users with `user_attribution.utm_source=instagram` for the last 30 America/Chicago days (same loader and staff/bot exclusion as `GET /api/qa/signups`).
 
 **Safety Systems:**
 - Fact Checker (`factChecker.ts`): Verifies user counts, match counts, scores, streaks, reward values against DB. Auto-corrects claims >10% off actual values.
@@ -851,10 +865,11 @@ Idempotent — safe to re-run for the same day.
 | `global_growth_rollups` | Flywheel | DAU, matches, shares, k-factor by day |
 | `user_growth_rollups` | Flywheel | Per-user daily growth metrics |
 | `share_events` | Flywheel | Content sharing/viral tracking |
+| `ig_post_queue` | Instagram publisher | Approved feed, Reel, and Story creatives. Off unless `IG_PUBLISH_ENABLED=true`. |
 
 #### Known Gaps
 
-1. **Missing publishers:** Discord, Reddit, and Instagram publishers are referenced in strategy docs but no code exists. Discord (webhook) is the easiest to implement.
+1. **Missing publishers:** Discord and Reddit are referenced in strategy docs but have no publisher. Instagram posts through `igPublish` when `IG_PUBLISH_ENABLED=true`.
 2. **No global circuit breaker:** Strategy docs describe "5 failures in 30 min → pause 30 min" but code only has per-post retry logic.
 3. **Diversity tracking is in-memory:** Resets on server restart. Should be DB-backed for production reliability.
 4. **Daily 5 auto announcements (2026-09-16):** Agent queue posts 8 AM CT announcement + 9 PM CT recap aligned with Marketing CAPTIONS post2. SoR preflight rejects signup-bonus FOMO.
