@@ -792,21 +792,23 @@ Startup (`index.ts`):
 - TikTok (`publisher/tiktok.ts`): Photo post via TikTok Content Publishing API, token auto-refresh
 - Discord: **Not implemented** (webhook URL env var defined in docs but no publisher code)
 - Reddit: **Not implemented** (env vars defined in strategy docs but no publisher code)
-- Instagram (`server/services/igPublish.ts`): Graph API v21 publisher for feed, Reel, and Story. Off unless `IG_PUBLISH_ENABLED=true`. See Instagram publisher below.
+- Instagram (`server/services/igPublish.ts`): Graph publisher for feed, Reel, and Story. Off unless `IG_PUBLISH_ENABLED=true`. See Instagram publisher below.
 
 Weekday / scheduled X publish uses the Social Media Agent publisher path only (`publisher/twitter.ts` via the agent scheduler). The temporary D5-2 token-gated `POST /api/admin/social-agent/one-shot-tweet` route and `ONE_SHOT_PUBLISH_*` env vars were removed (token-header gate was not session-admin; leftover after D5 prove).
 
 **Instagram publisher** (`server/services/igPublish.ts`, `server/routes/igPublish.ts`):
 
-Ships disabled. The in-process cron does nothing unless `IG_PUBLISH_ENABLED=true` and `IG_ACCESS_TOKEN`, `IG_USER_ID`, and `FB_PAGE_ID` are all set. The access token is never logged. Default America/Chicago slots: feed 11:00 (`IG_FEED_AT_CT`), Reel 18:00 (`IG_REEL_AT_CT`), Story 20:00 (`IG_STORY_AT_CT`). One due queued item per kind per CT day. A failed or skipped row is not retried by the cron.
+Ships disabled. The in-process cron does nothing unless `IG_PUBLISH_ENABLED=true` and both `IG_ACCESS_TOKEN` and `IG_USER_ID` are set. `FB_PAGE_ID` is optional. It is used only when `IG_GRAPH_HOST` is `graph.facebook.com`, to confirm that Page's linked Instagram account. The access token is read from the environment at call time. It is never logged and never hardcoded. Graph host defaults to `graph.instagram.com` (`IG_GRAPH_HOST`). API version defaults to `v21.0` (`IG_GRAPH_VERSION`). Calls are `POST /{ig-user-id}/media`, container `status_code`, `POST /{ig-user-id}/media_publish`, and `content_publishing_limit` on that host. Default America/Chicago slots: feed 11:00 (`IG_FEED_AT_CT`), Reel 18:00 (`IG_REEL_AT_CT`), Story 20:00 (`IG_STORY_AT_CT`). After the slot, the cron posts the oldest queued row of that kind whose scheduled time has arrived. One row per kind per CT day. A later day waits until its own slot. If the flag was off on an earlier day, that row posts on the next armed day, and only one day catches up. A failed or skipped row is not retried by the cron. A failed or skipped row whose scheduled CT date is today, or a row published today, consumes the day.
 
-`ig_post_queue` is defined in `shared/schema.ts` (drizzle-kit push drops tables missing from that file). Status: `queued`, `container_created`, `published`, `failed`, `skipped`. `approval_hash` is required. `utm_content` is the bio-link tag (for example `feed-d1`). `published_at` is when the row was published.
+`ig_post_queue` is defined in `shared/schema.ts` (drizzle-kit push drops tables missing from that file). A read also runs `CREATE TABLE IF NOT EXISTS` with the same columns, checks, and indexes, so a skipped drizzle push does not 500 `/ig` or the queue route. Status: `queued`, `container_created`, `published`, `failed`, `skipped`. `approval_hash` is required. `utm_content` is the bio-link tag (for example `feed-d1`). `published_at` is when the row was published.
 
-Creatives live on disk (`IG_MEDIA_DIR`, default `server/assets/ig/media`). `GET /social/ig/:file` sends those exact bytes. There is no resize, recompress, or fallback image. Before upload, sha256 of those bytes must be in `server/assets/ig/APPROVED.json` (a JSON array of hashes only) and must match the row's `approval_hash`. Otherwise the row is marked `skipped`. If `check-asset.mjs` exports `assertApproved`, that check can reject a listed hash. It cannot approve a hash that is not listed.
+Creatives live on disk (`IG_MEDIA_DIR`, default `server/assets/ig/media`). The committed set is 6 feed JPEGs, 7 Reel MP4s, and 7 Story JPEGs. `server/assets/ig/APPROVED.json` is a JSON array of those 20 hashes only. PNG feed and Story files are not queued. `GET /social/ig/:file` sends those exact bytes. There is no resize, recompress, or fallback image. Before upload, sha256 of those bytes must be in the allowlist and must match the row's `approval_hash`. Otherwise the row is marked `skipped`. If `check-asset.mjs` exports `assertApproved`, that check can reject a listed hash. It cannot approve a hash that is not listed. Feed images and Story images must be JPEG (`.jpg` / `.jpeg` with JPEG magic). A PNG is `media_kind_mismatch` and is not inserted.
 
-Graph API `v21.0`: `POST /{ig-user-id}/media` with `image_url` for a feed JPEG, `video_url` plus `media_type=REELS` for a Reel, or `media_type=STORIES` with `image_url` or `video_url`. Poll `status_code` until `FINISHED`, then `POST /{ig-user-id}/media_publish`. `content_publishing_limit` stops a run at 50 published posts per 24h. A row that already has `ig_media_id` or status `published` is not published again. Transient Graph errors retry with backoff, then the row is marked `failed`.
+On startup, and on `GET /api/qa/ig/queue`, missing rows are inserted once per `utm_content`: `feed-d1` through `feed-d6`, `reel-d1` through `reel-d7`, and `story-d1` through `story-d7`. Day 1 is the America/Chicago day of the first insert. Each later day is 24 hours after that, at the kind's slot time. All 20 stay `queued` until the flag and token are set. They are publishable as soon as those are set: feed and Story rows point at the approved `.jpg` files, and Reel rows point at the approved `.mp4` files.
 
-Captions say `Link in bio` and do not include a raw URL. `GET /ig` redirects to `https://packpts.com/?utm_source=instagram&utm_medium=social&utm_campaign=ig_daily&utm_content=<latest published post>`. `?c=` overrides `utm_content`.
+Graph `image_url` is a feed JPEG or a Story JPEG. A Reel is `video_url` plus `media_type=REELS`. A Story video is `media_type=STORIES` with `video_url`. Poll `status_code` until `FINISHED`, then `POST /{ig-user-id}/media_publish`. `content_publishing_limit` stops a run at 50 published posts per 24h. A row that already has `ig_media_id` or status `published` is not published again. Transient Graph errors retry with backoff, then the row is marked `failed`.
+
+Captions say `Link in bio` and do not include a raw URL. `GET /ig` always redirects 302 to `https://packpts.com/?utm_source=instagram&utm_medium=social&utm_campaign=ig_daily&utm_content=<latest published post>`. Nothing published, or a failed queue read, uses `utm_content=bio`. `?c=` overrides `utm_content`. A bad `?c=` is 400.
 
 QA routes use the existing `X-QA-Token` / `COVER_QA_TOKEN` gate: `GET` and `POST /api/qa/ig/queue`, `POST /api/qa/ig/dry-run`, `POST /api/qa/ig/publish`. `GET /api/qa/signups/instagram` returns daily registered users with `user_attribution.utm_source=instagram` for the last 30 America/Chicago days (same loader and staff/bot exclusion as `GET /api/qa/signups`).
 
@@ -1366,6 +1368,16 @@ Generate unique values with `openssl rand -hex 32`. Set in Railway â†’ Service â
 | `TIKTOK_REFRESH_TOKEN` | TikTok token refresh | (optional) |
 | `GROWTH_TIKTOK_ENABLED` | Enable TikTok in Growth Agent plan gen | "true" |
 | `GROWTH_INSTAGRAM_ENABLED` | Enable Instagram in Growth Agent plan gen | "false" |
+| `IG_PUBLISH_ENABLED` | Publish the Instagram queue. Off leaves rows queued | unset |
+| `IG_ACCESS_TOKEN` | Instagram user token. Read at call time, never logged | (required to publish) |
+| `IG_USER_ID` | Instagram professional account id | (required to publish) |
+| `IG_GRAPH_HOST` | Graph host for `/{ig-user-id}/media` and `/media_publish` | "graph.instagram.com" |
+| `IG_GRAPH_VERSION` | Graph API version | "v21.0" |
+| `FB_PAGE_ID` | Optional. Checked only when `IG_GRAPH_HOST` is `graph.facebook.com` | (optional) |
+| `IG_FEED_AT_CT` | Feed slot, America/Chicago HH:MM | "11:00" |
+| `IG_REEL_AT_CT` | Reel slot, America/Chicago HH:MM | "18:00" |
+| `IG_STORY_AT_CT` | Story slot, America/Chicago HH:MM | "20:00" |
+| `IG_MEDIA_DIR` | Directory of approved creatives | server/assets/ig/media |
 | `GROWTH_X_ENABLED` | Enable X/Twitter in Growth Agent plan gen | "false" |
 | `GROWTH_REDDIT_ENABLED` | Enable Reddit in Growth Agent plan gen | "false" |
 | `AGENT_AB_TEST_MIN_IMPRESSIONS` | Min impressions before concluding A/B test | 100 |

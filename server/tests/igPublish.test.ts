@@ -3,7 +3,7 @@
  */
 import { createHash } from "crypto";
 import { createServer } from "http";
-import { mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import type { AddressInfo } from "net";
 import { tmpdir } from "os";
 import path from "path";
@@ -15,10 +15,17 @@ import {
   IgGraphError,
   buildIgCaption,
   createMemoryStore,
+  defaultGraph,
+  enqueueApprovedSlots,
   enqueueIgPost,
   graphMediaFields,
   igBioRedirectUrl,
+  igBioTarget,
+  igCredsReady,
+  igGraphHost,
+  igGraphVersion,
   logIg,
+  mediaMatchesKind,
   publishIg,
   readAllowlistFile,
   runIgDaily,
@@ -91,6 +98,54 @@ describe("instagram copy, slots, and allowlist", () => {
     expect(slotMinutes("STORY", env)).toBe(20 * 60);
     expect(slotMinutes("FEED", { IG_FEED_AT_CT: "12:30" } as NodeJS.ProcessEnv)).toBe(12 * 60 + 30);
     expect(slotMinutes("FEED", { IG_FEED_AT_CT: "nope" } as NodeJS.ProcessEnv)).toBe(11 * 60);
+  });
+
+  it("uses graph.instagram.com and does not require a page id", async () => {
+    expect(igGraphHost({} as NodeJS.ProcessEnv)).toBe("graph.instagram.com");
+    expect(igGraphVersion({} as NodeJS.ProcessEnv)).toBe("v21.0");
+    expect(igGraphHost({ IG_GRAPH_HOST: "graph.facebook.com" } as NodeJS.ProcessEnv)).toBe("graph.facebook.com");
+    expect(igGraphVersion({ IG_GRAPH_VERSION: "v22.0" } as NodeJS.ProcessEnv)).toBe("v22.0");
+    expect(igCredsReady({ IG_ACCESS_TOKEN: "tok-123456", IG_USER_ID: "99" } as NodeJS.ProcessEnv)).toBe(true);
+    expect(igCredsReady({ IG_ACCESS_TOKEN: "tok-123456" } as NodeJS.ProcessEnv)).toBe(false);
+    const urls: string[] = [];
+    setIgDepsForTests({
+      env: {
+        IG_ACCESS_TOKEN: "tok-123456",
+        IG_USER_ID: "99",
+        IG_GRAPH_HOST: "graph.instagram.com",
+        IG_GRAPH_VERSION: "v22.0",
+      },
+      fetch: async (input, init) => {
+        urls.push(String(input));
+        const body = init?.body instanceof URLSearchParams ? init.body.toString() : "";
+        expect(String(input)).not.toContain("tok-123456");
+        expect(body).toContain("access_token=tok-123456");
+        return new Response(JSON.stringify({ id: "c1" }), { status: 200 });
+      },
+    });
+    expect(await defaultGraph().createMedia({ image_url: "https://packpts.com/social/ig/a.jpg", caption: "Link in bio." })).toBe("c1");
+    expect(urls).toEqual(["https://graph.instagram.com/v22.0/99/media"]);
+    setIgDepsForTests(null);
+  });
+
+  it("rejects a png for feed and story images", () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(mediaMatchesKind("FEED", "feed.png", png)).toBe(false);
+    expect(mediaMatchesKind("STORY", "story.png", png)).toBe(false);
+    expect(mediaMatchesKind("STORY", "story-d1.jpg", STORY)).toBe(true);
+    expect(mediaMatchesKind("REEL", "reel-d1.mp4", VIDEO)).toBe(true);
+  });
+
+  it("mirrors the 20 committed creative hashes and leaves pngs out", () => {
+    const dir = path.join(process.cwd(), "server", "assets", "ig", "media");
+    const file = path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json");
+    const names = readdirSync(dir).filter((name) => !name.startsWith("."));
+    expect(names.filter((name) => name.endsWith(".png"))).toEqual([]);
+    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(13);
+    expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(7);
+    const hashes = names.map((name) => sha(readFileSync(path.join(dir, name))));
+    expect(new Set(hashes).size).toBe(20);
+    expect(readAllowlistFile(file)).toEqual(new Set(hashes));
   });
 
   it("ships a hash-only allowlist", () => {
@@ -320,6 +375,39 @@ describe("instagram publish", () => {
     expect(graph.publishes).toBe(1);
   });
 
+  it("catches up one missed day and leaves the next day queued", async () => {
+    const graph = fakeGraph();
+    const at = { now: new Date("2026-10-23T16:00:00.000Z") };
+    use(graph);
+    setIgDepsForTests({
+      store,
+      graph,
+      mediaDir: dir,
+      allowlist: new Set([sha(JPEG), sha(VIDEO), sha(STORY)]),
+      env: armedEnv(),
+      sleep: async (ms) => { sleeps.push(ms); },
+      pollMax: 3,
+      now: () => at.now,
+    });
+    await queueFeed("2026-10-22T16:00:00.000Z");
+    await enqueueIgPost({
+      kind: "FEED", mediaPath: "feed-d1.jpg", caption: "Can you name all 5?",
+      scheduledFor: "2026-10-23T16:00:00.000Z", approvalHash: sha(JPEG), utmContent: "feed-d2",
+    });
+    const first = await runIgDaily(at.now);
+    expect(first.results?.map((item) => item.utmContent ?? item.status)).toEqual(["published"]);
+    expect((await store.list()).find((row) => row.utmContent === "feed-d1")?.status).toBe("published");
+    at.now = new Date("2026-10-23T17:00:00.000Z");
+    const second = await runIgDaily(at.now);
+    expect(second.results).toEqual([]);
+    expect(graph.publishes).toBe(1);
+    at.now = new Date("2026-10-24T16:00:00.000Z");
+    const nextDay = await runIgDaily(at.now);
+    expect(nextDay.results?.map((item) => item.status)).toEqual(["published"]);
+    expect((await store.list()).find((row) => row.utmContent === "feed-d2")?.status).toBe("published");
+    expect(graph.publishes).toBe(2);
+  });
+
   it("honors a later feed slot", async () => {
     const graph = fakeGraph();
     use(graph, new Set([sha(JPEG), sha(VIDEO), sha(STORY)]), armedEnv({ IG_FEED_AT_CT: "12:00" }));
@@ -328,6 +416,41 @@ describe("instagram publish", () => {
     expect(atEleven.results).toEqual([]);
     const atNoon = await runIgDaily(new Date("2026-10-23T17:00:00.000Z"));
     expect(atNoon.results?.map((item) => item.status)).toEqual(["published"]);
+  });
+
+  it("publishes without FB_PAGE_ID on the Instagram host", async () => {
+    let pageChecks = 0;
+    const graph = fakeGraph({
+      pageInstagramId: async () => {
+        pageChecks += 1;
+        throw new Error("no page");
+      },
+    });
+    use(graph, new Set([sha(JPEG)]), { ...armedEnv(), FB_PAGE_ID: "" });
+    const row = await queueFeed();
+    expect((await publishIg(row.id)).status).toBe("published");
+    expect(pageChecks).toBe(0);
+  });
+
+  it("checks the linked page only on graph.facebook.com", async () => {
+    const graph = fakeGraph({ pageInstagramId: async () => "other-account" });
+    use(graph, new Set([sha(JPEG)]), armedEnv({ IG_GRAPH_HOST: "graph.facebook.com" }));
+    const row = await queueFeed();
+    expect((await publishIg(row.id)).status).toBe("wrong_account");
+    expect(graph.calls).toHaveLength(0);
+  });
+
+  it("does not queue a png story", async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    writeFileSync(path.join(dir, "story.png"), png);
+    const graph = fakeGraph();
+    use(graph, new Set([sha(png), sha(JPEG), sha(VIDEO), sha(STORY)]));
+    await expect(enqueueIgPost({
+      kind: "STORY", mediaPath: "story.png", caption: "Story", scheduledFor: "2026-10-23T15:00:00.000Z",
+      approvalHash: sha(png), utmContent: "story-png",
+    })).rejects.toThrow(/media_kind_mismatch/);
+    expect(await store.list()).toHaveLength(0);
+    expect(graph.calls).toHaveLength(0);
   });
 
   it("does nothing when the flag or credentials are missing", async () => {
@@ -448,5 +571,59 @@ describe("instagram http routes", () => {
     expect(override.headers.get("location")).toBe(igBioRedirectUrl("reel-d9"));
     const bad = await fetch(`${base}/ig?c=https://evil.example`, { redirect: "manual" });
     expect(bad.status).toBe(400);
+  });
+});
+
+describe("approved creative queue", () => {
+  afterEach(() => {
+    setIgDepsForTests(null);
+  });
+
+  it("queues 20 jpeg and reel rows and does not insert them twice", async () => {
+    const store = createMemoryStore();
+    const mediaDir = path.join(process.cwd(), "server", "assets", "ig", "media");
+    const allowlist = readAllowlistFile(path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json"));
+    setIgDepsForTests({ store, mediaDir, allowlist, env: {} });
+    expect(await enqueueApprovedSlots()).toBe(20);
+    const rows = await store.list(50);
+    expect(rows).toHaveLength(20);
+    expect(rows.every((row) => row.status === "queued")).toBe(true);
+    expect(rows.filter((row) => row.kind === "FEED").map((row) => row.mediaPath).every((name) => name.endsWith(".jpg"))).toBe(true);
+    expect(rows.filter((row) => row.kind === "STORY").map((row) => row.mediaPath).every((name) => name.endsWith(".jpg"))).toBe(true);
+    expect(rows.filter((row) => row.kind === "REEL").map((row) => row.mediaPath).every((name) => name.endsWith(".mp4"))).toBe(true);
+    expect(rows.some((row) => row.mediaPath.endsWith(".png"))).toBe(false);
+    expect(rows.every((row) => row.caption === "Can you name all 5? Link in bio.")).toBe(true);
+    expect(rows.every((row) => allowlist.has(row.approvalHash))).toBe(true);
+    const utm = rows.map((row) => row.utmContent).sort();
+    expect(utm).toEqual([
+      "feed-d1", "feed-d2", "feed-d3", "feed-d4", "feed-d5", "feed-d6",
+      "reel-d1", "reel-d2", "reel-d3", "reel-d4", "reel-d5", "reel-d6", "reel-d7",
+      "story-d1", "story-d2", "story-d3", "story-d4", "story-d5", "story-d6", "story-d7",
+    ]);
+    expect(await enqueueApprovedSlots()).toBe(0);
+    expect(await store.list(50)).toHaveLength(20);
+  });
+
+  it("redirects /ig to bio when the queue read throws", async () => {
+    const app = express();
+    registerIgRoutes(app);
+    const store = createMemoryStore();
+    store.latestPublished = async () => {
+      throw new Error("relation ig_post_queue does not exist");
+    };
+    setIgDepsForTests({ store, env: {} });
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address() as AddressInfo;
+    try {
+      expect(await igBioTarget(undefined)).toBe(igBioRedirectUrl("bio"));
+      const bio = await fetch(`http://127.0.0.1:${addr.port}/ig`, { redirect: "manual" });
+      expect(bio.status).toBe(302);
+      expect(bio.headers.get("location")).toBe(igBioRedirectUrl("bio"));
+      const bad = await fetch(`http://127.0.0.1:${addr.port}/ig?c=https://evil.example`, { redirect: "manual" });
+      expect(bad.status).toBe(400);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
   });
 });

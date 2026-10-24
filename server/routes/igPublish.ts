@@ -9,6 +9,7 @@ import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreR
 import {
   IgInputError,
   enqueueIgPost,
+  igBioRedirectUrl,
   igBioTarget,
   inspectMedia,
   listQueue,
@@ -66,7 +67,7 @@ export function registerIgRoutes(app: Express): void {
       .catch((err: unknown) => {
         if (res.headersSent) return;
         if (err instanceof IgInputError) qaJson(req, res, 400, { error: err.code });
-        else qaJson(req, res, 500, { error: "redirect_failed" });
+        else res.redirect(302, igBioRedirectUrl("bio"));
       });
   });
 

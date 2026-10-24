@@ -5123,9 +5123,11 @@ export const daily5XPosts = pgTable("daily5_x_posts", {
 export type Daily5XPost = typeof daily5XPosts.$inferSelect;
 
 // Instagram publisher queue. drizzle-kit push drops tables that are not in this
-// file, so this definition is the production schema. approval_hash is required:
-// a file with no hash cannot be queued. utm_content is the bio-link tag
-// (feed-d1). published_at picks the most recently published row for /ig.
+// file, so this definition is the production schema. igPublish also runs
+// CREATE TABLE IF NOT EXISTS before a read, so a skipped push does not 500 /ig.
+// approval_hash is required: a file with no hash cannot be queued.
+// utm_content is the bio-link tag (feed-d1). published_at picks the most
+// recently published row for /ig.
 export const igPostQueue = pgTable("ig_post_queue", {
   id: serial("id").primaryKey(),
   kind: varchar("kind", { length: 8 }).notNull(),
