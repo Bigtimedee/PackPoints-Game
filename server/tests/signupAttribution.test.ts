@@ -252,6 +252,20 @@ describe("sanitization", () => {
     expect(sanitizeAttribution({ referredByCode: "bad code!", landingPage: "https://x.test" })).toBeNull();
   });
 
+  it("fills Instagram bio utms only when utm_source is empty", () => {
+    expect(sanitizeAttribution({ referrerHost: "https://l.instagram.com/link" })).toEqual(
+      attr({ utmSource: "instagram", utmMedium: "social", utmContent: "bio", referrerHost: "l.instagram.com" }),
+    );
+    expect(sanitizeAttribution({ referrerHost: "www.instagram.com", utmMedium: "cpc", utmContent: "story" })).toEqual(
+      attr({ utmSource: "instagram", utmMedium: "cpc", utmContent: "story", referrerHost: "instagram.com" }),
+    );
+    expect(sanitizeAttribution({ referrerHost: "https://instagram.com/", utmSource: "newsletter", utmMedium: "email" })).toEqual(
+      attr({ utmSource: "newsletter", utmMedium: "email", referrerHost: "instagram.com" }),
+    );
+    expect(sanitizeAttribution({ referrerHost: "notinstagram.com" })).toEqual(attr({ referrerHost: "notinstagram.com" }));
+    expect(sanitizeAttribution({ referrerHost: "https://instagram.com.evil.com/" })?.utmSource).toBeNull();
+  });
+
   it("accepts snake_case keys and the legacy referralSource field", () => {
     expect(sanitizeAttribution({ utm_source: "creator_jane", referralSource: "abc123" })).toEqual(
       attr({ utmSource: "creator_jane", refCode: "abc123" }),

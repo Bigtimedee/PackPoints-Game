@@ -100,6 +100,56 @@ describe("captureFirstTouch", () => {
     expect(getSignupAttributionPayload(env("/", { local, session, now: NOW + 3000 })).utmSource).toBe("creator_jane");
   });
 
+  it("attributes an Instagram referrer when the visit has no utm_source", () => {
+    for (const referrer of [
+      "https://instagram.com/",
+      "https://www.instagram.com/p/1?x=1",
+      "https://l.instagram.com/link",
+      "https://stories.instagram.com/s",
+    ]) {
+      const e = env("/", { referrer });
+      const rec = captureFirstTouch(e)!;
+      expect(rec.utm_source).toBe("instagram");
+      expect(rec.utm_medium).toBe("social");
+      expect(rec.utm_content).toBe("bio");
+      expect(rec.referrer_host === "instagram.com" || rec.referrer_host?.endsWith(".instagram.com")).toBe(true);
+      expect(getSignupAttributionPayload(e)).toMatchObject({
+        utmSource: "instagram",
+        utmMedium: "social",
+        utmContent: "bio",
+      });
+    }
+  });
+
+  it("keeps explicit utm values over an Instagram referrer", () => {
+    const tagged = captureFirstTouch(env("/?utm_source=newsletter&utm_medium=email", {
+      referrer: "https://l.instagram.com/x",
+    }))!;
+    expect(tagged.utm_source).toBe("newsletter");
+    expect(tagged.utm_medium).toBe("email");
+    expect(tagged.utm_content).toBeUndefined();
+
+    const partial = captureFirstTouch(env("/?utm_medium=cpc&utm_content=story", {
+      referrer: "https://instagram.com/reel",
+    }))!;
+    expect(partial.utm_source).toBe("instagram");
+    expect(partial.utm_medium).toBe("cpc");
+    expect(partial.utm_content).toBe("story");
+  });
+
+  it("does not treat a lookalike host as Instagram", () => {
+    for (const referrer of [
+      "https://notinstagram.com/",
+      "https://instagram.com.evil.com/",
+      "https://evil.instagram.com.evil.com/",
+    ]) {
+      const rec = captureFirstTouch(env("/", { referrer }))!;
+      expect(rec.utm_source).toBeUndefined();
+      expect(rec.utm_medium).toBeUndefined();
+      expect(rec.utm_content).toBeUndefined();
+    }
+  });
+
   it("an untagged visit does not overwrite a tagged one", () => {
     const local = new MemStorage();
     captureFirstTouch(env("/daily?utm_medium=beatme", { local }));

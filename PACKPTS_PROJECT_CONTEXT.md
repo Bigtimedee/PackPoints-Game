@@ -810,7 +810,7 @@ Graph `image_url` is a feed JPEG or a Story JPEG. A Reel is `video_url` plus `me
 
 Captions say `Link in bio` and do not include a raw URL. `GET /ig` always redirects 302 to `https://packpts.com/?utm_source=instagram&utm_medium=social&utm_campaign=ig_daily&utm_content=<latest published post>`. Nothing published, or a failed queue read, uses `utm_content=bio`. `?c=` overrides `utm_content`. A bad `?c=` is 400.
 
-QA routes use the existing `X-QA-Token` / `COVER_QA_TOKEN` gate: `GET` and `POST /api/qa/ig/queue`, `POST /api/qa/ig/dry-run`, `POST /api/qa/ig/publish`. `GET /api/qa/signups/instagram` returns daily registered users with `user_attribution.utm_source=instagram` for the last 30 America/Chicago days (same loader and staff/bot exclusion as `GET /api/qa/signups`).
+QA routes use the existing `X-QA-Token` / `COVER_QA_TOKEN` gate: `GET` and `POST /api/qa/ig/queue`, `POST /api/qa/ig/dry-run`, `POST /api/qa/ig/publish`. `GET /api/qa/signups/instagram` returns daily registered users for the last 30 America/Chicago days (same loader and staff/bot exclusion as `GET /api/qa/signups`). A row counts when `utm_source` is instagram, or when `utm_source` is empty and the stored referrer host is `instagram.com`, `l.instagram.com`, or any other `instagram.com` subdomain. A different explicit `utm_source` is not counted. A first-touch visit with no `utm_source` and that referrer is stored as `utm_source=instagram`, `utm_medium=social`, `utm_content=bio`. Explicit utm values on that visit are kept.
 
 **Safety Systems:**
 - Fact Checker (`factChecker.ts`): Verifies user counts, match counts, scores, streaks, reward values against DB. Auto-corrects claims >10% off actual values.

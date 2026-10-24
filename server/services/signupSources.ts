@@ -429,7 +429,28 @@ export type InstagramSignupReport = {
   daily: Array<{ day: string; signups: number }>;
 };
 
-/** Registered users (not staff, not bots) whose user_attribution.utm_source is instagram. */
+function isInstagramReferrerHost(referrer: string | null): boolean {
+  const raw = (referrer ?? "").trim();
+  if (!raw) return false;
+  let host = "";
+  try {
+    host = new URL(raw.includes("://") ? raw : `https://${raw}`).hostname.toLowerCase().replace(/\.$/, "");
+  } catch {
+    return false;
+  }
+  host = host.replace(/^www\./, "");
+  return host === "instagram.com" || host.endsWith(".instagram.com");
+}
+
+/** utm_source instagram, or a first touch with no utm_source and an Instagram referrer. An explicit other utm_source is not counted. */
+function isInstagramSignup(row: SignupSourceRow): boolean {
+  const source = (row.utmSource ?? "").trim().toLowerCase();
+  if (source === "instagram") return true;
+  if (source) return false;
+  return isInstagramReferrerHost(row.referrer);
+}
+
+/** Registered users (not staff, not bots) attributed to Instagram. */
 export function buildInstagramSignupReport(rows: SignupSourceRow[], now = new Date()): InstagramSignupReport {
   const endDay = getPackptsDayKey(now);
   const startDay = addPackptsDays(endDay, -(INSTAGRAM_SIGNUP_DAYS - 1));
@@ -437,7 +458,7 @@ export function buildInstagramSignupReport(rows: SignupSourceRow[], now = new Da
   for (let i = 0; i < INSTAGRAM_SIGNUP_DAYS; i++) counts.set(addPackptsDays(startDay, i), 0);
   for (const row of rows) {
     if (row.isAdmin || row.isBot || !row.createdAt) continue;
-    if ((row.utmSource ?? "").trim().toLowerCase() !== "instagram") continue;
+    if (!isInstagramSignup(row)) continue;
     const day = getPackptsDayKey(row.createdAt);
     if (!counts.has(day)) continue;
     counts.set(day, (counts.get(day) ?? 0) + 1);
