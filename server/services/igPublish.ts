@@ -30,8 +30,32 @@ export const IG_SLOT_DEFAULTS = { FEED: "11:00", REEL: "18:00", STORY: "20:00" }
 const SLOT_ENV = { FEED: "IG_FEED_AT_CT", REEL: "IG_REEL_AT_CT", STORY: "IG_STORY_AT_CT" } as const;
 const KINDS = ["FEED", "REEL", "STORY"] as const;
 
+export type IgQueueSlot = {
+  kind: IgKind;
+  file: string;
+  utm: string;
+  /** Days after the boot CT midnight. Week 1 only. */
+  day?: number;
+  /** Absolute America/Chicago wall time. Week 2. */
+  at?: { date: string; hour: number; minute: number };
+};
+
+const WEEK2_FEED_DATES = ["2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"] as const;
+const WEEK2_LATE_DATES = ["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"] as const;
+
+function week2Slots(): IgQueueSlot[] {
+  const slots: IgQueueSlot[] = [];
+  for (let n = 1; n <= 7; n++) {
+    const i = n - 1;
+    slots.push({ kind: "FEED", file: `feed-w2-day${n}.jpg`, utm: `w2-feed-d${n}`, at: { date: WEEK2_FEED_DATES[i], hour: 11, minute: 0 } });
+    slots.push({ kind: "REEL", file: `reel-w2-day${n}.mp4`, utm: `w2-reel-d${n}`, at: { date: WEEK2_LATE_DATES[i], hour: 18, minute: 0 } });
+    slots.push({ kind: "STORY", file: `story-w2-day${n}.jpg`, utm: `w2-story-d${n}`, at: { date: WEEK2_LATE_DATES[i], hour: 20, minute: 0 } });
+  }
+  return slots;
+}
+
 /** Approved feed JPEGs, Reel MP4s, and Story JPEGs. PNGs are not queued. */
-export const IG_QUEUE_SLOTS: { kind: IgKind; file: string; utm: string; day: number }[] = [
+export const IG_QUEUE_SLOTS: IgQueueSlot[] = [
   { kind: "FEED", file: "d5-post-1080-B2-4x5.jpg", utm: "feed-d1", day: 0 },
   { kind: "FEED", file: "d5-post-1080-B2-1987-topps-football-4x5.jpg", utm: "feed-d2", day: 1 },
   { kind: "FEED", file: "d5-post-1080-B2-1989-topps-4x5.jpg", utm: "feed-d3", day: 2 },
@@ -52,6 +76,7 @@ export const IG_QUEUE_SLOTS: { kind: IgKind; file: string; utm: string; day: num
   { kind: "STORY", file: "story-day5.jpg", utm: "story-d5", day: 4 },
   { kind: "STORY", file: "story-day6.jpg", utm: "story-d6", day: 5 },
   { kind: "STORY", file: "story-day7.jpg", utm: "story-d7", day: 6 },
+  ...week2Slots(),
 ];
 const CHECK_EVERY_MS = 5 * 60 * 1000;
 const CHECK_ASSET_CANDIDATES = [
@@ -170,6 +195,35 @@ export function mediaDir(): string {
 
 export function igPublishEnabled(e = env()): boolean {
   return e.IG_PUBLISH_ENABLED === "true";
+}
+
+/** America/Chicago wall time as a UTC instant. 11:00, 18:00, and 20:00 stay unambiguous across the November clock change. */
+export function ctWallTime(date: string, hour: number, minute: number): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match || hour > 23 || minute > 59) throw new Error("bad_ct_wall_time");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(guess).map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return new Date(guess.getTime() - (asUtc - guess.getTime()));
 }
 
 export function igGraphHost(e = env()): string {
@@ -1047,21 +1101,25 @@ export async function igBioTarget(override: unknown): Promise<string> {
   }
 }
 
+function slotWhen(slot: IgQueueSlot, origin: Date): Date {
+  if (slot.at) return ctWallTime(slot.at.date, slot.at.hour, slot.at.minute);
+  return new Date(origin.getTime() + (slot.day ?? 0) * 86_400_000 + slotMinutes(slot.kind) * 60_000);
+}
+
 async function insertMissingSlots(): Promise<number> {
   const existing = await currentStore().list(200);
-  const have = new Set(existing.map((row) => row.utmContent));
+  const have = new Set(existing.map((row) => row.mediaPath));
   const origin = ctNow(new Date()).midnightUtc;
   let inserted = 0;
   for (const slot of IG_QUEUE_SLOTS) {
-    if (have.has(slot.utm)) continue;
+    if (have.has(slot.file)) continue;
     const media = await inspectMedia(slot.file);
     if (!media.ok) throw new IgInputError(media.reason);
-    const scheduledFor = new Date(origin.getTime() + slot.day * 86_400_000 + slotMinutes(slot.kind) * 60_000);
     await enqueueIgPost({
       kind: slot.kind,
       mediaPath: slot.file,
       caption: "Can you name all 5?",
-      scheduledFor,
+      scheduledFor: slotWhen(slot, origin),
       approvalHash: media.hash,
       utmContent: slot.utm,
     });
@@ -1072,7 +1130,7 @@ async function insertMissingSlots(): Promise<number> {
 
 let seedTask: Promise<number> | null = null;
 
-/** Insert any approved slot whose utm_content is not already queued. Idempotent. */
+/** Insert approved slots whose media path is not already queued. Existing rows are not changed. */
 export function enqueueApprovedSlots(): Promise<number> {
   if (deps.store) return insertMissingSlots();
   if (!seedTask) {
