@@ -136,15 +136,15 @@ describe("instagram copy, slots, and allowlist", () => {
     expect(mediaMatchesKind("REEL", "reel-d1.mp4", VIDEO)).toBe(true);
   });
 
-  it("mirrors the 20 committed creative hashes and leaves pngs out", () => {
+  it("mirrors the committed creative hashes and leaves pngs out", () => {
     const dir = path.join(process.cwd(), "server", "assets", "ig", "media");
     const file = path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json");
     const names = readdirSync(dir).filter((name) => !name.startsWith("."));
     expect(names.filter((name) => name.endsWith(".png"))).toEqual([]);
-    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(13);
-    expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(7);
+    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(27);
+    expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(14);
     const hashes = names.map((name) => sha(readFileSync(path.join(dir, name))));
-    expect(new Set(hashes).size).toBe(20);
+    expect(new Set(hashes).size).toBe(41);
     expect(readAllowlistFile(file)).toEqual(new Set(hashes));
   });
 
@@ -408,6 +408,17 @@ describe("instagram publish", () => {
     expect(graph.publishes).toBe(2);
   });
 
+  it("does not publish a row whose scheduled time is still in the future", async () => {
+    const graph = fakeGraph();
+    use(graph);
+    const row = await queueFeed("2026-10-30T16:00:00.000Z");
+    const ran = await runIgDaily(new Date("2026-10-29T17:00:00.000Z"));
+    expect(ran.status).toBe("ran");
+    expect(ran.results ?? []).toEqual([]);
+    expect(graph.calls).toHaveLength(0);
+    expect((await store.get(row.id))?.status).toBe("queued");
+  });
+
   it("honors a later feed slot", async () => {
     const graph = fakeGraph();
     use(graph, new Set([sha(JPEG), sha(VIDEO), sha(STORY)]), armedEnv({ IG_FEED_AT_CT: "12:00" }));
@@ -574,34 +585,71 @@ describe("instagram http routes", () => {
   });
 });
 
+function ctLabel(d: Date): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 describe("approved creative queue", () => {
   afterEach(() => {
     setIgDepsForTests(null);
   });
 
-  it("queues 20 jpeg and reel rows and does not insert them twice", async () => {
+  it("queues week 1 and week 2 once and does not retouch an existing media path", async () => {
     const store = createMemoryStore();
     const mediaDir = path.join(process.cwd(), "server", "assets", "ig", "media");
     const allowlist = readAllowlistFile(path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json"));
+    const keptAt = new Date("2026-10-23T16:00:00.000Z");
+    await store.insert({
+      kind: "FEED",
+      mediaPath: "d5-post-1080-B2-4x5.jpg",
+      caption: "Already posted",
+      scheduledFor: keptAt,
+      status: "published",
+      approvalHash: "ab".repeat(32),
+      utmContent: "feed-d1",
+    });
     setIgDepsForTests({ store, mediaDir, allowlist, env: {} });
-    expect(await enqueueApprovedSlots()).toBe(20);
-    const rows = await store.list(50);
-    expect(rows).toHaveLength(20);
-    expect(rows.every((row) => row.status === "queued")).toBe(true);
-    expect(rows.filter((row) => row.kind === "FEED").map((row) => row.mediaPath).every((name) => name.endsWith(".jpg"))).toBe(true);
-    expect(rows.filter((row) => row.kind === "STORY").map((row) => row.mediaPath).every((name) => name.endsWith(".jpg"))).toBe(true);
-    expect(rows.filter((row) => row.kind === "REEL").map((row) => row.mediaPath).every((name) => name.endsWith(".mp4"))).toBe(true);
+    expect(await enqueueApprovedSlots()).toBe(40);
+    const rows = await store.list(100);
+    expect(rows).toHaveLength(41);
+    const kept = rows.find((row) => row.mediaPath === "d5-post-1080-B2-4x5.jpg");
+    expect(kept?.status).toBe("published");
+    expect(kept?.caption).toBe("Already posted");
+    expect(kept?.utmContent).toBe("feed-d1");
+    expect(kept?.scheduledFor.toISOString()).toBe(keptAt.toISOString());
+    const fresh = rows.filter((row) => row.mediaPath !== "d5-post-1080-B2-4x5.jpg");
+    expect(fresh.every((row) => row.status === "queued")).toBe(true);
+    expect(fresh.every((row) => row.caption === "Can you name all 5? Link in bio.")).toBe(true);
+    expect(rows.filter((row) => row.kind === "FEED").every((row) => row.mediaPath.endsWith(".jpg"))).toBe(true);
+    expect(rows.filter((row) => row.kind === "STORY").every((row) => row.mediaPath.endsWith(".jpg"))).toBe(true);
+    expect(rows.filter((row) => row.kind === "REEL").every((row) => row.mediaPath.endsWith(".mp4"))).toBe(true);
     expect(rows.some((row) => row.mediaPath.endsWith(".png"))).toBe(false);
-    expect(rows.every((row) => row.caption === "Can you name all 5? Link in bio.")).toBe(true);
-    expect(rows.every((row) => allowlist.has(row.approvalHash))).toBe(true);
-    const utm = rows.map((row) => row.utmContent).sort();
-    expect(utm).toEqual([
-      "feed-d1", "feed-d2", "feed-d3", "feed-d4", "feed-d5", "feed-d6",
-      "reel-d1", "reel-d2", "reel-d3", "reel-d4", "reel-d5", "reel-d6", "reel-d7",
-      "story-d1", "story-d2", "story-d3", "story-d4", "story-d5", "story-d6", "story-d7",
-    ]);
+    expect(fresh.every((row) => allowlist.has(row.approvalHash))).toBe(true);
+    const feedDates = ["2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"];
+    const lateDates = ["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"];
+    for (let n = 1; n <= 7; n++) {
+      expect(ctLabel(rows.find((row) => row.utmContent === `w2-feed-d${n}`)!.scheduledFor)).toBe(`${feedDates[n - 1]} 11:00`);
+      expect(ctLabel(rows.find((row) => row.utmContent === `w2-reel-d${n}`)!.scheduledFor)).toBe(`${lateDates[n - 1]} 18:00`);
+      expect(ctLabel(rows.find((row) => row.utmContent === `w2-story-d${n}`)!.scheduledFor)).toBe(`${lateDates[n - 1]} 20:00`);
+    }
+    expect(rows.find((row) => row.utmContent === "w2-feed-d1")?.scheduledFor.toISOString()).toBe("2026-10-29T16:00:00.000Z");
+    expect(rows.find((row) => row.utmContent === "w2-feed-d7")?.scheduledFor.toISOString()).toBe("2026-11-04T17:00:00.000Z");
+    expect(rows.find((row) => row.utmContent === "w2-reel-d1")?.scheduledFor.toISOString()).toBe("2026-10-30T23:00:00.000Z");
+    expect(rows.find((row) => row.utmContent === "w2-reel-d7")?.scheduledFor.toISOString()).toBe("2026-11-06T00:00:00.000Z");
+    expect(rows.find((row) => row.utmContent === "w2-story-d1")?.scheduledFor.toISOString()).toBe("2026-10-31T01:00:00.000Z");
+    expect(rows.find((row) => row.utmContent === "w2-story-d7")?.scheduledFor.toISOString()).toBe("2026-11-06T02:00:00.000Z");
     expect(await enqueueApprovedSlots()).toBe(0);
-    expect(await store.list(50)).toHaveLength(20);
+    expect(await store.list(100)).toHaveLength(41);
+    expect((await store.list(100)).find((row) => row.mediaPath === "d5-post-1080-B2-4x5.jpg")?.status).toBe("published");
   });
 
   it("redirects /ig to bio when the queue read throws", async () => {
