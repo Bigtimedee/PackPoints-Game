@@ -8,8 +8,11 @@ import { rememberDaily5AuthReturn } from "./daily5AuthReturn";
  * first tagged touch wins and is never overwritten. A record with no campaign
  * signal (no utm and no ref) may be replaced once by a later tagged touch, so
  * an earlier plain visit does not hide the creator link that brought someone
- * back. sessionStorage keeps the legacy packpts_utm key for compatibility and
- * a copy of the record in case localStorage is unavailable.
+ * back. A visit with no utm_source and an Instagram referrer host is stored as
+ * utm_source=instagram, utm_medium=social, utm_content=bio. Explicit utm
+ * values on that visit are kept. sessionStorage keeps the legacy packpts_utm
+ * key for compatibility and a copy of the record in case localStorage is
+ * unavailable.
  *
  * Every register path sends getSignupAttributionPayload(). OAuth starts call
  * stashAttributionForOAuth() first so the server can keep it in a short-lived
@@ -99,6 +102,10 @@ function cleanPath(raw: string): string | undefined {
   return /^[A-Za-z0-9/_\-.~%]+$/.test(v) ? v : undefined;
 }
 
+function isInstagramReferrerHost(host: string): boolean {
+  return host === "instagram.com" || host.endsWith(".instagram.com");
+}
+
 function referrerHost(referrer: string, ownHost: string): string | undefined {
   if (!referrer) return undefined;
   try {
@@ -176,6 +183,11 @@ export function touchFromEnv(env: AttributionEnv): FirstTouchRecord {
   if (path) r.landing_path = path;
   const host = referrerHost(env.referrer, env.host);
   if (host) r.referrer_host = host;
+  if (!r.utm_source && host && isInstagramReferrerHost(host)) {
+    r.utm_source = "instagram";
+    if (!r.utm_medium) r.utm_medium = "social";
+    if (!r.utm_content) r.utm_content = "bio";
+  }
   return r;
 }
 

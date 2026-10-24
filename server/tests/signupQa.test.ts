@@ -209,6 +209,22 @@ describe("instagram signup days", () => {
     expect(report.daily[29].day).toBe("2026-10-23");
     expect(report.daily.find((day) => day.day === "2026-10-23")?.signups).toBe(2);
     expect(report.total).toBe(2);
+  });
+
+  it("counts an Instagram referrer when utm_source is empty and ignores an explicit other source", () => {
+    const report = buildInstagramSignupReport([
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), hasAttributionRow: true, referrer: "instagram.com" }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), hasAttributionRow: true, referrer: "https://l.instagram.com/reel" }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), hasAttributionRow: true, referrer: "https://www.instagram.com/p/1" }),
+      row({ createdAt: new Date("2026-10-22T15:00:00.000Z"), hasAttributionRow: true, referrer: "https://stories.instagram.com/s" }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), utmSource: "newsletter", hasAttributionRow: true, referrer: "https://l.instagram.com/x" }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), hasAttributionRow: true, referrer: "https://notinstagram.com/" }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), hasAttributionRow: true, referrer: "https://instagram.com.evil.com/" }),
+      row({ createdAt: new Date("2026-10-23T15:00:00.000Z"), isBot: true, hasAttributionRow: true, referrer: "l.instagram.com" }),
+    ], now);
+    expect(report.daily.find((day) => day.day === "2026-10-23")?.signups).toBe(3);
+    expect(report.daily.find((day) => day.day === "2026-10-22")?.signups).toBe(1);
+    expect(report.total).toBe(4);
     expect(JSON.stringify(report)).not.toMatch(/[\u2013\u2014]/);
   });
 });

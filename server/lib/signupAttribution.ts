@@ -94,6 +94,10 @@ export function sanitizeReferrerHost(raw: unknown): string | null {
   return v.replace(/^www\./, "");
 }
 
+function isInstagramReferrerHost(host: string): boolean {
+  return host === "instagram.com" || host.endsWith(".instagram.com");
+}
+
 export function hasAnyAttribution(a: SignupAttribution | null | undefined): a is SignupAttribution {
   if (!a) return false;
   return Object.values(a).some((v) => v !== null);
@@ -116,6 +120,11 @@ export function sanitizeAttribution(input: unknown): SignupAttribution | null {
     landingPage: sanitizeLandingPage(firstString(o.landingPage, o.landing_page, o.landingPath, o.landing_path)),
     referrerHost: sanitizeReferrerHost(firstString(o.referrerHost, o.referrer_host)),
   };
+  if (!out.utmSource && out.referrerHost && isInstagramReferrerHost(out.referrerHost)) {
+    out.utmSource = "instagram";
+    if (!out.utmMedium) out.utmMedium = "social";
+    if (!out.utmContent) out.utmContent = "bio";
+  }
   return hasAnyAttribution(out) ? out : null;
 }
 
