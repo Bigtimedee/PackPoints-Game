@@ -732,6 +732,7 @@ describe("signup report buckets for new rows", () => {
     utmSource: null,
     utmMedium: null,
     utmCampaign: null,
+    utmContent: null,
     referrer: null,
     referralPurpose: null,
   };

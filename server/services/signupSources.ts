@@ -56,6 +56,7 @@ export type SignupSourceRow = {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  utmContent: string | null;
   referrer: string | null;
   referralPurpose: ReferralPurpose | null;
 };
@@ -352,6 +353,7 @@ SELECT
   ua.utm_source,
   ua.utm_medium,
   ua.utm_campaign,
+  ua.utm_content,
   ua.referrer,
   (
     SELECT rl.purpose
@@ -415,6 +417,7 @@ export function mapSignupSourceRow(row: Record<string, unknown>): SignupSourceRo
     utmSource: asText(row.utm_source),
     utmMedium: asText(row.utm_medium),
     utmCampaign: asText(row.utm_campaign),
+    utmContent: asText(row.utm_content),
     referrer: asText(row.referrer),
     referralPurpose: asPurpose(row.referral_purpose),
   };
@@ -472,4 +475,37 @@ export function buildInstagramSignupReport(rows: SignupSourceRow[], now = new Da
     total: daily.reduce((sum, day) => sum + day.signups, 0),
     daily,
   };
+}
+
+export type UtmSignupDaily = {
+  generatedAt: string;
+  timezone: typeof SIGNUP_REPORT_TIMEZONE;
+  days: number;
+  daily: Array<{ day: string; rows: Array<{ utmSource: string; utmMedium: string; utmContent: string; signups: number }> }>;
+};
+
+/** Daily signup counts by utm_source, utm_medium, and utm_content. Staff and bots are left out. */
+export function buildUtmSignupDaily(rows: SignupSourceRow[], now = new Date()): UtmSignupDaily {
+  const endDay = getPackptsDayKey(now);
+  const startDay = addPackptsDays(endDay, -(INSTAGRAM_SIGNUP_DAYS - 1));
+  const counts = new Map<string, Map<string, number>>();
+  for (let i = 0; i < INSTAGRAM_SIGNUP_DAYS; i++) counts.set(addPackptsDays(startDay, i), new Map());
+  for (const row of rows) {
+    if (row.isAdmin || row.isBot || !row.createdAt) continue;
+    const day = getPackptsDayKey(row.createdAt);
+    const bucket = counts.get(day);
+    if (!bucket) continue;
+    const key = [row.utmSource ?? "", row.utmMedium ?? "", row.utmContent ?? ""].join("\t");
+    bucket.set(key, (bucket.get(key) ?? 0) + 1);
+  }
+  const daily = [...counts.entries()].map(([day, bucket]) => ({
+    day,
+    rows: [...bucket.entries()]
+      .map(([key, signups]) => {
+        const [utmSource, utmMedium, utmContent] = key.split("\t");
+        return { utmSource, utmMedium, utmContent, signups };
+      })
+      .sort((a, b) => b.signups - a.signups || a.utmSource.localeCompare(b.utmSource) || a.utmContent.localeCompare(b.utmContent)),
+  }));
+  return { generatedAt: now.toISOString(), timezone: SIGNUP_REPORT_TIMEZONE, days: INSTAGRAM_SIGNUP_DAYS, daily };
 }
