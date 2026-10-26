@@ -5140,14 +5140,24 @@ export const igPostQueue = pgTable("ig_post_queue", {
   error: text("error"),
   approvalHash: varchar("approval_hash", { length: 64 }).notNull(),
   utmContent: varchar("utm_content", { length: 40 }).notNull(),
+  utmMedium: varchar("utm_medium", { length: 16 }),
+  utmCampaign: varchar("utm_campaign", { length: 16 }),
+  platform: varchar("platform", { length: 2 }).notNull().default("ig"),
+  variant: varchar("variant", { length: 1 }),
+  testId: varchar("test_id", { length: 40 }),
+  trial: boolean("trial").notNull().default(false),
+  insights: jsonb("insights").$type<Record<string, unknown> | null>(),
+  abTestId: varchar("ab_test_id", { length: 64 }),
   publishedAt: timestamptz("published_at"),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
 }, (table) => [
   index("idx_ig_post_queue_status_scheduled").on(table.status, table.scheduledFor),
   index("idx_ig_post_queue_kind_status").on(table.kind, table.status),
   index("idx_ig_post_queue_published").on(table.publishedAt),
-  check("ig_post_queue_kind_check", sql`${table.kind} IN ('FEED', 'REEL', 'STORY')`),
+  check("ig_post_queue_kind_check", sql`${table.kind} IN ('FEED', 'REEL', 'STORY', 'PHOTO', 'LINK')`),
   check("ig_post_queue_status_check", sql`${table.status} IN ('queued', 'container_created', 'published', 'failed', 'skipped')`),
+  check("ig_post_queue_platform_check", sql`${table.platform} IN ('ig', 'fb')`),
+  check("ig_post_queue_variant_check", sql`${table.variant} IS NULL OR ${table.variant} IN ('A', 'B')`),
 ]);
 export type IgPostQueue = typeof igPostQueue.$inferSelect;
 

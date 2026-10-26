@@ -16,6 +16,7 @@ import {
   SIGNUP_SOURCE_SQL,
   buildInstagramSignupReport,
   buildSignupReport,
+  buildUtmSignupDaily,
   mapSignupSourceRow,
   sanitizeUtmSource,
   signupSourceBucket,
@@ -46,6 +47,7 @@ function row(partial: Partial<SignupSourceRow> & Pick<SignupSourceRow, "createdA
     utmSource: null,
     utmMedium: null,
     utmCampaign: null,
+    utmContent: null,
     referrer: null,
     referralPurpose: null,
     ...partial,
@@ -229,6 +231,28 @@ describe("instagram signup days", () => {
   });
 });
 
+describe("utm signup daily", () => {
+  it("counts signups by source, medium, and content and leaves staff and bots out", () => {
+    const now = new Date("2026-10-26T16:00:00.000Z");
+    const report = buildUtmSignupDaily([
+      row({ createdAt: now, utmSource: "instagram", utmMedium: "story", utmContent: "12-A" }),
+      row({ createdAt: now, utmSource: "instagram", utmMedium: "story", utmContent: "12-A" }),
+      row({ createdAt: now, utmSource: "facebook", utmMedium: "link", utmContent: "4-B" }),
+      row({ createdAt: now, isAdmin: true, utmSource: "instagram", utmMedium: "story", utmContent: "12-A" }),
+      row({ createdAt: now, isBot: true, utmSource: "facebook", utmMedium: "link", utmContent: "9-A" }),
+      row({ createdAt: new Date("2026-01-01T18:00:00.000Z"), utmSource: "instagram", utmMedium: "story", utmContent: "old" }),
+    ], now);
+    expect(report.days).toBe(30);
+    expect(report.daily).toHaveLength(30);
+    expect(report.daily.find((day) => day.day === "2026-10-26")?.rows).toEqual([
+      { utmSource: "instagram", utmMedium: "story", utmContent: "12-A", signups: 2 },
+      { utmSource: "facebook", utmMedium: "link", utmContent: "4-B", signups: 1 },
+    ]);
+    expect(report.daily.some((day) => day.rows.some((item) => item.utmContent === "old" || item.utmContent === "9-A"))).toBe(false);
+    expect(JSON.stringify(report)).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
 describe("signup source SQL", () => {
   it("does not select email, username, or user id", () => {
     const sql = SIGNUP_SOURCE_SQL.toLowerCase();
@@ -240,6 +264,7 @@ describe("signup source SQL", () => {
     expect(sql).toContain("referral_attributions");
     expect(sql).toContain("apple_users");
     expect(sql).toContain("local_credentials");
+    expect(sql).toContain("utm_content");
     expect(sql).toContain("oauth_provider");
     expect(sql).toContain("anon_players");
     expect(sql).toContain("guest_converted");

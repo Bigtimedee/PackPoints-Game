@@ -16,6 +16,7 @@ import {
   publishIg,
   type IgQueueRow,
 } from "../services/igPublish";
+import { dryRunFb } from "../services/fbPublish";
 
 function qaJson(req: Request, res: Response, status: number, payload: unknown): void {
   stripConditionalValidators(req);
@@ -45,6 +46,14 @@ export function igQueueJson(row: IgQueueRow) {
     error: row.error,
     approvalHash: row.approvalHash,
     utmContent: row.utmContent,
+    utmMedium: row.utmMedium,
+    utmCampaign: row.utmCampaign,
+    platform: row.platform,
+    variant: row.variant,
+    testId: row.testId,
+    trial: row.trial,
+    insights: row.insights,
+    abTestId: row.abTestId,
     createdAt: row.createdAt.toISOString(),
     publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
   };
@@ -118,6 +127,10 @@ export function registerIgRoutes(app: Express): void {
       scheduledFor: body.scheduledFor,
       approvalHash: body.approvalHash,
       utmContent: body.utmContent,
+      platform: body.platform === "fb" ? "fb" : "ig",
+      variant: body.variant === "A" || body.variant === "B" ? body.variant : null,
+      testId: typeof body.testId === "string" ? body.testId : null,
+      trial: body.trial === true,
     })
       .then((row) => qaJson(req, res, 201, { item: igQueueJson(row) }))
       .catch((err: unknown) => {
@@ -137,6 +150,21 @@ export function registerIgRoutes(app: Express): void {
       return;
     }
     void publishIg(id, { dryRun: true })
+      .then((result) => qaJson(req, res, result.status === "not_found" ? 404 : 200, result))
+      .catch(() => qaJson(req, res, 500, { error: "dry_run_failed" }));
+  });
+
+  app.post("/api/qa/fb/dry-run", (req, res) => {
+    if (!authorized(req)) {
+      qaJson(req, res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const id = Number(req.body?.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      qaJson(req, res, 400, { error: "bad_id" });
+      return;
+    }
+    void dryRunFb(id)
       .then((result) => qaJson(req, res, result.status === "not_found" ? 404 : 200, result))
       .catch(() => qaJson(req, res, 500, { error: "dry_run_failed" }));
   });

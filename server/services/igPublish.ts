@@ -17,7 +17,7 @@
  * utm_content=bio when nothing is published.
  */
 import { createHash } from "crypto";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import type { Pool, PoolClient } from "pg";
@@ -26,9 +26,16 @@ import { ctNow } from "./daily5XWatch";
 export const IG_GRAPH_VERSION = "v21.0";
 const IG_GRAPH_HOST_DEFAULT = "graph.instagram.com";
 export const IG_PUBLISH_LIMIT = 50;
-export const IG_SLOT_DEFAULTS = { FEED: "11:00", REEL: "18:00", STORY: "20:00" } as const;
-const SLOT_ENV = { FEED: "IG_FEED_AT_CT", REEL: "IG_REEL_AT_CT", STORY: "IG_STORY_AT_CT" } as const;
-const KINDS = ["FEED", "REEL", "STORY"] as const;
+export const IG_SLOT_DEFAULTS = { FEED: "11:00", REEL: "18:00", STORY: "21:00", PHOTO: "07:30", LINK: "13:30" } as const;
+/** Extra IG clocks besides the kind default. Story morning and trial Reel afternoon. */
+export const IG_EXTRA_SLOTS = { STORY: "07:30", REEL: "13:30" } as const;
+const SLOT_ENV = { FEED: "IG_FEED_AT_CT", REEL: "IG_REEL_AT_CT", STORY: "IG_STORY_AT_CT", PHOTO: "IG_PHOTO_AT_CT", LINK: "IG_LINK_AT_CT" } as const;
+const EXTRA_ENV = { STORY: "IG_STORY_AM_AT_CT", REEL: "IG_REEL_TRIAL_AT_CT" } as const;
+const KINDS = ["FEED", "REEL", "STORY", "PHOTO", "LINK"] as const;
+/** Content week 2 day 1 is the live feed start. Week 4 day 1 is 2026-11-12. */
+const CONTENT_WEEK2_DAY1_UTC = Date.UTC(2026, 9, 29);
+const STORY_MORNING_TESTS = new Set(["tease", "am", "morning", "s1"]);
+const STORY_EVENING_TESTS = new Set(["answer", "evening", "pm", "s5", "poll"]);
 
 export type IgQueueSlot = {
   kind: IgKind;
@@ -49,7 +56,7 @@ function week2Slots(): IgQueueSlot[] {
     const i = n - 1;
     slots.push({ kind: "FEED", file: `feed-w2-day${n}.jpg`, utm: `w2-feed-d${n}`, at: { date: WEEK2_FEED_DATES[i], hour: 11, minute: 0 } });
     slots.push({ kind: "REEL", file: `reel-w2-day${n}.mp4`, utm: `w2-reel-d${n}`, at: { date: WEEK2_LATE_DATES[i], hour: 18, minute: 0 } });
-    slots.push({ kind: "STORY", file: `story-w2-day${n}.jpg`, utm: `w2-story-d${n}`, at: { date: WEEK2_LATE_DATES[i], hour: 20, minute: 0 } });
+    slots.push({ kind: "STORY", file: `story-w2-day${n}.jpg`, utm: `w2-story-d${n}`, at: { date: WEEK2_LATE_DATES[i], hour: 21, minute: 0 } });
   }
   return slots;
 }
@@ -90,6 +97,15 @@ export type IgKind = (typeof KINDS)[number];
 export type IgStatus = "queued" | "container_created" | "published" | "failed" | "skipped";
 export type IgContainerCode = "IN_PROGRESS" | "FINISHED" | "PUBLISHED" | "ERROR" | "EXPIRED";
 
+export type IgPlatform = "ig" | "fb";
+export type IgVariant = "A" | "B";
+export type IgInsights = {
+  daily?: { day: string; pulledAt: string; metrics: Record<string, number | string | null>; error?: string };
+  story20h?: { pulledAt: string; metrics: Record<string, number | string | null>; error?: string };
+  fb?: { day: string; pulledAt: string; metrics: Record<string, number | string | null>; error?: string };
+  abTest?: { pulledAt: string; body: Record<string, unknown>; error?: string };
+};
+
 export type IgQueueRow = {
   id: number;
   kind: IgKind;
@@ -102,8 +118,28 @@ export type IgQueueRow = {
   error: string | null;
   approvalHash: string;
   utmContent: string;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  platform: IgPlatform;
+  variant: IgVariant | null;
+  testId: string | null;
+  trial: boolean;
+  insights: IgInsights | null;
+  abTestId: string | null;
   createdAt: Date;
   publishedAt: Date | null;
+};
+
+export type IgQueueInsert = Omit<IgQueueRow, "id" | "createdAt" | "publishedAt" | "containerId" | "igMediaId" | "error" | "utmMedium" | "utmCampaign" | "platform" | "variant" | "testId" | "trial" | "insights" | "abTestId"> & {
+  error?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  platform?: IgPlatform;
+  variant?: IgVariant | null;
+  testId?: string | null;
+  trial?: boolean;
+  insights?: IgInsights | null;
+  abTestId?: string | null;
 };
 
 export type IgMediaFields = {
@@ -111,6 +147,7 @@ export type IgMediaFields = {
   video_url?: string;
   media_type?: "REELS" | "STORIES";
   caption?: string;
+  trial_params?: string;
 };
 
 export interface IgGraph {
@@ -122,7 +159,12 @@ export interface IgGraph {
 }
 
 export interface IgStore {
-  insert(row: Omit<IgQueueRow, "id" | "createdAt" | "publishedAt" | "containerId" | "igMediaId" | "error"> & { error?: string | null }): Promise<IgQueueRow>;
+  insert(row: IgQueueInsert): Promise<IgQueueRow>;
+  rescheduleQueued(id: number, scheduledFor: Date): Promise<boolean>;
+  setQueuedUtm(id: number, utmContent: string, utmMedium: string, utmCampaign: string): Promise<boolean>;
+  setQueuedCaption(id: number, caption: string): Promise<boolean>;
+  saveInsights(id: number, insights: IgInsights): Promise<boolean>;
+  markAbTest(id: number, videoId: string, abTestId: string): Promise<boolean>;
   list(limit?: number): Promise<IgQueueRow[]>;
   get(id: number): Promise<IgQueueRow | null>;
   claimCreate(id: number, statuses: IgStatus[]): Promise<IgQueueRow | null>;
@@ -268,6 +310,167 @@ function clockMinutes(hhmm: string): number {
   return hour * 60 + minute;
 }
 
+function readClock(raw: string | undefined, fallback: string): string {
+  const text = (raw || fallback).trim();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(text);
+  if (!match) return fallback;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return fallback;
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
+}
+
+export function extraSlotMinutes(kind: IgKind, e = env()): number | null {
+  if (kind !== "STORY" && kind !== "REEL") return null;
+  return clockMinutes(readClock(e[EXTRA_ENV[kind]], IG_EXTRA_SLOTS[kind]));
+}
+
+/** The row posts at its own Central clock when that clock is a known slot. An earlier schedule waits for the kind default. */
+export function rowSlotMinutes(kind: IgKind, scheduledFor: Date, e = env()): number {
+  const scheduled = ctNow(scheduledFor).minutes;
+  const primary = slotMinutes(kind, e);
+  const extra = extraSlotMinutes(kind, e);
+  const known = new Set<number>([7 * 60 + 30, 11 * 60, 13 * 60 + 30, 18 * 60, 21 * 60, primary]);
+  if (extra != null) known.add(extra);
+  if (known.has(scheduled)) return scheduled;
+  return primary;
+}
+
+export function rowIsDue(row: Pick<IgQueueRow, "kind" | "scheduledFor">, now: Date, e = env()): boolean {
+  if (row.scheduledFor.getTime() > now.getTime()) return false;
+  return ctNow(now).minutes >= rowSlotMinutes(row.kind, row.scheduledFor, e);
+}
+
+export function contentDate(week: number, day: number): string {
+  if (!Number.isInteger(week) || !Number.isInteger(day) || week < 1 || day < 1) throw new Error("bad_content_date");
+  const dt = new Date(CONTENT_WEEK2_DAY1_UTC + ((week - 2) * 7 + (day - 1)) * 86_400_000);
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export type ParsedCreative = {
+  file: string;
+  platform: IgPlatform;
+  format: "feed" | "reel" | "story" | "photo" | "link";
+  week: number;
+  day: number;
+  testId: string;
+  variant: IgVariant;
+};
+
+export function parseCreativeName(file: string): ParsedCreative | null {
+  const match = /^(ig|fb)-(feed|reel|story|photo|link)-w(\d+)-d(\d+)-([a-z0-9]+)-([AB])\.(jpg|jpeg|mp4)$/i.exec(file);
+  if (!match) return null;
+  const variant = match[6].toUpperCase();
+  if (variant !== "A" && variant !== "B") return null;
+  const format = match[2].toLowerCase() as ParsedCreative["format"];
+  return {
+    file,
+    platform: match[1].toLowerCase() as IgPlatform,
+    format,
+    week: Number(match[3]),
+    day: Number(match[4]),
+    testId: match[5].toLowerCase(),
+    variant,
+  };
+}
+
+export function campaignFor(mediaPath: string, utm: string): string {
+  const fromUtm = /^w(\d+)-/i.exec(utm);
+  if (fromUtm) return `w${fromUtm[1]}`;
+  const fromPath = /(?:^|-)w(\d+)(?:-|\.)/i.exec(mediaPath);
+  if (fromPath) return `w${fromPath[1]}`;
+  return "w1";
+}
+
+export function rowUtmContent(id: number, variant: IgVariant | null): string {
+  return `${id}-${variant ?? "A"}`;
+}
+
+const FORMAT_KIND = { feed: "FEED", reel: "REEL", story: "STORY", photo: "PHOTO", link: "LINK" } as const;
+
+function storyClock(testId: string, tests: string[]): { hour: number; minute: number } {
+  if (STORY_MORNING_TESTS.has(testId)) return { hour: 7, minute: 30 };
+  if (STORY_EVENING_TESTS.has(testId)) return { hour: 21, minute: 0 };
+  const unknown = tests.filter((id) => !STORY_MORNING_TESTS.has(id) && !STORY_EVENING_TESTS.has(id)).sort();
+  if (unknown.length >= 2 && unknown[0] === testId) return { hour: 7, minute: 30 };
+  return { hour: 21, minute: 0 };
+}
+
+export function creativePlan(item: ParsedCreative, all: ParsedCreative[]): { kind: IgKind; at: { date: string; hour: number; minute: number }; trial: boolean; campaign: string } {
+  const same = all.filter((other) => other.platform === item.platform && other.week === item.week && other.day === item.day && other.format === item.format);
+  let hour = 11;
+  let minute = 0;
+  let trial = false;
+  if (item.format === "photo") {
+    hour = 7;
+    minute = 30;
+  } else if (item.format === "link") {
+    hour = 13;
+    minute = 30;
+  } else if (item.format === "reel") {
+    const pair = same.some((other) => other.testId === item.testId && other.variant !== item.variant);
+    if (item.platform === "ig" && pair) {
+      hour = 13;
+      minute = 30;
+      trial = true;
+    } else if (item.platform === "fb" && pair) {
+      hour = 11;
+    } else {
+      hour = 18;
+    }
+  } else if (item.format === "story") {
+    const clock = storyClock(item.testId, [...new Set(same.map((other) => other.testId))]);
+    hour = clock.hour;
+    minute = clock.minute;
+  }
+  return {
+    kind: FORMAT_KIND[item.format],
+    at: { date: contentDate(item.week, item.day), hour, minute },
+    trial,
+    campaign: `w${item.week}`,
+  };
+}
+
+export function selectDueRows(rows: IgQueueRow[], now: Date, platform: IgPlatform, e = env()): IgQueueRow[] {
+  const mine = rows.filter((row) => row.platform === platform);
+  const today = ctNow(now).day;
+  const chosen: IgQueueRow[] = [];
+  for (const kind of KINDS) {
+    const ofKind = mine.filter((row) => row.kind === kind);
+    const inflight = ofKind
+      .filter((row) => row.status === "container_created")
+      .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime() || a.id - b.id)[0];
+    if (inflight && platform === "ig") {
+      chosen.push(inflight);
+      continue;
+    }
+    const ready = ofKind
+      .filter((row) => row.status === "queued" && rowIsDue(row, now, e))
+      .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime() || a.id - b.id);
+    const catchupDone = ofKind.some((row) => row.status !== "queued" && row.publishedAt != null && ctNow(row.publishedAt).day === today && ctNow(row.scheduledFor).day < today);
+    if (catchupDone) continue;
+    const catchups = ready.filter((row) => ctNow(row.scheduledFor).day < today);
+    if (catchups.length) {
+      chosen.push(catchups[0]);
+      continue;
+    }
+    const consumed = new Set(
+      ofKind.filter((row) => row.status !== "queued" && ctNow(row.scheduledFor).day === today).map((row) => ctNow(row.scheduledFor).minutes),
+    );
+    for (const row of ready) {
+      if (ctNow(row.scheduledFor).day !== today) continue;
+      const minute = ctNow(row.scheduledFor).minutes;
+      if (consumed.has(minute)) continue;
+      chosen.push(row);
+      consumed.add(minute);
+    }
+  }
+  return chosen;
+}
+
 export function redactSecrets(message: string, secrets: string[]): string {
   let out = message;
   for (const secret of secrets) {
@@ -277,7 +480,7 @@ export function redactSecrets(message: string, secrets: string[]): string {
 }
 
 export function logIg(level: "log" | "error", message: string): void {
-  const safe = redactSecrets(message, [env().IG_ACCESS_TOKEN ?? ""]);
+  const safe = redactSecrets(message, [env().IG_ACCESS_TOKEN ?? "", env().FB_PAGE_TOKEN ?? ""]);
   console[level](`[IgPublish] ${safe}`);
 }
 
@@ -394,15 +597,19 @@ function isJpeg(fileName: string, bytes: Buffer): boolean {
 
 export function mediaMatchesKind(kind: IgKind, fileName: string, bytes: Buffer): boolean {
   const video = isVideoName(fileName);
-  if (kind === "FEED") return isJpeg(fileName, bytes);
+  if (kind === "FEED" || kind === "PHOTO" || kind === "LINK") return isJpeg(fileName, bytes);
   if (kind === "REEL") return video;
   if (video) return true;
   return isJpeg(fileName, bytes);
 }
 
-export function graphMediaFields(kind: IgKind, fileName: string, caption: string, publicUrl: string): IgMediaFields {
-  if (kind === "FEED") return { image_url: publicUrl, caption };
-  if (kind === "REEL") return { media_type: "REELS", video_url: publicUrl, caption };
+export function graphMediaFields(kind: IgKind, fileName: string, caption: string, publicUrl: string, opts?: { trial?: boolean }): IgMediaFields {
+  if (kind === "REEL") {
+    const fields: IgMediaFields = { media_type: "REELS", video_url: publicUrl, caption };
+    if (opts?.trial) fields.trial_params = JSON.stringify({ graduation_strategy: "SS_PERFORMANCE" });
+    return fields;
+  }
+  if (kind === "FEED" || kind === "PHOTO" || kind === "LINK") return { image_url: publicUrl, caption };
   if (isVideoName(fileName)) return { media_type: "STORIES", video_url: publicUrl };
   return { media_type: "STORIES", image_url: publicUrl };
 }
@@ -435,12 +642,39 @@ export async function inspectMedia(name: string): Promise<InspectedMedia> {
   return { ok: true, bytes, hash, contentType: contentTypeFor(name) };
 }
 
+function withDefaults(input: IgQueueInsert): IgQueueRow {
+  return {
+    id: 0,
+    kind: input.kind,
+    mediaPath: input.mediaPath,
+    caption: input.caption,
+    scheduledFor: new Date(input.scheduledFor),
+    status: input.status,
+    containerId: null,
+    igMediaId: null,
+    error: input.error ?? null,
+    approvalHash: input.approvalHash,
+    utmContent: input.utmContent,
+    utmMedium: input.utmMedium ?? null,
+    utmCampaign: input.utmCampaign ?? null,
+    platform: input.platform ?? "ig",
+    variant: input.variant ?? null,
+    testId: input.testId ?? null,
+    trial: input.trial === true,
+    insights: input.insights ?? null,
+    abTestId: input.abTestId ?? null,
+    createdAt: new Date(),
+    publishedAt: null,
+  };
+}
+
 function copyRow(row: IgQueueRow): IgQueueRow {
   return {
     ...row,
     scheduledFor: new Date(row.scheduledFor),
     createdAt: new Date(row.createdAt),
     publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
+    insights: row.insights ? { ...row.insights } : null,
   };
 }
 
@@ -459,23 +693,45 @@ export function createMemoryStore(): IgStore {
 
   return {
     async insert(input) {
-      const row: IgQueueRow = {
-        id: nextId++,
-        kind: input.kind,
-        mediaPath: input.mediaPath,
-        caption: input.caption,
-        scheduledFor: new Date(input.scheduledFor),
-        status: input.status,
-        containerId: null,
-        igMediaId: null,
-        error: input.error ?? null,
-        approvalHash: input.approvalHash,
-        utmContent: input.utmContent,
-        createdAt: new Date(),
-        publishedAt: null,
-      };
+      const row = withDefaults(input);
+      row.id = nextId++;
       rows.push(row);
       return copyRow(row);
+    },
+    async rescheduleQueued(id, scheduledFor) {
+      const row = find(id);
+      if (!row || row.status !== "queued") return false;
+      row.scheduledFor = new Date(scheduledFor);
+      return true;
+    },
+    async setQueuedUtm(id, utmContent, utmMedium, utmCampaign) {
+      const row = find(id);
+      if (!row || row.status !== "queued") return false;
+      row.utmContent = utmContent;
+      row.utmMedium = utmMedium;
+      row.utmCampaign = utmCampaign;
+      return true;
+    },
+    async setQueuedCaption(id, caption) {
+      const row = find(id);
+      if (!row || row.status !== "queued") return false;
+      row.caption = caption;
+      return true;
+    },
+    async saveInsights(id, insights) {
+      const row = find(id);
+      if (!row) return false;
+      row.insights = insights;
+      return true;
+    },
+    async markAbTest(id, videoId, abTestId) {
+      const row = find(id);
+      if (!row || row.status !== "queued") return false;
+      row.status = "container_created";
+      row.igMediaId = videoId;
+      row.abTestId = abTestId;
+      row.error = null;
+      return true;
     },
     async list(limit = 100) {
       return rows.slice().sort((a, b) => b.id - a.id).slice(0, limit).map(copyRow);
@@ -564,7 +820,22 @@ export function createMemoryStore(): IgStore {
   };
 }
 
+function asInsights(value: unknown): IgInsights | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as IgInsights;
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === "object") return value as IgInsights;
+  return null;
+}
+
 function mapPg(row: Record<string, unknown>): IgQueueRow {
+  const variant = row.variant == null ? null : String(row.variant);
   return {
     id: Number(row.id),
     kind: row.kind as IgKind,
@@ -577,6 +848,14 @@ function mapPg(row: Record<string, unknown>): IgQueueRow {
     error: row.error == null ? null : String(row.error),
     approvalHash: String(row.approval_hash),
     utmContent: String(row.utm_content),
+    utmMedium: row.utm_medium == null ? null : String(row.utm_medium),
+    utmCampaign: row.utm_campaign == null ? null : String(row.utm_campaign),
+    platform: row.platform === "fb" ? "fb" : "ig",
+    variant: variant === "A" || variant === "B" ? variant : null,
+    testId: row.test_id == null ? null : String(row.test_id),
+    trial: row.trial === true || row.trial === "t" || row.trial === "true",
+    insights: asInsights(row.insights),
+    abTestId: row.ab_test_id == null ? null : String(row.ab_test_id),
     createdAt: new Date(String(row.created_at)),
     publishedAt: row.published_at == null ? null : new Date(String(row.published_at)),
   };
@@ -595,11 +874,35 @@ CREATE TABLE IF NOT EXISTS ig_post_queue (
   error text,
   approval_hash varchar(64) NOT NULL,
   utm_content varchar(40) NOT NULL,
+  utm_medium varchar(16),
+  utm_campaign varchar(16),
+  platform varchar(2) NOT NULL DEFAULT 'ig',
+  variant varchar(1),
+  test_id varchar(40),
+  trial boolean NOT NULL DEFAULT false,
+  insights jsonb,
+  ab_test_id varchar(64),
   published_at timestamp with time zone,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT ig_post_queue_kind_check CHECK (kind IN ('FEED', 'REEL', 'STORY')),
-  CONSTRAINT ig_post_queue_status_check CHECK (status IN ('queued', 'container_created', 'published', 'failed', 'skipped'))
+  CONSTRAINT ig_post_queue_kind_check CHECK (kind IN ('FEED', 'REEL', 'STORY', 'PHOTO', 'LINK')),
+  CONSTRAINT ig_post_queue_status_check CHECK (status IN ('queued', 'container_created', 'published', 'failed', 'skipped')),
+  CONSTRAINT ig_post_queue_platform_check CHECK (platform IN ('ig', 'fb')),
+  CONSTRAINT ig_post_queue_variant_check CHECK (variant IS NULL OR variant IN ('A', 'B'))
 );
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS utm_medium varchar(16);
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS utm_campaign varchar(16);
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS platform varchar(2) NOT NULL DEFAULT 'ig';
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS variant varchar(1);
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS test_id varchar(40);
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS trial boolean NOT NULL DEFAULT false;
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS insights jsonb;
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS ab_test_id varchar(64);
+ALTER TABLE ig_post_queue DROP CONSTRAINT IF EXISTS ig_post_queue_kind_check;
+ALTER TABLE ig_post_queue ADD CONSTRAINT ig_post_queue_kind_check CHECK (kind IN ('FEED', 'REEL', 'STORY', 'PHOTO', 'LINK'));
+ALTER TABLE ig_post_queue DROP CONSTRAINT IF EXISTS ig_post_queue_platform_check;
+ALTER TABLE ig_post_queue ADD CONSTRAINT ig_post_queue_platform_check CHECK (platform IN ('ig', 'fb'));
+ALTER TABLE ig_post_queue DROP CONSTRAINT IF EXISTS ig_post_queue_variant_check;
+ALTER TABLE ig_post_queue ADD CONSTRAINT ig_post_queue_variant_check CHECK (variant IS NULL OR variant IN ('A', 'B'));
 CREATE INDEX IF NOT EXISTS idx_ig_post_queue_status_scheduled ON ig_post_queue (status, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_ig_post_queue_kind_status ON ig_post_queue (kind, status);
 CREATE INDEX IF NOT EXISTS idx_ig_post_queue_published ON ig_post_queue (published_at);
@@ -623,11 +926,71 @@ export const pgStore: IgStore = {
   async insert(input) {
     const pool = await pgPool();
     const result = await pool.query(
-      `INSERT INTO ig_post_queue (kind, media_path, caption, scheduled_for, status, approval_hash, utm_content)
-       VALUES ($1, $2, $3, $4, 'queued', $5, $6) RETURNING *`,
-      [input.kind, input.mediaPath, input.caption, input.scheduledFor, input.approvalHash, input.utmContent],
+      `INSERT INTO ig_post_queue (
+         kind, media_path, caption, scheduled_for, status, approval_hash, utm_content,
+         utm_medium, utm_campaign, platform, variant, test_id, trial
+       )
+       VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      [
+        input.kind,
+        input.mediaPath,
+        input.caption,
+        input.scheduledFor,
+        input.approvalHash,
+        input.utmContent,
+        input.utmMedium ?? null,
+        input.utmCampaign ?? null,
+        input.platform ?? "ig",
+        input.variant ?? null,
+        input.testId ?? null,
+        input.trial === true,
+      ],
     );
     return mapPg(result.rows[0]);
+  },
+  async rescheduleQueued(id, scheduledFor) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET scheduled_for = $2 WHERE id = $1 AND status = 'queued' RETURNING id`,
+      [id, scheduledFor],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+  async setQueuedUtm(id, utmContent, utmMedium, utmCampaign) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET utm_content = $2, utm_medium = $3, utm_campaign = $4
+       WHERE id = $1 AND status = 'queued' RETURNING id`,
+      [id, utmContent, utmMedium, utmCampaign],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+  async setQueuedCaption(id, caption) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET caption = $2 WHERE id = $1 AND status = 'queued' RETURNING id`,
+      [id, caption],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+  async saveInsights(id, insights) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET insights = $2::jsonb WHERE id = $1 RETURNING id`,
+      [id, JSON.stringify(insights)],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+  async markAbTest(id, videoId, abTestId) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue
+       SET status = 'container_created', ig_media_id = $2, ab_test_id = $3, error = NULL
+       WHERE id = $1 AND status = 'queued'
+       RETURNING id`,
+      [id, videoId, abTestId],
+    );
+    return (result.rowCount ?? 0) > 0;
   },
   async list(limit = 100) {
     const pool = await pgPool();
@@ -748,6 +1111,22 @@ export const pgStore: IgStore = {
 
 function currentStore(): IgStore {
   return deps.store ?? pgStore;
+}
+
+export function queueStore(): IgStore {
+  return currentStore();
+}
+
+export function publisherFetch(): typeof fetch {
+  return deps.fetch ?? fetch;
+}
+
+export function publisherEnv(): NodeJS.ProcessEnv {
+  return env();
+}
+
+export async function graphJson(url: string, init: RequestInit, token: string): Promise<Record<string, unknown>> {
+  return graphRequest(url, init, token);
 }
 
 export async function retryGraph<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
@@ -905,6 +1284,7 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
   let row = await store.get(id);
   if (!row) return { status: "not_found", id };
   if (row.status === "published" || row.igMediaId) return { status: "already_published", id, igMediaId: row.igMediaId };
+  if (row.platform === "fb") return { status: "wrong_platform", id };
 
   const media = await inspectMedia(row.mediaPath);
   if (!media.ok || media.hash !== row.approvalHash.toLowerCase()) {
@@ -919,7 +1299,9 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
     return { status: "skipped", id, error: "media_kind_mismatch" };
   }
 
-  const fields = graphMediaFields(row.kind, row.mediaPath, row.caption, igPublicMediaUrl(row.mediaPath));
+  const fields = graphMediaFields(row.kind, row.mediaPath, row.caption, igPublicMediaUrl(row.mediaPath), {
+    trial: row.trial === true && row.kind === "REEL",
+  });
   if (opts.dryRun) {
     return {
       status: "dry_run",
@@ -1050,6 +1432,35 @@ export async function listQueue(): Promise<IgQueueRow[]> {
   return currentStore().list(100);
 }
 
+export function trackingUrl(row: Pick<IgQueueRow, "id" | "platform" | "kind" | "variant" | "utmMedium" | "utmCampaign">): string {
+  const source = row.platform === "fb" ? "facebook" : "instagram";
+  const medium = (row.utmMedium || row.kind).toLowerCase();
+  const campaign = row.utmCampaign || "w1";
+  const query = new URLSearchParams({
+    utm_source: source,
+    utm_medium: medium,
+    utm_campaign: campaign,
+    utm_content: rowUtmContent(row.id, row.variant),
+  });
+  const pathName = row.kind === "LINK" ? "/daily" : "/";
+  return `https://packpts.com${pathName}?${query.toString()}`;
+}
+
+function fbCaption(input: string): string {
+  const text = input.replace(/\s+/g, " ").trim();
+  if (/[\u2013\u2014]/.test(text) || /https?:\/\/|www\.|packpts\.com/i.test(text)) throw new IgInputError("copy_rule");
+  if (text.length > 2200) throw new IgInputError("caption_too_long");
+  return text || "Can you name all 5?";
+}
+
+export function linkCaption(base: string, url: string): string {
+  const text = base.replace(/\s*Link in bio\.?/i, "").replace(/\s+/g, " ").trim() || "Can you name all 5?";
+  if (/[\u2013\u2014]/.test(text) || /[\u2013\u2014]/.test(url)) throw new IgInputError("copy_rule");
+  const caption = `${text} ${url}`;
+  if (caption.length > 2200) throw new IgInputError("caption_too_long");
+  return caption;
+}
+
 export async function enqueueIgPost(input: {
   kind: unknown;
   mediaPath: unknown;
@@ -1057,33 +1468,55 @@ export async function enqueueIgPost(input: {
   scheduledFor: unknown;
   approvalHash: unknown;
   utmContent?: unknown;
+  platform?: IgPlatform;
+  variant?: IgVariant | null;
+  testId?: string | null;
+  trial?: boolean;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
 }): Promise<IgQueueRow> {
   if (typeof input.approvalHash !== "string" || !/^[a-f0-9]{64}$/i.test(input.approvalHash.trim())) {
     throw new IgInputError("approval_hash_required");
   }
-  if (input.kind !== "FEED" && input.kind !== "REEL" && input.kind !== "STORY") throw new IgInputError("bad_kind");
+  if (!KINDS.includes(input.kind as IgKind)) throw new IgInputError("bad_kind");
+  const kind = input.kind as IgKind;
   if (typeof input.mediaPath !== "string") throw new IgInputError("bad_media_path");
   const mediaPath = path.basename(input.mediaPath);
   if (mediaPath !== input.mediaPath || !resolveMediaPath(mediaDir(), mediaPath)) throw new IgInputError("bad_media_path");
+  const platform: IgPlatform = input.platform === "fb" ? "fb" : "ig";
+  const variant = input.variant === "A" || input.variant === "B" ? input.variant : null;
   const stem = mediaPath.replace(/\.[^.]+$/, "");
   const utmContent = sanitizeUtmContent(input.utmContent ?? stem);
   if (!utmContent) throw new IgInputError("bad_utm_content");
   const scheduledFor = input.scheduledFor instanceof Date ? input.scheduledFor : new Date(String(input.scheduledFor ?? ""));
   if (Number.isNaN(scheduledFor.getTime())) throw new IgInputError("bad_schedule");
-  const caption = buildIgCaption(typeof input.caption === "string" ? input.caption : "");
+  const rawCaption = typeof input.caption === "string" ? input.caption : "";
+  const caption = platform === "fb" ? fbCaption(rawCaption) : buildIgCaption(rawCaption);
   const media = await inspectMedia(mediaPath);
   if (!media.ok) throw new IgInputError(media.reason);
   if (media.hash !== input.approvalHash.trim().toLowerCase()) throw new IgInputError("hash_mismatch");
-  if (!mediaMatchesKind(input.kind, mediaPath, media.bytes)) throw new IgInputError("media_kind_mismatch");
-  return currentStore().insert({
-    kind: input.kind,
+  if (!mediaMatchesKind(kind, mediaPath, media.bytes)) throw new IgInputError("media_kind_mismatch");
+  const store = currentStore();
+  const inserted = await store.insert({
+    kind,
     mediaPath,
     caption,
     scheduledFor,
     status: "queued",
     approvalHash: media.hash,
     utmContent,
+    utmMedium: input.utmMedium ?? kind.toLowerCase(),
+    utmCampaign: input.utmCampaign ?? campaignFor(mediaPath, utmContent),
+    platform,
+    variant,
+    testId: input.testId ?? null,
+    trial: input.trial === true,
   });
+  const content = rowUtmContent(inserted.id, inserted.variant);
+  if (inserted.utmContent !== content) {
+    await store.setQueuedUtm(inserted.id, content, inserted.utmMedium ?? kind.toLowerCase(), inserted.utmCampaign ?? "w1");
+  }
+  return (await store.get(inserted.id)) ?? inserted;
 }
 
 export async function igBioTarget(override: unknown): Promise<string> {
@@ -1106,8 +1539,73 @@ function slotWhen(slot: IgQueueSlot, origin: Date): Date {
   return new Date(origin.getTime() + (slot.day ?? 0) * 86_400_000 + slotMinutes(slot.kind) * 60_000);
 }
 
+export async function queueParsedCreatives(): Promise<number> {
+  let names: string[] = [];
+  try {
+    names = readdirSync(mediaDir()).filter((name) => !name.startsWith("."));
+  } catch {
+    return 0;
+  }
+  const parsed = names.map((name) => parseCreativeName(name)).filter((item): item is ParsedCreative => item != null);
+  const existing = await currentStore().list(500);
+  const have = new Set(existing.map((row) => row.mediaPath));
+  let inserted = 0;
+  for (const item of parsed) {
+    if (have.has(item.file)) continue;
+    const plan = creativePlan(item, parsed);
+    const media = await inspectMedia(item.file);
+    if (!media.ok) continue;
+    try {
+      await enqueueIgPost({
+        kind: plan.kind,
+        mediaPath: item.file,
+        caption: "Can you name all 5?",
+        scheduledFor: ctWallTime(plan.at.date, plan.at.hour, plan.at.minute),
+        approvalHash: media.hash,
+        utmContent: `${plan.campaign}-${item.format}`,
+        platform: item.platform,
+        variant: item.variant,
+        testId: item.testId,
+        trial: plan.trial,
+        utmMedium: plan.kind.toLowerCase(),
+        utmCampaign: plan.campaign,
+      });
+      have.add(item.file);
+      inserted += 1;
+    } catch (err) {
+      logIg("error", `seed ${item.file} failed: ${safeError(err)}`);
+    }
+  }
+  return inserted;
+}
+
+/** Queued Story rows at 20:00 CT move to 21:00 CT. Posted rows are not updated. Queued utm tags become {id}-{variant or A}. */
+export async function migrateQueuedRows(store = currentStore()): Promise<{ stories: number[]; utm: number[] }> {
+  const stories: number[] = [];
+  const utm: number[] = [];
+  for (const row of await store.list(500)) {
+    if (row.status !== "queued") continue;
+    if (row.kind === "STORY" && ctNow(row.scheduledFor).minutes === 20 * 60) {
+      const moved = ctWallTime(ctNow(row.scheduledFor).day, 21, 0);
+      if (await store.rescheduleQueued(row.id, moved)) stories.push(row.id);
+    }
+    const content = rowUtmContent(row.id, row.variant);
+    const medium = row.utmMedium || row.kind.toLowerCase();
+    const campaign = row.utmCampaign || campaignFor(row.mediaPath, row.utmContent);
+    if (row.utmContent !== content || row.utmMedium !== medium || row.utmCampaign !== campaign) {
+      if (await store.setQueuedUtm(row.id, content, medium, campaign)) utm.push(row.id);
+    }
+  }
+  for (const row of await store.list(500)) {
+    if (row.status !== "queued" || row.kind !== "LINK" || row.caption.includes("https://")) continue;
+    await store.setQueuedCaption(row.id, linkCaption(row.caption, trackingUrl(row)));
+  }
+  return { stories, utm };
+}
+
 async function insertMissingSlots(): Promise<number> {
-  const existing = await currentStore().list(200);
+  await migrateQueuedRows();
+  const existing = await currentStore().list(500);
   const have = new Set(existing.map((row) => row.mediaPath));
   const origin = ctNow(new Date()).midnightUtc;
   let inserted = 0;
@@ -1123,8 +1621,11 @@ async function insertMissingSlots(): Promise<number> {
       approvalHash: media.hash,
       utmContent: slot.utm,
     });
+    have.add(slot.file);
     inserted += 1;
   }
+  inserted += await queueParsedCreatives();
+  await migrateQueuedRows();
   return inserted;
 }
 
@@ -1160,30 +1661,124 @@ async function seedPg(): Promise<number | null> {
   }
 }
 
+export function fbGraphBase(e = env()): string {
+  return `https://graph.facebook.com/${igGraphVersion(e)}`;
+}
+
+export function insightsDue(now: Date, e = env()): boolean {
+  return ctNow(now).minutes >= clockMinutes(readClock(e.IG_INSIGHTS_AT_CT, "09:00"));
+}
+
+const IG_COMMON_METRICS = ["reach", "views", "saved", "shares", "total_interactions", "profile_visits"];
+const IG_REEL_METRICS = ["ig_reels_avg_watch_time"];
+const IG_STORY_METRICS = ["navigation"];
+const FB_POST_METRICS = ["post_impressions", "post_impressions_unique", "post_clicks"];
+
+function metricValue(value: unknown): number | string | null {
+  if (typeof value === "number" || typeof value === "string") return value;
+  if (value == null) return null;
+  return JSON.stringify(value);
+}
+
+async function pullMetricBag(url: string, token: string): Promise<{ metrics: Record<string, number | string | null>; error?: string }> {
+  try {
+    const json = await graphRequest(url, { method: "GET" }, token);
+    const metrics: Record<string, number | string | null> = {};
+    const data = Array.isArray(json.data) ? json.data : [];
+    for (const item of data) {
+      const row = item as { name?: string; values?: Array<{ value?: unknown }> };
+      if (!row.name) continue;
+      metrics[row.name] = metricValue(row.values?.[0]?.value);
+    }
+    return { metrics };
+  } catch (err) {
+    return { metrics: {}, error: safeError(err) };
+  }
+}
+
+export async function runInsightSync(now = new Date()): Promise<{ status: string; pulled: number }> {
+  const e = env();
+  const igToken = e.IG_ACCESS_TOKEN?.trim() ?? "";
+  const fbToken = e.FB_PAGE_TOKEN?.trim() ?? "";
+  if (!igToken && !fbToken) return { status: "not_armed", pulled: 0 };
+  const store = currentStore();
+  const today = ctNow(now).day;
+  let pulled = 0;
+  for (const row of await store.list(500)) {
+    let next: IgInsights = row.insights ? { ...row.insights } : {};
+    let changed = false;
+    if (row.platform === "ig" && igToken && row.status === "published" && row.igMediaId) {
+      const age = row.publishedAt ? now.getTime() - row.publishedAt.getTime() : 0;
+      if (row.kind === "STORY" && row.publishedAt && !next.story20h && age >= 20 * 3_600_000 && age < 24 * 3_600_000) {
+        const result = await pullMetricBag(
+          `${graphBase(e)}/${encodeURIComponent(row.igMediaId)}/insights?metric=${encodeURIComponent([...IG_COMMON_METRICS, ...IG_STORY_METRICS].join(","))}&access_token=${encodeURIComponent(igToken)}`,
+          igToken,
+        );
+        next = { ...next, story20h: { pulledAt: now.toISOString(), metrics: result.metrics, error: result.error } };
+        changed = true;
+      }
+      if (insightsDue(now, e) && next.daily?.day !== today) {
+        const names = [...IG_COMMON_METRICS];
+        if (row.kind === "REEL") names.push(...IG_REEL_METRICS);
+        if (row.kind === "STORY") names.push(...IG_STORY_METRICS);
+        const result = await pullMetricBag(
+          `${graphBase(e)}/${encodeURIComponent(row.igMediaId)}/insights?metric=${encodeURIComponent(names.join(","))}&access_token=${encodeURIComponent(igToken)}`,
+          igToken,
+        );
+        next = { ...next, daily: { day: today, pulledAt: now.toISOString(), metrics: result.metrics, error: result.error } };
+        changed = true;
+      }
+    }
+    if (row.platform === "fb" && fbToken && insightsDue(now, e)) {
+      if (row.status === "published" && row.igMediaId && next.fb?.day !== today) {
+        const result = await pullMetricBag(
+          `${fbGraphBase(e)}/${encodeURIComponent(row.igMediaId)}/insights?metric=${encodeURIComponent(FB_POST_METRICS.join(","))}&access_token=${encodeURIComponent(fbToken)}`,
+          fbToken,
+        );
+        next = { ...next, fb: { day: today, pulledAt: now.toISOString(), metrics: result.metrics, error: result.error } };
+        changed = true;
+      }
+      const abPulledToday = Boolean(next.abTest?.pulledAt && ctNow(new Date(next.abTest.pulledAt)).day === today);
+      if (row.abTestId && !abPulledToday) {
+        try {
+          const body = await graphRequest(
+            `${fbGraphBase(e)}/${encodeURIComponent(row.abTestId)}?access_token=${encodeURIComponent(fbToken)}`,
+            { method: "GET" },
+            fbToken,
+          );
+          next = { ...next, abTest: { pulledAt: now.toISOString(), body } };
+        } catch (err) {
+          next = { ...next, abTest: { pulledAt: now.toISOString(), body: {}, error: safeError(err) } };
+        }
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    await store.saveInsights(row.id, next);
+    pulled += 1;
+  }
+  return { status: "ran", pulled };
+}
+
 export async function runIgDaily(now = new Date()): Promise<{ status: string; day?: string; results?: IgPublishResult[] }> {
   const e = env();
   if (!igPublishEnabled(e)) return { status: "disabled" };
   if (!igCredsReady(e)) return { status: "not_armed" };
-  const ct = ctNow(now);
-  const store = currentStore();
+  const due = selectDueRows(await currentStore().list(500), now, "ig", e);
   const results: IgPublishResult[] = [];
-  for (const kind of KINDS) {
-    const inflight = await store.inflight(kind);
-    if (inflight) {
-      results.push(await publishIg(inflight.id));
-      continue;
-    }
-    if (ct.minutes < slotMinutes(kind, e)) continue;
-    if (await store.dayConsumed(kind, ct.day)) continue;
-    const next = await store.nextQueued(kind, now, ct.day);
-    if (!next) continue;
-    results.push(await publishIg(next.id));
-  }
-  return { status: "ran", day: ct.day, results };
+  for (const row of due) results.push(await publishIg(row.id));
+  return { status: "ran", day: ctNow(now).day, results };
 }
 
 export function startIgPublisher(): void {
   void enqueueApprovedSlots().catch((err) => logIg("error", `seed failed: ${safeError(err)}`));
+  const tick = () => {
+    void runIgDaily().catch((err) => logIg("error", safeError(err)));
+    void runInsightSync().catch((err) => logIg("error", safeError(err)));
+    void import("./fbPublish").then((mod) => mod.runFbDaily()).catch((err) => logIg("error", safeError(err)));
+  };
+  setTimeout(tick, 30_000).unref();
+  setInterval(tick, CHECK_EVERY_MS).unref();
   if (!igPublishEnabled()) {
     console.log("[IgPublish] disabled (IG_PUBLISH_ENABLED is not true)");
     return;
@@ -1192,8 +1787,5 @@ export function startIgPublisher(): void {
     console.log("[IgPublish] not armed (IG_USER_ID and IG_ACCESS_TOKEN must both be set)");
     return;
   }
-  const tick = () => void runIgDaily().catch((err) => logIg("error", safeError(err)));
-  setTimeout(tick, 30_000).unref();
-  setInterval(tick, CHECK_EVERY_MS).unref();
-  console.log(`[IgPublish] started (feed ${env().IG_FEED_AT_CT || IG_SLOT_DEFAULTS.FEED} reel ${env().IG_REEL_AT_CT || IG_SLOT_DEFAULTS.REEL} story ${env().IG_STORY_AT_CT || IG_SLOT_DEFAULTS.STORY} CT)`);
+  console.log(`[IgPublish] started (feed ${env().IG_FEED_AT_CT || IG_SLOT_DEFAULTS.FEED} reel ${env().IG_REEL_AT_CT || IG_SLOT_DEFAULTS.REEL} story ${env().IG_STORY_AT_CT || IG_SLOT_DEFAULTS.STORY} story morning ${env().IG_STORY_AM_AT_CT || IG_EXTRA_SLOTS.STORY} trial reel ${env().IG_REEL_TRIAL_AT_CT || IG_EXTRA_SLOTS.REEL} CT)`);
 }

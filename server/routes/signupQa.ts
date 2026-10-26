@@ -8,7 +8,7 @@
 import type { Express, Request, Response } from "express";
 import { coverQaEnabled, coverQaHeaderMatches } from "../lib/coverQaAuth";
 import { applyNoStoreHeaders, stripConditionalValidators } from "../lib/noStoreResponse";
-import { buildInstagramSignupReport, buildSignupReport, type SignupSourceRow } from "../services/signupSources";
+import { buildInstagramSignupReport, buildSignupReport, buildUtmSignupDaily, type SignupSourceRow } from "../services/signupSources";
 
 export type SignupSourceLoader = () => Promise<SignupSourceRow[]>;
 
@@ -56,6 +56,23 @@ export function registerSignupQaRoutes(app: Express): void {
       .catch((err: unknown) => {
         const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
         console.error("[qa/signups/instagram] failed", code);
+        if (!res.headersSent) qaJson(req, res, 500, { error: "Failed to load signup counts" });
+      });
+  });
+
+  app.get("/api/qa/signups/utm", (req, res) => {
+    if (!authorized(req)) {
+      qaJson(req, res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const now = new Date();
+    void loader()
+      .then((rows) => {
+        if (!res.headersSent) qaJson(req, res, 200, buildUtmSignupDaily(rows, now));
+      })
+      .catch((err: unknown) => {
+        const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
+        console.error("[qa/signups/utm] failed", code);
         if (!res.headersSent) qaJson(req, res, 500, { error: "Failed to load signup counts" });
       });
   });
