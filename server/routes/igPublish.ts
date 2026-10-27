@@ -14,6 +14,7 @@ import {
   inspectMedia,
   listQueue,
   publishIg,
+  updateQueuedRow,
   type IgQueueRow,
 } from "../services/igPublish";
 import { dryRunFb } from "../services/fbPublish";
@@ -136,6 +137,30 @@ export function registerIgRoutes(app: Express): void {
       .catch((err: unknown) => {
         if (err instanceof IgInputError) qaJson(req, res, 400, { error: err.code });
         else qaJson(req, res, 500, { error: "enqueue_failed" });
+      });
+  });
+
+  app.patch("/api/qa/ig/queue/:id", (req, res) => {
+    if (!authorized(req)) {
+      qaJson(req, res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      qaJson(req, res, 400, { error: "bad_id" });
+      return;
+    }
+    const body = req.body ?? {};
+    void updateQueuedRow(id, {
+      caption: Object.prototype.hasOwnProperty.call(body, "caption") ? body.caption : undefined,
+      mediaPath: Object.prototype.hasOwnProperty.call(body, "mediaPath") ? body.mediaPath : undefined,
+    })
+      .then((row) => qaJson(req, res, 200, { item: igQueueJson(row) }))
+      .catch((err: unknown) => {
+        if (err instanceof IgInputError && err.code === "not_found") qaJson(req, res, 404, { error: err.code });
+        else if (err instanceof IgInputError && err.code === "not_queued") qaJson(req, res, 409, { error: err.code });
+        else if (err instanceof IgInputError) qaJson(req, res, 400, { error: err.code });
+        else qaJson(req, res, 500, { error: "caption_failed" });
       });
   });
 
