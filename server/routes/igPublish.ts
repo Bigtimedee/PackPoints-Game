@@ -13,6 +13,7 @@ import {
   igBioTarget,
   inspectMedia,
   listQueue,
+  plannedScheduleFromDisk,
   publishIg,
   updateQueuedRow,
   type IgQueueRow,
@@ -103,6 +104,19 @@ export function registerIgRoutes(app: Express): void {
       .catch(() => {
         if (!res.headersSent) qaJson(req, res, 404, { error: "Not found" });
       });
+  });
+
+  app.get("/api/qa/ig/schedule", (req, res) => {
+    if (!authorized(req)) {
+      qaJson(req, res, 401, { error: "Unauthorized" });
+      return;
+    }
+    try {
+      const items = plannedScheduleFromDisk();
+      qaJson(req, res, 200, { count: items.length, items });
+    } catch {
+      qaJson(req, res, 500, { error: "schedule_failed" });
+    }
   });
 
   app.get("/api/qa/ig/queue", (req, res) => {

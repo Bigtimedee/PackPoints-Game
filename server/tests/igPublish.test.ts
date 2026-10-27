@@ -40,11 +40,14 @@ import {
   creativePlan,
   contentDate,
   ctWallTime,
+  planCreatives,
+  selectDueRows,
   type IgGraph,
   type IgMediaFields,
   type IgStore,
 } from "../services/igPublish";
 import { igQueueJson } from "../routes/igPublish";
+import { dryRunFb } from "../services/fbPublish";
 
 const TOKEN = "ig-qa-token";
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xd9, 0x51, 0x41]);
@@ -799,9 +802,17 @@ describe("central time slots and queued migration", () => {
       kind: "LINK", mediaPath: "fb-link-w3-d1-daily-A.jpg", caption: "Can you name all 5?", scheduledFor: ctWallTime("2026-11-05", 13, 30),
       status: "queued", approvalHash: hash, utmContent: "daily", platform: "fb", variant: "A", utmMedium: "link", utmCampaign: "w3",
     });
+    const photoLink = await store.insert({
+      kind: "PHOTO", mediaPath: "fb-link-w3-d1-daily-B.jpg", caption: "Can you name all 5?", scheduledFor: ctWallTime("2026-11-06", 13, 30),
+      status: "queued", approvalHash: hash, utmContent: "daily", platform: "fb", variant: "B", utmMedium: "link", utmCampaign: "w3",
+    });
+    const postedLink = await store.insert({
+      kind: "PHOTO", mediaPath: "fb-link-w3-d2-daily-A.jpg", caption: "Posted plain", scheduledFor: ctWallTime("2026-11-06", 13, 30),
+      status: "published", approvalHash: hash, utmContent: "posted-link", platform: "fb", variant: "A", utmMedium: "link", utmCampaign: "w3",
+    });
     const first = await migrateQueuedRows(store);
     expect(first.stories.sort((a, b) => a - b)).toEqual([storyA.id, storyB.id]);
-    expect(first.utm.sort((a, b) => a - b)).toEqual([storyA.id, storyB.id, feed.id, link.id].sort((a, b) => a - b));
+    expect(first.utm.sort((a, b) => a - b)).toEqual([storyA.id, storyB.id, feed.id, link.id, photoLink.id].sort((a, b) => a - b));
     expect((await store.get(storyA.id))?.scheduledFor.toISOString()).toBe("2026-10-31T02:00:00.000Z");
     expect((await store.get(storyB.id))?.scheduledFor.toISOString()).toBe("2026-11-06T03:00:00.000Z");
     expect((await store.get(storyA.id))?.utmContent).toBe(`${storyA.id}-A`);
@@ -816,12 +827,42 @@ describe("central time slots and queued migration", () => {
     expect(linkRow?.caption).toContain("utm_source=facebook");
     expect(linkRow?.caption).toContain(`utm_content=${link.id}-A`);
     expect(linkRow?.caption).not.toMatch(/[\u2013\u2014]/);
+    const photoLinkRow = await store.get(photoLink.id);
+    expect(photoLinkRow?.caption.match(/https:\/\//g)).toHaveLength(1);
+    expect(photoLinkRow?.caption).toContain("https://packpts.com/daily?");
+    expect(photoLinkRow?.caption).toContain(`utm_content=${photoLink.id}-B`);
+    expect((await store.get(postedLink.id))?.caption).toBe("Posted plain");
     const second = await migrateQueuedRows(store);
     expect(second.stories).toEqual([]);
     expect(second.utm).toEqual([]);
     expect((await store.get(posted.id))?.utmContent).toBe("story-d1");
+    expect((await store.get(photoLink.id))?.caption.match(/https:\/\//g)).toHaveLength(1);
   });
 });
+
+function week3Files(): string[] {
+  const stems: Array<[string, string, string, string, string]> = [
+    ["fb", "photo", "s1", "A", "jpg"],
+    ["fb", "photo", "s4", "A", "jpg"],
+    ["fb", "reel", "solo", "A", "mp4"],
+    ["fb", "reel", "hook", "A", "mp4"],
+    ["fb", "reel", "hook", "B", "mp4"],
+    ["fb", "link", "daily", "A", "jpg"],
+    ["ig", "reel", "hook", "A", "mp4"],
+    ["ig", "reel", "hook", "B", "mp4"],
+    ["ig", "reel", "solo", "A", "mp4"],
+    ["ig", "feed", "card", "A", "jpg"],
+    ["ig", "story", "tease", "A", "jpg"],
+    ["ig", "story", "poll", "A", "jpg"],
+  ];
+  const names: string[] = [];
+  for (let day = 1; day <= 7; day++) {
+    for (const [platform, format, testId, variant, ext] of stems) {
+      names.push(`${platform}-${format}-w3-d${day}-${testId}-${variant}.${ext}`);
+    }
+  }
+  return names;
+}
 
 describe("week 3 creative names", () => {
   afterEach(() => setIgDepsForTests(null));
@@ -846,20 +887,33 @@ describe("week 3 creative names", () => {
       platform: "fb", format: "photo", week: 3, day: 2, testId: "s1", variant: "B",
     });
     expect(contentDate(2, 1)).toBe("2026-10-29");
-    expect(contentDate(3, 1)).toBe("2026-11-05");
-    expect(contentDate(4, 1)).toBe("2026-11-12");
+    expect(contentDate(3, 1)).toBe("2026-11-06");
+    expect(contentDate(3, 7)).toBe("2026-11-12");
+    expect(contentDate(4, 1)).toBe("2026-11-13");
     const hookA = parseCreativeName("ig-reel-w3-d1-hook-A.mp4")!;
     const hookB = parseCreativeName("ig-reel-w3-d1-hook-B.mp4")!;
     const fbA = parseCreativeName("fb-reel-w3-d1-hook-A.mp4")!;
     const fbB = parseCreativeName("fb-reel-w3-d1-hook-B.mp4")!;
     const lone = parseCreativeName("ig-reel-w3-d2-solo-A.mp4")!;
     const tease = parseCreativeName("ig-story-w3-d1-tease-A.jpg")!;
-    const answer = parseCreativeName("ig-story-w3-d1-answer-A.jpg")!;
-    expect(creativePlan(hookA, [hookA, hookB])).toMatchObject({ trial: true, at: { date: "2026-11-05", hour: 13, minute: 30 }, campaign: "w3" });
-    expect(creativePlan(fbA, [fbA, fbB])).toMatchObject({ trial: false, at: { date: "2026-11-05", hour: 11, minute: 0 } });
-    expect(creativePlan(lone, [lone])).toMatchObject({ trial: false, at: { date: "2026-11-06", hour: 18, minute: 0 } });
-    expect(creativePlan(tease, [tease, answer]).at).toEqual({ date: "2026-11-05", hour: 7, minute: 30 });
-    expect(creativePlan(answer, [tease, answer]).at).toEqual({ date: "2026-11-05", hour: 21, minute: 0 });
+    const poll = parseCreativeName("ig-story-w3-d1-poll-A.jpg")!;
+    const photoS1 = parseCreativeName("fb-photo-w3-d1-s1-A.jpg")!;
+    const photoS4 = parseCreativeName("fb-photo-w3-d1-s4-A.jpg")!;
+    const fbSolo = parseCreativeName("fb-reel-w3-d1-solo-A.mp4")!;
+    const link = parseCreativeName("fb-link-w3-d1-daily-A.jpg")!;
+    const feed = parseCreativeName("ig-feed-w3-d1-card-A.jpg")!;
+    const loneTease = parseCreativeName("ig-story-w3-d2-tease-A.jpg")!;
+    expect(creativePlan(hookA, [hookA, hookB])).toMatchObject({ kind: "REEL", trial: true, at: { date: "2026-11-06", hour: 13, minute: 30 }, campaign: "w3" });
+    expect(creativePlan(fbA, [fbA, fbB])).toMatchObject({ trial: false, at: { date: "2026-11-06", hour: 11, minute: 0 } });
+    expect(creativePlan(lone, [lone])).toMatchObject({ trial: false, at: { date: "2026-11-07", hour: 18, minute: 0 } });
+    expect(creativePlan(photoS1, [photoS1]).at).toEqual({ date: "2026-11-06", hour: 7, minute: 30 });
+    expect(creativePlan(photoS4, [photoS4]).at).toEqual({ date: "2026-11-06", hour: 18, minute: 0 });
+    expect(creativePlan(fbSolo, [fbSolo]).at).toEqual({ date: "2026-11-06", hour: 20, minute: 30 });
+    expect(creativePlan(link, [link])).toMatchObject({ kind: "PHOTO", at: { date: "2026-11-06", hour: 13, minute: 30 } });
+    expect(creativePlan(feed, [feed]).at).toEqual({ date: "2026-11-06", hour: 11, minute: 0 });
+    expect(creativePlan(tease, [tease, poll]).at).toEqual({ date: "2026-11-06", hour: 20, minute: 45 });
+    expect(creativePlan(poll, [tease, poll]).at).toEqual({ date: "2026-11-06", hour: 21, minute: 0 });
+    expect(creativePlan(loneTease, [loneTease]).at).toEqual({ date: "2026-11-07", hour: 21, minute: 0 });
   });
 
   it("seeds parsed files and skips old names and unapproved files", async () => {
@@ -868,7 +922,7 @@ describe("week 3 creative names", () => {
       "ig-reel-w3-d1-hook-A.mp4",
       "ig-reel-w3-d1-hook-B.mp4",
       "ig-story-w3-d1-tease-A.jpg",
-      "ig-story-w3-d1-answer-A.jpg",
+      "ig-story-w3-d1-poll-A.jpg",
       "fb-photo-w3-d1-s1-A.jpg",
       "fb-link-w3-d1-daily-A.jpg",
       "fb-reel-w3-d1-hook-A.mp4",
@@ -898,7 +952,7 @@ describe("week 3 creative names", () => {
       "ig-reel-w3-d1-hook-A.mp4",
       "ig-reel-w3-d1-hook-B.mp4",
       "ig-reel-w3-d2-solo-A.mp4",
-      "ig-story-w3-d1-answer-A.jpg",
+      "ig-story-w3-d1-poll-A.jpg",
       "ig-story-w3-d1-tease-A.jpg",
     ]);
     const pair = rows.find((row) => row.mediaPath === "ig-reel-w3-d1-hook-B.mp4")!;
@@ -907,16 +961,139 @@ describe("week 3 creative names", () => {
     expect(pair.testId).toBe("hook");
     expect(pair.trial).toBe(true);
     expect(pair.utmContent).toBe(`${pair.id}-B`);
-    expect(pair.scheduledFor.toISOString()).toBe("2026-11-05T19:30:00.000Z");
-    expect(rows.find((row) => row.mediaPath === "ig-story-w3-d1-tease-A.jpg")?.scheduledFor.toISOString()).toBe("2026-11-05T13:30:00.000Z");
-    expect(rows.find((row) => row.mediaPath === "ig-story-w3-d1-answer-A.jpg")?.scheduledFor.toISOString()).toBe("2026-11-06T03:00:00.000Z");
+    expect(pair.scheduledFor.toISOString()).toBe("2026-11-06T19:30:00.000Z");
+    expect(rows.find((row) => row.mediaPath === "ig-story-w3-d1-tease-A.jpg")?.scheduledFor.toISOString()).toBe("2026-11-07T02:45:00.000Z");
+    expect(rows.find((row) => row.mediaPath === "ig-story-w3-d1-poll-A.jpg")?.scheduledFor.toISOString()).toBe("2026-11-07T03:00:00.000Z");
+    expect(rows.find((row) => row.mediaPath === "fb-photo-w3-d1-s1-A.jpg")).toMatchObject({
+      kind: "PHOTO", platform: "fb",
+    });
+    expect(rows.find((row) => row.mediaPath === "fb-photo-w3-d1-s1-A.jpg")?.scheduledFor.toISOString()).toBe("2026-11-06T13:30:00.000Z");
     expect(rows.find((row) => row.mediaPath === "fb-reel-w3-d1-hook-A.mp4")).toMatchObject({
       platform: "fb", trial: false, testId: "hook", variant: "A",
     });
-    expect(rows.find((row) => row.mediaPath === "fb-reel-w3-d1-hook-A.mp4")?.scheduledFor.toISOString()).toBe("2026-11-05T17:00:00.000Z");
-    expect(rows.find((row) => row.mediaPath === "ig-reel-w3-d2-solo-A.mp4")?.scheduledFor.toISOString()).toBe("2026-11-07T00:00:00.000Z");
+    expect(rows.find((row) => row.mediaPath === "fb-reel-w3-d1-hook-A.mp4")?.scheduledFor.toISOString()).toBe("2026-11-06T17:00:00.000Z");
+    expect(rows.find((row) => row.mediaPath === "ig-reel-w3-d2-solo-A.mp4")?.scheduledFor.toISOString()).toBe("2026-11-08T00:00:00.000Z");
+    const linkRow = rows.find((row) => row.mediaPath === "fb-link-w3-d1-daily-A.jpg")!;
+    expect(linkRow.kind).toBe("PHOTO");
+    expect(linkRow.scheduledFor.toISOString()).toBe("2026-11-06T19:30:00.000Z");
+    expect(linkRow.caption.match(/https:\/\//g)).toHaveLength(1);
+    expect(linkRow.caption).toContain("https://packpts.com/daily?");
+    expect(linkRow.caption).toContain("utm_medium=link");
+    expect(linkRow.caption).not.toMatch(/Link in bio/i);
+    const dry = await dryRunFb(linkRow.id);
+    expect(dry.endpoint).toBe("/photos");
+    expect(dry.body).not.toHaveProperty("link");
+    expect(String(dry.body?.caption)).toContain("https://packpts.com/daily?");
     expect(rows.some((row) => row.mediaPath === "reel-day1-A.mp4" || row.mediaPath === "feed-w2-day1.jpg")).toBe(false);
     expect(await queueParsedCreatives()).toBe(0);
+  });
+
+  it("plans all 84 week 3 files and posts tease at 20:45 when a poll shares the day", async () => {
+    const files = week3Files();
+    const plan = planCreatives([...files, "feed-w2-day1.jpg", "notes.txt"]);
+    expect(plan).toHaveLength(84);
+    expect(plan[0]?.file).toBe("fb-photo-w3-d1-s1-A.jpg");
+    const byFile = new Map(plan.map((item) => [item.file, item]));
+    expect(byFile.get("fb-photo-w3-d1-s1-A.jpg")).toMatchObject({
+      kind: "PHOTO", clock: "07:30", date: "2026-11-06", scheduledFor: "2026-11-06T13:30:00.000Z", trial: false, linkInCaption: false,
+    });
+    expect(byFile.get("fb-photo-w3-d1-s4-A.jpg")).toMatchObject({
+      kind: "PHOTO", clock: "18:00", scheduledFor: "2026-11-07T00:00:00.000Z",
+    });
+    expect(byFile.get("fb-reel-w3-d1-solo-A.mp4")).toMatchObject({
+      kind: "REEL", clock: "20:30", scheduledFor: "2026-11-07T02:30:00.000Z", trial: false,
+    });
+    expect(byFile.get("fb-reel-w3-d1-hook-A.mp4")).toMatchObject({
+      clock: "11:00", scheduledFor: "2026-11-06T17:00:00.000Z", trial: false, variant: "A",
+    });
+    expect(byFile.get("fb-reel-w3-d1-hook-B.mp4")).toMatchObject({
+      clock: "11:00", scheduledFor: "2026-11-06T17:00:00.000Z", trial: false, variant: "B",
+    });
+    expect(byFile.get("fb-link-w3-d1-daily-A.jpg")).toMatchObject({
+      kind: "PHOTO", clock: "13:30", scheduledFor: "2026-11-06T19:30:00.000Z", linkInCaption: true,
+    });
+    expect(byFile.get("ig-reel-w3-d1-hook-A.mp4")).toMatchObject({
+      clock: "13:30", scheduledFor: "2026-11-06T19:30:00.000Z", trial: true,
+    });
+    expect(byFile.get("ig-reel-w3-d1-solo-A.mp4")).toMatchObject({
+      clock: "18:00", scheduledFor: "2026-11-07T00:00:00.000Z", trial: false,
+    });
+    expect(byFile.get("ig-feed-w3-d1-card-A.jpg")).toMatchObject({
+      kind: "FEED", clock: "11:00", scheduledFor: "2026-11-06T17:00:00.000Z",
+    });
+    expect(byFile.get("ig-story-w3-d1-tease-A.jpg")).toMatchObject({
+      clock: "20:45", scheduledFor: "2026-11-07T02:45:00.000Z",
+    });
+    expect(byFile.get("ig-story-w3-d1-poll-A.jpg")).toMatchObject({
+      clock: "21:00", scheduledFor: "2026-11-07T03:00:00.000Z",
+    });
+    expect(byFile.get("ig-story-w3-d7-poll-A.jpg")).toMatchObject({
+      date: "2026-11-12", scheduledFor: "2026-11-13T03:00:00.000Z",
+    });
+    expect(plan.filter((item) => item.linkInCaption)).toHaveLength(7);
+    expect(plan.filter((item) => item.trial)).toHaveLength(14);
+    expect(new Set(plan.map((item) => item.day)).size).toBe(7);
+
+    const store = createMemoryStore();
+    const hash = "ab".repeat(32);
+    const tease = await store.insert({
+      kind: "STORY", mediaPath: "ig-story-w3-d1-tease-A.jpg", caption: "Tease",
+      scheduledFor: ctWallTime("2026-11-06", 20, 45), status: "queued", approvalHash: hash,
+      utmContent: "tease", platform: "ig", variant: "A", testId: "tease",
+    });
+    const poll = await store.insert({
+      kind: "STORY", mediaPath: "ig-story-w3-d1-poll-A.jpg", caption: "Poll",
+      scheduledFor: ctWallTime("2026-11-06", 21, 0), status: "queued", approvalHash: hash,
+      utmContent: "poll", platform: "ig", variant: "A", testId: "poll",
+    });
+    const solo = await store.insert({
+      kind: "REEL", mediaPath: "fb-reel-w3-d1-solo-A.mp4", caption: "Solo",
+      scheduledFor: ctWallTime("2026-11-06", 20, 30), status: "queued", approvalHash: hash,
+      utmContent: "solo", platform: "fb", variant: "A", testId: "solo",
+    });
+    const rows = await store.list(10);
+    const quiet = {} as NodeJS.ProcessEnv;
+    expect(selectDueRows(rows, ctWallTime("2026-11-06", 18, 0), "fb", quiet).map((row) => row.id)).toEqual([]);
+    expect(selectDueRows(rows, ctWallTime("2026-11-06", 20, 30), "fb", quiet).map((row) => row.id)).toEqual([solo.id]);
+    expect(selectDueRows(rows, ctWallTime("2026-11-06", 20, 45), "ig", quiet).map((row) => row.id)).toEqual([tease.id]);
+    expect(selectDueRows(rows, ctWallTime("2026-11-06", 21, 0), "ig", quiet).map((row) => row.id).sort((a, b) => a - b)).toEqual([tease.id, poll.id].sort((a, b) => a - b));
+  });
+
+  it("lists the 84-file plan from the QA route and does not insert rows", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ig-w3-plan-"));
+    const files = week3Files();
+    for (const name of files) writeFileSync(path.join(dir, name), name.endsWith(".mp4") ? VIDEO : JPEG);
+    writeFileSync(path.join(dir, "feed-w2-day1.jpg"), JPEG);
+    writeFileSync(path.join(dir, ".keep"), Buffer.from("skip"));
+    const store = createMemoryStore();
+    setIgDepsForTests({ store, mediaDir: dir, allowlist: new Set([sha(JPEG), sha(VIDEO)]), env: {} });
+    const app = express();
+    app.use(express.json());
+    registerIgRoutes(app);
+    const previous = process.env.COVER_QA_TOKEN;
+    process.env.COVER_QA_TOKEN = TOKEN;
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const denied = await fetch(`${base}/api/qa/ig/schedule`);
+      expect(denied.status).toBe(401);
+      const query = await fetch(`${base}/api/qa/ig/schedule?token=${TOKEN}`);
+      expect(query.status).toBe(401);
+      const listed = await fetch(`${base}/api/qa/ig/schedule`, { headers: { "x-qa-token": TOKEN } });
+      expect(listed.status).toBe(200);
+      const body = await listed.json() as { count: number; items: Array<{ file: string; scheduledFor: string; clock: string }> };
+      expect(body.count).toBe(84);
+      expect(body.items).toHaveLength(84);
+      expect(body.items.some((item) => item.file === "feed-w2-day1.jpg" || item.file === ".keep")).toBe(false);
+      expect(body.items.find((item) => item.file === "ig-story-w3-d1-tease-A.jpg")?.clock).toBe("20:45");
+      expect(body.items.find((item) => item.file === "fb-reel-w3-d1-solo-A.mp4")?.scheduledFor).toBe("2026-11-07T02:30:00.000Z");
+      expect(await store.list(200)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.COVER_QA_TOKEN;
+      else process.env.COVER_QA_TOKEN = previous;
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
   });
 });
 

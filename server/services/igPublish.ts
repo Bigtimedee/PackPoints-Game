@@ -34,9 +34,10 @@ export const IG_EXTRA_SLOTS = { STORY: "07:30", REEL: "13:30" } as const;
 const SLOT_ENV = { FEED: "IG_FEED_AT_CT", REEL: "IG_REEL_AT_CT", STORY: "IG_STORY_AT_CT", PHOTO: "IG_PHOTO_AT_CT", LINK: "IG_LINK_AT_CT" } as const;
 const EXTRA_ENV = { STORY: "IG_STORY_AM_AT_CT", REEL: "IG_REEL_TRIAL_AT_CT" } as const;
 const KINDS = ["FEED", "REEL", "STORY", "PHOTO", "LINK"] as const;
-/** Content week 2 day 1 is the live feed start. Week 4 day 1 is 2026-11-12. */
+/** Content week 2 day 1 is 2026-10-29. Week 3 day 1 is Friday 2026-11-06. */
 const CONTENT_WEEK2_DAY1_UTC = Date.UTC(2026, 9, 29);
-const STORY_MORNING_TESTS = new Set(["tease", "am", "morning", "s1"]);
+const CONTENT_WEEK3_DAY1_UTC = Date.UTC(2026, 10, 6);
+const STORY_MORNING_TESTS = new Set(["am", "morning", "s1"]);
 const STORY_EVENING_TESTS = new Set(["answer", "evening", "pm", "s5", "poll"]);
 
 export type IgQueueSlot = {
@@ -334,7 +335,7 @@ export function rowSlotMinutes(kind: IgKind, scheduledFor: Date, e = env()): num
   const scheduled = ctNow(scheduledFor).minutes;
   const primary = slotMinutes(kind, e);
   const extra = extraSlotMinutes(kind, e);
-  const known = new Set<number>([7 * 60 + 30, 11 * 60, 13 * 60 + 30, 18 * 60, 21 * 60, primary]);
+  const known = new Set<number>([7 * 60 + 30, 11 * 60, 13 * 60 + 30, 18 * 60, 20 * 60 + 30, 20 * 60 + 45, 21 * 60, primary]);
   if (extra != null) known.add(extra);
   if (known.has(scheduled)) return scheduled;
   return primary;
@@ -347,7 +348,9 @@ export function rowIsDue(row: Pick<IgQueueRow, "kind" | "scheduledFor">, now: Da
 
 export function contentDate(week: number, day: number): string {
   if (!Number.isInteger(week) || !Number.isInteger(day) || week < 1 || day < 1) throw new Error("bad_content_date");
-  const dt = new Date(CONTENT_WEEK2_DAY1_UTC + ((week - 2) * 7 + (day - 1)) * 86_400_000);
+  const base = week >= 3 ? CONTENT_WEEK3_DAY1_UTC : CONTENT_WEEK2_DAY1_UTC;
+  const offsetDays = week >= 3 ? (week - 3) * 7 + (day - 1) : (week - 2) * 7 + (day - 1);
+  const dt = new Date(base + offsetDays * 86_400_000);
   const y = dt.getUTCFullYear();
   const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
   const d = String(dt.getUTCDate()).padStart(2, "0");
@@ -396,11 +399,64 @@ export function rowUtmContent(id: number, variant: IgVariant | null): string {
 const FORMAT_KIND = { feed: "FEED", reel: "REEL", story: "STORY", photo: "PHOTO", link: "LINK" } as const;
 
 function storyClock(testId: string, tests: string[]): { hour: number; minute: number } {
+  const present = new Set(tests);
+  if (present.has("tease") && present.has("poll")) {
+    if (testId === "tease") return { hour: 20, minute: 45 };
+    if (testId === "poll") return { hour: 21, minute: 0 };
+  }
+  if (testId === "tease" || testId === "poll") return { hour: 21, minute: 0 };
   if (STORY_MORNING_TESTS.has(testId)) return { hour: 7, minute: 30 };
   if (STORY_EVENING_TESTS.has(testId)) return { hour: 21, minute: 0 };
-  const unknown = tests.filter((id) => !STORY_MORNING_TESTS.has(id) && !STORY_EVENING_TESTS.has(id)).sort();
+  const unknown = tests.filter((id) => !STORY_MORNING_TESTS.has(id) && !STORY_EVENING_TESTS.has(id) && id !== "tease" && id !== "poll").sort();
   if (unknown.length >= 2 && unknown[0] === testId) return { hour: 7, minute: 30 };
   return { hour: 21, minute: 0 };
+}
+
+export type PlannedCreative = {
+  file: string;
+  platform: IgPlatform;
+  kind: IgKind;
+  week: number;
+  day: number;
+  testId: string;
+  variant: IgVariant;
+  trial: boolean;
+  date: string;
+  clock: string;
+  scheduledFor: string;
+  linkInCaption: boolean;
+};
+
+/** Plan filename slots. Does not read the database and does not insert rows. */
+export function planCreatives(files: string[]): PlannedCreative[] {
+  const parsed = files.map((file) => parseCreativeName(file)).filter((item): item is ParsedCreative => item != null);
+  return parsed.map((item) => {
+    const plan = creativePlan(item, parsed);
+    return {
+      file: item.file,
+      platform: item.platform,
+      kind: plan.kind,
+      week: item.week,
+      day: item.day,
+      testId: item.testId,
+      variant: item.variant,
+      trial: plan.trial,
+      date: plan.at.date,
+      clock: `${String(plan.at.hour).padStart(2, "0")}:${String(plan.at.minute).padStart(2, "0")}`,
+      scheduledFor: ctWallTime(plan.at.date, plan.at.hour, plan.at.minute).toISOString(),
+      linkInCaption: item.format === "link",
+    };
+  }).sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor) || a.file.localeCompare(b.file));
+}
+
+export function plannedScheduleFromDisk(): PlannedCreative[] {
+  let names: string[] = [];
+  try {
+    names = readdirSync(mediaDir()).filter((name) => !name.startsWith("."));
+  } catch {
+    return [];
+  }
+  return planCreatives(names);
 }
 
 export function creativePlan(item: ParsedCreative, all: ParsedCreative[]): { kind: IgKind; at: { date: string; hour: number; minute: number }; trial: boolean; campaign: string } {
@@ -408,12 +464,18 @@ export function creativePlan(item: ParsedCreative, all: ParsedCreative[]): { kin
   let hour = 11;
   let minute = 0;
   let trial = false;
+  let kind: IgKind = FORMAT_KIND[item.format];
   if (item.format === "photo") {
-    hour = 7;
-    minute = 30;
+    if (item.testId === "s4") {
+      hour = 18;
+    } else {
+      hour = 7;
+      minute = 30;
+    }
   } else if (item.format === "link") {
     hour = 13;
     minute = 30;
+    kind = "PHOTO";
   } else if (item.format === "reel") {
     const pair = same.some((other) => other.testId === item.testId && other.variant !== item.variant);
     if (item.platform === "ig" && pair) {
@@ -422,6 +484,9 @@ export function creativePlan(item: ParsedCreative, all: ParsedCreative[]): { kin
       trial = true;
     } else if (item.platform === "fb" && pair) {
       hour = 11;
+    } else if (item.platform === "fb") {
+      hour = 20;
+      minute = 30;
     } else {
       hour = 18;
     }
@@ -431,7 +496,7 @@ export function creativePlan(item: ParsedCreative, all: ParsedCreative[]): { kin
     minute = clock.minute;
   }
   return {
-    kind: FORMAT_KIND[item.format],
+    kind,
     at: { date: contentDate(item.week, item.day), hour, minute },
     trial,
     campaign: `w${item.week}`,
@@ -1468,7 +1533,7 @@ export async function listQueue(): Promise<IgQueueRow[]> {
   return currentStore().list(100);
 }
 
-export function trackingUrl(row: Pick<IgQueueRow, "id" | "platform" | "kind" | "variant" | "utmMedium" | "utmCampaign">): string {
+export function trackingUrl(row: Pick<IgQueueRow, "id" | "platform" | "kind" | "variant" | "utmMedium" | "utmCampaign"> & { mediaPath?: string }): string {
   const source = row.platform === "fb" ? "facebook" : "instagram";
   const medium = (row.utmMedium || row.kind).toLowerCase();
   const campaign = row.utmCampaign || "w1";
@@ -1478,7 +1543,7 @@ export function trackingUrl(row: Pick<IgQueueRow, "id" | "platform" | "kind" | "
     utm_campaign: campaign,
     utm_content: rowUtmContent(row.id, row.variant),
   });
-  const pathName = row.kind === "LINK" ? "/daily" : "/";
+  const pathName = row.kind === "LINK" || /^fb-link-/i.test(row.mediaPath ?? "") ? "/daily" : "/";
   return `https://packpts.com${pathName}?${query.toString()}`;
 }
 
@@ -1501,9 +1566,10 @@ export async function updateQueuedRow(id: number, input: { caption?: unknown; me
   const row = await store.get(id);
   if (!row) throw new IgInputError("not_found");
   if (row.status !== "queued") throw new IgInputError("not_queued");
+  const linkInCaption = row.kind === "LINK" || /^fb-link-/i.test(row.mediaPath);
   const nextCaption = !hasCaption
     ? null
-    : row.kind === "LINK"
+    : linkInCaption
       ? linkCaption(input.caption as string, trackingUrl(row))
       : row.platform === "fb"
         ? fbCaption(input.caption as string)
@@ -1627,7 +1693,7 @@ export async function queueParsedCreatives(): Promise<number> {
     const media = await inspectMedia(item.file);
     if (!media.ok) continue;
     try {
-      await enqueueIgPost({
+      const row = await enqueueIgPost({
         kind: plan.kind,
         mediaPath: item.file,
         caption: "Can you name all 5?",
@@ -1638,9 +1704,12 @@ export async function queueParsedCreatives(): Promise<number> {
         variant: item.variant,
         testId: item.testId,
         trial: plan.trial,
-        utmMedium: plan.kind.toLowerCase(),
+        utmMedium: item.format === "link" ? "link" : plan.kind.toLowerCase(),
         utmCampaign: plan.campaign,
       });
+      if (item.format === "link") {
+        await currentStore().setQueuedCaption(row.id, linkCaption("Can you name all 5?", trackingUrl(row)));
+      }
       have.add(item.file);
       inserted += 1;
     } catch (err) {
@@ -1672,7 +1741,8 @@ export async function migrateQueuedRows(store = currentStore()): Promise<{ stori
     }
   }
   for (const row of await store.list(500)) {
-    if (row.status !== "queued" || row.kind !== "LINK" || row.caption.includes("https://")) continue;
+    const linkInCaption = row.kind === "LINK" || (row.platform === "fb" && /^fb-link-/i.test(row.mediaPath));
+    if (row.status !== "queued" || !linkInCaption || row.caption.includes("https://")) continue;
     await store.setQueuedCaption(row.id, linkCaption(row.caption, trackingUrl(row)));
   }
   return { stories, utm, trials };
