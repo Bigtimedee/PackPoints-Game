@@ -16,6 +16,7 @@ import {
   buildIgCaption,
   createMemoryStore,
   defaultGraph,
+  IG_TRIAL_PARAMS,
   enqueueApprovedSlots,
   enqueueIgPost,
   graphMediaFields,
@@ -32,6 +33,7 @@ import {
   queueParsedCreatives,
   readAllowlistFile,
   runIgDaily,
+  updateQueuedRow,
   runInsightSync,
   setIgDepsForTests,
   slotMinutes,
@@ -151,10 +153,11 @@ describe("instagram copy, slots, and allowlist", () => {
     const file = path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json");
     const names = readdirSync(dir).filter((name) => !name.startsWith("."));
     expect(names.filter((name) => name.endsWith(".png"))).toEqual([]);
-    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(27);
+    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(28);
     expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(14);
+    expect(names).toContain("feed-swap-row6-765.jpg");
     const hashes = names.map((name) => sha(readFileSync(path.join(dir, name))));
-    expect(new Set(hashes).size).toBe(41);
+    expect(new Set(hashes).size).toBe(42);
     expect(readAllowlistFile(file)).toEqual(new Set(hashes));
   });
 
@@ -716,6 +719,9 @@ describe("approved creative queue", () => {
       expect(ctLabel(story.scheduledFor)).toBe(`${lateDates[n - 1]} 21:00`);
       expect(feed.utmContent).toBe(`${feed.id}-A`);
       expect(feed.utmCampaign).toBe("w2");
+      expect(feed.trial).toBe(false);
+      expect(story.trial).toBe(false);
+      expect(reel.trial).toBe(true);
       expect(story.utmMedium).toBe("story");
     }
     expect(rows.find((row) => row.mediaPath === "feed-w2-day1.jpg")?.scheduledFor.toISOString()).toBe("2026-10-29T16:00:00.000Z");
@@ -984,5 +990,195 @@ describe("insight pull", () => {
     expect(youngRow?.insights?.daily?.metrics.reach).toBe(10);
     expect(spy.mock.calls.flat().join(" ")).not.toContain("ig-secret-token-do-not-log");
     spy.mockRestore();
+  });
+});
+
+describe("queued reel trials and row edits", () => {
+  afterEach(() => setIgDepsForTests(null));
+
+  it("marks queued week 1 and week 2 reels as trials and leaves other rows alone", async () => {
+    const store = createMemoryStore();
+    setIgDepsForTests({ store, env: {} });
+    const when = new Date("2026-10-27T23:00:00.000Z");
+    const hash = "ab".repeat(32);
+    const week1 = await store.insert({
+      kind: "REEL", mediaPath: "reel-day1-A.mp4", caption: "Keep me", scheduledFor: when,
+      status: "queued", approvalHash: hash, utmContent: "reel-d1",
+    });
+    const week2 = await store.insert({
+      kind: "REEL", mediaPath: "reel-w2-day1.mp4", caption: "Week 2", scheduledFor: when,
+      status: "queued", approvalHash: hash, utmContent: "w2-reel-d1", utmCampaign: "w2",
+    });
+    const posted = await store.insert({
+      kind: "REEL", mediaPath: "reel-day2.mp4", caption: "Already posted", scheduledFor: when,
+      status: "published", approvalHash: hash, utmContent: "reel-d2",
+    });
+    const story = await store.insert({
+      kind: "STORY", mediaPath: "story-day1-A.jpg", caption: "Story", scheduledFor: when,
+      status: "queued", approvalHash: hash, utmContent: "story-d1",
+    });
+    const week3 = await store.insert({
+      kind: "REEL", mediaPath: "ig-reel-w3-d2-solo-A.mp4", caption: "Solo", scheduledFor: when,
+      status: "queued", approvalHash: hash, utmContent: "w3-reel", utmCampaign: "w3",
+    });
+    const facebook = await store.insert({
+      kind: "REEL", mediaPath: "fb-reel.mp4", caption: "FB", scheduledFor: when,
+      status: "queued", approvalHash: hash, utmContent: "w2-reel", utmCampaign: "w2", platform: "fb",
+    });
+    const first = await migrateQueuedRows(store);
+    expect(first.trials.sort((a, b) => a - b)).toEqual([week1.id, week2.id].sort((a, b) => a - b));
+    const saved = await store.get(week1.id);
+    expect(saved?.trial).toBe(true);
+    expect(saved?.caption).toBe("Keep me");
+    expect(saved?.scheduledFor.toISOString()).toBe(when.toISOString());
+    expect((await store.get(week2.id))?.trial).toBe(true);
+    expect((await store.get(posted.id))?.trial).toBe(false);
+    expect((await store.get(posted.id))?.caption).toBe("Already posted");
+    expect((await store.get(story.id))?.trial).toBe(false);
+    expect((await store.get(week3.id))?.trial).toBe(false);
+    expect((await store.get(facebook.id))?.trial).toBe(false);
+    expect((await migrateQueuedRows(store)).trials).toEqual([]);
+  });
+
+  it("sends the trial graduation strategy when a migrated week 1 reel publishes", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ig-trial-"));
+    writeFileSync(path.join(dir, "reel-day1-A.mp4"), VIDEO);
+    const store = createMemoryStore();
+    const graph = fakeGraph();
+    setIgDepsForTests({
+      store,
+      graph,
+      mediaDir: dir,
+      allowlist: new Set([sha(VIDEO)]),
+      env: armedEnv(),
+      sleep: async () => {},
+      pollMax: 2,
+    });
+    const row = await store.insert({
+      kind: "REEL", mediaPath: "reel-day1-A.mp4", caption: "Can you name all 5? Link in bio.",
+      scheduledFor: new Date("2026-10-27T23:00:00.000Z"), status: "queued",
+      approvalHash: sha(VIDEO), utmContent: "reel-d1",
+    });
+    await migrateQueuedRows(store);
+    expect((await publishIg(row.id)).status).toBe("published");
+    expect(graph.calls[0]?.trial_params).toBe(IG_TRIAL_PARAMS);
+    expect(IG_TRIAL_PARAMS).toBe(JSON.stringify({ graduation_strategy: "SS_PERFORMANCE" }));
+  });
+
+  it("points a queued feed at the approved row 6 file and refuses posted rows", async () => {
+    const mediaDir = path.join(process.cwd(), "server", "assets", "ig", "media");
+    const allowlist = readAllowlistFile(path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json"));
+    const swapName = "feed-swap-row6-765.jpg";
+    const swapHash = sha(readFileSync(path.join(mediaDir, swapName)));
+    const oldName = "d5-post-1080-B2-4x5.jpg";
+    const oldHash = sha(readFileSync(path.join(mediaDir, oldName)));
+    expect(allowlist.has(swapHash)).toBe(true);
+    const store = createMemoryStore();
+    setIgDepsForTests({ store, mediaDir, allowlist, env: {} });
+    const when = new Date("2026-10-23T16:00:00.000Z");
+    const queued = await store.insert({
+      kind: "FEED", mediaPath: oldName, caption: "Old caption", scheduledFor: when,
+      status: "queued", approvalHash: oldHash, utmContent: "feed-d6",
+    });
+    const captioned = await updateQueuedRow(queued.id, { caption: "Morning feed" });
+    expect(captioned.caption).toBe("Morning feed Link in bio.");
+    expect(captioned.mediaPath).toBe(oldName);
+    expect(captioned.approvalHash).toBe(oldHash);
+    const updated = await updateQueuedRow(queued.id, { mediaPath: swapName });
+    expect(updated.mediaPath).toBe(swapName);
+    expect(updated.approvalHash).toBe(swapHash);
+    expect(updated.caption).toBe("Morning feed Link in bio.");
+    expect(updated.status).toBe("queued");
+    expect(updated.scheduledFor.toISOString()).toBe(when.toISOString());
+    const posted = await store.insert({
+      kind: "FEED", mediaPath: oldName, caption: "Posted", scheduledFor: when,
+      status: "published", approvalHash: oldHash, utmContent: "feed-posted",
+    });
+    await expect(updateQueuedRow(posted.id, { mediaPath: swapName })).rejects.toThrow(/not_queued/);
+    expect((await store.get(posted.id))?.mediaPath).toBe(oldName);
+    expect((await store.get(posted.id))?.caption).toBe("Posted");
+    const reelHash = sha(readFileSync(path.join(mediaDir, "reel-day1-A.mp4")));
+    const reel = await store.insert({
+      kind: "REEL", mediaPath: "reel-day1-A.mp4", caption: "Reel", scheduledFor: when,
+      status: "queued", approvalHash: reelHash, utmContent: "reel-d1",
+    });
+    await expect(updateQueuedRow(reel.id, { mediaPath: swapName })).rejects.toThrow(/media_kind_mismatch/);
+    expect((await store.get(reel.id))?.mediaPath).toBe("reel-day1-A.mp4");
+    await expect(updateQueuedRow(queued.id, { mediaPath: "../APPROVED.json" })).rejects.toThrow(/bad_media_path/);
+    await expect(updateQueuedRow(queued.id, { mediaPath: "missing-feed.jpg" })).rejects.toThrow(/file_missing/);
+    const dry = await publishIg(queued.id, { dryRun: true });
+    expect(dry.wouldSkip).toBe(false);
+    expect(dry.publicUrl).toContain(swapName);
+    expect(dry.caption).toContain("Link in bio.");
+    expect(dry.caption).not.toMatch(/https?:\/\//);
+  });
+
+  it("patches caption and media through the QA route for a queued row only", async () => {
+    const mediaDir = path.join(process.cwd(), "server", "assets", "ig", "media");
+    const allowlist = readAllowlistFile(path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json"));
+    const store = createMemoryStore();
+    setIgDepsForTests({ store, graph: fakeGraph(), mediaDir, allowlist, env: armedEnv(), sleep: async () => {}, pollMax: 2 });
+    const app = express();
+    app.use(express.json());
+    registerIgRoutes(app);
+    const previous = process.env.COVER_QA_TOKEN;
+    process.env.COVER_QA_TOKEN = TOKEN;
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address() as AddressInfo;
+    const base = `http://127.0.0.1:${addr.port}`;
+    try {
+      const when = "2026-10-23T16:00:00.000Z";
+      const oldName = "d5-post-1080-B2-4x5.jpg";
+      const created = await fetch(`${base}/api/qa/ig/queue`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-qa-token": TOKEN },
+        body: JSON.stringify({
+          kind: "FEED",
+          mediaPath: oldName,
+          caption: "Old",
+          scheduledFor: when,
+          approvalHash: sha(readFileSync(path.join(mediaDir, oldName))),
+        }),
+      });
+      expect(created.status).toBe(201);
+      const item = (await created.json()).item;
+      const denied = await fetch(`${base}/api/qa/ig/queue/${item.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ caption: "Secret" }),
+      });
+      expect(denied.status).toBe(401);
+      const patched = await fetch(`${base}/api/qa/ig/queue/${item.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-qa-token": TOKEN },
+        body: JSON.stringify({ caption: "Row six swap", mediaPath: "feed-swap-row6-765.jpg", scheduledFor: "2099-01-01T00:00:00.000Z" }),
+      });
+      expect(patched.status).toBe(200);
+      const next = (await patched.json()).item;
+      expect(next.caption).toBe("Row six swap Link in bio.");
+      expect(next.mediaPath).toBe("feed-swap-row6-765.jpg");
+      expect(next.approvalHash).toBe(sha(readFileSync(path.join(mediaDir, "feed-swap-row6-765.jpg"))));
+      expect(next.scheduledFor).toBe(when);
+      expect(next.status).toBe("queued");
+      const published = await fetch(`${base}/api/qa/ig/publish`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-qa-token": TOKEN },
+        body: JSON.stringify({ id: item.id }),
+      });
+      expect((await published.json()).status).toBe("published");
+      const blocked = await fetch(`${base}/api/qa/ig/queue/${item.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "x-qa-token": TOKEN },
+        body: JSON.stringify({ caption: "Too late", mediaPath: oldName }),
+      });
+      expect(blocked.status).toBe(409);
+      expect((await store.get(item.id))?.mediaPath).toBe("feed-swap-row6-765.jpg");
+      expect((await store.get(item.id))?.caption).toBe("Row six swap Link in bio.");
+    } finally {
+      if (previous === undefined) delete process.env.COVER_QA_TOKEN;
+      else process.env.COVER_QA_TOKEN = previous;
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
   });
 });

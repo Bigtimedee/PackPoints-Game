@@ -26,6 +26,8 @@ import { ctNow } from "./daily5XWatch";
 export const IG_GRAPH_VERSION = "v21.0";
 const IG_GRAPH_HOST_DEFAULT = "graph.instagram.com";
 export const IG_PUBLISH_LIMIT = 50;
+/** Sent on Instagram container create when a queued Reel is marked trial. */
+export const IG_TRIAL_PARAMS = JSON.stringify({ graduation_strategy: "SS_PERFORMANCE" });
 export const IG_SLOT_DEFAULTS = { FEED: "11:00", REEL: "18:00", STORY: "21:00", PHOTO: "07:30", LINK: "13:30" } as const;
 /** Extra IG clocks besides the kind default. Story morning and trial Reel afternoon. */
 export const IG_EXTRA_SLOTS = { STORY: "07:30", REEL: "13:30" } as const;
@@ -163,6 +165,8 @@ export interface IgStore {
   rescheduleQueued(id: number, scheduledFor: Date): Promise<boolean>;
   setQueuedUtm(id: number, utmContent: string, utmMedium: string, utmCampaign: string): Promise<boolean>;
   setQueuedCaption(id: number, caption: string): Promise<boolean>;
+  setQueuedMedia(id: number, mediaPath: string, approvalHash: string): Promise<boolean>;
+  setQueuedTrial(id: number, trial: boolean): Promise<boolean>;
   saveInsights(id: number, insights: IgInsights): Promise<boolean>;
   markAbTest(id: number, videoId: string, abTestId: string): Promise<boolean>;
   list(limit?: number): Promise<IgQueueRow[]>;
@@ -606,7 +610,7 @@ export function mediaMatchesKind(kind: IgKind, fileName: string, bytes: Buffer):
 export function graphMediaFields(kind: IgKind, fileName: string, caption: string, publicUrl: string, opts?: { trial?: boolean }): IgMediaFields {
   if (kind === "REEL") {
     const fields: IgMediaFields = { media_type: "REELS", video_url: publicUrl, caption };
-    if (opts?.trial) fields.trial_params = JSON.stringify({ graduation_strategy: "SS_PERFORMANCE" });
+    if (opts?.trial) fields.trial_params = IG_TRIAL_PARAMS;
     return fields;
   }
   if (kind === "FEED" || kind === "PHOTO" || kind === "LINK") return { image_url: publicUrl, caption };
@@ -716,6 +720,19 @@ export function createMemoryStore(): IgStore {
       const row = find(id);
       if (!row || row.status !== "queued") return false;
       row.caption = caption;
+      return true;
+    },
+    async setQueuedMedia(id, mediaPath, approvalHash) {
+      const row = find(id);
+      if (!row || row.status !== "queued") return false;
+      row.mediaPath = mediaPath;
+      row.approvalHash = approvalHash;
+      return true;
+    },
+    async setQueuedTrial(id, trial) {
+      const row = find(id);
+      if (!row || row.status !== "queued" || row.kind !== "REEL") return false;
+      row.trial = trial;
       return true;
     },
     async saveInsights(id, insights) {
@@ -970,6 +987,25 @@ export const pgStore: IgStore = {
     const result = await pool.query(
       `UPDATE ig_post_queue SET caption = $2 WHERE id = $1 AND status = 'queued' RETURNING id`,
       [id, caption],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+  async setQueuedMedia(id, mediaPath, approvalHash) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET media_path = $2, approval_hash = $3
+       WHERE id = $1 AND status = 'queued' RETURNING id`,
+      [id, mediaPath, approvalHash],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
+  async setQueuedTrial(id, trial) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET trial = $2
+       WHERE id = $1 AND status = 'queued' AND kind = 'REEL'
+       RETURNING id`,
+      [id, trial],
     );
     return (result.rowCount ?? 0) > 0;
   },
@@ -1453,6 +1489,41 @@ function fbCaption(input: string): string {
   return text || "Can you name all 5?";
 }
 
+/** Rewrite caption and/or media on a queued row. Posted rows are left unchanged. */
+export async function updateQueuedRow(id: number, input: { caption?: unknown; mediaPath?: unknown }): Promise<IgQueueRow> {
+  if (!Number.isInteger(id) || id <= 0) throw new IgInputError("bad_id");
+  const hasCaption = input.caption !== undefined;
+  const hasMedia = input.mediaPath !== undefined;
+  if (!hasCaption && !hasMedia) throw new IgInputError("bad_patch");
+  if (hasCaption && typeof input.caption !== "string") throw new IgInputError("bad_caption");
+  if (hasMedia && (typeof input.mediaPath !== "string" || !input.mediaPath.trim())) throw new IgInputError("bad_media_path");
+  const store = currentStore();
+  const row = await store.get(id);
+  if (!row) throw new IgInputError("not_found");
+  if (row.status !== "queued") throw new IgInputError("not_queued");
+  const nextCaption = !hasCaption
+    ? null
+    : row.kind === "LINK"
+      ? linkCaption(input.caption as string, trackingUrl(row))
+      : row.platform === "fb"
+        ? fbCaption(input.caption as string)
+        : buildIgCaption(input.caption as string);
+  let nextMedia: { path: string; hash: string } | null = null;
+  if (hasMedia) {
+    const mediaPath = path.basename(input.mediaPath as string);
+    if (mediaPath !== input.mediaPath) throw new IgInputError("bad_media_path");
+    const media = await inspectMedia(mediaPath);
+    if (!media.ok) throw new IgInputError(media.reason);
+    if (!mediaMatchesKind(row.kind, mediaPath, media.bytes)) throw new IgInputError("media_kind_mismatch");
+    nextMedia = { path: mediaPath, hash: media.hash };
+  }
+  if (nextCaption != null && !(await store.setQueuedCaption(id, nextCaption))) throw new IgInputError("not_queued");
+  if (nextMedia && !(await store.setQueuedMedia(id, nextMedia.path, nextMedia.hash))) throw new IgInputError("not_queued");
+  const fresh = await store.get(id);
+  if (!fresh) throw new IgInputError("not_found");
+  return fresh;
+}
+
 export function linkCaption(base: string, url: string): string {
   const text = base.replace(/\s*Link in bio\.?/i, "").replace(/\s+/g, " ").trim() || "Can you name all 5?";
   if (/[\u2013\u2014]/.test(text) || /[\u2013\u2014]/.test(url)) throw new IgInputError("copy_rule");
@@ -1579,10 +1650,11 @@ export async function queueParsedCreatives(): Promise<number> {
   return inserted;
 }
 
-/** Queued Story rows at 20:00 CT move to 21:00 CT. Posted rows are not updated. Queued utm tags become {id}-{variant or A}. */
-export async function migrateQueuedRows(store = currentStore()): Promise<{ stories: number[]; utm: number[] }> {
+/** Queued Story rows at 20:00 CT move to 21:00 CT. Queued week 1 and week 2 Instagram Reels become trials. Posted rows are not updated. */
+export async function migrateQueuedRows(store = currentStore()): Promise<{ stories: number[]; utm: number[]; trials: number[] }> {
   const stories: number[] = [];
   const utm: number[] = [];
+  const trials: number[] = [];
   for (const row of await store.list(500)) {
     if (row.status !== "queued") continue;
     if (row.kind === "STORY" && ctNow(row.scheduledFor).minutes === 20 * 60) {
@@ -1595,12 +1667,15 @@ export async function migrateQueuedRows(store = currentStore()): Promise<{ stori
     if (row.utmContent !== content || row.utmMedium !== medium || row.utmCampaign !== campaign) {
       if (await store.setQueuedUtm(row.id, content, medium, campaign)) utm.push(row.id);
     }
+    if (row.platform === "ig" && row.kind === "REEL" && !row.trial && (campaign === "w1" || campaign === "w2")) {
+      if (await store.setQueuedTrial(row.id, true)) trials.push(row.id);
+    }
   }
   for (const row of await store.list(500)) {
     if (row.status !== "queued" || row.kind !== "LINK" || row.caption.includes("https://")) continue;
     await store.setQueuedCaption(row.id, linkCaption(row.caption, trackingUrl(row)));
   }
-  return { stories, utm };
+  return { stories, utm, trials };
 }
 
 async function insertMissingSlots(): Promise<number> {
