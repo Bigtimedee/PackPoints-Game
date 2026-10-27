@@ -156,11 +156,12 @@ describe("instagram copy, slots, and allowlist", () => {
     const file = path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json");
     const names = readdirSync(dir).filter((name) => !name.startsWith("."));
     expect(names.filter((name) => name.endsWith(".png"))).toEqual([]);
-    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(28);
-    expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(14);
+    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(70);
+    expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(56);
+    expect(names.filter((name) => parseCreativeName(name) != null)).toHaveLength(84);
     expect(names).toContain("feed-swap-row6-765.jpg");
     const hashes = names.map((name) => sha(readFileSync(path.join(dir, name))));
-    expect(new Set(hashes).size).toBe(42);
+    expect(new Set(hashes).size).toBe(126);
     expect(readAllowlistFile(file)).toEqual(new Set(hashes));
   });
 
@@ -733,9 +734,12 @@ describe("approved creative queue", () => {
     expect(rows.find((row) => row.mediaPath === "reel-w2-day7.mp4")?.scheduledFor.toISOString()).toBe("2026-11-06T00:00:00.000Z");
     expect(rows.find((row) => row.mediaPath === "story-w2-day1.jpg")?.scheduledFor.toISOString()).toBe("2026-10-31T02:00:00.000Z");
     expect(rows.find((row) => row.mediaPath === "story-w2-day7.jpg")?.scheduledFor.toISOString()).toBe("2026-11-06T03:00:00.000Z");
+    expect(rows.some((row) => parseCreativeName(row.mediaPath) != null)).toBe(false);
+    expect(rows.some((row) => row.mediaPath === "feed-swap-row6-765.jpg")).toBe(false);
     expect(await enqueueApprovedSlots()).toBe(0);
-    expect(await store.list(100)).toHaveLength(41);
-    expect((await store.list(100)).find((row) => row.mediaPath === "d5-post-1080-B2-4x5.jpg")?.status).toBe("published");
+    expect(await store.list(200)).toHaveLength(41);
+    expect((await store.list(200)).find((row) => row.mediaPath === "d5-post-1080-B2-4x5.jpg")?.status).toBe("published");
+    expect((await store.list(200)).some((row) => parseCreativeName(row.mediaPath) != null)).toBe(false);
   });
 
   it("redirects /ig to bio when the queue read throws", async () => {
