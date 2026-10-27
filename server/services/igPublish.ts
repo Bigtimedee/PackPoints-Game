@@ -1769,14 +1769,15 @@ async function insertMissingSlots(): Promise<number> {
     have.add(slot.file);
     inserted += 1;
   }
-  inserted += await queueParsedCreatives();
+  // Week 3 files are approved media only. Boot does not insert them: a queued
+  // row would publish the placeholder caption when its clock arrives.
   await migrateQueuedRows();
   return inserted;
 }
 
 let seedTask: Promise<number> | null = null;
 
-/** Insert approved slots whose media path is not already queued. Existing rows are not changed. */
+/** Insert missing week 1 and week 2 slots. Existing rows are not changed. Parsed week 3 files are left on disk. */
 export function enqueueApprovedSlots(): Promise<number> {
   if (deps.store) return insertMissingSlots();
   if (!seedTask) {
