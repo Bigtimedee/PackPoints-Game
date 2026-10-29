@@ -3,7 +3,7 @@
 Pool sources: (1) live /api/qa/sets/:id/dealable-cards when PACKPTS_QA_TOKEN is set (Eng/CI);
 (2) every "player"/"playerName" in pool snapshots under --pool-dir (Design QA dumps; a superset incl. blocked cards).
 Also fails on em/en dashes, 'coming soon', and $ or % in Points copy."""
-import json, os, re, sys, glob, argparse, socket, time, urllib.request, urllib.error
+import json, os, re, sys, glob, argparse, urllib.request
 ap=argparse.ArgumentParser(); ap.add_argument("--kit",default=os.path.join(os.path.dirname(__file__),"..","content"))
 ap.add_argument("--pool-dir",default="/workspace/packpts-design"); ap.add_argument("--base",default="https://packpts.com")
 a=ap.parse_args()
@@ -17,27 +17,12 @@ def collect(x):
     elif isinstance(x,list):
         for v in x: collect(v)
 tok=os.environ.get("PACKPTS_QA_TOKEN"); live=0
-RETRY_DELAYS=(5,15,30)
-def fetch_json(req):
-    """Live fetch with retry/backoff on 5xx, URLError and timeouts (a deploy blip
-    must not turn main red). 4xx and bad JSON fail immediately."""
-    for i,delay in enumerate(RETRY_DELAYS+(None,)):
-        try:
-            with urllib.request.urlopen(req,timeout=30) as resp: return json.load(resp)
-        except urllib.error.HTTPError as e:
-            if e.code<500 or delay is None: raise
-            err=e
-        except (urllib.error.URLError,socket.timeout,TimeoutError,ConnectionError) as e:
-            if delay is None: raise
-            err=e
-        url=req if isinstance(req,str) else req.full_url
-        print(f"retry {i+1}/{len(RETRY_DELAYS)} in {delay}s: {url}: {err}",flush=True); time.sleep(delay)
 if tok:
-    sets=fetch_json(a.base+"/api/sets")["sets"]
+    sets=json.load(urllib.request.urlopen(a.base+"/api/sets"))["sets"]
     for s in sets:
         try:
             r=urllib.request.Request(f"{a.base}/api/qa/sets/{s['id']}/dealable-cards?limit=2000",headers={"X-QA-Token":tok})
-            collect(fetch_json(r)); live+=1
+            collect(json.load(urllib.request.urlopen(r))); live+=1
         except Exception as e: print("warn live",s["setName"],e)
 for f in glob.glob(os.path.join(a.pool_dir,"**/*.json"),recursive=True):
     if os.path.abspath(f).startswith(os.path.abspath(a.kit)): continue
