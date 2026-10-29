@@ -1558,17 +1558,20 @@ function fbCaption(input: string): string {
 }
 
 /** Rewrite caption and/or media on a queued row. Posted rows are left unchanged. */
-export async function updateQueuedRow(id: number, input: { caption?: unknown; mediaPath?: unknown }): Promise<IgQueueRow> {
+export async function updateQueuedRow(id: number, input: { caption?: unknown; mediaPath?: unknown; trial?: unknown }): Promise<IgQueueRow> {
   if (!Number.isInteger(id) || id <= 0) throw new IgInputError("bad_id");
   const hasCaption = input.caption !== undefined;
   const hasMedia = input.mediaPath !== undefined;
-  if (!hasCaption && !hasMedia) throw new IgInputError("bad_patch");
+  const hasTrial = input.trial !== undefined;
+  if (!hasCaption && !hasMedia && !hasTrial) throw new IgInputError("bad_patch");
+  if (hasTrial && typeof input.trial !== "boolean") throw new IgInputError("bad_trial");
   if (hasCaption && typeof input.caption !== "string") throw new IgInputError("bad_caption");
   if (hasMedia && (typeof input.mediaPath !== "string" || !input.mediaPath.trim())) throw new IgInputError("bad_media_path");
   const store = currentStore();
   const row = await store.get(id);
   if (!row) throw new IgInputError("not_found");
   if (row.status !== "queued") throw new IgInputError("not_queued");
+  if (hasTrial && input.trial === true && (row.kind !== "REEL" || row.platform !== "ig")) throw new IgInputError("trial_reel_only");
   const linkInCaption = row.kind === "LINK" || /^fb-link-/i.test(row.mediaPath);
   const nextCaption = !hasCaption
     ? null
@@ -1588,6 +1591,7 @@ export async function updateQueuedRow(id: number, input: { caption?: unknown; me
   }
   if (nextCaption != null && !(await store.setQueuedCaption(id, nextCaption))) throw new IgInputError("not_queued");
   if (nextMedia && !(await store.setQueuedMedia(id, nextMedia.path, nextMedia.hash))) throw new IgInputError("not_queued");
+  if (hasTrial && !(await store.setQueuedTrial(id, input.trial as boolean))) throw new IgInputError("not_queued");
   const fresh = await store.get(id);
   if (!fresh) throw new IgInputError("not_found");
   return fresh;
@@ -1867,7 +1871,8 @@ export async function runInsightSync(now = new Date()): Promise<{ status: string
         changed = true;
       }
       if (insightsDue(now, e) && next.daily?.day !== today) {
-        const names = [...IG_COMMON_METRICS];
+        // Reels reject profile_visits, which fails the whole insights call.
+        const names = row.kind === "REEL" ? IG_COMMON_METRICS.filter((m) => m !== "profile_visits") : [...IG_COMMON_METRICS];
         if (row.kind === "REEL") names.push(...IG_REEL_METRICS);
         if (row.kind === "STORY") names.push(...IG_STORY_METRICS);
         const result = await pullMetricBag(
