@@ -1159,6 +1159,8 @@ describe("insight pull", () => {
     expect((await store.get(feed.id))?.insights?.daily?.metrics.reach).toBe(10);
     expect(urls.filter((url) => url.includes("navigation"))).toHaveLength(1);
     expect(urls.filter((url) => url.includes("ig_reels_avg_watch_time"))).toHaveLength(1);
+    expect(urls.filter((url) => url.includes("ig_reels_avg_watch_time") && url.includes("profile_visits"))).toHaveLength(0);
+    expect((await store.get(reel.id))?.insights?.daily?.metrics.reach).toBe(10);
     expect(urls.every((url) => url.startsWith("https://graph.instagram.com/"))).toBe(true);
 
     const young = await store.insert({
@@ -1286,6 +1288,16 @@ describe("queued reel trials and row edits", () => {
     });
     await expect(updateQueuedRow(reel.id, { mediaPath: swapName })).rejects.toThrow(/media_kind_mismatch/);
     expect((await store.get(reel.id))?.mediaPath).toBe("reel-day1-A.mp4");
+    const trialReel = await store.insert({
+      kind: "REEL", mediaPath: "reel-day1-A.mp4", caption: "Reel", scheduledFor: when,
+      status: "queued", approvalHash: reelHash, utmContent: "reel-trial", trial: true,
+    });
+    expect((await store.get(trialReel.id))?.trial).toBe(true);
+    expect((await updateQueuedRow(trialReel.id, { trial: false })).trial).toBe(false);
+    expect((await updateQueuedRow(trialReel.id, { trial: true })).trial).toBe(true);
+    await expect(updateQueuedRow(trialReel.id, { trial: "no" })).rejects.toThrow(/bad_trial/);
+    await expect(updateQueuedRow(queued.id, { trial: true })).rejects.toThrow(/trial_reel_only/);
+    await expect(updateQueuedRow(posted.id, { trial: false })).rejects.toThrow(/not_queued/);
     await expect(updateQueuedRow(queued.id, { mediaPath: "../APPROVED.json" })).rejects.toThrow(/bad_media_path/);
     await expect(updateQueuedRow(queued.id, { mediaPath: "missing-feed.jpg" })).rejects.toThrow(/file_missing/);
     const dry = await publishIg(queued.id, { dryRun: true });
