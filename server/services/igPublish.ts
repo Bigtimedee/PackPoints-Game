@@ -618,8 +618,18 @@ export function sanitizeUtmContent(value: unknown): string | null {
   return text;
 }
 
+export function normalizeCaptionLines(input: string): string {
+  return input
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function buildIgCaption(input: string): string {
-  const text = input.replace(/\s+/g, " ").trim();
+  const text = normalizeCaptionLines(input);
   if (/[\u2013\u2014]/.test(text) || /https?:\/\/|www\.|packpts\.com/i.test(text)) {
     throw new IgInputError("copy_rule");
   }
