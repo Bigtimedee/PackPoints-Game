@@ -728,7 +728,7 @@ describe("approved creative queue", () => {
       expect(feed.utmCampaign).toBe("w2");
       expect(feed.trial).toBe(false);
       expect(story.trial).toBe(false);
-      expect(reel.trial).toBe(true);
+      expect(reel.trial).toBe(false);
       expect(story.utmMedium).toBe("story");
     }
     expect(rows.find((row) => row.mediaPath === "feed-w2-day1.jpg")?.scheduledFor.toISOString()).toBe("2026-10-29T16:00:00.000Z");
