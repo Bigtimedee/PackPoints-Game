@@ -96,6 +96,8 @@ describe("instagram copy, slots, and allowlist", () => {
     expect(buildIgCaption("Can you name all 5?")).toBe("Can you name all 5? Link in bio.");
     expect(buildIgCaption("Already has a link in bio")).toBe("Already has a link in bio");
     expect(buildIgCaption("")).toBe("Link in bio.");
+    expect(buildIgCaption("Line  one.\r\n  Line   two.\n\n\n\nPlay free, link in bio.\n#a  #b  ")).toBe("Line one.\nLine two.\n\nPlay free, link in bio.\n#a #b");
+    expect(buildIgCaption("One.\nTwo.")).toBe("One.\nTwo. Link in bio.");
     expect(() => buildIgCaption("Play at https://packpts.com")).toThrow(/copy_rule/);
     expect(() => buildIgCaption("Today\u2019s game \u2014 free")).toThrow(/copy_rule/);
     expect(igBioRedirectUrl("feed-d1")).toBe(
