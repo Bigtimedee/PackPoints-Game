@@ -1736,7 +1736,7 @@ export async function queueParsedCreatives(): Promise<number> {
   return inserted;
 }
 
-/** Queued Story rows at 20:00 CT move to 21:00 CT. Queued week 1 and week 2 Instagram Reels become trials. Posted rows are not updated. */
+/** Queued Story rows at 20:00 CT move to 21:00 CT. Trial flags are left as set. Posted rows are not updated. */
 export async function migrateQueuedRows(store = currentStore()): Promise<{ stories: number[]; utm: number[]; trials: number[] }> {
   const stories: number[] = [];
   const utm: number[] = [];
@@ -1753,9 +1753,7 @@ export async function migrateQueuedRows(store = currentStore()): Promise<{ stori
     if (row.utmContent !== content || row.utmMedium !== medium || row.utmCampaign !== campaign) {
       if (await store.setQueuedUtm(row.id, content, medium, campaign)) utm.push(row.id);
     }
-    if (row.platform === "ig" && row.kind === "REEL" && !row.trial && (campaign === "w1" || campaign === "w2")) {
-      if (await store.setQueuedTrial(row.id, true)) trials.push(row.id);
-    }
+    // Trial is set per row (seed plan or QA PATCH); startup no longer forces w1/w2 Reels to trial.
   }
   for (const row of await store.list(500)) {
     const linkInCaption = row.kind === "LINK" || (row.platform === "fb" && /^fb-link-/i.test(row.mediaPath));
