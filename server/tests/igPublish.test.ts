@@ -728,7 +728,7 @@ describe("approved creative queue", () => {
       expect(feed.utmCampaign).toBe("w2");
       expect(feed.trial).toBe(false);
       expect(story.trial).toBe(false);
-      expect(reel.trial).toBe(true);
+      expect(reel.trial).toBe(false);
       expect(story.utmMedium).toBe("story");
     }
     expect(rows.find((row) => row.mediaPath === "feed-w2-day1.jpg")?.scheduledFor.toISOString()).toBe("2026-10-29T16:00:00.000Z");
@@ -1182,7 +1182,7 @@ describe("insight pull", () => {
 describe("queued reel trials and row edits", () => {
   afterEach(() => setIgDepsForTests(null));
 
-  it("marks queued week 1 and week 2 reels as trials and leaves other rows alone", async () => {
+  it("leaves trial flags as set on queued reels", async () => {
     const store = createMemoryStore();
     setIgDepsForTests({ store, env: {} });
     const when = new Date("2026-10-27T23:00:00.000Z");
@@ -1212,12 +1212,12 @@ describe("queued reel trials and row edits", () => {
       status: "queued", approvalHash: hash, utmContent: "w2-reel", utmCampaign: "w2", platform: "fb",
     });
     const first = await migrateQueuedRows(store);
-    expect(first.trials.sort((a, b) => a - b)).toEqual([week1.id, week2.id].sort((a, b) => a - b));
+    expect(first.trials).toEqual([]);
     const saved = await store.get(week1.id);
-    expect(saved?.trial).toBe(true);
+    expect(saved?.trial).toBe(false);
     expect(saved?.caption).toBe("Keep me");
     expect(saved?.scheduledFor.toISOString()).toBe(when.toISOString());
-    expect((await store.get(week2.id))?.trial).toBe(true);
+    expect((await store.get(week2.id))?.trial).toBe(false);
     expect((await store.get(posted.id))?.trial).toBe(false);
     expect((await store.get(posted.id))?.caption).toBe("Already posted");
     expect((await store.get(story.id))?.trial).toBe(false);
@@ -1243,7 +1243,7 @@ describe("queued reel trials and row edits", () => {
     const row = await store.insert({
       kind: "REEL", mediaPath: "reel-day1-A.mp4", caption: "Can you name all 5? Link in bio.",
       scheduledFor: new Date("2026-10-27T23:00:00.000Z"), status: "queued",
-      approvalHash: sha(VIDEO), utmContent: "reel-d1",
+      approvalHash: sha(VIDEO), utmContent: "reel-d1", trial: true,
     });
     await migrateQueuedRows(store);
     expect((await publishIg(row.id)).status).toBe("published");
