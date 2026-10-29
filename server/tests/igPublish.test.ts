@@ -184,6 +184,7 @@ describe("instagram copy, slots, and allowlist", () => {
       media_type: "REELS",
       video_url: "https://packpts.com/social/ig/reel-d1.mp4",
       caption: "Link in bio.",
+      share_to_feed: "true",
     });
     expect(graphMediaFields("STORY", "story-d1.jpg", "Link in bio.", "https://packpts.com/social/ig/story-d1.jpg")).toEqual({
       media_type: "STORIES",

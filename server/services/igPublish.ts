@@ -151,6 +151,7 @@ export type IgMediaFields = {
   media_type?: "REELS" | "STORIES";
   caption?: string;
   trial_params?: string;
+  share_to_feed?: "true";
 };
 
 export interface IgGraph {
@@ -675,7 +676,9 @@ export function mediaMatchesKind(kind: IgKind, fileName: string, bytes: Buffer):
 export function graphMediaFields(kind: IgKind, fileName: string, caption: string, publicUrl: string, opts?: { trial?: boolean }): IgMediaFields {
   if (kind === "REEL") {
     const fields: IgMediaFields = { media_type: "REELS", video_url: publicUrl, caption };
+    // Trial Reels cannot share to feed, so only non-trial Reels set share_to_feed.
     if (opts?.trial) fields.trial_params = IG_TRIAL_PARAMS;
+    else fields.share_to_feed = "true";
     return fields;
   }
   if (kind === "FEED" || kind === "PHOTO" || kind === "LINK") return { image_url: publicUrl, caption };
