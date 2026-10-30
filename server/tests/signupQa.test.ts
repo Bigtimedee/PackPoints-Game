@@ -76,6 +76,20 @@ describe("signup source buckets", () => {
     expect(signupSourceBucket(row({ createdAt: at }))).toBe("unattributed");
   });
 
+  it("buckets AI answer engine referrers as ai_<engine>", () => {
+    const r = (referrer: string) => signupSourceBucket(row({ createdAt: at, hasAttributionRow: true, referrer }));
+    expect(r("https://chatgpt.com/")).toBe("ai_chatgpt");
+    expect(r("chat.openai.com")).toBe("ai_chatgpt");
+    expect(r("https://www.perplexity.ai/search/x")).toBe("ai_perplexity");
+    expect(r("gemini.google.com")).toBe("ai_gemini");
+    expect(r("https://copilot.microsoft.com/chats/1")).toBe("ai_copilot");
+    expect(r("claude.ai")).toBe("ai_claude");
+    expect(r("google.com")).toBe("unknown");
+    expect(r("notchatgpt.com")).toBe("unknown");
+    expect(signupSourceBucket(row({ createdAt: at, hasAttributionRow: true, utmSource: "chatgpt.com" }))).toBe("ai_chatgpt");
+    expect(signupSourceBucket(row({ createdAt: at, referralPurpose: "INVITE", hasAttributionRow: true, referrer: "claude.ai" }))).toBe("referral");
+  });
+
   it("does not let a crafted utm_source become a residual bucket or keep an email", () => {
     expect(sanitizeUtmSource("unattributed")).toBe("utm_unattributed");
     expect(sanitizeUtmSource("unknown")).toBe("utm_unknown");

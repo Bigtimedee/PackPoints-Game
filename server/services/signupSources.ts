@@ -18,7 +18,7 @@ export const SIGNUP_EXCLUSION_RULE =
   "totals, bySource, daily, and authProviders count users where is_admin is false and is_bot is false. totals.excluded reports the rows left out, for the same all-time, rolling 24h, and rolling 7d windows. staffAdmin is users.is_admin (the only staff and admin flag; a row that is also is_bot counts here once). bots is users.is_bot when is_admin is false. test and qa are null here because users.is_test_account rows (QA, e2e and staff accounts) are removed by the query before counting, so they appear in neither the totals nor excluded. anon_players are not users and are not counted.";
 
 export const SIGNUP_SOURCE_RULE =
-  "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_medium, no utm_campaign, and no referrer → direct (a landing page alone is still direct); otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
+  "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, utm_source or referrer host chatgpt.com or chat.openai.com → ai_chatgpt, perplexity.ai → ai_perplexity, gemini.google.com → ai_gemini, copilot.microsoft.com → ai_copilot, claude.ai → ai_claude (utm_source is checked for these first); referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_medium, no utm_campaign, and no referrer → direct (a landing page alone is still direct); otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
 
 export const SIGNUP_AUTH_PROVIDER_RULE =
   "Counted on the same included users as totals. One auth method each, so google + apple + email + workos + none equals the window total and each day's signups. google when users.oauth_provider is google. Else apple when users.oauth_provider is apple or an apple_users row exists. Else email when a local_credentials row exists. Else workos when users.workos_user_id is set or oauth_provider is workos (a WorkOS account whose IdP was not stored as google or apple, including AuthKit, SSO, and Password). Else none. guestConverted counts those users again when an anon_players row was claimed by that user within 24 hours after users.created_at. Do not add guestConverted into the sum. Daily byMethod uses the same keys. WorkOS GoogleOAuth is stored as google and is not counted as workos. A null oauth_provider is not guessed.";
@@ -132,6 +132,34 @@ export function sanitizeUtmSource(raw: string | null | undefined): string | null
   return cleaned;
 }
 
+/** AI answer engines: referrer host (or a utm_source naming that host) → ai_<engine>. */
+const AI_ENGINE_HOSTS: ReadonlyArray<readonly [string, string]> = [
+  ["chatgpt.com", "ai_chatgpt"],
+  ["chat.openai.com", "ai_chatgpt"],
+  ["perplexity.ai", "ai_perplexity"],
+  ["gemini.google.com", "ai_gemini"],
+  ["bard.google.com", "ai_gemini"],
+  ["copilot.microsoft.com", "ai_copilot"],
+  ["claude.ai", "ai_claude"],
+];
+
+export function aiEngineBucket(hostOrSource: string | null | undefined): string | null {
+  let host = (hostOrSource ?? "").trim().toLowerCase();
+  if (!host) return null;
+  if (host.includes("://") || host.includes("/")) {
+    try {
+      host = new URL(host.includes("://") ? host : `https://${host}`).hostname;
+    } catch {
+      return null;
+    }
+  }
+  host = host.replace(/^www\./, "").replace(/\.$/, "");
+  for (const [h, bucket] of AI_ENGINE_HOSTS) {
+    if (host === h || host.endsWith(`.${h}`)) return bucket;
+  }
+  return null;
+}
+
 function referrerHostBucket(referrer: string | null): string | null {
   const raw = (referrer ?? "").trim();
   if (!raw) return null;
@@ -142,6 +170,8 @@ function referrerHostBucket(referrer: string | null): string | null {
   } catch {
     return null;
   }
+  const ai = aiEngineBucket(host);
+  if (ai) return ai;
   if (host === "ebay.com" || host.endsWith(".ebay.com")) return "ebay";
   if (
     host === "x.com" ||
@@ -161,6 +191,8 @@ export function signupSourceBucket(row: SignupSourceRow): string {
   if (medium === "beatme" || purpose === "DAILY5_CHALLENGE") return "beat_me_link";
   if (medium === "play_sets" || purpose === "SCORE_SHARE") return "share_card";
   if (purpose === "INVITE") return "referral";
+  const aiSource = aiEngineBucket(row.utmSource);
+  if (aiSource) return aiSource;
   const source = sanitizeUtmSource(row.utmSource);
   if (source) return source;
   if (!row.hasAttributionRow && !purpose) return "unattributed";
