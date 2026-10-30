@@ -113,6 +113,12 @@ export interface SeoKitPage {
   coverImages?: { src: string; alt: string }[];
   /** Verified hobby reference facts (PSA/Beckett). setSize only when a source states it. */
   reference?: { setSize?: number; sources: [string, string][] };
+  /** Marketing lead line shown above the H1 answer. */
+  lead?: string;
+  /** "How it works" numbered steps. */
+  steps?: string[];
+  /** Comparison table (rendered after the FAQ). */
+  table?: { heading: string; note?: string; head: string[]; rows: string[][] };
 }
 
 const escHtml = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -125,6 +131,7 @@ export function renderSeoKitMain(page: SeoKitPage, opts: { cardCount?: number } 
       .map(([t, href], i) => `<li>${i < page.crumbs.length - 1 ? `<a href="${escHtml(href)}">${escHtml(t)}</a> /` : escHtml(t)}</li>`).join("")}</ol></nav>`);
   }
   out.push(`<h1>${escHtml(page.h1)}</h1>`);
+  if (page.lead) out.push(`<p><strong>${escHtml(page.lead)}</strong></p>`);
   out.push(`<p>${escHtml(page.answer)}</p>`);
   if (page.facts) {
     const f = page.facts;
@@ -135,6 +142,7 @@ export function renderSeoKitMain(page: SeoKitPage, opts: { cardCount?: number } 
     out.push(`<h2>Set facts</h2><dl>${rows.filter(([, v]) => v !== undefined && v !== null && v !== "")
       .map(([k, v]) => `<dt>${escHtml(k)}</dt><dd>${escHtml(String(v))}</dd>`).join("")}</dl>`);
   }
+  if (page.steps?.length) out.push(`<h2>How it works</h2><ol>${page.steps.map((t) => `<li>${escHtml(t)}</li>`).join("")}</ol>`);
   for (const para of String(page.body || "").split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean)) out.push(`<p>${escHtml(para)}</p>`);
   if (page.coverImages?.length) {
     out.push(`<div>${page.coverImages.slice(0, 4).map((c) => `<img src="${escHtml(c.src)}" alt="${escHtml(c.alt)}" width="120" height="168" loading="lazy" decoding="async" />`).join("")}</div>`);
@@ -153,6 +161,12 @@ export function renderSeoKitMain(page: SeoKitPage, opts: { cardCount?: number } 
       : "Card values depend heavily on condition and grade.");
     out.push(`<h2>About the full set</h2>${paras.map((t) => `<p>${escHtml(t)}</p>`).join("")}<p>Sources:</p><ul>${ref.sources
       .map(([t, href]) => `<li><a href="${escHtml(href)}" rel="nofollow noopener">${escHtml(t)}</a></li>`).join("")}</ul>`);
+  }
+  if (page.table?.rows?.length) {
+    const t = page.table;
+    out.push(`<h2>${escHtml(t.heading)}</h2>${t.note ? `<p>${escHtml(t.note)}</p>` : ""}<table><thead><tr>${t.head
+      .map((h) => `<th scope="col">${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${t.rows
+      .map((r) => `<tr>${r.map((c, i) => (i === 0 ? `<th scope="row">${escHtml(c)}</th>` : `<td>${escHtml(c)}</td>`)).join("")}</tr>`).join("")}</tbody></table>`);
   }
   if (page.links?.length) out.push(`<nav aria-label="PackPTS"><ul>${page.links.map(([t, href]) => `<li><a href="${escHtml(href)}">${escHtml(t)}</a></li>`).join("")}</ul></nav>`);
   return out.join("");

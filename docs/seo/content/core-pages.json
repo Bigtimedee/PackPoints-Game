@@ -162,29 +162,33 @@
     {
       "title": "Daily 5: A Daily Sports Card Guessing Game | PackPTS",
       "description": "Five real sports cards, names masked, the same for everyone and new every day. Name the players, keep your streak, and earn points. Free.",
-      "h1": "Daily 5: Five Cards. Name Them.",
-      "answer": "The Daily 5 is a free daily sports card game: five real cards with the names masked, the same five for everyone, and a new hand every day.",
-      "body": "If you love a daily puzzle, you will feel right at home here, only our letters are cardboard.\n\nEvery day we deal one hand of five real trading cards. The names are masked, and you pick each player from four choices. Everyone in the hobby gets the same five, so when you share your score, your friends are playing the exact hand you played.\n\nThe cards come from sets collectors grew up with: Topps, Donruss, Fleer, Upper Deck, Hoops and Panini, across baseball, basketball and football. One day might lean on the junk wax era, the next on a modern football set. Reading the clues is half the fun. Look at the uniform, the border, the photo style and the stance, and trust your gut.\n\nEach right answer earns points, and points are redeemable for eBay rebates now. Come back tomorrow and keep your streak alive.\n\nFinished your hand and want more? Every set in PackPTS is open for free play, as many rounds as you like.",
+      "h1": "Daily 5: The Wordle for Baseball Cards. Guess the Player From the Card.",
+      "answer": "The Daily 5 on PackPTS is a free daily guess-the-player game played with real trading cards. Every day, everyone gets the same five cards with the player's name masked, and you pick each player from four choices. It runs in your browser, covers 12 integrated sets, and correct answers earn points toward eBay cashback.",
+      "body": "",
       "faq": [
         [
-          "When does the Daily 5 change?",
-          "A new hand is dealt once a day. Everyone plays the same five cards that day."
+          "Is there a Wordle for baseball cards?",
+          "Yes. The PackPTS Daily 5 is a daily puzzle like Wordle, but with real sports cards. You name the masked player on five cards from four choices each, and everyone plays the same hand that day."
         ],
         [
-          "Is the Daily 5 like Wordle?",
-          "It has the same daily rhythm and shared puzzle, but with real sports cards: you name the masked player on each card from four choices."
+          "How do I guess the player from the card?",
+          "Look at the uniform, team colors, border design, photo style and stance. The card's set tells you the era, which narrows the roster. Then pick from the four choices."
         ],
         [
-          "Do I need an account?",
-          "You can start playing right away. Signing in saves your points and streak."
+          "Is this a baseball card trivia game?",
+          "Yes. It is trivia played on the card itself. Instead of a question, you get a real card from sets such as 1987 Topps or 1987 Donruss with the name hidden."
         ],
         [
-          "What can I do with points?",
-          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+          "Is the Daily 5 free?",
+          "Yes. It is free in any web browser on your phone or computer, with nothing to download."
         ],
         [
-          "Is PackPTS free?",
-          "Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download."
+          "What do points get me?",
+          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you get 70% of the commission eBay confirms on that sale, after a 60-day hold."
+        ],
+        [
+          "Which sets are in the game?",
+          "There are 12 integrated sets across baseball, basketball and football, including 1986 Topps, 1987 Topps, 1988 Topps and 1987 Donruss Baseball."
         ]
       ],
       "links": [
@@ -263,49 +267,128 @@
             "mainEntity": [
               {
                 "@type": "Question",
-                "name": "When does the Daily 5 change?",
+                "name": "Is there a Wordle for baseball cards?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "A new hand is dealt once a day. Everyone plays the same five cards that day."
+                  "text": "Yes. The PackPTS Daily 5 is a daily puzzle like Wordle, but with real sports cards. You name the masked player on five cards from four choices each, and everyone plays the same hand that day."
                 }
               },
               {
                 "@type": "Question",
-                "name": "Is the Daily 5 like Wordle?",
+                "name": "How do I guess the player from the card?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "It has the same daily rhythm and shared puzzle, but with real sports cards: you name the masked player on each card from four choices."
+                  "text": "Look at the uniform, team colors, border design, photo style and stance. The card's set tells you the era, which narrows the roster. Then pick from the four choices."
                 }
               },
               {
                 "@type": "Question",
-                "name": "Do I need an account?",
+                "name": "Is this a baseball card trivia game?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "You can start playing right away. Signing in saves your points and streak."
+                  "text": "Yes. It is trivia played on the card itself. Instead of a question, you get a real card from sets such as 1987 Topps or 1987 Donruss with the name hidden."
                 }
               },
               {
                 "@type": "Question",
-                "name": "What can I do with points?",
+                "name": "Is the Daily 5 free?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+                  "text": "Yes. It is free in any web browser on your phone or computer, with nothing to download."
                 }
               },
               {
                 "@type": "Question",
-                "name": "Is PackPTS free?",
+                "name": "What do points get me?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download."
+                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you get 70% of the commission eBay confirms on that sale, after a 60-day hold."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which sets are in the game?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "There are 12 integrated sets across baseball, basketball and football, including 1986 Topps, 1987 Topps, 1988 Topps and 1987 Donruss Baseball."
                 }
               }
             ]
           }
         ]
       },
-      "wordCount": 167
+      "wordCount": 167,
+      "lead": "Name the player. Earn real cashback.",
+      "steps": [
+        "Open packpts.com/daily. No download, and you can start without an account.",
+        "You get five real cards from sets like 1986, 1987 and 1988 Topps and 1987 Donruss Baseball, with the name masked.",
+        "Read the uniform, the border, the photo and the stance, then pick the player from four choices.",
+        "Every right answer earns points. Sign in to save your points and your streak.",
+        "Share your score. Your friends play the exact same five cards that day.",
+        "A new hand is dealt every day. Want more? Every one of the 12 integrated sets is open for free play."
+      ],
+      "table": {
+        "heading": "How the Daily 5 compares",
+        "note": "Facts below come from each game's live page, checked Oct 30, 2026.",
+        "head": [
+          "",
+          "PackPTS Daily 5",
+          "Sportsdle MLB Wordle",
+          "GuessMyPlayer Mantle",
+          "Fever Baseball The Card Back"
+        ],
+        "rows": [
+          [
+            "What you see",
+            "Real card front, name masked",
+            "Attribute feedback grid",
+            "Attribute tiles",
+            "Stats from the card back"
+          ],
+          [
+            "Guess format",
+            "Pick from 4 choices, 5 cards a day",
+            "Type a name, up to 10 attempts",
+            "Type a name, 5 guesses",
+            "3 guesses, each miss reveals another season"
+          ],
+          [
+            "Players",
+            "Players on cards from 12 integrated sets (baseball, basketball, football)",
+            "MLB players",
+            "Active MLB players",
+            "Players Fever Baseball tracks; Saturdays are prospects"
+          ],
+          [
+            "Vintage cards (1980s, 1990s)",
+            "Yes",
+            "No",
+            "No",
+            "No"
+          ],
+          [
+            "Daily puzzle",
+            "Yes, same five for everyone",
+            "Yes, one player a day",
+            "Yes, a new player each game",
+            "Yes, one a day"
+          ],
+          [
+            "Free",
+            "Yes",
+            "Yes; Pro unlocks archive and unlimited mode",
+            "Yes",
+            "Yes"
+          ],
+          [
+            "Rewards",
+            "Points toward eBay cashback (70% of the eBay commission)",
+            "None stated",
+            "None stated",
+            "None stated"
+          ]
+        ]
+      }
     },
     {
       "title": "Sports Card Sets to Play: Baseball, Basketball, Football",
@@ -432,20 +515,24 @@
     {
       "title": "How PackPTS Points and eBay Rebates Work",
       "description": "Earn points for every player you name on PackPTS. Points are redeemable for eBay rebates now. Here is how earning, holds and rebates work.",
-      "h1": "How Points and eBay Rebates Work",
-      "answer": "You earn PackPTS points by naming players correctly, and points are redeemable for eBay rebates now when you buy cards on eBay through PackPTS.",
-      "body": "We built PackPTS for people who love cards, so it felt right that playing should help you find your next one.\n\nEarning points. Every right answer in the Daily 5 or a set game earns points. They collect in your wallet, which visible at the top of the app after a game ends.\n\nUsing points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate is 70% of the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.\n\nThe hold. Rebates are held for 60 days, which covers eBay's return window. If eBay marks a sale final sooner, the rebate can release earlier. If an item is returned, the held rebate is removed.\n\nLimits. Daily and weekly limits per player keep the program fair for everyone.\n\nListings display an estimate of what you could get back. The final rebate is always the same: your rebate is 70% of the commission eBay confirms on that sale. We never promise a set amount, and we will always tell you exactly what was credited.",
+      "h1": "eBay Cashback for Card Buyers: Get 70% of the eBay Commission Back",
+      "answer": "PackPTS gives card buyers cashback on eBay purchases. Play the free guess-the-player game to earn points, then buy cards on eBay through PackPTS. Your rebate is 70% of the commission eBay confirms on that sale. Rebates are held for 60 days to cover eBay's return window, and we only credit a rebate after eBay confirms the sale.",
+      "body": "Listings display an estimate of what you could get back. The final rebate is always 70% of the commission eBay confirms, and we always display exactly what was credited.",
       "faq": [
         [
-          "What can I do with points?",
-          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+          "Can I get cashback on sports cards bought on eBay?",
+          "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale, credited after a 60-day hold."
         ],
         [
-          "How do I earn points?",
-          "Name the masked player correctly in the Daily 5 or any set game. Each right answer adds points to your wallet."
+          "How is PackPTS different from a shopping cashback portal?",
+          "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is a share of the commission eBay pays on the sale: 70% of it goes to you."
         ],
         [
-          "Why is there a hold on rebates?",
+          "How much will I get back?",
+          "It depends on the commission eBay confirms for that sale. You always get 70% of it, and each listing shows an estimate before you buy."
+        ],
+        [
+          "Why is there a 60-day hold?",
           "eBay purchases can be returned, so rebates are held for 60 days, or released sooner when eBay marks a sale final."
         ],
         [
@@ -453,8 +540,8 @@
           "The rebate held for that sale is removed."
         ],
         [
-          "Do points expire?",
-          "Check your wallet for current details. We will always tell you before anything about your points changes."
+          "How do I earn points?",
+          "Name the masked player correctly in the Daily 5 or any set game. It is free and runs in your browser."
         ]
       ],
       "links": [
@@ -507,23 +594,31 @@
             "mainEntity": [
               {
                 "@type": "Question",
-                "name": "What can I do with points?",
+                "name": "Can I get cashback on sports cards bought on eBay?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+                  "text": "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale, credited after a 60-day hold."
                 }
               },
               {
                 "@type": "Question",
-                "name": "How do I earn points?",
+                "name": "How is PackPTS different from a shopping cashback portal?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Name the masked player correctly in the Daily 5 or any set game. Each right answer adds points to your wallet."
+                  "text": "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is a share of the commission eBay pays on the sale: 70% of it goes to you."
                 }
               },
               {
                 "@type": "Question",
-                "name": "Why is there a hold on rebates?",
+                "name": "How much will I get back?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "It depends on the commission eBay confirms for that sale. You always get 70% of it, and each listing shows an estimate before you buy."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Why is there a 60-day hold?",
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "eBay purchases can be returned, so rebates are held for 60 days, or released sooner when eBay marks a sale final."
@@ -539,17 +634,25 @@
               },
               {
                 "@type": "Question",
-                "name": "Do points expire?",
+                "name": "How do I earn points?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Check your wallet for current details. We will always tell you before anything about your points changes."
+                  "text": "Name the masked player correctly in the Daily 5 or any set game. It is free and runs in your browser."
                 }
               }
             ]
           }
         ]
       },
-      "wordCount": 198
+      "wordCount": 198,
+      "lead": "Name the player. Earn real cashback.",
+      "steps": [
+        "Earn points. Name the masked player in the Daily 5 or any of the 12 integrated sets. Every right answer adds points to your wallet.",
+        "Shop through PackPTS. Browse real card listings in PackPTS and buy on eBay through our link.",
+        "eBay confirms the sale. Your rebate is 70% of the commission eBay confirms on that purchase.",
+        "The 60-day hold. Rebates are held for 60 days to cover eBay's return window. If eBay marks a sale final sooner, it can release earlier. If the item is returned, the held rebate is removed.",
+        "Fair limits. Daily and weekly limits per player keep the program fair for everyone."
+      ]
     },
     {
       "title": "How to Play PackPTS: Guess the Player on Sports Cards",
