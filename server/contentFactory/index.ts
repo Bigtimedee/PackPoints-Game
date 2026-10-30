@@ -363,3 +363,32 @@ async function generateStreakMilestone(userId: string, streak: number, date: str
     console.error("[ContentFactory] Streak badge error:", err?.message);
   }
 }
+
+const ON_DEMAND_SHARE_TYPES = new Set(["SCORE_CARD", "DAILY5_RANK_CARD"]);
+const ASSET_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.png$/i;
+
+export type StoredAssetLoader = (assetId: string) => Promise<ContentAsset | null>;
+
+const defaultAssetLoader: StoredAssetLoader = async (assetId) => {
+  const [row] = await db.select().from(contentAssets).where(eq(contentAssets.id, assetId)).limit(1);
+  return row ?? null;
+};
+
+/**
+ * PNG bytes for `/generated/share/<date>/<assetId>.png` when the file is not on
+ * disk. Score cards only (no names, no card art: score, pips, date, footer).
+ * Returns null for anything else so the route answers 404.
+ */
+export async function renderStoredShareImage(
+  filename: string,
+  load: StoredAssetLoader = defaultAssetLoader,
+): Promise<Buffer | null> {
+  const m = ASSET_FILE_RE.exec(filename);
+  if (!m) return null;
+  const asset = await load(m[1]);
+  if (!asset || !ON_DEMAND_SHARE_TYPES.has(asset.assetType)) return null;
+  const meta = (asset.metadata || {}) as Record<string, unknown>;
+  const fallbackMode = asset.assetType === "DAILY5_RANK_CARD" ? "daily5" : "solo";
+  const { renderScoreCardPng } = await import("./generateScoreCard");
+  return renderScoreCardPng(scoreCardInputFromMetadata("Player", meta, fallbackMode));
+}

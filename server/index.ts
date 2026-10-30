@@ -180,12 +180,27 @@ app.use(express.static("public"));
 // user cannot mkdir under /app/public). Serve that directory at the same
 // public URL prefix used in content_assets.metadata.imageUrl.
 app.use(SHARE_URL_PREFIX, express.static(getShareOutputBase(), {
-  fallthrough: false,
+  fallthrough: true,
   setHeaders(res) {
     res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Content-Type", "image/png");
   },
 }));
+// Disk miss (volume write refused, container recycle): render the score card
+// from content_assets on demand so the share PNG never 404s.
+app.get(`${SHARE_URL_PREFIX}/:date/:file`, async (req, res) => {
+  try {
+    const { renderStoredShareImage } = await import("./contentFactory/index");
+    const png = await renderStoredShareImage(req.params.file);
+    if (!png) return res.status(404).json({ message: "Not found" });
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.type("image/png").send(png);
+  } catch (err: any) {
+    console.error("[ScoreCard] on-demand render failed:", err?.message);
+    res.status(500).json({ message: "Score card render failed" });
+  }
+});
+app.use(SHARE_URL_PREFIX, (_req, res) => res.status(404).json({ message: "Not found" }));
 
 const PII_KEYS = new Set(['email', 'emailAddress', 'password', 'phone', 'phoneNumber', 'ssn', 'address', 'firstName', 'lastName', 'first_name', 'last_name']);
 
