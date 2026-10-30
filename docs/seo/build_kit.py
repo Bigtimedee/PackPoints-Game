@@ -46,7 +46,7 @@ The cards come from sets collectors grew up with: Topps, Donruss, Fleer, Upper D
 
 Each right answer earns points, and points are redeemable for eBay rebates now. Come back tomorrow and keep your streak alive.
 
-Finished your hand and want more? Every set in PackPTS is open for free play, as many rounds as you like.""",
+Finished your hand and want more? Right now {{playableSetCount}} of the 12 integrated sets are open for free play, as many rounds as you like.""",
  faq=[("When does the Daily 5 change?","A new hand is dealt once a day. Everyone plays the same five cards that day."),("Is the Daily 5 like Wordle?","It has the same daily rhythm and shared puzzle, but with real sports cards: you name the masked player on each card from four choices."),("Do I need an account?","You can start playing right away. Signing in saves your points and streak."),POINTSQ,FREEQ],
  links=[("Play more sets","/sets"),("How to play","/how-to-play"),("How points work","/points"),("Home","/")],
  crumbs=[("Home","/"),("Daily 5","/daily")], extra=[APP])

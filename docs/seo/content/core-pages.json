@@ -325,7 +325,7 @@
         "Read the uniform, the border, the photo and the stance, then pick the player from four choices.",
         "Every right answer earns points. Sign in to save your points and your streak.",
         "Share your score. Your friends play the exact same five cards that day.",
-        "A new hand is dealt every day. Want more? Every one of the 12 integrated sets is open for free play."
+        "A new hand is dealt every day. Want more? Right now {{playableSetCount}} of the 12 integrated sets are open for free play."
       ],
       "table": {
         "heading": "How the Daily 5 compares",
@@ -348,7 +348,7 @@
           [
             "Guess format",
             "Pick from 4 choices, 5 cards a day",
-            "Type a name, up to 10 attempts",
+            "Type a name, feedback on 11 attributes per guess",
             "Type a name, 5 guesses",
             "3 guesses, each miss reveals another season"
           ],
@@ -360,7 +360,7 @@
             "Players Fever Baseball tracks; Saturdays are prospects"
           ],
           [
-            "Vintage cards (1980s, 1990s)",
+            "Real vintage card images (1980s, 1990s)",
             "Yes",
             "No",
             "No",
@@ -370,7 +370,7 @@
             "Daily puzzle",
             "Yes, same five for everyone",
             "Yes, one player a day",
-            "Yes, a new player each game",
+            "Yes, a new mystery player each day",
             "Yes, one a day"
           ],
           [
@@ -378,14 +378,14 @@
             "Yes",
             "Yes; Pro unlocks archive and unlimited mode",
             "Yes",
-            "Yes"
+            "Not stated"
           ],
           [
             "Rewards",
             "Points toward eBay cashback (70% of the eBay commission)",
             "None stated",
             "None stated",
-            "None stated"
+            "None for players (Fever earns eBay Partner commission on card links)"
           ]
         ]
       }

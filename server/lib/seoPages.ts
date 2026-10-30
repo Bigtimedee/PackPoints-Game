@@ -53,8 +53,20 @@ export const KIT_SETS: SeoKitPage[] = (setKit as unknown as { sets: SeoKitPage[]
 const KIT_CORE_BY_PATH = new Map(KIT_CORE.map((k) => [k.path, k]));
 const KIT_SET_BY_ID = new Map(KIT_SETS.filter((k) => k.setId).map((k) => [String(k.setId), k]));
 
-function kitPage(k: SeoKitPage, cardCount?: number, livePath?: string): SeoPage {
-  const page = typeof cardCount === "number" ? applyLiveCardCount(k, cardCount) : k;
+export const PLAYABLE_SET_TOKEN = "{{playableSetCount}}";
+/** Fill the live count of publicly playable sets (held sets are already excluded by listSets). */
+export function applyPlayableSetCount(k: SeoKitPage, liveSets: number): SeoKitPage {
+  const raw = JSON.stringify(k);
+  if (!raw.includes(PLAYABLE_SET_TOKEN)) return k;
+  const filled = liveSets > 0
+    ? raw.split(PLAYABLE_SET_TOKEN).join(String(liveSets))
+    : raw.replace(/Right now \{\{playableSetCount\}\} of the 12 integrated sets are open for free play\./g, "Pick any open set for free play.");
+  return JSON.parse(filled) as SeoKitPage;
+}
+
+function kitPage(k: SeoKitPage, cardCount?: number, livePath?: string, liveSets = 0): SeoPage {
+  const counted = applyPlayableSetCount(k, liveSets);
+  const page = typeof cardCount === "number" ? applyLiveCardCount(counted, cardCount) : counted;
   // Set pages canonicalize to the live slug (the one in sitemap.xml), even if the set was renamed after the kit snapshot.
   const canonPath = livePath ?? page.path;
   return {
@@ -250,7 +262,7 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
   const corePath = path;
   const core = KIT_CORE_BY_PATH.get(corePath);
   if (core) {
-    const page = kitPage(core);
+    const page = kitPage(core, undefined, undefined, sets.length);
     if (corePath === "/sets") {
       // The index data the page fetches on mount, then the first row's covers.
       // The list itself is inlined as JSON (spaIndexHtml), so only the covers are preloaded.
