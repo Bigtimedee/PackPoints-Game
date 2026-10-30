@@ -176,7 +176,8 @@ describe("SEO pages", () => {
       for (const [, href] of k.reference.sources) expect(href).toMatch(/^https:\/\/www\.(psacard|beckett)\.com\//);
       const main = renderSeoKitMain(k);
       expect(main).toContain("<h2>About the full set</h2>");
-      if (k.reference.setSize) expect(main).toContain(`set has ${k.reference.setSize} cards.`);
+      if (k.reference.sizeText) expect(main).toContain(k.reference.sizeText);
+      else if (k.reference.setSize) expect(main).toContain(`set has ${k.reference.setSize} cards.`);
       expect(main).not.toMatch(/[\u2013\u2014$]/);
     }
   });

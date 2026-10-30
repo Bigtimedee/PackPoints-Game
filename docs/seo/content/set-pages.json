@@ -1129,7 +1129,17 @@
           }
         ]
       },
-      "wordCount": 141
+      "wordCount": 141,
+      "reference": {
+        "setSize": 50,
+        "sizeText": "The base Chronicles checklist in 2022 Panini Chronicles Football has 50 cards.",
+        "sources": [
+          [
+            "Beckett: 2022 Panini Chronicles Football checklist",
+            "https://www.beckett.com/news/2022-panini-chronicles-football-cards/"
+          ]
+        ]
+      }
     },
     {
       "path": "/sets/1987-topps-football-91cfdf3f",
@@ -1875,7 +1885,17 @@
           }
         ]
       },
-      "wordCount": 135
+      "wordCount": 135,
+      "reference": {
+        "setSize": 200,
+        "sizeText": "The 2024-25 Topps Chrome Basketball base set has 200 cards.",
+        "sources": [
+          [
+            "Beckett: 2024-25 Topps Chrome Basketball checklist",
+            "https://www.beckett.com/news/2024-25-topps-chrome-basketball-cards/"
+          ]
+        ]
+      }
     },
     {
       "path": "/sets/1989-topps-baseball-352b33d1",
