@@ -15,6 +15,7 @@ import { readMaskFailureReason } from "../masking/maskReadySidecar";
 import { MASKED_CARDS_DIR } from "../masking/maskPlanStore";
 import { enqueueJob, jobQueueTableExists, runNextPendingJob, registerJob } from "../jobs/pgJobQueue";
 import { addShutdownHook } from "./shutdownHooks";
+import { volumeWritesPaused } from "../storage/volumeJanitor";
 import {
   MASK_WARMUP_CONCURRENCY,
   distinctBakedPlayers,
@@ -172,7 +173,7 @@ async function warmOneSet(setId: string, setName: string, cards: Array<{ id: str
     isBaked: (id) => bakedIds.has(id),
     isFailed: (id) => readMaskFailureReason(id) != null,
     bake: bakeWarmCard,
-    shouldStop: () => warmupStop,
+    shouldStop: () => warmupStop || volumeWritesPaused(),
     pinnedIds: listedPinnedCoverIds(setId),
   });
 }

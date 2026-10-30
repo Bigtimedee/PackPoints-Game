@@ -537,8 +537,11 @@ export async function writeSharePngBytes(
   const imagePath = path.join(getShareOutputBase(), dateDir, filename);
   const imageUrl = `${SHARE_URL_PREFIX}/${dateDir}/${filename}`;
   try {
-    getOutputDir(date);
-    await writer(imagePath, png);
+    const { writeWithEnospcRetry } = await import("../storage/volumeJanitor");
+    await writeWithEnospcRetry(async () => {
+      getOutputDir(date);
+      await writer(imagePath, png);
+    });
     return { imagePath, imageUrl, cached: true };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code || (err as Error)?.message || "write_failed";
