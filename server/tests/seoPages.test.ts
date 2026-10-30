@@ -164,6 +164,8 @@ describe("SEO pages", () => {
     expect(out).toContain("<style>/* x */</style>");
     expect(out).toContain("<p>hi</p>");
     expect(out).toContain("<!--[if IE]>");
+  });
+
   it("set kit: no Baseball Card Pedia FAQ, verified PSA reference section", () => {
     const raw = fs.readFileSync(path.join(root, "docs/seo/content/set-pages.json"), "utf8");
     expect(raw).not.toMatch(/Pedia/);
