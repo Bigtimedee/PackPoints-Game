@@ -2,7 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { renderSeoHtml, resolveSeoPage, HOME_TITLE, type SeoSet } from "../lib/seoPages";
+import { renderSeoHtml, resolveSeoPage, HOME_TITLE, KIT_SETS, type SeoSet } from "../lib/seoPages";
 import { SPA_ROUTE_PATTERNS, isKnownSpaRoute } from "@shared/spaRoutes";
 import { ROBOTS_TXT, buildSitemapXml, buildLlmsTxt } from "../routes/seo.routes";
 import { stripHtmlComments } from "../lib/stripHtmlComments";
@@ -224,5 +224,21 @@ describe("SEO pages", () => {
       const s = SETS.find((x) => x.id === k.setId);
       if (s) expect(k.path).toBe(`/sets/${s.slug}`);
     }
+  });
+
+  it("/daily free-play count is the live playable set count, never a hardcoded all-12 claim", async () => {
+    const page = await resolveSeoPage("/daily", deps);
+    const html = renderSeoHtml(indexHtml, page);
+    expect(html).not.toContain("{{playableSetCount}}");
+    expect(html).not.toMatch(/every one of the 12 integrated sets/i);
+    expect(html).toContain(`Right now ${SETS.length} of the 12 integrated sets are open for free play.`);
+    const none = await resolveSeoPage("/daily", { ...deps, listSets: async () => [] });
+    expect(none.main).toContain("Pick any open set for free play.");
+    expect(none.main).not.toContain("{{playableSetCount}}");
+  });
+
+  it("2024-25 Topps Chrome has no unverified size section", () => {
+    const k = KIT_SETS.find((x) => String(x.setId).startsWith("229f0379"));
+    expect(k?.reference).toBeUndefined();
   });
 });

@@ -59,7 +59,7 @@ The cards come from sets collectors grew up with: Topps, Donruss, Fleer, Upper D
 
 Each right answer earns points, and points are redeemable for eBay rebates now. Come back tomorrow and keep your streak alive.
 
-Finished your hand and want more? Every set in PackPTS is open for free play, as many rounds as you like.
+Finished your hand and want more? Right now {{playableSetCount}} of the 12 integrated sets are open for free play, as many rounds as you like.
 
 ## FAQ
 **When does the Daily 5 change?**
