@@ -8,6 +8,7 @@ import { ROBOTS_TXT, buildSitemapXml, buildLlmsTxt } from "../routes/seo.routes"
 import { stripHtmlComments } from "../lib/stripHtmlComments";
 import { CARD_BLOCKLIST } from "../lib/cardBlocklist";
 import { setShareSlug } from "../contentFactory/makerShareSlug";
+import { renderSeoKitMain } from "../lib/playSetsHtml";
 
 const root = path.resolve(__dirname, "../..");
 const indexHtml = fs.readFileSync(path.join(root, "client/index.html"), "utf8");
@@ -163,6 +164,21 @@ describe("SEO pages", () => {
     expect(out).toContain("<style>/* x */</style>");
     expect(out).toContain("<p>hi</p>");
     expect(out).toContain("<!--[if IE]>");
+  });
+
+  it("set kit: no Baseball Card Pedia FAQ, verified PSA reference section", () => {
+    const raw = fs.readFileSync(path.join(root, "docs/seo/content/set-pages.json"), "utf8");
+    expect(raw).not.toMatch(/Pedia/);
+    const kit = JSON.parse(raw).sets as any[];
+    const withRef = kit.filter((k) => k.reference);
+    expect(withRef.length).toBeGreaterThanOrEqual(8);
+    for (const k of withRef) {
+      for (const [, href] of k.reference.sources) expect(href).toMatch(/^https:\/\/www\.(psacard|beckett)\.com\//);
+      const main = renderSeoKitMain(k);
+      expect(main).toContain("<h2>About the full set</h2>");
+      if (k.reference.setSize) expect(main).toContain(`set has ${k.reference.setSize} cards.`);
+      expect(main).not.toMatch(/[\u2013\u2014$]/);
+    }
   });
 
   it("index.html no longer names Goldin and drops the TikTok title comment", () => {
