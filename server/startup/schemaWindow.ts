@@ -4,7 +4,7 @@
  * calls next() and the real route (registered before the SPA catch-all) runs.
  * Client pages under `/auth` are held only while the window is open.
  */
-const HELD_EXACT = new Set(["/health", "/wallet", "/auth", "/ws", "/robots.txt", "/sitemap.xml", "/ig"]);
+const HELD_EXACT = new Set(["/health", "/wallet", "/auth", "/ws", "/robots.txt", "/llms.txt", "/sitemap.xml", "/ig"]);
 const HELD_PREFIXES = [
   "/out/",
   "/p/",

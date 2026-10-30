@@ -79,7 +79,15 @@ export const defaultSeoDeps: SeoDeps = {
 let depsOverride: SeoDeps | null = null;
 export function setSeoDepsForTests(d: SeoDeps | null): void { depsOverride = d; }
 
+import { stripHtmlComments } from "./stripHtmlComments";
+export { stripHtmlComments };
+
 export async function decorateSpaIndexPage(html: string, url: string): Promise<{ html: string; status: number; location?: string }> {
+  const out = await decorateSpaIndexPageRaw(html, url);
+  return { ...out, html: stripHtmlComments(out.html) };
+}
+
+async function decorateSpaIndexPageRaw(html: string, url: string): Promise<{ html: string; status: number; location?: string }> {
   const withSets = isPlaySetsHtmlPath(url) ? await injectPlaySetsOgHtml(html, url) : html;
   const withRoute = injectSpaRouteMeta(withSets, url);
   try {

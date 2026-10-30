@@ -4,7 +4,8 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 import { renderSeoHtml, resolveSeoPage, HOME_TITLE, type SeoSet } from "../lib/seoPages";
 import { SPA_ROUTE_PATTERNS, isKnownSpaRoute } from "@shared/spaRoutes";
-import { ROBOTS_TXT, buildSitemapXml } from "../routes/seo.routes";
+import { ROBOTS_TXT, buildSitemapXml, buildLlmsTxt } from "../routes/seo.routes";
+import { stripHtmlComments } from "../lib/stripHtmlComments";
 import { CARD_BLOCKLIST } from "../lib/cardBlocklist";
 import { setShareSlug } from "../contentFactory/makerShareSlug";
 
@@ -142,6 +143,26 @@ describe("SEO pages", () => {
     for (const u of ["/", "/daily", "/sets", "/how-to-play", "/points"]) expect(xml).toContain(`<loc>https://packpts.com${u}</loc>`);
     expect((xml.match(/<url>/g) || []).length).toBe(6 + SETS.length);
     expect(surnameHits(xml)).toEqual([]);
+  });
+
+  it("llms.txt lists core pages and live sets", () => {
+    const txt = buildLlmsTxt(SETS);
+    expect(txt.startsWith("# PackPTS\n")).toBe(true);
+    expect(txt).toContain("https://packpts.com/daily");
+    for (const s of SETS) expect(txt).toContain(`https://packpts.com/sets/${s.slug}`);
+    expect(txt).not.toMatch(/[\u2013\u2014]/);
+    expect(surnameHits(txt)).toEqual([]);
+  });
+
+  it("strips developer comments from served HTML but keeps scripts", () => {
+    const html = `<head><!-- dev note --><script>var a="<!-- keep -->";</script><style>/* x */</style></head><body><!--seo-content-->\n<!--\n multi\n-->\n<p>hi</p><!--[if IE]>x<![endif]--></body>`;
+    const out = stripHtmlComments(html);
+    expect(out).not.toContain("dev note");
+    expect(out).not.toContain("multi");
+    expect(out).toContain('var a="<!-- keep -->"');
+    expect(out).toContain("<style>/* x */</style>");
+    expect(out).toContain("<p>hi</p>");
+    expect(out).toContain("<!--[if IE]>");
   });
 
   it("index.html no longer names Goldin and drops the TikTok title comment", () => {
