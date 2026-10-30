@@ -13,7 +13,7 @@ import path from "path";
 
 export const BACKUP_DIR = "/app/data/masked-cards/.db-backups";
 const DAILY_PREFIX = "daily-";
-const DAILY_KEEP = 30;
+export const DAILY_KEEP = 7;
 const INTERVAL_MS = 24 * 60 * 60 * 1000;
 // Skip the startup dump when any dump (boot or daily) is fresher than this —
 // the boot dump from the same deploy already covers us.
@@ -53,11 +53,31 @@ async function newestBackupAgeMs(): Promise<number> {
   return Date.now() - new Date(backups[0].mtime).getTime();
 }
 
-async function pruneDaily(): Promise<void> {
-  const daily = (await listBackups()).filter((b) => b.name.startsWith(DAILY_PREFIX));
-  for (const b of daily.slice(DAILY_KEEP)) {
-    await fs.unlink(path.join(BACKUP_DIR, b.name)).catch(() => {});
+/**
+ * Pure selection: daily dumps beyond the newest `keep` (by mtime). Never
+ * selects the most recent backup of any family, and never touches non-daily
+ * (pre-push-*) dumps — those have their own retention in start.sh.
+ */
+export function selectDailyToPrune(
+  backups: { name: string; mtime: string }[],
+  keep: number = DAILY_KEEP,
+): string[] {
+  const sorted = [...backups].sort((a, b) => b.mtime.localeCompare(a.mtime));
+  const newestOverall = sorted[0]?.name;
+  const daily = sorted.filter((b) => b.name.startsWith(DAILY_PREFIX) && b.name.endsWith(".dump"));
+  return daily
+    .slice(Math.max(1, keep))
+    .map((b) => b.name)
+    .filter((n) => n !== newestOverall);
+}
+
+export async function pruneDaily(): Promise<string[]> {
+  const victims = selectDailyToPrune(await listBackups());
+  for (const name of victims) {
+    await fs.unlink(path.join(BACKUP_DIR, name)).catch(() => {});
   }
+  if (victims.length) console.log(`[DbBackup] pruned ${victims.length} daily dump(s) beyond keep=${DAILY_KEEP}`);
+  return victims;
 }
 
 export async function takeDailyBackup(reason: string): Promise<string | null> {
@@ -79,6 +99,9 @@ export async function takeDailyBackup(reason: string): Promise<string | null> {
 export function startDbBackupService(): void {
   // Startup catch-up: only if no recent dump exists (boot dump usually does).
   void (async () => {
+    // Apply retention on every boot so a lowered DAILY_KEEP takes effect
+    // without waiting for the next dump.
+    await pruneDaily().catch((err) => console.error("[DbBackup] startup prune failed:", err));
     if ((await newestBackupAgeMs()) > FRESHNESS_MS) {
       await takeDailyBackup("startup catch-up");
     }
@@ -86,5 +109,5 @@ export function startDbBackupService(): void {
 
   const timer = setInterval(() => void takeDailyBackup("scheduled daily"), INTERVAL_MS);
   timer.unref();
-  console.log("[DbBackup] Daily backup service started (24h interval, keep last 30)");
+  console.log(`[DbBackup] Daily backup service started (24h interval, keep last ${DAILY_KEEP})`);
 }
