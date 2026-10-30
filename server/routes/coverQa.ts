@@ -52,6 +52,23 @@ function candidateLimit(raw: unknown): number {
 }
 
 export function registerCoverQaRoutes(app: Express): void {
+  // Volume usage: used/total bytes plus bytes per top-level dir / root file kind.
+  app.get("/api/qa/volume", (req, res) => {
+    if (!authorized(req, res)) return;
+    void (async () => {
+      const j = await import("../storage/volumeJanitor");
+      const usage = await j.statVolume().catch(() => null);
+      const breakdown = req.query.breakdown === "0" ? null : await j.volumeBreakdown();
+      qaJson(req, res, {
+        root: j.VOLUME_ROOT,
+        usage,
+        thresholds: { highWaterPct: j.HIGH_WATER_PCT, targetPct: j.TARGET_PCT, pausePct: j.PAUSE_PCT },
+        janitor: j.janitorStatus(),
+        breakdown,
+      });
+    })().catch(() => { if (!res.headersSent) qaNotFound(req, res); });
+  });
+
   app.get("/api/qa/sets/:setId/cover-candidates", (req, res) => {
     if (!authorized(req, res)) return;
     void listCoverCandidates(req.params.setId, candidateLimit(req.query.n))

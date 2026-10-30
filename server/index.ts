@@ -548,6 +548,12 @@ app.use((req, res, next) => {
   if (process.env.NODE_ENV === "production") {
     startWarmSidecarBackfill();
     startMaskBandGuardScan();
+    try {
+      const { startVolumeJanitor } = await import("./storage/volumeJanitor");
+      startVolumeJanitor();
+    } catch (err) {
+      console.error("[VolumeJanitor] Failed to start:", err);
+    }
     startMaskWarmup();
     const { scheduleRecropReviewBake } = await import("./masking/recropReviewBake");
     scheduleRecropReviewBake();

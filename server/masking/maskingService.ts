@@ -716,8 +716,11 @@ export async function bakeMaskedCardFromUrl(
       const filename = warmMaskedFilename(cardId, rotation);
       const filePath = path.join(MASKED_CARDS_DIR, filename);
 
-      await fs.writeFile(filePath, result.maskedBuffer);
-      await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
+      const { writeWithEnospcRetry } = await import("../storage/volumeJanitor");
+      await writeWithEnospcRetry(async () => {
+        await fs.writeFile(filePath, result.maskedBuffer);
+        await fs.writeFile(path.join(MASKED_CARDS_DIR, warmOkMarkerFilename(cardId)), "ok\n");
+      });
       const priorFail = readMaskFailureReason(cardId);
       if (input.deferNameVisibility && priorFail) return null;
       if (!input.deferNameVisibility && priorFail && priorFail !== NAME_VISIBLE_OUTSIDE_MASK) {
