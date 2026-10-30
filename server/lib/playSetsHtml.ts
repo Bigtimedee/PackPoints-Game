@@ -111,6 +111,8 @@ export interface SeoKitPage {
   setId?: string;
   facts?: { year?: number; brand?: string; sport?: string; playableCards?: number; era?: string; designNotes?: string };
   coverImages?: { src: string; alt: string }[];
+  /** Verified hobby reference facts (PSA/Beckett). setSize only when a source states it. */
+  reference?: { setSize?: number; sources: [string, string][] };
 }
 
 const escHtml = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -139,6 +141,18 @@ export function renderSeoKitMain(page: SeoKitPage, opts: { cardCount?: number } 
   }
   if (page.faq?.length) {
     out.push(`<h2>Questions</h2>${page.faq.map(([q, a]) => `<h3>${escHtml(q)}</h3><p>${escHtml(a)}</p>`).join("")}`);
+  }
+  const ref = page.reference;
+  if (ref?.sources?.length) {
+    const name = page.crumbs?.[page.crumbs.length - 1]?.[0] ?? "this set";
+    const paras: string[] = [];
+    if (typeof ref.setSize === "number") paras.push(`The complete ${name} set has ${ref.setSize} cards.`);
+    paras.push("We do not name the top cards while a set is in play, because the names are the answers.");
+    paras.push(ref.sources.some(([, h]) => h.includes("/priceguide/"))
+      ? "Card values depend heavily on condition and grade. PSA lists graded values by card number."
+      : "Card values depend heavily on condition and grade.");
+    out.push(`<h2>About the full set</h2>${paras.map((t) => `<p>${escHtml(t)}</p>`).join("")}<p>Sources:</p><ul>${ref.sources
+      .map(([t, href]) => `<li><a href="${escHtml(href)}" rel="nofollow noopener">${escHtml(t)}</a></li>`).join("")}</ul>`);
   }
   if (page.links?.length) out.push(`<nav aria-label="PackPTS"><ul>${page.links.map(([t, href]) => `<li><a href="${escHtml(href)}">${escHtml(t)}</a></li>`).join("")}</ul></nav>`);
   return out.join("");

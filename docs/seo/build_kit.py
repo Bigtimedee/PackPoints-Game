@@ -153,8 +153,7 @@ for s in sets:
     qs=[(f"What is the {disp} game?",f"It is a free PackPTS game that deals real {disp} cards with the player's name masked. You pick the player from four choices."),
         (f"How many {disp} cards can I play?",f"The PackPTS pool for {disp} has {cnt} playable cards, each scanned and checked by our team."),
         (f"What year is {disp}?",(f"It is from the {s['year']} season, {era.lower()}." if "-" in str(s['year']) else f"The set is listed as {s['year']}, from {era.lower()}.")),
-        (f"Who made {disp}?",f"{s['brand']} produced this set."),
-        (f"Where can I find a full {disp} checklist?","We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists.")]
+        (f"Who made {disp}?",f"{s['brand']} produced this set.")]
     p=dict(path=path,setId=s["id"],
       title=(f"{disp} Card Game: Guess the Player | PackPTS" if len(f"{disp} Card Game: Guess the Player | PackPTS")<=60 else f"{disp}: Guess the Player | PackPTS"),
       description=f"Play {disp} on PackPTS. See real cards with the names masked, pick the player from four choices, and earn points. Free to play.",

@@ -32,10 +32,6 @@
         [
           "Who made 1986 Topps Baseball?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 1986 Topps Baseball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -164,14 +160,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1986 Topps Baseball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -194,7 +182,16 @@
           }
         ]
       },
-      "wordCount": 140
+      "wordCount": 140,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1986 Topps",
+            "https://www.psacard.com/cardfacts/baseball-cards/1986-topps/327"
+          ]
+        ],
+        "setSize": 792
+      }
     },
     {
       "path": "/sets/1995-upper-deck-basketball-3235b4fd",
@@ -228,10 +225,6 @@
         [
           "Who made 1995 Upper Deck Basketball?",
           "Upper Deck produced this set."
-        ],
-        [
-          "Where can I find a full 1995 Upper Deck Basketball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -360,14 +353,6 @@
                   "@type": "Answer",
                   "text": "Upper Deck produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1995 Upper Deck Basketball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -424,10 +409,6 @@
         [
           "Who made 1988 Topps Baseball?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 1988 Topps Baseball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -548,14 +529,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1988 Topps Baseball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -578,7 +551,16 @@
           }
         ]
       },
-      "wordCount": 136
+      "wordCount": 136,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1988 Topps",
+            "https://www.psacard.com/cardfacts/baseball-cards/1988-topps/342"
+          ]
+        ],
+        "setSize": 792
+      }
     },
     {
       "path": "/sets/1987-donruss-baseball-3ff8de8d",
@@ -612,10 +594,6 @@
         [
           "Who made 1987 Donruss Baseball?",
           "Donruss produced this set."
-        ],
-        [
-          "Where can I find a full 1987 Donruss Baseball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -744,14 +722,6 @@
                   "@type": "Answer",
                   "text": "Donruss produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1987 Donruss Baseball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -774,7 +744,16 @@
           }
         ]
       },
-      "wordCount": 137
+      "wordCount": 137,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1987 Donruss",
+            "https://www.psacard.com/cardfacts/baseball-cards/1987-donruss/196"
+          ]
+        ],
+        "setSize": 660
+      }
     },
     {
       "path": "/sets/1990-hoops-basketball-d226801a",
@@ -808,10 +787,6 @@
         [
           "Who made 1990 Hoops Basketball?",
           "Hoops produced this set."
-        ],
-        [
-          "Where can I find a full 1990 Hoops Basketball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -940,14 +915,6 @@
                   "@type": "Answer",
                   "text": "Hoops produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1990 Hoops Basketball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -970,7 +937,15 @@
           }
         ]
       },
-      "wordCount": 136
+      "wordCount": 136,
+      "reference": {
+        "sources": [
+          [
+            "PSA graded values: 1990 Hoops",
+            "https://www.psacard.com/priceguide/basketball-card-values/1990-hoops/2901"
+          ]
+        ]
+      }
     },
     {
       "path": "/sets/2022-panini-chronicles-football-74885a41",
@@ -1004,10 +979,6 @@
         [
           "Who made 2022 Panini Chronicles Football?",
           "Panini produced this set."
-        ],
-        [
-          "Where can I find a full 2022 Panini Chronicles Football checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -1136,14 +1107,6 @@
                   "@type": "Answer",
                   "text": "Panini produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 2022 Panini Chronicles Football checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -1200,10 +1163,6 @@
         [
           "Who made 1987 Topps Football?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 1987 Topps Football checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -1332,14 +1291,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1987 Topps Football checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -1362,7 +1313,20 @@
           }
         ]
       },
-      "wordCount": 134
+      "wordCount": 134,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1987 Topps Football",
+            "https://www.psacard.com/cardfacts/football-cards/1987-topps/702"
+          ],
+          [
+            "PSA graded values: 1987 Topps Football",
+            "https://www.psacard.com/priceguide/football-card-values/1987-topps/710"
+          ]
+        ],
+        "setSize": 396
+      }
     },
     {
       "path": "/sets/1989-fleer-basketball-aea515e2",
@@ -1396,10 +1360,6 @@
         [
           "Who made 1989 Fleer Basketball?",
           "Fleer produced this set."
-        ],
-        [
-          "Where can I find a full 1989 Fleer Basketball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -1516,14 +1476,6 @@
                   "@type": "Answer",
                   "text": "Fleer produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1989 Fleer Basketball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -1546,7 +1498,16 @@
           }
         ]
       },
-      "wordCount": 131
+      "wordCount": 131,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1989 Fleer Basketball",
+            "https://www.psacard.com/cardfacts/basketball-cards/1989-fleer/33366"
+          ]
+        ],
+        "setSize": 168
+      }
     },
     {
       "path": "/sets/1994-topps-football-a09b2fe7",
@@ -1580,10 +1541,6 @@
         [
           "Who made 1994 Topps Football?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 1994 Topps Football checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -1712,14 +1669,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1994 Topps Football checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -1776,10 +1725,6 @@
         [
           "Who made 2024-25 Topps Chrome Basketball?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 2024-25 Topps Chrome Basketball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -1908,14 +1853,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 2024-25 Topps Chrome Basketball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -1972,10 +1909,6 @@
         [
           "Who made 1989 Topps Baseball?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 1989 Topps Baseball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -2104,14 +2037,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1989 Topps Baseball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -2134,7 +2059,20 @@
           }
         ]
       },
-      "wordCount": 138
+      "wordCount": 138,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1989 Topps",
+            "https://www.psacard.com/cardfacts/baseball-cards/1989-topps/4682"
+          ],
+          [
+            "PSA Set Registry: 1989 Topps",
+            "https://www.psacard.com/psasetregistry/baseball/company-sets/1989-topps/1078"
+          ]
+        ],
+        "setSize": 792
+      }
     },
     {
       "path": "/sets/1987-topps-baseball-37fd025d",
@@ -2168,10 +2106,6 @@
         [
           "Who made 1987 Topps Baseball?",
           "Topps produced this set."
-        ],
-        [
-          "Where can I find a full 1987 Topps Baseball checklist?",
-          "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
         ]
       ],
       "links": [
@@ -2300,14 +2234,6 @@
                   "@type": "Answer",
                   "text": "Topps produced this set."
                 }
-              },
-              {
-                "@type": "Question",
-                "name": "Where can I find a full 1987 Topps Baseball checklist?",
-                "acceptedAnswer": {
-                  "@type": "Answer",
-                  "text": "We keep the game fair by not publishing a card by card checklist for sets in play. Hobby references like Baseball Card Pedia and PSA's set guides list full checklists."
-                }
               }
             ]
           },
@@ -2330,7 +2256,24 @@
           }
         ]
       },
-      "wordCount": 137
+      "wordCount": 137,
+      "reference": {
+        "sources": [
+          [
+            "PSA CardFacts: 1987 Topps",
+            "https://www.psacard.com/cardfacts/baseball-cards/1987-topps/335"
+          ],
+          [
+            "PSA Set Registry: 1987 Topps",
+            "https://www.psacard.com/psasetregistry/baseball/company-sets/1987-topps/1042"
+          ],
+          [
+            "PSA graded values: 1987 Topps",
+            "https://www.psacard.com/priceguide/baseball-card-values/1987-topps/1308"
+          ]
+        ],
+        "setSize": 792
+      }
     }
   ]
 }
