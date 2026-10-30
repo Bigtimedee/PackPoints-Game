@@ -515,21 +515,21 @@
     {
       "title": "How PackPTS Points and eBay Rebates Work",
       "description": "Earn points for every player you name on PackPTS. Points are redeemable for eBay rebates now. Here is how earning, holds and rebates work.",
-      "h1": "eBay Cashback for Card Buyers: Get 70% of the eBay Commission Back",
-      "answer": "PackPTS gives card buyers cashback on eBay purchases. Play the free guess-the-player game to earn points, then buy cards on eBay through PackPTS. Your rebate is 70% of the commission eBay confirms on that sale. Rebates are held for 60 days to cover eBay's return window, and we only credit a rebate after eBay confirms the sale.",
-      "body": "Listings display an estimate of what you could get back. The final rebate is always 70% of the commission eBay confirms, and we always display exactly what was credited.",
+      "h1": "eBay Cashback for Card Buyers: Get a Share of the eBay Commission Back",
+      "answer": "PackPTS gives card buyers cashback on eBay purchases. Play the free guess-the-player game to earn points, then buy cards on eBay through PackPTS, and your rebate is 70% of the commission eBay confirms on that sale. Rebates are held for 60 days to cover eBay's return window, and we only credit a rebate after eBay confirms the sale.",
+      "body": "Listings display an estimate of what you could get back. The final rebate is always based on the commission eBay confirms, and we always display exactly what was credited.",
       "faq": [
         [
           "Can I get cashback on sports cards bought on eBay?",
-          "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale, credited after a 60-day hold."
+          "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale. It is credited after a 60-day hold."
         ],
         [
           "How is PackPTS different from a shopping cashback portal?",
-          "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is a share of the commission eBay pays on the sale: 70% of it goes to you."
+          "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is 70% of the commission eBay confirms on that sale."
         ],
         [
           "How much will I get back?",
-          "It depends on the commission eBay confirms for that sale. You always get 70% of it, and each listing shows an estimate before you buy."
+          "It depends on the commission eBay confirms for that sale, and each listing shows an estimate before you buy."
         ],
         [
           "Why is there a 60-day hold?",
@@ -597,7 +597,7 @@
                 "name": "Can I get cashback on sports cards bought on eBay?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale, credited after a 60-day hold."
+                  "text": "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale. It is credited after a 60-day hold."
                 }
               },
               {
@@ -605,7 +605,7 @@
                 "name": "How is PackPTS different from a shopping cashback portal?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is a share of the commission eBay pays on the sale: 70% of it goes to you."
+                  "text": "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is 70% of the commission eBay confirms on that sale."
                 }
               },
               {
@@ -613,7 +613,7 @@
                 "name": "How much will I get back?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "It depends on the commission eBay confirms for that sale. You always get 70% of it, and each listing shows an estimate before you buy."
+                  "text": "It depends on the commission eBay confirms for that sale, and each listing shows an estimate before you buy."
                 }
               },
               {
@@ -649,7 +649,7 @@
       "steps": [
         "Earn points. Name the masked player in the Daily 5 or any of the 12 integrated sets. Every right answer adds points to your wallet.",
         "Shop through PackPTS. Browse real card listings in PackPTS and buy on eBay through our link.",
-        "eBay confirms the sale. Your rebate is 70% of the commission eBay confirms on that purchase.",
+        "eBay confirms the sale, and your rebate is 70% of the commission eBay confirms on that sale.",
         "The 60-day hold. Rebates are held for 60 days to cover eBay's return window. If eBay marks a sale final sooner, it can release earlier. If the item is returned, the held rebate is removed.",
         "Fair limits. Daily and weekly limits per player keep the program fair for everyone."
       ]

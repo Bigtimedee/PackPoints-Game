@@ -31,10 +31,10 @@ describe("rebate split copy", () => {
     }
     const points = JSON.parse(read("docs/seo/content/core-pages.json")).core.find((p: { path: string }) => p.path === "/points");
     const pointsJson = JSON.stringify(points);
-    expect(pointsJson.toLowerCase()).toContain(SPLIT.toLowerCase());
+    expect(pointsJson).toContain(SPLIT);
     expect(pointsJson).not.toContain("seven tenths");
-    // /points may state the 70% split (Marketing AEO copy, 10/30). Any other money token still fails.
-    expect(pointsJson.replaceAll("70%", "")).not.toMatch(/[$%]|\bpercent\b|\bdollars?\b/);
+    // The kit allows this exact phrase on /points. Any other money token still fails.
+    expect(pointsJson.replaceAll(SPLIT, "")).not.toMatch(/[$%]|\bpercent\b|\bdollars?\b/);
   });
 
   it("split copy has no em or en dashes and does not say coming soon or unlimited", () => {
