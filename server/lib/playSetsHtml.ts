@@ -112,7 +112,7 @@ export interface SeoKitPage {
   facts?: { year?: number; brand?: string; sport?: string; playableCards?: number; era?: string; designNotes?: string };
   coverImages?: { src: string; alt: string }[];
   /** Verified hobby reference facts (PSA/Beckett). setSize only when a source states it. */
-  reference?: { setSize?: number; sources: [string, string][] };
+  reference?: { setSize?: number; sizeText?: string; sources: [string, string][] };
   /** Marketing lead line shown above the H1 answer. */
   lead?: string;
   /** "How it works" numbered steps. */
@@ -154,7 +154,8 @@ export function renderSeoKitMain(page: SeoKitPage, opts: { cardCount?: number } 
   if (ref?.sources?.length) {
     const name = page.crumbs?.[page.crumbs.length - 1]?.[0] ?? "this set";
     const paras: string[] = [];
-    if (typeof ref.setSize === "number") paras.push(`The complete ${name} set has ${ref.setSize} cards.`);
+    if (ref.sizeText) paras.push(ref.sizeText);
+    else if (typeof ref.setSize === "number") paras.push(`The complete ${name} set has ${ref.setSize} cards.`);
     paras.push("We do not name the top cards while a set is in play, because the names are the answers.");
     paras.push(ref.sources.some(([, h]) => h.includes("/priceguide/"))
       ? "Card values depend heavily on condition and grade. PSA lists graded values by card number."
