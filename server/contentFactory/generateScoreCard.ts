@@ -512,13 +512,43 @@ export function buildChallengeShareSvg(input: ChallengeShareInput): string {
 </svg>`;
 }
 
+/** Render a share SVG to PNG bytes. No filesystem. */
+export async function renderSharePng(svg: string): Promise<Buffer> {
+  return sharp(Buffer.from(svg)).png({ quality: 90 }).toBuffer();
+}
+
+export function renderScoreCardPng(input: ScoreCardInput): Promise<Buffer> {
+  return renderSharePng(buildScoreCardSvg(input));
+}
+
+/**
+ * Disk is a cache, not a requirement. When the share volume refuses the write
+ * (EACCES, ENOSPC, EROFS, missing mount), the PNG is still served by the
+ * on-demand renderer at the same URL (registerShareImageFallback), so a full
+ * or broken volume can never turn into "Score card didn't load".
+ */
+export async function writeSharePngBytes(
+  png: Buffer,
+  date: string,
+  filename: string,
+  writer: (file: string, bytes: Buffer) => Promise<void> = (file, bytes) => fs.promises.writeFile(file, bytes),
+): Promise<ScoreCardOutput & { cached: boolean }> {
+  const dateDir = safeDateDir(date);
+  const imagePath = path.join(getShareOutputBase(), dateDir, filename);
+  const imageUrl = `${SHARE_URL_PREFIX}/${dateDir}/${filename}`;
+  try {
+    getOutputDir(date);
+    await writer(imagePath, png);
+    return { imagePath, imageUrl, cached: true };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code || (err as Error)?.message || "write_failed";
+    console.error(`[ScoreCard] share PNG disk write failed (${code}); serving ${imageUrl} on demand`);
+    return { imagePath, imageUrl, cached: false };
+  }
+}
+
 async function writeSharePng(svg: string, date: string, filename: string): Promise<ScoreCardOutput> {
-  const dir = getOutputDir(date);
-  const imagePath = path.join(dir, filename);
-  await sharp(Buffer.from(svg))
-    .png({ quality: 90 })
-    .toFile(imagePath);
-  const imageUrl = `${SHARE_URL_PREFIX}/${safeDateDir(date)}/${filename}`;
+  const { imagePath, imageUrl } = await writeSharePngBytes(await renderSharePng(svg), date, filename);
   return { imagePath, imageUrl };
 }
 
@@ -543,15 +573,5 @@ export async function generateStreakBadge(
   date: string,
   assetId: string,
 ): Promise<ScoreCardOutput> {
-  const svg = buildStreakBadgeSvg(username, streak, date);
-  const dir = getOutputDir(date);
-  const filename = `${assetId}.png`;
-  const imagePath = path.join(dir, filename);
-
-  await sharp(Buffer.from(svg))
-    .png({ quality: 90 })
-    .toFile(imagePath);
-
-  const imageUrl = `${SHARE_URL_PREFIX}/${safeDateDir(date)}/${filename}`;
-  return { imagePath, imageUrl };
+  return writeSharePng(buildStreakBadgeSvg(username, streak, date), date, `${assetId}.png`);
 }
