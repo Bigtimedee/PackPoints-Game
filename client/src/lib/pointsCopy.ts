@@ -1,8 +1,8 @@
 // Points clarity copy deck (Design, 2026-10-11). Strings are final. No em or en dashes.
 // Every cash-back line is gated on rebateLive from GET /api/points/value.
-import { maxBundleRedeemableCents, PACKPTS_KEEP_SHARE_LABEL, USER_REBATE_SHARE_LABEL } from "@shared/rebateEconomics";
+import { maxBundleRedeemableCents } from "@shared/rebateEconomics";
 
-const REBATE_SPLIT = `Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission eBay confirms. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`;
+const REBATE_SPLIT = "You earn real cashback.";
 
 export interface PointsExpiry {
   earnedDays: number | null;
@@ -101,7 +101,7 @@ export function checkoutAnswer(live: boolean): string {
 export function addingAnswer(live: boolean, expiry: PointsExpiry | null): string {
   void live;
   void expiry;
-  return `Your points count toward a rebate on your next card. The rebate is ${USER_REBATE_SHARE_LABEL} of the commission eBay confirms, up to the limit for that purchase. Daily and weekly caps still apply.`;
+  return "Your points count toward a rebate on your next card. You earn real cashback, up to the limit for that purchase. Daily and weekly caps still apply.";
 }
 
 /** Cash-out FAQ. Live only; both values come from /api/points/value. Null hides the question. */
@@ -116,7 +116,7 @@ export function cashOutAnswer(value: PointsValue | undefined): string | null {
 export const WALLET = {
   title: "Your points",
   balance: (points: number) => `${points.toLocaleString("en-US")} points`,
-  live: (usd: string) => `Worth up to ${usd} back on eligible eBay cards. Rebates pay ${USER_REBATE_SHARE_LABEL} of the eBay commission, up to this amount, the daily cap and the weekly cap.`,
+  live: (usd: string) => `Worth up to ${usd} back on eligible eBay cards. You earn real cashback, up to this amount, the daily cap and the weekly cap.`,
   soon: "Use your points for cash back on real cards.",
   expiring: (n: number) => `${n.toLocaleString("en-US")} points expire in the next 30 days.`,
   link: "How points work",
@@ -130,7 +130,7 @@ export function bundleRebateCapUsd(priceCents: number): string {
 
 /** Store package line. The cap is 25% of the price, not the face value of the points. */
 export function storeLine(usd: string | null, expiry: PointsExpiry | null, loaded: boolean): string {
-  const split = `Rebates pay ${USER_REBATE_SHARE_LABEL} of the eBay commission, up to the points you apply, the daily cap and the weekly cap.`;
+  const split = "You earn real cashback, up to the points you apply, the daily cap and the weekly cap.";
   if (usd) return `Points from this purchase can add up to ${usd} toward a rebate. ${split}`;
   const never = loaded && (!expiry || expiry.purchasedDays == null);
   return never
@@ -145,9 +145,9 @@ export function holdLine(value: PointsValue | undefined): string | null {
 }
 
 /**
- * Listing badge. maxCreditCents is already USER_REBATE_SHARE (70%) of the
- * commission estimate: the quote ceiling calls userRebateCents before the
- * daily, weekly and balance caps. Hidden under 25 cents. Do not multiply again.
+ * Listing badge. maxCreditCents is already the quote ceiling: userRebateCents
+ * runs before the daily, weekly and balance caps. Hidden under 25 cents.
+ * Do not multiply again.
  */
 export const UP_TO_BACK_MIN_CENTS = 25;
 export function upToBackLabel(maxCreditCents: number | null | undefined): string | null {

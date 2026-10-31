@@ -221,7 +221,7 @@ export interface ReceiptPlaqueView {
   evidenceLabel: string;
   deniedReason: string | null;
   footerCta: string;
-  /** 100% for a row stored at 1. 70/30 for a new row. Empty when no credit rate is stored. */
+  /** Plain cashback line. Empty when no credit rate is stored. Never states a commission percentage. */
   splitLine: string;
 }
 
