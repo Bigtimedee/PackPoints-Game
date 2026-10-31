@@ -18,6 +18,7 @@ import {
   defaultGraph,
   IG_TRIAL_PARAMS,
   enqueueApprovedSlots,
+  retryGraph,
   enqueueIgPost,
   graphMediaFields,
   igBioRedirectUrl,
@@ -384,6 +385,120 @@ describe("instagram publish", () => {
     expect(failed.error).not.toContain("ig-secret-token-do-not-log");
     expect(spy.mock.calls.flat().join(" ")).not.toContain("ig-secret-token-do-not-log");
     spy.mockRestore();
+  });
+
+  it("marks a different media_publish 400 failed on the first try", async () => {
+    let publishes = 0;
+    const graph = fakeGraph();
+    graph.publishMedia = async () => {
+      publishes += 1;
+      throw new IgGraphError("Invalid parameter", 400, false);
+    };
+    use(graph);
+    const row = await queueFeed();
+    const failed = await publishIg(row.id);
+    expect(failed.status).toBe("failed");
+    expect(publishes).toBe(1);
+    expect(sleeps).toEqual([]);
+    const saved = await store.get(row.id);
+    expect(saved?.status).toBe("failed");
+    expect(saved?.containerId).toBe("container-1");
+  });
+
+  it("retries media_publish HTTP 400 Media ID is not available, then publishes", async () => {
+    let publishes = 0;
+    const graph = fakeGraph();
+    graph.publishMedia = async () => {
+      publishes += 1;
+      if (publishes === 1) throw new IgGraphError("Media ID is not available", 400, false);
+      return "media-1";
+    };
+    use(graph);
+    const row = await queueFeed();
+    const result = await publishIg(row.id);
+    expect(result.status).toBe("published");
+    expect(result.igMediaId).toBe("media-1");
+    expect(publishes).toBe(2);
+    expect(graph.calls).toHaveLength(1);
+    expect(sleeps).toEqual([15000]);
+    const saved = await store.get(row.id);
+    expect(saved?.status).toBe("published");
+    expect(saved?.containerId).toBe("container-1");
+  });
+
+  it("leaves container_created when the media id stays unavailable so the next pass publishes that container", async () => {
+    let publishes = 0;
+    const graph = fakeGraph();
+    graph.publishMedia = async () => {
+      publishes += 1;
+      if (publishes <= 5) {
+        throw new IgGraphError("Media ID is not available", 400, false, 9007, 2207027);
+      }
+      return "media-story";
+    };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    use(graph);
+    const row = await enqueueIgPost({
+      kind: "STORY",
+      mediaPath: "story-d1.jpg",
+      caption: "Story",
+      scheduledFor: "2026-10-23T15:00:00.000Z",
+      approvalHash: sha(STORY),
+      utmContent: "story-d1",
+    });
+    const early = await runIgDaily(new Date("2026-10-23T16:00:00.000Z"));
+    expect(early.results).toEqual([]);
+    expect(graph.calls).toHaveLength(0);
+
+    const pending = await publishIg(row.id);
+    expect(pending.status).toBe("pending");
+    expect(publishes).toBe(5);
+    expect(graph.calls).toHaveLength(1);
+    expect(sleeps).toEqual([15000, 15000, 15000, 15000]);
+    const held = await store.get(row.id);
+    expect(held?.status).toBe("container_created");
+    expect(held?.containerId).toBe("container-1");
+    expect(held?.igMediaId).toBeNull();
+    expect(selectDueRows(await store.list(), new Date("2026-10-23T16:00:00.000Z"), "ig", armedEnv()).map((item) => item.id)).toEqual([row.id]);
+
+    const again = await runIgDaily(new Date("2026-10-23T16:00:00.000Z"));
+    expect(again.results?.map((item) => item.status)).toEqual(["published"]);
+    expect(publishes).toBe(6);
+    expect(graph.calls).toHaveLength(1);
+    const saved = await store.get(row.id);
+    expect(saved?.status).toBe("published");
+    expect(saved?.containerId).toBe("container-1");
+    expect(saved?.igMediaId).toBe("media-story");
+    spy.mockRestore();
+  });
+
+  it("retries Graph media_publish when the body is code 9007 subcode 2207027", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    setIgDepsForTests({
+      env: { IG_ACCESS_TOKEN: "tok-123456", IG_USER_ID: "99" },
+      sleep: async (ms) => { waits.push(ms); },
+      fetch: async (input) => {
+        expect(String(input)).toContain("/media_publish");
+        expect(String(input)).not.toContain("tok-123456");
+        calls += 1;
+        if (calls < 5) {
+          return new Response(JSON.stringify({
+            error: {
+              message: "Media ID is not available",
+              type: "OAuthException",
+              code: 9007,
+              error_subcode: 2207027,
+              is_transient: false,
+            },
+          }), { status: 400 });
+        }
+        return new Response(JSON.stringify({ id: "media-9" }), { status: 200 });
+      },
+    });
+    await expect(retryGraph(() => defaultGraph().publishMedia("container-9"))).resolves.toBe("media-9");
+    expect(calls).toBe(5);
+    expect(waits).toEqual([15000, 15000, 15000, 15000]);
   });
 
   it("waits for the CT slot and publishes one feed", async () => {
