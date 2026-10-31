@@ -634,11 +634,15 @@ export function normalizeCaptionLines(input: string): string {
     .trim();
 }
 
+export const COMMISSION_SHARE_RE = /\d+(?:\.\d+)?\s*(?:%|percent\b)|\b\d+\s*\/\s*\d+\s+split\b|\b70\s*\/\s*30\b|\bcommission\b/i;
+
 export function buildIgCaption(input: string): string {
   const text = normalizeCaptionLines(input);
   if (/[\u2013\u2014]/.test(text) || /https?:\/\/|www\.|packpts\.com/i.test(text)) {
     throw new IgInputError("copy_rule");
   }
+  // Never disclose the commission share or any split in social copy (Dave, 2026-10-31).
+  if (COMMISSION_SHARE_RE.test(text)) throw new IgInputError("copy_rule");
   const caption = /link in bio/i.test(text) ? text : (text ? `${text} Link in bio.` : "Link in bio.");
   if (caption.length > 2200) throw new IgInputError("caption_too_long");
   if (/[\u2013\u2014]/.test(caption) || /https?:\/\/|www\.|packpts\.com/i.test(caption)) {
