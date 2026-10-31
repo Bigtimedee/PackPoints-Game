@@ -10,7 +10,7 @@ def ld(*nodes): return {"@context":"https://schema.org","@graph":list(nodes)}
 
 HOWQ=("How does PackPTS work?","We deal a real trading card with the player's name masked. You pick the player from four choices, and every right answer earns points.")
 FREEQ=("Is PackPTS free?","Yes. PackPTS is free to play in any web browser, on your phone or your computer, with nothing to download.")
-POINTSQ=("What can I do with points?","Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale.")
+POINTSQ=("What can I do with points?","Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you earn real cashback on that purchase.")
 CARDSQ=("Where do the cards come from?","Every card is a real, licensed trading card from a classic or modern set that our team scans, checks and masks by hand. Players never create cards.")
 
 core={}
@@ -74,13 +74,13 @@ core["/points"]=dict(
 
 Earning points. Every right answer in the Daily 5 or a set game earns points. They collect in your wallet, which visible at the top of the app after a game ends.
 
-Using points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, your rebate is 70% of the commission eBay confirms on that sale. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.
+Using points. Points are redeemable for eBay rebates now. Browse real card listings in PackPTS, and when you buy through PackPTS, you earn real cashback on that purchase. We only credit a rebate after eBay confirms the sale, so every rebate is backed by a real purchase.
 
 The hold. Rebates are held for 60 days, which covers eBay's return window. If eBay marks a sale final sooner, the rebate can release earlier. If an item is returned, the held rebate is removed.
 
 Limits. Daily and weekly limits per player keep the program fair for everyone.
 
-Listings display an estimate of what you could get back. The final rebate is always the same: your rebate is 70% of the commission eBay confirms on that sale. We never promise a set amount, and we will always tell you exactly what was credited.""",
+Listings display an estimate of what you could get back. The final rebate is always the same: you earn real cashback on that purchase. We never promise a set amount, and we will always tell you exactly what was credited.""",
  faq=[POINTSQ,("How do I earn points?","Name the masked player correctly in the Daily 5 or any set game. Each right answer adds points to your wallet."),("Why is there a hold on rebates?","eBay purchases can be returned, so rebates are held for 60 days, or released sooner when eBay marks a sale final."),("What happens if I return an item?","The rebate held for that sale is removed."),("Do points expire?","Check your wallet for current details. We will always tell you before anything about your points changes.")],
  links=[("Play the Daily 5","/daily"),("Browse sets","/sets"),("How to play","/how-to-play")],
  crumbs=[("Home","/"),("Points","/points")], extra=[])

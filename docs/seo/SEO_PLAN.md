@@ -84,7 +84,7 @@ Source: BowTiedBills, "The Most Valuable SEO Article Ever Written" (article.md).
 3. Full numbered checklists: do not publish for any set that is in play. Link out to baseballcardpedia or PSA for full checklists instead.
 Never expose card ids, mask plans, or per-card URLs. Never let the og image for a set page be an unmasked card.
 
-**Points page**: factual explanation that users earn points by playing, and the rebate is 70% of the commission eBay confirms, held 60 days. No dollar figures or percentages in og or social images.
+**Points page**: factual explanation that users earn points by playing and earn real cashback, held 60 days. No commission percentage or split, and no dollar figures or percentages in og or social images.
 
 ## 5. AI answers and E-E-A-T
 
