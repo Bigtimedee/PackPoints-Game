@@ -186,7 +186,13 @@ export interface IgStore {
 }
 
 export class IgGraphError extends Error {
-  constructor(message: string, readonly status: number, readonly transient: boolean) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly transient: boolean,
+    readonly code?: number,
+    readonly subcode?: number,
+  ) {
     super(message);
     this.name = "IgGraphError";
   }
@@ -1243,19 +1249,38 @@ export async function graphJson(url: string, init: RequestInit, token: string): 
   return graphRequest(url, init, token);
 }
 
+const MEDIA_PUBLISH_NOT_READY_ATTEMPTS = 5;
+const MEDIA_PUBLISH_NOT_READY_WAIT_MS = 15_000;
+
+/**
+ * media_publish HTTP 400 "Media ID is not available" (9007 / 2207027).
+ * Graph marks it non-transient, but it happens when a container just turned FINISHED.
+ */
+export function isMediaPublishNotReady(err: unknown): boolean {
+  if (!(err instanceof IgGraphError) || err.status !== 400) return false;
+  if (err.code === 9007 || err.subcode === 2207027) return true;
+  return /media id is not available/i.test(err.message);
+}
+
 export async function retryGraph<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
-  let last: unknown;
-  for (let i = 0; i < attempts; i++) {
+  let transientTries = 0;
+  let notReadyTries = 0;
+  for (;;) {
     try {
       return await fn();
     } catch (err) {
-      last = err;
+      if (isMediaPublishNotReady(err)) {
+        notReadyTries += 1;
+        if (notReadyTries >= MEDIA_PUBLISH_NOT_READY_ATTEMPTS) throw err;
+        await sleep(MEDIA_PUBLISH_NOT_READY_WAIT_MS);
+        continue;
+      }
       const transient = err instanceof IgGraphError ? err.transient : true;
-      if (!transient || i === attempts - 1) throw err;
-      await sleep(1000 * 2 ** i);
+      if (!transient || transientTries >= attempts - 1) throw err;
+      await sleep(1000 * 2 ** transientTries);
+      transientTries += 1;
     }
   }
-  throw last;
 }
 
 function safeError(err: unknown): string {
@@ -1284,9 +1309,21 @@ async function graphRequest(url: string, init: RequestInit, token: string): Prom
     json = {};
   }
   if (!response.ok) {
-    const error = json.error as { message?: string } | undefined;
+    const error = json.error as { message?: string; code?: unknown; error_subcode?: unknown } | undefined;
     const raw = typeof error?.message === "string" ? error.message : `graph_${response.status}`;
-    throw new IgGraphError(redactSecrets(raw, [token]), response.status, response.status === 429 || response.status >= 500);
+    const code = typeof error?.code === "number" ? error.code : undefined;
+    const subcode = typeof error?.error_subcode === "number" ? error.error_subcode : undefined;
+    const message = redactSecrets(raw, [token]);
+    const notReady = response.status === 400
+      && url.includes("/media_publish")
+      && (code === 9007 || subcode === 2207027 || /media id is not available/i.test(message));
+    throw new IgGraphError(
+      message,
+      response.status,
+      notReady || response.status === 429 || response.status >= 500,
+      code,
+      subcode,
+    );
   }
   return json;
 }
@@ -1523,6 +1560,11 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
     return { status: "published", id, igMediaId };
   } catch (err) {
     const error = safeError(err);
+    // Keep the container id. The next pass publishes it instead of creating another.
+    if (isMediaPublishNotReady(err)) {
+      logIg("error", `post ${id} media id not available: ${error}`);
+      return { status: "pending", id, error };
+    }
     await store.markFailed(id, error);
     logIg("error", `post ${id} failed: ${error}`);
     return { status: "failed", id, error };
