@@ -61,7 +61,7 @@
     </script>
 
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <!-- Above-the-fold paint. The built stylesheet is loaded non-blocking from the Vite plugin. -->
+    <!-- Above-the-fold paint before the built stylesheet arrives. The full sheet stays render-blocking so cover layout does not jump. -->
     <style id="critical-css">
       @font-face {
         font-family: Inter;
