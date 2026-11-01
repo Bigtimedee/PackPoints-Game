@@ -15,20 +15,6 @@ function packptsBuildIdPlugin(buildId: string): Plugin {
   };
 }
 
-/** The full Tailwind sheet is not on the first-paint critical path. */
-function deferStylesheetPlugin(): Plugin {
-  return {
-    name: "packpts-defer-css",
-    enforce: "post",
-    transformIndexHtml(html) {
-      return html.replace(
-        /<link rel="stylesheet"( crossorigin)? href="([^"]+\.css)">/g,
-        `<link rel="preload" as="style" href="$2" onload="this.onload=null;this.rel='stylesheet'" /><noscript><link rel="stylesheet" href="$2" /></noscript>`,
-      );
-    },
-  };
-}
-
 export default defineConfig({
   define: {
     __PACKPTS_BUILD_ID__: JSON.stringify(packptsBuildId),
@@ -36,7 +22,6 @@ export default defineConfig({
   plugins: [
     react(),
     packptsBuildIdPlugin(packptsBuildId),
-    deferStylesheetPlugin(),
   ],
   resolve: {
     alias: {
@@ -49,7 +34,6 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    manifest: true,
   },
   server: {
     fs: {

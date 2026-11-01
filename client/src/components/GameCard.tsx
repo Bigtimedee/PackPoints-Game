@@ -201,8 +201,6 @@ interface GameCardProps {
    * answers and Submit fit under it. The page sets --pc-cap and --pc-reserve.
    */
   fitToViewport?: boolean;
-  /** Home hero: fetch the baked cover at high priority. Does not change play prefetch. */
-  imagePriority?: boolean;
 }
 
 export function GameCard({
@@ -237,7 +235,6 @@ export function GameCard({
   onRetryImage,
   onMaskRefused,
   fitToViewport = false,
-  imagePriority = false,
 }: GameCardProps) {
   const CDN_BASE_URL = import.meta.env.VITE_CDN_BASE_URL || '';
   const [honestRetry, setHonestRetry] = useState(0);
@@ -696,7 +693,6 @@ export function GameCard({
             crossOrigin="anonymous"
             loading="eager"
             decoding="async"
-            fetchPriority={imagePriority ? "high" : "auto"}
             style={{
               opacity: imageLoaded ? 1 : 0,
               WebkitUserDrag: "none",

@@ -34,7 +34,7 @@ export function MobileNav() {
               href={item.href}
               className={`flex flex-col items-center justify-center gap-1 px-4 py-2 rounded-md transition-colors ${
                 isActive
-                  ? "font-semibold text-[#6e9cf7]"
+                  ? "text-primary"
                   : "text-muted-foreground hover-elevate"
               }`}
               data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}

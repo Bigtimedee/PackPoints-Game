@@ -1,13 +1,12 @@
 import { usePointsValue } from "@/hooks/use-points-value";
 import { HOME_HERO, HOME_HERO_TYPE, heroHeadline } from "@/lib/pointsCopy";
-import { AnswerButton } from "@/components/answer-button";
+import { AnswerButton } from "@/pages/game";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { GameCard } from "@/components/GameCard";
 import { toPublicMaskPlan } from "@shared/maskPlan";
-import { HOME_HERO_COVER_PATH } from "@shared/homeHeroCover";
 import type { PublicMaskPlan } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,8 +21,7 @@ import { shouldShowHomePlayVanity } from "@shared/homePlayVanity";
 
 // Public covers serve only approved, deal-eligible, already-baked masks.
 // Never substitute an original scan, player name, or an arbitrary card set.
-// The path matches the document preload so the LCP image is not a blob URL.
-const TOPPS_1987_COVER = HOME_HERO_COVER_PATH;
+const TOPPS_1987_COVER = "/api/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722/covers/0";
 
 const modes = [
   { id: "daily5", title: "Daily 5", description: "Five cards. A new challenge every day.", href: "/daily5", icon: Calendar },
@@ -39,33 +37,38 @@ function FeaturedCard() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
+    let objectUrl: string | undefined;
     setCover(null);
     setFailed(false);
     async function load() {
       try {
-        // Read this scan's bake plan. The image itself is the preloaded cover
-        // URL (already a baked mask). Never use a raw scan or a blob URL.
-        const meta = await fetch(`${TOPPS_1987_COVER}/plaque?retry=${attempt}`, { signal: controller.signal });
-        if (!meta.ok) throw new Error("Cover unavailable");
+        // Read the exact bake plan and image in one response. A set's generic
+        // mask is not necessarily this scan's name band. Never use a raw scan.
+        const [meta, response] = await Promise.all([
+          fetch(`${TOPPS_1987_COVER}/plaque?retry=${attempt}`, { signal: controller.signal }),
+          fetch(`${TOPPS_1987_COVER}?retry=${attempt}`, { signal: controller.signal }),
+        ]);
+        if (!meta.ok || !response.ok || !response.headers.get("content-type")?.startsWith("image/")) throw new Error("Cover unavailable");
         const body: { maskPlan?: unknown; options?: unknown } = await meta.json();
         const maskPlan = toPublicMaskPlan(body.maskPlan as any);
         if (!maskPlan) throw new Error("Cover plan unavailable");
         const options: unknown = body.options;
         if (!Array.isArray(options) || options.length !== 4 || options.some(o => typeof o !== "string" || !o.trim()) || new Set(options).size !== 4) throw new Error("Choices unavailable");
+        const image = await response.blob();
         if (controller.signal.aborted) return;
-        const imageUrl = attempt > 0 ? `${TOPPS_1987_COVER}?retry=${attempt}` : TOPPS_1987_COVER;
-        setCover({ imageUrl, maskPlan, options });
+        objectUrl = URL.createObjectURL(image);
+        setCover({ imageUrl: objectUrl, maskPlan, options });
       } catch {
         if (!controller.signal.aborted) setFailed(true);
       }
     }
     void load();
-    return () => controller.abort();
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [attempt]);
   return (
     <figure className="mx-auto w-full max-w-xs" data-testid="home-featured-card">
       {cover ? (
-        <div className="mx-auto max-w-[230px] md:max-w-xs"><GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan} isRevealed={false} allowClientImageReject={false} imagePriority onImageError={() => setFailed(true)} /></div>
+        <div className="mx-auto max-w-[230px] md:max-w-xs"><GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan} isRevealed={false} allowClientImageReject={false} onImageError={() => setFailed(true)} /></div>
       ) : (
         <div className="relative aspect-[2.5/3.5] flex items-center justify-center rounded-md bg-plaque-surface ring-1 ring-plaque-frame">
           {failed ? <div className="p-6 text-center text-muted-foreground" role="status"><p className="text-sm">The card couldn't load.</p><Button variant="outline" className="mt-4" onClick={() => setAttempt(a => a + 1)}>Try again</Button></div> : <Loader2 className="h-8 w-8 animate-spin text-plaque-muted" />}

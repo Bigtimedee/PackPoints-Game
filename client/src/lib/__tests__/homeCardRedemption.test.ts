@@ -6,9 +6,6 @@ const covers = readFileSync(new URL("../../../../server/services/setCovers.ts", 
 describe("home reuses gameplay and explains redemption", () => {
   it("uses GameCard and the scan-specific bake plan without a raw image fallback", () => {
     expect(home).toContain('<GameCard imageUrl={cover.imageUrl} maskPlan={cover.maskPlan}');
-    expect(home).toContain("HOME_HERO_COVER_PATH");
-    expect(home).not.toContain('from "@/pages/game"');
-    expect(home).not.toContain("createObjectURL");
     expect(home).toContain('/plaque?retry=');
     expect(home).not.toContain('X-Mask-Plan');
     expect(home).toContain('if (!maskPlan) throw');
