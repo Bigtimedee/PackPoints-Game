@@ -175,6 +175,8 @@ export interface IgStore {
   get(id: number): Promise<IgQueueRow | null>;
   claimCreate(id: number, statuses: IgStatus[]): Promise<IgQueueRow | null>;
   saveContainer(id: number, containerId: string): Promise<boolean>;
+  /** Drop a container Graph no longer returns so the next create can mint one. */
+  clearContainer(id: number): Promise<boolean>;
   markPublished(id: number, igMediaId: string, publishedAt: Date): Promise<boolean>;
   markFailed(id: number, error: string): Promise<boolean>;
   markSkipped(id: number, error: string): Promise<boolean>;
@@ -858,6 +860,13 @@ export function createMemoryStore(): IgStore {
       row.containerId = containerId;
       return true;
     },
+    async clearContainer(id) {
+      const row = find(id);
+      if (!row || !row.containerId || row.igMediaId || row.status !== "container_created") return false;
+      row.containerId = null;
+      row.error = null;
+      return true;
+    },
     async markPublished(id, igMediaId, publishedAt) {
       const row = find(id);
       if (!row || row.igMediaId || row.status === "published") return false;
@@ -1146,6 +1155,16 @@ export const pgStore: IgStore = {
     );
     return (result.rowCount ?? 0) > 0;
   },
+  async clearContainer(id) {
+    const pool = await pgPool();
+    const result = await pool.query(
+      `UPDATE ig_post_queue SET container_id = NULL, error = NULL
+       WHERE id = $1 AND container_id IS NOT NULL AND ig_media_id IS NULL AND status = 'container_created'
+       RETURNING id`,
+      [id],
+    );
+    return (result.rowCount ?? 0) > 0;
+  },
   async markPublished(id, igMediaId, publishedAt) {
     const pool = await pgPool();
     const result = await pool.query(
@@ -1255,6 +1274,8 @@ export async function graphJson(url: string, init: RequestInit, token: string): 
 
 const MEDIA_PUBLISH_NOT_READY_ATTEMPTS = 5;
 const MEDIA_PUBLISH_NOT_READY_WAIT_MS = 15_000;
+/** Code 24 on a fresh container: retry, then one replacement. Meta: 1–2 tries, then a new id. */
+const CONTAINER_MISSING_ATTEMPTS = 3;
 
 /**
  * media_publish HTTP 400 "Media ID is not available" (9007 / 2207027).
@@ -1264,6 +1285,21 @@ export function isMediaPublishNotReady(err: unknown): boolean {
   if (!(err instanceof IgGraphError) || err.status !== 400) return false;
   if (err.code === 9007 || err.subcode === 2207027) return true;
   return /media id is not available/i.test(err.message);
+}
+
+/**
+ * HTTP 400 code 24, subcode 2207008 (or 2207006).
+ * The OAuth message is "The requested resource does not exist".
+ * Meta's error guide calls 2207008 temporary: retry, then create a new container.
+ * Story container reads return this while the media builder is not visible yet.
+ */
+export function isContainerMissing(err: unknown): boolean {
+  if (!(err instanceof IgGraphError) || err.status !== 400) return false;
+  if (err.code === 24 || err.subcode === 2207008 || err.subcode === 2207006) return true;
+  return /requested resource does not exist/i.test(err.message)
+    || /media builder with creation id/i.test(err.message)
+    || /does not exist or has been expired/i.test(err.message)
+    || /unsupported get request/i.test(err.message);
 }
 
 export async function retryGraph<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
@@ -1283,6 +1319,21 @@ export async function retryGraph<T>(fn: () => Promise<T>, attempts = 3): Promise
       if (!transient || transientTries >= attempts - 1) throw err;
       await sleep(1000 * 2 ** transientTries);
       transientTries += 1;
+    }
+  }
+}
+
+/** Same container, a few times. Code 24 is not the 9007 "not ready" retry. */
+async function publishMediaReady(graph: IgGraph, containerId: string): Promise<string> {
+  let missing = 0;
+  for (;;) {
+    try {
+      return await retryGraph(() => graph.publishMedia(containerId));
+    } catch (err) {
+      if (!isContainerMissing(err)) throw err;
+      missing += 1;
+      if (missing >= CONTAINER_MISSING_ATTEMPTS) throw err;
+      await sleep(MEDIA_PUBLISH_NOT_READY_WAIT_MS);
     }
   }
 }
@@ -1404,13 +1455,24 @@ function currentGraph(): IgGraph {
   return deps.graph ?? defaultGraph();
 }
 
-async function pollContainer(graph: IgGraph, containerId: string): Promise<IgContainerCode | "TIMEOUT"> {
+async function pollContainer(graph: IgGraph, containerId: string): Promise<IgContainerCode | "TIMEOUT" | "MISSING"> {
   const max = deps.pollMax ?? 20;
+  const missingMax = Math.min(CONTAINER_MISSING_ATTEMPTS, max);
+  let missingTries = 0;
   for (let i = 0; i < max; i++) {
-    const code = await retryGraph(() => graph.containerStatus(containerId));
-    if (code !== "IN_PROGRESS") return code;
+    try {
+      const code = await retryGraph(() => graph.containerStatus(containerId));
+      if (code !== "IN_PROGRESS") return code;
+    } catch (err) {
+      if (!isContainerMissing(err)) throw err;
+      missingTries += 1;
+      if (missingTries >= missingMax) return "MISSING";
+    }
     if (i === max - 1) return "TIMEOUT";
-    await sleep(Math.min(15_000, 2000 * 2 ** Math.min(i, 3)));
+    const wait = missingTries > 0
+      ? MEDIA_PUBLISH_NOT_READY_WAIT_MS
+      : Math.min(15_000, 2000 * 2 ** Math.min(i, 3));
+    await sleep(wait);
   }
   return "TIMEOUT";
 }
@@ -1495,84 +1557,109 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
     if (linked !== e.IG_USER_ID?.trim()) return { status: "wrong_account", id };
   }
 
-  if (!row.containerId) {
-    const statuses: IgStatus[] = ["queued", "container_created"];
-    if (opts.allowFailed) statuses.push("failed");
-    if (opts.recheckSkipped) statuses.push("skipped");
-    if (!statuses.includes(row.status)) return { status: row.status, id, error: row.error ?? undefined };
-    const claimed = await store.claimCreate(id, statuses);
-    if (!claimed) {
-      row = await store.get(id);
-      if (!row) return { status: "not_found", id };
-      if (row.status === "published" || row.igMediaId) return { status: "already_published", id, igMediaId: row.igMediaId };
-      if (!row.containerId) return { status: "in_progress", id };
-    } else {
-      row = claimed;
-      try {
-        const containerId = await retryGraph(() => graph.createMedia(fields));
-        const saved = await store.saveContainer(id, containerId);
-        if (!saved) {
-          const again = await store.get(id);
-          if (!again?.containerId) return { status: "in_progress", id };
-          row = again;
-        } else {
-          row = { ...row, containerId, status: "container_created" };
+  // One replacement. A dead Story container must not mint a new id on every cron tick.
+  for (let containerAttempt = 0; containerAttempt < 2; containerAttempt++) {
+    if (!row.containerId) {
+      const statuses: IgStatus[] = ["queued", "container_created"];
+      if (opts.allowFailed) statuses.push("failed");
+      if (opts.recheckSkipped) statuses.push("skipped");
+      if (!statuses.includes(row.status)) return { status: row.status, id, error: row.error ?? undefined };
+      const claimed = await store.claimCreate(id, statuses);
+      if (!claimed) {
+        row = await store.get(id);
+        if (!row) return { status: "not_found", id };
+        if (row.status === "published" || row.igMediaId) return { status: "already_published", id, igMediaId: row.igMediaId };
+        if (!row.containerId) return { status: "in_progress", id };
+      } else {
+        row = claimed;
+        try {
+          const containerId = await retryGraph(() => graph.createMedia(fields));
+          const saved = await store.saveContainer(id, containerId);
+          if (!saved) {
+            const again = await store.get(id);
+            if (!again?.containerId) return { status: "in_progress", id };
+            row = again;
+          } else {
+            row = { ...row, containerId, status: "container_created" };
+          }
+        } catch (err) {
+          const error = safeError(err);
+          await store.markFailed(id, error);
+          logIg("error", `post ${id} failed: ${error}`);
+          return { status: "failed", id, error };
         }
-      } catch (err) {
-        const error = safeError(err);
-        await store.markFailed(id, error);
-        logIg("error", `post ${id} failed: ${error}`);
-        return { status: "failed", id, error };
       }
     }
-  }
 
-  if (!row.containerId) return { status: "in_progress", id };
-  const containerId = row.containerId;
-  let code: IgContainerCode | "TIMEOUT";
-  try {
-    code = await pollContainer(graph, containerId);
-  } catch (err) {
-    const error = safeError(err);
-    await store.markFailed(id, error);
-    logIg("error", `post ${id} failed: ${error}`);
-    return { status: "failed", id, error };
-  }
-  if (code === "TIMEOUT" || code === "IN_PROGRESS") return { status: "pending", id };
-  if (code === "ERROR" || code === "EXPIRED") {
-    const error = `container_${code.toLowerCase()}`;
-    await store.markFailed(id, error);
-    logIg("error", `post ${id} failed: ${error}`);
-    return { status: "failed", id, error };
-  }
-  if (code === "PUBLISHED") {
-    await store.markPublished(id, row.igMediaId ?? `published:${containerId}`, clock());
-    return { status: "already_published", id, igMediaId: row.igMediaId };
-  }
+    if (!row.containerId) return { status: "in_progress", id };
+    const containerId = row.containerId;
+    let code: IgContainerCode | "TIMEOUT" | "MISSING";
+    try {
+      code = await pollContainer(graph, containerId);
+    } catch (err) {
+      const error = safeError(err);
+      await store.markFailed(id, error);
+      logIg("error", `post ${id} failed: ${error}`);
+      return { status: "failed", id, error };
+    }
+    if (code === "TIMEOUT" || code === "IN_PROGRESS") return { status: "pending", id };
+    if (code === "ERROR") {
+      const error = "container_error";
+      await store.markFailed(id, error);
+      logIg("error", `post ${id} failed: ${error}`);
+      return { status: "failed", id, error };
+    }
+    if (code === "EXPIRED") {
+      if (containerAttempt === 0 && await store.clearContainer(id)) {
+        const again = await store.get(id);
+        if (!again) return { status: "not_found", id };
+        row = again;
+        logIg("error", `post ${id} container expired, creating a new one`);
+        continue;
+      }
+      const error = "container_expired";
+      await store.markFailed(id, error);
+      logIg("error", `post ${id} failed: ${error}`);
+      return { status: "failed", id, error };
+    }
+    if (code === "PUBLISHED") {
+      await store.markPublished(id, row.igMediaId ?? `published:${containerId}`, clock());
+      return { status: "already_published", id, igMediaId: row.igMediaId };
+    }
 
-  const fresh = await store.get(id);
-  if (!fresh) return { status: "not_found", id };
-  if (fresh.status === "published" || fresh.igMediaId) return { status: "already_published", id, igMediaId: fresh.igMediaId };
-  try {
-    const igMediaId = await retryGraph(() => graph.publishMedia(containerId));
-    const won = await store.markPublished(id, igMediaId, clock());
-    if (!won) {
-      const again = await store.get(id);
-      return { status: "already_published", id, igMediaId: again?.igMediaId ?? igMediaId };
+    const fresh = await store.get(id);
+    if (!fresh) return { status: "not_found", id };
+    if (fresh.status === "published" || fresh.igMediaId) return { status: "already_published", id, igMediaId: fresh.igMediaId };
+    try {
+      const igMediaId = await publishMediaReady(graph, containerId);
+      const won = await store.markPublished(id, igMediaId, clock());
+      if (!won) {
+        const again = await store.get(id);
+        return { status: "already_published", id, igMediaId: again?.igMediaId ?? igMediaId };
+      }
+      logIg("log", `published ${fresh.kind} ${fresh.utmContent} media ${igMediaId}`);
+      return { status: "published", id, igMediaId };
+    } catch (err) {
+      const error = safeError(err);
+      // Keep the container id. The next pass publishes it instead of creating another.
+      if (isMediaPublishNotReady(err)) {
+        logIg("error", `post ${id} media id not available: ${error}`);
+        return { status: "pending", id, error };
+      }
+      // Code 24 on this id: Meta says create a new container. One replacement, then stop.
+      if (isContainerMissing(err) && containerAttempt === 0 && await store.clearContainer(id)) {
+        const again = await store.get(id);
+        if (!again) return { status: "not_found", id };
+        row = again;
+        logIg("error", `post ${id} container missing, creating a new one`);
+        continue;
+      }
+      await store.markFailed(id, error);
+      logIg("error", `post ${id} failed: ${error}`);
+      return { status: "failed", id, error };
     }
-    logIg("log", `published ${fresh.kind} ${fresh.utmContent} media ${igMediaId}`);
-    return { status: "published", id, igMediaId };
-  } catch (err) {
-    const error = safeError(err);
-    // Keep the container id. The next pass publishes it instead of creating another.
-    if (isMediaPublishNotReady(err)) {
-      logIg("error", `post ${id} media id not available: ${error}`);
-      return { status: "pending", id, error };
-    }
-    await store.markFailed(id, error);
-    logIg("error", `post ${id} failed: ${error}`);
-    return { status: "failed", id, error };
   }
+  return { status: "failed", id, error: "container_missing" };
 }
 
 export async function publishIg(id: number, opts: PublishOpts = {}): Promise<IgPublishResult> {

@@ -472,6 +472,104 @@ describe("instagram publish", () => {
     spy.mockRestore();
   });
 
+  function missingContainer(): IgGraphError {
+    return new IgGraphError("The requested resource does not exist", 400, false, 24, 2207008);
+  }
+
+  async function queueStory() {
+    return enqueueIgPost({
+      kind: "STORY",
+      mediaPath: "story-d1.jpg",
+      caption: "Story",
+      scheduledFor: "2026-10-23T15:00:00.000Z",
+      approvalHash: sha(STORY),
+      utmContent: "story-d1",
+    });
+  }
+
+  it("publishes a story when status says the container does not exist", async () => {
+    let creates = 0;
+    const graph = fakeGraph();
+    graph.createMedia = async (fields) => {
+      graph.calls.push(fields);
+      creates += 1;
+      return `container-${creates}`;
+    };
+    graph.containerStatus = async () => {
+      throw missingContainer();
+    };
+    use(graph);
+    const row = await queueStory();
+    const result = await publishIg(row.id);
+    expect(result.status).toBe("published");
+    expect(result.igMediaId).toBe("media-1");
+    expect(creates).toBe(1);
+    expect(graph.publishes).toBe(1);
+    expect(graph.calls).toEqual([{ media_type: "STORIES", image_url: "https://packpts.com/social/ig/story-d1.jpg" }]);
+    expect(sleeps).toEqual([15000, 15000]);
+    const saved = await store.get(row.id);
+    expect(saved?.status).toBe("published");
+    expect(saved?.containerId).toBe("container-1");
+    expect(saved?.error).toBeNull();
+  });
+
+  it("replaces a story container once when media_publish says it does not exist", async () => {
+    let creates = 0;
+    const graph = fakeGraph();
+    graph.createMedia = async (fields) => {
+      graph.calls.push(fields);
+      creates += 1;
+      return `container-${creates}`;
+    };
+    graph.publishMedia = async (containerId) => {
+      if (containerId === "container-1") throw missingContainer();
+      return "media-story";
+    };
+    use(graph);
+    const row = await queueStory();
+    const result = await publishIg(row.id);
+    expect(result.status).toBe("published");
+    expect(result.igMediaId).toBe("media-story");
+    expect(creates).toBe(2);
+    expect(graph.calls).toHaveLength(2);
+    expect(sleeps).toEqual([15000, 15000]);
+    const saved = await store.get(row.id);
+    expect(saved?.status).toBe("published");
+    expect(saved?.containerId).toBe("container-2");
+    expect(saved?.igMediaId).toBe("media-story");
+  });
+
+  it("stops after one replacement when the story container is still missing", async () => {
+    let creates = 0;
+    let publishes = 0;
+    const graph = fakeGraph();
+    graph.createMedia = async (fields) => {
+      graph.calls.push(fields);
+      creates += 1;
+      return `container-${creates}`;
+    };
+    graph.publishMedia = async () => {
+      publishes += 1;
+      throw missingContainer();
+    };
+    use(graph);
+    const row = await queueStory();
+    const failed = await publishIg(row.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toBe("The requested resource does not exist");
+    expect(creates).toBe(2);
+    expect(publishes).toBe(6);
+    expect(sleeps).toEqual([15000, 15000, 15000, 15000]);
+    const saved = await store.get(row.id);
+    expect(saved?.status).toBe("failed");
+    expect(saved?.igMediaId).toBeNull();
+    expect(saved?.containerId).toBe("container-2");
+    const daily = await runIgDaily(new Date("2026-10-23T16:00:00.000Z"));
+    expect(daily.results ?? []).toHaveLength(0);
+    expect(creates).toBe(2);
+    expect(publishes).toBe(6);
+  });
+
   it("retries Graph media_publish when the body is code 9007 subcode 2207027", async () => {
     const waits: number[] = [];
     let calls = 0;
