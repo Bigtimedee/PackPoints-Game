@@ -11,6 +11,7 @@ const PUBLIC_SURFACES = [
   "../../pages/set-page.tsx",
   "../../pages/profile.tsx",
   "../../components/header.tsx",
+  "../../components/header-signed-in.tsx",
   "../../components/mobile-nav.tsx",
 ] as const;
 
