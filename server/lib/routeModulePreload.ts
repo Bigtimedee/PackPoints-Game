@@ -5,6 +5,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
 
 export interface ManifestChunk {
   file: string;
@@ -56,18 +57,22 @@ export function modulePreloadTags(manifest: Record<string, ManifestChunk>, src: 
   return [`<link rel="modulepreload" crossorigin href="${href}" />`];
 }
 
-const MANIFEST_CANDIDATES = [
-  path.resolve(__dirname, "public/.vite/manifest.json"),
-  path.resolve(__dirname, "../public/.vite/manifest.json"),
-  path.resolve(process.cwd(), "dist/public/.vite/manifest.json"),
-];
+function manifestCandidates(): string[] {
+  // import.meta.url works under tsx (ESM) and under the esbuild CJS bundle.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return [
+    path.resolve(here, "public/.vite/manifest.json"),
+    path.resolve(here, "../public/.vite/manifest.json"),
+    path.resolve(process.cwd(), "dist/public/.vite/manifest.json"),
+  ];
+}
 
 let manifestCache: { at: number; manifest: Record<string, ManifestChunk> | null } | null = null;
 
 export function loadViteManifest(): Record<string, ManifestChunk> | null {
   if (manifestCache && Date.now() - manifestCache.at < 30_000) return manifestCache.manifest;
   let manifest: Record<string, ManifestChunk> | null = null;
-  for (const candidate of MANIFEST_CANDIDATES) {
+  for (const candidate of manifestCandidates()) {
     try {
       if (!fs.existsSync(candidate)) continue;
       manifest = JSON.parse(fs.readFileSync(candidate, "utf8")) as Record<string, ManifestChunk>;
