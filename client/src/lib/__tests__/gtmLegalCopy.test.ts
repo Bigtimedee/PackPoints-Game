@@ -22,7 +22,9 @@ describe("GTM audit legal copy", () => {
     expect(t).toContain("baseball, basketball or football");
     expect(t).toContain("60 days");
     expect(t).toContain("$10");
-    expect(t).toContain("Your rebate is 70% of the commission eBay reports to us for that purchase, up to the value of the points you applied. PackPTS keeps the other 30%.");
+    expect(t).toContain("You earn real cashback on that purchase, up to the value of the points you applied.");
+    expect(t).not.toMatch(/\d+\s*%/);
+    expect(t).not.toContain("keeps the other");
     expect(t).not.toContain("Your rebate is the commission eBay reports");
     expect(t).toContain("Purchased points can be applied to listings and count toward rebates");
     expect(t).toContain("except through the rebate program");

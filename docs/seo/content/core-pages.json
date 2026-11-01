@@ -21,7 +21,7 @@
         ],
         [
           "What can I do with points?",
-          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you earn real cashback on that purchase."
         ],
         [
           "Where do the cards come from?",
@@ -142,7 +142,7 @@
                 "name": "What can I do with points?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, your rebate is 70% of the commission eBay confirms on that sale."
+                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you earn real cashback on that purchase."
                 }
               },
               {
@@ -184,7 +184,7 @@
         ],
         [
           "What do points get me?",
-          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you get 70% of the commission eBay confirms on that sale, after a 60-day hold."
+          "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you earn real cashback on that purchase, after a 60-day hold."
         ],
         [
           "Which sets are in the game?",
@@ -302,7 +302,7 @@
                 "name": "What do points get me?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you get 70% of the commission eBay confirms on that sale, after a 60-day hold."
+                  "text": "Points are redeemable for eBay rebates now. When you buy a card on eBay through PackPTS, you earn real cashback on that purchase, after a 60-day hold."
                 }
               },
               {
@@ -382,7 +382,7 @@
           ],
           [
             "Rewards",
-            "Points toward eBay cashback (70% of the eBay commission)",
+            "Points toward eBay cashback",
             "None stated",
             "None stated",
             "None for players (Fever earns eBay Partner commission on card links)"
@@ -515,17 +515,17 @@
     {
       "title": "How PackPTS Points and eBay Rebates Work",
       "description": "Earn points for every player you name on PackPTS. Points are redeemable for eBay rebates now. Here is how earning, holds and rebates work.",
-      "h1": "eBay Cashback for Card Buyers: Get a Share of the eBay Commission Back",
-      "answer": "PackPTS gives card buyers cashback on eBay purchases. Play the free guess-the-player game to earn points, then buy cards on eBay through PackPTS, and your rebate is 70% of the commission eBay confirms on that sale. Rebates are held for 60 days to cover eBay's return window, and we only credit a rebate after eBay confirms the sale.",
+      "h1": "eBay Cashback for Card Buyers: Earn Real Cashback",
+      "answer": "PackPTS gives card buyers cashback on eBay purchases. Play the free guess-the-player game to earn points, then buy cards on eBay through PackPTS, and you earn real cashback on that purchase. Rebates are held for 60 days to cover eBay's return window, and we only credit a rebate after eBay confirms the sale.",
       "body": "Listings display an estimate of what you could get back. The final rebate is always based on the commission eBay confirms, and we always display exactly what was credited.",
       "faq": [
         [
           "Can I get cashback on sports cards bought on eBay?",
-          "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale. It is credited after a 60-day hold."
+          "Yes. Buy through PackPTS and you earn real cashback on that purchase. It is credited after a 60-day hold."
         ],
         [
           "How is PackPTS different from a shopping cashback portal?",
-          "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is 70% of the commission eBay confirms on that sale."
+          "PackPTS is built for card collectors. You earn points by playing a card game, and you earn real cashback on that purchase."
         ],
         [
           "How much will I get back?",
@@ -597,7 +597,7 @@
                 "name": "Can I get cashback on sports cards bought on eBay?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Yes. Buy through PackPTS and your rebate is 70% of the commission eBay confirms on that sale. It is credited after a 60-day hold."
+                  "text": "Yes. Buy through PackPTS and you earn real cashback on that purchase. It is credited after a 60-day hold."
                 }
               },
               {
@@ -605,7 +605,7 @@
                 "name": "How is PackPTS different from a shopping cashback portal?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "PackPTS is built for card collectors. You earn points by playing a card game, and your rebate is 70% of the commission eBay confirms on that sale."
+                  "text": "PackPTS is built for card collectors. You earn points by playing a card game, and you earn real cashback on that purchase."
                 }
               },
               {
@@ -649,7 +649,7 @@
       "steps": [
         "Earn points. Name the masked player in the Daily 5 or any of the 12 integrated sets. Every right answer adds points to your wallet.",
         "Shop through PackPTS. Browse real card listings in PackPTS and buy on eBay through our link.",
-        "eBay confirms the sale, and your rebate is 70% of the commission eBay confirms on that sale.",
+        "eBay confirms the sale, and you earn real cashback on that purchase.",
         "The 60-day hold. Rebates are held for 60 days to cover eBay's return window. If eBay marks a sale final sooner, it can release earlier. If the item is returned, the held rebate is removed.",
         "Fair limits. Daily and weekly limits per player keep the program fair for everyone."
       ]

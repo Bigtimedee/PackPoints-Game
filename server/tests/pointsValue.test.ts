@@ -73,16 +73,20 @@ describe("points copy", () => {
     const extra = [copy.WALLET.live("$1.00"), copy.storeLine("$1.00", snap.expiry, true), copy.storeLine(null, null, true)];
     for (const s of [...allStrings(true), ...allStrings(false), ...extra]) expect(s).not.toMatch(/[\u2013\u2014]/);
   });
-  it("states the 70/30 split without promising unlimited rebates", () => {
+  it("states real cashback without a commission percentage or unlimited rebates", () => {
     const split = copy.pageSteps(true)[2].body;
-    expect(split).toContain("70% of the commission eBay confirms");
-    expect(split).toContain("PackPTS keeps the other 30%");
+    expect(split.toLowerCase()).toContain("earn real cashback");
+    expect(split).not.toMatch(/\d+\s*%/);
+    expect(split).not.toContain("keeps the other");
     expect(split).toContain("60 days");
     expect(split).toContain("$10");
     expect(copy.addingAnswer(true, snap.expiry).toLowerCase()).not.toContain("unlimited");
-    expect(copy.WALLET.live("$1.00")).toContain("70%");
+    expect(copy.addingAnswer(true, snap.expiry).toLowerCase()).toContain("earn real cashback");
+    expect(copy.WALLET.live("$1.00").toLowerCase()).toContain("earn real cashback");
+    expect(copy.WALLET.live("$1.00")).not.toMatch(/\d+\s*%/);
     expect(copy.storeLine("$1.25", null, true)).toContain("Points from this purchase can add up to $1.25 toward a rebate");
-    expect(copy.storeLine("$1.25", null, true)).toContain("70%");
+    expect(copy.storeLine("$1.25", null, true).toLowerCase()).toContain("earn real cashback");
+    expect(copy.storeLine("$1.25", null, true)).not.toMatch(/\d+\s*%/);
     expect(copy.storeLine("$1.25", null, true).toLowerCase()).not.toContain("coming soon");
     expect(copy.storeLine("$1.25", null, true).toLowerCase()).not.toContain("unlimited");
     expect(copy.bundleRebateCapUsd(499)).toBe("$1.25");

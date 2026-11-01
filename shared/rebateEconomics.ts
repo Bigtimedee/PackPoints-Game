@@ -26,13 +26,9 @@ export const PACKPTS_KEEP_SHARE_LABEL = `${(LEGACY_REBATE_SHARE_BPS - USER_REBAT
 export const BUNDLE_MIN_MARGIN_RATE = 0.75;
 export const BUNDLE_MAX_REDEEMABLE_OF_PRICE = 1 - BUNDLE_MIN_MARGIN_RATE;
 
-/** Receipt line. New rebates say 70/30. A row stored at 1 says 100%. */
-export function rebateReceiptSplit(shareRate?: number): string {
-  const bps = shareBps(shareRate ?? USER_REBATE_SHARE);
-  if (bps >= LEGACY_REBATE_SHARE_BPS) {
-    return "Your rebate is 100% of the commission confirmed for this purchase.";
-  }
-  return `Your rebate is ${USER_REBATE_SHARE_LABEL} of the commission confirmed for this purchase. PackPTS keeps the other ${PACKPTS_KEEP_SHARE_LABEL}.`;
+/** Receipt and email line. Public copy never states a commission percentage or split. */
+export function rebateReceiptSplit(_shareRate?: number): string {
+  return "You earn real cashback on this purchase.";
 }
 
 export function shareBps(share: number | null | undefined): number {

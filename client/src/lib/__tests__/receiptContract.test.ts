@@ -155,7 +155,7 @@ describe("buildReceiptPlaqueView", () => {
     expect(held.helper).toBe("Credit pending review");
   });
 
-  it("states the stored rebate split: 100% on older rows, 70/30 on new rows", () => {
+  it("states real cashback and no commission percentage", () => {
     const base = {
       intentId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       source: "ebay" as const,
@@ -178,8 +178,9 @@ describe("buildReceiptPlaqueView", () => {
     expect(buildReceiptPlaqueView({ ...base, userShareRate: 1 }).splitLine).toBe(rebateReceiptSplit(1));
     expect(buildReceiptPlaqueView({ ...base, userShareRate: 0.7 }).splitLine).toBe(rebateReceiptSplit(0.7));
     expect(buildReceiptPlaqueView(base).splitLine).toBe("");
-    expect(rebateReceiptSplit(1)).toBe("Your rebate is 100% of the commission confirmed for this purchase.");
-    expect(rebateReceiptSplit(0.7)).toBe("Your rebate is 70% of the commission confirmed for this purchase. PackPTS keeps the other 30%.");
+    expect(rebateReceiptSplit(1)).toBe("You earn real cashback on this purchase.");
+    expect(rebateReceiptSplit(0.7)).toBe("You earn real cashback on this purchase.");
+    expect(rebateReceiptSplit(1)).not.toMatch(/\d+\s*%/);
     expect(plaqueSrc).toContain("{plaque.splitLine}");
     expect(pageSrc).toContain("userShareRate");
     expect(plaqueSrc).not.toMatch(/[\u2013\u2014]/);
