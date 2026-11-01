@@ -58,13 +58,21 @@ export function modulePreloadTags(manifest: Record<string, ManifestChunk>, src: 
 }
 
 function manifestCandidates(): string[] {
-  // import.meta.url works under tsx (ESM) and under the esbuild CJS bundle.
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return [
-    path.resolve(here, "public/.vite/manifest.json"),
-    path.resolve(here, "../public/.vite/manifest.json"),
+  // esbuild's CJS server bundle leaves import.meta empty. fileURLToPath(undefined)
+  // threw on every HTML response. Only use the URL when it is a real file URL.
+  const candidates = [
     path.resolve(process.cwd(), "dist/public/.vite/manifest.json"),
+    path.resolve(process.cwd(), "public/.vite/manifest.json"),
   ];
+  const metaUrl = import.meta.url;
+  if (typeof metaUrl === "string" && metaUrl.startsWith("file:")) {
+    const here = path.dirname(fileURLToPath(metaUrl));
+    candidates.unshift(
+      path.resolve(here, "public/.vite/manifest.json"),
+      path.resolve(here, "../public/.vite/manifest.json"),
+    );
+  }
+  return candidates;
 }
 
 let manifestCache: { at: number; manifest: Record<string, ManifestChunk> | null } | null = null;
