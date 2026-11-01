@@ -87,7 +87,7 @@ Yes. PackPTS is free to play in any web browser, on your phone or your computer,
 
 # /sets
 
-- Title: Sports Card Sets to Play: Baseball, Basketball, Football (56 chars)
+- Title: Sports Card Sets to Play: Baseball, Basketball, Football | PackPTS (66 chars)
 - Description: Play classic and modern card sets on PackPTS: 1986 Topps, 1988 Topps, 1987 Donruss, 1990 Hoops, 1995 Upper Deck and more. Free to play. (135 chars)
 - H1: Play Your Favorite Card Sets
 

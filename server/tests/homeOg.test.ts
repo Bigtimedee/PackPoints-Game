@@ -12,6 +12,7 @@ import path from "path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { HOME_ROUTE_META, SPA_ROUTE_META, injectSpaRouteMeta } from "../lib/routeOg";
+import { getServedBuildId } from "../lib/servedBuildId";
 import { injectPlaySetsOgTags } from "../lib/playSetsHtml";
 import { mountSpaStatic } from "../static";
 
@@ -113,8 +114,9 @@ function expectEachKeyOnce(html: string): void {
 }
 
 /** Home preview tags. Other routes keep them but carry their own <title> and og:url (seoPages.ts). */
-function expectHomeTagsOnce(html: string, isHome = true): void {
-  for (const tag of HOME_TAGS) {
+function expectHomeTagsOnce(html: string, isHome = true, bust = false): void {
+  const tags = bust ? HOME_TAGS.map((tag) => tag.replaceAll("?v=2", `?v=${getServedBuildId()}`)) : HOME_TAGS;
+  for (const tag of tags) {
     if (!isHome && tag.includes('og:url"')) continue;
     expect(countExact(html, tag), tag).toBe(1);
   }
@@ -125,8 +127,9 @@ function expectHomeTagsOnce(html: string, isHome = true): void {
   expect(html).not.toContain("daily-1200x630.png");
 }
 
-function expectDailyTagsOnce(html: string): void {
-  for (const tag of DAILY_TAGS) {
+function expectDailyTagsOnce(html: string, bust = false): void {
+  const tags = bust ? DAILY_TAGS.map((tag) => tag.replaceAll("?v=2", `?v=${getServedBuildId()}`)) : DAILY_TAGS;
+  for (const tag of tags) {
     // <title> and meta description come from the SEO content kit.
     if (tag.startsWith("<title>") || tag.includes('name="description"')) continue;
     expect(countExact(html, tag), tag).toBe(1);
@@ -247,7 +250,7 @@ describe("served HTML and homepage preview image", () => {
       expect(root.res.status).toBe(200);
       expect(root.res.headers.get("content-type")).toContain("text/html");
       expect(root.text).toContain("<h1>");
-      expectHomeTagsOnce(root.text);
+      expectHomeTagsOnce(root.text, true, true);
     }
   });
 
@@ -255,7 +258,7 @@ describe("served HTML and homepage preview image", () => {
     for (const route of ["/leaderboard", "/game/solo", "/?s=2"]) {
       const page = await read(route, "facebookexternalhit/1.1");
       expect(page.res.status).toBe(200);
-      expectHomeTagsOnce(page.text, route.startsWith("/?"));
+      expectHomeTagsOnce(page.text, route.startsWith("/?"), true);
     }
   });
 
@@ -263,10 +266,10 @@ describe("served HTML and homepage preview image", () => {
     for (const ua of UAS) {
       const daily = await read("/daily", ua);
       expect(daily.res.status).toBe(200);
-      expectDailyTagsOnce(daily.text);
+      expectDailyTagsOnce(daily.text, true);
     }
     const slash = await read("/daily/?utm_source=share");
-    expectDailyTagsOnce(slash.text);
+    expectDailyTagsOnce(slash.text, true);
   });
 
   it("serves og-image.png?v=2 as image/png with Design's bytes", async () => {
