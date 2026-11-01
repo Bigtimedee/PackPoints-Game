@@ -79,12 +79,13 @@ export const defaultSeoDeps: SeoDeps = {
 let depsOverride: SeoDeps | null = null;
 export function setSeoDepsForTests(d: SeoDeps | null): void { depsOverride = d; }
 
+import { injectRouteModulePreload } from "./routeModulePreload";
 import { stripHtmlComments } from "./stripHtmlComments";
 export { stripHtmlComments };
 
 export async function decorateSpaIndexPage(html: string, url: string): Promise<{ html: string; status: number; location?: string }> {
   const out = await decorateSpaIndexPageRaw(html, url);
-  return { ...out, html: stripHtmlComments(out.html) };
+  return { ...out, html: injectRouteModulePreload(stripHtmlComments(out.html), url) };
 }
 
 async function decorateSpaIndexPageRaw(html: string, url: string): Promise<{ html: string; status: number; location?: string }> {

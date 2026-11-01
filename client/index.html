@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>PackPTS: Name the Player Sports Card Game | Earn Points</title>
     <meta name="description" content="Name the player on real sports cards with the name masked. Play the free Daily 5, explore classic sets, and earn points for eBay rebates." />
     <meta name="keywords" content="sports card trivia, PackPTS, card collecting game, sports cards quiz, name the player" />
@@ -61,9 +61,20 @@
     </script>
 
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <!-- Above-the-fold paint. The built stylesheet is loaded non-blocking from the Vite plugin. -->
+    <style id="critical-css">
+      @font-face {
+        font-family: Inter;
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url("/fonts/inter-latin.woff2") format("woff2");
+      }
+      html, body { margin: 0; background: #101318; color: #f0f2f5; }
+      body { font-family: Inter, system-ui, sans-serif; }
+      #root { min-height: 100dvh; }
+    </style>
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   </head>
   <body class="dark">
     <div id="root">
