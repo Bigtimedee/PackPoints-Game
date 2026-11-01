@@ -159,12 +159,12 @@ describe("instagram copy, slots, and allowlist", () => {
     const file = path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json");
     const names = readdirSync(dir).filter((name) => !name.startsWith("."));
     expect(names.filter((name) => name.endsWith(".png"))).toEqual([]);
-    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(70);
+    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(74);
     expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(57);
     expect(names.filter((name) => parseCreativeName(name) != null)).toHaveLength(84);
     expect(names).toContain("feed-swap-row6-765.jpg");
     const hashes = names.map((name) => sha(readFileSync(path.join(dir, name))));
-    expect(new Set(hashes).size).toBe(127);
+    expect(new Set(hashes).size).toBe(131);
     expect(readAllowlistFile(file)).toEqual(new Set(hashes));
   });
 
