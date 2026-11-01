@@ -10,7 +10,6 @@
  * (name, year, brand, sport, card count) only. server/tests/seoPages.test.ts
  * renders every page and fails on any live-pool or blocked-pool surname.
  */
-import { HOME_HERO_COVER_PATH } from "@shared/homeHeroCover";
 import { isKnownSpaRoute } from "@shared/spaRoutes";
 import { isMaskedSetCoverUrl, setCoverSrcSet, setCoverVariantUrl, SET_COVER_SIZES } from "@shared/setCoverUrl";
 
@@ -30,11 +29,6 @@ export function firstRowCoverStrip(sets: SeoSet[]): string {
     return `<img src="${setCoverVariantUrl(u, 240, v)}" srcset="${setCoverSrcSet(u, v)}" sizes="${SET_COVER_SIZES}" width="250" height="350" alt="${alt}" crossorigin="anonymous" referrerpolicy="no-referrer" decoding="async"${i === 0 ? ' fetchpriority="high"' : ""} style="flex:0 0 32%;width:32%;max-width:160px;height:auto;margin-right:-12%;border-radius:3px" />`;
   }).join("");
   return `<div aria-hidden="true" style="display:flex;overflow:hidden;padding:8px 0">${imgs}</div>`;
-}
-
-/** Same URL, CORS mode, and referrer policy as the homepage GameCard <img>. */
-export function homeHeroCoverPreload(): string {
-  return `<link rel="preload" as="image" href="${HOME_HERO_COVER_PATH}" fetchpriority="high" crossorigin="anonymous" referrerpolicy="no-referrer" />`;
 }
 
 /** Preload the first /sets row's masked covers with the same srcset/sizes the <img> uses. */
@@ -147,7 +141,6 @@ function pathOf(url: string): string {
 function homePage(sets: SeoSet[]): SeoPage {
   return {
     status: 200, title: HOME_TITLE, description: HOME_DESCRIPTION, canonical: `${ORIGIN}/`, noindex: false,
-    preload: [homeHeroCoverPreload()],
     h1: "Name the player on classic sports cards",
     body: [
       p("PackPTS is a free sports card game. We deal a real trading card with the name masked, and you pick the player from four choices. No download, no card collection needed, and it plays in any phone or desktop browser."),
@@ -270,7 +263,6 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
   const core = KIT_CORE_BY_PATH.get(corePath);
   if (core) {
     const page = kitPage(core, undefined, undefined, sets.length);
-    if (corePath === "/") page.preload = [homeHeroCoverPreload()];
     if (corePath === "/sets") {
       // The index data the page fetches on mount, then the first row's covers.
       // The list itself is inlined as JSON (spaIndexHtml), so only the covers are preloaded.

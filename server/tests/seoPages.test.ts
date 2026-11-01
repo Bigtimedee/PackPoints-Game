@@ -237,15 +237,6 @@ describe("SEO pages", () => {
     expect(none.main).not.toContain("{{playableSetCount}}");
   });
 
-  it("preloads the homepage hero cover with the same URL the card renders", async () => {
-    const { HOME_HERO_COVER_PATH } = await import("@shared/homeHeroCover");
-    const html = renderSeoHtml(indexHtml, await resolveSeoPage("/", deps));
-    expect(html).toContain(`href="${HOME_HERO_COVER_PATH}"`);
-    expect(html).toContain('rel="preload" as="image"');
-    expect(html).toContain('crossorigin="anonymous"');
-    expect(html).not.toContain("blob:");
-  });
-
   it("2024-25 Topps Chrome has no unverified size section", () => {
     const k = KIT_SETS.find((x) => String(x.setId).startsWith("229f0379"));
     expect(k?.reference).toBeUndefined();

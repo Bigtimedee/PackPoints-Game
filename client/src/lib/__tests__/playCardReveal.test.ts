@@ -4,7 +4,6 @@ import { CURRENT_MASK_VERSION } from "@shared/maskGeometry";
 import { resolvePlayCardSrc } from "@shared/playCardImage";
 
 const gameSrc = readFileSync(new URL("../../pages/game.tsx", import.meta.url), "utf8");
-const answerBtnSrc = readFileSync(new URL("../../components/answer-button.tsx", import.meta.url), "utf8");
 const daily5Src = readFileSync(new URL("../../pages/daily5.tsx", import.meta.url), "utf8");
 const matchSrc = readFileSync(new URL("../../pages/match.tsx", import.meta.url), "utf8");
 const gameCardSrc = readFileSync(new URL("../../components/GameCard.tsx", import.meta.url), "utf8");
@@ -153,9 +152,9 @@ describe("play surfaces: mask until successful submit, then full card", () => {
     expect(gameSrc).not.toContain("badge-point-value");
     expect(gameSrc).not.toContain("Worth ");
 
-    const answerBtn = answerBtnSrc.slice(
-      answerBtnSrc.indexOf("function AnswerButton"),
-      answerBtnSrc.length,
+    const answerBtn = gameSrc.slice(
+      gameSrc.indexOf("function AnswerButton"),
+      gameSrc.indexOf("export default function Game"),
     );
     expect(answerBtn).toContain("disabled:opacity-100");
     expect(answerBtn).toContain("disabled={disabled || isRevealed}");

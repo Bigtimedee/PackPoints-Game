@@ -23,8 +23,7 @@ export function registerAuthRoutes(app: Express): void {
         }
       }
 
-      // 200 null, not 401. Guests hit this on every page; a 401 is a console error.
-      return res.json(null);
+      return res.status(401).json({ message: "Unauthorized" });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });

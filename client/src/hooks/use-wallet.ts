@@ -1,29 +1,36 @@
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 import { useAuth } from "@/hooks/use-auth";
 
-interface WalletData {
-  wallet: {
-    id: string;
-    balance: number;
-    availablePts: number;
-    debtPts: number;
-    lifetimeEarned: number;
-    lifetimeSpent: number;
-    rebateBalanceCents?: number;
-    status: string;
-    createdAt: string;
-    updatedAt: string;
-  };
-  riskState: { status: "NORMAL" | "UNDER_REVIEW" | "FROZEN"; reason?: string };
-  recentTransactions: Array<{
-    id: string;
-    type: string;
-    amount: number;
-    balanceAfter: number;
-    reason: string;
-    createdAt: string;
-  }>;
-}
+// Zod schema for type-safe wallet response validation
+const WalletResponseSchema = z.object({
+  wallet: z.object({
+    id: z.string(),
+    balance: z.number(),
+    availablePts: z.number(),
+    debtPts: z.number(),
+    lifetimeEarned: z.number(),
+    lifetimeSpent: z.number(),
+    rebateBalanceCents: z.number().optional(),
+    status: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  }),
+  riskState: z.object({
+    status: z.enum(["NORMAL", "UNDER_REVIEW", "FROZEN"]),
+    reason: z.string().optional(),
+  }),
+  recentTransactions: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    amount: z.number(),
+    balanceAfter: z.number(),
+    reason: z.string(),
+    createdAt: z.string(),
+  })),
+});
+
+type WalletData = z.infer<typeof WalletResponseSchema>;
 
 async function fetchWallet(): Promise<WalletData | null> {
   const response = await fetch("/wallet", {
@@ -40,13 +47,9 @@ async function fetchWallet(): Promise<WalletData | null> {
 
   const data = await response.json();
   
-  // Validate response shape in development. Zod stays out of the production shell.
+  // Validate response shape in development
   if (import.meta.env.DEV) {
-    const { z } = await import("zod");
-    const result = z.object({
-      wallet: z.object({ availablePts: z.number(), balance: z.number(), debtPts: z.number() }),
-      riskState: z.object({ status: z.string() }),
-    }).safeParse(data);
+    const result = WalletResponseSchema.safeParse(data);
     if (!result.success) {
       console.error("[useWallet] Invalid wallet response shape:", result.error.issues);
       console.error("[useWallet] Received data:", data);
