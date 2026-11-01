@@ -2,15 +2,12 @@ import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from "re
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient, captureUtmParams } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Header } from "@/components/header";
 import { MobileNav } from "@/components/mobile-nav";
-import { AdminLayout } from "@/components/admin-layout";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { feedbackLauncherAllowed, fullscreenMainClassName } from "@/lib/appShellLayout";
 import { useCompleteScreenActive, usePlayChromeActive } from "@/lib/playChrome";
 import { useOnboardingCardOpen, useWalletSheetOpen } from "@/lib/walletSheetOpen";
@@ -18,17 +15,19 @@ import { useAuth } from "@/hooks/use-auth";
 import { notifyStaleBuildRouteChange } from "@/lib/staleBuildClient";
 import { setsMainClassName, setsShellClassName } from "@/lib/setsPolish";
 
-// Critical path — eager imports
-import Home from "@/pages/home";
-import Auth from "@/pages/auth";
-import NotFound from "@/pages/not-found";
-import HowToPlayPage from "@/pages/how-to-play";
-import AboutPage from "@/pages/about";
-import AuthError from "@/pages/auth-error";
-import AuthSuccess from "@/pages/auth-success";
-import LinkRequired from "@/pages/link-required";
+// Every route is its own chunk. The shell (header, nav, providers) stays eager.
+const Home = lazy(() => import("@/pages/home"));
+const Auth = lazy(() => import("@/pages/auth"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const HowToPlayPage = lazy(() => import("@/pages/how-to-play"));
+const AboutPage = lazy(() => import("@/pages/about"));
+const AuthError = lazy(() => import("@/pages/auth-error"));
+const AuthSuccess = lazy(() => import("@/pages/auth-success"));
+const LinkRequired = lazy(() => import("@/pages/link-required"));
+const AdminLayout = lazy(() => import("@/components/admin-layout").then((m) => ({ default: m.AdminLayout })));
+const FeedbackWidget = lazy(() => import("@/components/FeedbackWidget").then((m) => ({ default: m.FeedbackWidget })));
+const Toaster = lazy(() => import("@/components/ui/toaster").then((m) => ({ default: m.Toaster })));
 
-// Lazy-load everything else
 const Game = lazy(() => import("@/pages/game"));
 const Lobby = lazy(() => import("@/pages/lobby"));
 const Match = lazy(() => import("@/pages/match"));
@@ -424,13 +423,58 @@ function StaleBuildWatcher() {
   return null;
 }
 
+function IdleToaster() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let idle = 0;
+    let timer = 0;
+    const arm = () => setReady(true);
+    if (typeof win.requestIdleCallback === "function") idle = win.requestIdleCallback(arm, { timeout: 2000 });
+    else timer = window.setTimeout(arm, 1200);
+    return () => {
+      if (idle && typeof win.cancelIdleCallback === "function") win.cancelIdleCallback(idle);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
+  if (!ready) return null;
+  return (
+    <Suspense fallback={null}>
+      <Toaster />
+    </Suspense>
+  );
+}
+
 function AppExtras() {
   const [location] = useLocation();
   const playActive = usePlayChromeActive();
   const walletOpen = useWalletSheetOpen();
   const onboardOpen = useOnboardingCardOpen();
-  if (playActive || walletOpen || onboardOpen || !feedbackLauncherAllowed(location)) return null;
-  return <FeedbackWidget />;
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let idle = 0;
+    let timer = 0;
+    const arm = () => setReady(true);
+    if (typeof win.requestIdleCallback === "function") idle = win.requestIdleCallback(arm, { timeout: 2500 });
+    else timer = window.setTimeout(arm, 1500);
+    return () => {
+      if (idle && typeof win.cancelIdleCallback === "function") win.cancelIdleCallback(idle);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
+  if (!ready || playActive || walletOpen || onboardOpen || !feedbackLauncherAllowed(location)) return null;
+  return (
+    <Suspense fallback={null}>
+      <FeedbackWidget />
+    </Suspense>
+  );
 }
 
 function App() {
@@ -455,7 +499,7 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider defaultTheme="dark" storageKey="packpoints-theme">
-          <TooltipProvider>
+          <TooltipProvider delayDuration={0}>
             {isOffline && (
               <div
                 role="alert"
@@ -480,7 +524,7 @@ function App() {
             <StaleBuildWatcher />
             <AppShell />
             <AppExtras />
-            <Toaster />
+            <IdleToaster />
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

@@ -24,7 +24,7 @@ describe("points chip during play", () => {
     expect(app).toContain("const isFullscreen = isMatchRoute || (isGameRoute && !(completeActive && !playActive));");
   });
   it("header gates the chip on it", () => {
-    const src = readFileSync(new URL("../../components/header.tsx", import.meta.url), "utf8");
+    const src = readFileSync(new URL("../../components/header-signed-in.tsx", import.meta.url), "utf8");
     expect(src).toContain("pointsChipHidden(location, playActive, completeActive)");
     expect(src).toContain("{hideChip ? null : isRestricted ? (");
   });
