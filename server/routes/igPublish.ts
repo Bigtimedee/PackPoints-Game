@@ -169,6 +169,7 @@ export function registerIgRoutes(app: Express): void {
       caption: Object.prototype.hasOwnProperty.call(body, "caption") ? body.caption : undefined,
       mediaPath: Object.prototype.hasOwnProperty.call(body, "mediaPath") ? body.mediaPath : undefined,
       trial: Object.prototype.hasOwnProperty.call(body, "trial") ? body.trial : undefined,
+      skip: Object.prototype.hasOwnProperty.call(body, "skip") ? body.skip : undefined,
     })
       .then((row) => qaJson(req, res, 200, { item: igQueueJson(row) }))
       .catch((err: unknown) => {

@@ -1765,8 +1765,32 @@ function fbCaption(input: string): string {
 }
 
 /** Rewrite caption and/or media on a queued row. Posted rows are left unchanged. */
-export async function updateQueuedRow(id: number, input: { caption?: unknown; mediaPath?: unknown; trial?: unknown }): Promise<IgQueueRow> {
+export const IG_PULLED_ERROR = "pulled_by_qa";
+
+/** Pull one queued row so it can never publish. Status becomes skipped; media is untouched. */
+export async function skipQueuedRow(id: number): Promise<IgQueueRow> {
   if (!Number.isInteger(id) || id <= 0) throw new IgInputError("bad_id");
+  const store = currentStore();
+  const locked = await store.withLock(id, async () => {
+    const row = await store.get(id);
+    if (!row) throw new IgInputError("not_found");
+    if (row.status !== "queued") throw new IgInputError("not_queued");
+    if (!(await store.markSkipped(id, IG_PULLED_ERROR))) throw new IgInputError("not_queued");
+    const fresh = await store.get(id);
+    if (!fresh) throw new IgInputError("not_found");
+    return fresh;
+  });
+  if (!locked.ok) throw new IgInputError("not_queued");
+  return locked.value;
+}
+
+export async function updateQueuedRow(id: number, input: { caption?: unknown; mediaPath?: unknown; trial?: unknown; skip?: unknown }): Promise<IgQueueRow> {
+  if (!Number.isInteger(id) || id <= 0) throw new IgInputError("bad_id");
+  if (input.skip !== undefined) {
+    if (input.skip !== true) throw new IgInputError("bad_skip");
+    if (input.caption !== undefined || input.mediaPath !== undefined || input.trial !== undefined) throw new IgInputError("bad_patch");
+    return skipQueuedRow(id);
+  }
   const hasCaption = input.caption !== undefined;
   const hasMedia = input.mediaPath !== undefined;
   const hasTrial = input.trial !== undefined;
