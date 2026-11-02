@@ -512,7 +512,71 @@ export function creativePlan(item: ParsedCreative, all: ParsedCreative[]): { kin
   };
 }
 
+/** Advisory lock key for the FEED kind; queue ids are positive so this cannot collide. */
+const FEED_KIND_LOCK_ID = -1;
+/** Two FEED posts never go out closer than this. */
+export const FEED_SPACING_MS = 30 * 60 * 1000;
+/** A FEED row this late is skipped as missed instead of doubling up with a later slot. */
+export const FEED_MISS_AFTER_MS = 45 * 60 * 1000;
+export const FEED_MISSED_ERROR = "missed_slot";
+
+/** Queued FEED rows whose time has passed by more than FEED_MISS_AFTER_MS. */
+export function missedFeedRows(rows: IgQueueRow[], now: Date, platform: IgPlatform, e = env()): IgQueueRow[] {
+  const today = ctNow(now).day;
+  const mine = rows.filter((row) => row.platform === platform && row.kind === "FEED");
+  // A catch-up used today's feed slot on purpose; today's row waits for its own catch-up tomorrow, as before.
+  const catchupDone = mine.some((row) => row.status !== "queued" && row.publishedAt != null && ctNow(row.publishedAt).day === today && ctNow(row.scheduledFor).day < today);
+  if (catchupDone) return [];
+  return mine.filter((row) => row.status === "queued" && feedIsMissed(row, now, e));
+}
+
+/** When the row was actually due: its scheduled day at the slot rowIsDue waits for. */
+export function feedDueAt(row: Pick<IgQueueRow, "kind" | "scheduledFor">, e = env()): Date {
+  const minutes = rowSlotMinutes(row.kind, row.scheduledFor, e);
+  const slot = ctWallTime(ctNow(row.scheduledFor).day, Math.floor(minutes / 60), minutes % 60);
+  return slot.getTime() > row.scheduledFor.getTime() ? slot : row.scheduledFor;
+}
+
+/** Same-day FEED rows more than 45 min past their slot are missed. Earlier-day rows keep the existing one-per-day catch-up. */
+export function feedIsMissed(row: Pick<IgQueueRow, "kind" | "scheduledFor">, now: Date, e = env()): boolean {
+  if (ctNow(row.scheduledFor).day !== ctNow(now).day) return false;
+  return now.getTime() - feedDueAt(row, e).getTime() > FEED_MISS_AFTER_MS;
+}
+
+/** True when a FEED post went out, or is mid-publish, within FEED_SPACING_MS of now. */
+export function feedRecentlyPosted(rows: IgQueueRow[], now: Date, platform: IgPlatform, exceptId?: number): boolean {
+  return rows.some((row) => {
+    if (row.platform !== platform || row.kind !== "FEED" || row.id === exceptId) return false;
+    if (row.status === "container_created") return true;
+    if (row.status !== "published" || !row.publishedAt) return false;
+    return Math.abs(now.getTime() - row.publishedAt.getTime()) < FEED_SPACING_MS;
+  });
+}
+
+/** At most one FEED per pass, never within FEED_SPACING_MS of another, never a missed row. */
+function guardFeed(chosen: IgQueueRow[], rows: IgQueueRow[], now: Date, platform: IgPlatform, e: NodeJS.ProcessEnv): IgQueueRow[] {
+  const out: IgQueueRow[] = [];
+  let feedTaken = false;
+  for (const row of chosen) {
+    if (row.kind !== "FEED") { out.push(row); continue; }
+    if (row.status === "container_created") {
+      if (!feedTaken) { out.push(row); feedTaken = true; }
+      continue;
+    }
+    if (feedTaken) continue;
+    if (feedIsMissed(row, now, e)) continue;
+    if (feedRecentlyPosted(rows, now, platform, row.id)) continue;
+    out.push(row);
+    feedTaken = true;
+  }
+  return out;
+}
+
 export function selectDueRows(rows: IgQueueRow[], now: Date, platform: IgPlatform, e = env()): IgQueueRow[] {
+  return guardFeed(selectDueRowsRaw(rows, now, platform, e), rows, now, platform, e);
+}
+
+function selectDueRowsRaw(rows: IgQueueRow[], now: Date, platform: IgPlatform, e = env()): IgQueueRow[] {
   const mine = rows.filter((row) => row.platform === platform);
   const today = ctNow(now).day;
   const chosen: IgQueueRow[] = [];
@@ -2059,16 +2123,36 @@ export async function runIgDaily(now = new Date()): Promise<{ status: string; da
   const e = env();
   if (!igPublishEnabled(e)) return { status: "disabled" };
   if (!igCredsReady(e)) return { status: "not_armed" };
-  const due = selectDueRows(await currentStore().list(500), now, "ig", e);
+  const store = currentStore();
+  const rows = await store.list(500);
+  for (const row of missedFeedRows(rows, now, "ig", e)) {
+    if (await store.markSkipped(row.id, FEED_MISSED_ERROR)) logIg("error", `post ${row.id} FEED missed its slot by more than 45 min, skipped`);
+  }
+  const due = selectDueRows(rows, now, "ig", e);
   const results: IgPublishResult[] = [];
-  for (const row of due) results.push(await publishIg(row.id));
+  for (const row of due) {
+    if (row.kind === "FEED" && row.status === "queued") {
+      // Re-check spacing under one FEED-wide lock so two passes or two instances cannot both post a feed.
+      const locked = await store.withLock(FEED_KIND_LOCK_ID, async () => {
+        if (feedRecentlyPosted(await store.list(500), now, "ig", row.id)) return { status: "deferred", id: row.id } satisfies IgPublishResult;
+        return publishIg(row.id);
+      });
+      results.push(locked.ok ? locked.value : { status: "in_progress", id: row.id });
+      continue;
+    }
+    results.push(await publishIg(row.id));
+  }
   return { status: "ran", day: ctNow(now).day, results };
 }
 
 export function startIgPublisher(): void {
   void enqueueApprovedSlots().catch((err) => logIg("error", `seed failed: ${safeError(err)}`));
+  let igRunning = false;
   const tick = () => {
-    void runIgDaily().catch((err) => logIg("error", safeError(err)));
+    if (!igRunning) {
+      igRunning = true;
+      void runIgDaily().catch((err) => logIg("error", safeError(err))).finally(() => { igRunning = false; });
+    }
     void runInsightSync().catch((err) => logIg("error", safeError(err)));
     void import("./fbPublish").then((mod) => mod.runFbDaily()).catch((err) => logIg("error", safeError(err)));
   };
