@@ -38,8 +38,25 @@ export function withStartupTimeout<T>(work: Promise<T>, ms: number, label: strin
   });
 }
 
+/** Railway volume. Unset PACKPTS_VOLUME_ROOT keeps this path. */
+export const DEFAULT_VOLUME_ROOT = "/app/data/masked-cards";
+
 /** On the masked-card volume, so it survives the next container. */
 export const SCHEMA_PUSH_MARKER = "/app/data/masked-cards/.schema-push-hash";
+
+/** Same directory the boot mkdir uses. CI sets PACKPTS_VOLUME_ROOT to a temp dir. */
+export function packptsVolumeRoot(): string {
+  const raw = process.env.PACKPTS_VOLUME_ROOT?.trim();
+  return raw ? raw : DEFAULT_VOLUME_ROOT;
+}
+
+export function bootBackupDir(): string {
+  return path.join(packptsVolumeRoot(), ".db-backups");
+}
+
+export function schemaPushMarkerPath(): string {
+  return path.join(packptsVolumeRoot(), ".schema-push-hash");
+}
 
 export async function hashSchemaFile(schemaPath: string): Promise<string> {
   const body = await readFile(schemaPath);
@@ -210,7 +227,7 @@ export async function runBootSchema(opts?: {
   lockTimeout?: string;
 }): Promise<{ pushed: boolean; dumpFile: string | null; dumped: boolean; timedOut?: boolean; code?: number }> {
   const databaseUrl = opts?.databaseUrl ?? process.env.DATABASE_URL ?? "";
-  const backupDir = opts?.backupDir ?? "/app/data/masked-cards/.db-backups";
+  const backupDir = opts?.backupDir ?? bootBackupDir();
   const spawnImpl = opts?.spawn ?? defaultSpawn;
   const now = opts?.now ?? new Date();
   const dumpTimeoutMs = opts?.dumpTimeoutMs ?? PG_DUMP_TIMEOUT_MS;
@@ -218,7 +235,7 @@ export async function runBootSchema(opts?: {
   const exit = opts?.exit ?? ((code: number) => process.exit(code));
   const exitOnPushFailure = opts?.exitOnPushFailure !== false;
   const schemaPath = opts?.schemaPath ?? path.join(opts?.cwd ?? process.cwd(), "shared/schema.ts");
-  const markerPath = opts?.markerPath ?? SCHEMA_PUSH_MARKER;
+  const markerPath = opts?.markerPath ?? schemaPushMarkerPath();
   if (!databaseUrl) {
     console.error("[Startup] WARNING: DATABASE_URL missing — SKIPPING schema push.");
     return { pushed: false, dumpFile: null, dumped: false };

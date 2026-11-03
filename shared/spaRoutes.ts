@@ -12,6 +12,7 @@ export const SPA_ROUTE_PATTERNS: readonly string[] = [
   "/admin/tiers", "/admin/users", "/admin/users/:userId",
   "/auth", "/auth-error", "/auth/error", "/auth/link-required", "/auth/success",
   "/collab/:id", "/creators", "/dmca", "/forgot-password", "/friends", "/game/:mode", "/invite",
+  "/kit", "/kit/:slug",
   "/leaderboard", "/lobby", "/lobby/:action", "/lobby/:id", "/make", "/marketplace", "/match/:matchId",
   "/partners", "/privacy-policy", "/profile", "/queue", "/redeem", "/redemptions", "/redemptions/:intentId",
   "/reset-password", "/review/tiktok-sandbox", "/roadmap", "/store", "/store/cancel", "/store/success",

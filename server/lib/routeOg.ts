@@ -60,6 +60,24 @@ export function spaRouteMetaForUrl(url: string): SpaRouteMeta | null {
   return SPA_ROUTE_META[path] ?? null;
 }
 
+/** Partner kit head. Kept off SPA_ROUTE_META so /daily stays the only mapped preview. */
+export function kitSpaMeta(url: string): SpaRouteMeta | null {
+  const path = normalizeAppPath(url).toLowerCase();
+  if (path !== "/kit" && !/^\/kit\/[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/.test(path)) return null;
+  return {
+    title: "Partner kit | PackPTS",
+    description: "A masked card, plus thousands more to play free at PackPTS.",
+    url: `https://packpts.com${path}`,
+    type: "website",
+    siteName: "PackPTS",
+    image: "https://packpts.com/og-image.png?v=2",
+    imageWidth: "1200",
+    imageHeight: "630",
+    imageAlt: "A masked card. PackPTS.",
+    twitterCard: "summary_large_image",
+  };
+}
+
 function escapeAttr(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -121,7 +139,7 @@ function replaceTitle(html: string, content: string): string {
 
 /** Replace existing head tags for a mapped route. Other URLs are returned unchanged. */
 export function injectSpaRouteMeta(html: string, url: string): string {
-  const meta = spaRouteMetaForUrl(url);
+  const meta = kitSpaMeta(url) ?? spaRouteMetaForUrl(url);
   if (!meta) return html;
 
   let next = html;
