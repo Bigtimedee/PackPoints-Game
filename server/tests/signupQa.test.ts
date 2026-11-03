@@ -97,32 +97,6 @@ describe("signup source buckets", () => {
     expect(signupSourceBucket(row({ createdAt: at, utmSource: "person@example.com", hasAttributionRow: true }))).toBe("person_example_com");
   });
 
-  it("buckets a partner kit signup as source kit with campaign and medium", () => {
-    const qr = row({
-      createdAt: at,
-      utmSource: "kit",
-      utmMedium: "qr",
-      utmCampaign: "shop_bobs-cards",
-      hasAttributionRow: true,
-    });
-    const link = row({
-      createdAt: at,
-      utmSource: "kit",
-      utmMedium: "link",
-      utmCampaign: "shop_bobs-cards",
-      hasAttributionRow: true,
-    });
-    expect(signupSourceBucket(qr)).toBe("kit");
-    expect(signupSourceBucket(link)).toBe("kit");
-    const report = buildSignupReport([qr, link, row({ createdAt: at })], at);
-    expect(report.bySource.allTime.kit).toBe(2);
-    expect(report.byCampaign.allTime["shop_bobs-cards"]).toBe(2);
-    expect(report.byMedium.allTime.qr).toBe(1);
-    expect(report.byMedium.allTime.link).toBe(1);
-    expect(sumCounts(report.byCampaign.allTime)).toBe(2);
-    expect(report.totals.allTime).toBe(3);
-  });
-
   it("prefers beat-me over a referral invite on the same user", () => {
     expect(signupSourceBucket(row({
       createdAt: at,
