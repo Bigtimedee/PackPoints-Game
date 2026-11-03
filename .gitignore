@@ -15,6 +15,7 @@ push_*.cjs
 push_*.js
 data/masked-cards/
 public/generated/
+server/assets/share/bake-out/
 test-results/
 playwright-report/
 packpts-design/

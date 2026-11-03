@@ -12,6 +12,7 @@
     "db:push": "drizzle-kit push",
     "mask:sweep": "tsx scripts/sweep-mask-plates.ts",
     "agent:social": "tsx server/services/socialMedia/index.ts",
+    "kit:bake": "tsx scripts/bake-partner-kit.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"
   },
@@ -83,6 +84,7 @@
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "pg": "^8.16.3",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
