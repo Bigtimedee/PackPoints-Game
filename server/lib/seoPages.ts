@@ -308,6 +308,22 @@ export async function resolveSeoPage(url: string, deps: SeoDeps): Promise<SeoPag
     const kit = KIT_SET_BY_ID.get(String(set.id));
     return kit ? kitPage(kit, set.cardCount, `/sets/${set.slug}`) : setPage(set, sets);
   }
+  if (path === "/kit" || path.startsWith("/kit/")) {
+    return {
+      status: 200,
+      title: "Partner kit | PackPTS",
+      description: "A masked card, plus thousands more to play free at PackPTS.",
+      canonical: `${ORIGIN}${path}`,
+      noindex: true,
+      jsonld: {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: "Partner kit | PackPTS",
+        description: "A masked card, plus thousands more to play free at PackPTS.",
+        url: `${ORIGIN}${path}`,
+      },
+    };
+  }
   const meta = STATIC_META[path];
   const noindex = NOINDEX_PREFIXES.some((pre) => path === pre || path.startsWith(pre.endsWith("/") ? pre : `${pre}/`) || path === pre.replace(/\/$/, ""));
   return {

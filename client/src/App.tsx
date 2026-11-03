@@ -51,6 +51,7 @@ const PrivacyPolicy = lazy(() => import("@/pages/privacy-policy"));
 const TermsOfService = lazy(() => import("@/pages/terms-of-service"));
 const DmcaPage = lazy(() => import("@/pages/dmca"));
 const Partners = lazy(() => import("@/pages/partners"));
+const PartnerKit = lazy(() => import("@/pages/partner-kit"));
 const AdminLogin = lazy(() => import("@/pages/admin/login"));
 const AdminDashboard = lazy(() => import("@/pages/admin/dashboard"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
@@ -368,6 +369,8 @@ function Router() {
       <Route path="/dmca" component={DmcaPage} />
       <Route path="/creators" component={Creators} />
       <Route path="/partners" component={Partners} />
+      <Route path="/kit/:slug" component={PartnerKit} />
+      <Route path="/kit" component={PartnerKit} />
       <Route path="/roadmap" component={Roadmap} />
       <Route path="/points" component={PointsPage} />
       <Route path="/how-to-play" component={HowToPlayPage} />

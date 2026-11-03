@@ -22,6 +22,7 @@ const ROUTE_SRC: Array<{ test: (pathname: string) => boolean; src: string }> = [
   { test: (p) => p.startsWith("/sets/"), src: "src/pages/set-page.tsx" },
   { test: (p) => p === "/points", src: "src/pages/points.tsx" },
   { test: (p) => p === "/how-to-play", src: "src/pages/how-to-play.tsx" },
+  { test: (p) => p === "/kit" || p.startsWith("/kit/"), src: "src/pages/partner-kit.tsx" },
   { test: (p) => p === "/about", src: "src/pages/about.tsx" },
   { test: (p) => p === "/auth", src: "src/pages/auth.tsx" },
   { test: (p) => p === "/auth/success", src: "src/pages/auth-success.tsx" },
