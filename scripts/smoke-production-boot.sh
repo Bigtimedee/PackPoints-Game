@@ -9,6 +9,20 @@ if [ ! -f dist/index.cjs ]; then
   exit 1
 fi
 
+# Root can create /app and would hide the EACCES the CI runner hit.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "smoke boot refuses root so a mkdir of /app still fails"
+  exit 1
+fi
+
+# Boot schema mkdir's ${PACKPTS_VOLUME_ROOT:-/app/data/masked-cards}/.db-backups.
+# Unset, that is the Railway volume. CI points it at a writable temp dir.
+if [ -z "${PACKPTS_VOLUME_ROOT:-}" ]; then
+  echo "PACKPTS_VOLUME_ROOT is required for the smoke boot"
+  exit 1
+fi
+mkdir -p "$PACKPTS_VOLUME_ROOT"
+
 PORT="${PORT:-5099}"
 LOG="${TMPDIR:-/tmp}/packpts-smoke-boot.log"
 PID_FILE="${TMPDIR:-/tmp}/packpts-smoke-boot.pid"

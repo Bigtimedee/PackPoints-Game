@@ -7,7 +7,7 @@ import { mkdtemp, readFile, readdir, utimes, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DRIZZLE_PUSH_TIMEOUT_MS, killChildGroup, PG_DUMP_TIMEOUT_MS, pruneBootDumps, runBootSchema, schemaDumpRequired, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withSessionLockTimeout, withStartupTimeout, type BootSpawn } from "../startup/bootSchema";
+import { bootBackupDir, DRIZZLE_PUSH_TIMEOUT_MS, killChildGroup, packptsVolumeRoot, PG_DUMP_TIMEOUT_MS, pruneBootDumps, runBootSchema, schemaDumpRequired, schemaPushMarkerPath, StartupTimeoutError, STORAGE_INIT_TIMEOUT_MS, withSessionLockTimeout, withStartupTimeout, type BootSpawn } from "../startup/bootSchema";
 
 function fakeSpawn(failCommand?: string): { spawn: BootSpawn; calls: string[][] } {
   const calls: string[][] = [];
@@ -34,6 +34,19 @@ describe("boot schema", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it("keeps the Railway volume path unless PACKPTS_VOLUME_ROOT is set", () => {
+    const previous = process.env.PACKPTS_VOLUME_ROOT;
+    delete process.env.PACKPTS_VOLUME_ROOT;
+    expect(packptsVolumeRoot()).toBe("/app/data/masked-cards");
+    expect(bootBackupDir()).toBe("/app/data/masked-cards/.db-backups");
+    expect(schemaPushMarkerPath()).toBe("/app/data/masked-cards/.schema-push-hash");
+    process.env.PACKPTS_VOLUME_ROOT = "/tmp/packpts-volume-test";
+    expect(bootBackupDir()).toBe("/tmp/packpts-volume-test/.db-backups");
+    expect(schemaPushMarkerPath()).toBe("/tmp/packpts-volume-test/.schema-push-hash");
+    if (previous === undefined) delete process.env.PACKPTS_VOLUME_ROOT;
+    else process.env.PACKPTS_VOLUME_ROOT = previous;
   });
 
   it("runs drizzle-kit push --force only after pg_dump succeeds", async () => {

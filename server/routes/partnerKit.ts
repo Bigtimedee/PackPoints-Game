@@ -23,7 +23,56 @@ import {
 import { applyNoStoreHeaders, sendNoStoreBody, stripConditionalValidators } from "../lib/noStoreResponse";
 import { currentShareAllowlist } from "../services/partnerKitAllowlist";
 import { PARTNER_SHOP_NAMES } from "../services/partnerKitPartners";
-import { renderPartnerKitAsset, renderQrPng, renderQrSvg, sha256Hex } from "../services/partnerKitRender";
+
+type KitRuntime = typeof import("../services/partnerKitRender");
+
+let runtimePromise: Promise<KitRuntime> | null = null;
+let initHook: (() => Promise<void>) | null = null;
+let initLogged = false;
+
+/** Tests force the first kit touch to fail. Cleared between tests. */
+export function setKitInitForTests(hook: (() => Promise<void>) | null): void {
+  initHook = hook;
+  runtimePromise = null;
+  initLogged = false;
+}
+
+/**
+ * Sharp, QR, and frame reads stay off the import and boot path. The first
+ * /api/kit request loads them. A failure is logged and becomes 503 on kit
+ * routes only.
+ */
+async function kitRuntime(): Promise<KitRuntime> {
+  if (initHook) await initHook();
+  if (!runtimePromise) {
+    runtimePromise = import("../services/partnerKitRender").catch((err: unknown) => {
+      runtimePromise = null;
+      throw err;
+    });
+  }
+  return runtimePromise;
+}
+
+function logKitInitFailure(err: unknown): void {
+  if (initLogged) return;
+  initLogged = true;
+  const message = err instanceof Error ? err.message : String(err);
+  console.error("[partner-kit] init failed", message);
+}
+
+function kitUnavailable(req: Request, res: Response): void {
+  sendNoStoreBody(req, res, JSON.stringify({ error: "Kit unavailable" }), "application/json; charset=utf-8", 503);
+}
+
+async function openKit(req: Request, res: Response): Promise<KitRuntime | null> {
+  try {
+    return await kitRuntime();
+  } catch (err) {
+    logKitInitFailure(err);
+    if (!res.headersSent) kitUnavailable(req, res);
+    return null;
+  }
+}
 
 /** Internal only. The public page and API do not show this. */
 export const KIT_ASSET_PENDING = "kit coming soon for this asset";
@@ -61,6 +110,7 @@ export async function decideKitAsset(input: {
     if (!loaded) return { serve: false, reason: KIT_ASSET_PENDING };
     card = loaded.bytes;
   }
+  const { renderPartnerKitAsset, sha256Hex } = await kitRuntime();
   const rendered = await renderPartnerKitAsset({
     kind: input.kind,
     slug: input.slug,
@@ -106,6 +156,8 @@ export function registerPartnerKitRoutes(app: Express): void {
       notFound(req, res);
       return;
     }
+    void openKit(req, res).then((runtime) => {
+      if (!runtime || res.headersSent) return;
     const shopName = shopFrom(req, slug);
     const day = getPackptsDayKey();
     const captions = kitCaptions(day, shopName);
@@ -126,6 +178,10 @@ export function registerPartnerKitRoutes(app: Express): void {
         svg: `/api/kit/qr.svg?slug=${encodeURIComponent(slug)}`,
       },
     }), "application/json; charset=utf-8");
+    }).catch((err) => {
+      logKitInitFailure(err);
+      if (!res.headersSent) kitUnavailable(req, res);
+    });
   });
 
   app.get("/api/kit/qr.png", async (req, res) => {
@@ -134,10 +190,13 @@ export function registerPartnerKitRoutes(app: Express): void {
       notFound(req, res);
       return;
     }
+    const runtime = await openKit(req, res);
+    if (!runtime) return;
     try {
-      sendPng(req, res, await renderQrPng(kitPlayUrl(slug, "qr"), 512));
-    } catch {
-      if (!res.headersSent) notFound(req, res);
+      sendPng(req, res, await runtime.renderQrPng(kitPlayUrl(slug, "qr"), 512));
+    } catch (err) {
+      logKitInitFailure(err);
+      if (!res.headersSent) kitUnavailable(req, res);
     }
   });
 
@@ -147,7 +206,9 @@ export function registerPartnerKitRoutes(app: Express): void {
       notFound(req, res);
       return;
     }
-    const svg = renderQrSvg(kitPlayUrl(slug, "qr"));
+    void openKit(req, res).then((runtime) => {
+      if (!runtime || res.headersSent) return;
+    const svg = runtime.renderQrSvg(kitPlayUrl(slug, "qr"));
     stripConditionalValidators(req);
     applyNoStoreHeaders(res);
     res.status(200);
@@ -156,6 +217,10 @@ export function registerPartnerKitRoutes(app: Express): void {
     res.setHeader("X-Robots-Tag", "noindex");
     res.setHeader("Content-Length", Buffer.byteLength(svg));
     res.end(svg);
+    }).catch((err) => {
+      logKitInitFailure(err);
+      if (!res.headersSent) kitUnavailable(req, res);
+    });
   });
 
   app.get("/api/kit/asset/:kind", (req, res) => {
@@ -181,8 +246,9 @@ export function registerPartnerKitRoutes(app: Express): void {
         return;
       }
       sendPng(req, res, decision.bytes);
-    }).catch(() => {
-      if (!res.headersSent) notFound(req, res);
+    }).catch((err) => {
+      logKitInitFailure(err);
+      if (!res.headersSent) kitUnavailable(req, res);
     });
   });
 }

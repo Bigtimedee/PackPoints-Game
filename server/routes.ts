@@ -5126,10 +5126,10 @@ export async function registerRoutes(
       if (!/^[\w.-]+\.dump$/.test(name) || name.includes("..")) {
         return res.status(400).json({ error: "Invalid backup name" });
       }
-      const { BACKUP_DIR } = await import("./services/dbBackupService");
+      const { bootBackupDir } = await import("./startup/bootSchema");
       const path = await import("path");
       const fs = await import("fs");
-      const filePath = path.join(BACKUP_DIR, name);
+      const filePath = path.join(bootBackupDir(), name);
       if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Backup not found" });
       res.setHeader("Content-Type", "application/octet-stream");
       res.setHeader("Content-Disposition", `attachment; filename="${name}"`);

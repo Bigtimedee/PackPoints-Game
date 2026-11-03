@@ -10,8 +10,13 @@
 import { execFile } from "child_process";
 import { promises as fs } from "fs";
 import path from "path";
+import { bootBackupDir } from "../startup/bootSchema";
 
 export const BACKUP_DIR = "/app/data/masked-cards/.db-backups";
+
+function backupDir(): string {
+  return bootBackupDir();
+}
 const DAILY_PREFIX = "daily-";
 export const DAILY_KEEP = 7;
 const INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -34,11 +39,11 @@ function runPgDump(outFile: string): Promise<void> {
 
 export async function listBackups(): Promise<{ name: string; bytes: number; mtime: string }[]> {
   try {
-    const names = await fs.readdir(BACKUP_DIR);
+    const names = await fs.readdir(backupDir());
     const out: { name: string; bytes: number; mtime: string }[] = [];
     for (const name of names) {
       if (!name.endsWith(".dump")) continue;
-      const st = await fs.stat(path.join(BACKUP_DIR, name));
+      const st = await fs.stat(path.join(backupDir(), name));
       out.push({ name, bytes: st.size, mtime: st.mtime.toISOString() });
     }
     return out.sort((a, b) => b.mtime.localeCompare(a.mtime));
@@ -74,7 +79,7 @@ export function selectDailyToPrune(
 export async function pruneDaily(): Promise<string[]> {
   const victims = selectDailyToPrune(await listBackups());
   for (const name of victims) {
-    await fs.unlink(path.join(BACKUP_DIR, name)).catch(() => {});
+    await fs.unlink(path.join(backupDir(), name)).catch(() => {});
   }
   if (victims.length) console.log(`[DbBackup] pruned ${victims.length} daily dump(s) beyond keep=${DAILY_KEEP}`);
   return victims;
@@ -82,9 +87,9 @@ export async function pruneDaily(): Promise<string[]> {
 
 export async function takeDailyBackup(reason: string): Promise<string | null> {
   try {
-    await fs.mkdir(BACKUP_DIR, { recursive: true });
+    await fs.mkdir(backupDir(), { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15) + "Z";
-    const file = path.join(BACKUP_DIR, `${DAILY_PREFIX}${stamp}.dump`);
+    const file = path.join(backupDir(), `${DAILY_PREFIX}${stamp}.dump`);
     await runPgDump(file);
     const st = await fs.stat(file);
     console.log(`[DbBackup] ${reason} backup written: ${file} (${(st.size / 1024).toFixed(0)}K)`);

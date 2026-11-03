@@ -71,6 +71,7 @@ jobs:
           SECRET_SALT: ci-smoke-daily5-salt
           STRIPE_SECRET_KEY: sk_test_ci_smoke
           STRIPE_WEBHOOK_SECRET: whsec_ci_smoke
+          PACKPTS_VOLUME_ROOT: ${{ runner.temp }}/packpts-volume
         run: bash scripts/smoke-production-boot.sh
 
       # SEO kit name-leak check against the live dealable pool. The token is a

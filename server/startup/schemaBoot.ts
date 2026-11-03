@@ -4,7 +4,7 @@ import {
   hashSchemaFile,
   readSchemaPushMarker,
   runBootSchema,
-  SCHEMA_PUSH_MARKER,
+  schemaPushMarkerPath,
 } from "./bootSchema";
 import { verifyLiveSchema, type SchemaVerifyResult } from "./schemaProbe";
 
@@ -67,7 +67,7 @@ export async function runProductionSchemaBoot(opts?: {
   push?: (mode: "background" | "foreground") => Promise<{ pushed: boolean }>;
 }): Promise<{ mode: SchemaBootMode; background: Promise<void> | null }> {
   const schemaPath = opts?.schemaPath ?? path.join(process.cwd(), "shared/schema.ts");
-  const markerPath = opts?.markerPath ?? SCHEMA_PUSH_MARKER;
+  const markerPath = opts?.markerPath ?? schemaPushMarkerPath();
   const currentHash = await hashSchemaFile(schemaPath);
   const storedHash = await readSchemaPushMarker(markerPath);
   const verify = opts?.verify ?? (() => verifyLiveSchema());

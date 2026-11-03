@@ -40,7 +40,7 @@ import { kitSpaMeta } from "../lib/routeOg";
 import { readShareAllowlistFile, setShareAllowlistForTests } from "../services/partnerKitAllowlist";
 import { bakePartnerKit } from "../services/partnerKitBake";
 import { qrModuleCount, renderPartnerKitAsset, renderQrPng, sha256Hex } from "../services/partnerKitRender";
-import { KIT_ASSET_PENDING as PENDING, decideKitAsset, registerPartnerKitRoutes, setKitCardSourceForTests } from "../routes/partnerKit";
+import { KIT_ASSET_PENDING as PENDING, decideKitAsset, registerPartnerKitRoutes, setKitCardSourceForTests, setKitInitForTests } from "../routes/partnerKit";
 
 const SECRET_ID = "secret-card-id";
 const SECRET_NAME = "Ken Griffey";
@@ -404,5 +404,41 @@ describe("partner kit http gate", () => {
     } finally {
       rmSync(outfile, { force: true });
     }
+  });
+});
+
+describe("kit init cannot take down the rest of the server", () => {
+  const app = express();
+  app.get("/", (_req, res) => {
+    res.status(200).type("html").send("<div id=\"root\"></div>");
+  });
+  registerPartnerKitRoutes(app);
+  const server = createServer(app);
+  let base = "";
+
+  beforeAll(async () => {
+    setKitInitForTests(async () => {
+      throw new Error("kit disk denied");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const addr = server.address() as AddressInfo;
+    base = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    setKitInitForTests(null);
+    await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+  });
+
+  it("boots and serves / with 200 while kit routes return 503", async () => {
+    const home = await fetch(`${base}/`);
+    expect(home.status).toBe(200);
+    expect(await home.text()).toContain('<div id="root">');
+    const kit = await fetch(`${base}/api/kit/qr.png?slug=kit`);
+    expect(kit.status).toBe(503);
+    const body = await kit.text();
+    expect(body).toContain("Kit unavailable");
+    expect(body.toLowerCase()).not.toContain("coming soon");
+    expect(body).not.toContain("kit disk denied");
   });
 });
