@@ -18,7 +18,7 @@ export const SIGNUP_EXCLUSION_RULE =
   "totals, bySource, daily, and authProviders count users where is_admin is false and is_bot is false. totals.excluded reports the rows left out, for the same all-time, rolling 24h, and rolling 7d windows. staffAdmin is users.is_admin (the only staff and admin flag; a row that is also is_bot counts here once). bots is users.is_bot when is_admin is false. test and qa are null here because users.is_test_account rows (QA, e2e and staff accounts) are removed by the query before counting, so they appear in neither the totals nor excluded. anon_players are not users and are not counted.";
 
 export const SIGNUP_SOURCE_RULE =
-  "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, utm_source or referrer host chatgpt.com or chat.openai.com → ai_chatgpt, perplexity.ai → ai_perplexity, gemini.google.com → ai_gemini, copilot.microsoft.com → ai_copilot, claude.ai → ai_claude (utm_source is checked for these first); referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_medium, no utm_campaign, and no referrer → direct (a landing page alone is still direct); otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
+  "One bucket per included user, from the first stored touch. Order: utm_medium beatme or the earliest referral SIGNUP whose link purpose is DAILY5_CHALLENGE → beat_me_link; utm_medium play_sets or purpose SCORE_SHARE → share_card; purpose INVITE → referral; otherwise a sanitized utm_source (lowercase, letters, digits, underscore, max 40; the values unattributed and unknown are prefixed utm_ so they cannot fill those residual buckets); otherwise, when a user_attribution row exists, utm_source or referrer host chatgpt.com or chat.openai.com → ai_chatgpt, perplexity.ai → ai_perplexity, gemini.google.com → ai_gemini, copilot.microsoft.com → ai_copilot, claude.ai → ai_claude (utm_source is checked for these first); referrer host ebay.com → ebay and x.com, twitter.com, or t.co → x; otherwise an attribution row with no utm_source, no utm_medium, no utm_campaign, and no referrer → direct (a landing page alone is still direct); otherwise an attribution row or an unrecognized referrer → unknown; no attribution row and no SIGNUP referral → unattributed. Each bySource window sums to that window's total. byCampaign counts a sanitized utm_campaign (lowercase, letters, digits, underscore, hyphen, max 64) for those same users. byMedium does the same for utm_medium. A user with an empty campaign is left out of byCampaign, so that window can sum to less than the total. utm_source kit is the kit bucket. last24h and last7d are rolling from generatedAt. Daily days are America/Chicago calendar dates. Signup time is users.created_at.";
 
 export const SIGNUP_AUTH_PROVIDER_RULE =
   "Counted on the same included users as totals. One auth method each, so google + apple + email + workos + none equals the window total and each day's signups. google when users.oauth_provider is google. Else apple when users.oauth_provider is apple or an apple_users row exists. Else email when a local_credentials row exists. Else workos when users.workos_user_id is set or oauth_provider is workos (a WorkOS account whose IdP was not stored as google or apple, including AuthKit, SSO, and Password). Else none. guestConverted counts those users again when an anon_players row was claimed by that user within 24 hours after users.created_at. Do not add guestConverted into the sum. Daily byMethod uses the same keys. WorkOS GoogleOAuth is stored as google and is not counted as workos. A null oauth_provider is not guessed.";
@@ -101,6 +101,16 @@ export type SignupCountReport = {
     last24h: Record<string, number>;
     last7d: Record<string, number>;
   };
+  byCampaign: {
+    allTime: Record<string, number>;
+    last24h: Record<string, number>;
+    last7d: Record<string, number>;
+  };
+  byMedium: {
+    allTime: Record<string, number>;
+    last24h: Record<string, number>;
+    last7d: Record<string, number>;
+  };
   daily: Array<{
     day: string;
     signups: number;
@@ -130,6 +140,15 @@ export function sanitizeUtmSource(raw: string | null | undefined): string | null
   if (!cleaned) return null;
   if (RESERVED_UTM.has(cleaned)) return `utm_${cleaned}`;
   return cleaned;
+}
+
+/** Campaign and medium labels. Hyphens stay so shop_bobs-cards is readable. */
+export function sanitizeUtmLabel(raw: string | null | undefined): string | null {
+  const cleaned = norm(raw)
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+  return cleaned || null;
 }
 
 /** AI answer engines: referrer host (or a utm_source naming that host) → ai_<engine>. */
@@ -257,10 +276,22 @@ function bump(map: Map<string, number>, key: string): void {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
 
+function labelMap(counts: Map<string, number>): Record<string, number> {
+  const entries = [...counts.entries()].filter(([, n]) => n > 0);
+  entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return Object.fromEntries(entries);
+}
+
 export function buildSignupReport(rows: SignupSourceRow[], now = new Date()): SignupCountReport {
   const allTime = new Map<string, number>();
   const last24h = new Map<string, number>();
   const last7d = new Map<string, number>();
+  const campaignAll = new Map<string, number>();
+  const campaign24h = new Map<string, number>();
+  const campaign7d = new Map<string, number>();
+  const mediumAll = new Map<string, number>();
+  const medium24h = new Map<string, number>();
+  const medium7d = new Map<string, number>();
   const excluded = {
     allTime: emptyExcluded(),
     last24h: emptyExcluded(),
@@ -303,17 +334,25 @@ export function buildSignupReport(rows: SignupSourceRow[], now = new Date()): Si
     }
 
     const bucket = signupSourceBucket(row);
+    const campaign = sanitizeUtmLabel(row.utmCampaign);
+    const medium = sanitizeUtmLabel(row.utmMedium);
     allTimeTotal += 1;
     bump(allTime, bucket);
+    if (campaign) bump(campaignAll, campaign);
+    if (medium) bump(mediumAll, medium);
     addProvider(providers.allTime, row);
     if (within24h) {
       last24hTotal += 1;
       bump(last24h, bucket);
+      if (campaign) bump(campaign24h, campaign);
+      if (medium) bump(medium24h, medium);
       addProvider(providers.last24h, row);
     }
     if (within7d) {
       last7dTotal += 1;
       bump(last7d, bucket);
+      if (campaign) bump(campaign7d, campaign);
+      if (medium) bump(medium7d, medium);
       addProvider(providers.last7d, row);
     }
     if (createdAt && createdAt.getTime() <= now.getTime()) {
@@ -344,6 +383,16 @@ export function buildSignupReport(rows: SignupSourceRow[], now = new Date()): Si
       allTime: toCountMap(allTime, true),
       last24h: toCountMap(last24h, true),
       last7d: toCountMap(last7d, true),
+    },
+    byCampaign: {
+      allTime: labelMap(campaignAll),
+      last24h: labelMap(campaign24h),
+      last7d: labelMap(campaign7d),
+    },
+    byMedium: {
+      allTime: labelMap(mediumAll),
+      last24h: labelMap(medium24h),
+      last7d: labelMap(medium7d),
     },
     daily: dayKeys.map((day) => {
       const counts = dailyMaps.get(day) ?? new Map<string, number>();
