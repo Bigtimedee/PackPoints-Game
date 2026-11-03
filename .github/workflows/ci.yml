@@ -60,6 +60,19 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Boot the production bundle
+        env:
+          NODE_ENV: production
+          PORT: "5099"
+          IP_HASH_SALT: ci-smoke-ip-hash-salt
+          DEVICE_HASH_SALT: ci-smoke-device-hash-salt
+          FOUNDERS_PASS_PEPPER: ci-smoke-founders-pepper
+          JWT_SECRET: ci-smoke-jwt-secret-not-a-real-key
+          SECRET_SALT: ci-smoke-daily5-salt
+          STRIPE_SECRET_KEY: sk_test_ci_smoke
+          STRIPE_WEBHOOK_SECRET: whsec_ci_smoke
+        run: bash scripts/smoke-production-boot.sh
+
       # SEO kit name-leak check against the live dealable pool. The token is a
       # GitHub Actions secret (never in this public repo). Without it the step
       # skips with a warning; server/tests/seoPages.test.ts (offline hashed

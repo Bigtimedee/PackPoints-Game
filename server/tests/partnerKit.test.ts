@@ -2,7 +2,9 @@
  * Partner kit: captions, UTM, QR, allowlist, and no card spoilers.
  */
 import { createServer } from "http";
-import { mkdtempSync, readFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { createRequire } from "module";
+import { build } from "esbuild";
 import { tmpdir } from "os";
 import path from "path";
 import type { AddressInfo } from "net";
@@ -381,5 +383,26 @@ describe("partner kit http gate", () => {
     expect(meta?.description.toLowerCase()).not.toContain("a new card every day");
     expect(meta?.description.toLowerCase()).not.toContain("today's card");
     expect(meta?.imageAlt).not.toContain(SECRET_NAME);
+  });
+
+  it("loads the kit renderer from an esbuild CJS bundle and draws a QR", async () => {
+    const outfile = path.join(process.cwd(), `.kit-render-cjs-${process.pid}.cjs`);
+    await build({
+      entryPoints: [path.resolve(__dirname, "../services/partnerKitRender.ts")],
+      bundle: true,
+      platform: "node",
+      format: "cjs",
+      outfile,
+      external: ["sharp", "qrcode", "opentype.js"],
+      logLevel: "silent",
+    });
+    try {
+      const loaded = createRequire(import.meta.url)(outfile) as { renderQrSvg: (url: string) => string };
+      const svg = loaded.renderQrSvg(kitPlayUrl("kit", "qr"));
+      expect(svg).toContain("<svg");
+      expect(svg).not.toContain("utm_source=email");
+    } finally {
+      rmSync(outfile, { force: true });
+    }
   });
 });

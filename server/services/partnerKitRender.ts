@@ -19,12 +19,33 @@ import {
 } from "@shared/partnerKit";
 import { loadDejaVuFonts, measureText, textToPath } from "../contentFactory/fonts";
 
-const require = createRequire(import.meta.url);
-const QRCode = require("qrcode") as {
+type QrCore = {
   create: (text: string, opts: { errorCorrectionLevel: "M" }) => {
     modules: { size: number; get: (row: number, col: number) => number };
   };
 };
+
+let qrCore: QrCore | null = null;
+
+/**
+ * The production server is an esbuild CJS bundle. In that bundle import.meta
+ * is {} and createRequire(import.meta.url) throws at load time, which killed
+ * the process on the #342 deploy. Node sets __filename for that CJS file.
+ * Vitest keeps a real import.meta.url, so use that only when it is a file URL.
+ */
+function modulePathForRequire(): string {
+  if (typeof __filename === "string" && __filename.length > 0) return __filename;
+  const meta = import.meta.url;
+  if (typeof meta === "string" && meta.startsWith("file:")) return meta;
+  return path.join(process.cwd(), "package.json");
+}
+
+function loadQrCore(): QrCore {
+  if (qrCore) return qrCore;
+  const req = createRequire(modulePathForRequire());
+  qrCore = req("qrcode/lib/core/qrcode.js") as QrCore;
+  return qrCore;
+}
 
 const FRAME_FILES: Record<KitAssetKind, string> = {
   feed: "feed-1080x1350-frame-none.png",
@@ -52,7 +73,7 @@ export async function renderQrPng(url: string, size: number): Promise<Buffer> {
 }
 
 export function renderQrSvg(url: string): string {
-  const qr = QRCode.create(url, { errorCorrectionLevel: "M" });
+  const qr = loadQrCore().create(url, { errorCorrectionLevel: "M" });
   const n = qr.modules.size;
   const quiet = KIT_QRSHEET.quietModules;
   const dim = n + quiet * 2;
@@ -66,7 +87,7 @@ export function renderQrSvg(url: string): string {
 }
 
 export function qrModuleCount(url: string): { modules: number; withQuiet: number } {
-  const n = QRCode.create(url, { errorCorrectionLevel: "M" }).modules.size;
+  const n = loadQrCore().create(url, { errorCorrectionLevel: "M" }).modules.size;
   return { modules: n, withQuiet: n + KIT_QRSHEET.quietModules * 2 };
 }
 
@@ -217,7 +238,7 @@ function svgDoc(width: number, height: number, body: string): string {
 }
 
 function qrRaw(url: string): { data: Buffer; dim: number } {
-  const qr = QRCode.create(url, { errorCorrectionLevel: "M" });
+  const qr = loadQrCore().create(url, { errorCorrectionLevel: "M" });
   const n = qr.modules.size;
   const quiet = KIT_QRSHEET.quietModules;
   const dim = n + quiet * 2;
