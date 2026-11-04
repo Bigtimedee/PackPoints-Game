@@ -51,7 +51,7 @@ interface GrowthPlan {
 interface GrowthItem {
   id: string;
   planId: string;
-  platform: "TIKTOK" | "INSTAGRAM" | "X" | "REDDIT";
+  platform: "TIKTOK" | "INSTAGRAM" | "X" | "REDDIT" | "YOUTUBE";
   contentType: string;
   status: "DRAFT" | "QUEUED" | "POSTED" | "SKIPPED" | "FAILED";
   caption: string | null;
@@ -60,7 +60,7 @@ interface GrowthItem {
   script: string | null;
   overlayText: string | null;
   cta: string | null;
-  assetRefs: { label: string; description: string }[];
+  assetRefs: { label?: string; description?: string; type?: string; path?: string; signalKey?: string }[];
   errorMessage: string | null;
   mediaRequired: boolean | null;
   mediaStatus: "NOT_REQUIRED" | "PENDING" | "GENERATED" | "UPLOADED" | "FAILED" | null;
@@ -110,6 +110,7 @@ const PLATFORM_COLORS: Record<string, string> = {
   INSTAGRAM: "bg-pink-600 text-white",
   X: "bg-sky-500 text-white",
   REDDIT: "bg-orange-500 text-white",
+  YOUTUBE: "bg-red-600 text-white",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -253,7 +254,8 @@ function ItemPreviewDialog({ item }: { item: GrowthItem }) {
                 <ul className="space-y-1">
                   {item.assetRefs.map((ref, i) => (
                     <li key={i} className="bg-muted rounded p-2">
-                      <span className="font-medium">{ref.label}:</span> {ref.description}
+                      <span className="font-medium">{ref.label ?? ref.type ?? "Asset"}:</span>{" "}
+                      {ref.description ?? ref.path ?? "PackPTS asset"}
                     </li>
                   ))}
                 </ul>
@@ -1238,6 +1240,234 @@ function AbTestsTab() {
 }
 
 // ──────────────────────────────────────────────
+// Listen / Create / Distribute / Learn Tab
+// ──────────────────────────────────────────────
+
+interface GrowthSignalRow {
+  id: string;
+  source: string;
+  signalType: string;
+  title: string;
+  score: number;
+  assetPath: string | null;
+  observedAt: string;
+  expiresAt: string | null;
+}
+
+interface CreativeMetricRow {
+  id: string;
+  creativeId: string;
+  platform: string | null;
+  contentType: string | null;
+  impressions: number;
+  clicks: number;
+  signups: number;
+  gameStarts: number;
+  activations: number;
+  d1Retained: number;
+  d7Retained: number;
+  qdauPerThousand: number;
+  computedAt: string;
+}
+
+function MandateTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const signalsQuery = useQuery<GrowthSignalRow[]>({
+    queryKey: ["/api/admin/growth/signals"],
+    queryFn: () =>
+      fetch("/api/admin/growth/signals").then((r) => {
+        if (!r.ok) throw new Error(r.statusText);
+        return r.json();
+      }),
+  });
+
+  const performanceQuery = useQuery<CreativeMetricRow[]>({
+    queryKey: ["/api/admin/growth/creative-performance"],
+    queryFn: () =>
+      fetch("/api/admin/growth/creative-performance").then((r) => {
+        if (!r.ok) throw new Error(r.statusText);
+        return r.json();
+      }),
+  });
+
+  const runMandate = useMutation({
+    mutationFn: () =>
+      fetch("/api/admin/growth/mandate/run", { method: "POST" }).then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body?.error || body?.message || r.statusText);
+        return body;
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/signals"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/creative-performance"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/queue"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/plans"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/job-runs"] });
+      toast({
+        title: `Growth mandate complete — ${data.itemsCreated ?? 0} creative(s) staged`,
+        description: `${data.signalsObserved ?? 0} signals observed · ${data.winnersLearnedFrom ?? 0} winners learned from`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Growth mandate failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const recomputeLearning = useMutation({
+    mutationFn: () =>
+      fetch("/api/admin/growth/creative-performance/compute", { method: "POST" }).then(async (r) => {
+        const body = await r.json();
+        if (!r.ok) throw new Error(body?.message || r.statusText);
+        return body;
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/growth/creative-performance"] });
+      toast({ title: "Creative performance refreshed" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Learning refresh failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const signals = signalsQuery.data ?? [];
+  const metrics = performanceQuery.data ?? [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold">Listen → Create → Distribute → Learn</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Creative is grounded in real PackPTS activity and ranked by qualified DAUs per 1,000 impressions.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => recomputeLearning.mutate()}
+            disabled={recomputeLearning.isPending}
+          >
+            <TrendingUp className="h-4 w-4" />
+            Refresh Learning
+          </Button>
+          <Button
+            className="gap-2"
+            onClick={() => runMandate.mutate()}
+            disabled={runMandate.isPending}
+          >
+            {runMandate.isPending ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            Run Mandate Cycle
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Listen — Ranked Signals</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {signalsQuery.isPending ? (
+            <p className="p-4 text-sm text-muted-foreground">Loading signals…</p>
+          ) : signals.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              No active signals yet. Run the mandate cycle after real product activity exists.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium">Score</th>
+                    <th className="text-left p-3 font-medium">Source</th>
+                    <th className="text-left p-3 font-medium">Type</th>
+                    <th className="text-left p-3 font-medium">Signal</th>
+                    <th className="text-left p-3 font-medium">Media</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {signals.slice(0, 30).map((signal) => (
+                    <tr key={signal.id} className="hover:bg-muted/20">
+                      <td className="p-3 font-mono">{Math.round(signal.score)}</td>
+                      <td className="p-3"><Badge variant="outline">{signal.source}</Badge></td>
+                      <td className="p-3 text-xs">{signal.signalType.replace(/_/g, " ")}</td>
+                      <td className="p-3 max-w-xl">{signal.title}</td>
+                      <td className="p-3 text-xs">
+                        {signal.assetPath ? (
+                          <span className="text-green-600 font-medium">Verified asset</span>
+                        ) : (
+                          <span className="text-muted-foreground">No asset — cannot publish</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Learn — Creative Performance</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {performanceQuery.isPending ? (
+            <p className="p-4 text-sm text-muted-foreground">Loading performance…</p>
+          ) : metrics.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              No attributed published creative has enough data yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium">Creative</th>
+                    <th className="text-left p-3 font-medium">Platform</th>
+                    <th className="text-right p-3 font-medium">Impressions</th>
+                    <th className="text-right p-3 font-medium">Clicks</th>
+                    <th className="text-right p-3 font-medium">Game Starts</th>
+                    <th className="text-right p-3 font-medium">Activated</th>
+                    <th className="text-right p-3 font-medium">D1</th>
+                    <th className="text-right p-3 font-medium">D7</th>
+                    <th className="text-right p-3 font-medium">QDAU / 1K</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {metrics.slice(0, 50).map((metric) => (
+                    <tr key={metric.id} className="hover:bg-muted/20">
+                      <td className="p-3 font-mono text-xs">{metric.creativeId.slice(0, 8)}</td>
+                      <td className="p-3">{metric.platform ? <PlatformBadge platform={metric.platform} /> : "—"}</td>
+                      <td className="text-right p-3">{metric.impressions.toLocaleString()}</td>
+                      <td className="text-right p-3">{metric.clicks.toLocaleString()}</td>
+                      <td className="text-right p-3">{metric.gameStarts.toLocaleString()}</td>
+                      <td className="text-right p-3">{metric.activations.toLocaleString()}</td>
+                      <td className="text-right p-3">{metric.d1Retained.toLocaleString()}</td>
+                      <td className="text-right p-3">{metric.d7Retained.toLocaleString()}</td>
+                      <td className="text-right p-3 font-semibold">
+                        {metric.qdauPerThousand.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Main Page
 // ──────────────────────────────────────────────
 
@@ -1274,7 +1504,7 @@ export default function AdminGrowth() {
         <div>
           <h1 className="text-2xl font-bold">Growth Agent</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Generate daily content plans and manage the social media publishing queue.
+            Turn real PackPTS activity into measurable creative, distribution, and retained gameplay.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1301,6 +1531,7 @@ export default function AdminGrowth() {
 
       <Tabs defaultValue="queue">
         <TabsList>
+          <TabsTrigger value="mandate">Growth Mandate</TabsTrigger>
           <TabsTrigger value="queue">Publishing Queue</TabsTrigger>
           <TabsTrigger value="plans">Content Plans</TabsTrigger>
           <TabsTrigger value="runs">Job Runs</TabsTrigger>
@@ -1308,6 +1539,10 @@ export default function AdminGrowth() {
           <TabsTrigger value="analytics">Post Analytics</TabsTrigger>
           <TabsTrigger value="abtests">A/B Tests</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="mandate" className="mt-4">
+          <MandateTab />
+        </TabsContent>
 
         <TabsContent value="queue" className="mt-4">
           <QueueTab />
