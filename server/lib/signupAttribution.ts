@@ -30,6 +30,8 @@ export const ATTRIBUTION_COOKIE = "pp_attr";
 export const ATTRIBUTION_SESSION_KEY = "signupAttribution";
 /** Cookie is only needed for the OAuth round trip. */
 export const ATTRIBUTION_COOKIE_MAX_AGE_MS = 30 * 60 * 1000;
+/** Matches the browser first-touch window. Longer than the OAuth cookie so a dropped cookie still has the same record. */
+export const SESSION_ATTRIBUTION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Hard cap on the raw cookie value we will set or parse. */
 export const ATTRIBUTION_COOKIE_MAX_BYTES = 1200;
 /** Sent to the OAuth callback and Apple handler only. */
@@ -136,22 +138,17 @@ export function sanitizeAttribution(input: unknown): SignupAttribution | null {
   return hasAnyAttribution(out) ? out : null;
 }
 
-/** Field-by-field: primary wins, fallback fills gaps. */
-export function mergeAttribution(
-  primary: SignupAttribution | null,
-  fallback: SignupAttribution | null,
+/**
+ * First matching complete record wins. Fields from a later cookie or session
+ * are not copied into an earlier record, so two touches cannot be mixed.
+ */
+export function chooseFirstTouch(
+  ...candidates: Array<SignupAttribution | null | undefined>
 ): SignupAttribution | null {
-  if (!primary) return fallback;
-  if (!fallback) return primary;
-  const primarySuppliedSource = primary.utmSource !== null;
-  const out = { ...primary };
-  const fields = ["utmSource", "utmMedium", "utmCampaign", "utmTerm", "utmContent", "refCode", "landingPage", "referrerHost"] as const;
-  for (const key of fields) {
-    if (out[key] === null) out[key] = fallback[key];
+  for (const candidate of candidates) {
+    if (hasAnyAttribution(candidate)) return candidate;
   }
-  if (!primarySuppliedSource && fallback.inferred) out.inferred = true;
-  if (primary.inferred) out.inferred = true;
-  return out;
+  return null;
 }
 
 // ── Signed cookie ────────────────────────────────────────────────────────────
@@ -264,16 +261,44 @@ export function readAttributionCookie(req: Pick<Request, "headers">): SignupAttr
   return decodeAttributionCookie(readCookie(req, ATTRIBUTION_COOKIE));
 }
 
-export function readSessionAttribution(req: { session?: unknown }): SignupAttribution | null {
-  const session = req.session as Record<string, unknown> | undefined;
-  return sanitizeAttribution(session?.[ATTRIBUTION_SESSION_KEY]);
+type SessionEnvelope = { v: 1; at: number; record: SignupAttribution };
+
+function sessionBag(req: { session?: unknown }): Record<string, unknown> | null {
+  const session = req.session;
+  if (!session || typeof session !== "object") return null;
+  return session as Record<string, unknown>;
 }
 
-export function writeSessionAttribution(req: { session?: unknown }, attribution: SignupAttribution | null): void {
-  const session = req.session as Record<string, unknown> | undefined;
+export function readSessionAttribution(req: { session?: unknown }, now = Date.now()): SignupAttribution | null {
+  const session = sessionBag(req);
+  if (!session) return null;
+  const raw = session[ATTRIBUTION_SESSION_KEY];
+  if (!raw || typeof raw !== "object") return null;
+  const envelope = raw as Partial<SessionEnvelope> & Record<string, unknown>;
+  if (envelope.v === 1 && typeof envelope.at === "number") {
+    if (!Number.isFinite(envelope.at) || envelope.at > now + 60_000 || now - envelope.at > SESSION_ATTRIBUTION_TTL_MS) {
+      delete session[ATTRIBUTION_SESSION_KEY];
+      return null;
+    }
+    return sanitizeAttribution(envelope.record);
+  }
+  const legacy = sanitizeAttribution(raw);
+  if (!legacy) {
+    delete session[ATTRIBUTION_SESSION_KEY];
+    return null;
+  }
+  session[ATTRIBUTION_SESSION_KEY] = { v: 1, at: now, record: legacy };
+  return legacy;
+}
+
+export function writeSessionAttribution(req: { session?: unknown }, attribution: SignupAttribution | null, now = Date.now()): void {
+  const session = sessionBag(req);
   if (!session) return;
-  if (attribution) session[ATTRIBUTION_SESSION_KEY] = attribution;
-  else delete session[ATTRIBUTION_SESSION_KEY];
+  if (attribution && hasAnyAttribution(attribution)) {
+    session[ATTRIBUTION_SESSION_KEY] = { v: 1, at: now, record: attribution } satisfies SessionEnvelope;
+  } else {
+    delete session[ATTRIBUTION_SESSION_KEY];
+  }
 }
 
 export function clearSessionAttribution(req: { session?: unknown }): void {
@@ -426,8 +451,9 @@ export async function attributeNewUserFromRequest(
   bodyInput: unknown,
   logTag: string,
 ): Promise<ApplyResult> {
-  const attribution = mergeAttribution(
-    mergeAttribution(sanitizeAttribution(bodyInput), readAttributionCookie(req)),
+  const attribution = chooseFirstTouch(
+    sanitizeAttribution(bodyInput),
+    readAttributionCookie(req),
     readSessionAttribution(req),
   );
   clearAttributionCookie(res);

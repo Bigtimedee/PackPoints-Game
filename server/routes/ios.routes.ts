@@ -29,13 +29,13 @@ import {
   jwtMiddleware,
 } from "../services/jwtService";
 import { loginLimiter } from "../middleware/rateLimiter";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   applySignupAttribution, riskCtxFrom,
   clearAttributionCookie,
   clearSessionAttribution,
-  mergeAttribution,
+  chooseFirstTouch,
   readAttributionCookie,
   readSessionAttribution,
   sanitizeAttribution,
@@ -226,8 +226,9 @@ export function registerIosRoutes(app: Express) {
     // Web clients carry attribution in the signed pp_attr cookie; native
     // clients may send it in the body. Read once after the token verifies, always clear, and use it
     // only if this request creates the user.
-    const signupAttribution = mergeAttribution(
-      mergeAttribution(sanitizeAttribution(parsed.data.attribution), readAttributionCookie(req)),
+    const signupAttribution = chooseFirstTouch(
+      sanitizeAttribution(parsed.data.attribution),
+      readAttributionCookie(req),
       readSessionAttribution(req),
     );
     clearAttributionCookie(res);
@@ -263,29 +264,32 @@ export function registerIosRoutes(app: Express) {
         email: emailToUse,
       });
 
-      // Create user (no local credential — Apple-only account)
-      const newUser = await db
-        .insert(users)
-        .values({
+      // Create user (no local credential — Apple-only account) and the signup
+      // event in one transaction. A failure rolls both back.
+      const { insertSignupForNewUser } = await import("../services/growthStage1");
+      packpointsUser = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(users)
+          .values({
+            id: randomUUID(),
+            username,
+            usernameNormalized: username.toLowerCase(),
+            email: emailToUse ?? null,
+            emailNormalized: emailToUse?.toLowerCase() ?? null,
+            firstName: fullName?.givenName ?? null,
+            lastName: fullName?.familyName ?? null,
+            status: "ACTIVE",
+            createdAt: sql`(now() AT TIME ZONE 'UTC')`,
+          })
+          .returning();
+        await tx.insert(appleUsers).values({
           id: randomUUID(),
-          username,
-          usernameNormalized: username.toLowerCase(),
-          email: emailToUse ?? null,
-          emailNormalized: emailToUse?.toLowerCase() ?? null,
-          firstName: fullName?.givenName ?? null,
-          lastName: fullName?.familyName ?? null,
-          status: "ACTIVE",
-        })
-        .returning();
-
-      packpointsUser = newUser[0];
-
-      // Record the Apple <-> PackPoints linkage
-      await db.insert(appleUsers).values({
-        id: randomUUID(),
-        userId: packpointsUser.id,
-        appleUserId,
-        email: appleEmailFromToken ?? appleEmail ?? null,
+          userId: created.id,
+          appleUserId,
+          email: appleEmailFromToken ?? appleEmail ?? null,
+        });
+        await insertSignupForNewUser(tx, created.id, signupAttribution, "apple");
+        return created;
       });
 
       console.log(

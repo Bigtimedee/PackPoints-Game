@@ -72,8 +72,8 @@ export interface IStorage {
   updateUserPoints(id: string, points: number): Promise<User | undefined>;
   updateUserStats(id: string, stats: { pointsEarned: number; correctAnswers: number; totalAnswers: number }): Promise<User | undefined>;
   
-  createLocalUser(username: string, email: string, password: string): Promise<User>;
-  createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }): Promise<User>;
+  createLocalUser(username: string, email: string, password: string, growth?: import("./services/growthStage1").GrowthSignupAttach | null): Promise<User>;
+  createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }, growth?: import("./services/growthStage1").GrowthSignupAttach | null): Promise<User>;
   linkWorkosUser(userId: string, workosUserId: string): Promise<void>;
   setOauthProviderIfEmpty(userId: string, oauthProvider: "google" | "apple" | "workos"): Promise<void>;
   validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
@@ -413,47 +413,54 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createLocalUser(username: string, email: string, password: string): Promise<User> {
+  async createLocalUser(username: string, email: string, password: string, growth?: import("./services/growthStage1").GrowthSignupAttach | null): Promise<User> {
     const passwordHash = await bcrypt.hash(password, 10);
     const { normalizeEmail } = await import("./services/accessService");
     const { randomUUID } = await import("crypto");
-    
-    const [user] = await db.insert(users).values({
-      username,
-      email,
-      emailNormalized: normalizeEmail(email),
-      firstName: username,
-      status: "ACTIVE",
-      activatedAt: new Date(),
-    }).returning();
-    
-    // Provide explicit ID in case database doesn't have UUID generation capability
-    await db.insert(localCredentials).values({
-      id: randomUUID(),
-      userId: user.id,
-      passwordHash,
+    const { insertSignupForNewUser } = await import("./services/growthStage1");
+
+    return db.transaction(async (tx) => {
+      const [user] = await tx.insert(users).values({
+        username,
+        email,
+        emailNormalized: normalizeEmail(email),
+        firstName: username,
+        status: "ACTIVE",
+        activatedAt: new Date(),
+        // UTC wall clock. Session TimeZone must not choose this value.
+        createdAt: sql`(now() AT TIME ZONE 'UTC')`,
+      }).returning();
+      await tx.insert(localCredentials).values({
+        id: randomUUID(),
+        userId: user.id,
+        passwordHash,
+      });
+      if (growth) await insertSignupForNewUser(tx, user.id, growth.attribution ?? null, growth.provider);
+      return user;
     });
-    
-    return user;
   }
 
-  async createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }): Promise<User> {
+  async createWorkosUser(data: { workosUserId: string; email?: string; firstName?: string; lastName?: string; profileImageUrl?: string; username: string; oauthProvider?: "google" | "apple" | "workos" }, growth?: import("./services/growthStage1").GrowthSignupAttach | null): Promise<User> {
     const { normalizeEmail } = await import("./services/accessService");
-    
-    const [user] = await db.insert(users).values({
-      username: data.username,
-      email: data.email,
-      emailNormalized: data.email ? normalizeEmail(data.email) : undefined,
-      firstName: data.firstName || data.username,
-      lastName: data.lastName,
-      profileImageUrl: data.profileImageUrl,
-      workosUserId: data.workosUserId,
-      oauthProvider: data.oauthProvider,
-      status: "ACTIVE",
-      activatedAt: new Date(),
-    }).returning();
-    
-    return user;
+    const { insertSignupForNewUser } = await import("./services/growthStage1");
+
+    return db.transaction(async (tx) => {
+      const [user] = await tx.insert(users).values({
+        username: data.username,
+        email: data.email,
+        emailNormalized: data.email ? normalizeEmail(data.email) : undefined,
+        firstName: data.firstName || data.username,
+        lastName: data.lastName,
+        profileImageUrl: data.profileImageUrl,
+        workosUserId: data.workosUserId,
+        oauthProvider: data.oauthProvider,
+        status: "ACTIVE",
+        activatedAt: new Date(),
+        createdAt: sql`(now() AT TIME ZONE 'UTC')`,
+      }).returning();
+      if (growth) await insertSignupForNewUser(tx, user.id, growth.attribution ?? null, growth.provider ?? data.oauthProvider);
+      return user;
+    });
   }
 
   async linkWorkosUser(userId: string, workosUserId: string): Promise<void> {

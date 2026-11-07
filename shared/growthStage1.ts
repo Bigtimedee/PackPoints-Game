@@ -87,8 +87,21 @@ export const STAGE1_DEFINITIONS = {
   observation:
     "A return observation is GET /api/auth/user, a successful local, WorkOS, or Apple login, a verified mobile Bearer request, or one of the game completions above. The client cannot post these events.",
   baseline:
-    "growth_instrumentation id stage1 records the instant instrumentation started. Users created earlier get no lifecycle events. No history is invented.",
+    "growth_instrumentation.started_at is timestamptz (an absolute instant). users.created_at is timestamp without time zone and is stored and read as a UTC wall clock: new registration rows set created_at to (now() AT TIME ZONE 'UTC'), and comparisons use (created_at AT TIME ZONE 'UTC'). The Chicago cohort day is to_char((that instant) AT TIME ZONE 'America/Chicago'). Neither the database session TimeZone nor the Node process TZ is used. Users created before the baseline get no events.",
+  exclusions:
+    "Inline signup events are written only for email registration, a new WorkOS user, and a new Sign in with Apple user, in the same transaction as the user row. Reconcile repairs a missing event only when that user is post-baseline, not staff, not a bot, not a test account, and has a local credential, WorkOS id, oauth_provider, or apple_users row. Excluded on purpose: bot opponents, the admin seed, the QA test account, dev POST /api/test/login, seedMockUsers, guest rounds, flagged Daily 5 finishes, and head-to-head forfeits or cancels. iOS play uses the same solo and Daily 5 routes; there is no second mobile completion writer.",
 } as const;
+
+export const STAGE1_EXCLUSIONS = [
+  "Email, WorkOS, and Sign in with Apple write the signup event in the same database transaction as the new user, before wallet credit or guest claim.",
+  "Bot opponents (users.is_bot), the admin seed (users.is_admin), and the QA session account (users.is_test_account) are not signups.",
+  "Dev POST /api/test/login and seedMockUsers create user rows with no local credential, WorkOS id, or Apple link. The reconciler does not treat them as signups.",
+  "authStorage.upsertUser is not called by a registration route.",
+  "Guest solo and guest Daily 5 completions have no user id and are not first_game_completed. Claiming a guest wallet does not copy those rounds.",
+  "A flagged Daily 5 finish is not first_game_completed. A later unflagged finish can be.",
+  "Head-to-head first_game_completed is only maybeFinish (end reason completed). matchService.forfeitMatch and engine.forfeitMatch are not.",
+  "iOS and other mobile clients use POST /api/game/next, POST /api/daily5/finish, and Bearer JWT activity. They do not have a separate completion route.",
+] as const;
 
 export const STAGE1_INTEGRATION_GAPS = [
   "ig_post_queue.utm_campaign is varchar(16) and utm_content is varchar(40). Stage 1 does not widen them and does not rewrite queued or published rows.",
@@ -329,6 +342,7 @@ export type GrowthStage1Report = {
   coverageNote: string;
   definitions: typeof STAGE1_DEFINITIONS;
   integrationGaps: readonly string[];
+  exclusions: readonly string[];
   lifecycleEmailSends: "off";
   bioHelper: { installed: false; url: string | null; note: string };
   destinations: {
@@ -565,6 +579,7 @@ export function buildGrowthStage1Report(input: {
       "Actual share of instrumented new signups with a supplied marketing source. Not a guarantee. Direct, missing, unrecognized, legacy-only, referrer-only, and referrer-inferred signups stay in unattributed.",
     definitions: STAGE1_DEFINITIONS,
     integrationGaps: STAGE1_INTEGRATION_GAPS,
+    exclusions: STAGE1_EXCLUSIONS,
     lifecycleEmailSends: "off",
     bioHelper: {
       installed: false,

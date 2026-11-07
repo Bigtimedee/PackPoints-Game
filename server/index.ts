@@ -537,10 +537,12 @@ app.use((req, res, next) => {
   // drizzle-kit push is still running in the background. On the fallback path
   // that push finished before this function continued.
   try {
-    const { ensureGrowthInstrumentation } = await import("./services/growthStage1");
+    const { ensureGrowthInstrumentation, startGrowthSignupReconcile } = await import("./services/growthStage1");
     await ensureGrowthInstrumentation();
+    await startGrowthSignupReconcile();
   } catch (err: any) {
-    console.error("[Growth] stage1 baseline insert failed (non-fatal):", err?.message);
+    console.error("[Growth] FATAL: stage1 baseline is not in place. Refusing to serve.", err?.message);
+    process.exit(1);
   }
   markSchemaReady();
   logBootPhase("routes_ready");

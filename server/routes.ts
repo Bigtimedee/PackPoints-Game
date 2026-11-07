@@ -133,7 +133,7 @@ import { registerPointsValueRoute } from "./routes/pointsValue";
 import { registerPointsEventsRoute } from "./routes/pointsEvents";
 import { registerQaSessionRoute, qaTestAccountGuard } from "./routes/qaSession";
 import { isQaTestUser } from "@shared/qaTestAccount";
-import { attributeNewUserFromRequest, sanitizeAttribution } from "./lib/signupAttribution";
+import { attributeNewUserFromRequest, chooseFirstTouch, readAttributionCookie, readSessionAttribution, sanitizeAttribution } from "./lib/signupAttribution";
 import { funnelToken, signupFunnelPath } from "./services/signupFunnel";
 import { allocateLocalUsername, isUsernameConflict } from "./services/localUsername";
 import cardhedgeRouter from "./routes/cardhedge.routes";
@@ -1844,10 +1844,15 @@ export async function registerRoutes(
         }
       }
 
+      const stagedTouch = chooseFirstTouch(
+        sanitizeAttribution(req.body),
+        readAttributionCookie(req),
+        readSessionAttribution(req),
+      );
       let user;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          user = await storage.createLocalUser(username, email, password);
+          user = await storage.createLocalUser(username, email, password, { provider: "email", attribution: stagedTouch });
           break;
         } catch (createErr) {
           if (suppliedUsername || attempt === 1 || !isUsernameConflict(createErr)) throw createErr;

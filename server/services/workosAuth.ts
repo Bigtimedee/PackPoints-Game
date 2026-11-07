@@ -7,7 +7,7 @@ import { identityService } from "./identityService";
 import type { IdentityProvider } from "@shared/schema";
 import {
   applySignupAttribution, riskCtxFrom,
-  mergeAttribution,
+  chooseFirstTouch,
   clearAttributionCookie,
   clearSessionAttribution,
   isSameOriginRequest,
@@ -152,7 +152,7 @@ export function registerWorkosRoutes(app: Express): void {
     const clientInfo = getClientInfo(req);
     const provider: IdentityProvider = "workos";
     // Read once and always clear: only a user created below may use it.
-    const stashedAttribution = mergeAttribution(readAttributionCookie(req), readSessionAttribution(req));
+    const stashedAttribution = chooseFirstTouch(readAttributionCookie(req), readSessionAttribution(req));
     clearAttributionCookie(res);
     clearSessionAttribution(req);
     const signupSurface = funnelToken((req.session as any)?.signupSurface) || "workos";
@@ -378,7 +378,7 @@ export function registerWorkosRoutes(app: Express): void {
         profileImageUrl: workosUser.profilePictureUrl || undefined,
         username: uniqueUsername,
         oauthProvider: signupMethod,
-      });
+      }, { provider: signupMethod, attribution: stashedAttribution });
 
       if (!newUser) {
         console.error("[WorkOS] Failed to create local user");

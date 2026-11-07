@@ -94,6 +94,10 @@ vi.mock("../db", () => {
       select: () => chain(() => mocks.appleSelect()),
       insert: () => chain(() => mocks.userInsert()),
       update: () => chain(() => []),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({
+        insert: () => chain(() => mocks.userInsert()),
+        execute: async () => ({ rows: [{ has_event: true, should: false }] }),
+      }),
     },
   };
 });
@@ -104,6 +108,9 @@ import {
   ATTRIBUTION_COOKIE_MAX_BYTES,
   applySignupAttribution,
   attributeNewUserFromRequest,
+  readSessionAttribution,
+  SESSION_ATTRIBUTION_TTL_MS,
+  writeSessionAttribution,
   decodeAttributionCookie,
   encodeAttributionCookie,
   sanitizeAttribution,
@@ -363,6 +370,15 @@ describe("attribution cookie", () => {
     expect(value.length).toBeLessThanOrEqual(ATTRIBUTION_COOKIE_MAX_BYTES);
   });
 
+  it("keeps a session record for the 30 day first-touch window and drops it after", () => {
+    const session: Record<string, unknown> = {};
+    const record = sanitizeAttribution({ utmSource: "instagram", utmMedium: "social", utmCampaign: "261107-87topps", utmContent: "post-a" })!;
+    writeSessionAttribution({ session }, record, 1_000);
+    expect(readSessionAttribution({ session }, 1_000 + SESSION_ATTRIBUTION_TTL_MS - 1)?.utmCampaign).toBe("261107-87topps");
+    expect(readSessionAttribution({ session }, 1_000 + SESSION_ATTRIBUTION_TTL_MS + 1)).toBeNull();
+    expect(session.signupAttribution).toBeUndefined();
+  });
+
   it("rejects tampered, expired, oversized, and unsigned values", () => {
     const value = encodeAttributionCookie(sample)!;
     const [payload, mac] = value.split(".");
@@ -493,7 +509,7 @@ describe("WorkOS: stash cookie round trip", () => {
     expect(mocks.createWorkosUser).toHaveBeenCalledWith(expect.objectContaining({
       workosUserId: "wos_new",
       oauthProvider: "workos",
-    }));
+    }), expect.objectContaining({ provider: "workos" }));
   });
 
   it("stores GoogleOAuth as google on a new WorkOS user", async () => {
@@ -510,7 +526,7 @@ describe("WorkOS: stash cookie round trip", () => {
     expect(mocks.createWorkosUser).toHaveBeenCalledWith(expect.objectContaining({
       workosUserId: "wos_google",
       oauthProvider: "google",
-    }));
+    }), expect.objectContaining({ provider: "google", attribution: null }));
   });
 
   it("uses the session stash when the OAuth cookie is not sent", async () => {
@@ -687,7 +703,7 @@ describe("POST /api/auth/register attribution", () => {
     expect(cleared).toEqual([ATTRIBUTION_COOKIE]);
   });
 
-  it("fills gaps from the stash cookie; body wins per field", async () => {
+  it("keeps the body record whole and does not mix cookie fields into it", async () => {
     const cookie = encodeAttributionCookie(attr({ utmSource: "cookie_src", utmCampaign: "from_cookie" }))!;
     const { res } = fakeRes();
     await attributeNewUserFromRequest(
@@ -697,7 +713,20 @@ describe("POST /api/auth/register attribution", () => {
       { utmSource: "body_src" },
       "Register",
     );
-    expect(written[0].a).toEqual(attr({ utmSource: "body_src", utmCampaign: "from_cookie" }));
+    expect(written[0].a).toEqual(attr({ utmSource: "body_src" }));
+  });
+
+  it("uses the cookie record whole when the body has no attribution", async () => {
+    const cookie = encodeAttributionCookie(attr({ utmSource: "cookie_src", utmCampaign: "from_cookie", landingPage: "/daily" }))!;
+    const { res } = fakeRes();
+    await attributeNewUserFromRequest(
+      { headers: { cookie: `${ATTRIBUTION_COOKIE}=${encodeURIComponent(cookie)}` } },
+      res,
+      "user-reg-cookie",
+      { username: "a", email: "a@example.com", password: "p" },
+      "Register",
+    );
+    expect(written[0].a).toEqual(attr({ utmSource: "cookie_src", utmCampaign: "from_cookie", landingPage: "/daily" }));
   });
 
   it("records referral SIGNUP from referredByCode", async () => {

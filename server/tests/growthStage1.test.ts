@@ -24,6 +24,8 @@ import {
 import { growthInstrumentation, growthLifecycleEvents, igPostQueue } from "@shared/schema";
 import {
   GROWTH_EVENT_INSERT_SQL,
+  CHECKED_ACTIVITY_MAX,
+  GROWTH_SIGNUP_INSERT_SQL,
   noteGrowthActivity,
   noteGrowthGameCompleted,
   recordGrowthSignup,
@@ -298,32 +300,19 @@ describe("retention boundaries", () => {
 });
 
 describe("signup event dedupe", () => {
-  const createdAt = atCt("2026-11-07", 15);
-
   function store(): GrowthQueryable & { events: string[] } {
     const events: string[] = [];
     let chain = Promise.resolve();
     const queryable: GrowthQueryable & { events: string[] } = {
       events,
       async query(sql, params = []) {
-        if (sql.includes("FROM users")) {
-          const id = String(params[0]);
-          if (id === "missing") return { rows: [] };
-          if (id === "staff") {
-            return { rows: [{ created_at: createdAt, is_admin: true, is_bot: false, is_test_account: false, started_at: BASELINE }] };
-          }
-          if (id === "old") {
-            return { rows: [{ created_at: new Date("2026-01-02T00:00:00.000Z"), is_admin: false, is_bot: false, is_test_account: false, started_at: BASELINE }] };
-          }
-          return { rows: [{ created_at: createdAt, is_admin: false, is_bot: false, is_test_account: false, started_at: BASELINE }] };
-        }
-        if (sql.includes("growth_lifecycle_events") && sql.includes("cohort_day FROM")) {
-          const id = String(params[0]);
-          const signup = events.find((key) => key === `${id}:signup`);
-          return { rows: signup ? [{ cohort_day: "2026-11-07" }] : [] };
-        }
         if (sql.includes("INSERT INTO growth_lifecycle_events")) {
-          const key = `${params[0]}:${params[1]}`;
+          const id = String(params[0]);
+          if (id === "old" || id === "staff") return { rows: [], rowCount: 0 };
+          const signupInsert = sql.includes("AT TIME ZONE 'UTC'");
+          const eventType = signupInsert ? "signup" : String(params[1]);
+          if (!signupInsert && !events.includes(`${id}:signup`)) return { rows: [], rowCount: 0 };
+          const key = `${id}:${eventType}`;
           const run = chain.then(() => {
             if (events.includes(key)) return { rows: [], rowCount: 0 };
             events.push(key);
@@ -332,6 +321,16 @@ describe("signup event dedupe", () => {
           chain = run.then(() => undefined, () => undefined);
           return run;
         }
+        if (sql.includes("AS has_event")) {
+          const id = String(params[0]);
+          return { rows: [{ has_event: events.includes(`${id}:signup`), should: id !== "old" && id !== "staff" }] };
+        }
+        if (sql.includes("activity_day")) {
+          const id = String(params[0]);
+          const signup = events.find((key) => key === `${id}:signup`);
+          const at = params[1] instanceof Date ? params[1] : new Date();
+          return { rows: signup ? [{ cohort_day: "2026-11-07", activity_day: getPackptsDayKey(at) }] : [] };
+        }
         return { rows: [], rowCount: 0 };
       },
     };
@@ -339,6 +338,9 @@ describe("signup event dedupe", () => {
   }
 
   it("inserts one signup for a new user and ignores retries, logins of old or staff users, and concurrent calls", async () => {
+    expect(GROWTH_SIGNUP_INSERT_SQL).toContain("ON CONFLICT (user_id, event_type) DO NOTHING");
+    expect(GROWTH_SIGNUP_INSERT_SQL).toContain("AT TIME ZONE 'UTC'");
+    expect(GROWTH_SIGNUP_INSERT_SQL).toContain("AT TIME ZONE 'America/Chicago'");
     expect(GROWTH_EVENT_INSERT_SQL).toContain("ON CONFLICT (user_id, event_type) DO NOTHING");
     const db = store();
     setGrowthQueryableForTests(db);

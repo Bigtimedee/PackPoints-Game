@@ -5210,8 +5210,10 @@ export type ReferralWelcomeReward = typeof referralWelcomeRewards.$inferSelect;
 
 /**
  * Stage 1 instrumentation clock. One row, id `stage1`, inserted once at boot.
- * Users created before started_at are not backfilled with lifecycle events.
- * Declared here so `drizzle-kit push --force` does not drop the table.
+ * started_at is an absolute instant (timestamptz). users.created_at is a UTC
+ * wall clock; compare with (created_at AT TIME ZONE 'UTC'), never a bare
+ * timestamp-to-timestamptz cast. Users created before started_at are not
+ * backfilled. Declared here so `drizzle-kit push --force` does not drop the table.
  */
 export const growthInstrumentation = pgTable("growth_instrumentation", {
   id: varchar("id", { length: 32 }).primaryKey(),
