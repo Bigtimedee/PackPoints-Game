@@ -182,6 +182,8 @@ export interface IgStore {
   markPublished(id: number, igMediaId: string, publishedAt: Date): Promise<boolean>;
   markFailed(id: number, error: string): Promise<boolean>;
   markSkipped(id: number, error: string): Promise<boolean>;
+  /** Record that media_publish's outcome is unknown. Keeps the container and the day slot. */
+  markUncertain(id: number, error: string): Promise<boolean>;
   latestPublished(): Promise<IgQueueRow | null>;
   inflight(kind: IgKind): Promise<IgQueueRow | null>;
   dayConsumed(kind: IgKind, dayKey: string): Promise<boolean>;
@@ -985,8 +987,21 @@ export function createMemoryStore(): IgStore {
   let nextId = 1;
   const chains = new Map<number, Promise<unknown>>();
   const dayChains = new Map<string, Promise<unknown>>();
+  let capacityChain: Promise<unknown> = Promise.resolve();
   const slots = new Map<string, Map<number, number>>();
   const slotByPost = new Map<number, { day: string; slot: number }>();
+
+  function occupiedMemory(accountDay: string, exceptId: number): number {
+    const ids = new Set<number>();
+    for (const postId of slots.get(accountDay)?.values() ?? []) {
+      if (postId !== exceptId) ids.add(postId);
+    }
+    for (const item of rows) {
+      if (item.id === exceptId || item.platform !== "ig") continue;
+      if (item.status === "published" && item.publishedAt && ctNow(item.publishedAt).day === accountDay) ids.add(item.id);
+    }
+    return ids.size;
+  }
 
   function releaseSlot(id: number): void {
     const held = slotByPost.get(id);
@@ -1107,20 +1122,28 @@ export function createMemoryStore(): IgStore {
       return true;
     },
     async markFailed(id, error) {
-      const row = find(id);
-      if (!row || row.igMediaId || row.status === "published" || row.status === "skipped") return false;
-      releaseSlot(id);
-      row.status = "failed";
-      row.error = error;
-      return true;
+      const run = capacityChain.then(() => {
+        const row = find(id);
+        if (!row || row.igMediaId || row.status === "published" || row.status === "skipped") return false;
+        releaseSlot(id);
+        row.status = "failed";
+        row.error = error;
+        return true;
+      });
+      capacityChain = run.then(() => undefined, () => undefined);
+      return run;
     },
     async markSkipped(id, error) {
-      const row = find(id);
-      if (!row || row.igMediaId || row.status === "published") return false;
-      releaseSlot(id);
-      row.status = "skipped";
-      row.error = error;
-      return true;
+      const run = capacityChain.then(() => {
+        const row = find(id);
+        if (!row || row.igMediaId || row.status === "published") return false;
+        releaseSlot(id);
+        row.status = "skipped";
+        row.error = error;
+        return true;
+      });
+      capacityChain = run.then(() => undefined, () => undefined);
+      return run;
     },
     async latestPublished() {
       const published = rows.filter((row) => row.status === "published");
@@ -1163,34 +1186,42 @@ export function createMemoryStore(): IgStore {
         release();
       }
     },
+    async markUncertain(id, error) {
+      const row = find(id);
+      if (!row || row.igMediaId || row.status !== "container_created") return false;
+      row.error = error;
+      return true;
+    },
     async claimDaySlot(id, accountDay) {
-      return withDayLock(accountDay, () => {
+      const run = capacityChain.then(() => {
         const row = find(id);
-        if (!row) return "missing" as const;
+        if (!row || row.platform !== "ig") return row ? "full" as const : "missing" as const;
+        if (row.status === "published" || row.igMediaId) {
+          row.capacityDay = row.capacityDay ?? (row.publishedAt ? ctNow(row.publishedAt).day : accountDay);
+          return "resume" as const;
+        }
         const held = slotByPost.get(id);
-        if (held) {
-          row.capacityDay = held.day;
+        if (held?.day === accountDay) {
+          row.capacityDay = accountDay;
           return "resume" as const;
         }
         const book = slots.get(accountDay) ?? new Map<number, number>();
-        const legacy = rows.filter((item) =>
-          item.id !== id
-          && item.platform === "ig"
-          && !item.capacityDay
-          && item.status === "published"
-          && item.publishedAt != null
-          && ctNow(item.publishedAt).day === accountDay
-        ).length;
-        if (book.size + legacy >= IG_DAILY_POST_CAP) return "full" as const;
+        if (occupiedMemory(accountDay, id) >= IG_DAILY_POST_CAP) return "full" as const;
+        if (held) slots.get(held.day)?.delete(held.slot);
         let slot = 1;
         while (book.has(slot)) slot += 1;
-        if (slot > IG_DAILY_POST_CAP) return "full" as const;
+        if (slot > IG_DAILY_POST_CAP) {
+          if (held) slots.get(held.day)?.set(held.slot, id);
+          return "full" as const;
+        }
         book.set(slot, id);
         slots.set(accountDay, book);
         slotByPost.set(id, { day: accountDay, slot });
         row.capacityDay = accountDay;
         return "claimed" as const;
       });
+      capacityChain = run.then(() => undefined, () => undefined);
+      return run;
     },
   };
 }
@@ -1239,6 +1270,12 @@ function mapPg(row: Record<string, unknown>): IgQueueRow {
 
 function capacityDayText(value: unknown): string | null {
   if (value == null) return null;
+  if (value instanceof Date) {
+    const y = value.getUTCFullYear();
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(value.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value));
   return match ? match[1] : null;
 }
@@ -1455,25 +1492,73 @@ export const pgStore: IgStore = {
   },
   async markFailed(id, error) {
     const pool = await pgPool();
-    const result = await pool.query(
-      `WITH released AS (
-         DELETE FROM ig_publish_day_slot WHERE post_id = $1
-       )
-       UPDATE ig_post_queue SET status = 'failed', error = $2, capacity_day = NULL
-       WHERE id = $1 AND ig_media_id IS NULL AND status IN ('queued', 'container_created', 'failed')
-       RETURNING id`,
-      [id, error],
-    );
-    return (result.rowCount ?? 0) > 0;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(81022, 1)");
+      const locked = await client.query(
+        `SELECT id FROM ig_post_queue
+         WHERE id = $1 AND ig_media_id IS NULL AND status IN ('queued', 'container_created', 'failed')
+         FOR UPDATE`,
+        [id],
+      );
+      if (!locked.rows[0]) {
+        await client.query("COMMIT");
+        return false;
+      }
+      await client.query(`DELETE FROM ig_publish_day_slot WHERE post_id = $1`, [id]);
+      const result = await client.query(
+        `UPDATE ig_post_queue SET status = 'failed', error = $2, capacity_day = NULL
+         WHERE id = $1 AND ig_media_id IS NULL AND status IN ('queued', 'container_created', 'failed')
+         RETURNING id`,
+        [id, error],
+      );
+      await client.query("COMMIT");
+      return (result.rowCount ?? 0) > 0;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
   },
   async markSkipped(id, error) {
     const pool = await pgPool();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(81022, 1)");
+      const locked = await client.query(
+        `SELECT id FROM ig_post_queue
+         WHERE id = $1 AND ig_media_id IS NULL AND status <> 'published'
+         FOR UPDATE`,
+        [id],
+      );
+      if (!locked.rows[0]) {
+        await client.query("COMMIT");
+        return false;
+      }
+      await client.query(`DELETE FROM ig_publish_day_slot WHERE post_id = $1`, [id]);
+      const result = await client.query(
+        `UPDATE ig_post_queue SET status = 'skipped', error = $2, capacity_day = NULL
+         WHERE id = $1 AND ig_media_id IS NULL AND status <> 'published'
+         RETURNING id`,
+        [id, error],
+      );
+      await client.query("COMMIT");
+      return (result.rowCount ?? 0) > 0;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+  async markUncertain(id, error) {
+    const pool = await pgPool();
     const result = await pool.query(
-      `WITH released AS (
-         DELETE FROM ig_publish_day_slot WHERE post_id = $1
-       )
-       UPDATE ig_post_queue SET status = 'skipped', error = $2, capacity_day = NULL
-       WHERE id = $1 AND ig_media_id IS NULL AND status <> 'published'
+      `UPDATE ig_post_queue SET error = $2
+       WHERE id = $1 AND ig_media_id IS NULL AND status = 'container_created'
        RETURNING id`,
       [id, error],
     );
@@ -1541,20 +1626,32 @@ export const pgStore: IgStore = {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(81022, $1::int)", [key]);
-      const row = await client.query(`SELECT id, platform FROM ig_post_queue WHERE id = $1`, [id]);
+      await client.query("SELECT pg_advisory_xact_lock(81022, 1)");
+      const row = await client.query(
+        `SELECT id, platform, status, ig_media_id FROM ig_post_queue WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
       if (!row.rows[0]) {
         await client.query("COMMIT");
         return "missing";
       }
+      if (row.rows[0].platform !== "ig") {
+        await client.query("COMMIT");
+        return "full";
+      }
       const held = await client.query(
-        `SELECT account_day FROM ig_publish_day_slot WHERE post_id = $1`,
+        `SELECT account_day FROM ig_publish_day_slot WHERE post_id = $1 FOR UPDATE`,
         [id],
       );
-      if (held.rows[0]) {
+      const heldDay = capacityDayText(held.rows[0]?.account_day);
+      if (row.rows[0].status === "published" || row.rows[0].ig_media_id) {
+        await client.query("COMMIT");
+        return "resume";
+      }
+      if (heldDay === accountDay) {
         await client.query(
-          `UPDATE ig_post_queue SET capacity_day = $2 WHERE id = $1 AND capacity_day IS NULL`,
-          [id, held.rows[0].account_day],
+          `UPDATE ig_post_queue SET capacity_day = $2::date WHERE id = $1`,
+          [id, accountDay],
         );
         await client.query("COMMIT");
         return "resume";
@@ -1562,10 +1659,10 @@ export const pgStore: IgStore = {
       const occupied = await client.query(
         `SELECT COUNT(*)::int AS n FROM (
            SELECT post_id AS id FROM ig_publish_day_slot
-           WHERE platform = 'ig' AND account_day = $1::date
+           WHERE platform = 'ig' AND account_day = $1::date AND post_id <> $2
            UNION
            SELECT id FROM ig_post_queue
-           WHERE platform = 'ig' AND capacity_day IS NULL AND status = 'published'
+           WHERE platform = 'ig' AND status = 'published'
              AND (published_at AT TIME ZONE 'America/Chicago')::date = $1::date
              AND id <> $2
          ) occupied`,
@@ -1575,6 +1672,7 @@ export const pgStore: IgStore = {
         await client.query("COMMIT");
         return "full";
       }
+      if (heldDay) await client.query(`DELETE FROM ig_publish_day_slot WHERE post_id = $1`, [id]);
       const inserted = await client.query(
         `INSERT INTO ig_publish_day_slot (platform, account_day, slot, post_id)
          SELECT 'ig', $1::date, s.n, $2
@@ -1590,7 +1688,7 @@ export const pgStore: IgStore = {
         [accountDay, id, IG_DAILY_POST_CAP],
       );
       if (!inserted.rows[0]) {
-        await client.query("COMMIT");
+        await client.query("ROLLBACK");
         return "full";
       }
       await client.query(
@@ -1679,13 +1777,24 @@ export async function retryGraph<T>(fn: () => Promise<T>, attempts = 3): Promise
   }
 }
 
-/** Same container, a few times. Code 24 is not the 9007 "not ready" retry. */
+/**
+ * Publish one container. Retries only the explicit "media id is not ready" response, which means
+ * Meta did not publish. A dropped response or a 5xx is not retried: the call may already have landed.
+ */
 async function publishMediaReady(graph: IgGraph, containerId: string): Promise<string> {
   let missing = 0;
+  let notReady = 0;
   for (;;) {
     try {
-      return await retryGraph(() => graph.publishMedia(containerId));
+      return await graph.publishMedia(containerId);
     } catch (err) {
+      if (isLostPublishResponse(err)) throw err;
+      if (isMediaPublishNotReady(err)) {
+        notReady += 1;
+        if (notReady >= MEDIA_PUBLISH_NOT_READY_ATTEMPTS) throw err;
+        await sleep(MEDIA_PUBLISH_NOT_READY_WAIT_MS);
+        continue;
+      }
       if (!isContainerMissing(err)) throw err;
       missing += 1;
       if (missing >= CONTAINER_MISSING_ATTEMPTS) throw err;
@@ -1852,10 +1961,39 @@ export type IgPublishResult = {
 
 type PublishOpts = { dryRun?: boolean; allowFailed?: boolean; recheckSkipped?: boolean; releaseExpired?: boolean };
 
+export const PUBLISH_UNCERTAIN = "publish_uncertain";
+
+function isLostPublishResponse(err: unknown): boolean {
+  if (!(err instanceof IgGraphError)) return true;
+  return err.status === 0 || err.status >= 500;
+}
+
+/** Claim or move this row's slot onto the Chicago day of clock(). A prior-day receipt does not spend today. */
+async function recordPublish(id: number, igMediaId: string): Promise<IgPublishResult> {
+  const store = currentStore();
+  try {
+    const won = await store.markPublished(id, igMediaId, clock());
+    if (won) return { status: "published", id, igMediaId };
+    const again = await store.get(id);
+    if (again?.status === "published" || again?.igMediaId) {
+      return { status: "already_published", id, igMediaId: again.igMediaId ?? igMediaId };
+    }
+  } catch (err) {
+    await store.markUncertain(id, PUBLISH_UNCERTAIN).catch(() => false);
+    logIg("error", `post ${id} published at Meta but the database write failed: ${safeError(err)}`);
+    return { status: "pending", id, igMediaId, reason: PUBLISH_UNCERTAIN };
+  }
+  await store.markUncertain(id, PUBLISH_UNCERTAIN).catch(() => false);
+  return { status: "pending", id, igMediaId, reason: PUBLISH_UNCERTAIN };
+}
+
 async function reserveIgCapacity(row: IgQueueRow): Promise<IgPublishResult | null> {
-  if (row.platform !== "ig" || row.capacityDay) return null;
-  const slot = await currentStore().claimDaySlot(row.id, igAccountDay(clock()));
+  if (row.platform !== "ig") return null;
+  const day = igAccountDay(clock());
+  if (row.capacityDay === day) return null;
+  const slot = await currentStore().claimDaySlot(row.id, day);
   if (slot === "claimed" || slot === "resume") {
+    row.capacityDay = day;
     const fresh = await currentStore().get(row.id);
     if (fresh?.capacityDay) row.capacityDay = fresh.capacityDay;
     return null;
@@ -1967,19 +2105,21 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
     }
 
     if (!row.containerId) return { status: "in_progress", id };
-    const blocked = await reserveIgCapacity(row);
-    if (blocked) return blocked;
     const containerId = row.containerId;
+    const uncertain = row.error === PUBLISH_UNCERTAIN;
     let code: IgContainerCode | "TIMEOUT" | "MISSING";
     try {
       code = await pollContainer(graph, containerId);
     } catch (err) {
       const error = safeError(err);
-      await store.markFailed(id, error);
-      logIg("error", `post ${id} failed: ${error}`);
-      return { status: "failed", id, error };
+      logIg("error", `post ${id} status unread: ${error}`);
+      return { status: "pending", id, error };
     }
     if (code === "TIMEOUT" || code === "IN_PROGRESS") return { status: "pending", id };
+    if (uncertain && code !== "PUBLISHED") {
+      logIg("error", `post ${id} publish outcome still unknown (${code})`);
+      return { status: "pending", id, reason: PUBLISH_UNCERTAIN };
+    }
     if (code === "ERROR") {
       const error = "container_error";
       await store.markFailed(id, error);
@@ -2000,31 +2140,36 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
       return { status: "failed", id, error };
     }
     if (code === "PUBLISHED") {
-      await store.markPublished(id, row.igMediaId ?? `published:${containerId}`, clock());
-      return { status: "already_published", id, igMediaId: row.igMediaId };
+      // Meta already published. Record that even when today's slot table cannot take the move.
+      try { await reserveIgCapacity(row); } catch (err) {
+        logIg("error", `post ${id} could not move its day slot: ${safeError(err)}`);
+      }
+      return recordPublish(id, row.igMediaId ?? `published:${containerId}`);
     }
 
     const fresh = await store.get(id);
     if (!fresh) return { status: "not_found", id };
     if (fresh.status === "published" || fresh.igMediaId) return { status: "already_published", id, igMediaId: fresh.igMediaId };
+    const aligned = await reserveIgCapacity(fresh);
+    if (aligned) return aligned;
+    row = fresh;
     try {
       const igMediaId = await publishMediaReady(graph, containerId);
-      const won = await store.markPublished(id, igMediaId, clock());
-      if (!won) {
-        const again = await store.get(id);
-        return { status: "already_published", id, igMediaId: again?.igMediaId ?? igMediaId };
-      }
-      logIg("log", `published ${fresh.kind} ${fresh.utmContent} media ${igMediaId}`);
-      return { status: "published", id, igMediaId };
+      const recorded = await recordPublish(id, igMediaId);
+      if (recorded.status === "published") logIg("log", `published ${fresh.kind} ${fresh.utmContent} media ${igMediaId}`);
+      return recorded;
     } catch (err) {
       const error = safeError(err);
-      // Keep the container id. The next pass publishes it instead of creating another.
       if (isMediaPublishNotReady(err)) {
         logIg("error", `post ${id} media id not available: ${error}`);
         return { status: "pending", id, error };
       }
-      // Code 24 on this id: Meta says create a new container. One replacement, then stop.
-      if (isContainerMissing(err) && containerAttempt === 0 && await store.clearContainer(id)) {
+      if (isLostPublishResponse(err)) {
+        await store.markUncertain(id, PUBLISH_UNCERTAIN);
+        logIg("error", `post ${id} publish response lost: ${error}`);
+        return { status: "pending", id, reason: PUBLISH_UNCERTAIN };
+      }
+      if (isContainerMissing(err) && containerAttempt === 0 && row.error !== PUBLISH_UNCERTAIN && await store.clearContainer(id)) {
         const again = await store.get(id);
         if (!again) return { status: "not_found", id };
         row = again;
@@ -2463,7 +2608,13 @@ export async function runIgDaily(now = new Date()): Promise<{ status: string; da
   const store = currentStore();
   const rows = await store.list(500);
   for (const row of missedFeedRows(rows, now, "ig", e)) {
-    if (await store.markSkipped(row.id, FEED_MISSED_ERROR)) logIg("error", `post ${row.id} FEED missed its slot by more than 45 min, skipped`);
+    const locked = await store.withLock(row.id, async () => {
+      const fresh = await store.get(row.id);
+      if (!fresh || fresh.status !== "queued" || fresh.igMediaId) return false;
+      if (!feedIsMissed(fresh, now, e)) return false;
+      return store.markSkipped(fresh.id, FEED_MISSED_ERROR);
+    });
+    if (locked.ok && locked.value) logIg("error", `post ${row.id} FEED missed its slot by more than 45 min, skipped`);
   }
   const due = selectDueRows(rows, now, "ig", e);
   const results: IgPublishResult[] = [];
