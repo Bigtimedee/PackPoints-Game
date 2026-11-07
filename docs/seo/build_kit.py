@@ -51,7 +51,7 @@ Finished your hand and want more? Right now {{playableSetCount}} of the 12 integ
  links=[("Play more sets","/sets"),("How to play","/how-to-play"),("How points work","/points"),("Home","/")],
  crumbs=[("Home","/"),("Daily 5","/daily")], extra=[APP])
 core["/sets"]=dict(
- title="Sports Card Sets to Play: Baseball, Basketball, Football",
+ title="Sports Card Sets to Play: Baseball, Basketball, Football | PackPTS",
  description="Play classic and modern card sets on PackPTS: 1986 Topps, 1988 Topps, 1987 Donruss, 1990 Hoops, 1995 Upper Deck and more. Free to play.",
  h1="Play Your Favorite Card Sets",
  answer="PackPTS lets you play full trading card sets one card at a time: pick a set, see a real card with the name masked, and name the player.",

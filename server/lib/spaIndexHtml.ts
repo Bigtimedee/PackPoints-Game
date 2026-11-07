@@ -4,6 +4,7 @@
 import { injectPlaySetsOgHtml, isPlaySetsHtmlPath } from "./playSetsOg";
 import { injectSpaRouteMeta } from "./routeOg";
 import { renderSeoHtml, resolveSeoPage, type SeoDeps, type SeoSet } from "./seoPages";
+import { applySharePreview } from "./sharePreviewHtml";
 
 let setsCache: { at: number; sets: SeoSet[] } | null = null;
 const SETS_TTL_MS = 5 * 60 * 1000;
@@ -111,10 +112,11 @@ async function decorateSpaIndexPageRaw(html: string, url: string): Promise<{ htm
     }
     const page = await resolveSeoPage(url, deps);
     const rendered = renderSeoHtml(withRoute, page);
-    return { html: inline ? rendered.replace(/<\/body>/i, `${inline}\n</body>`) : rendered, status: page.status, ...(page.location ? { location: page.location } : {}) };
+    const html = applySharePreview(inline ? rendered.replace(/<\/body>/i, `${inline}\n</body>`) : rendered, url);
+    return { html, status: page.status, ...(page.location ? { location: page.location } : {}) };
   } catch (err) {
     console.error("[SEO] page render skipped:", (err as Error)?.message);
-    return { html: withRoute, status: 200 };
+    return { html: applySharePreview(withRoute, url), status: 200 };
   }
 }
 

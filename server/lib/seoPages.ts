@@ -70,11 +70,34 @@ export function applyPlayableSetCount(k: SeoKitPage, liveSets: number): SeoKitPa
   return JSON.parse(filled) as SeoKitPage;
 }
 
+/** One VideoGame node per set page. Set name only: no player names, no percentages. */
+export function withSetGameJsonLd(page: SeoKitPage): SeoKitPage {
+  if (!page.setId) return page;
+  const jsonld = page.jsonld ?? {};
+  const graph = Array.isArray(jsonld["@graph"]) ? [...(jsonld["@graph"] as Record<string, unknown>[])] : [];
+  if (graph.some((node) => node["@type"] === "VideoGame" || node["@type"] === "Game")) return page;
+  const name = page.crumbs?.[page.crumbs.length - 1]?.[0] || page.h1;
+  const description = `Play ${name} on PackPTS. Real cards with the names masked. Free to play.`;
+  if (/%/.test(description) || /[\u2013\u2014]/.test(description)) return page;
+  graph.push({
+    "@type": "VideoGame",
+    name,
+    url: `${ORIGIN}${page.path}`,
+    description,
+    gamePlatform: "Web browser",
+    genre: "Sports card game",
+    playMode: "SinglePlayer",
+    publisher: { "@type": "Organization", name: "PackPTS" },
+  });
+  return { ...page, jsonld: { ...jsonld, "@context": "https://schema.org", "@graph": graph } };
+}
+
 function kitPage(k: SeoKitPage, cardCount?: number, livePath?: string, liveSets = 0): SeoPage {
   const counted = applyPlayableSetCount(k, liveSets);
-  const page = typeof cardCount === "number" ? applyLiveCardCount(counted, cardCount) : counted;
+  const filled = typeof cardCount === "number" ? applyLiveCardCount(counted, cardCount) : counted;
   // Set pages canonicalize to the live slug (the one in sitemap.xml), even if the set was renamed after the kit snapshot.
-  const canonPath = livePath ?? page.path;
+  const canonPath = livePath ?? filled.path;
+  const page = withSetGameJsonLd({ ...filled, path: canonPath });
   return {
     status: 200, title: page.title, description: page.description, canonical: `${ORIGIN}${canonPath === "/" ? "/" : canonPath}`,
     noindex: false, h1: page.h1, main: renderSeoKitMain(page), jsonld: page.jsonld,

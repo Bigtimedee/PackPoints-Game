@@ -11,6 +11,7 @@ import path from "path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { decorateSpaIndexHtml } from "../lib/spaIndexHtml";
+import { getServedBuildId } from "../lib/servedBuildId";
 import { SPA_ROUTE_META, injectSpaRouteMeta, spaRouteMetaForUrl } from "../lib/routeOg";
 import { mountSpaStatic } from "../static";
 
@@ -70,8 +71,9 @@ function countMeta(html: string, attr: "property" | "name", key: string): number
   return tags.filter((tag) => readAttr(tag, attr) === key).length;
 }
 
-function expectDailyTagsOnce(html: string): void {
-  for (const tag of DAILY_TAGS) {
+function expectDailyTagsOnce(html: string, bust = false): void {
+  const tags = bust ? DAILY_TAGS.map((tag) => tag.replaceAll("?v=2", `?v=${getServedBuildId()}`)) : DAILY_TAGS;
+  for (const tag of tags) {
     expect(countExact(html, tag)).toBe(1);
   }
   expect(countExact(html, "<title>")).toBe(1);
@@ -159,7 +161,7 @@ describe("daily route meta map", () => {
       transformed,
       "/daily?utm_source=share&utm_medium=beatme&utm_campaign=daily5&challenge=zz-beat-token",
     );
-    expectDailyTagsOnce(html);
+    expectDailyTagsOnce(html, true);
     expect(html).toContain('<meta name="packpts-build-id" content="abc123" />');
     expect(html).not.toContain("zz-beat-token");
     expect(await decorateSpaIndexHtml(home, "/")).toContain('og:url" content="https://packpts.com/"');
@@ -211,7 +213,7 @@ describe("served /daily HTML and preview image", () => {
     const daily = await read("/daily");
     expect(daily.res.status).toBe(200);
     expect(daily.res.headers.get("content-type")).toContain("text/html");
-    expectDailyTagsOnce(daily.text);
+    expectDailyTagsOnce(daily.text, true);
 
     const solo = await read("/game/solo");
     expect(solo.text).toContain('<meta name="robots" content="noindex" />');
@@ -230,7 +232,7 @@ describe("served /daily HTML and preview image", () => {
     expect(slash.text).toBe(plain.text);
     expect(beat.text).toBe(plain.text);
     expect(slashQuery.text).toBe(plain.text);
-    expectDailyTagsOnce(beat.text);
+    expectDailyTagsOnce(beat.text, true);
     expect(beat.text).not.toContain("zz-beat-token");
     expect(beat.text).not.toContain("utm_medium");
   });
