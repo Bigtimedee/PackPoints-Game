@@ -220,7 +220,7 @@ export function registerIgRoutes(app: Express): void {
       qaJson(req, res, 400, { error: "bad_id" });
       return;
     }
-    void publishIg(id, { allowFailed: true, recheckSkipped: true })
+    void publishIg(id, { allowFailed: true, recheckSkipped: true, releaseExpired: req.body?.releaseExpired === true })
       .then((result) => qaJson(req, res, result.status === "not_found" ? 404 : 200, result))
       .catch(() => qaJson(req, res, 500, { error: "publish_failed" }));
   });
