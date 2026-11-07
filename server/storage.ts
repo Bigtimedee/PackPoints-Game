@@ -15,6 +15,7 @@ import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "./config/heldSets"
 import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
 import { applyVerifiedPasswordReset, UnverifiedPasswordReset } from "./auth/passwordResetApply";
+import { selectLoginIdentity, selectResetIdentity } from "./auth/identitySelect";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
@@ -76,6 +77,7 @@ export interface IStorage {
   linkWorkosUser(userId: string, workosUserId: string): Promise<void>;
   setOauthProviderIfEmpty(userId: string, oauthProvider: "google" | "apple" | "workos"): Promise<void>;
   validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
+  findUserForPasswordReset(email: string): Promise<{ id: string } | undefined>;
   updateUserPassword(userId: string, newPassword: string): Promise<boolean>;
   
   // Password reset tokens
@@ -466,19 +468,46 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(users.id, userId), isNull(users.oauthProvider)));
   }
 
+  private async identityCandidates(value: string): Promise<{ id: string; username: string | null; email: string | null }[]> {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    return db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+      })
+      .from(users)
+      .where(sql`lower(btrim(${users.username})) = lower(${trimmed}) OR lower(btrim(${users.email})) = lower(${trimmed})`);
+  }
+
   async validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null> {
-    // Try to find by username first, then by email
-    let user = await this.getUserByUsername(usernameOrEmail);
-    if (!user) {
-      user = await this.getUserByEmail(usernameOrEmail);
-    }
+    const pick = selectLoginIdentity(usernameOrEmail, await this.identityCandidates(usernameOrEmail));
+    if (pick.status !== "selected") return null;
+    const user = await this.getUser(pick.id);
     if (!user) return null;
-    
+
     const [credential] = await db.select().from(localCredentials).where(eq(localCredentials.userId, user.id));
     if (!credential) return null;
-    
+
     const valid = await bcrypt.compare(password, credential.passwordHash);
     return valid ? user : null;
+  }
+
+  async findUserForPasswordReset(email: string): Promise<{ id: string } | undefined> {
+    const trimmed = email.trim();
+    if (!trimmed) return undefined;
+    const rows = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        email: users.email,
+      })
+      .from(users)
+      .where(sql`lower(btrim(${users.email})) = lower(${trimmed})`);
+    const pick = selectResetIdentity(trimmed, rows);
+    if (pick.status !== "selected") return undefined;
+    return { id: pick.id };
   }
 
   async updateUserPassword(userId: string, newPassword: string): Promise<boolean> {

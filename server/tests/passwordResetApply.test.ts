@@ -209,14 +209,16 @@ describe("reset wiring on current main", () => {
   const routes = readFileSync(new URL("../routes.ts", import.meta.url), "utf8");
   const storage = readFileSync(new URL("../storage.ts", import.meta.url), "utf8");
 
-  it("keeps username-then-email lookup case-insensitive", () => {
-    const emailFn = storage.slice(storage.indexOf("async getUserByEmail"), storage.indexOf("async getUserByUsername"));
-    const usernameFn = storage.slice(storage.indexOf("async getUserByUsername"), storage.indexOf("async getUserByWorkosId"));
-    const validate = storage.slice(storage.indexOf("async validateLocalCredentials"), storage.indexOf("async updateUserPassword"));
-    expect(emailFn).toContain("LOWER(${users.email}) = LOWER(${email})");
-    expect(usernameFn).toContain("LOWER(${users.username}) = LOWER(${username})");
-    expect(validate.indexOf("getUserByUsername")).toBeLessThan(validate.indexOf("getUserByEmail"));
+  it("login and reset use the shared selector instead of an arbitrary row", () => {
+    const validate = storage.slice(storage.indexOf("async validateLocalCredentials"), storage.indexOf("async findUserForPasswordReset"));
+    const reset = storage.slice(storage.indexOf("async findUserForPasswordReset"), storage.indexOf("async updateUserPassword"));
+    const forgot = routes.slice(routes.indexOf('app.post("/api/auth/forgot-password"'), routes.indexOf('app.get("/api/auth/validate-reset-token"'));
+    expect(validate).toContain("selectLoginIdentity");
+    expect(validate).toContain('pick.status !== "selected"');
     expect(validate).toContain("if (!credential) return null");
+    expect(reset).toContain("selectResetIdentity");
+    expect(forgot).toContain("findUserForPasswordReset");
+    expect(forgot).not.toContain("storage.getUserByEmail");
   });
 
   it("stores a reset through the verified helper inside a transaction", () => {

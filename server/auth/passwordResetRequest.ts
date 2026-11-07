@@ -24,7 +24,7 @@ export async function requestPasswordReset(input: {
 
   const user = await input.getUserByEmail(email);
   if (!user) {
-    console.log(`Password reset requested for non-existent email: ${email}`);
+    console.log("Password reset requested for an unknown or ambiguous mailbox");
     return { status: 200, body: SUCCESS };
   }
 

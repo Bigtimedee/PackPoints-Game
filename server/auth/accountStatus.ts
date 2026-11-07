@@ -1,3 +1,4 @@
+import { exactEmailMatch, selectLoginIdentity, type IdentityCandidate, type IdentitySelection } from "./identitySelect";
 import { normalizeEmail } from "./normalizeEmail";
 
 /** One email can match a handful of case or alias rows. Above this, return the count only. */
@@ -19,11 +20,25 @@ export type AccountStatusMatch = {
   hasLocalCredential: boolean;
   workosLinked: boolean;
   provider: AccountProvider | null;
+  /** Case-insensitive equality with the stored address. Not alias folding. */
+  exactEmailMatch: boolean;
+  /** True only for the one account the login selector would use. */
+  loginSelected: boolean;
 };
 
 export type AccountStatusReport = {
   matched: number;
   accounts: AccountStatusMatch[];
+  loginSelection: IdentitySelection["status"];
+};
+
+export type AccountStatusRow = {
+  id: string;
+  email: string | null;
+  username: string | null;
+  hasLocalCredential: boolean;
+  workosLinked: boolean;
+  provider: AccountProvider | null;
 };
 
 const EMAIL_MAX = 320;
@@ -56,16 +71,46 @@ export function sanitizeProvider(value: unknown, appleLinked: boolean): AccountP
   return null;
 }
 
-export function presentAccountStatus(matched: number, accounts: AccountStatusMatch[]): AccountStatusReport {
+export function presentAccountStatus(
+  matched: number,
+  accounts: AccountStatusMatch[],
+  loginSelection: IdentitySelection["status"] = "none",
+): AccountStatusReport {
   const count = Number.isInteger(matched) && matched >= 0 ? matched : 0;
-  if (count > ACCOUNT_STATUS_CAP) return { matched: count, accounts: [] };
+  const selection = loginSelection === "selected" || loginSelection === "ambiguous" ? loginSelection : "none";
+  if (count > ACCOUNT_STATUS_CAP) return { matched: count, accounts: [], loginSelection: selection };
   return {
     matched: count,
+    loginSelection: selection,
     accounts: accounts.slice(0, ACCOUNT_STATUS_CAP).map((account) => ({
       username: safeUsername(account.username),
       hasLocalCredential: account.hasLocalCredential === true,
       workosLinked: account.workosLinked === true,
       provider: sanitizeProvider(account.provider, false),
+      exactEmailMatch: account.exactEmailMatch === true,
+      loginSelected: account.loginSelected === true,
     })),
   };
+}
+
+/** Flags each normalized-group row. Does not copy the stored address out. */
+export function annotateAccountStatus(
+  rawEmail: string,
+  matched: number,
+  rows: AccountStatusRow[],
+  loginCandidates: IdentityCandidate[],
+): AccountStatusReport {
+  const pick = selectLoginIdentity(rawEmail, loginCandidates);
+  return presentAccountStatus(
+    matched,
+    rows.map((row) => ({
+      username: row.username,
+      hasLocalCredential: row.hasLocalCredential,
+      workosLinked: row.workosLinked,
+      provider: row.provider,
+      exactEmailMatch: exactEmailMatch(row.email, rawEmail),
+      loginSelected: pick.status === "selected" && pick.id === row.id,
+    })),
+    pick.status,
+  );
 }

@@ -54,7 +54,7 @@ export function registerAuthAccountStatusQaRoute(app: Express): void {
 
     void loadMatches(raw, normalized)
       .then((report) => {
-        if (!res.headersSent) qaJson(req, res, 200, presentAccountStatus(report.matched, report.accounts));
+        if (!res.headersSent) qaJson(req, res, 200, presentAccountStatus(report.matched, report.accounts, report.loginSelection));
       })
       .catch((err: unknown) => {
         const code = err && typeof err === "object" && "code" in err ? String((err as { code: unknown }).code) : "";
