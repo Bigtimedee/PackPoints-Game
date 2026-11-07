@@ -665,9 +665,10 @@ Full funnel instrumented: card_view → outbound_click → affiliate postback �
 
 **Local Auth (Primary) — verified green:**
 - Registration: `POST /api/auth/register` — email and password (username optional; generated from the email when omitted; bcrypt hashed in `localCredentials` table); rate-limited; sets `req.session.localUserId`; issues 250 PackPTS welcome bonus. Duplicate email is `409` `email_taken`.
-- Login: `POST /api/auth/local-login` — `usernameOrEmail` + password → express-session; rate-limited (5/15min)
+- Login: `POST /api/auth/local-login` — `usernameOrEmail` + password → express-session; rate-limited (5/15min). Lookup is case-insensitive (`LOWER` on username, then email). A user row with no `local_credentials` row gets the same generic 401 as a wrong password.
 - Logout: `POST /api/auth/local-logout`
-- Password reset: `POST /api/auth/forgot-password` → token email → `GET /api/auth/validate-reset-token?token=…` → `POST /api/auth/reset-password`
+- Password reset: `POST /api/auth/forgot-password` → token email → `GET /api/auth/validate-reset-token?token=…` → `POST /api/auth/reset-password`. A valid unused token writes a bcrypt hash. If that account has no local credential, the reset creates one. Success is returned only after every stored hash for that user matches the new password. The token is marked used only after that proof. A failed proof rolls the write back and leaves the token unused. Reset does not link a second identity.
+- Private one-account diagnosis: `POST /api/qa/auth/account-status` with header `X-QA-Token` (`COVER_QA_TOKEN`). Off unless that token is configured. One email in, normalized. Response is the matched count plus username, `hasLocalCredential`, `workosLinked`, and provider (`google`, `apple`, or `workos`) when that value is already stored. No email, password, hash, token, or session in the response. No mutation and no email send.
 - Magic-link account linking: `/api/auth/link/{challenge,confirm,send-magic,verify,cancel}`
 - Sessions stored in PostgreSQL via `sessions` table (sid, sess JSONB, expire)
 - Session cookies (`server/auth/session.ts`): `httpOnly`, `secure` in non-development, **`sameSite: "lax"`** in all environments. Production is a first-party SPA on packpts.com (host-only cookies; www → apex). WorkOS/TikTok OAuth callbacks are top-level GET navigations to apex, which send Lax cookies. `sameSite: "none"` is not used — it would allow credentialed cross-site POSTs against cookie-auth `/api/*`.
@@ -705,7 +706,7 @@ Key fields on `users` table:
 
 ### Security
 - Rate limiting on login (5 attempts per 15 minutes) and registration
-- Password reset via email token (`passwordResetTokens` table, expiring). A failed send logs the masked recipient and the error, never the reset link or token. A successful send logs the Resend message id, subject, and masked recipient.
+- Password reset via email token (`passwordResetTokens` table, expiring). A failed send logs the masked recipient and the error, never the reset link or token. A successful send logs the Resend message id, subject, and masked recipient. Completing a reset creates a local credential when the account had none, and returns success only after the stored hash verifies. The account-status QA route does not log the submitted email.
 - Identity linking audit trail (`identityLinkAudit` table)
 - Access audit log (`accessAuditLog` table) tracks every activation, invite, and abuse event
 

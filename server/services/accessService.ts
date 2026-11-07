@@ -1,3 +1,4 @@
+import { normalizeEmail } from "../auth/normalizeEmail";
 import { db } from "../db";
 import { 
   users, 
@@ -45,21 +46,7 @@ interface ActivationContext {
   foundersPassApproved?: boolean;
 }
 
-// Email normalization (removes dots from gmail, lowercases, etc.)
-export function normalizeEmail(email: string): string {
-  const [localPart, domain] = email.toLowerCase().split("@");
-  if (!localPart || !domain) return email.toLowerCase();
-  
-  // For Gmail, remove dots and anything after + 
-  if (domain === "gmail.com" || domain === "googlemail.com") {
-    const cleanLocal = localPart.split("+")[0]?.replace(/\./g, "") || localPart;
-    return `${cleanLocal}@${domain}`;
-  }
-  
-  // For other providers, just lowercase and remove +alias
-  const cleanLocal = localPart.split("+")[0] || localPart;
-  return `${cleanLocal}@${domain}`;
-}
+export { normalizeEmail };
 
 // Generate a short referral code
 export function generateReferralCode(): string {

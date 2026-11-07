@@ -14,6 +14,7 @@ import { isBlockedCard } from "./lib/cardBlocklist";
 import { currentHeldSetIds, ensureHeldSets, isHeldSet } from "./config/heldSets";
 import { isMaskBandExcluded } from "./masking/maskBandLimit";
 import bcrypt from "bcryptjs";
+import { applyVerifiedPasswordReset, UnverifiedPasswordReset } from "./auth/passwordResetApply";
 import { getFreshImageUrl, isImageStale } from "./services/cardImageRefresh";
 import { computeReward } from "./services/rewardEngine";
 import { replacementSetLookup, findQuestionIndexByCardId } from "./lib/cardReplacement";
@@ -75,7 +76,7 @@ export interface IStorage {
   linkWorkosUser(userId: string, workosUserId: string): Promise<void>;
   setOauthProviderIfEmpty(userId: string, oauthProvider: "google" | "apple" | "workos"): Promise<void>;
   validateLocalCredentials(usernameOrEmail: string, password: string): Promise<User | null>;
-  updateUserPassword(userId: string, newPassword: string): Promise<void>;
+  updateUserPassword(userId: string, newPassword: string): Promise<boolean>;
   
   // Password reset tokens
   createPasswordResetToken(userId: string): Promise<PasswordResetToken>;
@@ -480,11 +481,40 @@ export class DatabaseStorage implements IStorage {
     return valid ? user : null;
   }
 
-  async updateUserPassword(userId: string, newPassword: string): Promise<void> {
-    const passwordHash = await bcrypt.hash(newPassword, 10);
-    await db.update(localCredentials)
-      .set({ passwordHash })
-      .where(eq(localCredentials.userId, userId));
+  async updateUserPassword(userId: string, newPassword: string): Promise<boolean> {
+    try {
+      await db.transaction(async (tx) => {
+        await applyVerifiedPasswordReset({
+          userId,
+          password: newPassword,
+          hashPassword: (password) => bcrypt.hash(password, 10),
+          verifyPassword: (password, passwordHash) => bcrypt.compare(password, passwordHash),
+          listCredentials: (id) => tx
+            .select({ id: localCredentials.id, passwordHash: localCredentials.passwordHash })
+            .from(localCredentials)
+            .where(eq(localCredentials.userId, id)),
+          updateAll: async (id, passwordHash) => {
+            const updated = await tx
+              .update(localCredentials)
+              .set({ passwordHash })
+              .where(eq(localCredentials.userId, id))
+              .returning({ id: localCredentials.id });
+            return updated.length;
+          },
+          insertCredential: async (id, passwordHash) => {
+            await tx.insert(localCredentials).values({
+              id: randomUUID(),
+              userId: id,
+              passwordHash,
+            });
+          },
+        });
+      });
+      return true;
+    } catch (err) {
+      if (err instanceof UnverifiedPasswordReset) return false;
+      throw err;
+    }
   }
 
   async createPasswordResetToken(userId: string): Promise<PasswordResetToken> {

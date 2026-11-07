@@ -80,6 +80,7 @@ import { redemptionService } from "./services/redemptionService";
 import { streakService } from "./services/streakService";
 import { sendPasswordResetEmail } from "./services/emailService";
 import { requestPasswordReset } from "./auth/passwordResetRequest";
+import { completePasswordReset } from "./auth/passwordResetApply";
 import { validateImageUrl, recordImageLoadFailure, shouldAutoFlagCard } from "./services/imageValidator";
 import { bucketService } from "./services/bucketService";
 import { expirationEngine } from "./services/expirationEngine";
@@ -119,6 +120,7 @@ import { registerDesignApprovalQaRoutes } from "./routes/designApprovalQa";
 import { registerSetFillQaRoutes } from "./routes/setFillQa";
 import { registerHeldSetImportQaRoutes } from "./routes/heldSetImportQa";
 import { registerSignupQaRoutes } from "./routes/signupQa";
+import { registerAuthAccountStatusQaRoute } from "./routes/authAccountStatusQa";
 import { registerPartnerKitRoutes } from "./routes/partnerKit";
 import { registerIgRoutes } from "./routes/igPublish";
 import { registerImageHostsQaRoute } from "./routes/imageHostsQa";
@@ -545,6 +547,7 @@ export async function registerRoutes(
   registerDesignApprovalQaRoutes(app);
   registerCoverQaRoutes(app);
   registerSignupQaRoutes(app);
+  registerAuthAccountStatusQaRoute(app);
   registerPartnerKitRoutes(app);
   registerIgRoutes(app);
   registerImageHostsQaRoute(app);
@@ -2247,40 +2250,21 @@ export async function registerRoutes(
     }
   });
 
-  // Password reset - reset password with token
+  // Password reset - reset password with token. Success only after the new
+  // hash is stored and verified. The token stays unused when that proof fails.
   app.post("/api/auth/reset-password", resetPasswordLimiter, async (req, res) => {
     try {
-      const { token, password } = req.body;
-      
-      if (!token || !password) {
-        return res.status(400).json({ error: "Token and password are required" });
-      }
-      
-      if (password.length < 8) {
-        return res.status(400).json({ error: "Password must be at least 8 characters" });
-      }
-      
-      const resetToken = await storage.getPasswordResetToken(token);
-      if (!resetToken) {
-        return res.status(400).json({ error: "Invalid or expired reset link" });
-      }
-      
-      // Update password
-      await storage.updateUserPassword(resetToken.userId, password);
-      
-      // Mark token as used
-      await storage.markPasswordResetTokenUsed(resetToken.id);
-
-      // SEC-01: Revoke all existing sessions so a hijacked cookie cannot survive the reset.
-      try {
-        await db.delete(sessions).where(
-          sql`sess->>'localUserId' = ${resetToken.userId}`
-        );
-      } catch (sweepErr) {
-        console.error("[ResetPassword] Session sweep failed:", sweepErr);
-      }
-
-      res.json({ success: true, message: "Password has been reset successfully" });
+      const result = await completePasswordReset({
+        token: req.body?.token,
+        password: req.body?.password,
+        getPasswordResetToken: (token) => storage.getPasswordResetToken(token),
+        applyPassword: (userId, password) => storage.updateUserPassword(userId, password),
+        markPasswordResetTokenUsed: (tokenId) => storage.markPasswordResetTokenUsed(tokenId),
+        revokeSessions: async (userId) => {
+          await db.delete(sessions).where(sql`sess->>'localUserId' = ${userId}`);
+        },
+      });
+      res.status(result.status).json(result.body);
     } catch (error) {
       console.error("Error resetting password:", error);
       res.status(500).json({ error: "Failed to reset password" });
