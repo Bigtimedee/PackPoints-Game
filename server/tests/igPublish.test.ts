@@ -41,7 +41,9 @@ import {
   creativePlan,
   contentDate,
   ctWallTime,
+  inspectMedia,
   planCreatives,
+  plannedScheduleFromDisk,
   selectDueRows,
   type IgGraph,
   type IgMediaFields,
@@ -159,13 +161,54 @@ describe("instagram copy, slots, and allowlist", () => {
     const file = path.join(process.cwd(), "server", "assets", "ig", "APPROVED.json");
     const names = readdirSync(dir).filter((name) => !name.startsWith("."));
     expect(names.filter((name) => name.endsWith(".png"))).toEqual([]);
-    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(74);
+    expect(names.filter((name) => name.endsWith(".jpg"))).toHaveLength(76);
     expect(names.filter((name) => name.endsWith(".mp4"))).toHaveLength(57);
     expect(names.filter((name) => parseCreativeName(name) != null)).toHaveLength(84);
     expect(names).toContain("feed-swap-row6-765.jpg");
     const hashes = names.map((name) => sha(readFileSync(path.join(dir, name))));
-    expect(new Set(hashes).size).toBe(131);
+    expect(new Set(hashes).size).toBe(133);
     expect(readAllowlistFile(file)).toEqual(new Set(hashes));
+  });
+
+  it("serves the approved d6 and d7 feed extras as exact bytes and does not schedule them", async () => {
+    const extras = {
+      "ig-feed-x1102-d6-1300-A.jpg": "604e4e3dcb029c5376aa603bc4efeafe6a7802822f91c2cf0ba274c7bfc0f716",
+      "ig-feed-x1102-d7-1300-B.jpg": "89c9ab1f4d4a809338213ae5c385cfd4680bf91b0b2fec346a046713d614064c",
+    } as const;
+    const mediaRoot = path.join(process.cwd(), "server", "assets", "ig", "media");
+    setIgDepsForTests(null);
+    const plan = plannedScheduleFromDisk();
+    expect(plan).toHaveLength(84);
+    expect(plan.some((item) => item.file.startsWith("ig-feed-x1102-"))).toBe(false);
+    const app = express();
+    registerIgRoutes(app);
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address() as AddressInfo;
+    try {
+      for (const [name, hash] of Object.entries(extras)) {
+        expect(parseCreativeName(name)).toBeNull();
+        const disk = readFileSync(path.join(mediaRoot, name));
+        expect(sha(disk)).toBe(hash);
+        expect(mediaMatchesKind("FEED", name, disk)).toBe(true);
+        const inspected = await inspectMedia(name);
+        expect(inspected.ok).toBe(true);
+        if (!inspected.ok) throw new Error("unapproved");
+        expect(inspected.hash).toBe(hash);
+        expect(inspected.contentType).toBe("image/jpeg");
+        expect(inspected.bytes.equals(disk)).toBe(true);
+        const res = await fetch(`http://127.0.0.1:${addr.port}/social/ig/${name}`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toBe("image/jpeg");
+        expect(res.headers.get("content-length")).toBe(String(disk.length));
+        const body = Buffer.from(await res.arrayBuffer());
+        expect(sha(body)).toBe(hash);
+        expect(body.equals(disk)).toBe(true);
+      }
+    } finally {
+      setIgDepsForTests(null);
+      await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    }
   });
 
   it("ships a hash-only allowlist", () => {
@@ -952,6 +995,7 @@ describe("approved creative queue", () => {
     expect(rows.find((row) => row.mediaPath === "story-w2-day7.jpg")?.scheduledFor.toISOString()).toBe("2026-11-06T03:00:00.000Z");
     expect(rows.some((row) => parseCreativeName(row.mediaPath) != null)).toBe(false);
     expect(rows.some((row) => row.mediaPath === "feed-swap-row6-765.jpg")).toBe(false);
+    expect(rows.some((row) => row.mediaPath.startsWith("ig-feed-x1102-"))).toBe(false);
     expect(await enqueueApprovedSlots()).toBe(0);
     expect(await store.list(200)).toHaveLength(41);
     expect((await store.list(200)).find((row) => row.mediaPath === "d5-post-1080-B2-4x5.jpg")?.status).toBe("published");
