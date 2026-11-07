@@ -1152,7 +1152,11 @@ Entry point: `server/entry.ts` (production bundle `dist/index.cjs`). `server/ind
 
 ## 19. Database Schema
 
-The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM. Production boot still runs `drizzle-kit push --force` from `server/startup/bootSchema.ts` on every boot. When the schema file hash matches the last successful push and the catalog probe passes, DB routes open first and that push runs in the background. Otherwise it finishes before any DB-dependent route serves traffic. That push drops tables that are not in `shared/schema.ts`. `job_queue`, `promotions`, `user_attribution`, `creator_applications`, `partner_inquiries`, and `user_feedback` are declared there for that reason. `refresh_tokens`, `apns_tokens`, and `apple_transactions` were already declared. Below are the major domain groups with key tables.
+The database has **144+ tables** defined in `shared/schema.ts` using Drizzle ORM. Production boot still runs `drizzle-kit push --force` from `server/startup/bootSchema.ts` on every boot. When the schema file hash matches the last successful push and the catalog probe passes, DB routes open first and that push runs in the background. Otherwise it finishes before any DB-dependent route serves traffic. That push drops tables that are not in `shared/schema.ts`. `job_queue`, `promotions`, `user_attribution`, `creator_applications`, `partner_inquiries`, `user_feedback`, `growth_instrumentation`, and `growth_lifecycle_events` are declared there for that reason. `refresh_tokens`, `apns_tokens`, and `apple_transactions` were already declared. Below are the major domain groups with key tables.
+
+### Stage 1 growth lifecycle
+
+`GET /api/qa/growth/stage1` (QA token or admin; counts only) reports weekly marketing-source signups and first-game / D1 / D7 cohort rates in America/Chicago. One `growth_lifecycle_events` row per user per event type (`signup`, `first_game_completed`, `day1_return`, `day7_return`), enforced by `uq_growth_lifecycle_user_event`. `growth_instrumentation` id `stage1` is inserted once at boot; earlier users are not backfilled. Contract campaign is `yymmdd-<setcode>` at most 16 characters. Legacy publisher values (`feed`/`reel`/`story`, `w1`/`w3`/`ig_daily`, row-id content) stay legacy and are not remapped. The publisher queue is unchanged. `/sets/1987-topps` is not a route; 1987 Topps Baseball is `/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722`. Lifecycle email sends stay off.
 
 ### User & Auth Domain (13 tables)
 | Table | Purpose |

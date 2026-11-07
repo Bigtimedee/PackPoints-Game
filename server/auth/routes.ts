@@ -12,6 +12,9 @@ export function registerAuthRoutes(app: Express): void {
       if (req.session?.localUserId) {
         const user = await authStorage.getUser(req.session.localUserId);
         if (user) {
+          void import("../services/growthStage1")
+            .then(({ noteGrowthActivity }) => noteGrowthActivity(user.id))
+            .catch(() => undefined);
           return res.json(user);
         }
       }
@@ -19,6 +22,9 @@ export function registerAuthRoutes(app: Express): void {
       if (req.session?.workosUserId) {
         const user = await authStorage.getUserByWorkosId(req.session.workosUserId);
         if (user) {
+          void import("../services/growthStage1")
+            .then(({ noteGrowthActivity }) => noteGrowthActivity(user.id))
+            .catch(() => undefined);
           return res.json(user);
         }
       }

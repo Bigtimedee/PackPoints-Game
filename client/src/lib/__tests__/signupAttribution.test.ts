@@ -113,10 +113,12 @@ describe("captureFirstTouch", () => {
       expect(rec.utm_medium).toBe("social");
       expect(rec.utm_content).toBe("bio");
       expect(rec.referrer_host === "instagram.com" || rec.referrer_host?.endsWith(".instagram.com")).toBe(true);
+      expect(rec.inferred).toBe(true);
       expect(getSignupAttributionPayload(e)).toMatchObject({
         utmSource: "instagram",
         utmMedium: "social",
         utmContent: "bio",
+        attributionInferred: true,
       });
     }
   });
@@ -148,6 +150,25 @@ describe("captureFirstTouch", () => {
       expect(rec.utm_medium).toBeUndefined();
       expect(rec.utm_content).toBeUndefined();
     }
+  });
+
+  it("a supplied campaign replaces an inferred Instagram referrer, and not the reverse", () => {
+    const local = new MemStorage();
+    captureFirstTouch(env("/", { local, referrer: "https://l.instagram.com/x" }));
+    expect(readFirstTouch(env("/", { local }))!.inferred).toBe(true);
+    captureFirstTouch(env("/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722?utm_source=facebook&utm_medium=social&utm_campaign=261107-87topps&utm_content=ig-feed-w3-d4-hook-b", {
+      local,
+      now: NOW + 1000,
+    }));
+    const replaced = readFirstTouch(env("/", { local, now: NOW + 2000 }))!;
+    expect(replaced.utm_source).toBe("facebook");
+    expect(replaced.utm_campaign).toBe("261107-87topps");
+    expect(replaced.inferred).toBeUndefined();
+
+    const locked = new MemStorage();
+    captureFirstTouch(env("/daily?utm_source=facebook&utm_medium=social&utm_campaign=261107-87topps", { local: locked }));
+    captureFirstTouch(env("/", { local: locked, referrer: "https://instagram.com/p/1", now: NOW + 1000 }));
+    expect(readFirstTouch(env("/", { local: locked, now: NOW + 2000 }))!.utm_source).toBe("facebook");
   });
 
   it("an untagged visit does not overwrite a tagged one", () => {

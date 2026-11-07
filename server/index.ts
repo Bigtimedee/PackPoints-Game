@@ -536,6 +536,12 @@ app.use((req, res, next) => {
   // Routes exist. On the fast path the schema probe already passed and
   // drizzle-kit push is still running in the background. On the fallback path
   // that push finished before this function continued.
+  try {
+    const { ensureGrowthInstrumentation } = await import("./services/growthStage1");
+    await ensureGrowthInstrumentation();
+  } catch (err: any) {
+    console.error("[Growth] stage1 baseline insert failed (non-fatal):", err?.message);
+  }
   markSchemaReady();
   logBootPhase("routes_ready");
   try {

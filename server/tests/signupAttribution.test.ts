@@ -254,10 +254,10 @@ describe("sanitization", () => {
 
   it("fills Instagram bio utms only when utm_source is empty", () => {
     expect(sanitizeAttribution({ referrerHost: "https://l.instagram.com/link" })).toEqual(
-      attr({ utmSource: "instagram", utmMedium: "social", utmContent: "bio", referrerHost: "l.instagram.com" }),
+      attr({ utmSource: "instagram", utmMedium: "social", utmContent: "bio", referrerHost: "l.instagram.com", inferred: true }),
     );
     expect(sanitizeAttribution({ referrerHost: "www.instagram.com", utmMedium: "cpc", utmContent: "story" })).toEqual(
-      attr({ utmSource: "instagram", utmMedium: "cpc", utmContent: "story", referrerHost: "instagram.com" }),
+      attr({ utmSource: "instagram", utmMedium: "cpc", utmContent: "story", referrerHost: "instagram.com", inferred: true }),
     );
     expect(sanitizeAttribution({ referrerHost: "https://instagram.com/", utmSource: "newsletter", utmMedium: "email" })).toEqual(
       attr({ utmSource: "newsletter", utmMedium: "email", referrerHost: "instagram.com" }),
@@ -511,6 +511,36 @@ describe("WorkOS: stash cookie round trip", () => {
       workosUserId: "wos_google",
       oauthProvider: "google",
     }));
+  });
+
+  it("uses the session stash when the OAuth cookie is not sent", async () => {
+    await stash({
+      utmSource: "instagram",
+      utmMedium: "social",
+      utmCampaign: "261107-87topps",
+      utmContent: "ig-feed-w3-d4-hook-b",
+      landingPage: "/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722",
+    });
+    mocks.authenticateWithCode.mockResolvedValue({ user: { id: "wos_session", email: "sess@example.com", emailVerified: true } });
+    mocks.findIdentity.mockResolvedValue(null);
+    mocks.findUsersByEmail.mockResolvedValue([]);
+    mocks.getUserByUsername.mockResolvedValue(undefined);
+    mocks.createWorkosUser.mockResolvedValue({ id: "user-session-oauth" });
+    const res = await callback(null);
+    expect(res.status).toBe(302);
+    expect(written).toEqual([
+      {
+        userId: "user-session-oauth",
+        a: attr({
+          utmSource: "instagram",
+          utmMedium: "social",
+          utmCampaign: "261107-87topps",
+          utmContent: "ig-feed-w3-d4-hook-b",
+          landingPage: "/sets/37fd025d-2ae1-4c92-b8ad-133375d0c722",
+        }),
+      },
+    ]);
+    expect(h.session.signupAttribution).toBeUndefined();
   });
 
   it("does not write for an existing WorkOS user logging in, and still clears the cookie", async () => {

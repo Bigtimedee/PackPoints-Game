@@ -34,8 +34,10 @@ import { randomUUID } from "crypto";
 import {
   applySignupAttribution, riskCtxFrom,
   clearAttributionCookie,
+  clearSessionAttribution,
   mergeAttribution,
   readAttributionCookie,
+  readSessionAttribution,
   sanitizeAttribution,
 } from "../lib/signupAttribution";
 import { recordFunnelEvent } from "../services/funnel";
@@ -225,10 +227,11 @@ export function registerIosRoutes(app: Express) {
     // clients may send it in the body. Read once after the token verifies, always clear, and use it
     // only if this request creates the user.
     const signupAttribution = mergeAttribution(
-      sanitizeAttribution(parsed.data.attribution),
-      readAttributionCookie(req),
+      mergeAttribution(sanitizeAttribution(parsed.data.attribution), readAttributionCookie(req)),
+      readSessionAttribution(req),
     );
     clearAttributionCookie(res);
+    clearSessionAttribution(req);
 
     // Look up existing Apple linkage
     const existingAppleUser = await db
@@ -240,10 +243,16 @@ export function registerIosRoutes(app: Express) {
     let packpointsUser;
 
     if (existingAppleUser.length > 0) {
-      // Returning Apple Sign In user
+      // Returning Apple Sign In user. Not a signup.
       packpointsUser = await storage.getUser(existingAppleUser[0].userId);
       if (!packpointsUser) {
         return res.status(500).json({ error: "User record missing" });
+      }
+      try {
+        const { noteGrowthActivity } = await import("../services/growthStage1");
+        await noteGrowthActivity(packpointsUser.id);
+      } catch (growthErr) {
+        console.error("[Apple Auth] Growth return note failed (non-fatal):", (growthErr as Error)?.message);
       }
     } else {
       // First-time Apple Sign In — create a new PackPoints account
@@ -283,7 +292,7 @@ export function registerIosRoutes(app: Express) {
         `[Apple Auth] Created new user ${packpointsUser.id} for apple_user_id ${appleUserId}`
       );
 
-      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth", await riskCtxFrom(req));
+      await applySignupAttribution(packpointsUser.id, signupAttribution, "Apple Auth", await riskCtxFrom(req), "apple");
       recordFunnelEvent(req, "signup_complete", {
         userId: packpointsUser.id,
         mode: "apple",
