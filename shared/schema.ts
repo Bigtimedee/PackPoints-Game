@@ -5244,10 +5244,14 @@ export const growthLifecycleEvents = pgTable("growth_lifecycle_events", {
   landingPage: varchar("landing_page", { length: 200 }),
   destination: varchar("destination", { length: 200 }),
   inferred: boolean("inferred").notNull().default(false),
+  // captured: written in the signup transaction, inferred flag is known.
+  // recovered: repaired later from user_attribution with no provenance. Not attributable.
+  provenance: varchar("provenance", { length: 20 }).notNull().default("captured"),
 }, (table) => [
   uniqueIndex("uq_growth_lifecycle_user_event").on(table.userId, table.eventType),
   index("idx_growth_lifecycle_type_time").on(table.eventType, table.occurredAt),
   index("idx_growth_lifecycle_cohort").on(table.cohortDay, table.eventType),
   check("growth_lifecycle_event_type_check", sql`${table.eventType} IN ('signup', 'first_game_completed', 'day1_return', 'day7_return')`),
+  check("growth_lifecycle_provenance_check", sql`${table.provenance} IN ('captured', 'recovered')`),
 ]);
 export type GrowthLifecycleEvent = typeof growthLifecycleEvents.$inferSelect;

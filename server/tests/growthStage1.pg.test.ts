@@ -139,6 +139,10 @@ describe.skipIf(!hasDb)("stage 1 postgres clocks and recovery", () => {
         `INSERT INTO users (id, username, email, created_at) VALUES ($1, $1, $2, '2026-11-07 23:50:00')`,
         [id, `${id}@example.invalid`],
       );
+      await client.query(
+        `INSERT INTO local_credentials (id, user_id, password_hash) VALUES ($1, $2, 'x')`,
+        [`${id}-c`, id],
+      );
       await client.query(GROWTH_SIGNUP_INSERT_SQL, [
         id, "email", "x", "social", "261107-daily5", "post-1", null, "/daily", "/daily", false,
       ]);
@@ -191,6 +195,64 @@ describe.skipIf(!hasDb)("stage 1 postgres clocks and recovery", () => {
     }
   });
 
+  it("repairs an Instagram guess as unattributed, clips oversized attribution, and skips a credentialless user", async () => {
+    const { classifyGrowthTouch } = await import("@shared/growthStage1");
+    await withZone("America/Chicago", async (client) => {
+      await client.query(
+        `INSERT INTO growth_instrumentation (id, started_at, note)
+         VALUES ('stage1', '2026-10-01 00:00:00+00', 'tx')
+         ON CONFLICT (id) DO UPDATE SET started_at = EXCLUDED.started_at`,
+      );
+      const guessed = "gst1_guess";
+      const bare = "gst1_bare";
+      const hugeSource = "instagram".padEnd(255, "x");
+      const hugeLanding = `/${"p".repeat(499)}`;
+      await client.query(
+        `INSERT INTO users (id, username, email, created_at) VALUES
+           ($1, $1, $2, '2026-11-07 18:00:00'),
+           ($3, $3, $4, '2026-11-07 18:00:00')`,
+        [guessed, `${guessed}@example.invalid`, bare, `${bare}@example.invalid`],
+      );
+      await client.query(
+        `INSERT INTO local_credentials (id, user_id, password_hash) VALUES ($1, $2, 'x')`,
+        [`${guessed}-c`, guessed],
+      );
+      await client.query(
+        `INSERT INTO user_attribution (user_id, utm_source, utm_medium, utm_content, landing_page, referrer)
+         VALUES ($1, $2, 'social', 'bio', $3, $4)`,
+        [guessed, hugeSource, hugeLanding, "l.instagram.com"],
+      );
+      const repaired = await reconcilePostBaselineSignups([guessed, bare]);
+      expect(repaired).toBe(1);
+      const row = await client.query(
+        `SELECT provenance, inferred, raw_utm_source, length(raw_utm_source) AS source_len,
+                length(landing_page) AS landing_len, raw_utm_medium, raw_utm_content
+         FROM growth_lifecycle_events WHERE user_id = $1 AND event_type = 'signup'`,
+        [guessed],
+      );
+      expect(row.rows[0].provenance).toBe("recovered");
+      expect(row.rows[0].inferred).toBe(false);
+      expect(Number(row.rows[0].source_len)).toBe(100);
+      expect(Number(row.rows[0].landing_len)).toBe(200);
+      expect(row.rows[0].raw_utm_source.startsWith("instagram")).toBe(true);
+      const bareEvent = await client.query(
+        `SELECT 1 FROM growth_lifecycle_events WHERE user_id = $1`,
+        [bare],
+      );
+      expect(bareEvent.rows).toHaveLength(0);
+      const touch = classifyGrowthTouch({
+        source: row.rows[0].raw_utm_source,
+        medium: row.rows[0].raw_utm_medium,
+        content: row.rows[0].raw_utm_content,
+        provenance: "recovered",
+        inferred: false,
+      });
+      expect(touch.attributable).toBe(false);
+      expect(touch.reason).toBe("recovered_unknown");
+      expect(touch.source).toBeNull();
+    });
+  });
+
   it("enforces one signup row under concurrent inserts and rejects an unknown event type", async () => {
     const id = `gst1_${randomUUID()}`;
     try {
@@ -198,6 +260,10 @@ describe.skipIf(!hasDb)("stage 1 postgres clocks and recovery", () => {
         `INSERT INTO users (id, username, email, created_at)
          VALUES ($1, $1, $2, (now() AT TIME ZONE 'UTC'))`,
         [id, `${id}@example.invalid`],
+      );
+      await pool!.query(
+        `INSERT INTO local_credentials (id, user_id, password_hash) VALUES ($1, $2, 'x')`,
+        [`${id}-c`, id],
       );
       const params = [id, "email", "bio", "bio", "261107-daily5", "instagram-profile", null, "/daily", "/daily", false];
       await Promise.all([
@@ -217,6 +283,7 @@ describe.skipIf(!hasDb)("stage 1 postgres clocks and recovery", () => {
         [id],
       )).rejects.toThrow(/growth_lifecycle_event_type_check|check constraint/i);
     } finally {
+      await pool!.query(`DELETE FROM local_credentials WHERE user_id = $1`, [id]);
       await pool!.query(`DELETE FROM users WHERE id = $1`, [id]);
     }
   });

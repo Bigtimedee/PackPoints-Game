@@ -195,6 +195,9 @@ export function registerIosRoutes(app: Express) {
 
   /**
    * POST /api/auth/apple
+   * Native Sign in with Apple. The web Continue with Apple button is a WorkOS
+   * redirect, not an Apple form_post. This route is the native identity exchange
+   * used by the iOS client. There is no browser form_post in this repo.
    * Sign in with Apple.
    * Verifies the identityToken (a JWS from Apple) server-side, creates or
    * retrieves the PackPoints user, and returns JWTs.

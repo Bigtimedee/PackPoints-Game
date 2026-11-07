@@ -27,13 +27,20 @@ export const GROWTH_BASELINE_NOTE =
  */
 export const GROWTH_USER_INSTANT_SQL = `(u.created_at AT TIME ZONE 'UTC')`;
 export const GROWTH_COHORT_DAY_SQL = `to_char((u.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD')`;
+/** Credential, WorkOS, oauth_provider, or Apple link. Report and repair share this. */
+export const GROWTH_REGISTRATION_SQL = `(
+  u.workos_user_id IS NOT NULL
+  OR u.oauth_provider IS NOT NULL
+  OR EXISTS (SELECT 1 FROM local_credentials c WHERE c.user_id = u.id)
+  OR EXISTS (SELECT 1 FROM apple_users a WHERE a.user_id = u.id)
+)`;
 export const GROWTH_SIGNUP_INSERT_SQL = `INSERT INTO growth_lifecycle_events (
   user_id, event_type, occurred_at, cohort_day, provider,
   raw_utm_source, raw_utm_medium, raw_utm_campaign, raw_utm_content,
-  referrer_host, landing_page, destination, inferred
+  referrer_host, landing_page, destination, inferred, provenance
 )
 SELECT u.id, 'signup', ${GROWTH_USER_INSTANT_SQL}, ${GROWTH_COHORT_DAY_SQL},
-       $2, $3, $4, $5, $6, $7, $8, $9, $10
+       $2, $3, $4, $5, $6, $7, $8, $9, $10, 'captured'
 FROM users u
 JOIN growth_instrumentation g ON g.id = 'stage1'
 WHERE u.id = $1
@@ -41,6 +48,7 @@ WHERE u.id = $1
   AND COALESCE(u.is_admin, false) = false
   AND COALESCE(u.is_bot, false) = false
   AND COALESCE(u.is_test_account, false) = false
+  AND ${GROWTH_REGISTRATION_SQL}
 ON CONFLICT (user_id, event_type) DO NOTHING`;
 export const GROWTH_EVENT_INSERT_SQL = `INSERT INTO growth_lifecycle_events (
   user_id, event_type, occurred_at, cohort_day, provider,
@@ -104,18 +112,24 @@ function asText(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function clip(value: string | null | undefined, max: number): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  return value.length <= max ? value : value.slice(0, max);
+}
+
 function signupParams(userId: string, raw: RawTouch | null, provider?: string | null): unknown[] {
   const touch = raw ?? {};
+  const landing = clip(touch.landingPage, 200);
   return [
     userId,
     growthProvider(provider),
-    touch.source ?? null,
-    touch.medium ?? null,
-    touch.campaign ?? null,
-    touch.content ?? null,
-    touch.referrerHost ?? null,
-    touch.landingPage ?? null,
-    classifyDestination(touch.landingPage),
+    clip(touch.source, 100),
+    clip(touch.medium, 100),
+    clip(touch.campaign, 100),
+    clip(touch.content, 100),
+    clip(touch.referrerHost, 100),
+    landing,
+    clip(classifyDestination(landing), 200),
     touch.inferred === true,
   ];
 }
@@ -126,6 +140,14 @@ function resultRows(result: unknown): Array<Record<string, unknown>> {
   return Array.isArray(rows) ? rows as Array<Record<string, unknown>> : [];
 }
 
+/**
+ * Atomic with user creation. Fields are clipped to the growth column widths
+ * first, so a long UTM cannot abort the signup. If this insert fails, the
+ * surrounding transaction rolls the user back. That is the 1:1 guarantee.
+ * A savepoint that committed the user without the event would not be 1:1.
+ * The caller must insert the credential, WorkOS id, or Apple link before this
+ * runs. Later repairs are unattributed because their provenance is unknown.
+ */
 export async function insertSignupForNewUser(
   tx: SqlExecutor,
   userId: string,
@@ -133,18 +155,19 @@ export async function insertSignupForNewUser(
   provider?: string | null,
 ): Promise<void> {
   const touch = raw ?? {};
+  const landing = clip(touch.landingPage, 200);
   await tx.execute(sql`
     INSERT INTO growth_lifecycle_events (
       user_id, event_type, occurred_at, cohort_day, provider,
       raw_utm_source, raw_utm_medium, raw_utm_campaign, raw_utm_content,
-      referrer_host, landing_page, destination, inferred
+      referrer_host, landing_page, destination, inferred, provenance
     )
     SELECT u.id, 'signup', (u.created_at AT TIME ZONE 'UTC'),
            to_char((u.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD'),
            ${growthProvider(provider)},
-           ${touch.source ?? null}, ${touch.medium ?? null}, ${touch.campaign ?? null}, ${touch.content ?? null},
-           ${touch.referrerHost ?? null}, ${touch.landingPage ?? null},
-           ${classifyDestination(touch.landingPage)}, ${touch.inferred === true}
+           ${clip(touch.source, 100)}, ${clip(touch.medium, 100)}, ${clip(touch.campaign, 100)}, ${clip(touch.content, 100)},
+           ${clip(touch.referrerHost, 100)}, ${landing},
+           ${clip(classifyDestination(landing), 200)}, ${touch.inferred === true}, 'captured'
     FROM users u
     JOIN growth_instrumentation g ON g.id = 'stage1'
     WHERE u.id = ${userId}
@@ -152,6 +175,12 @@ export async function insertSignupForNewUser(
       AND COALESCE(u.is_admin, false) = false
       AND COALESCE(u.is_bot, false) = false
       AND COALESCE(u.is_test_account, false) = false
+      AND (
+        u.workos_user_id IS NOT NULL
+        OR u.oauth_provider IS NOT NULL
+        OR EXISTS (SELECT 1 FROM local_credentials c WHERE c.user_id = u.id)
+        OR EXISTS (SELECT 1 FROM apple_users a WHERE a.user_id = u.id)
+      )
     ON CONFLICT (user_id, event_type) DO NOTHING
   `);
   const checked = await tx.execute(sql`
@@ -168,6 +197,12 @@ export async function insertSignupForNewUser(
           AND COALESCE(u.is_admin, false) = false
           AND COALESCE(u.is_bot, false) = false
           AND COALESCE(u.is_test_account, false) = false
+          AND (
+            u.workos_user_id IS NOT NULL
+            OR u.oauth_provider IS NOT NULL
+            OR EXISTS (SELECT 1 FROM local_credentials c WHERE c.user_id = u.id)
+            OR EXISTS (SELECT 1 FROM apple_users a WHERE a.user_id = u.id)
+          )
       ) AS should
   `);
   const row = resultRows(checked)[0];
@@ -205,6 +240,7 @@ export async function recordGrowthSignup(
            AND COALESCE(u.is_admin, false) = false
            AND COALESCE(u.is_bot, false) = false
            AND COALESCE(u.is_test_account, false) = false
+           AND ${GROWTH_REGISTRATION_SQL}
        ) AS should`,
     [userId],
   );
@@ -221,7 +257,7 @@ export async function reconcilePostBaselineSignups(onlyUserIds?: string[]): Prom
     `INSERT INTO growth_lifecycle_events (
        user_id, event_type, occurred_at, cohort_day, provider,
        raw_utm_source, raw_utm_medium, raw_utm_campaign, raw_utm_content,
-       referrer_host, landing_page, destination, inferred
+       referrer_host, landing_page, destination, inferred, provenance
      )
      SELECT u.id, 'signup', (u.created_at AT TIME ZONE 'UTC'),
             to_char((u.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD'),
@@ -232,15 +268,16 @@ export async function reconcilePostBaselineSignups(onlyUserIds?: string[]): Prom
               WHEN EXISTS (SELECT 1 FROM local_credentials c WHERE c.user_id = u.id) THEN 'email'
               ELSE NULL
             END,
-            ua.utm_source, ua.utm_medium, ua.utm_campaign, ua.utm_content,
-            ua.referrer, ua.landing_page,
-            CASE
+            LEFT(ua.utm_source, 100), LEFT(ua.utm_medium, 100), LEFT(ua.utm_campaign, 100), LEFT(ua.utm_content, 100),
+            LEFT(ua.referrer, 100), LEFT(ua.landing_page, 200),
+            LEFT(CASE
               WHEN ua.landing_page IN ('/daily', '/daily5') THEN ua.landing_page
               WHEN ua.landing_page ~ '^/sets/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                 THEN lower(ua.landing_page)
               ELSE NULL
-            END,
-            false
+            END, 200),
+            false,
+            'recovered'
      FROM users u
      JOIN growth_instrumentation g ON g.id = 'stage1'
      LEFT JOIN user_attribution ua ON ua.user_id = u.id
@@ -248,12 +285,7 @@ export async function reconcilePostBaselineSignups(onlyUserIds?: string[]): Prom
        AND COALESCE(u.is_admin, false) = false
        AND COALESCE(u.is_bot, false) = false
        AND COALESCE(u.is_test_account, false) = false
-       AND (
-         u.workos_user_id IS NOT NULL
-         OR u.oauth_provider IS NOT NULL
-         OR EXISTS (SELECT 1 FROM local_credentials c WHERE c.user_id = u.id)
-         OR EXISTS (SELECT 1 FROM apple_users a WHERE a.user_id = u.id)
-       )
+       AND ${GROWTH_REGISTRATION_SQL}
        AND NOT EXISTS (
          SELECT 1 FROM growth_lifecycle_events e
          WHERE e.user_id = u.id AND e.event_type = 'signup'
@@ -267,16 +299,33 @@ export async function reconcilePostBaselineSignups(onlyUserIds?: string[]): Prom
 
 let reconcileTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Run once, then keep repairing rollout gaps. Call only after the schema push. */
+function logReconcileFailure(err: unknown): void {
+  console.error(JSON.stringify({
+    component: "growth_stage1",
+    event: "reconcile_failed",
+    fatal: false,
+    message: err instanceof Error ? err.message : String(err),
+  }));
+}
+
+/**
+ * Repair is best-effort. A failure is logged and retried. It must not take
+ * the process down. Baseline creation is separate and is required before serve.
+ */
+export function scheduleGrowthSignupReconcile(): void {
+  const run = () => {
+    void reconcilePostBaselineSignups().catch(logReconcileFailure);
+  };
+  if (!reconcileTimer) {
+    reconcileTimer = setInterval(run, 60_000);
+    reconcileTimer.unref?.();
+  }
+  run();
+}
+
+/** @deprecated Use scheduleGrowthSignupReconcile. Kept so boot can name the repair separately from baseline. */
 export async function startGrowthSignupReconcile(): Promise<void> {
-  await reconcilePostBaselineSignups();
-  if (reconcileTimer) return;
-  reconcileTimer = setInterval(() => {
-    void reconcilePostBaselineSignups().catch((err: unknown) => {
-      console.error("[Growth] signup reconcile failed:", err instanceof Error ? err.message : err);
-    });
-  }, 60_000);
-  reconcileTimer.unref?.();
+  scheduleGrowthSignupReconcile();
 }
 
 /** First server-confirmed completion for a user who already has a signup event. */
@@ -351,6 +400,7 @@ function mapReportUser(row: Record<string, unknown>): Stage1User {
           referrerHost: asText(row.referrer_host),
           landingPage: asText(row.landing_page),
           inferred: asBool(row.inferred),
+          provenance: row.provenance === "recovered" ? "recovered" : "captured",
         }
       : null,
     firstGameAt: asDate(row.first_game_at),
@@ -372,22 +422,35 @@ export async function loadGrowthStage1Report(now = new Date()): Promise<GrowthSt
     query(
       `SELECT u.id, (u.created_at AT TIME ZONE 'UTC') AS created_at, u.is_admin, u.is_bot, u.is_test_account,
               s.occurred_at AS signup_at, s.provider, s.raw_utm_source, s.raw_utm_medium,
-              s.raw_utm_campaign, s.raw_utm_content, s.referrer_host, s.landing_page, s.inferred,
+              s.raw_utm_campaign, s.raw_utm_content, s.referrer_host, s.landing_page, s.inferred, s.provenance,
               g.occurred_at AS first_game_at, d1.occurred_at AS day1_at, d7.occurred_at AS day7_at
        FROM users u
        LEFT JOIN growth_lifecycle_events s ON s.user_id = u.id AND s.event_type = 'signup'
        LEFT JOIN growth_lifecycle_events g ON g.user_id = u.id AND g.event_type = 'first_game_completed'
        LEFT JOIN growth_lifecycle_events d1 ON d1.user_id = u.id AND d1.event_type = 'day1_return'
        LEFT JOIN growth_lifecycle_events d7 ON d7.user_id = u.id AND d7.event_type = 'day7_return'
-       WHERE (u.created_at AT TIME ZONE 'UTC') >= $1::timestamptz`,
+       WHERE (u.created_at AT TIME ZONE 'UTC') >= $1::timestamptz
+         AND COALESCE(u.is_admin, false) = false
+         AND COALESCE(u.is_bot, false) = false
+         AND COALESCE(u.is_test_account, false) = false
+         AND ${GROWTH_REGISTRATION_SQL}`,
       [baseline],
     ),
     query(
       `SELECT count(*)::int AS n
        FROM growth_lifecycle_events e
        JOIN users u ON u.id = e.user_id
-       WHERE e.event_type = 'signup' AND (u.created_at AT TIME ZONE 'UTC') < $1::timestamptz`,
-      [baseline],
+       LEFT JOIN growth_instrumentation g ON g.id = 'stage1'
+       WHERE e.event_type = 'signup'
+         AND NOT (
+           g.started_at IS NOT NULL
+           AND (u.created_at AT TIME ZONE 'UTC') >= g.started_at
+           AND COALESCE(u.is_admin, false) = false
+           AND COALESCE(u.is_bot, false) = false
+           AND COALESCE(u.is_test_account, false) = false
+           AND ${GROWTH_REGISTRATION_SQL}
+         )`,
+      [],
     ),
   ]);
   const outside = Number(outsideResult.rows[0]?.n ?? 0);

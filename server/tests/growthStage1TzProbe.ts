@@ -28,6 +28,10 @@ try {
      VALUES ($1, $2, $3, '2026-11-07 12:00:01', false, false, false)`,
     [id, id, `${id}@example.invalid`],
   );
+  await client.query(
+    `INSERT INTO local_credentials (id, user_id, password_hash) VALUES ($1, $2, 'x')`,
+    [`${id}-c`, id],
+  );
   await recordGrowthSignup(id, {
     source: "instagram",
     medium: "social",

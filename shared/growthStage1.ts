@@ -101,6 +101,8 @@ export const STAGE1_EXCLUSIONS = [
   "A flagged Daily 5 finish is not first_game_completed. A later unflagged finish can be.",
   "Head-to-head first_game_completed is only maybeFinish (end reason completed). matchService.forfeitMatch and engine.forfeitMatch are not.",
   "iOS and other mobile clients use POST /api/game/next, POST /api/daily5/finish, and Bearer JWT activity. They do not have a separate completion route.",
+  "Web Continue with Apple is a WorkOS redirect (cookie plus 30-day session stash). POST /api/auth/apple is the native identity-token exchange. This repo has no Apple form_post, so that path is not treated as covered.",
+  "A repaired signup stores provenance recovered. Its copied UTMs are not a marketing source, because user_attribution does not record whether they were supplied or inferred.",
 ] as const;
 
 export const STAGE1_INTEGRATION_GAPS = [
@@ -120,7 +122,8 @@ export type UnattributedReason =
   | "unrecognized"
   | "referrer_only"
   | "legacy"
-  | "inferred_referrer";
+  | "inferred_referrer"
+  | "recovered_unknown";
 
 export type ClassifiedTouch = {
   source: MarketingSource | null;
@@ -143,6 +146,8 @@ export type RawTouch = {
   referrerHost?: string | null;
   landingPage?: string | null;
   inferred?: boolean;
+  /** recovered: UTM provenance is unknown. Never counted as a marketing source. */
+  provenance?: "captured" | "recovered" | null;
 };
 
 function asToken(raw: string | null | undefined): string | null {
@@ -213,9 +218,12 @@ export function classifyGrowthTouch(raw: RawTouch): ClassifiedTouch {
   const destination = classifyDestination(landing);
   const anyRaw = Boolean(sourceRaw || mediumRaw || campaignRaw || contentRaw);
 
-  let attributable = source != null && raw.inferred !== true;
+  let attributable = source != null && raw.inferred !== true && raw.provenance !== "recovered";
   let reason: UnattributedReason | null = null;
-  if (raw.inferred === true) {
+  if (raw.provenance === "recovered") {
+    attributable = false;
+    reason = "recovered_unknown";
+  } else if (raw.inferred === true) {
     attributable = false;
     reason = "inferred_referrer";
   } else if (attributable) {
@@ -326,6 +334,11 @@ export type Stage1User = {
   isAdmin?: boolean;
   isBot?: boolean;
   isTest?: boolean;
+  /**
+   * False when the row has no local credential, WorkOS id, oauth_provider, or
+   * Apple link. Those rows are not signups. Omitted means registered.
+   */
+  registered?: boolean;
   signupEvent: null | RawTouch & { occurredAt: Date; provider?: string | null };
   firstGameAt?: Date | null;
   day1At?: Date | null;
@@ -400,7 +413,7 @@ function emptyMediums(): Record<MarketingMedium, number> {
 }
 
 function emptyReasons(): Record<UnattributedReason, number> & { total: number } {
-  return { missing: 0, direct: 0, unrecognized: 0, referrer_only: 0, legacy: 0, inferred_referrer: 0, total: 0 };
+  return { missing: 0, direct: 0, unrecognized: 0, referrer_only: 0, legacy: 0, inferred_referrer: 0, recovered_unknown: 0, total: 0 };
 }
 
 function emptyLegacyMedium(): Record<LegacyMedium, number> {
@@ -419,6 +432,7 @@ function rate(part: number, whole: number): number | null {
 function eligible(user: Stage1User, baseline: Date | null): boolean {
   if (!baseline || user.createdAt < baseline) return false;
   if (user.isAdmin || user.isBot || user.isTest) return false;
+  if (user.registered === false) return false;
   return true;
 }
 

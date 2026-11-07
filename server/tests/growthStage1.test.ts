@@ -116,6 +116,12 @@ describe("marketing contract classification", () => {
     expect(classifyGrowthTouch({ referrerHost: "google.com" })).toMatchObject({ attributable: false, reason: "referrer_only" });
     expect(classifyGrowthTouch({ source: "direct" })).toMatchObject({ attributable: false, reason: "direct" });
     expect(classifyGrowthTouch({ content: SECRET_EMAIL })).toMatchObject({ attributable: false, reason: "unrecognized", content: null });
+    expect(classifyGrowthTouch({
+      source: "instagram",
+      medium: "social",
+      content: "bio",
+      provenance: "recovered",
+    })).toMatchObject({ attributable: false, reason: "recovered_unknown", source: null });
   });
 
   it("allowlists /daily and set uuids and rejects the slug, open redirects, and non-contract tags", () => {
@@ -159,6 +165,26 @@ describe("marketing contract classification", () => {
 });
 
 describe("retention boundaries", () => {
+  it("keeps a credentialless row out of the signup denominator", () => {
+    const report = buildGrowthStage1Report({
+      now: atCt("2026-11-10", 12),
+      baselineStartedAt: BASELINE,
+      users: [
+        user({
+          id: "real",
+          createdAt: atCt("2026-11-03", 12),
+          registered: true,
+          signupEvent: { occurredAt: atCt("2026-11-03", 12), source: "email", medium: "lifecycle", campaign: "261107-daily5", content: "post-a" },
+        }),
+        user({ id: "bare", createdAt: atCt("2026-11-03", 13), registered: false, signupEvent: null }),
+      ],
+    });
+    expect(report.diagnostics.observedNewUsers).toBe(1);
+    expect(report.diagnostics.usersMissingSignupEvent).toBe(0);
+    expect(report.totals.signups).toBe(1);
+    expect(report.totals.bySource.email).toBe(1);
+  });
+
   it("uses the next Chicago calendar day, not 24 hours, and does not backfill", () => {
     const late = atCt("2026-11-07", 23, 50);
     const afterMidnight = atCt("2026-11-08", 0, 10);

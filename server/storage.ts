@@ -419,6 +419,11 @@ export class DatabaseStorage implements IStorage {
     const { randomUUID } = await import("crypto");
     const { insertSignupForNewUser } = await import("./services/growthStage1");
 
+    // Signup event stays in this transaction. Fields are clipped to the growth
+    // column widths first, so a long UTM cannot abort registration. If the
+    // insert fails, the user rolls back with it. That is the 1:1. A savepoint
+    // that kept the user without the event would not be. A later repair of an
+    // already-committed account is unattributed, because provenance is unknown.
     return db.transaction(async (tx) => {
       const [user] = await tx.insert(users).values({
         username,
