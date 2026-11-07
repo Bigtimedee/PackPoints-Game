@@ -122,42 +122,68 @@ describe("approved same-slot trial pairs", () => {
     expect(ids(fb, ctWallTime(day, 11, 1), "fb")).toEqual([7]);
   });
 
-  it("holds a pair day at five posts and still posts the 1 PM feed", () => {
+  it("posts the Nov 7-8 lineup of two feeds, both trial variants, and the 6 PM Reel", () => {
     expect(IG_DAILY_POST_CAP).toBe(5);
-    const day = "2026-11-08";
+    const day = "2026-11-07";
     const [a, b] = pair(day);
     const feed11 = row(1, { kind: "FEED", scheduledFor: ctWallTime(day, 11, 0) });
     const feed13 = row(2, { kind: "FEED", scheduledFor: ctWallTime(day, 13, 0) });
-    const solo = row(60, { kind: "REEL", scheduledFor: ctWallTime(day, 18, 0), testId: "solo", mediaPath: "solo.mp4" });
-    const tease = row(70, { kind: "STORY", scheduledFor: ctWallTime(day, 20, 45), testId: "tease" });
-    const poll = row(71, { kind: "STORY", scheduledFor: ctWallTime(day, 21, 0), testId: "poll" });
+    const evening = row(60, { kind: "REEL", scheduledFor: ctWallTime(day, 18, 0), testId: "solo", trial: false, mediaPath: "solo.mp4" });
+    const lineup = [feed11, feed13, a, b, evening];
+    expect(lineup.some((item) => item.kind === "STORY")).toBe(false);
+    expect(ids(lineup, ctWallTime(day, 11, 5))).toEqual([1]);
     const published11 = { ...feed11, status: "published" as const, igMediaId: "feed-11", publishedAt: ctWallTime(day, 11, 2) };
-    expect(ids([published11, feed13, a, b, solo, tease, poll], ctWallTime(day, 13, 5))).toEqual([2]);
+    expect(ids([published11, feed13, a, b, evening], ctWallTime(day, 13, 5))).toEqual([2]);
     const published13 = { ...feed13, status: "published" as const, igMediaId: "feed-13", publishedAt: ctWallTime(day, 13, 5) };
-    expect(ids([published11, published13, a, b, solo, tease, poll], ctWallTime(day, 13, 31))).toEqual([49, 50]);
+    expect(ids([published11, published13, a, b, evening], ctWallTime(day, 13, 31))).toEqual([49, 50]);
     const publishedA = { ...a, status: "published" as const, igMediaId: "media-49", publishedAt: ctWallTime(day, 13, 34) };
     const publishedB = { ...b, status: "published" as const, igMediaId: "media-50", publishedAt: ctWallTime(day, 13, 36) };
-    expect(ids([published11, publishedA, publishedB, solo, tease, poll], ctWallTime(day, 18, 1))).toEqual([]);
-    expect(ids([published11, publishedA, publishedB, solo, tease, poll], ctWallTime(day, 21, 1))).toEqual([70, 71]);
-    const ordinary = [
-      feed11,
-      row(30, { kind: "REEL", scheduledFor: ctWallTime(day, 13, 30), mediaPath: "one.mp4" }),
-      solo,
-      row(61, { kind: "REEL", scheduledFor: solo.scheduledFor, mediaPath: "dup.mp4" }),
+    expect(ids([published11, published13, publishedA, publishedB, evening], ctWallTime(day, 18, 1))).toEqual([60]);
+    const backlog = row(12, { kind: "REEL", scheduledFor: ctWallTime("2026-11-06", 18, 0), mediaPath: "older.mp4" });
+    expect(ids([published11, published13, publishedA, publishedB, evening, backlog], ctWallTime(day, 18, 1))).toEqual([60]);
+  });
+
+  it("posts a five-row day with one 9 PM tease and does not invent a second Story", () => {
+    const day = "2026-11-09";
+    const [a, b] = pair(day);
+    const feed11 = row(1, { kind: "FEED", scheduledFor: ctWallTime(day, 11, 0) });
+    const feed13 = row(2, { kind: "FEED", scheduledFor: ctWallTime(day, 13, 0) });
+    const tease = row(70, { kind: "STORY", scheduledFor: ctWallTime(day, 21, 0), testId: "tease" });
+    const published = (item: IgQueueRow, at: Date, mediaId: string): IgQueueRow => ({
+      ...item, status: "published", igMediaId: mediaId, publishedAt: at,
+    });
+    const ready = [
+      published(feed11, ctWallTime(day, 11, 2), "feed-11"),
+      published(feed13, ctWallTime(day, 13, 5), "feed-13"),
+      published(a, ctWallTime(day, 13, 34), "media-49"),
+      published(b, ctWallTime(day, 13, 36), "media-50"),
       tease,
-      poll,
     ];
-    expect(ids(ordinary, ctWallTime(day, 11, 5))).toEqual([1]);
-    expect(ids(ordinary, ctWallTime(day, 21, 1))).toEqual([30, 60, 70, 71]);
+    expect(ready.filter((item) => item.kind === "STORY")).toHaveLength(1);
+    expect(ids(ready, ctWallTime(day, 21, 1))).toEqual([70]);
+    const sixth = row(90, { kind: "REEL", scheduledFor: ctWallTime(day, 21, 30), trial: false, mediaPath: "late.mp4" });
+    expect(ids([...ready, sixth], ctWallTime(day, 21, 31))).toEqual([70]);
   });
 
   it("does not auto-start row 50 after the slot expires, including the next day's catch-up", async () => {
     const [a, b] = pair("2026-11-07");
     const published = { ...a, status: "published" as const, igMediaId: "media-49", publishedAt: ctWallTime("2026-11-07", 13, 34) };
-    const solo = row(60, { kind: "REEL", scheduledFor: ctWallTime("2026-11-07", 18, 0), testId: "solo", mediaPath: "solo.mp4" });
+    const evening = row(60, { kind: "REEL", scheduledFor: ctWallTime("2026-11-07", 18, 0), testId: "solo", trial: false, mediaPath: "solo.mp4" });
     const older = row(12, { kind: "REEL", scheduledFor: ctWallTime("2026-11-06", 18, 0), mediaPath: "older.mp4" });
+    const feed11 = row(1, { kind: "FEED", scheduledFor: ctWallTime("2026-11-07", 11, 0), status: "published", igMediaId: "feed-11", publishedAt: ctWallTime("2026-11-07", 11, 2) });
+    const feed13 = row(2, { kind: "FEED", scheduledFor: ctWallTime("2026-11-07", 13, 0), status: "published", igMediaId: "feed-13", publishedAt: ctWallTime("2026-11-07", 13, 5) });
     expect(ids([published, b], ctWallTime("2026-11-07", 16, 12))).toEqual([]);
-    expect(ids([published, b, solo, older], ctWallTime("2026-11-08", 18, 1))).toEqual([12]);
+    expect(ids([feed11, feed13, published, b, evening], ctWallTime("2026-11-07", 18, 1))).toEqual([60]);
+    const nov8 = "2026-11-08";
+    const tonight = row(80, { kind: "REEL", scheduledFor: ctWallTime(nov8, 18, 0), testId: "solo", trial: false, mediaPath: "nov8.mp4" });
+    const nov8Lineup = [
+      row(81, { kind: "FEED", scheduledFor: ctWallTime(nov8, 11, 0), status: "published", igMediaId: "f", publishedAt: ctWallTime(nov8, 11, 2) }),
+      row(82, { kind: "FEED", scheduledFor: ctWallTime(nov8, 13, 0), status: "published", igMediaId: "g", publishedAt: ctWallTime(nov8, 13, 5) }),
+      row(83, { kind: "REEL", scheduledFor: ctWallTime(nov8, 13, 30), status: "published", igMediaId: "h", publishedAt: ctWallTime(nov8, 13, 34), trial: true, variant: "A", testId: "hook", mediaPath: "h.mp4" }),
+      row(84, { kind: "REEL", scheduledFor: ctWallTime(nov8, 13, 30), status: "published", igMediaId: "i", publishedAt: ctWallTime(nov8, 13, 36), trial: true, variant: "B", testId: "hook", mediaPath: "i.mp4" }),
+      tonight,
+    ];
+    expect(ids([...nov8Lineup, b, evening, older], ctWallTime(nov8, 18, 1))).toEqual([80]);
 
     const dir = mkdtempSync(path.join(tmpdir(), "ig-pair-"));
     writeFileSync(path.join(dir, "hook-B.mp4"), VIDEO);

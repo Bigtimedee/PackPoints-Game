@@ -553,7 +553,12 @@ export function feedRecentlyPosted(rows: IgQueueRow[], now: Date, platform: IgPl
   });
 }
 
-/** How long a same-slot trial sibling may still start. Matches the feed miss window. */
+/**
+ * A same-slot trial sibling may still start this long after the clock.
+ * The cron is every 5 minutes, and the Nov 7 trial A container did not publish until 4 minutes past 1:30.
+ * 45 minutes is the same lateness already used for a missed feed: enough for that tick plus container setup,
+ * and short enough that a deploy hours later cannot treat the closed 1:30 slot as still open.
+ */
 export const TRIAL_PAIR_LIVE_MS = FEED_MISS_AFTER_MS;
 
 /**
@@ -589,13 +594,6 @@ export function trialPairExpired(row: IgQueueRow, rows: readonly IgQueueRow[], n
   return !trialPairLive(row, now);
 }
 
-/** A non-trial Reel on a trial-pair day does not catch up ahead of the next day's pair. */
-function reelHeldBySameDayTrialPair(row: IgQueueRow, ofKind: readonly IgQueueRow[]): boolean {
-  if (row.platform !== "ig" || row.kind !== "REEL" || row.trial === true) return false;
-  const day = ctNow(row.scheduledFor).day;
-  return ofKind.some((other) => approvedTrialPartner(other, ofKind) != null && ctNow(other.scheduledFor).day === day);
-}
-
 /** At most one FEED per pass, never within FEED_SPACING_MS of another, never a missed row. */
 function guardFeed(chosen: IgQueueRow[], rows: IgQueueRow[], now: Date, platform: IgPlatform, e: NodeJS.ProcessEnv): IgQueueRow[] {
   const out: IgQueueRow[] = [];
@@ -615,40 +613,30 @@ function guardFeed(chosen: IgQueueRow[], rows: IgQueueRow[], now: Date, platform
   return out;
 }
 
-/** Feed, trial pair, and the two stories. A non-pair Reel yields when that set fills the day. */
+/** Actual posts on one Central day, counting each variant. Kind mix is whatever the queue approved. */
 export const IG_DAILY_POST_CAP = 5;
 
 function applyIgDailyCap(chosen: IgQueueRow[], rows: IgQueueRow[], now: Date, platform: IgPlatform): IgQueueRow[] {
   if (platform !== "ig") return chosen;
   const today = ctNow(now).day;
-  const mine = rows.filter((row) => row.platform === platform);
-  const pairToday = mine.some((row) => approvedTrialPartner(row, mine) != null && ctNow(row.scheduledFor).day === today);
-  if (!pairToday) return chosen;
-  const chosenIds = new Set(chosen.map((row) => row.id));
-  const required = chosen.filter((row) =>
-    row.status === "container_created"
-    || row.kind === "FEED"
-    || row.kind === "STORY"
-    || approvedTrialPartner(row, mine) != null
+  const actual = rows.filter((row) =>
+    row.platform === platform
+    && (
+      row.status === "container_created"
+      || (row.status === "published" && row.publishedAt != null && ctNow(row.publishedAt).day === today)
+    )
   );
-  const requiredIds = new Set(required.map((row) => row.id));
-  const actual = mine.filter((row) =>
-    row.status === "container_created"
-    || (row.status === "published" && row.publishedAt != null && ctNow(row.publishedAt).day === today)
-  );
-  const futureStories = mine.filter((row) =>
-    row.kind === "STORY"
-    && row.status === "queued"
-    && ctNow(row.scheduledFor).day === today
-    && row.scheduledFor.getTime() > now.getTime()
-    && !chosenIds.has(row.id)
-  ).length;
-  let room = IG_DAILY_POST_CAP - actual.filter((row) => !requiredIds.has(row.id)).length - required.length - futureStories;
-  const optional = chosen
-    .filter((row) => !requiredIds.has(row.id))
-    .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime() || a.id - b.id);
-  const kept = [...required];
-  for (const row of optional) {
+  const inflight = chosen.filter((row) => row.status === "container_created");
+  const starting = chosen
+    .filter((row) => row.status !== "container_created")
+    .sort((a, b) => {
+      const aToday = ctNow(a.scheduledFor).day === today ? 0 : 1;
+      const bToday = ctNow(b.scheduledFor).day === today ? 0 : 1;
+      return aToday - bToday || a.scheduledFor.getTime() - b.scheduledFor.getTime() || a.id - b.id;
+    });
+  let room = IG_DAILY_POST_CAP - actual.length;
+  const kept = [...inflight];
+  for (const row of starting) {
     if (room <= 0) break;
     kept.push(row);
     room -= 1;
@@ -665,6 +653,11 @@ export function selectDueRows(rows: IgQueueRow[], now: Date, platform: IgPlatfor
 function selectDueRowsRaw(rows: IgQueueRow[], now: Date, platform: IgPlatform, e = env()): IgQueueRow[] {
   const mine = rows.filter((row) => row.platform === platform);
   const today = ctNow(now).day;
+  const lineupToday = mine.filter((row) =>
+    ctNow(row.scheduledFor).day === today
+    && (row.status === "queued" || row.status === "published" || row.status === "container_created")
+  );
+  const blockBacklog = lineupToday.length >= IG_DAILY_POST_CAP;
   const chosen: IgQueueRow[] = [];
   for (const kind of KINDS) {
     const ofKind = mine.filter((row) => row.kind === kind);
@@ -694,8 +687,8 @@ function selectDueRowsRaw(rows: IgQueueRow[], now: Date, platform: IgPlatform, e
       .sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime() || a.id - b.id);
     const catchupDone = ofKind.some((row) => row.status !== "queued" && row.publishedAt != null && ctNow(row.publishedAt).day === today && ctNow(row.scheduledFor).day < today);
     if (catchupDone) continue;
-    const catchups = ready.filter((row) => ctNow(row.scheduledFor).day < today && !reelHeldBySameDayTrialPair(row, ofKind));
-    if (catchups.length) {
+    const catchups = ready.filter((row) => ctNow(row.scheduledFor).day < today);
+    if (catchups.length && !blockBacklog) {
       chosen.push(catchups[0]);
       continue;
     }
