@@ -131,6 +131,8 @@ export type IgQueueRow = {
   abTestId: string | null;
   createdAt: Date;
   publishedAt: Date | null;
+  /** Central day that holds this row's five-post slot. Null until a publish claims one. */
+  capacityDay?: string | null;
 };
 
 export type IgQueueInsert = Omit<IgQueueRow, "id" | "createdAt" | "publishedAt" | "containerId" | "igMediaId" | "error" | "utmMedium" | "utmCampaign" | "platform" | "variant" | "testId" | "trial" | "insights" | "abTestId"> & {
@@ -185,6 +187,8 @@ export interface IgStore {
   dayConsumed(kind: IgKind, dayKey: string): Promise<boolean>;
   nextQueued(kind: IgKind, now: Date, dayKey: string): Promise<IgQueueRow | null>;
   withLock<T>(id: number, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }>;
+  /** Atomically take one of the five account-day slots, or resume the slot this row already holds. */
+  claimDaySlot(id: number, accountDay: string): Promise<"claimed" | "resume" | "full" | "missing">;
 }
 
 export class IgGraphError extends Error {
@@ -587,11 +591,40 @@ export function trialPairLive(row: Pick<IgQueueRow, "scheduledFor">, now: Date):
   return late >= 0 && late <= TRIAL_PAIR_LIVE_MS;
 }
 
-/** Queued pair member whose slot has closed. Left queued so deploy does not publish or skip it. */
-export function trialPairExpired(row: IgQueueRow, rows: readonly IgQueueRow[], now: Date): boolean {
+/**
+ * Pair-shaped trial Reel: variant A or B, a test id, and an approval hash.
+ * After the live window this shape stays blocked even when no unique partner is visible.
+ * A lone trial Reel with no test id is not pair-shaped and keeps the older rules.
+ */
+export function isPairShapedTrial(row: Pick<IgQueueRow, "platform" | "kind" | "trial" | "variant" | "testId" | "approvalHash">): boolean {
+  return row.platform === "ig"
+    && row.kind === "REEL"
+    && row.trial === true
+    && (row.variant === "A" || row.variant === "B")
+    && Boolean(row.testId)
+    && /^[a-f0-9]{64}$/i.test(row.approvalHash);
+}
+
+/**
+ * Closed pair-shaped trial row. The peer list cannot reopen it: a missing, duplicated,
+ * or not-yet-loaded partner still leaves the row blocked. A container already created
+ * is finished by the slot it claimed, not by this gate.
+ */
+export function trialPairExpired(row: IgQueueRow, _rows: readonly IgQueueRow[], now: Date): boolean {
   if (row.status === "container_created" || row.status === "published") return false;
-  if (!approvedTrialPartner(row, rows)) return false;
+  if (!isPairShapedTrial(row)) return false;
   return !trialPairLive(row, now);
+}
+
+export function igAccountDay(now: Date): string {
+  return ctNow(now).day;
+}
+
+/** Fits in a Postgres int advisory-lock key. */
+export function igAccountDayKey(day: string): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) return 0;
+  return Number(match[1]) * 10000 + Number(match[2]) * 100 + Number(match[3]);
 }
 
 /** At most one FEED per pass, never within FEED_SPACING_MS of another, never a missed row. */
@@ -613,29 +646,29 @@ function guardFeed(chosen: IgQueueRow[], rows: IgQueueRow[], now: Date, platform
   return out;
 }
 
-/** Actual posts on one Central day, counting each variant. Kind mix is whatever the queue approved. */
+/** Actual posts on one Central account day, counting each variant. Kind mix is whatever the queue approved. */
 export const IG_DAILY_POST_CAP = 5;
+
+function occupiesAccountDay(row: IgQueueRow, today: string): boolean {
+  if (row.platform !== "ig") return false;
+  if (row.capacityDay) return row.capacityDay === today && (row.status === "published" || row.status === "container_created");
+  return row.status === "published" && row.publishedAt != null && ctNow(row.publishedAt).day === today;
+}
 
 function applyIgDailyCap(chosen: IgQueueRow[], rows: IgQueueRow[], now: Date, platform: IgPlatform): IgQueueRow[] {
   if (platform !== "ig") return chosen;
   const today = ctNow(now).day;
-  const actual = rows.filter((row) =>
-    row.platform === platform
-    && (
-      row.status === "container_created"
-      || (row.status === "published" && row.publishedAt != null && ctNow(row.publishedAt).day === today)
-    )
-  );
-  const inflight = chosen.filter((row) => row.status === "container_created");
+  const actual = rows.filter((row) => occupiesAccountDay(row, today));
+  const slottedInflight = chosen.filter((row) => row.status === "container_created" && row.capacityDay === today);
   const starting = chosen
-    .filter((row) => row.status !== "container_created")
+    .filter((row) => !(row.status === "container_created" && row.capacityDay === today))
     .sort((a, b) => {
       const aToday = ctNow(a.scheduledFor).day === today ? 0 : 1;
       const bToday = ctNow(b.scheduledFor).day === today ? 0 : 1;
       return aToday - bToday || a.scheduledFor.getTime() - b.scheduledFor.getTime() || a.id - b.id;
     });
   let room = IG_DAILY_POST_CAP - actual.length;
-  const kept = [...inflight];
+  const kept = slottedInflight.slice(0, IG_DAILY_POST_CAP);
   for (const row of starting) {
     if (room <= 0) break;
     kept.push(row);
@@ -653,10 +686,10 @@ export function selectDueRows(rows: IgQueueRow[], now: Date, platform: IgPlatfor
 function selectDueRowsRaw(rows: IgQueueRow[], now: Date, platform: IgPlatform, e = env()): IgQueueRow[] {
   const mine = rows.filter((row) => row.platform === platform);
   const today = ctNow(now).day;
-  const lineupToday = mine.filter((row) =>
-    ctNow(row.scheduledFor).day === today
-    && (row.status === "queued" || row.status === "published" || row.status === "container_created")
-  );
+  // Failed and skipped rows still occupy a seat in an approved full day.
+  // Dropping them made the day look short and let an older Reel catch up, which then
+  // consumed the kind and displaced the 6 PM Reel.
+  const lineupToday = mine.filter((row) => ctNow(row.scheduledFor).day === today);
   const blockBacklog = lineupToday.length >= IG_DAILY_POST_CAP;
   const chosen: IgQueueRow[] = [];
   for (const kind of KINDS) {
@@ -929,6 +962,7 @@ function withDefaults(input: IgQueueInsert): IgQueueRow {
     abTestId: input.abTestId ?? null,
     createdAt: new Date(),
     publishedAt: null,
+    capacityDay: null,
   };
 }
 
@@ -950,6 +984,32 @@ export function createMemoryStore(): IgStore {
   const rows: IgQueueRow[] = [];
   let nextId = 1;
   const chains = new Map<number, Promise<unknown>>();
+  const dayChains = new Map<string, Promise<unknown>>();
+  const slots = new Map<string, Map<number, number>>();
+  const slotByPost = new Map<number, { day: string; slot: number }>();
+
+  function releaseSlot(id: number): void {
+    const held = slotByPost.get(id);
+    if (!held) return;
+    slots.get(held.day)?.delete(held.slot);
+    slotByPost.delete(id);
+    const row = rows.find((item) => item.id === id);
+    if (row) row.capacityDay = null;
+  }
+
+  async function withDayLock<T>(day: string, fn: () => Promise<T> | T): Promise<T> {
+    const prev = dayChains.get(day) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const tail = prev.then(() => gate, () => gate);
+    dayChains.set(day, tail);
+    await prev.catch(() => undefined);
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
 
   function find(id: number): IgQueueRow | undefined {
     return rows.find((row) => row.id === id);
@@ -1049,6 +1109,7 @@ export function createMemoryStore(): IgStore {
     async markFailed(id, error) {
       const row = find(id);
       if (!row || row.igMediaId || row.status === "published" || row.status === "skipped") return false;
+      releaseSlot(id);
       row.status = "failed";
       row.error = error;
       return true;
@@ -1056,6 +1117,7 @@ export function createMemoryStore(): IgStore {
     async markSkipped(id, error) {
       const row = find(id);
       if (!row || row.igMediaId || row.status === "published") return false;
+      releaseSlot(id);
       row.status = "skipped";
       row.error = error;
       return true;
@@ -1101,6 +1163,35 @@ export function createMemoryStore(): IgStore {
         release();
       }
     },
+    async claimDaySlot(id, accountDay) {
+      return withDayLock(accountDay, () => {
+        const row = find(id);
+        if (!row) return "missing" as const;
+        const held = slotByPost.get(id);
+        if (held) {
+          row.capacityDay = held.day;
+          return "resume" as const;
+        }
+        const book = slots.get(accountDay) ?? new Map<number, number>();
+        const legacy = rows.filter((item) =>
+          item.id !== id
+          && item.platform === "ig"
+          && !item.capacityDay
+          && item.status === "published"
+          && item.publishedAt != null
+          && ctNow(item.publishedAt).day === accountDay
+        ).length;
+        if (book.size + legacy >= IG_DAILY_POST_CAP) return "full" as const;
+        let slot = 1;
+        while (book.has(slot)) slot += 1;
+        if (slot > IG_DAILY_POST_CAP) return "full" as const;
+        book.set(slot, id);
+        slots.set(accountDay, book);
+        slotByPost.set(id, { day: accountDay, slot });
+        row.capacityDay = accountDay;
+        return "claimed" as const;
+      });
+    },
   };
 }
 
@@ -1142,7 +1233,14 @@ function mapPg(row: Record<string, unknown>): IgQueueRow {
     abTestId: row.ab_test_id == null ? null : String(row.ab_test_id),
     createdAt: new Date(String(row.created_at)),
     publishedAt: row.published_at == null ? null : new Date(String(row.published_at)),
+    capacityDay: capacityDayText(row.capacity_day),
   };
+}
+
+function capacityDayText(value: unknown): string | null {
+  if (value == null) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value));
+  return match ? match[1] : null;
 }
 
 const ENSURE_IG_POST_QUEUE_SQL = `
@@ -1190,6 +1288,16 @@ ALTER TABLE ig_post_queue ADD CONSTRAINT ig_post_queue_variant_check CHECK (vari
 CREATE INDEX IF NOT EXISTS idx_ig_post_queue_status_scheduled ON ig_post_queue (status, scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_ig_post_queue_kind_status ON ig_post_queue (kind, status);
 CREATE INDEX IF NOT EXISTS idx_ig_post_queue_published ON ig_post_queue (published_at);
+ALTER TABLE ig_post_queue ADD COLUMN IF NOT EXISTS capacity_day date;
+CREATE TABLE IF NOT EXISTS ig_publish_day_slot (
+  platform varchar(2) NOT NULL DEFAULT 'ig',
+  account_day date NOT NULL,
+  slot integer NOT NULL,
+  post_id integer NOT NULL UNIQUE REFERENCES ig_post_queue(id),
+  PRIMARY KEY (platform, account_day, slot),
+  CONSTRAINT ig_publish_day_slot_range CHECK (slot BETWEEN 1 AND 5),
+  CONSTRAINT ig_publish_day_slot_platform CHECK (platform IN ('ig', 'fb'))
+);
 `;
 
 let ensureTask: Promise<void> | null = null;
@@ -1348,7 +1456,10 @@ export const pgStore: IgStore = {
   async markFailed(id, error) {
     const pool = await pgPool();
     const result = await pool.query(
-      `UPDATE ig_post_queue SET status = 'failed', error = $2
+      `WITH released AS (
+         DELETE FROM ig_publish_day_slot WHERE post_id = $1
+       )
+       UPDATE ig_post_queue SET status = 'failed', error = $2, capacity_day = NULL
        WHERE id = $1 AND ig_media_id IS NULL AND status IN ('queued', 'container_created', 'failed')
        RETURNING id`,
       [id, error],
@@ -1358,7 +1469,10 @@ export const pgStore: IgStore = {
   async markSkipped(id, error) {
     const pool = await pgPool();
     const result = await pool.query(
-      `UPDATE ig_post_queue SET status = 'skipped', error = $2
+      `WITH released AS (
+         DELETE FROM ig_publish_day_slot WHERE post_id = $1
+       )
+       UPDATE ig_post_queue SET status = 'skipped', error = $2, capacity_day = NULL
        WHERE id = $1 AND ig_media_id IS NULL AND status <> 'published'
        RETURNING id`,
       [id, error],
@@ -1417,6 +1531,78 @@ export const pgStore: IgStore = {
       return { ok: true, value: await fn() };
     } finally {
       if (locked) await client.query("SELECT pg_advisory_unlock(81021, $1::int)", [id]).catch(() => undefined);
+      client.release();
+    }
+  },
+  async claimDaySlot(id, accountDay) {
+    const key = igAccountDayKey(accountDay);
+    if (!key) return "missing";
+    const pool = await pgPool();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(81022, $1::int)", [key]);
+      const row = await client.query(`SELECT id, platform FROM ig_post_queue WHERE id = $1`, [id]);
+      if (!row.rows[0]) {
+        await client.query("COMMIT");
+        return "missing";
+      }
+      const held = await client.query(
+        `SELECT account_day FROM ig_publish_day_slot WHERE post_id = $1`,
+        [id],
+      );
+      if (held.rows[0]) {
+        await client.query(
+          `UPDATE ig_post_queue SET capacity_day = $2 WHERE id = $1 AND capacity_day IS NULL`,
+          [id, held.rows[0].account_day],
+        );
+        await client.query("COMMIT");
+        return "resume";
+      }
+      const occupied = await client.query(
+        `SELECT COUNT(*)::int AS n FROM (
+           SELECT post_id AS id FROM ig_publish_day_slot
+           WHERE platform = 'ig' AND account_day = $1::date
+           UNION
+           SELECT id FROM ig_post_queue
+           WHERE platform = 'ig' AND capacity_day IS NULL AND status = 'published'
+             AND (published_at AT TIME ZONE 'America/Chicago')::date = $1::date
+             AND id <> $2
+         ) occupied`,
+        [accountDay, id],
+      );
+      if (Number(occupied.rows[0]?.n ?? 0) >= IG_DAILY_POST_CAP) {
+        await client.query("COMMIT");
+        return "full";
+      }
+      const inserted = await client.query(
+        `INSERT INTO ig_publish_day_slot (platform, account_day, slot, post_id)
+         SELECT 'ig', $1::date, s.n, $2
+         FROM generate_series(1, $3::int) AS s(n)
+         WHERE NOT EXISTS (
+           SELECT 1 FROM ig_publish_day_slot
+           WHERE platform = 'ig' AND account_day = $1::date AND slot = s.n
+         )
+         ORDER BY s.n
+         LIMIT 1
+         ON CONFLICT (post_id) DO NOTHING
+         RETURNING slot`,
+        [accountDay, id, IG_DAILY_POST_CAP],
+      );
+      if (!inserted.rows[0]) {
+        await client.query("COMMIT");
+        return "full";
+      }
+      await client.query(
+        `UPDATE ig_post_queue SET capacity_day = $2::date WHERE id = $1`,
+        [id, accountDay],
+      );
+      await client.query("COMMIT");
+      return "claimed";
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
       client.release();
     }
   },
@@ -1666,17 +1852,28 @@ export type IgPublishResult = {
 
 type PublishOpts = { dryRun?: boolean; allowFailed?: boolean; recheckSkipped?: boolean; releaseExpired?: boolean };
 
+async function reserveIgCapacity(row: IgQueueRow): Promise<IgPublishResult | null> {
+  if (row.platform !== "ig" || row.capacityDay) return null;
+  const slot = await currentStore().claimDaySlot(row.id, igAccountDay(clock()));
+  if (slot === "claimed" || slot === "resume") {
+    const fresh = await currentStore().get(row.id);
+    if (fresh?.capacityDay) row.capacityDay = fresh.capacityDay;
+    return null;
+  }
+  if (slot === "missing") return { status: "not_found", id: row.id };
+  return { status: "cap_full", id: row.id, reason: "daily_cap" };
+}
+
 async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishResult> {
   const store = currentStore();
   let row = await store.get(id);
   if (!row) return { status: "not_found", id };
   if (row.status === "published" || row.igMediaId) return { status: "already_published", id, igMediaId: row.igMediaId };
   if (row.platform === "fb") return { status: "wrong_platform", id };
-  if (!opts.releaseExpired && row.status !== "container_created") {
-    const peers = await store.list(500);
-    if (trialPairExpired(row, peers, clock())) {
-      return { status: "expired_slot", id, wouldSkip: true, reason: "expired_trial_pair" };
-    }
+  // Pair-shaped rows past the live window stay blocked with an empty peer list.
+  // releaseExpired overrides that gate only. It does not grant a sixth post.
+  if (!opts.releaseExpired && row.status !== "container_created" && trialPairExpired(row, [], clock())) {
+    return { status: "expired_slot", id, wouldSkip: true, reason: "expired_trial_pair" };
   }
 
   const media = await inspectMedia(row.mediaPath);
@@ -1740,6 +1937,8 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
       if (opts.allowFailed) statuses.push("failed");
       if (opts.recheckSkipped) statuses.push("skipped");
       if (!statuses.includes(row.status)) return { status: row.status, id, error: row.error ?? undefined };
+      const blocked = await reserveIgCapacity(row);
+      if (blocked) return blocked;
       const claimed = await store.claimCreate(id, statuses);
       if (!claimed) {
         row = await store.get(id);
@@ -1768,6 +1967,8 @@ async function publishLocked(id: number, opts: PublishOpts): Promise<IgPublishRe
     }
 
     if (!row.containerId) return { status: "in_progress", id };
+    const blocked = await reserveIgCapacity(row);
+    if (blocked) return blocked;
     const containerId = row.containerId;
     let code: IgContainerCode | "TIMEOUT" | "MISSING";
     try {

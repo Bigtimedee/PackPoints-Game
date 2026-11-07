@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   creatorApplications,
   igPostQueue,
+  igPublishDaySlot,
   jobQueue,
   partnerInquiries,
   promotions,
@@ -32,6 +33,7 @@ const REQUIRED_TABLES = [
   ["partner_inquiries", partnerInquiries],
   ["user_feedback", userFeedback],
   ["ig_post_queue", igPostQueue],
+  ["ig_publish_day_slot", igPublishDaySlot],
 ] as const;
 
 describe("raw-SQL tables in the Drizzle schema", () => {
@@ -122,6 +124,7 @@ describe("raw-SQL tables in the Drizzle schema", () => {
       "ab_test_id",
       "published_at",
       "created_at",
+      "capacity_day",
     ]);
     const checks = sqlText(config.checks);
     expect(checks).toContain("FEED");

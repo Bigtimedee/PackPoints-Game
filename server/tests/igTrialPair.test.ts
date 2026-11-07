@@ -16,9 +16,11 @@ import {
   TRIAL_PAIR_LIVE_MS,
   createMemoryStore,
   ctWallTime,
+  igAccountDay,
   publishIg,
   runIgDaily,
   selectDueRows,
+  trialPairExpired,
   setIgDepsForTests,
   type IgGraph,
   type IgMediaFields,
@@ -318,6 +320,125 @@ describe("approved same-slot trial pairs", () => {
       else process.env.COVER_QA_TOKEN = previous;
       await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
     }
+  });
+
+  it("keeps a failed or skipped seat so an older Reel cannot displace the 6 PM Reel", () => {
+    const day = "2026-11-08";
+    const [a, b] = pair(day);
+    const failedFeed = row(1, {
+      kind: "FEED", scheduledFor: ctWallTime(day, 11, 0), status: "failed", error: "graph_503",
+    });
+    const feed13 = row(2, {
+      kind: "FEED", scheduledFor: ctWallTime(day, 13, 0), status: "published", igMediaId: "f13", publishedAt: ctWallTime(day, 13, 5),
+    });
+    const publishedA = { ...a, status: "published" as const, igMediaId: "a", publishedAt: ctWallTime(day, 13, 34) };
+    const publishedB = { ...b, status: "published" as const, igMediaId: "b", publishedAt: ctWallTime(day, 13, 36) };
+    const evening = row(60, { kind: "REEL", scheduledFor: ctWallTime(day, 18, 0), trial: false, testId: "solo", mediaPath: "solo.mp4" });
+    const older = row(12, { kind: "REEL", scheduledFor: ctWallTime("2026-11-07", 18, 0), trial: false, mediaPath: "older.mp4" });
+    expect(ids([failedFeed, feed13, publishedA, publishedB, evening, older], ctWallTime(day, 18, 1))).toEqual([60]);
+    const skippedFeed = { ...failedFeed, status: "skipped" as const, error: "pulled_by_qa" };
+    expect(ids([skippedFeed, feed13, publishedA, publishedB, evening, older], ctWallTime(day, 18, 1))).toEqual([60]);
+  });
+
+  it("blocks an expired trial row when the partner is duplicated, missing, or outside the loaded list", () => {
+    const at = ctWallTime("2026-11-07", 13, 30);
+    const later = new Date(at.getTime() + TRIAL_PAIR_LIVE_MS + 1);
+    const trial = (id: number, variant: "A" | "B"): IgQueueRow => row(id, {
+      kind: "REEL", scheduledFor: at, trial: true, variant, testId: "hook", mediaPath: `h${id}.mp4`, approvalHash: HASH,
+    });
+    const a1 = trial(1, "A");
+    const a2 = trial(2, "A");
+    const b = trial(3, "B");
+    expect(trialPairExpired(b, [a1, a2, b], later)).toBe(true);
+    expect(trialPairExpired(b, [], later)).toBe(true);
+    expect(trialPairExpired(b, [b], later)).toBe(true);
+    expect(ids([a1, a2, b], later)).toEqual([]);
+    const fillers = Array.from({ length: 500 }, (_, index) => row(1000 + index, {
+      kind: "FEED", scheduledFor: ctWallTime("2026-11-08", 11, 0),
+    }));
+    expect(ids([b, ...fillers], later)).toEqual([]);
+  });
+
+  it("enforces the five-post cap on releaseExpired, concurrent rows, and an unslotted container", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ig-cap-"));
+    writeFileSync(path.join(dir, "reel.mp4"), VIDEO);
+    const store = createMemoryStore();
+    let finish = false;
+    const graph = fakeGraph();
+    graph.containerStatus = async () => (finish ? "FINISHED" : "IN_PROGRESS");
+    const day = "2026-11-08";
+    let now = ctWallTime(day, 18, 1);
+    setIgDepsForTests({
+      store, graph, mediaDir: dir, allowlist: new Set([sha(VIDEO)]), env: armedEnv(),
+      sleep: async () => {}, pollMax: 1, now: () => now,
+    });
+    const published: number[] = [];
+    for (let n = 0; n < 4; n += 1) {
+      const queued = await store.insert({
+        kind: "REEL", mediaPath: "reel.mp4", caption: `P${n}`, scheduledFor: ctWallTime(day, 10, n),
+        status: "queued", approvalHash: sha(VIDEO), utmContent: `p${n}`, trial: false,
+      });
+      finish = true;
+      expect((await publishIg(queued.id)).status).toBe("published");
+      published.push(queued.id);
+    }
+    const fifth = await store.insert({
+      kind: "REEL", mediaPath: "reel.mp4", caption: "Fifth", scheduledFor: ctWallTime(day, 18, 0),
+      status: "queued", approvalHash: sha(VIDEO), utmContent: "fifth", trial: false,
+    });
+    const sixth = await store.insert({
+      kind: "REEL", mediaPath: "reel.mp4", caption: "Sixth", scheduledFor: ctWallTime(day, 18, 30),
+      status: "queued", approvalHash: sha(VIDEO), utmContent: "sixth", trial: false,
+    });
+    finish = true;
+    const [left, right] = await Promise.all([publishIg(fifth.id), publishIg(sixth.id)]);
+    expect([left.status, right.status].sort()).toEqual(["cap_full", "published"]);
+    const held = await store.insert({
+      kind: "REEL", mediaPath: "reel.mp4", caption: "Held", scheduledFor: ctWallTime(day, 17, 0),
+      status: "container_created", approvalHash: sha(VIDEO), utmContent: "held", trial: false, containerId: "c-held",
+    });
+    expect((await publishIg(held.id)).status).toBe("cap_full");
+    expect((await store.get(held.id))?.status).toBe("container_created");
+    expect((await store.get(held.id))?.igMediaId).toBeNull();
+    const expired = await store.insert({
+      kind: "REEL", mediaPath: "reel.mp4", caption: "Expired", scheduledFor: ctWallTime("2026-11-07", 13, 30),
+      status: "queued", approvalHash: sha(VIDEO), utmContent: "exp", trial: true, variant: "B", testId: "hook",
+    });
+    const released = await publishIg(expired.id, { releaseExpired: true });
+    expect(released.status).toBe("cap_full");
+    expect(released.reason).toBe("daily_cap");
+    expect((await store.get(expired.id))?.status).toBe("queued");
+    expect(published).toHaveLength(4);
+  });
+
+  it("counts slots on the Central account day across midnight", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ig-midnight-"));
+    writeFileSync(path.join(dir, "reel.mp4"), VIDEO);
+    const store = createMemoryStore();
+    const graph = fakeGraph();
+    const late = ctWallTime("2026-11-07", 23, 50);
+    const early = ctWallTime("2026-11-08", 0, 10);
+    expect(igAccountDay(late)).toBe("2026-11-07");
+    expect(igAccountDay(early)).toBe("2026-11-08");
+    let now = late;
+    setIgDepsForTests({
+      store, graph, mediaDir: dir, allowlist: new Set([sha(VIDEO)]), env: armedEnv(),
+      sleep: async () => {}, pollMax: 1, now: () => now,
+    });
+    const first = await store.insert({
+      kind: "REEL", mediaPath: "reel.mp4", caption: "Late", scheduledFor: ctWallTime("2026-11-07", 18, 0),
+      status: "queued", approvalHash: sha(VIDEO), utmContent: "late", trial: false,
+    });
+    expect((await publishIg(first.id)).status).toBe("published");
+    expect((await store.get(first.id))?.capacityDay).toBe("2026-11-07");
+    now = early;
+    const second = await store.insert({
+      kind: "REEL", mediaPath: "reel.mp4", caption: "Early", scheduledFor: ctWallTime("2026-11-08", 0, 5),
+      status: "queued", approvalHash: sha(VIDEO), utmContent: "early", trial: false,
+    });
+    expect((await publishIg(second.id)).status).toBe("published");
+    expect((await store.get(first.id))?.capacityDay).toBe("2026-11-07");
+    expect((await store.get(second.id))?.capacityDay).toBe("2026-11-08");
   });
 });
 
