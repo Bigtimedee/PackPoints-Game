@@ -15,6 +15,7 @@ import {
   igAccountDay,
   pgStore,
   publishIg,
+  runIgDaily,
   setIgDepsForTests,
   type IgGraph,
 } from "../services/igPublish";
@@ -49,6 +50,13 @@ async function slotDay(id: number): Promise<string | null> {
   const result = await pool!.query(`SELECT account_day::text AS day FROM ig_publish_day_slot WHERE post_id = $1`, [id]);
   return result.rows[0]?.day ?? null;
 }
+
+it("runs the postgres capacity tests in CI", () => {
+  if (process.env.GITHUB_ACTIONS === "true") {
+    expect(databaseUrl).toMatch(/^postgres/);
+    expect(pool).toBeTruthy();
+  }
+});
 
 describe.skipIf(!pool)("instagram capacity on postgres", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "ig-cap-pg-"));
@@ -333,5 +341,89 @@ describe.skipIf(!pool)("instagram capacity on postgres", () => {
     expect([a.status, b.status].sort()).toEqual(["cap_full", "published"]);
     const slots = await pool!.query(`SELECT COUNT(*)::int AS n FROM ig_publish_day_slot WHERE account_day = '2026-11-08'`);
     expect(slots.rows[0].n).toBe(5);
+  });
+
+  it("records an uncertain container after the local file is gone and keeps the receipt", async () => {
+    const api = graph();
+    let polls = 0;
+    api.containerStatus = async () => {
+      polls += 1;
+      return polls === 1 ? "FINISHED" : "PUBLISHED";
+    };
+    api.publishMedia = async () => {
+      api.publishCalls += 1;
+      throw new IgGraphError("graph_network", 0, true);
+    };
+    setIgDepsForTests({
+      mediaDir: dir,
+      allowlist: new Set([hash]),
+      env: {
+        ...process.env,
+        IG_PUBLISH_ENABLED: "true",
+        IG_ACCESS_TOKEN: "ig-secret-token-do-not-log",
+        IG_USER_ID: "17890001",
+      },
+      graph: api,
+      sleep: async () => {},
+      pollMax: 2,
+      now: () => now,
+    });
+    const row = await enqueue("uncertain-file", ctWallTime("2026-11-08", 18, 0));
+    expect((await publishIg(row.id)).reason).toBe(PUBLISH_UNCERTAIN);
+    writeFileSync(path.join(dir, "reel.mp4"), Buffer.from("gone"));
+    const recovered = await publishIg(row.id);
+    expect(recovered.status).toBe("published");
+    expect(api.publishCalls).toBe(1);
+    expect((await pgStore.get(row.id))?.status).toBe("published");
+    expect(await slotDay(row.id)).toBe("2026-11-08");
+    writeFileSync(path.join(dir, "reel.mp4"), VIDEO);
+  });
+
+  it("does not skip a feed while its publish call is still in flight", async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9, 0x51, 0x41]);
+    const jpegHash = createHash("sha256").update(jpeg).digest("hex");
+    writeFileSync(path.join(dir, "feed.jpg"), jpeg);
+    let releasePublish: (id: string) => void = () => {};
+    let markEntered: () => void = () => {};
+    const entered = new Promise<void>((resolve) => { markEntered = resolve; });
+    const api = graph();
+    api.publishMedia = () => new Promise((resolve) => {
+      markEntered();
+      releasePublish = resolve;
+    });
+    setIgDepsForTests({
+      mediaDir: dir,
+      allowlist: new Set([hash, jpegHash]),
+      env: {
+        ...process.env,
+        IG_PUBLISH_ENABLED: "true",
+        IG_ACCESS_TOKEN: "ig-secret-token-do-not-log",
+        IG_USER_ID: "17890001",
+      },
+      graph: api,
+      sleep: async () => {},
+      pollMax: 1,
+      now: () => now,
+    });
+    const row = await pgStore.insert({
+      kind: "FEED",
+      mediaPath: "feed.jpg",
+      caption: "In flight",
+      scheduledFor: ctWallTime("2026-11-08", 11, 0),
+      status: "queued",
+      approvalHash: jpegHash,
+      utmContent: "inflight",
+      trial: false,
+    });
+    const publishing = publishIg(row.id);
+    await entered;
+    expect((await pgStore.get(row.id))?.status).toBe("container_created");
+    expect(await pgStore.markSkipped(row.id, "missed_slot")).toBe(false);
+    await runIgDaily(now);
+    expect((await pgStore.get(row.id))?.status).toBe("container_created");
+    expect(await slotDay(row.id)).toBe("2026-11-08");
+    releasePublish("media-inflight");
+    expect((await publishing).status).toBe("published");
+    expect(await slotDay(row.id)).toBe("2026-11-08");
   });
 });
